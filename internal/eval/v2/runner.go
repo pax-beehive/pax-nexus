@@ -3,6 +3,7 @@ package v2
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/pax-beehive/pax-nexus/internal/eval/harness"
+	"github.com/pax-beehive/pax-nexus/internal/eval/v2/memoryprobe"
 	"github.com/pax-beehive/pax-nexus/internal/platform/observability"
 )
 
@@ -280,13 +282,16 @@ func (r *Runner) executeTrial(
 		Expected: evalCase.Expected, Status: "running", CostScope: "opencode_reported", StartedAt: started,
 	}
 	var producerOutput harness.AgentOutput
+	var ingestResult memoryprobe.IngestResult
 	if arm.Ingest != nil {
-		producerDuration, ingestDuration, err := r.runSharedIngest(ctx, run, evalCase, arm, sharedSpec, shared, variables, artifactDir, outputDir)
+		producerDuration, ingestDuration, observedIngest, err := r.runSharedIngest(ctx, run, evalCase, arm, sharedSpec, shared, variables, artifactDir, outputDir)
 		durations[0], durations[1] = producerDuration, ingestDuration
 		partial.ProducerDurationMS = durations[0].Milliseconds()
 		if err != nil {
 			return partial, err
 		}
+		ingestResult = observedIngest
+		partial = withMemoryIngest(partial, ingestResult)
 		partial.ReadinessDurationMS = durations[1].Milliseconds()
 	}
 	if arm.Producer != nil {
@@ -314,7 +319,7 @@ func (r *Runner) executeTrial(
 	if executeErr != nil {
 		return partial, executeErr
 	}
-	return ScoreResult(run, evalCase, arm.Name, producerOutput, output, started, durations), nil
+	return withMemoryIngest(ScoreResult(run, evalCase, arm.Name, producerOutput, output, started, durations), ingestResult), nil
 }
 
 func (r *Runner) runSharedIngest(
@@ -327,21 +332,39 @@ func (r *Runner) runSharedIngest(
 	variables map[string]string,
 	artifactDir string,
 	outputDir string,
-) (time.Duration, time.Duration, error) {
+) (time.Duration, time.Duration, memoryprobe.IngestResult, error) {
 	if sharedSpec == nil || shared == nil {
-		return 0, 0, fmt.Errorf("run shared producer: shared producer is not configured")
+		return 0, 0, memoryprobe.IngestResult{}, fmt.Errorf("run shared producer: shared producer is not configured")
 	}
 	shared.once.Do(func() {
 		shared.result, shared.output, shared.err = r.executeSharedProducer(ctx, run, evalCase, *sharedSpec, outputDir)
 	})
 	if shared.err != nil {
-		return shared.result.Duration, 0, shared.err
+		return shared.result.Duration, 0, memoryprobe.IngestResult{}, shared.err
 	}
 	result, err := r.executor.Execute(ctx, *arm.Ingest, variables, filepath.Join(artifactDir, "ingest.log"), filepath.Join(artifactDir, "ingest.stderr.log"))
 	if err != nil {
-		return shared.result.Duration, result.Duration, fmt.Errorf("ingest shared producer transcript: %w", err)
+		return shared.result.Duration, result.Duration, memoryprobe.IngestResult{}, fmt.Errorf("ingest shared producer transcript: %w", err)
 	}
-	return shared.result.Duration, result.Duration, nil
+	var ingest memoryprobe.IngestResult
+	if err := json.Unmarshal(bytes.TrimSpace(result.Output), &ingest); err != nil {
+		return shared.result.Duration, result.Duration, memoryprobe.IngestResult{}, fmt.Errorf("decode memory ingest result: %w", err)
+	}
+	if ingest.Provider == "" {
+		return shared.result.Duration, result.Duration, memoryprobe.IngestResult{}, fmt.Errorf("decode memory ingest result: provider is required")
+	}
+	return shared.result.Duration, result.Duration, ingest, nil
+}
+
+func withMemoryIngest(result TrialResult, ingest memoryprobe.IngestResult) TrialResult {
+	result.MemoryIngestProvider = ingest.Provider
+	result.MemoryIngestAccepted = ingest.Accepted
+	result.MemoryIngestDuplicate = ingest.Duplicate
+	result.MemoryIngestCreated = ingest.Created
+	result.MemoryIngestUpdated = ingest.Updated
+	result.MemoryIngestDeleted = ingest.Deleted
+	result.MemoryIngestNoOp = ingest.NoOp
+	return result
 }
 
 func (r *Runner) runLegacyProducer(ctx context.Context, spec CommandSpec, variables map[string]string, artifactDir string) (time.Duration, harness.AgentOutput, error) {

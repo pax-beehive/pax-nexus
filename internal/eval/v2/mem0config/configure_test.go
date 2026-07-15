@@ -30,21 +30,23 @@ func (s *configureSuite) TestConfigureUsesDeepSeekAndKeepsOpenAIEmbedding() {
 	})}
 
 	err := mem0config.Configure(context.Background(), client, "http://mem0:8000/configure", mem0config.Settings{
-		DeepSeekAPIKey: "deepseek-key",
-		OpenAIAPIKey:   "openai-key",
-		LLMModel:       "deepseek-v4-flash",
-		EmbedderModel:  "text-embedding-3-small",
-		PostgresHost:   "mem0-postgres",
+		DeepSeekAPIKey:  "deepseek-key",
+		DeepSeekBaseURL: "https://api.deepseek.example/v1",
+		OpenAIAPIKey:    "openai-key",
+		LLMModel:        "deepseek-v4-flash",
+		EmbedderModel:   "text-embedding-3-small",
+		PostgresHost:    "mem0-postgres",
 	})
 	s.Require().NoError(err)
 
 	llm, ok := payload["llm"].(map[string]any)
 	s.Require().True(ok)
-	s.Equal("deepseek", llm["provider"])
+	s.Equal("openai", llm["provider"])
 	llmConfig, ok := llm["config"].(map[string]any)
 	s.Require().True(ok)
 	s.Equal("deepseek-v4-flash", llmConfig["model"])
 	s.Equal("deepseek-key", llmConfig["api_key"])
+	s.Equal("https://api.deepseek.example/v1", llmConfig["openai_base_url"])
 	temperature, ok := llmConfig["temperature"].(float64)
 	s.Require().True(ok)
 	s.InDelta(0.2, temperature, 0.0001)
@@ -85,6 +87,7 @@ func (s *configureSuite) TestConfigureRejectsInvalidInputsAndUpstreamErrors() {
 		{name: "missing client", endpoint: "http://mem0/configure", settings: validSettings, message: "HTTP client is required"},
 		{name: "missing endpoint", client: successClient, settings: validSettings, message: "endpoint is required"},
 		{name: "missing DeepSeek key", client: successClient, endpoint: "http://mem0/configure", settings: mem0config.Settings{OpenAIAPIKey: "openai-key"}, message: "DeepSeek API key is required"},
+		{name: "invalid DeepSeek base URL", client: successClient, endpoint: "http://mem0/configure", settings: mem0config.Settings{DeepSeekAPIKey: "deepseek-key", DeepSeekBaseURL: "not-a-url", OpenAIAPIKey: "openai-key"}, message: "DeepSeek base URL is invalid"},
 		{name: "missing OpenAI key", client: successClient, endpoint: "http://mem0/configure", settings: mem0config.Settings{DeepSeekAPIKey: "deepseek-key"}, message: "OpenAI API key is required"},
 		{
 			name: "upstream failure",

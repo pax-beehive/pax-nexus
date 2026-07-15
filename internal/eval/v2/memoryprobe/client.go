@@ -45,6 +45,16 @@ type Client struct {
 	pollInterval   time.Duration
 }
 
+type IngestResult struct {
+	Provider  string `json:"provider"`
+	Accepted  int    `json:"accepted"`
+	Duplicate int    `json:"duplicate"`
+	Created   int    `json:"created"`
+	Updated   int    `json:"updated"`
+	Deleted   int    `json:"deleted"`
+	NoOp      bool   `json:"noop"`
+}
+
 func New(config Config) (*Client, error) {
 	teamNoteURL, err := validateURL("Team Note", config.TeamNoteURL)
 	if err != nil {
@@ -72,18 +82,18 @@ func New(config Config) (*Client, error) {
 	}, nil
 }
 
-func (c *Client) Ingest(ctx context.Context, provider, text string) error {
+func (c *Client) Ingest(ctx context.Context, provider, text string) (IngestResult, error) {
 	if strings.TrimSpace(text) == "" {
-		return fmt.Errorf("ingest eval transcript: text is required")
+		return IngestResult{}, fmt.Errorf("ingest eval transcript: text is required")
 	}
 	switch provider {
 	case ProviderTeamNote:
 		return c.ingestTeamNote(ctx, text)
 	case ProviderMem0:
-		_, err := c.addMem0(ctx, text)
-		return err
+		added, err := c.addMem0(ctx, text)
+		return added.IngestResult, err
 	default:
-		return fmt.Errorf("ingest eval transcript: unsupported provider %q", provider)
+		return IngestResult{}, fmt.Errorf("ingest eval transcript: unsupported provider %q", provider)
 	}
 }
 
@@ -110,17 +120,17 @@ func (c *Client) Preflight(ctx context.Context, marker string) error {
 	if _, err := c.do(ctx, http.MethodGet, c.mem0URL+"/openapi.json", "", nil); err != nil {
 		return fmt.Errorf("preflight Mem0 health: %w", err)
 	}
-	refs, err := probe.addMem0(ctx, probeText)
+	added, err := probe.addMem0(ctx, probeText)
 	if err != nil {
 		return fmt.Errorf("preflight Mem0 add: %w", err)
 	}
-	if len(refs) == 0 {
+	if len(added.refs) == 0 {
 		return fmt.Errorf("preflight Mem0 add: add returned no memory IDs")
 	}
 	if err := probe.pollNonEmpty(ctx, preflightNeedle, "results", probe.searchMem0); err != nil {
 		return fmt.Errorf("preflight Mem0 recall: %w", err)
 	}
-	for _, ref := range refs {
+	for _, ref := range added.refs {
 		if _, err := probe.do(ctx, http.MethodDelete, c.mem0URL+"/memories/"+url.PathEscape(ref), "", nil); err != nil {
 			return fmt.Errorf("preflight Mem0 delete %q: %w", ref, err)
 		}
@@ -147,9 +157,15 @@ func (c *Client) newPreflightProbe(marker string) *Client {
 	return &probe
 }
 
-func (c *Client) ingestTeamNote(ctx context.Context, text string) error {
-	_, err := c.observeTeamNote(ctx, text)
-	return err
+func (c *Client) ingestTeamNote(ctx context.Context, text string) (IngestResult, error) {
+	receipt, err := c.observeTeamNote(ctx, text)
+	if err != nil {
+		return IngestResult{}, err
+	}
+	return IngestResult{
+		Provider: ProviderTeamNote, Accepted: receipt.Accepted, Duplicate: receipt.Duplicate,
+		NoOp: receipt.Accepted == 0,
+	}, nil
 }
 
 type teamNoteReceipt struct {
@@ -188,7 +204,12 @@ func (c *Client) recallTeamNote(ctx context.Context, marker string) ([]byte, err
 	return c.do(ctx, http.MethodPost, c.teamNoteURL+"/v1/notes/recall", c.teamNoteAPIKey, payload)
 }
 
-func (c *Client) addMem0(ctx context.Context, text string) ([]string, error) {
+type mem0AddResult struct {
+	IngestResult
+	refs []string
+}
+
+func (c *Client) addMem0(ctx context.Context, text string) (mem0AddResult, error) {
 	payload := map[string]any{
 		"messages": []map[string]string{{"role": "user", "content": text}},
 		"user_id":  c.userID, "agent_id": c.agentID, "run_id": c.runID,
@@ -196,13 +217,13 @@ func (c *Client) addMem0(ctx context.Context, text string) ([]string, error) {
 	}
 	body, err := c.do(ctx, http.MethodPost, c.mem0URL+"/memories", "", payload)
 	if err != nil {
-		return nil, err
+		return mem0AddResult{}, err
 	}
-	refs, err := memoryIDs(body)
+	result, err := mem0AddResultFromResponse(body)
 	if err != nil {
-		return nil, err
+		return mem0AddResult{}, err
 	}
-	return refs, nil
+	return result, nil
 }
 
 func (c *Client) searchMem0(ctx context.Context, marker string) ([]byte, error) {
@@ -344,30 +365,42 @@ func (c *Client) do(ctx context.Context, method, endpoint, apiKey string, payloa
 	return body, nil
 }
 
-func memoryIDs(body []byte) ([]string, error) {
+func mem0AddResultFromResponse(body []byte) (mem0AddResult, error) {
 	var response struct {
 		Results json.RawMessage `json:"results"`
 	}
 	if err := json.Unmarshal(body, &response); err != nil {
-		return nil, fmt.Errorf("decode Mem0 add response: %w", err)
+		return mem0AddResult{}, fmt.Errorf("decode Mem0 add response: %w", err)
 	}
 	rawResults := bytes.TrimSpace(response.Results)
 	if len(rawResults) == 0 || rawResults[0] != '[' {
-		return nil, fmt.Errorf("decode Mem0 add response: results must be an array")
+		return mem0AddResult{}, fmt.Errorf("decode Mem0 add response: results must be an array")
 	}
 	var items []struct {
 		ID    string `json:"id"`
 		Event string `json:"event"`
 	}
 	if err := json.Unmarshal(rawResults, &items); err != nil {
-		return nil, fmt.Errorf("decode Mem0 add response results: %w", err)
+		return mem0AddResult{}, fmt.Errorf("decode Mem0 add response results: %w", err)
 	}
-	result := make([]string, 0, len(items))
+	result := mem0AddResult{IngestResult: IngestResult{Provider: ProviderMem0, Accepted: 1}, refs: make([]string, 0, len(items))}
 	for _, item := range items {
-		if strings.TrimSpace(item.ID) != "" && (item.Event == "" || strings.EqualFold(item.Event, "add")) {
-			result = append(result, item.ID)
+		switch strings.ToUpper(strings.TrimSpace(item.Event)) {
+		case "", "ADD":
+			result.Created++
+			if strings.TrimSpace(item.ID) != "" {
+				result.refs = append(result.refs, item.ID)
+			}
+		case "UPDATE":
+			result.Updated++
+		case "DELETE":
+			result.Deleted++
+		case "NONE":
+		default:
+			return mem0AddResult{}, fmt.Errorf("decode Mem0 add response: unsupported event %q", item.Event)
 		}
 	}
+	result.NoOp = result.Created+result.Updated+result.Deleted == 0
 	return result, nil
 }
 

@@ -53,7 +53,7 @@ services:
       context: ../..
       dockerfile: evals/v2/docker/mem0/Dockerfile
       args:
-        MEM0_BASE_IMAGE: ${MEM0_IMAGE:-mem0/mem0-api-server:latest}
+        MEM0_BASE_IMAGE: ${MEM0_IMAGE:-mem0/mem0-api-server@sha256:2fcf4bb713cfc584d454bf06993cc7e2fe51540695995bd3aa9c7008b7065c75}
     environment:
       OPENAI_API_KEY: ${MEM0_OPENAI_API_KEY:?MEM0_OPENAI_API_KEY is required}
       POSTGRES_HOST: mem0-postgres
@@ -67,6 +67,7 @@ services:
       AUTH_DISABLED: "true"
       MEM0_TELEMETRY: "false"
       MEM0_DEFAULT_LLM_MODEL: ${MEM0_DEFAULT_LLM_MODEL:-deepseek-v4-flash}
+      MEM0_DEEPSEEK_BASE_URL: ${MEM0_DEEPSEEK_BASE_URL:-https://api.deepseek.com}
       MEM0_DEFAULT_EMBEDDER_MODEL: ${MEM0_DEFAULT_EMBEDDER_MODEL:-text-embedding-3-small}
     volumes:
       - eval-v2-mem0-history:/app/history
@@ -88,6 +89,7 @@ services:
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:?DEEPSEEK_API_KEY is required}
       MEM0_OPENAI_API_KEY: ${MEM0_OPENAI_API_KEY:?MEM0_OPENAI_API_KEY is required}
       MEM0_DEFAULT_LLM_MODEL: ${MEM0_DEFAULT_LLM_MODEL:-deepseek-v4-flash}
+      MEM0_DEEPSEEK_BASE_URL: ${MEM0_DEEPSEEK_BASE_URL:-https://api.deepseek.com}
       MEM0_DEFAULT_EMBEDDER_MODEL: ${MEM0_DEFAULT_EMBEDDER_MODEL:-text-embedding-3-small}
       POSTGRES_HOST: mem0-postgres
       POSTGRES_PORT: 5432
@@ -109,6 +111,7 @@ services:
         OPENCODE_VERSION: ${OPENCODE_VERSION:-1.17.20}
     environment:
       OPENCODE_MODEL: ${OPENCODE_MODEL:?OPENCODE_MODEL is required}
+      PAXM_EVAL_DIAGNOSTICS: ${PAXM_EVAL_DIAGNOSTICS:-1}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}

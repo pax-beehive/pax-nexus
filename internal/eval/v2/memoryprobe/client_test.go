@@ -29,7 +29,8 @@ func (s *clientSuite) TestIngestSendsTheSameTranscriptToBothProviders() {
 
 	transcript := "  identical handoff\n"
 	for _, provider := range []string{memoryprobe.ProviderTeamNote, memoryprobe.ProviderMem0} {
-		s.Require().NoError(client.Ingest(context.Background(), provider, transcript))
+		_, ingestErr := client.Ingest(context.Background(), provider, transcript)
+		s.Require().NoError(ingestErr)
 	}
 
 	calls := transport.snapshot()
@@ -49,7 +50,31 @@ func (s *clientSuite) TestIngestAcceptsMem0NoOpExtraction() {
 	})
 	s.Require().NoError(err)
 
-	s.Require().NoError(client.Ingest(context.Background(), memoryprobe.ProviderMem0, "handoff"))
+	result, err := client.Ingest(context.Background(), memoryprobe.ProviderMem0, "handoff")
+	s.Require().NoError(err)
+	s.Equal(memoryprobe.ProviderMem0, result.Provider)
+	s.Equal(1, result.Accepted)
+	s.Zero(result.Created)
+	s.Zero(result.Updated)
+	s.Zero(result.Deleted)
+	s.True(result.NoOp)
+}
+
+func (s *clientSuite) TestIngestCountsMem0WriteActions() {
+	transport := &recordingTransport{memoryResponse: `{"results":[{"id":"one","event":"ADD"},{"id":"two","event":"UPDATE"},{"id":"three","event":"DELETE"},{"event":"NONE"}]}`}
+	client, err := memoryprobe.New(memoryprobe.Config{
+		TeamNoteURL: "http://team-note", TeamNoteAPIKey: "key", Mem0URL: "http://mem0",
+		UserID: "user", AgentID: "producer", RunID: "run", HTTPClient: &http.Client{Transport: transport},
+	})
+	s.Require().NoError(err)
+
+	result, err := client.Ingest(context.Background(), memoryprobe.ProviderMem0, "handoff")
+	s.Require().NoError(err)
+	s.Equal(1, result.Accepted)
+	s.Equal(1, result.Created)
+	s.Equal(1, result.Updated)
+	s.Equal(1, result.Deleted)
+	s.False(result.NoOp)
 }
 
 func (s *clientSuite) TestIngestValidatesMem0ResponseEnvelope() {
@@ -71,7 +96,8 @@ func (s *clientSuite) TestIngestValidatesMem0ResponseEnvelope() {
 			})
 			s.Require().NoError(err)
 
-			s.Require().Error(client.Ingest(context.Background(), memoryprobe.ProviderMem0, "handoff"))
+			_, ingestErr := client.Ingest(context.Background(), memoryprobe.ProviderMem0, "handoff")
+			s.Require().Error(ingestErr)
 		})
 	}
 }
@@ -141,8 +167,8 @@ func (s *clientSuite) TestValidationAndInputErrors() {
 		run  func() error
 	}{
 		{name: "invalid config", run: func() error { _, err := memoryprobe.New(memoryprobe.Config{}); return err }},
-		{name: "unknown provider", run: func() error { return client.Ingest(context.Background(), "unknown", "text") }},
-		{name: "empty text", run: func() error { return client.Ingest(context.Background(), memoryprobe.ProviderMem0, " ") }},
+		{name: "unknown provider", run: func() error { _, err := client.Ingest(context.Background(), "unknown", "text"); return err }},
+		{name: "empty text", run: func() error { _, err := client.Ingest(context.Background(), memoryprobe.ProviderMem0, " "); return err }},
 	}
 	for _, test := range tests {
 		s.Run(test.name, func() { s.Require().Error(test.run()) })

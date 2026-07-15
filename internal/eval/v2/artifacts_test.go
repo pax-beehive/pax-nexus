@@ -81,6 +81,9 @@ func (s *artifactSuite) TestSummaryPairwiseAndExport() {
 	pairwiseCSV, err := os.ReadFile(filepath.Join(directory, "pairwise.csv"))
 	s.Require().NoError(err)
 	s.Contains(string(pairwiseCSV), "paired_completed_incremental_cost")
+	trialsCSV, err := os.ReadFile(filepath.Join(directory, "trials.csv"))
+	s.Require().NoError(err)
+	s.Contains(string(trialsCSV), "memory_ingest_provider,memory_ingest_accepted,memory_ingest_duplicate,memory_ingest_created,memory_ingest_updated,memory_ingest_deleted,memory_ingest_noop")
 }
 
 func (s *artifactSuite) TestExportRejectsEmptyResults() {

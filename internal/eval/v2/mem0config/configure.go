@@ -7,26 +7,29 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 )
 
 const (
 	defaultLLMModel      = "deepseek-v4-flash"
 	defaultEmbedderModel = "text-embedding-3-small"
+	defaultDeepSeekURL   = "https://api.deepseek.com"
 )
 
 type Settings struct {
-	DeepSeekAPIKey string
-	OpenAIAPIKey   string
-	LLMModel       string
-	EmbedderModel  string
-	PostgresHost   string
-	PostgresPort   int
-	PostgresDB     string
-	PostgresUser   string
-	PostgresPass   string
-	CollectionName string
-	HistoryDBPath  string
+	DeepSeekAPIKey  string
+	DeepSeekBaseURL string
+	OpenAIAPIKey    string
+	LLMModel        string
+	EmbedderModel   string
+	PostgresHost    string
+	PostgresPort    int
+	PostgresDB      string
+	PostgresUser    string
+	PostgresPass    string
+	CollectionName  string
+	HistoryDBPath   string
 }
 
 type providerConfig struct {
@@ -52,6 +55,10 @@ func Configure(ctx context.Context, client *http.Client, endpoint string, settin
 	settings = settings.withDefaults()
 	if strings.TrimSpace(settings.DeepSeekAPIKey) == "" {
 		return fmt.Errorf("configure mem0: DeepSeek API key is required")
+	}
+	deepSeekURL, err := url.Parse(settings.DeepSeekBaseURL)
+	if err != nil || (deepSeekURL.Scheme != "http" && deepSeekURL.Scheme != "https") || deepSeekURL.Host == "" {
+		return fmt.Errorf("configure mem0: DeepSeek base URL is invalid")
 	}
 	if strings.TrimSpace(settings.OpenAIAPIKey) == "" {
 		return fmt.Errorf("configure mem0: OpenAI API key is required for embeddings")
@@ -88,6 +95,9 @@ func Configure(ctx context.Context, client *http.Client, endpoint string, settin
 func (settings Settings) withDefaults() Settings {
 	if settings.LLMModel == "" {
 		settings.LLMModel = defaultLLMModel
+	}
+	if settings.DeepSeekBaseURL == "" {
+		settings.DeepSeekBaseURL = defaultDeepSeekURL
 	}
 	if settings.EmbedderModel == "" {
 		settings.EmbedderModel = defaultEmbedderModel
@@ -127,10 +137,11 @@ func (settings Settings) memoryConfig() memoryConfig {
 			"password":        settings.PostgresPass,
 			"collection_name": settings.CollectionName,
 		}},
-		LLM: providerConfig{Provider: "deepseek", Config: map[string]any{
-			"api_key":     settings.DeepSeekAPIKey,
-			"model":       settings.LLMModel,
-			"temperature": 0.2,
+		LLM: providerConfig{Provider: "openai", Config: map[string]any{
+			"api_key":         settings.DeepSeekAPIKey,
+			"model":           settings.LLMModel,
+			"openai_base_url": settings.DeepSeekBaseURL,
+			"temperature":     0.2,
 		}},
 		Embedder: providerConfig{Provider: "openai", Config: map[string]any{
 			"api_key": settings.OpenAIAPIKey,

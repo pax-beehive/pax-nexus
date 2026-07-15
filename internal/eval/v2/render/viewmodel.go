@@ -19,6 +19,7 @@ type reportData struct {
 	CostScope       string
 	Runtime         []keyValue
 	Arms            []armStat
+	MemoryIngest    []memoryIngestStat
 	BaselineArm     string
 	CandidateArm    string
 	Pairwise        []pairwiseSummary
@@ -43,6 +44,16 @@ type armStat struct {
 	MeanF1Display   string
 	CostDisplay     string
 	DurationDisplay string
+}
+
+type memoryIngestStat struct {
+	Arm          string
+	Provider     string
+	Category     string
+	Observed     int
+	Accepted     int
+	WriteActions int
+	NoOpDisplay  string
 }
 
 type pairwiseSummary struct {
@@ -123,7 +134,7 @@ func buildReportData(run v2.RunRecord, baselineArm string, results []v2.TrialRes
 		RunID: run.ID, Dataset: run.Dataset, DatasetRevision: run.DatasetRevision,
 		GeneratedAt: time.Now().UTC().Format("2006-01-02 15:04 UTC"),
 		TotalTrials: len(results), FailedTrials: failed, CaseCount: caseCount, CostScope: costs.Scope,
-		Runtime: runtimeValues(run.Runtime), Arms: stats, BaselineArm: baselineArm, CandidateArm: candidate,
+		Runtime: runtimeValues(run.Runtime), Arms: stats, MemoryIngest: buildMemoryIngest(stats, results), BaselineArm: baselineArm, CandidateArm: candidate,
 		Pairwise: buildPairwise(stats, pairwise), Categories: buildCategories(stats, candidate, summaries, pairwise),
 		QualityChart:    buildChart(stats, summaries, func(row v2.SummaryRow) float64 { return row.MeanTokenF1 }, func(value float64) string { return fmt.Sprintf("%.3f", value) }),
 		CostChart:       buildChart(stats, summaries, func(row v2.SummaryRow) float64 { return row.MeanCompletedCost }, func(value float64) string { return fmt.Sprintf("$%.5f", value) }),
@@ -132,6 +143,51 @@ func buildReportData(run v2.RunRecord, baselineArm string, results []v2.TrialRes
 		FieldNotes:      fieldNotes,
 		CaseGroups:      buildCaseGroups(results, stats, baselineArm),
 	}
+}
+
+func buildMemoryIngest(arms []armStat, results []v2.TrialResult) []memoryIngestStat {
+	type ingestKey struct{ arm, category string }
+	byKey := make(map[ingestKey]*memoryIngestStat)
+	noOps := make(map[ingestKey]int)
+	for _, result := range results {
+		if result.MemoryIngestProvider == "" {
+			continue
+		}
+		for _, category := range []string{"all", result.Category} {
+			key := ingestKey{arm: result.Arm, category: category}
+			stat := byKey[key]
+			if stat == nil {
+				stat = &memoryIngestStat{Arm: result.Arm, Provider: result.MemoryIngestProvider, Category: category}
+				byKey[key] = stat
+			}
+			stat.Observed++
+			stat.Accepted += result.MemoryIngestAccepted
+			stat.WriteActions += result.MemoryIngestCreated + result.MemoryIngestUpdated + result.MemoryIngestDeleted
+			if result.MemoryIngestNoOp {
+				noOps[key]++
+			}
+		}
+	}
+	stats := make([]memoryIngestStat, 0, len(byKey))
+	for _, arm := range arms {
+		categories := make([]string, 0)
+		for key := range byKey {
+			if key.arm == arm.Name && key.category != "all" {
+				categories = append(categories, key.category)
+			}
+		}
+		sort.Strings(categories)
+		for _, category := range append([]string{"all"}, categories...) {
+			key := ingestKey{arm: arm.Name, category: category}
+			stat := byKey[key]
+			if stat == nil {
+				continue
+			}
+			stat.NoOpDisplay = fmt.Sprintf("%d / %d", noOps[key], stat.Observed)
+			stats = append(stats, *stat)
+		}
+	}
+	return stats
 }
 
 func buildChart(arms []armStat, summaries []v2.SummaryRow, value func(v2.SummaryRow) float64, display func(float64) string) barChart {

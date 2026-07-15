@@ -180,6 +180,30 @@ func (s *renderSuite) TestReportIncludesThreeCaseAcceptanceBreakdownTable() {
 	}
 }
 
+func (s *renderSuite) TestReportShowsMemoryIngestNoOpBreakdown() {
+	run := v2.RunRecord{ID: "run", Config: v2.Config{Arms: []v2.ArmConfig{{Name: "control"}, {Name: "mem0"}}}}
+	results := []v2.TrialResult{
+		trial("one", "temporal", "control", 0.1),
+		trial("one", "temporal", "mem0", 0.1),
+		trial("two", "multi_hop", "control", 0.1),
+		trial("two", "multi_hop", "mem0", 0.1),
+	}
+	results[1].MemoryIngestProvider = "mem0"
+	results[1].MemoryIngestCreated = 3
+	results[3].MemoryIngestProvider = "mem0"
+	results[3].MemoryIngestNoOp = true
+	data := buildReportData(run, "control", results)
+	s.Require().Len(data.MemoryIngest, 3)
+	s.Equal([]string{"all", "multi_hop", "temporal"}, []string{data.MemoryIngest[0].Category, data.MemoryIngest[1].Category, data.MemoryIngest[2].Category})
+
+	var output bytes.Buffer
+	s.Require().NoError(Report(run, "control", results, &output))
+	html := output.String()
+	s.Contains(html, "Memory ingest receipts")
+	s.Contains(html, "1 / 2")
+	s.Contains(html, ">3<")
+}
+
 func trial(caseID, category, arm string, f1 float64) v2.TrialResult {
 	return v2.TrialResult{
 		RunID: "run", Dataset: "suite", CaseID: caseID, Category: category, Question: "question " + caseID,

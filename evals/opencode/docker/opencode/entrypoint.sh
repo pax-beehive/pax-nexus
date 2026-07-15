@@ -9,6 +9,9 @@ set -eu
 : "${PAXM_WRITE_ENABLED:=1}"
 : "${TEAM_MEMORY_PROVIDER_TIMEOUT:=90s}"
 : "${TEAM_MEMORY_REQUEST_TIMEOUT:=60s}"
+: "${PAXM_PASSIVE_MIN_RELEVANCE:=0}"
+: "${PAXM_PASSIVE_MIN_SCORE:=0}"
+: "${PAXM_INSERTION_MIN_SCORE:=0}"
 
 config_root="/tmp/eval-${PAXM_AGENT_ID}"
 paxm_config="${config_root}/paxm.yaml"
@@ -64,16 +67,8 @@ recall_profiles:
         required: true
     max_results: 5
     thresholds:
-      min_relevance: 0.75
-      min_score: 0.75
-  passive_initial:
-    providers:
-      - name: memory
-        required: true
-    max_results: 5
-    thresholds:
-      min_relevance: 0.35
-      min_score: 0.35
+      min_relevance: ${PAXM_PASSIVE_MIN_RELEVANCE}
+      min_score: ${PAXM_PASSIVE_MIN_SCORE}
 write_profiles:
   ltm:
     tier: ltm
@@ -92,7 +87,7 @@ agents:
           query_template: "{{ .prompt }}"
           max_results: 5
           insertion:
-            min_score: 0.8
+            min_score: ${PAXM_INSERTION_MIN_SCORE}
             max_items: 5
             require_query_terms: false
       turn_end:

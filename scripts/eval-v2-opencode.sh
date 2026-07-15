@@ -39,6 +39,10 @@ run_agent() {
     -e MEM0_RUN_ID="${mem0_run_id}" \
     -e PAXM_RECALL_ENABLED="${recall_enabled}" \
     -e PAXM_WRITE_ENABLED="${write_enabled}" \
+    -e PAXM_PASSIVE_MIN_RELEVANCE="${PAXM_PASSIVE_MIN_RELEVANCE:-0}" \
+    -e PAXM_PASSIVE_MIN_SCORE="${PAXM_PASSIVE_MIN_SCORE:-0}" \
+    -e PAXM_INSERTION_MIN_SCORE="${PAXM_INSERTION_MIN_SCORE:-0}" \
+    -e PAXM_EVAL_DIAGNOSTICS="${PAXM_EVAL_DIAGNOSTICS:-1}" \
     opencode run --format json --model "${OPENCODE_MODEL}" "${prompt}"
 }
 

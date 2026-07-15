@@ -27,17 +27,18 @@ func run() error {
 		return err
 	}
 	settings := mem0config.Settings{
-		DeepSeekAPIKey: os.Getenv("DEEPSEEK_API_KEY"),
-		OpenAIAPIKey:   os.Getenv("MEM0_OPENAI_API_KEY"),
-		LLMModel:       envOrDefault("MEM0_DEFAULT_LLM_MODEL", "deepseek-v4-flash"),
-		EmbedderModel:  envOrDefault("MEM0_DEFAULT_EMBEDDER_MODEL", "text-embedding-3-small"),
-		PostgresHost:   envOrDefault("POSTGRES_HOST", "mem0-postgres"),
-		PostgresPort:   postgresPort,
-		PostgresDB:     envOrDefault("POSTGRES_DB", "postgres"),
-		PostgresUser:   envOrDefault("POSTGRES_USER", "postgres"),
-		PostgresPass:   envOrDefault("POSTGRES_PASSWORD", "mem0-eval-password"),
-		CollectionName: envOrDefault("POSTGRES_COLLECTION_NAME", "memories"),
-		HistoryDBPath:  envOrDefault("HISTORY_DB_PATH", "/app/history/history.db"),
+		DeepSeekAPIKey:  os.Getenv("DEEPSEEK_API_KEY"),
+		DeepSeekBaseURL: envOrDefault("MEM0_DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
+		OpenAIAPIKey:    os.Getenv("MEM0_OPENAI_API_KEY"),
+		LLMModel:        envOrDefault("MEM0_DEFAULT_LLM_MODEL", "deepseek-v4-flash"),
+		EmbedderModel:   envOrDefault("MEM0_DEFAULT_EMBEDDER_MODEL", "text-embedding-3-small"),
+		PostgresHost:    envOrDefault("POSTGRES_HOST", "mem0-postgres"),
+		PostgresPort:    postgresPort,
+		PostgresDB:      envOrDefault("POSTGRES_DB", "postgres"),
+		PostgresUser:    envOrDefault("POSTGRES_USER", "postgres"),
+		PostgresPass:    envOrDefault("POSTGRES_PASSWORD", "mem0-eval-password"),
+		CollectionName:  envOrDefault("POSTGRES_COLLECTION_NAME", "memories"),
+		HistoryDBPath:   envOrDefault("HISTORY_DB_PATH", "/app/history/history.db"),
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), configureTimeout)

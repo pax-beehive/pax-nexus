@@ -42,6 +42,11 @@ After Mem0 becomes healthy, `eval-v2-stack.sh` runs a one-shot configurator that
 posts the complete provider configuration to Mem0's `/configure` endpoint. The
 stack startup fails if that configuration is rejected, preventing the recorded
 model name from drifting away from the model Mem0 actually uses.
+The configurator uses Mem0's OpenAI-compatible LLM adapter with
+`MEM0_DEEPSEEK_BASE_URL` and the DeepSeek API key. Mem0 0.1.117's dedicated
+DeepSeek adapter accepts a `response_format` argument but does not forward it;
+the OpenAI-compatible adapter forwards JSON mode while still using
+`deepseek-v4-flash`. The embedder remains OpenAI `text-embedding-3-small`.
 The local Eval v2 Mem0 image also installs the PostgreSQL driver omitted by the
 upstream API image so its configured pgvector store is actually available. It
 removes the upstream image's unusable Neo4j default because this vector-only
@@ -103,7 +108,18 @@ from an older run into a new comparison.
 
 The Mem0 container is configured with `AUTH_DISABLED=true` only on the private
 evaluation network. Do not reuse this compose file as a production deployment.
-Pin `MEM0_IMAGE` to a tested release or digest for publishable benchmark runs.
+The template pins `MEM0_IMAGE` to the tested Mem0 0.1.117 image digest. Change
+that digest deliberately and record it in `runtime_env` when validating an
+upgrade; do not use `latest` for a publishable run.
+
+Publishable benchmark templates default passive recall and insertion thresholds
+to zero. This preserves each provider's returned top-k/rank instead of comparing
+uncalibrated absolute scores (for example, Team Note's fixed `1.0` with a vector
+store distance). Production-like experiments may override
+`PAXM_PASSIVE_MIN_RELEVANCE`, `PAXM_PASSIVE_MIN_SCORE`, and
+`PAXM_INSERTION_MIN_SCORE`, but should calibrate and report them per provider.
+`PAXM_EVAL_DIAGNOSTICS=1` appends paxm diagnostics to each consumer stderr
+artifact.
 
 ## Resume behavior
 
@@ -141,7 +157,8 @@ so a completed run can be resumed to generate its report without rerunning
 trials. Every completed run can export:
 
 - `trials.csv`: one row per case and arm, including identity, quality, tokens,
-  producer/consumer cost, total observed cost, stage latency, status, and error
+  producer/consumer cost, total observed cost, stage latency, memory ingest
+  receipt counts/no-op status, trial status, and error
 - `trials.jsonl`: lossless trial records for downstream processing
 - `summary.csv`: overall and per-category arm aggregates
 - `pairwise.csv`: candidate versus control wins, losses, ties, F1 delta, exact

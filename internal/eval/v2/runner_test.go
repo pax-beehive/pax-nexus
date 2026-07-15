@@ -112,6 +112,24 @@ func (s *runnerSuite) TestSharedProducerRunsOnceAndFeedsBothMemoryArms() {
 	s.Require().NoError(err)
 }
 
+func (s *runnerSuite) TestRunPersistsMemoryIngestNoOpReceipt() {
+	store := newFakeStore()
+	executor := &fakeExecutor{ingestOutput: []byte(`{"provider":"mem0","accepted":0,"duplicate":0,"created":0,"updated":0,"deleted":0,"noop":true}`)}
+	runner, err := NewRunner(store, executor, nil)
+	s.Require().NoError(err)
+	config := testConfig(s.T().TempDir())
+	config.SharedProducer = sharedProducerCommand()
+	config.Arms[1].Producer = nil
+	config.Arms[1].Ingest = &CommandSpec{Program: "ingest"}
+
+	_, _, err = runner.Run(context.Background(), config, []Case{{ID: "case", Question: "q", Expected: "answer", AskingUserID: "user"}}, "revision")
+	s.Require().NoError(err)
+	result := findResult(store.results, "memory")
+	s.Equal("mem0", result.MemoryIngestProvider)
+	s.True(result.MemoryIngestNoOp)
+	s.Zero(result.MemoryIngestCreated)
+}
+
 func (s *runnerSuite) TestSharedProducerFailureIsReusedAcrossDependentArms() {
 	store := newFakeStore()
 	executor := &fakeExecutor{failProgram: "producer"}
@@ -376,9 +394,10 @@ func (s *fakeStore) Results(context.Context, string) ([]TrialResult, error) {
 func (s *fakeStore) Finish(context.Context, string) error { s.finished = true; return nil }
 
 type fakeExecutor struct {
-	mu          sync.Mutex
-	programs    []string
-	failProgram string
+	mu           sync.Mutex
+	programs     []string
+	failProgram  string
+	ingestOutput []byte
 }
 
 func (e *fakeExecutor) Execute(_ context.Context, spec CommandSpec, _ map[string]string, stdoutPath, _ string) (CommandResult, error) {
@@ -391,6 +410,13 @@ func (e *fakeExecutor) Execute(_ context.Context, spec CommandSpec, _ map[string
 	}
 	if spec.Program == "consumer" {
 		result = CommandResult{Output: []byte(`{"type":"text","sessionID":"session","part":{"text":"answer"}}` + "\n" + `{"type":"step_finish","part":{"cost":0.1,"tokens":{"input":4,"output":2}}}` + "\n"), Duration: time.Millisecond}
+	}
+	if spec.Program == "ingest" {
+		output := e.ingestOutput
+		if len(output) == 0 {
+			output = []byte(`{"provider":"test","accepted":1,"duplicate":0,"created":1,"updated":0,"deleted":0,"noop":false}`)
+		}
+		result = CommandResult{Output: append([]byte(nil), output...), Duration: time.Millisecond}
 	}
 	if result.Duration == 0 {
 		result.Duration = time.Millisecond
