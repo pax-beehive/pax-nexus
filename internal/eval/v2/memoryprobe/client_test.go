@@ -57,7 +57,23 @@ func (s *clientSuite) TestIngestAcceptsMem0NoOpExtraction() {
 	s.Zero(result.Created)
 	s.Zero(result.Updated)
 	s.Zero(result.Deleted)
+	s.True(result.NoOpKnown)
 	s.True(result.NoOp)
+}
+
+func (s *clientSuite) TestTeamNoteReceiptDoesNotClaimAsyncExtractionOutcome() {
+	transport := &recordingTransport{}
+	client, err := memoryprobe.New(memoryprobe.Config{
+		TeamNoteURL: "http://team-note", TeamNoteAPIKey: "key", Mem0URL: "http://mem0",
+		UserID: "user", AgentID: "producer", RunID: "run", HTTPClient: &http.Client{Transport: transport},
+	})
+	s.Require().NoError(err)
+
+	result, err := client.Ingest(context.Background(), memoryprobe.ProviderTeamNote, "handoff")
+	s.Require().NoError(err)
+	s.Equal(1, result.Accepted)
+	s.False(result.NoOpKnown)
+	s.False(result.NoOp)
 }
 
 func (s *clientSuite) TestIngestCountsMem0WriteActions() {
@@ -74,6 +90,7 @@ func (s *clientSuite) TestIngestCountsMem0WriteActions() {
 	s.Equal(1, result.Created)
 	s.Equal(1, result.Updated)
 	s.Equal(1, result.Deleted)
+	s.True(result.NoOpKnown)
 	s.False(result.NoOp)
 }
 

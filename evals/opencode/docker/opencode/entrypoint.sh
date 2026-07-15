@@ -9,15 +9,22 @@ set -eu
 : "${PAXM_WRITE_ENABLED:=1}"
 : "${TEAM_MEMORY_PROVIDER_TIMEOUT:=90s}"
 : "${TEAM_MEMORY_REQUEST_TIMEOUT:=60s}"
-: "${PAXM_PASSIVE_MIN_RELEVANCE:=0}"
-: "${PAXM_PASSIVE_MIN_SCORE:=0}"
+: "${PAXM_PASSIVE_MIN_RELEVANCE:=-1}"
+: "${PAXM_PASSIVE_MIN_SCORE:=-1}"
 : "${PAXM_INSERTION_MIN_SCORE:=0}"
 
-config_root="/tmp/eval-${PAXM_AGENT_ID}"
+if [ "${PAXM_PASSIVE_MIN_RELEVANCE}" = "0" ] && [ "${PAXM_PASSIVE_MIN_SCORE}" = "0" ]; then
+  echo "passive recall thresholds cannot both be 0 because paxm normalizes the zero-value profile to its defaults; use -1 to preserve raw top-k" >&2
+  exit 1
+fi
+
+: "${PAXM_CONFIG_ROOT:=/tmp/eval-${PAXM_AGENT_ID}}"
+: "${PAXM_PLUGIN_SOURCE:=/opt/paxm/paxm.js}"
+config_root="${PAXM_CONFIG_ROOT}"
 paxm_config="${config_root}/paxm.yaml"
 opencode_config="${config_root}/opencode"
 mkdir -p "${opencode_config}/plugins" "${config_root}/data"
-cp /opt/paxm/paxm.js "${opencode_config}/plugins/paxm.js"
+cp "${PAXM_PLUGIN_SOURCE}" "${opencode_config}/plugins/paxm.js"
 
 case "${PAXM_PROVIDER_TYPE}" in
   team-memory)
@@ -131,6 +138,10 @@ export PAXM_BINARY=/usr/local/bin/paxm
 export PAXM_CONFIG="${paxm_config}"
 export PAXM_OPENCODE_RECALL="${PAXM_RECALL_ENABLED}"
 export PAXM_OPENCODE_WRITE="${PAXM_WRITE_ENABLED}"
+
+if [ "${PAXM_CONFIG_ONLY:-0}" = "1" ]; then
+  exit 0
+fi
 
 if [ "$#" -eq 0 ]; then
   exec sleep infinity

@@ -52,6 +52,7 @@ type IngestResult struct {
 	Created   int    `json:"created"`
 	Updated   int    `json:"updated"`
 	Deleted   int    `json:"deleted"`
+	NoOpKnown bool   `json:"noop_known"`
 	NoOp      bool   `json:"noop"`
 }
 
@@ -164,7 +165,6 @@ func (c *Client) ingestTeamNote(ctx context.Context, text string) (IngestResult,
 	}
 	return IngestResult{
 		Provider: ProviderTeamNote, Accepted: receipt.Accepted, Duplicate: receipt.Duplicate,
-		NoOp: receipt.Accepted == 0,
 	}, nil
 }
 
@@ -383,7 +383,7 @@ func mem0AddResultFromResponse(body []byte) (mem0AddResult, error) {
 	if err := json.Unmarshal(rawResults, &items); err != nil {
 		return mem0AddResult{}, fmt.Errorf("decode Mem0 add response results: %w", err)
 	}
-	result := mem0AddResult{IngestResult: IngestResult{Provider: ProviderMem0, Accepted: 1}, refs: make([]string, 0, len(items))}
+	result := mem0AddResult{IngestResult: IngestResult{Provider: ProviderMem0, Accepted: 1, NoOpKnown: true}, refs: make([]string, 0, len(items))}
 	for _, item := range items {
 		switch strings.ToUpper(strings.TrimSpace(item.Event)) {
 		case "", "ADD":

@@ -88,6 +88,7 @@ func (s *configureSuite) TestConfigureRejectsInvalidInputsAndUpstreamErrors() {
 		{name: "missing endpoint", client: successClient, settings: validSettings, message: "endpoint is required"},
 		{name: "missing DeepSeek key", client: successClient, endpoint: "http://mem0/configure", settings: mem0config.Settings{OpenAIAPIKey: "openai-key"}, message: "DeepSeek API key is required"},
 		{name: "invalid DeepSeek base URL", client: successClient, endpoint: "http://mem0/configure", settings: mem0config.Settings{DeepSeekAPIKey: "deepseek-key", DeepSeekBaseURL: "not-a-url", OpenAIAPIKey: "openai-key"}, message: "DeepSeek base URL is invalid"},
+		{name: "malformed DeepSeek base URL", client: successClient, endpoint: "http://mem0/configure", settings: mem0config.Settings{DeepSeekAPIKey: "deepseek-key", DeepSeekBaseURL: "://bad", OpenAIAPIKey: "openai-key"}, message: "parse DeepSeek base URL"},
 		{name: "missing OpenAI key", client: successClient, endpoint: "http://mem0/configure", settings: mem0config.Settings{DeepSeekAPIKey: "deepseek-key"}, message: "OpenAI API key is required"},
 		{
 			name: "upstream failure",

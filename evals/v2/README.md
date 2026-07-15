@@ -112,10 +112,13 @@ The template pins `MEM0_IMAGE` to the tested Mem0 0.1.117 image digest. Change
 that digest deliberately and record it in `runtime_env` when validating an
 upgrade; do not use `latest` for a publishable run.
 
-Publishable benchmark templates default passive recall and insertion thresholds
-to zero. This preserves each provider's returned top-k/rank instead of comparing
-uncalibrated absolute scores (for example, Team Note's fixed `1.0` with a vector
-store distance). Production-like experiments may override
+Publishable benchmark templates default passive recall thresholds to `-1` and
+the insertion threshold to zero. The negative recall sentinel is intentional:
+paxm treats an all-zero threshold profile as unset and restores its `0.25`
+defaults. `-1` keeps every non-negative provider result, while insertion zero
+disables its positive-score filter. This preserves each provider's returned
+top-k/rank instead of comparing uncalibrated absolute scores (for example, Team
+Note's fixed `1.0` with a vector store distance). Production-like experiments may override
 `PAXM_PASSIVE_MIN_RELEVANCE`, `PAXM_PASSIVE_MIN_SCORE`, and
 `PAXM_INSERTION_MIN_SCORE`, but should calibrate and report them per provider.
 `PAXM_EVAL_DIAGNOSTICS=1` appends paxm diagnostics to each consumer stderr
@@ -169,7 +172,7 @@ trials. Every completed run can export:
   per-category token-F1 summaries, representative field notes, and an
   expandable breakdown of every case and every arm
 
-The stable artifact schema is `pax-eval-v2.3`. `report.html` covers the common
+The stable artifact schema is `pax-eval-v2.4`. `report.html` covers the common
 comparison views; raw CSV/JSONL files remain available for other analysis.
 Token F1 and its paired win/loss/tie counts are lexical diagnostics, not counts
 of semantically correct answers. Exact and safe-success remain full-string

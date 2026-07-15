@@ -72,7 +72,7 @@ func (s *artifactSuite) TestSummaryPairwiseAndExport() {
 		Files         map[string]string `json:"files"`
 	}
 	s.Require().NoError(json.Unmarshal(manifestInput, &manifest))
-	s.Equal(ArtifactSchemaVersion, manifest.SchemaVersion)
+	s.Equal("pax-eval-v2.4", manifest.SchemaVersion)
 	s.Equal("report.html", manifest.Files["report"])
 	s.InDelta(0.06, manifest.CostSummary.TotalCost, 0.000001)
 	summaryCSV, err := os.ReadFile(filepath.Join(directory, "summary.csv"))
@@ -83,7 +83,11 @@ func (s *artifactSuite) TestSummaryPairwiseAndExport() {
 	s.Contains(string(pairwiseCSV), "paired_completed_incremental_cost")
 	trialsCSV, err := os.ReadFile(filepath.Join(directory, "trials.csv"))
 	s.Require().NoError(err)
-	s.Contains(string(trialsCSV), "memory_ingest_provider,memory_ingest_accepted,memory_ingest_duplicate,memory_ingest_created,memory_ingest_updated,memory_ingest_deleted,memory_ingest_noop")
+	s.Contains(string(trialsCSV), "memory_ingest_provider,memory_ingest_accepted,memory_ingest_duplicate,memory_ingest_created,memory_ingest_updated,memory_ingest_deleted,memory_ingest_noop_known,memory_ingest_noop")
+	trialsJSONL, err := os.ReadFile(filepath.Join(directory, "trials.jsonl"))
+	s.Require().NoError(err)
+	s.Contains(string(trialsJSONL), `"memory_ingest_created":0`)
+	s.Contains(string(trialsJSONL), `"memory_ingest_noop_known":false`)
 }
 
 func (s *artifactSuite) TestExportRejectsEmptyResults() {

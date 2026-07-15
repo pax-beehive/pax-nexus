@@ -47,13 +47,16 @@ type armStat struct {
 }
 
 type memoryIngestStat struct {
-	Arm          string
-	Provider     string
-	Category     string
-	Observed     int
-	Accepted     int
-	WriteActions int
-	NoOpDisplay  string
+	CaseID      string
+	Category    string
+	Arm         string
+	Provider    string
+	Accepted    int
+	Duplicate   int
+	Created     int
+	Updated     int
+	Deleted     int
+	NoOpDisplay string
 }
 
 type pairwiseSummary struct {
@@ -146,47 +149,38 @@ func buildReportData(run v2.RunRecord, baselineArm string, results []v2.TrialRes
 }
 
 func buildMemoryIngest(arms []armStat, results []v2.TrialResult) []memoryIngestStat {
-	type ingestKey struct{ arm, category string }
-	byKey := make(map[ingestKey]*memoryIngestStat)
-	noOps := make(map[ingestKey]int)
+	armIndex := make(map[string]int, len(arms))
+	for index, arm := range arms {
+		armIndex[arm.Name] = index
+	}
+	stats := make([]memoryIngestStat, 0, len(results))
 	for _, result := range results {
 		if result.MemoryIngestProvider == "" {
 			continue
 		}
-		for _, category := range []string{"all", result.Category} {
-			key := ingestKey{arm: result.Arm, category: category}
-			stat := byKey[key]
-			if stat == nil {
-				stat = &memoryIngestStat{Arm: result.Arm, Provider: result.MemoryIngestProvider, Category: category}
-				byKey[key] = stat
-			}
-			stat.Observed++
-			stat.Accepted += result.MemoryIngestAccepted
-			stat.WriteActions += result.MemoryIngestCreated + result.MemoryIngestUpdated + result.MemoryIngestDeleted
+		noOpDisplay := "unknown"
+		if result.MemoryIngestNoOpKnown {
+			noOpDisplay = "no"
 			if result.MemoryIngestNoOp {
-				noOps[key]++
+				noOpDisplay = "yes"
 			}
 		}
+		stats = append(stats, memoryIngestStat{
+			CaseID: result.CaseID, Category: result.Category, Arm: result.Arm, Provider: result.MemoryIngestProvider,
+			Accepted: result.MemoryIngestAccepted, Duplicate: result.MemoryIngestDuplicate,
+			Created: result.MemoryIngestCreated, Updated: result.MemoryIngestUpdated, Deleted: result.MemoryIngestDeleted,
+			NoOpDisplay: noOpDisplay,
+		})
 	}
-	stats := make([]memoryIngestStat, 0, len(byKey))
-	for _, arm := range arms {
-		categories := make([]string, 0)
-		for key := range byKey {
-			if key.arm == arm.Name && key.category != "all" {
-				categories = append(categories, key.category)
-			}
+	sort.Slice(stats, func(left, right int) bool {
+		if armIndex[stats[left].Arm] != armIndex[stats[right].Arm] {
+			return armIndex[stats[left].Arm] < armIndex[stats[right].Arm]
 		}
-		sort.Strings(categories)
-		for _, category := range append([]string{"all"}, categories...) {
-			key := ingestKey{arm: arm.Name, category: category}
-			stat := byKey[key]
-			if stat == nil {
-				continue
-			}
-			stat.NoOpDisplay = fmt.Sprintf("%d / %d", noOps[key], stat.Observed)
-			stats = append(stats, *stat)
+		if stats[left].Category != stats[right].Category {
+			return stats[left].Category < stats[right].Category
 		}
-	}
+		return stats[left].CaseID < stats[right].CaseID
+	})
 	return stats
 }
 

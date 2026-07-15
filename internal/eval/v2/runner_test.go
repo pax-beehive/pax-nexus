@@ -114,7 +114,7 @@ func (s *runnerSuite) TestSharedProducerRunsOnceAndFeedsBothMemoryArms() {
 
 func (s *runnerSuite) TestRunPersistsMemoryIngestNoOpReceipt() {
 	store := newFakeStore()
-	executor := &fakeExecutor{ingestOutput: []byte(`{"provider":"mem0","accepted":0,"duplicate":0,"created":0,"updated":0,"deleted":0,"noop":true}`)}
+	executor := &fakeExecutor{ingestOutput: []byte(`{"provider":"mem0","accepted":0,"duplicate":0,"created":0,"updated":0,"deleted":0,"noop_known":true,"noop":true}`)}
 	runner, err := NewRunner(store, executor, nil)
 	s.Require().NoError(err)
 	config := testConfig(s.T().TempDir())
@@ -126,6 +126,7 @@ func (s *runnerSuite) TestRunPersistsMemoryIngestNoOpReceipt() {
 	s.Require().NoError(err)
 	result := findResult(store.results, "memory")
 	s.Equal("mem0", result.MemoryIngestProvider)
+	s.True(result.MemoryIngestNoOpKnown)
 	s.True(result.MemoryIngestNoOp)
 	s.Zero(result.MemoryIngestCreated)
 }

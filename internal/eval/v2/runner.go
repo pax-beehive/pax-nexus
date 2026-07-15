@@ -363,6 +363,7 @@ func withMemoryIngest(result TrialResult, ingest memoryprobe.IngestResult) Trial
 	result.MemoryIngestCreated = ingest.Created
 	result.MemoryIngestUpdated = ingest.Updated
 	result.MemoryIngestDeleted = ingest.Deleted
+	result.MemoryIngestNoOpKnown = ingest.NoOpKnown
 	result.MemoryIngestNoOp = ingest.NoOp
 	return result
 }

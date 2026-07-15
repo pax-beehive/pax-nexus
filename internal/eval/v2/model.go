@@ -101,11 +101,12 @@ type TrialResult struct {
 	AskingUserID          string    `json:"asking_user_id"`
 	Status                string    `json:"status"`
 	MemoryIngestProvider  string    `json:"memory_ingest_provider,omitempty"`
-	MemoryIngestAccepted  int       `json:"memory_ingest_accepted,omitempty"`
-	MemoryIngestDuplicate int       `json:"memory_ingest_duplicate,omitempty"`
-	MemoryIngestCreated   int       `json:"memory_ingest_created,omitempty"`
-	MemoryIngestUpdated   int       `json:"memory_ingest_updated,omitempty"`
-	MemoryIngestDeleted   int       `json:"memory_ingest_deleted,omitempty"`
+	MemoryIngestAccepted  int       `json:"memory_ingest_accepted"`
+	MemoryIngestDuplicate int       `json:"memory_ingest_duplicate"`
+	MemoryIngestCreated   int       `json:"memory_ingest_created"`
+	MemoryIngestUpdated   int       `json:"memory_ingest_updated"`
+	MemoryIngestDeleted   int       `json:"memory_ingest_deleted"`
+	MemoryIngestNoOpKnown bool      `json:"memory_ingest_noop_known"`
 	MemoryIngestNoOp      bool      `json:"memory_ingest_noop"`
 	Expected              string    `json:"expected"`
 	Answer                string    `json:"answer"`

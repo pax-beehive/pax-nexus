@@ -51,7 +51,7 @@ func (s *commandSuite) TestIngestPrintsMem0NoOpReceipt() {
 	var output bytes.Buffer
 	err := run(context.Background(), []string{"-action", "ingest", "-provider", "mem0", "-text-file", path}, func(name string) string { return environment[name] }, &output, client)
 	s.Require().NoError(err)
-	s.JSONEq(`{"provider":"mem0","accepted":1,"duplicate":0,"created":0,"updated":0,"deleted":0,"noop":true}`, output.String())
+	s.JSONEq(`{"provider":"mem0","accepted":1,"duplicate":0,"created":0,"updated":0,"deleted":0,"noop_known":true,"noop":true}`, output.String())
 }
 
 type roundTripFunc func(*http.Request) (*http.Response, error)

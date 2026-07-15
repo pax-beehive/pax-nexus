@@ -57,7 +57,10 @@ func Configure(ctx context.Context, client *http.Client, endpoint string, settin
 		return fmt.Errorf("configure mem0: DeepSeek API key is required")
 	}
 	deepSeekURL, err := url.Parse(settings.DeepSeekBaseURL)
-	if err != nil || (deepSeekURL.Scheme != "http" && deepSeekURL.Scheme != "https") || deepSeekURL.Host == "" {
+	if err != nil {
+		return fmt.Errorf("configure mem0: parse DeepSeek base URL: %w", err)
+	}
+	if (deepSeekURL.Scheme != "http" && deepSeekURL.Scheme != "https") || deepSeekURL.Host == "" {
 		return fmt.Errorf("configure mem0: DeepSeek base URL is invalid")
 	}
 	if strings.TrimSpace(settings.OpenAIAPIKey) == "" {
