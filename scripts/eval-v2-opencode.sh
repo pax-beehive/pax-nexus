@@ -32,15 +32,19 @@ run_agent() {
     opencode_agent="eval-consumer"
   fi
   provider_type="team-memory"
+  memory_user_id="${eval_user_id}"
+  memory_agent_id="${agent_id}"
   if [ "${arm}" = "mem0" ]; then
     provider_type="mem0"
+    memory_user_id="${MEM0_EVAL_USER_ID}"
+    memory_agent_id="${MEM0_EVAL_AGENT_ID}"
   fi
   docker compose -p "${project_name}" -f "${compose_file}" run --rm --no-deps \
     --volume "${workspace}:/workspace:ro" \
     -e PAXM_PROVIDER_TYPE="${provider_type}" \
     -e TEAM_MEMORY_API_KEY="${api_key}" \
-    -e PAXM_USER_ID="${eval_user_id}" \
-    -e PAXM_AGENT_ID="${agent_id}" \
+    -e PAXM_USER_ID="${memory_user_id}" \
+    -e PAXM_AGENT_ID="${memory_agent_id}" \
     -e MEM0_RUN_ID="${mem0_run_id}" \
     -e MEM0_SCORE_SEMANTICS="${MEM0_SCORE_SEMANTICS:-distance}" \
     -e MEM0_SEARCH_SCOPE_PAYLOAD="${MEM0_SEARCH_SCOPE_PAYLOAD:-top_level}" \
@@ -58,17 +62,18 @@ run_agent() {
 run_memory_ingest() {
   helper_provider="$1"
   helper_api_key="$2"
-  helper_agent_id="$3"
-  helper_run_id="$4"
-  helper_mount="$5"
-  helper_file="$6"
+  helper_user_id="$3"
+  helper_agent_id="$4"
+  helper_run_id="$5"
+  helper_mount="$6"
+  helper_file="$7"
   docker compose -p "${project_name}" -f "${compose_file}" run --rm --no-deps \
     --entrypoint /usr/local/bin/eval-v2-memory \
     --volume "${helper_mount}:/artifact:ro" \
     -e TEAM_MEMORY_BASE_URL=http://team-memory:8080 \
     -e TEAM_MEMORY_API_KEY="${helper_api_key}" \
     -e MEM0_BASE_URL=http://mem0:8000 \
-    -e PAXM_USER_ID="${eval_user_id}" \
+    -e PAXM_USER_ID="${helper_user_id}" \
     -e PAXM_AGENT_ID="${helper_agent_id}" \
     -e MEM0_RUN_ID="${helper_run_id}" \
     opencode -action ingest -provider "${helper_provider}" -session-batches-file "${helper_file}"
@@ -102,7 +107,13 @@ case "${stage}" in
     batches_dir="$(dirname "${PAX_EVAL_SESSION_BATCHES_FILE}")"
     batches_file="$(basename "${PAX_EVAL_SESSION_BATCHES_FILE}")"
     batches_absolute="$(cd "${batches_dir}" && pwd -P)"
-    run_memory_ingest "${arm}" "${api_key}" "${agent_id}" "${mem0_run_id}" \
+    ingest_user_id="${eval_user_id}"
+    ingest_agent_id="${agent_id}"
+    if [ "${arm}" = "mem0" ]; then
+      ingest_user_id="${MEM0_EVAL_USER_ID}"
+      ingest_agent_id="${MEM0_EVAL_AGENT_ID}"
+    fi
+    run_memory_ingest "${arm}" "${api_key}" "${ingest_user_id}" "${ingest_agent_id}" "${mem0_run_id}" \
       "${batches_absolute}" "/artifact/${batches_file}"
     ;;
   preflight)

@@ -54,6 +54,7 @@ case "${PAXM_PROVIDER_TYPE}" in
     base_url: \"${MEM0_BASE_URL}\"
     api_key: \"${MEM0_API_KEY:-}\"
     user_id: \"${PAXM_USER_ID}\"
+    agent_id: \"${PAXM_AGENT_ID}\"
     run_id: \"${MEM0_RUN_ID}\"
     score_semantics: \"${MEM0_SCORE_SEMANTICS}\"
     search_scope_payload: \"${MEM0_SEARCH_SCOPE_PAYLOAD}\""

@@ -10,10 +10,12 @@ The included configuration compares:
 - `team_note`: OpenCode using the PAX Team Note provider
 - `mem0`: OpenCode using a self-hosted Mem0 OSS REST server
 
-Every arm receives the same `asking_user_id`. Mem0 additionally receives a
-case-specific `run_id`, which prevents cross-case contamination without changing
-the user identity under comparison. The consumer agent ID is derived from that
-asking user in every arm.
+Every trial records the same benchmark `asking_user_id`. Team Note uses it as
+the consumer principal so actor-aware recall can resolve first-person queries.
+Mem0 instead uses one shared synthetic user and agent identity across all cases,
+configured by `MEM0_EVAL_USER_ID` and `MEM0_EVAL_AGENT_ID`. A case-specific
+`run_id` prevents cross-case contamination without turning source actors into
+separate Mem0 namespaces.
 
 The two memory arms receive the exact same selected GroupMemBench messages,
 without a producer-model rewrite. Case preparation writes native session batches
