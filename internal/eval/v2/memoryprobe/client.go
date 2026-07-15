@@ -92,35 +92,40 @@ func (c *Client) Preflight(ctx context.Context, marker string) error {
 	if marker == "" {
 		return fmt.Errorf("preflight eval memory: marker is required")
 	}
+	probe := c.newPreflightProbe(marker)
 	probeText := fmt.Sprintf("The evaluation owner confirmed the durable verification code %s remains active and must be retained for this run.", marker)
 	if _, err := c.do(ctx, http.MethodGet, c.teamNoteURL+"/healthz", "", nil); err != nil {
 		return fmt.Errorf("preflight Team Note health: %w", err)
 	}
-	if err := c.ingestTeamNote(ctx, probeText); err != nil {
+	receipt, err := probe.observeTeamNote(ctx, probeText)
+	if err != nil {
 		return fmt.Errorf("preflight Team Note add: %w", err)
 	}
-	if err := c.pollNonEmpty(ctx, preflightNeedle, "items", c.recallTeamNote); err != nil {
+	if receipt.Accepted != 1 || receipt.Duplicate != 0 {
+		return fmt.Errorf("preflight Team Note add: expected one accepted event, got accepted=%d duplicate=%d", receipt.Accepted, receipt.Duplicate)
+	}
+	if err := probe.pollTeamNoteOrigin(ctx, preflightNeedle, probe.runID); err != nil {
 		return fmt.Errorf("preflight Team Note recall: %w", err)
 	}
 	if _, err := c.do(ctx, http.MethodGet, c.mem0URL+"/openapi.json", "", nil); err != nil {
 		return fmt.Errorf("preflight Mem0 health: %w", err)
 	}
-	refs, err := c.addMem0(ctx, probeText)
+	refs, err := probe.addMem0(ctx, probeText)
 	if err != nil {
 		return fmt.Errorf("preflight Mem0 add: %w", err)
 	}
 	if len(refs) == 0 {
 		return fmt.Errorf("preflight Mem0 add: add returned no memory IDs")
 	}
-	if err := c.pollNonEmpty(ctx, preflightNeedle, "results", c.searchMem0); err != nil {
+	if err := probe.pollNonEmpty(ctx, preflightNeedle, "results", probe.searchMem0); err != nil {
 		return fmt.Errorf("preflight Mem0 recall: %w", err)
 	}
 	for _, ref := range refs {
-		if _, err := c.do(ctx, http.MethodDelete, c.mem0URL+"/memories/"+url.PathEscape(ref), "", nil); err != nil {
+		if _, err := probe.do(ctx, http.MethodDelete, c.mem0URL+"/memories/"+url.PathEscape(ref), "", nil); err != nil {
 			return fmt.Errorf("preflight Mem0 delete %q: %w", ref, err)
 		}
 	}
-	body, err := c.searchMem0(ctx, preflightNeedle)
+	body, err := probe.searchMem0(ctx, preflightNeedle)
 	if err != nil {
 		return fmt.Errorf("preflight Mem0 cleanup search: %w", err)
 	}
@@ -134,7 +139,25 @@ func (c *Client) Preflight(ctx context.Context, marker string) error {
 	return nil
 }
 
+func (c *Client) newPreflightProbe(marker string) *Client {
+	invocationID := stableID(marker, time.Now().UTC().Format(time.RFC3339Nano))
+	probe := *c
+	probe.agentID = c.agentID + "-" + invocationID
+	probe.runID = c.runID + "-" + invocationID
+	return &probe
+}
+
 func (c *Client) ingestTeamNote(ctx context.Context, text string) error {
+	_, err := c.observeTeamNote(ctx, text)
+	return err
+}
+
+type teamNoteReceipt struct {
+	Accepted  int `json:"accepted"`
+	Duplicate int `json:"duplicate"`
+}
+
+func (c *Client) observeTeamNote(ctx context.Context, text string) (teamNoteReceipt, error) {
 	now := time.Now().UTC()
 	payload := map[string]any{
 		"events": []map[string]any{{
@@ -146,8 +169,15 @@ func (c *Client) ingestTeamNote(ctx context.Context, text string) error {
 		}},
 		"complete": true,
 	}
-	_, err := c.do(ctx, http.MethodPost, c.teamNoteURL+"/v1/session-batches", c.teamNoteAPIKey, payload)
-	return err
+	body, err := c.do(ctx, http.MethodPost, c.teamNoteURL+"/v1/session-batches", c.teamNoteAPIKey, payload)
+	if err != nil {
+		return teamNoteReceipt{}, err
+	}
+	var receipt teamNoteReceipt
+	if err := json.Unmarshal(body, &receipt); err != nil {
+		return teamNoteReceipt{}, fmt.Errorf("decode Team Note add response: %w", err)
+	}
+	return receipt, nil
 }
 
 func (c *Client) recallTeamNote(ctx context.Context, marker string) ([]byte, error) {
@@ -214,6 +244,52 @@ func (c *Client) pollNonEmpty(
 	return fmt.Errorf("no recalled %s after %d attempts", field, defaultAttempts)
 }
 
+func (c *Client) pollTeamNoteOrigin(ctx context.Context, query, originSessionID string) error {
+	for attempt := range defaultAttempts {
+		body, err := c.recallTeamNote(ctx, query)
+		if err == nil {
+			var found bool
+			found, err = responseHasOrigin(body, originSessionID)
+			if err == nil && found {
+				return nil
+			}
+		}
+		if attempt == defaultAttempts-1 {
+			if err != nil {
+				return err
+			}
+			break
+		}
+		timer := time.NewTimer(c.pollInterval)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
+	return fmt.Errorf("team note origin %q was not recalled after %d attempts", originSessionID, defaultAttempts)
+}
+
+func responseHasOrigin(body []byte, originSessionID string) (bool, error) {
+	var response struct {
+		Details []struct {
+			Origin struct {
+				SessionID string `json:"session_id"`
+			} `json:"origin"`
+		} `json:"details"`
+	}
+	if err := json.Unmarshal(body, &response); err != nil {
+		return false, fmt.Errorf("decode Team Note recall response: %w", err)
+	}
+	for _, detail := range response.Details {
+		if detail.Origin.SessionID == originSessionID {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func responseHasItems(body []byte, field string) (bool, error) {
 	var response map[string]json.RawMessage
 	if err := json.Unmarshal(body, &response); err != nil {
@@ -270,16 +346,24 @@ func (c *Client) do(ctx context.Context, method, endpoint, apiKey string, payloa
 
 func memoryIDs(body []byte) ([]string, error) {
 	var response struct {
-		Results []struct {
-			ID    string `json:"id"`
-			Event string `json:"event"`
-		} `json:"results"`
+		Results json.RawMessage `json:"results"`
 	}
 	if err := json.Unmarshal(body, &response); err != nil {
 		return nil, fmt.Errorf("decode Mem0 add response: %w", err)
 	}
-	result := make([]string, 0, len(response.Results))
-	for _, item := range response.Results {
+	rawResults := bytes.TrimSpace(response.Results)
+	if len(rawResults) == 0 || rawResults[0] != '[' {
+		return nil, fmt.Errorf("decode Mem0 add response: results must be an array")
+	}
+	var items []struct {
+		ID    string `json:"id"`
+		Event string `json:"event"`
+	}
+	if err := json.Unmarshal(rawResults, &items); err != nil {
+		return nil, fmt.Errorf("decode Mem0 add response results: %w", err)
+	}
+	result := make([]string, 0, len(items))
+	for _, item := range items {
 		if strings.TrimSpace(item.ID) != "" && (item.Event == "" || strings.EqualFold(item.Event, "add")) {
 			result = append(result, item.ID)
 		}

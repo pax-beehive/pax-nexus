@@ -2,6 +2,8 @@ package memoryprobe_test
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -50,6 +52,30 @@ func (s *clientSuite) TestIngestAcceptsMem0NoOpExtraction() {
 	s.Require().NoError(client.Ingest(context.Background(), memoryprobe.ProviderMem0, "handoff"))
 }
 
+func (s *clientSuite) TestIngestValidatesMem0ResponseEnvelope() {
+	tests := []struct {
+		name     string
+		response string
+	}{
+		{name: "malformed", response: `{`},
+		{name: "missing results", response: `{}`},
+		{name: "null results", response: `{"results":null}`},
+		{name: "wrong results type", response: `{"results":{}}`},
+	}
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			transport := &recordingTransport{memoryResponse: test.response}
+			client, err := memoryprobe.New(memoryprobe.Config{
+				TeamNoteURL: "http://team-note", TeamNoteAPIKey: "key", Mem0URL: "http://mem0",
+				UserID: "user", AgentID: "producer", RunID: "run", HTTPClient: &http.Client{Transport: transport},
+			})
+			s.Require().NoError(err)
+
+			s.Require().Error(client.Ingest(context.Background(), memoryprobe.ProviderMem0, "handoff"))
+		})
+	}
+}
+
 func (s *clientSuite) TestPreflightExercisesAddRecallAndSupportedCleanup() {
 	transport := &recordingTransport{}
 	client, err := memoryprobe.New(memoryprobe.Config{
@@ -70,12 +96,38 @@ func (s *clientSuite) TestPreflightExercisesAddRecallAndSupportedCleanup() {
 		s.Contains(calls[index].body, "The evaluation owner confirmed the durable verification code probe-marker remains active")
 	}
 	s.Contains(calls[5].body, `"user_id":"user"`)
-	s.Contains(calls[5].body, `"agent_id":"preflight"`)
-	s.Contains(calls[5].body, `"run_id":"run"`)
+	s.Contains(calls[5].body, `"agent_id":"preflight-eval-`)
+	s.Contains(calls[5].body, `"run_id":"run-eval-`)
 	s.NotContains(calls[5].body, `"filters"`)
 	for _, index := range []int{2, 5, 7} {
 		s.Contains(calls[index].body, "durable verification code remains active")
 	}
+}
+
+func (s *clientSuite) TestPreflightIgnoresStaleTeamNoteRecall() {
+	transport := &recordingTransport{staleRecallCount: 1}
+	client, err := memoryprobe.New(memoryprobe.Config{
+		TeamNoteURL: "http://team-note", TeamNoteAPIKey: "key", Mem0URL: "http://mem0",
+		UserID: "user", AgentID: "preflight", RunID: "run", HTTPClient: &http.Client{Transport: transport},
+		PollInterval: time.Millisecond,
+	})
+	s.Require().NoError(err)
+
+	s.Require().NoError(client.Preflight(context.Background(), "probe-marker"))
+	labels := callLabels(transport.snapshot())
+	s.Equal(2, countLabel(labels, "POST /v1/notes/recall"))
+}
+
+func (s *clientSuite) TestPreflightRejectsDuplicateTeamNoteProbe() {
+	transport := &recordingTransport{teamReceipt: `{"accepted":0,"duplicate":1,"cursor":1}`}
+	client, err := memoryprobe.New(memoryprobe.Config{
+		TeamNoteURL: "http://team-note", TeamNoteAPIKey: "key", Mem0URL: "http://mem0",
+		UserID: "user", AgentID: "preflight", RunID: "run", HTTPClient: &http.Client{Transport: transport},
+		PollInterval: time.Millisecond,
+	})
+	s.Require().NoError(err)
+
+	s.Require().Error(client.Preflight(context.Background(), "probe-marker"))
 }
 
 func (s *clientSuite) TestValidationAndInputErrors() {
@@ -105,10 +157,14 @@ type recordedCall struct {
 }
 
 type recordingTransport struct {
-	mu             sync.Mutex
-	calls          []recordedCall
-	searchCount    int
-	memoryResponse string
+	mu                sync.Mutex
+	calls             []recordedCall
+	searchCount       int
+	recallCount       int
+	memoryResponse    string
+	teamReceipt       string
+	observedSessionID string
+	staleRecallCount  int
 }
 
 func (t *recordingTransport) RoundTrip(request *http.Request) (*http.Response, error) {
@@ -130,9 +186,30 @@ func (t *recordingTransport) RoundTrip(request *http.Request) (*http.Response, e
 	case "/healthz":
 		responseBody = `{"status":"ok"}`
 	case "/v1/session-batches":
-		responseBody = `{"accepted":1,"duplicate":0,"cursor":1}`
+		var payload struct {
+			Events []struct {
+				Actor struct {
+					SessionID string `json:"session_id"`
+				} `json:"actor"`
+			} `json:"events"`
+		}
+		if err := json.Unmarshal(body, &payload); err != nil {
+			return nil, err
+		}
+		if len(payload.Events) > 0 {
+			t.observedSessionID = payload.Events[0].Actor.SessionID
+		}
+		responseBody = t.teamReceipt
+		if responseBody == "" {
+			responseBody = `{"accepted":1,"duplicate":0,"cursor":1}`
+		}
 	case "/v1/notes/recall":
-		responseBody = `{"revision":"1","items":["Confirmed active for this run."],"tokens":1}`
+		t.recallCount++
+		originSessionID := t.observedSessionID
+		if t.recallCount <= t.staleRecallCount {
+			originSessionID = "stale-run"
+		}
+		responseBody = fmt.Sprintf(`{"revision":"1","items":["Confirmed active for this run."],"tokens":1,"details":[{"origin":{"session_id":%q}}]}`, originSessionID)
 	case "/memories":
 		responseBody = t.memoryResponse
 		if responseBody == "" {
@@ -166,4 +243,14 @@ func callLabels(calls []recordedCall) []string {
 		labels = append(labels, call.method+" "+call.path)
 	}
 	return labels
+}
+
+func countLabel(labels []string, target string) int {
+	count := 0
+	for _, label := range labels {
+		if label == target {
+			count++
+		}
+	}
+	return count
 }
