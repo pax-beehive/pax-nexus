@@ -1,0 +1,274 @@
+package teamnote_test
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/pax-beehive/pax-nexus/internal/teamnote"
+	"github.com/stretchr/testify/suite"
+)
+
+type ledgerSuite struct {
+	suite.Suite
+	clock  *fakeClock
+	ledger *teamnote.Ledger
+}
+
+func TestLedgerSuite(t *testing.T) {
+	t.Parallel()
+	suite.Run(t, new(ledgerSuite))
+}
+
+func (s *ledgerSuite) SetupTest() {
+	s.clock = &fakeClock{now: time.Date(2026, time.July, 14, 12, 0, 0, 0, time.UTC)}
+	s.ledger = teamnote.NewLedger(teamnote.DefaultTTLPolicy(), s.clock)
+}
+
+func (s *ledgerSuite) TestGroundedNoteIsDeliveredOncePerRevisionAndSession() {
+	evidence := producerEvent("event-1", "The release is blocked by failing integration tests.")
+	candidate := teamnote.Candidate{
+		ID: "candidate-1", Action: teamnote.ActionCreate, Kind: teamnote.KindBlocker,
+		Subject: "release", Body: "Integration tests are failing.", TaskRef: "release-42",
+		Origin: evidence.Actor, EvidenceEventIDs: []string{evidence.ID},
+	}
+
+	note, err := s.ledger.Apply(context.Background(), candidate, []teamnote.SessionEvent{evidence})
+	s.Require().NoError(err)
+	s.Require().Equal(1, note.Revision)
+	s.Require().Equal(teamnote.StateActive, note.State)
+
+	request := teamnote.RecallRequest{
+		Actor:   teamnote.Actor{UserID: "owner", AgentID: "consumer", SessionID: "consumer-session"},
+		TaskRef: "release-42", TokenBudget: 256,
+	}
+	first, err := s.ledger.Recall(context.Background(), request)
+	s.Require().NoError(err)
+	s.Require().Equal([]string{"[blocker] Integration tests are failing."}, first.Items)
+	s.Require().Len(first.Details, 1)
+	s.Equal(evidence.Actor, first.Details[0].Origin)
+	s.Equal(note.ID, first.Details[0].NoteID)
+	s.Equal(note.Revision, first.Details[0].Revision)
+
+	second, err := s.ledger.Recall(context.Background(), request)
+	s.Require().NoError(err)
+	s.Require().Empty(second.Items)
+}
+
+func (s *ledgerSuite) TestUpdateRedeliversAndResolveStopsDelivery() {
+	createEvidence := producerEvent("event-create", "The build is running.")
+	created, err := s.ledger.Apply(context.Background(), teamnote.Candidate{
+		ID: "candidate-create", Action: teamnote.ActionCreate, Kind: teamnote.KindStatus,
+		Subject: "build", Body: "The build is running.", TaskRef: "release-42",
+		Origin: createEvidence.Actor, EvidenceEventIDs: []string{createEvidence.ID},
+	}, []teamnote.SessionEvent{createEvidence})
+	s.Require().NoError(err)
+
+	request := consumerRecall("release-42", "consumer-session")
+	_, err = s.ledger.Recall(context.Background(), request)
+	s.Require().NoError(err)
+
+	updateEvidence := producerEvent("event-update", "The build passed.")
+	updated, err := s.ledger.Apply(context.Background(), teamnote.Candidate{
+		ID: "candidate-update", Action: teamnote.ActionUpdate, Kind: teamnote.KindStatus,
+		Subject: "build", Body: "The build passed.", TaskRef: "release-42",
+		Origin: updateEvidence.Actor, EvidenceEventIDs: []string{updateEvidence.ID},
+	}, []teamnote.SessionEvent{updateEvidence})
+	s.Require().NoError(err)
+	s.Require().Equal(created.ID, updated.ID)
+	s.Require().Equal(2, updated.Revision)
+
+	envelope, err := s.ledger.Recall(context.Background(), request)
+	s.Require().NoError(err)
+	s.Require().Equal([]string{"[status] The build passed."}, envelope.Items)
+
+	resolveEvidence := producerEvent("event-resolve", "The build status is no longer active.")
+	resolved, err := s.ledger.Apply(context.Background(), teamnote.Candidate{
+		ID: "candidate-resolve", Action: teamnote.ActionResolve, Kind: teamnote.KindStatus,
+		Subject: "build", Body: "The build completed.", TaskRef: "release-42",
+		Origin: resolveEvidence.Actor, EvidenceEventIDs: []string{resolveEvidence.ID},
+	}, []teamnote.SessionEvent{resolveEvidence})
+	s.Require().NoError(err)
+	s.Require().Equal(teamnote.StateResolved, resolved.State)
+
+	envelope, err = s.ledger.Recall(context.Background(), consumerRecall("release-42", "new-session"))
+	s.Require().NoError(err)
+	s.Require().Empty(envelope.Items)
+}
+
+func (s *ledgerSuite) TestSoftTTLExpiresNotes() {
+	evidence := producerEvent("event-ttl", "The deployment is running.")
+	_, err := s.ledger.Apply(context.Background(), teamnote.Candidate{
+		ID: "candidate-ttl", Action: teamnote.ActionCreate, Kind: teamnote.KindStatus,
+		Subject: "deployment", Body: "The deployment is running.", TaskRef: "release-42",
+		Origin: evidence.Actor, EvidenceEventIDs: []string{evidence.ID},
+	}, []teamnote.SessionEvent{evidence})
+	s.Require().NoError(err)
+
+	s.clock.now = s.clock.now.Add(24 * time.Hour)
+	envelope, err := s.ledger.Recall(context.Background(), consumerRecall("release-42", "after-expiry"))
+	s.Require().NoError(err)
+	s.Require().Empty(envelope.Items)
+}
+
+func (s *ledgerSuite) TestAdmissionRejectsUnsafeCandidates() {
+	evidence := producerEvent("event-safe", "The build passed.")
+	tests := []struct {
+		name      string
+		candidate teamnote.Candidate
+		events    []teamnote.SessionEvent
+		wantError error
+	}{
+		{
+			name: "missing evidence",
+			candidate: teamnote.Candidate{
+				ID: "missing", Action: teamnote.ActionCreate, Kind: teamnote.KindStatus,
+				Subject: "build", Body: "The build passed.", Origin: evidence.Actor,
+			},
+			wantError: teamnote.ErrMissingEvidence,
+		},
+		{
+			name: "forged speaker",
+			candidate: teamnote.Candidate{
+				ID: "forged", Action: teamnote.ActionCreate, Kind: teamnote.KindStatus,
+				Subject: "build", Body: "The build passed.",
+				Origin:           teamnote.Actor{UserID: "other", AgentID: "other", SessionID: "session"},
+				EvidenceEventIDs: []string{evidence.ID},
+			},
+			events: []teamnote.SessionEvent{evidence}, wantError: teamnote.ErrMissingEvidence,
+		},
+		{
+			name: "unsupported kind",
+			candidate: teamnote.Candidate{
+				ID: "unsupported", Action: teamnote.ActionCreate, Kind: "approval",
+				Subject: "release", Body: "Approved.", Origin: evidence.Actor,
+				EvidenceEventIDs: []string{evidence.ID},
+			},
+			events: []teamnote.SessionEvent{evidence}, wantError: teamnote.ErrInvalidCandidate,
+		},
+		{
+			name: "invalid validity window",
+			candidate: teamnote.Candidate{
+				ID: "invalid-window", Action: teamnote.ActionCreate, Kind: teamnote.KindStatus,
+				Subject: "build", Body: "The build passed.", Origin: evidence.Actor,
+				ValidAt:          timePointer(time.Date(2026, time.July, 15, 0, 0, 0, 0, time.UTC)),
+				InvalidAt:        timePointer(time.Date(2026, time.July, 14, 0, 0, 0, 0, time.UTC)),
+				EvidenceEventIDs: []string{evidence.ID},
+			},
+			events: []teamnote.SessionEvent{evidence}, wantError: teamnote.ErrInvalidCandidate,
+		},
+	}
+
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			_, err := s.ledger.Apply(context.Background(), test.candidate, test.events)
+			s.Require().ErrorIs(err, test.wantError)
+		})
+	}
+}
+
+func (s *ledgerSuite) TestAudienceAndBudgetAreEnforced() {
+	evidence := producerEvent("event-handoff", "Consumer A owns the handoff.")
+	_, err := s.ledger.Apply(context.Background(), teamnote.Candidate{
+		ID: "candidate-handoff", Action: teamnote.ActionCreate, Kind: teamnote.KindHandoff,
+		Subject: "release", Body: "Continue the release.", TaskRef: "release-42",
+		Origin: evidence.Actor, AudienceAgentIDs: []string{"consumer-a"},
+		EvidenceEventIDs: []string{evidence.ID},
+	}, []teamnote.SessionEvent{evidence})
+	s.Require().NoError(err)
+
+	wrongAudience := consumerRecall("release-42", "wrong-audience")
+	wrongAudience.Actor.AgentID = "consumer-b"
+	envelope, err := s.ledger.Recall(context.Background(), wrongAudience)
+	s.Require().NoError(err)
+	s.Require().Empty(envelope.Items)
+
+	smallBudget := consumerRecall("release-42", "small-budget")
+	smallBudget.Actor.AgentID = "consumer-a"
+	smallBudget.TokenBudget = 1
+	envelope, err = s.ledger.Recall(context.Background(), smallBudget)
+	s.Require().NoError(err)
+	s.Require().Empty(envelope.Items)
+}
+
+func (s *ledgerSuite) TestQueryPrioritizesRelevantCurrentFact() {
+	generalEvidence := producerEvent("event-general", "The release has a blocker.")
+	_, err := s.ledger.Apply(context.Background(), teamnote.Candidate{
+		ID: "candidate-general", Action: teamnote.ActionCreate, Kind: teamnote.KindBlocker,
+		Subject: "release blocker", Body: "The release has a blocker.", Origin: generalEvidence.Actor,
+		EvidenceEventIDs: []string{generalEvidence.ID}, SourceOccurredAt: generalEvidence.OccurredAt,
+	}, []teamnote.SessionEvent{generalEvidence})
+	s.Require().NoError(err)
+
+	temporalEvidence := producerEvent("event-temporal", "The deadline moved to July 18.")
+	temporalEvidence.OccurredAt = temporalEvidence.OccurredAt.Add(time.Minute)
+	_, err = s.ledger.Apply(context.Background(), teamnote.Candidate{
+		ID: "candidate-temporal", Action: teamnote.ActionUpdate, Kind: teamnote.KindStatus,
+		Subject: "release readiness", Body: "The deadline moved to July 18.", Origin: temporalEvidence.Actor,
+		EvidenceEventIDs: []string{temporalEvidence.ID}, SourceOccurredAt: temporalEvidence.OccurredAt,
+		ValidAt: timePointer(time.Date(2026, time.July, 15, 0, 0, 0, 0, time.UTC)),
+	}, []teamnote.SessionEvent{temporalEvidence})
+	s.Require().NoError(err)
+
+	request := consumerRecall("", "temporal-consumer")
+	request.Query = "By which date should release readiness be complete?"
+	envelope, err := s.ledger.Recall(context.Background(), request)
+	s.Require().NoError(err)
+	s.Require().Len(envelope.Items, 2)
+	s.Equal("[status] The deadline moved to July 18. [valid: 2026-07-15T00:00:00Z to present]", envelope.Items[0])
+}
+
+func (s *ledgerSuite) TestRecallComposesOneHopRelatedFact() {
+	postingEvidence := producerEvent("event-posting", "User_7 must post final Ops rows by 2025-07-17.")
+	_, err := s.ledger.Apply(context.Background(), teamnote.Candidate{
+		ID: "candidate-posting", Action: teamnote.ActionCreate, Kind: teamnote.KindStatus,
+		Subject: "posting final Ops rows", Body: "User_7 must post final Ops rows by 2025-07-17.",
+		Origin: postingEvidence.Actor, EvidenceEventIDs: []string{postingEvidence.ID},
+	}, []teamnote.SessionEvent{postingEvidence})
+	s.Require().NoError(err)
+
+	reviewEvidence := producerEvent("event-review", "Legal reviews the provisional rows after User_7 posts them.")
+	reviewEvidence.OccurredAt = reviewEvidence.OccurredAt.Add(time.Minute)
+	_, err = s.ledger.Apply(context.Background(), teamnote.Candidate{
+		ID: "candidate-review", Action: teamnote.ActionCreate, Kind: teamnote.KindHandoff,
+		Subject:         "Legal review of provisional rows",
+		Body:            "Legal reviews the provisional rows after User_7 posts them.",
+		RelatedSubjects: []string{"posting final Ops rows"}, Origin: reviewEvidence.Actor,
+		EvidenceEventIDs: []string{reviewEvidence.ID},
+	}, []teamnote.SessionEvent{reviewEvidence})
+	s.Require().NoError(err)
+
+	request := consumerRecall("", "related-consumer")
+	request.Query = "When should Legal review the provisional rows?"
+	envelope, err := s.ledger.Recall(context.Background(), request)
+	s.Require().NoError(err)
+	s.Require().NotEmpty(envelope.Items)
+	s.Contains(envelope.Items[0], "Legal reviews the provisional rows")
+	s.Contains(envelope.Items[0], "related: posting final Ops rows: User_7 must post final Ops rows by 2025-07-17")
+}
+
+func timePointer(value time.Time) *time.Time {
+	return &value
+}
+
+func producerEvent(id, content string) teamnote.SessionEvent {
+	return teamnote.SessionEvent{
+		ID: id,
+		Actor: teamnote.Actor{
+			UserID: "owner", AgentID: "producer", SessionID: "producer-session",
+		},
+		Sequence: 1, Type: "assistant", Content: content, TaskRef: "release-42",
+		Visibility: "team_note_eligible", OccurredAt: time.Date(2026, time.July, 14, 11, 59, 0, 0, time.UTC),
+	}
+}
+
+func consumerRecall(taskRef, sessionID string) teamnote.RecallRequest {
+	return teamnote.RecallRequest{
+		Actor:   teamnote.Actor{UserID: "owner", AgentID: "consumer", SessionID: sessionID},
+		TaskRef: taskRef, TokenBudget: 256,
+	}
+}
+
+type fakeClock struct{ now time.Time }
+
+func (c *fakeClock) Now() time.Time { return c.now }

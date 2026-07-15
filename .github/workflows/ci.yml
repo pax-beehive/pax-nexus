@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  static-analysis:
+    name: Format, imports, and lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Check formatting and imports
+        run: make format-check
+      - name: Run linters
+        run: make lint
+
+  unit-tests:
+    name: Unit tests and coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Run unit tests with coverage threshold
+        run: make coverage
+
+  integration-tests:
+    name: PostgreSQL and River integration tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: team_memory
+          POSTGRES_USER: team_memory
+          POSTGRES_PASSWORD: team_memory
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U team_memory -d team_memory"
+          --health-interval 1s
+          --health-timeout 3s
+          --health-retries 30
+    env:
+      TEAM_MEMORY_TEST_POSTGRES_DSN: postgres://team_memory:team_memory@127.0.0.1:5432/team_memory?sslmode=disable
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Run PostgreSQL adapter and River worker tests
+        run: go test ./internal/platform/postgres ./internal/teamnote/extractionqueue -count=1

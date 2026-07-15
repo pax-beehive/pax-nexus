@@ -1,0 +1,48 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: team_memory
+      POSTGRES_USER: team_memory
+      POSTGRES_PASSWORD: team_memory
+    ports:
+      - "${TEAM_MEMORY_POSTGRES_PORT:-55432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U team_memory -d team_memory"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+    volumes:
+      - team-memory-postgres:/var/lib/postgresql/data
+
+  team-memory:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      TEAM_MEMORY_DATABASE_URL: postgres://team_memory:team_memory@postgres:5432/team_memory?sslmode=disable
+      TEAM_MEMORY_API_KEYS: '${TEAM_MEMORY_API_KEYS:-{"local-team-key":"local-team"}}'
+      TEAM_MEMORY_EXTRACTOR_MODE: ${TEAM_MEMORY_EXTRACTOR_MODE:-openai}
+      TEAM_MEMORY_EXTRACTOR_BASE_URL: ${TEAM_MEMORY_EXTRACTOR_BASE_URL:-https://api.deepseek.com}
+      TEAM_MEMORY_EXTRACTOR_API_KEY: ${TEAM_MEMORY_EXTRACTOR_API_KEY:-}
+      TEAM_MEMORY_EXTRACTOR_MODEL: ${TEAM_MEMORY_EXTRACTOR_MODEL:-deepseek-v4-flash}
+      TEAM_MEMORY_PROMPT_VERSION: ${TEAM_MEMORY_PROMPT_VERSION:-v1}
+      TEAM_MEMORY_WORKER_SHARDS: ${TEAM_MEMORY_WORKER_SHARDS:-4}
+      TEAM_MEMORY_WORKER_MAX_ATTEMPTS: ${TEAM_MEMORY_WORKER_MAX_ATTEMPTS:-5}
+      TEAM_MEMORY_WORKER_DEBOUNCE: ${TEAM_MEMORY_WORKER_DEBOUNCE:-750ms}
+      TEAM_MEMORY_BATCH_TIMEOUT: ${TEAM_MEMORY_BATCH_TIMEOUT:-30s}
+      TEAM_MEMORY_WORKER_JOB_TIMEOUT: ${TEAM_MEMORY_WORKER_JOB_TIMEOUT:-2m}
+      TEAM_MEMORY_WORKER_STOP_TIMEOUT: ${TEAM_MEMORY_WORKER_STOP_TIMEOUT:-30s}
+      TEAM_MEMORY_SLICE_EVENT_LIMIT: ${TEAM_MEMORY_SLICE_EVENT_LIMIT:-25}
+      TEAM_MEMORY_SLICE_TOKEN_LIMIT: ${TEAM_MEMORY_SLICE_TOKEN_LIMIT:-8192}
+      TEAM_MEMORY_SLICE_OVERLAP: ${TEAM_MEMORY_SLICE_OVERLAP:-3}
+      TEAM_MEMORY_MAX_SLICES_PER_JOB: ${TEAM_MEMORY_MAX_SLICES_PER_JOB:-4}
+    ports:
+      - "${TEAM_MEMORY_HTTP_PORT:-58080}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  team-memory-postgres:

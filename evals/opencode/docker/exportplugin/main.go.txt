@@ -1,0 +1,15 @@
+package main
+
+import (
+	"fmt"
+	"os"
+
+	"github.com/pax-beehive/paxm/internal/opencodeplugin"
+)
+
+func main() {
+	if _, err := fmt.Fprint(os.Stdout, opencodeplugin.Source); err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "export plugin: %v\n", err)
+		os.Exit(1)
+	}
+}

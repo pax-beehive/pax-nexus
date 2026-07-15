@@ -1,0 +1,69 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: team_memory
+      POSTGRES_USER: team_memory
+      POSTGRES_PASSWORD: team_memory
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U team_memory -d team_memory"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+
+  team-memory:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    environment:
+      TEAM_MEMORY_DATABASE_URL: postgres://team_memory:team_memory@postgres:5432/team_memory?sslmode=disable
+      TEAM_MEMORY_API_KEYS: '${TEAM_MEMORY_API_KEYS:-{"eval-team-key":"eval-team"}}'
+      TEAM_MEMORY_EXTRACTOR_MODE: ${TEAM_MEMORY_EXTRACTOR_MODE:-openai}
+      TEAM_MEMORY_EXTRACTOR_BASE_URL: ${TEAM_MEMORY_EXTRACTOR_BASE_URL:-https://api.openai.com}
+      TEAM_MEMORY_EXTRACTOR_API_KEY: ${TEAM_MEMORY_EXTRACTOR_API_KEY:-}
+      TEAM_MEMORY_EXTRACTOR_MODEL: ${TEAM_MEMORY_EXTRACTOR_MODEL:-gpt-4.1-mini}
+      TEAM_MEMORY_PROMPT_VERSION: ${TEAM_MEMORY_PROMPT_VERSION:-v1}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+
+  producer:
+    build:
+      context: ../..
+      dockerfile: evals/opencode/docker/opencode/Dockerfile
+      additional_contexts:
+        paxm: ${PAXM_SOURCE_DIR:?PAXM_SOURCE_DIR is required}
+      args:
+        OPENCODE_VERSION: ${OPENCODE_VERSION:-1.17.20}
+    environment: &agent-environment
+      TEAM_MEMORY_BASE_URL: http://team-memory:8080
+      TEAM_MEMORY_API_KEY: eval-team-key
+      PAXM_USER_ID: eval-owner
+      PAXM_AGENT_ID: opencode-producer
+      PAXM_EVAL_DIAGNOSTICS: "1"
+      OPENCODE_MODEL: ${OPENCODE_MODEL:?OPENCODE_MODEL is required}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+    volumes:
+      - ${EVAL_PRODUCER_WORKSPACE:-./workspaces/producer}:/workspace:ro
+    depends_on:
+      - team-memory
+
+  consumer:
+    build:
+      context: ../..
+      dockerfile: evals/opencode/docker/opencode/Dockerfile
+      additional_contexts:
+        paxm: ${PAXM_SOURCE_DIR:?PAXM_SOURCE_DIR is required}
+      args:
+        OPENCODE_VERSION: ${OPENCODE_VERSION:-1.17.20}
+    environment:
+      <<: *agent-environment
+      PAXM_AGENT_ID: opencode-consumer
+    volumes:
+      - ${EVAL_CONSUMER_WORKSPACE:-./workspaces/consumer}:/workspace:ro
+    depends_on:
+      - team-memory
