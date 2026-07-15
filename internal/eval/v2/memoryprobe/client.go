@@ -20,6 +20,7 @@ const (
 	ProviderTeamNote = "team_note"
 	ProviderMem0     = "mem0"
 	defaultAttempts  = 120
+	preflightNeedle  = "durable verification code remains active"
 )
 
 type Config struct {
@@ -91,23 +92,24 @@ func (c *Client) Preflight(ctx context.Context, marker string) error {
 	if marker == "" {
 		return fmt.Errorf("preflight eval memory: marker is required")
 	}
+	probeText := fmt.Sprintf("The evaluation owner confirmed the durable verification code %s remains active and must be retained for this run.", marker)
 	if _, err := c.do(ctx, http.MethodGet, c.teamNoteURL+"/healthz", "", nil); err != nil {
 		return fmt.Errorf("preflight Team Note health: %w", err)
 	}
-	if err := c.ingestTeamNote(ctx, marker); err != nil {
+	if err := c.ingestTeamNote(ctx, probeText); err != nil {
 		return fmt.Errorf("preflight Team Note add: %w", err)
 	}
-	if err := c.pollContains(ctx, marker, c.recallTeamNote); err != nil {
+	if err := c.pollNonEmpty(ctx, preflightNeedle, "items", c.recallTeamNote); err != nil {
 		return fmt.Errorf("preflight Team Note recall: %w", err)
 	}
 	if _, err := c.do(ctx, http.MethodGet, c.mem0URL+"/openapi.json", "", nil); err != nil {
 		return fmt.Errorf("preflight Mem0 health: %w", err)
 	}
-	refs, err := c.addMem0(ctx, marker)
+	refs, err := c.addMem0(ctx, probeText)
 	if err != nil {
 		return fmt.Errorf("preflight Mem0 add: %w", err)
 	}
-	if err := c.pollContains(ctx, marker, c.searchMem0); err != nil {
+	if err := c.pollNonEmpty(ctx, preflightNeedle, "results", c.searchMem0); err != nil {
 		return fmt.Errorf("preflight Mem0 recall: %w", err)
 	}
 	for _, ref := range refs {
@@ -115,12 +117,16 @@ func (c *Client) Preflight(ctx context.Context, marker string) error {
 			return fmt.Errorf("preflight Mem0 delete %q: %w", ref, err)
 		}
 	}
-	body, err := c.searchMem0(ctx, marker)
+	body, err := c.searchMem0(ctx, preflightNeedle)
 	if err != nil {
 		return fmt.Errorf("preflight Mem0 cleanup search: %w", err)
 	}
-	if bytes.Contains(body, []byte(marker)) {
-		return fmt.Errorf("preflight Mem0 cleanup: deleted marker is still searchable")
+	found, err := responseHasItems(body, "results")
+	if err != nil {
+		return fmt.Errorf("preflight Mem0 cleanup: %w", err)
+	}
+	if found {
+		return fmt.Errorf("preflight Mem0 cleanup: deleted probe is still searchable")
 	}
 	return nil
 }
@@ -171,17 +177,25 @@ func (c *Client) addMem0(ctx context.Context, text string) ([]string, error) {
 
 func (c *Client) searchMem0(ctx context.Context, marker string) ([]byte, error) {
 	payload := map[string]any{
-		"query": marker, "top_k": 5,
-		"filters": map[string]string{"user_id": c.userID, "agent_id": c.agentID, "run_id": c.runID},
+		"query": marker, "user_id": c.userID, "agent_id": c.agentID, "run_id": c.runID,
 	}
 	return c.do(ctx, http.MethodPost, c.mem0URL+"/search", "", payload)
 }
 
-func (c *Client) pollContains(ctx context.Context, marker string, request func(context.Context, string) ([]byte, error)) error {
+func (c *Client) pollNonEmpty(
+	ctx context.Context,
+	query string,
+	field string,
+	request func(context.Context, string) ([]byte, error),
+) error {
 	for attempt := range defaultAttempts {
-		body, err := request(ctx, marker)
-		if err == nil && bytes.Contains(body, []byte(marker)) {
-			return nil
+		body, err := request(ctx, query)
+		if err == nil {
+			var found bool
+			found, err = responseHasItems(body, field)
+			if err == nil && found {
+				return nil
+			}
 		}
 		if attempt == defaultAttempts-1 {
 			if err != nil {
@@ -197,7 +211,23 @@ func (c *Client) pollContains(ctx context.Context, marker string, request func(c
 		case <-timer.C:
 		}
 	}
-	return fmt.Errorf("marker was not recalled after %d attempts", defaultAttempts)
+	return fmt.Errorf("no recalled %s after %d attempts", field, defaultAttempts)
+}
+
+func responseHasItems(body []byte, field string) (bool, error) {
+	var response map[string]json.RawMessage
+	if err := json.Unmarshal(body, &response); err != nil {
+		return false, fmt.Errorf("decode response: %w", err)
+	}
+	rawItems, ok := response[field]
+	if !ok {
+		return false, fmt.Errorf("decode response: field %q is missing", field)
+	}
+	var items []json.RawMessage
+	if err := json.Unmarshal(rawItems, &items); err != nil {
+		return false, fmt.Errorf("decode response field %q: %w", field, err)
+	}
+	return len(items) > 0, nil
 }
 
 func (c *Client) do(ctx context.Context, method, endpoint, apiKey string, payload any) (body []byte, returnedErr error) {

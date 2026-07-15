@@ -15,6 +15,12 @@ team_note_scope_id="${PAX_EVAL_RUN_ID}-${scope_id}"
 
 . ./scripts/load-eval-v2-env.sh
 
+# Compose validates required variables for every service even though eval agent
+# calls use --no-deps and never recreate the already configured Team Memory
+# service. The real key map is applied by eval-v2-stack.sh during stack startup.
+TEAM_MEMORY_API_KEYS="${TEAM_MEMORY_API_KEYS:-{}}"
+export TEAM_MEMORY_API_KEYS
+
 run_agent() {
   workspace="$1"
   recall_enabled="$2"

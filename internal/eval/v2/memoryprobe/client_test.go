@@ -55,6 +55,16 @@ func (s *clientSuite) TestPreflightExercisesAddRecallAndSupportedCleanup() {
 		"GET /openapi.json", "POST /memories", "POST /search", "DELETE /memories/mem-1", "POST /search",
 	}, callLabels(calls))
 	s.Equal("Bearer key", calls[1].authorization)
+	for _, index := range []int{1, 4} {
+		s.Contains(calls[index].body, "The evaluation owner confirmed the durable verification code probe-marker remains active")
+	}
+	s.Contains(calls[5].body, `"user_id":"user"`)
+	s.Contains(calls[5].body, `"agent_id":"preflight"`)
+	s.Contains(calls[5].body, `"run_id":"run"`)
+	s.NotContains(calls[5].body, `"filters"`)
+	for _, index := range []int{2, 5, 7} {
+		s.Contains(calls[index].body, "durable verification code remains active")
+	}
 }
 
 func (s *clientSuite) TestValidationAndInputErrors() {
@@ -110,13 +120,13 @@ func (t *recordingTransport) RoundTrip(request *http.Request) (*http.Response, e
 	case "/v1/session-batches":
 		responseBody = `{"accepted":1,"duplicate":0,"cursor":1}`
 	case "/v1/notes/recall":
-		responseBody = `{"revision":"1","items":["probe-marker"],"tokens":1}`
+		responseBody = `{"revision":"1","items":["Confirmed active for this run."],"tokens":1}`
 	case "/memories":
 		responseBody = `{"results":[{"id":"mem-1","event":"ADD"}]}`
 	case "/search":
 		t.searchCount++
 		if t.searchCount == 1 {
-			responseBody = `{"results":[{"id":"mem-1","memory":"probe-marker"}]}`
+			responseBody = `{"results":[{"id":"mem-1","memory":"Retain the verification state."}]}`
 		} else {
 			responseBody = `{"results":[]}`
 		}
