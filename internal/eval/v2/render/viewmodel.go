@@ -47,16 +47,19 @@ type armStat struct {
 }
 
 type memoryIngestStat struct {
-	CaseID      string
-	Category    string
-	Arm         string
-	Provider    string
-	Accepted    int
-	Duplicate   int
-	Created     int
-	Updated     int
-	Deleted     int
-	NoOpDisplay string
+	CaseID         string
+	Category       string
+	Arm            string
+	Provider       string
+	Accepted       int
+	Duplicate      int
+	Created        int
+	Updated        int
+	Deleted        int
+	SourceEvents   int
+	SourceActors   int
+	SourceSessions int
+	NoOpDisplay    string
 }
 
 type pairwiseSummary struct {
@@ -169,6 +172,7 @@ func buildMemoryIngest(arms []armStat, results []v2.TrialResult) []memoryIngestS
 			CaseID: result.CaseID, Category: result.Category, Arm: result.Arm, Provider: result.MemoryIngestProvider,
 			Accepted: result.MemoryIngestAccepted, Duplicate: result.MemoryIngestDuplicate,
 			Created: result.MemoryIngestCreated, Updated: result.MemoryIngestUpdated, Deleted: result.MemoryIngestDeleted,
+			SourceEvents: result.MemorySourceEvents, SourceActors: result.MemorySourceActors, SourceSessions: result.MemorySourceSessions,
 			NoOpDisplay: noOpDisplay,
 		})
 	}

@@ -3,12 +3,16 @@ package groupmembench
 import (
 	"bufio"
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 	"unicode"
+
+	"github.com/pax-beehive/pax-nexus/internal/session"
 )
 
 type Manifest struct {
@@ -27,6 +31,9 @@ type ManifestCase struct {
 	AskingUserID    string `json:"asking_user_id"`
 	ScopeID         string `json:"scope_id"`
 	ContextMessages int    `json:"context_messages"`
+	IngestMode      string `json:"ingest_mode"`
+	SessionBatches  int    `json:"session_batches"`
+	Actors          int    `json:"actors"`
 }
 
 func LoadConversation(path string) ([]Message, error) {
@@ -80,6 +87,13 @@ func WriteCases(directory, revision, domain, seed string, cases []Case) error {
 		if err := writeSource(filepath.Join(caseDirectory, "producer", "source.md"), evalCase.Messages); err != nil {
 			return err
 		}
+		batches, actorCount, err := nativeSessionBatches(caseID, evalCase.Messages)
+		if err != nil {
+			return fmt.Errorf("prepare GroupMemBench native sessions %q: %w", caseID, err)
+		}
+		if err := writeJSON(filepath.Join(caseDirectory, "producer", "session-batches.json"), batches); err != nil {
+			return fmt.Errorf("write GroupMemBench native sessions %q: %w", caseID, err)
+		}
 		consumer := []byte("# Consumer workspace\n\nThis workspace intentionally contains no GroupMemBench source messages.\n")
 		if err := os.WriteFile(filepath.Join(caseDirectory, "consumer", "README.md"), consumer, 0o644); err != nil {
 			return fmt.Errorf("write consumer workspace %q: %w", caseID, err)
@@ -88,6 +102,7 @@ func WriteCases(directory, revision, domain, seed string, cases []Case) error {
 			ID: caseID, Category: evalCase.Category, Question: evalCase.Question.Question,
 			Answer: evalCase.Question.Answer, AskingUserID: evalCase.Question.AskingUserID,
 			ScopeID: "groupmembench-" + caseID, ContextMessages: len(evalCase.Messages),
+			IngestMode: "native_sessions", SessionBatches: len(batches), Actors: actorCount,
 		})
 	}
 	smoke, err := smokeManifest(manifest)
@@ -98,6 +113,81 @@ func WriteCases(directory, revision, domain, seed string, cases []Case) error {
 		return err
 	}
 	return writeJSON(filepath.Join(directory, "manifest.smoke.json"), smoke)
+}
+
+func nativeSessionBatches(caseID string, messages []Message) ([]session.SessionBatch, int, error) {
+	type batchState struct {
+		index int
+		actor session.Actor
+	}
+	batches := make([]session.SessionBatch, 0)
+	states := make(map[string]batchState)
+	actors := make(map[string]struct{})
+	for _, message := range messages {
+		occurredAt, err := parseTimestamp(message.Timestamp)
+		if err != nil {
+			return nil, 0, fmt.Errorf("write GroupMemBench session batch %q message %q: %w", caseID, message.NodeID, err)
+		}
+		key := strings.Join([]string{message.Author, message.Channel, message.PhaseName}, "\x00")
+		state, found := states[key]
+		if !found {
+			actor := session.Actor{
+				UserID:    message.Author,
+				AgentID:   "groupmembench-" + safeCaseID(message.Author),
+				SessionID: nativeSessionID(caseID, key),
+			}
+			state = batchState{index: len(batches), actor: actor}
+			states[key] = state
+			batches = append(batches, session.SessionBatch{Complete: true})
+			actors[actor.AgentID] = struct{}{}
+		}
+		metadata := map[string]string{
+			"role": message.Role, "channel": message.Channel, "phase": message.PhaseName,
+			"topic": message.Topic, "decision_point": fmt.Sprintf("%t", message.IsDecisionPoint),
+			"noise": fmt.Sprintf("%t", message.IsNoise),
+		}
+		if message.ReplyTo != "" {
+			metadata["reply_to"] = message.ReplyTo
+		}
+		if len(message.DecisionChangeMetadata) > 0 {
+			encoded, err := json.Marshal(message.DecisionChangeMetadata)
+			if err != nil {
+				return nil, 0, fmt.Errorf("encode message %q decision change metadata: %w", message.NodeID, err)
+			}
+			metadata["decision_change_metadata"] = string(encoded)
+		}
+		sequence := int64(len(batches[state.index].Events) + 1)
+		batches[state.index].Events = append(batches[state.index].Events, session.SessionEvent{
+			ID: message.NodeID, Actor: state.actor, Sequence: sequence, Type: "message", Content: message.Content,
+			Visibility: "team_note_eligible",
+			OccurredAt: occurredAt, CapturedAt: occurredAt, Metadata: metadata,
+		})
+	}
+	return batches, len(actors), nil
+}
+
+func parseTimestamp(value string) (time.Time, error) {
+	value = strings.TrimSpace(value)
+	for _, layout := range []string{time.RFC3339Nano, "2006-01-02T15:04:05"} {
+		var (
+			parsed time.Time
+			err    error
+		)
+		if layout == time.RFC3339Nano {
+			parsed, err = time.Parse(layout, value)
+		} else {
+			parsed, err = time.ParseInLocation(layout, value, time.UTC)
+		}
+		if err == nil {
+			return parsed.UTC(), nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("timestamp %q must use RFC3339 format", value)
+}
+
+func nativeSessionID(caseID, key string) string {
+	digest := sha256.Sum256([]byte(caseID + "\x00" + key))
+	return fmt.Sprintf("groupmembench-%s-%x", safeCaseID(caseID), digest[:8])
 }
 
 func smokeManifest(source Manifest) (Manifest, error) {

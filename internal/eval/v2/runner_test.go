@@ -112,6 +112,24 @@ func (s *runnerSuite) TestSharedProducerRunsOnceAndFeedsBothMemoryArms() {
 	s.Require().NoError(err)
 }
 
+func (s *runnerSuite) TestNativeIngestRunsWithoutSharedProducer() {
+	store := newFakeStore()
+	executor := &fakeExecutor{}
+	runner, err := NewRunner(store, executor, nil)
+	s.Require().NoError(err)
+	config := testConfig(s.T().TempDir())
+	config.Arms[1].Producer = nil
+	config.Arms[1].Ingest = &CommandSpec{Program: "ingest"}
+
+	_, results, err := runner.Run(context.Background(), config, []Case{{ID: "case", Question: "q", Expected: "answer", AskingUserID: "user"}}, "revision")
+	s.Require().NoError(err)
+	s.Len(results, 2)
+	s.Zero(executor.count("producer"))
+	s.Equal(1, executor.count("ingest"))
+	s.Equal(2, executor.count("consumer"))
+	s.Zero(findResult(results, "memory").ProducerDurationMS)
+}
+
 func (s *runnerSuite) TestRunPersistsMemoryIngestNoOpReceipt() {
 	store := newFakeStore()
 	executor := &fakeExecutor{ingestOutput: []byte(`{"provider":"mem0","accepted":0,"duplicate":0,"created":0,"updated":0,"deleted":0,"noop_known":true,"noop":true}`)}

@@ -31,10 +31,6 @@ output:
 preflight:
   program: scripts/eval-v2-opencode.sh
   args: [preflight, all]
-shared_producer:
-  program: scripts/eval-v2-opencode.sh
-  args: [producer, shared]
-  success_marker: "{{shared_artifact_dir}}/producer.command-success"
 arms:
   - name: control
     consumer:

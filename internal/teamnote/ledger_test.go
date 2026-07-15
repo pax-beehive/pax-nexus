@@ -260,6 +260,35 @@ func (s *ledgerSuite) TestQueryFiltersIrrelevantNotesAndEnforcesItemLimit() {
 	s.Contains(envelope.Details[0].Text, "July 28")
 }
 
+func (s *ledgerSuite) TestFirstPersonQueryPrefersTheAskingUsersOwnSource() {
+	otherEvidence := producerEvent("event-other-assignment", "The rollout assignment is to validate billing.")
+	otherEvidence.Actor.UserID = "User_7"
+	otherEvidence.OccurredAt = otherEvidence.OccurredAt.Add(time.Minute)
+	_, err := s.ledger.Apply(context.Background(), teamnote.Candidate{
+		ID: "candidate-other-assignment", Action: teamnote.ActionCreate, Kind: teamnote.KindHandoff,
+		Subject: "rollout assignment", Body: "The rollout assignment is to validate billing.",
+		Origin: otherEvidence.Actor, EvidenceEventIDs: []string{otherEvidence.ID},
+	}, []teamnote.SessionEvent{otherEvidence})
+	s.Require().NoError(err)
+
+	ownEvidence := producerEvent("event-own-assignment", "The rollout assignment is to verify exports.")
+	_, err = s.ledger.Apply(context.Background(), teamnote.Candidate{
+		ID: "candidate-own-assignment", Action: teamnote.ActionCreate, Kind: teamnote.KindStatus,
+		Subject: "rollout assignment", Body: "The rollout assignment is to verify exports.",
+		Origin: ownEvidence.Actor, EvidenceEventIDs: []string{ownEvidence.ID},
+	}, []teamnote.SessionEvent{ownEvidence})
+	s.Require().NoError(err)
+
+	request := consumerRecall("", "identity-aware-consumer")
+	request.Query = "What is my rollout assignment?"
+	request.MaxItems = 1
+	envelope, err := s.ledger.Recall(context.Background(), request)
+	s.Require().NoError(err)
+	s.Require().Len(envelope.Details, 1)
+	s.Equal("owner", envelope.Details[0].Origin.UserID)
+	s.Contains(envelope.Details[0].Text, "verify exports")
+}
+
 func (s *ledgerSuite) TestRecallComposesOneHopRelatedFact() {
 	postingEvidence := producerEvent("event-posting", "User_7 must post final Ops rows by 2025-07-17.")
 	_, err := s.ledger.Apply(context.Background(), teamnote.Candidate{

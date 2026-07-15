@@ -1,6 +1,6 @@
 # Eval v2 faster execution and profiles
 
-Status: implemented
+Status: superseded by native multi-agent ingestion
 Date: 2026-07-15
 
 ## Confirmed scope
@@ -32,3 +32,13 @@ adding provider-internal cost accounting:
   abstention case. The acceptance manifest remains 30 balanced cases.
 - DeepSeek thinking configuration and Team Note/Mem0 internal cost collection
   are unchanged.
+
+## Superseding accuracy correction
+
+The shared producer met the original speed/fairness requirement but flattened
+speaker identity and added a producer-model transformation before either memory
+system saw the benchmark. The current GroupMemBench path instead materializes
+the selected source messages as native session batches. Both providers receive
+the same events; Team Note preserves source actor/session provenance and Mem0
+receives a deterministic transcript rendered from them. The runner retains
+`shared_producer` only for compatibility with older experiments.

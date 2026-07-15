@@ -48,8 +48,44 @@ func (s *entrypointSuite) TestConsumerKeepsAnswerPolicyOutOfRecallPrompt() {
 	arguments := strings.Split(strings.TrimSpace(string(input)), "\n")
 	s.Equal(question, arguments[len(arguments)-1])
 	s.Contains(arguments, "PAXM_EVAL_CONSUMER_POLICY=1")
+	s.Contains(arguments, "PAXM_AGENT_ID=groupmembench-eval-owner")
 	s.Contains(arguments, "--agent")
 	s.Contains(arguments, "eval-consumer")
+}
+
+func (s *entrypointSuite) TestIngestUsesNativeSessionBatchArtifact() {
+	repositoryRoot, err := filepath.Abs(filepath.Join("..", "..", "..", ".."))
+	s.Require().NoError(err)
+	directory := s.T().TempDir()
+	binDirectory := filepath.Join(directory, "bin")
+	s.Require().NoError(os.Mkdir(binDirectory, 0o700))
+	capture := filepath.Join(directory, "docker-args")
+	docker := filepath.Join(binDirectory, "docker")
+	s.Require().NoError(os.WriteFile(docker, []byte("#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$DOCKER_CAPTURE\"\n"), 0o700))
+	batches := filepath.Join(directory, "session-batches.json")
+	s.Require().NoError(os.WriteFile(batches, []byte("[]"), 0o600))
+
+	command := exec.Command("sh", filepath.Join(repositoryRoot, "scripts", "eval-v2-opencode.sh"), "ingest", "team_note")
+	command.Dir = repositoryRoot
+	command.Env = []string{
+		"PATH=" + binDirectory + string(os.PathListSeparator) + os.Getenv("PATH"),
+		"DOCKER_CAPTURE=" + capture,
+		"PAX_EVAL_RUN_ID=native-ingest-test",
+		"PAX_EVAL_CASE_ID=case-1",
+		"PAX_EVAL_SCOPE_ID=scope-1",
+		"PAX_EVAL_USER_ID=User_3",
+		"PAX_EVAL_SESSION_BATCHES_FILE=" + batches,
+		"TEAM_MEMORY_API_KEYS={}",
+	}
+	output, err := command.CombinedOutput()
+	s.Require().NoError(err, string(output))
+	input, err := os.ReadFile(capture)
+	s.Require().NoError(err)
+	arguments := strings.Split(strings.TrimSpace(string(input)), "\n")
+	s.Contains(arguments, "PAXM_AGENT_ID=groupmembench-User_3")
+	s.Contains(arguments, "-session-batches-file")
+	s.Contains(arguments, "/artifact/session-batches.json")
+	s.NotContains(arguments, "-text-file")
 }
 
 func (s *entrypointSuite) TestConsumerPolicyUsesDedicatedOpenCodeAgent() {

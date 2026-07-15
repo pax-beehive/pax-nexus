@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-const ArtifactSchemaVersion = "pax-eval-v2.5"
+const ArtifactSchemaVersion = "pax-eval-v2.6"
 
 type SummaryRow struct {
 	DimensionType     string
@@ -356,7 +356,7 @@ func writeJSONLines(path string, results []TrialResult) error {
 }
 
 func writeTrialsCSV(path string, results []TrialResult) error {
-	header := []string{"run_id", "dataset", "dataset_revision", "case_id", "category", "arm", "asking_user_id", "status", "memory_ingest_provider", "memory_ingest_accepted", "memory_ingest_duplicate", "memory_ingest_created", "memory_ingest_updated", "memory_ingest_deleted", "memory_ingest_noop_known", "memory_ingest_noop", "exact", "safe_success", "token_f1", "input_tokens", "output_tokens", "cost", "cost_scope", "producer_input_tokens", "producer_output_tokens", "producer_cost", "consumer_input_tokens", "consumer_output_tokens", "consumer_cost", "producer_duration_ms", "readiness_duration_ms", "consumer_duration_ms", "total_duration_ms", "session_id", "question", "expected", "answer", "error", "started_at", "completed_at"}
+	header := []string{"run_id", "dataset", "dataset_revision", "case_id", "category", "arm", "asking_user_id", "status", "memory_ingest_provider", "memory_ingest_accepted", "memory_ingest_duplicate", "memory_ingest_created", "memory_ingest_updated", "memory_ingest_deleted", "memory_ingest_noop_known", "memory_ingest_noop", "memory_source_events", "memory_source_actors", "memory_source_sessions", "exact", "safe_success", "token_f1", "input_tokens", "output_tokens", "cost", "cost_scope", "producer_input_tokens", "producer_output_tokens", "producer_cost", "consumer_input_tokens", "consumer_output_tokens", "consumer_cost", "producer_duration_ms", "readiness_duration_ms", "consumer_duration_ms", "total_duration_ms", "session_id", "question", "expected", "answer", "error", "started_at", "completed_at"}
 	rows := make([][]string, 0, len(results))
 	for _, result := range results {
 		rows = append(rows, []string{
@@ -364,6 +364,7 @@ func writeTrialsCSV(path string, results []TrialResult) error {
 			result.MemoryIngestProvider, strconv.Itoa(result.MemoryIngestAccepted), strconv.Itoa(result.MemoryIngestDuplicate),
 			strconv.Itoa(result.MemoryIngestCreated), strconv.Itoa(result.MemoryIngestUpdated), strconv.Itoa(result.MemoryIngestDeleted),
 			strconv.FormatBool(result.MemoryIngestNoOpKnown), strconv.FormatBool(result.MemoryIngestNoOp),
+			strconv.Itoa(result.MemorySourceEvents), strconv.Itoa(result.MemorySourceActors), strconv.Itoa(result.MemorySourceSessions),
 			strconv.FormatBool(result.Exact), strconv.FormatBool(result.SafeSuccess), floatString(result.TokenF1), strconv.Itoa(result.InputTokens),
 			strconv.Itoa(result.OutputTokens), floatString(result.Cost), result.CostScope,
 			strconv.Itoa(result.ProducerInputTokens), strconv.Itoa(result.ProducerOutputTokens), floatString(result.ProducerCost),

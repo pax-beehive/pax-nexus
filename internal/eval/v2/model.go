@@ -108,6 +108,9 @@ type TrialResult struct {
 	MemoryIngestDeleted   int       `json:"memory_ingest_deleted"`
 	MemoryIngestNoOpKnown bool      `json:"memory_ingest_noop_known"`
 	MemoryIngestNoOp      bool      `json:"memory_ingest_noop"`
+	MemorySourceEvents    int       `json:"memory_source_events"`
+	MemorySourceActors    int       `json:"memory_source_actors"`
+	MemorySourceSessions  int       `json:"memory_source_sessions"`
 	Expected              string    `json:"expected"`
 	Answer                string    `json:"answer"`
 	Exact                 bool      `json:"exact"`
@@ -208,8 +211,8 @@ func validateArms(config Config) error {
 			ingestArms++
 		}
 	}
-	if (config.SharedProducer == nil) != (ingestArms == 0) {
-		return fmt.Errorf("validate eval config: shared_producer and at least one ingest arm are required together")
+	if config.SharedProducer != nil && ingestArms == 0 {
+		return fmt.Errorf("validate eval config: shared_producer requires at least one ingest arm")
 	}
 	if config.SharedProducer != nil && strings.TrimSpace(config.SharedProducer.SuccessMarker) == "" {
 		return fmt.Errorf("validate eval config: shared_producer success_marker is required")

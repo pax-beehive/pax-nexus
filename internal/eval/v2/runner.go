@@ -284,7 +284,7 @@ func (r *Runner) executeTrial(
 	var producerOutput harness.AgentOutput
 	var ingestResult memoryprobe.IngestResult
 	if arm.Ingest != nil {
-		producerDuration, ingestDuration, observedIngest, err := r.runSharedIngest(ctx, run, evalCase, arm, sharedSpec, shared, variables, artifactDir, outputDir)
+		producerDuration, ingestDuration, observedIngest, err := r.runMemoryIngest(ctx, run, evalCase, arm, sharedSpec, shared, variables, artifactDir, outputDir)
 		durations[0], durations[1] = producerDuration, ingestDuration
 		partial.ProducerDurationMS = durations[0].Milliseconds()
 		if err != nil {
@@ -322,7 +322,7 @@ func (r *Runner) executeTrial(
 	return withMemoryIngest(ScoreResult(run, evalCase, arm.Name, producerOutput, output, started, durations), ingestResult), nil
 }
 
-func (r *Runner) runSharedIngest(
+func (r *Runner) runMemoryIngest(
 	ctx context.Context,
 	run RunRecord,
 	evalCase Case,
@@ -333,27 +333,31 @@ func (r *Runner) runSharedIngest(
 	artifactDir string,
 	outputDir string,
 ) (time.Duration, time.Duration, memoryprobe.IngestResult, error) {
-	if sharedSpec == nil || shared == nil {
-		return 0, 0, memoryprobe.IngestResult{}, fmt.Errorf("run shared producer: shared producer is not configured")
-	}
-	shared.once.Do(func() {
-		shared.result, shared.output, shared.err = r.executeSharedProducer(ctx, run, evalCase, *sharedSpec, outputDir)
-	})
-	if shared.err != nil {
-		return shared.result.Duration, 0, memoryprobe.IngestResult{}, shared.err
+	producerDuration := time.Duration(0)
+	if sharedSpec != nil {
+		if shared == nil {
+			return 0, 0, memoryprobe.IngestResult{}, fmt.Errorf("run shared producer: shared state is not configured")
+		}
+		shared.once.Do(func() {
+			shared.result, shared.output, shared.err = r.executeSharedProducer(ctx, run, evalCase, *sharedSpec, outputDir)
+		})
+		producerDuration = shared.result.Duration
+		if shared.err != nil {
+			return producerDuration, 0, memoryprobe.IngestResult{}, shared.err
+		}
 	}
 	result, err := r.executor.Execute(ctx, *arm.Ingest, variables, filepath.Join(artifactDir, "ingest.log"), filepath.Join(artifactDir, "ingest.stderr.log"))
 	if err != nil {
-		return shared.result.Duration, result.Duration, memoryprobe.IngestResult{}, fmt.Errorf("ingest shared producer transcript: %w", err)
+		return producerDuration, result.Duration, memoryprobe.IngestResult{}, fmt.Errorf("ingest evaluation memory: %w", err)
 	}
 	var ingest memoryprobe.IngestResult
 	if err := json.Unmarshal(bytes.TrimSpace(result.Output), &ingest); err != nil {
-		return shared.result.Duration, result.Duration, memoryprobe.IngestResult{}, fmt.Errorf("decode memory ingest result: %w", err)
+		return producerDuration, result.Duration, memoryprobe.IngestResult{}, fmt.Errorf("decode memory ingest result: %w", err)
 	}
 	if ingest.Provider == "" {
-		return shared.result.Duration, result.Duration, memoryprobe.IngestResult{}, fmt.Errorf("decode memory ingest result: provider is required")
+		return producerDuration, result.Duration, memoryprobe.IngestResult{}, fmt.Errorf("decode memory ingest result: provider is required")
 	}
-	return shared.result.Duration, result.Duration, ingest, nil
+	return producerDuration, result.Duration, ingest, nil
 }
 
 func withMemoryIngest(result TrialResult, ingest memoryprobe.IngestResult) TrialResult {
@@ -365,6 +369,9 @@ func withMemoryIngest(result TrialResult, ingest memoryprobe.IngestResult) Trial
 	result.MemoryIngestDeleted = ingest.Deleted
 	result.MemoryIngestNoOpKnown = ingest.NoOpKnown
 	result.MemoryIngestNoOp = ingest.NoOp
+	result.MemorySourceEvents = ingest.SourceEvents
+	result.MemorySourceActors = ingest.SourceActors
+	result.MemorySourceSessions = ingest.SourceSessions
 	return result
 }
 
@@ -570,6 +577,7 @@ func trialVariables(run RunRecord, evalCase Case, arm, outputDir string) map[str
 		"consumer_workspace": evalCase.ConsumerWorkspace, "artifact_dir": artifactDir,
 		"shared_artifact_dir":  sharedArtifactDir,
 		"shared_producer_text": filepath.Join(sharedArtifactDir, "producer.txt"),
+		"session_batches_file": filepath.Join(evalCase.ProducerWorkspace, "session-batches.json"),
 	}
 }
 

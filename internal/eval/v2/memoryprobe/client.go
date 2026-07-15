@@ -12,8 +12,11 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
+
+	"github.com/pax-beehive/pax-nexus/internal/session"
 )
 
 const (
@@ -46,14 +49,17 @@ type Client struct {
 }
 
 type IngestResult struct {
-	Provider  string `json:"provider"`
-	Accepted  int    `json:"accepted"`
-	Duplicate int    `json:"duplicate"`
-	Created   int    `json:"created"`
-	Updated   int    `json:"updated"`
-	Deleted   int    `json:"deleted"`
-	NoOpKnown bool   `json:"noop_known"`
-	NoOp      bool   `json:"noop"`
+	Provider       string `json:"provider"`
+	Accepted       int    `json:"accepted"`
+	Duplicate      int    `json:"duplicate"`
+	Created        int    `json:"created"`
+	Updated        int    `json:"updated"`
+	Deleted        int    `json:"deleted"`
+	NoOpKnown      bool   `json:"noop_known"`
+	NoOp           bool   `json:"noop"`
+	SourceEvents   int    `json:"source_events,omitempty"`
+	SourceActors   int    `json:"source_actors,omitempty"`
+	SourceSessions int    `json:"source_sessions,omitempty"`
 }
 
 func New(config Config) (*Client, error) {
@@ -96,6 +102,132 @@ func (c *Client) Ingest(ctx context.Context, provider, text string) (IngestResul
 	default:
 		return IngestResult{}, fmt.Errorf("ingest eval transcript: unsupported provider %q", provider)
 	}
+}
+
+// IngestBatches feeds the same native source events to each memory provider.
+// Team Note retains the source sessions and actors, while Mem0 receives a
+// deterministic transcript because its API accepts conversational messages.
+func (c *Client) IngestBatches(ctx context.Context, provider string, batches []session.SessionBatch) (IngestResult, error) {
+	counts, err := validateBatches(batches)
+	if err != nil {
+		return IngestResult{}, fmt.Errorf("ingest native eval memory: %w", err)
+	}
+	var result IngestResult
+	switch provider {
+	case ProviderTeamNote:
+		result, err = c.ingestTeamNoteBatches(ctx, batches)
+	case ProviderMem0:
+		var added mem0AddResult
+		added, err = c.addMem0(ctx, renderBatches(batches))
+		result = added.IngestResult
+	default:
+		return IngestResult{}, fmt.Errorf("ingest eval session batches: unsupported provider %q", provider)
+	}
+	if err != nil {
+		return IngestResult{}, fmt.Errorf("ingest native eval memory with %s: %w", provider, err)
+	}
+	result.SourceEvents = counts.events
+	result.SourceActors = counts.actors
+	result.SourceSessions = counts.sessions
+	return result, nil
+}
+
+type batchCounts struct {
+	events   int
+	actors   int
+	sessions int
+}
+
+func validateBatches(batches []session.SessionBatch) (batchCounts, error) {
+	if len(batches) == 0 {
+		return batchCounts{}, fmt.Errorf("ingest eval session batches: at least one batch is required")
+	}
+	actorIDs := make(map[string]struct{})
+	sessionIDs := make(map[string]struct{})
+	eventCount := 0
+	for batchIndex, batch := range batches {
+		if !batch.Complete || len(batch.Events) == 0 {
+			return batchCounts{}, fmt.Errorf("ingest eval session batches: batch %d must be complete and contain events", batchIndex)
+		}
+		first := batch.Events[0].Actor
+		previousSequence := int64(0)
+		for eventIndex, event := range batch.Events {
+			if strings.TrimSpace(event.ID) == "" || strings.TrimSpace(event.Content) == "" ||
+				strings.TrimSpace(event.Actor.UserID) == "" || strings.TrimSpace(event.Actor.AgentID) == "" || strings.TrimSpace(event.Actor.SessionID) == "" {
+				return batchCounts{}, fmt.Errorf("ingest eval session batches: batch %d event %d has empty required fields", batchIndex, eventIndex)
+			}
+			if event.Actor != first {
+				return batchCounts{}, fmt.Errorf("ingest eval session batches: batch %d mixes actor sessions", batchIndex)
+			}
+			if event.Sequence <= previousSequence {
+				return batchCounts{}, fmt.Errorf("ingest eval session batches: batch %d sequences must increase", batchIndex)
+			}
+			previousSequence = event.Sequence
+			eventCount++
+		}
+		actorIDs[first.AgentID] = struct{}{}
+		sessionIDs[first.SessionID] = struct{}{}
+	}
+	return batchCounts{events: eventCount, actors: len(actorIDs), sessions: len(sessionIDs)}, nil
+}
+
+func (c *Client) ingestTeamNoteBatches(ctx context.Context, batches []session.SessionBatch) (IngestResult, error) {
+	result := IngestResult{Provider: ProviderTeamNote}
+	for index, batch := range batches {
+		body, err := c.do(ctx, http.MethodPost, c.teamNoteURL+"/v1/session-batches", c.teamNoteAPIKey, batch)
+		if err != nil {
+			return IngestResult{}, fmt.Errorf("ingest Team Note session batch %d: %w", index, err)
+		}
+		var receipt teamNoteReceipt
+		if err := json.Unmarshal(body, &receipt); err != nil {
+			return IngestResult{}, fmt.Errorf("decode Team Note session batch %d response: %w", index, err)
+		}
+		result.Accepted += receipt.Accepted
+		result.Duplicate += receipt.Duplicate
+	}
+	return result, nil
+}
+
+func renderBatches(batches []session.SessionBatch) string {
+	events := make([]session.SessionEvent, 0)
+	for _, batch := range batches {
+		events = append(events, batch.Events...)
+	}
+	slices.SortStableFunc(events, func(left, right session.SessionEvent) int {
+		if comparison := left.OccurredAt.Compare(right.OccurredAt); comparison != 0 {
+			return comparison
+		}
+		return strings.Compare(left.ID, right.ID)
+	})
+	parts := []string{"# GroupMemBench native conversation events\n\n"}
+	for _, event := range events {
+		parts = append(parts, fmt.Sprintf("## %s\n\n", event.ID))
+		parts = append(parts, fmt.Sprintf("- User: %s\n- Agent: %s\n", event.Actor.UserID, event.Actor.AgentID))
+		if role := event.Metadata["role"]; role != "" {
+			parts = append(parts, fmt.Sprintf("- Role: %s\n", role))
+		}
+		for _, field := range []struct {
+			label string
+			key   string
+		}{
+			{label: "Channel", key: "channel"},
+			{label: "Phase", key: "phase"},
+			{label: "Topic", key: "topic"},
+			{label: "Decision point", key: "decision_point"},
+			{label: "Noise", key: "noise"},
+			{label: "Decision change metadata", key: "decision_change_metadata"},
+		} {
+			if value := event.Metadata[field.key]; value != "" {
+				parts = append(parts, fmt.Sprintf("- %s: %s\n", field.label, value))
+			}
+		}
+		parts = append(parts, fmt.Sprintf("- Timestamp: %s\n", event.OccurredAt.UTC().Format(time.RFC3339Nano)))
+		if replyTo := event.Metadata["reply_to"]; replyTo != "" {
+			parts = append(parts, fmt.Sprintf("- Reply to: %s\n", replyTo))
+		}
+		parts = append(parts, fmt.Sprintf("\n%s\n\n", event.Content))
+	}
+	return strings.Join(parts, "")
 }
 
 func (c *Client) Preflight(ctx context.Context, marker string) error {

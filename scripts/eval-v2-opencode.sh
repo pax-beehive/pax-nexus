@@ -9,7 +9,7 @@ case_id="${PAX_EVAL_CASE_ID:-preflight}"
 eval_user_id="${PAX_EVAL_USER_ID:-eval-owner}"
 scope_id="${PAX_EVAL_SCOPE_ID:-preflight}"
 api_key="eval-${PAX_EVAL_RUN_ID}-${case_id}"
-agent_id="${arm}-${stage}-${case_id}"
+agent_id="groupmembench-${eval_user_id}"
 mem0_run_id="${PAX_EVAL_RUN_ID}-${case_id}"
 team_note_scope_id="${PAX_EVAL_RUN_ID}-${scope_id}"
 
@@ -71,7 +71,7 @@ run_memory_ingest() {
     -e PAXM_USER_ID="${eval_user_id}" \
     -e PAXM_AGENT_ID="${helper_agent_id}" \
     -e MEM0_RUN_ID="${helper_run_id}" \
-    opencode -action ingest -provider "${helper_provider}" -text-file "${helper_file}"
+    opencode -action ingest -provider "${helper_provider}" -session-batches-file "${helper_file}"
 }
 
 run_memory_preflight() {
@@ -99,11 +99,11 @@ case "${stage}" in
       "Read source.md. Produce a complete factual handoff of every current decision, date, owner, dependency, and unresolved blocker. Preserve author identities and exact values." 0
     ;;
   ingest)
-    shared_dir="$(dirname "${PAX_EVAL_SHARED_PRODUCER_TEXT}")"
-    shared_file="$(basename "${PAX_EVAL_SHARED_PRODUCER_TEXT}")"
-    shared_absolute="$(cd "${shared_dir}" && pwd -P)"
-    run_memory_ingest "${arm}" "${api_key}" "shared-producer-${case_id}" "${mem0_run_id}" \
-      "${shared_absolute}" "/artifact/${shared_file}"
+    batches_dir="$(dirname "${PAX_EVAL_SESSION_BATCHES_FILE}")"
+    batches_file="$(basename "${PAX_EVAL_SESSION_BATCHES_FILE}")"
+    batches_absolute="$(cd "${batches_dir}" && pwd -P)"
+    run_memory_ingest "${arm}" "${api_key}" "${agent_id}" "${mem0_run_id}" \
+      "${batches_absolute}" "/artifact/${batches_file}"
     ;;
   preflight)
     preflight_key="eval-${PAX_EVAL_RUN_ID}-preflight"
@@ -113,15 +113,16 @@ case "${stage}" in
   ready)
     if [ "${arm}" = "team_note" ]; then
       attempts=0
-      while [ "${attempts}" -lt 120 ]; do
-        ready="$(printf '%s' "SELECT CASE WHEN EXISTS (SELECT 1 FROM session_streams WHERE scope_id = :'scope_id' AND complete AND extraction_cursor >= last_sequence) THEN 1 ELSE 0 END" | docker compose -p "${project_name}" -f "${compose_file}" exec -T postgres psql -U team_memory -d team_memory -v scope_id="${team_note_scope_id}" -At 2>/dev/null || true)"
+      readiness_attempts="${PAX_EVAL_READINESS_ATTEMPTS:-480}"
+      while [ "${attempts}" -lt "${readiness_attempts}" ]; do
+        ready="$(printf '%s' "SELECT CASE WHEN EXISTS (SELECT 1 FROM session_streams WHERE scope_id = :'scope_id') AND NOT EXISTS (SELECT 1 FROM session_streams WHERE scope_id = :'scope_id' AND (NOT complete OR extraction_cursor < last_sequence)) THEN 1 ELSE 0 END" | docker compose -p "${project_name}" -f "${compose_file}" exec -T postgres psql -U team_memory -d team_memory -v scope_id="${team_note_scope_id}" -At 2>/dev/null || true)"
         if [ "${ready:-0}" -eq 1 ] 2>/dev/null; then
           exit 0
         fi
         attempts=$((attempts + 1))
         sleep 1
       done
-      echo "timed out waiting for Team Note extraction" >&2
+      echo "timed out waiting for all Team Note session streams after ${readiness_attempts} attempts" >&2
       exit 1
     fi
     ;;

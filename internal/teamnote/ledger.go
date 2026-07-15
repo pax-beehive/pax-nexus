@@ -267,6 +267,13 @@ func (l *Ledger) eligibleNotes(now time.Time, request RecallRequest) []Note {
 		if leftScore != rightScore {
 			return leftScore > rightScore
 		}
+		if QueryRequestsOwnContext(request.Query) {
+			leftOwn := notes[i].Origin.UserID == request.Actor.UserID
+			rightOwn := notes[j].Origin.UserID == request.Actor.UserID
+			if leftOwn != rightOwn {
+				return leftOwn
+			}
+		}
 		left, right := notePriority(notes[i].Kind), notePriority(notes[j].Kind)
 		if left != right {
 			return left < right
@@ -274,6 +281,20 @@ func (l *Ledger) eligibleNotes(now time.Time, request RecallRequest) []Note {
 		return notes[i].UpdatedAt.After(notes[j].UpdatedAt)
 	})
 	return notes
+}
+
+// QueryRequestsOwnContext identifies first-person questions where source user
+// provenance can resolve otherwise equally relevant team facts.
+func QueryRequestsOwnContext(query string) bool {
+	for _, term := range strings.FieldsFunc(strings.ToLower(query), func(value rune) bool {
+		return value < 'a' || value > 'z'
+	}) {
+		switch term {
+		case "i", "me", "my", "mine", "we", "our", "ours":
+			return true
+		}
+	}
+	return false
 }
 
 func (l *Ledger) eligibleForRecall(note Note, request RecallRequest) bool {
