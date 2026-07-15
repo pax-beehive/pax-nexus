@@ -16,12 +16,16 @@ type reportData struct {
 	TotalTrials     int
 	FailedTrials    int
 	CaseCount       int
+	CostScope       string
 	Runtime         []keyValue
 	Arms            []armStat
 	BaselineArm     string
 	CandidateArm    string
 	Pairwise        []pairwiseSummary
 	Categories      []categoryRow
+	QualityChart    barChart
+	CostChart       barChart
+	DurationChart   barChart
 	FieldNotes      []fieldNote
 	CaseGroups      []caseGroup
 }
@@ -58,6 +62,19 @@ type categoryRow struct {
 type categoryCell struct {
 	Arm       string
 	F1Display string
+}
+
+type barChart struct {
+	Max        float64
+	MaxDisplay string
+	Bars       []chartBar
+}
+
+type chartBar struct {
+	Arm          string
+	SeriesClass  string
+	Value        float64
+	ValueDisplay string
 }
 
 type fieldNote struct {
@@ -98,22 +115,68 @@ func buildReportData(run v2.RunRecord, baselineArm string, results []v2.TrialRes
 	stats := buildArmStats(arms, baselineArm, summaries)
 	candidate := leadingCandidate(pairwise, arms, baselineArm)
 	failed, caseCount := resultCounts(results)
+	costs := v2.CostTotals(results)
 	return reportData{
 		RunID: run.ID, Dataset: run.Dataset, DatasetRevision: run.DatasetRevision,
 		GeneratedAt: time.Now().UTC().Format("2006-01-02 15:04 UTC"),
-		TotalTrials: len(results), FailedTrials: failed, CaseCount: caseCount,
+		TotalTrials: len(results), FailedTrials: failed, CaseCount: caseCount, CostScope: costs.Scope,
 		Runtime: runtimeValues(run.Runtime), Arms: stats, BaselineArm: baselineArm, CandidateArm: candidate,
 		Pairwise: buildPairwise(stats, pairwise), Categories: buildCategories(stats, candidate, summaries, pairwise),
-		FieldNotes: selectFieldNotes(results, stats, baselineArm, candidate),
-		CaseGroups: buildCaseGroups(results, stats, baselineArm),
+		QualityChart:  buildChart(stats, summaries, func(row v2.SummaryRow) float64 { return row.MeanTokenF1 }, func(value float64) string { return fmt.Sprintf("%.3f", value) }),
+		CostChart:     buildChart(stats, summaries, func(row v2.SummaryRow) float64 { return row.MeanCompletedCost }, func(value float64) string { return fmt.Sprintf("$%.5f", value) }),
+		DurationChart: buildChart(stats, summaries, func(row v2.SummaryRow) float64 { return row.MeanDurationMS / 1000 }, func(value float64) string { return fmt.Sprintf("%.1fs", value) }),
+		FieldNotes:    selectFieldNotes(results, stats, baselineArm, candidate),
+		CaseGroups:    buildCaseGroups(results, stats, baselineArm),
 	}
 }
 
+func buildChart(arms []armStat, summaries []v2.SummaryRow, value func(v2.SummaryRow) float64, display func(float64) string) barChart {
+	overall := overallByArm(summaries)
+	bars := make([]chartBar, 0, len(arms))
+	maximum := 0.0
+	for _, arm := range arms {
+		current := value(overall[arm.Name])
+		maximum = max(maximum, current)
+		bars = append(bars, chartBar{Arm: arm.Name, SeriesClass: arm.SeriesClass, Value: current, ValueDisplay: display(current)})
+	}
+	scale := niceMax(maximum)
+	return barChart{Max: scale, MaxDisplay: display(scale), Bars: bars}
+}
+
+func niceMax(value float64) float64 {
+	if value <= 0 {
+		return 1
+	}
+	target, magnitude := value*1.15, 1.0
+	for target >= 10 {
+		target /= 10
+		magnitude *= 10
+	}
+	for target < 1 {
+		target *= 10
+		magnitude /= 10
+	}
+	for _, step := range []float64{1, 2, 5, 10} {
+		if step >= target {
+			return step * magnitude
+		}
+	}
+	return 10 * magnitude
+}
+
 func armOrder(configured []v2.ArmConfig, results []v2.TrialResult, baselineArm string) []string {
-	order := []string{baselineArm}
-	seen := map[string]bool{baselineArm: true}
+	present := make(map[string]bool)
+	for _, result := range results {
+		present[result.Arm] = true
+	}
+	order := make([]string, 0, len(present))
+	seen := make(map[string]bool, len(present))
+	if present[baselineArm] {
+		order = append(order, baselineArm)
+		seen[baselineArm] = true
+	}
 	for _, arm := range configured {
-		if !seen[arm.Name] {
+		if present[arm.Name] && !seen[arm.Name] {
 			seen[arm.Name] = true
 			order = append(order, arm.Name)
 		}
@@ -181,7 +244,7 @@ func buildPairwise(arms []armStat, rows []v2.PairwiseRow) []pairwiseSummary {
 			overall[row.CandidateArm] = row
 		}
 	}
-	result := make([]pairwiseSummary, 0, len(arms)-1)
+	result := make([]pairwiseSummary, 0, max(0, len(arms)-1))
 	for _, arm := range arms {
 		if arm.IsBaseline {
 			continue
@@ -357,13 +420,38 @@ func selectRepresentativeCases(pairs []caseDelta) []caseSelection {
 		selected = append(selected, caseSelection{caseID: worst.caseID, tag: "largest lexical loss", flagged: true})
 		used[worst.caseID] = true
 	}
+	shiftCategory := largestShiftCategory(pairs)
 	for _, pair := range pairs {
-		if !used[pair.caseID] {
-			selected = append(selected, caseSelection{caseID: pair.caseID, tag: "additional example"})
+		if pair.category == shiftCategory && !used[pair.caseID] {
+			selected = append(selected, caseSelection{caseID: pair.caseID, tag: "largest category shift"})
 			break
 		}
 	}
 	return selected
+}
+
+func largestShiftCategory(pairs []caseDelta) string {
+	totals := make(map[string]float64)
+	counts := make(map[string]int)
+	for _, pair := range pairs {
+		totals[pair.category] += pair.delta
+		counts[pair.category]++
+	}
+	categories := sortedKeys(totals)
+	best := ""
+	bestAbsoluteMean := -1.0
+	for _, category := range categories {
+		mean := totals[category] / float64(counts[category])
+		absoluteMean := mean
+		if absoluteMean < 0 {
+			absoluteMean = -absoluteMean
+		}
+		if absoluteMean > bestAbsoluteMean {
+			best = category
+			bestAbsoluteMean = absoluteMean
+		}
+	}
+	return best
 }
 
 func resultCounts(results []v2.TrialResult) (int, int) {
@@ -387,7 +475,7 @@ func runtimeValues(values map[string]string) []keyValue {
 	return result
 }
 
-func seriesClass(index int) string { return fmt.Sprintf("series-%d", index%8) }
+func seriesClass(index int) string { return fmt.Sprintf("series-%d", index) }
 
 func formatSignedCost(value float64) string {
 	if value < 0 {

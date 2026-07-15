@@ -1,6 +1,6 @@
 # Eval v2 HTML report renderer
 
-Status: approved
+Status: implemented
 Date: 2026-07-15
 
 ## Problem
@@ -36,8 +36,8 @@ from whatever arms and cases a given run actually contains.
   `report.html` is produced by the same process that writes the other
   artifacts; rerunning `make eval-v2` on a completed run already regenerates
   everything for free via the existing resume path.
-- No new charting dependency. Bars are plain divs with computed widths, as
-  in the hand-built version.
+- No new charting dependency. Bars use native, accessible `progress`
+  elements with shared computed maxima.
 - No user-facing configuration of the report layout itself (which sections
   appear, thresholds, etc.) beyond the existing `output.formats` on/off
   switch.
@@ -80,7 +80,8 @@ against a `bytes.Buffer` and so the caller decides the destination.
    - **Arm color**: assigned from the existing eval-v2 categorical palette
      (blue/aqua/yellow/... in that fixed order) by position in the arm
      list — never by name, so it's stable run to run as long as arm order
-     in the config is stable, and never collides.
+     in the config is stable. Each arm receives a unique positional class;
+     the fixed palette supplies distinct colors for the first 16 arms.
    - **Axis scaling**: a "nice number" round-up (1/2/5 x 10^n) of
      `max(values) * 1.15`, shared per chart.
    - **Field notes** (up to 3 cards): candidate arm = the non-baseline arm

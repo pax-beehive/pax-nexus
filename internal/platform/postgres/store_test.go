@@ -138,15 +138,32 @@ func (s *storeSuite) TestExtractionCursorLifecycle() {
 		event("cursor-event-1", actor, 1), event("cursor-event-2", actor, 2),
 	}})
 	s.Require().NoError(err)
+	events, err := s.store.SessionEvents(ctx, scopeID, actor, 0, 10)
+	s.Require().NoError(err)
+	s.Require().Len(events, 2)
+	for _, current := range events {
+		s.False(current.CapturedAt.IsZero())
+		s.Nil(current.ExtractedAt)
+	}
 	s.Require().NoError(s.store.AdvanceExtractionCursor(ctx, scopeID, actor, 1))
 	cursor, err = s.store.ExtractionCursor(ctx, scopeID, actor)
 	s.Require().NoError(err)
 	s.Equal(int64(1), cursor)
+	events, err = s.store.SessionEvents(ctx, scopeID, actor, 0, 10)
+	s.Require().NoError(err)
+	s.Require().Len(events, 2)
+	s.NotNil(events[0].ExtractedAt)
+	s.Nil(events[1].ExtractedAt)
 
 	s.Require().NoError(s.store.AdvanceExtractionCursor(ctx, scopeID, actor, 2))
 	cursor, err = s.store.ExtractionCursor(ctx, scopeID, actor)
 	s.Require().NoError(err)
 	s.Equal(int64(2), cursor)
+	events, err = s.store.SessionEvents(ctx, scopeID, actor, 0, 10)
+	s.Require().NoError(err)
+	s.Require().Len(events, 2)
+	s.NotNil(events[0].ExtractedAt)
+	s.NotNil(events[1].ExtractedAt)
 
 	err = s.store.AdvanceExtractionCursor(ctx, scopeID, actor, 3)
 	s.ErrorIs(err, postgres.ErrInvalidSessionBatch)

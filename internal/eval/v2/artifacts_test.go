@@ -3,6 +3,7 @@ package v2
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -83,9 +84,45 @@ func (s *artifactSuite) TestSummaryPairwiseAndExport() {
 }
 
 func (s *artifactSuite) TestExportRejectsEmptyResults() {
-	s.Require().Error(ExportArtifacts(s.T().TempDir(), RunRecord{}, "control", []string{"csv"}, nil, nil))
-	s.Require().Error(ExportArtifacts(s.T().TempDir(), RunRecord{}, "control", []string{"unknown"}, []TrialResult{trial("case", "category", "control", "completed", 1, true, 1)}, nil))
-	s.Require().Error(ExportArtifacts(s.T().TempDir(), RunRecord{}, "control", []string{"html"}, []TrialResult{trial("case", "category", "control", "completed", 1, true, 1)}, nil))
+	result := []TrialResult{trial("case", "category", "control", "completed", 1, true, 1)}
+	tests := []struct {
+		name     string
+		formats  []string
+		results  []TrialResult
+		renderer HTMLRenderer
+	}{
+		{name: "empty results", formats: []string{"csv"}},
+		{name: "unknown format", formats: []string{"unknown"}, results: result},
+		{name: "missing html renderer", formats: []string{"html"}, results: result},
+	}
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			s.Require().Error(ExportArtifacts(s.T().TempDir(), RunRecord{}, "control", test.formats, test.results, test.renderer))
+		})
+	}
+}
+
+func (s *artifactSuite) TestHTMLPublicationIsAtomicOnRendererFailure() {
+	directory := s.T().TempDir()
+	reportPath := filepath.Join(directory, "report.html")
+	s.Require().NoError(os.WriteFile(reportPath, []byte("previous report"), 0o600))
+	expected := errors.New("render failed")
+	err := ExportArtifacts(directory, RunRecord{}, "control", []string{"html"}, []TrialResult{
+		trial("case", "category", "control", "completed", 1, true, 1),
+	}, func(writer io.Writer) error {
+		_, writeErr := writer.Write([]byte("partial report"))
+		s.Require().NoError(writeErr)
+		return expected
+	})
+	s.Require().ErrorIs(err, expected)
+	contents, readErr := os.ReadFile(reportPath)
+	s.Require().NoError(readErr)
+	s.Equal("previous report", string(contents))
+	_, manifestErr := os.Stat(filepath.Join(directory, "artifacts.json"))
+	s.Require().ErrorIs(manifestErr, os.ErrNotExist)
+	temporary, globErr := filepath.Glob(filepath.Join(directory, ".report-*.html"))
+	s.Require().NoError(globErr)
+	s.Empty(temporary)
 }
 
 func trial(caseID, category, arm, status string, f1 float64, exact bool, duration int64) TrialResult {
