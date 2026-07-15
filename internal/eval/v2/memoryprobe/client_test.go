@@ -25,8 +25,9 @@ func (s *clientSuite) TestIngestSendsTheSameTranscriptToBothProviders() {
 	})
 	s.Require().NoError(err)
 
+	transcript := "  identical handoff\n"
 	for _, provider := range []string{memoryprobe.ProviderTeamNote, memoryprobe.ProviderMem0} {
-		s.Require().NoError(client.Ingest(context.Background(), provider, "identical handoff"))
+		s.Require().NoError(client.Ingest(context.Background(), provider, transcript))
 	}
 
 	calls := transport.snapshot()
@@ -34,7 +35,7 @@ func (s *clientSuite) TestIngestSendsTheSameTranscriptToBothProviders() {
 	s.Equal("/v1/session-batches", calls[0].path)
 	s.Equal("/memories", calls[1].path)
 	for _, call := range calls {
-		s.Contains(call.body, "identical handoff")
+		s.Contains(call.body, `  identical handoff\n`)
 	}
 }
 
@@ -57,15 +58,22 @@ func (s *clientSuite) TestPreflightExercisesAddRecallAndSupportedCleanup() {
 }
 
 func (s *clientSuite) TestValidationAndInputErrors() {
-	_, err := memoryprobe.New(memoryprobe.Config{})
-	s.Require().Error(err)
 	client, err := memoryprobe.New(memoryprobe.Config{
 		TeamNoteURL: "http://team-note", TeamNoteAPIKey: "key", Mem0URL: "http://mem0",
 		UserID: "user", AgentID: "agent", RunID: "run", HTTPClient: &http.Client{Transport: &recordingTransport{}},
 	})
 	s.Require().NoError(err)
-	s.Require().Error(client.Ingest(context.Background(), "unknown", "text"))
-	s.Require().Error(client.Ingest(context.Background(), memoryprobe.ProviderMem0, " "))
+	tests := []struct {
+		name string
+		run  func() error
+	}{
+		{name: "invalid config", run: func() error { _, err := memoryprobe.New(memoryprobe.Config{}); return err }},
+		{name: "unknown provider", run: func() error { return client.Ingest(context.Background(), "unknown", "text") }},
+		{name: "empty text", run: func() error { return client.Ingest(context.Background(), memoryprobe.ProviderMem0, " ") }},
+	}
+	for _, test := range tests {
+		s.Run(test.name, func() { s.Require().Error(test.run()) })
+	}
 }
 
 type recordedCall struct {

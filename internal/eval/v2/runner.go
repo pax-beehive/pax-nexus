@@ -397,13 +397,12 @@ func (r *Runner) executeSharedProducer(
 	artifactDir := filepath.Join(outputDir, "trials", evalCase.ID, "shared")
 	stdoutPath := filepath.Join(artifactDir, "producer.jsonl")
 	textPath := filepath.Join(artifactDir, "producer.txt")
-	if raw, readErr := os.ReadFile(stdoutPath); readErr == nil {
-		if _, textErr := os.Stat(textPath); textErr == nil {
-			output, parseErr := harness.ParseOpenCodeJSON(bytes.NewReader(raw))
-			if parseErr == nil && output.Text != "" {
-				return CommandResult{Output: raw}, output, nil
-			}
-		}
+	cachedResult, cachedOutput, found, err := loadSharedProducer(stdoutPath, textPath)
+	if err != nil {
+		return CommandResult{}, harness.AgentOutput{}, err
+	}
+	if found {
+		return cachedResult, cachedOutput, nil
 	}
 	variables := trialVariables(run, evalCase, "shared", outputDir)
 	result, executeErr := r.executor.Execute(ctx, spec, variables, stdoutPath, filepath.Join(artifactDir, "producer.stderr.log"))
@@ -425,6 +424,33 @@ func (r *Runner) executeSharedProducer(
 		return result, output, fmt.Errorf("persist shared producer transcript: %w", err)
 	}
 	return result, output, nil
+}
+
+func loadSharedProducer(stdoutPath, textPath string) (CommandResult, harness.AgentOutput, bool, error) {
+	raw, err := os.ReadFile(stdoutPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return CommandResult{}, harness.AgentOutput{}, false, nil
+	}
+	if err != nil {
+		return CommandResult{}, harness.AgentOutput{}, false, fmt.Errorf("read cached shared producer output: %w", err)
+	}
+	output, err := harness.ParseOpenCodeJSON(bytes.NewReader(raw))
+	if err != nil {
+		return CommandResult{}, harness.AgentOutput{}, false, fmt.Errorf("parse cached shared producer output: %w", err)
+	}
+	if output.Text == "" {
+		return CommandResult{}, harness.AgentOutput{}, false, fmt.Errorf("parse cached shared producer output: OpenCode output contains no text")
+	}
+	text, err := os.ReadFile(textPath)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return CommandResult{}, harness.AgentOutput{}, false, fmt.Errorf("read cached shared producer transcript: %w", err)
+	}
+	if !bytes.Equal(text, []byte(output.Text)) {
+		if err := writeCommandOutput(textPath, []byte(output.Text)); err != nil {
+			return CommandResult{}, harness.AgentOutput{}, false, fmt.Errorf("repair cached shared producer transcript: %w", err)
+		}
+	}
+	return CommandResult{Output: raw}, output, true, nil
 }
 
 func withProducerUsage(result TrialResult, output harness.AgentOutput) TrialResult {

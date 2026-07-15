@@ -72,8 +72,7 @@ func New(config Config) (*Client, error) {
 }
 
 func (c *Client) Ingest(ctx context.Context, provider, text string) error {
-	text = strings.TrimSpace(text)
-	if text == "" {
+	if strings.TrimSpace(text) == "" {
 		return fmt.Errorf("ingest eval transcript: text is required")
 	}
 	switch provider {

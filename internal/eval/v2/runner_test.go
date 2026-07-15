@@ -152,6 +152,27 @@ func (s *runnerSuite) TestBoundedRetryReusesPersistedSharedProducer() {
 	s.Equal(4, executor.count("consumer"))
 }
 
+func (s *runnerSuite) TestSharedProducerRecoversPlainTextFromCompletedJSONL() {
+	store := newFakeStore()
+	executor := &fakeExecutor{}
+	runner, err := NewRunner(store, executor, nil)
+	s.Require().NoError(err)
+	config := testConfig(s.T().TempDir())
+	config.SharedProducer = &CommandSpec{Program: "producer"}
+	config.Arms[1].Producer = nil
+	config.Arms[1].Ingest = &CommandSpec{Program: "ingest"}
+	sharedDirectory := filepath.Join(config.Run.OutputDir, "trials", "case", "shared")
+	s.Require().NoError(os.MkdirAll(sharedDirectory, 0o755))
+	s.Require().NoError(os.WriteFile(filepath.Join(sharedDirectory, "producer.jsonl"), producerJSONL(), 0o644))
+
+	_, _, err = runner.Run(context.Background(), config, []Case{{ID: "case", Question: "q", Expected: "answer", AskingUserID: "user"}}, "revision")
+	s.Require().NoError(err)
+	s.Zero(executor.count("producer"))
+	text, err := os.ReadFile(filepath.Join(sharedDirectory, "producer.txt"))
+	s.Require().NoError(err)
+	s.Equal("handoff", string(text))
+}
+
 func (s *runnerSuite) TestFailureCostMatrix() {
 	tests := []struct {
 		name             string
@@ -341,7 +362,7 @@ func (e *fakeExecutor) Execute(_ context.Context, spec CommandSpec, _ map[string
 	e.mu.Unlock()
 	var result CommandResult
 	if spec.Program == "producer" {
-		result = CommandResult{Output: []byte(`{"type":"text","sessionID":"producer-session","part":{"text":"handoff"}}` + "\n" + `{"type":"step_finish","part":{"cost":0.2,"tokens":{"input":3,"output":1}}}` + "\n"), Duration: time.Millisecond}
+		result = CommandResult{Output: producerJSONL(), Duration: time.Millisecond}
 	}
 	if spec.Program == "consumer" {
 		result = CommandResult{Output: []byte(`{"type":"text","sessionID":"session","part":{"text":"answer"}}` + "\n" + `{"type":"step_finish","part":{"cost":0.1,"tokens":{"input":4,"output":2}}}` + "\n"), Duration: time.Millisecond}
@@ -361,6 +382,10 @@ func (e *fakeExecutor) Execute(_ context.Context, spec CommandSpec, _ map[string
 		return result, errors.New("command failed")
 	}
 	return result, nil
+}
+
+func producerJSONL() []byte {
+	return []byte(`{"type":"text","sessionID":"producer-session","part":{"text":"handoff"}}` + "\n" + `{"type":"step_finish","part":{"cost":0.2,"tokens":{"input":3,"output":1}}}` + "\n")
 }
 
 func (e *fakeExecutor) count(program string) int {
