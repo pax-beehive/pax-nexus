@@ -99,7 +99,10 @@ against a `bytes.Buffer` and so the caller decides the destination.
      a horizontally scrollable comparison table. Each row contains the scenario
      label, case/question, expected answer, and every arm's status, token F1,
      delta, verbatim answer, and error. The table does not infer semantic pass
-     or fail from lexical metrics.
+     or fail from lexical metrics. When field-note rules produce fewer than
+     three examples, the renderer fills the table from unused cases, preferring
+     a new category; missing per-case arm results receive an explicit placeholder
+     so columns remain aligned.
    - **All case breakdown**: every case grouped by category, with question,
      expected answer, status, token F1, delta from baseline, verbatim answer,
      and error for every arm. Native `details` elements keep this usable

@@ -81,6 +81,7 @@ func (s *renderSuite) TestFieldNotesDegradeForSparseComparisons() {
 			results: []v2.TrialResult{
 				trial("one", "a", "control", 0.1), trial("one", "a", "memory", 0.5),
 				trial("two", "a", "control", 0.2), trial("two", "a", "memory", 0.3),
+				trial("three", "b", "control", 0.2), trial("three", "b", "memory", 0.25),
 			},
 			expectedLen: 2,
 		},
@@ -99,6 +100,7 @@ func (s *renderSuite) TestFieldNotesDegradeForSparseComparisons() {
 			s.Len(data.FieldNotes, test.expectedLen)
 			s.Require().Len(data.Arms, 2)
 			if test.name == "candidate never loses" {
+				s.Len(data.AcceptanceCases, 3)
 				for _, note := range data.FieldNotes {
 					s.NotContains(note.Tag, "loss")
 				}
@@ -108,6 +110,22 @@ func (s *renderSuite) TestFieldNotesDegradeForSparseComparisons() {
 			}
 		})
 	}
+}
+
+func (s *renderSuite) TestAcceptanceCasesPreserveArmColumnsWhenResultMissing() {
+	run := v2.RunRecord{Config: v2.Config{Arms: []v2.ArmConfig{{Name: "control"}, {Name: "memory"}, {Name: "third"}}}}
+	results := []v2.TrialResult{
+		trial("one", "a", "control", 0.1), trial("one", "a", "memory", 0.9),
+		trial("two", "b", "control", 0.8), trial("two", "b", "memory", 0.1), trial("two", "b", "third", 0.2),
+	}
+	data := buildReportData(run, "control", results)
+	s.Require().NotEmpty(data.AcceptanceCases)
+	answers := data.AcceptanceCases[0].Answers
+	s.Require().Len(answers, 3)
+	s.Equal([]string{"control", "memory", "third"}, []string{answers[0].Arm, answers[1].Arm, answers[2].Arm})
+	s.Equal("missing", answers[2].Status)
+	s.Equal("—", answers[2].F1Display)
+	s.Equal("No trial result for this arm.", answers[2].Error)
 }
 
 func (s *renderSuite) TestFieldNotesShowFailedThirdArm() {

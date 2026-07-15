@@ -26,6 +26,7 @@ type reportData struct {
 	QualityChart    barChart
 	CostChart       barChart
 	DurationChart   barChart
+	AcceptanceCases []fieldNote
 	FieldNotes      []fieldNote
 	CaseGroups      []caseGroup
 }
@@ -79,6 +80,7 @@ type chartBar struct {
 
 type fieldNote struct {
 	CaseID   string
+	Category string
 	Question string
 	Expected string
 	Tag      string
@@ -116,17 +118,19 @@ func buildReportData(run v2.RunRecord, baselineArm string, results []v2.TrialRes
 	candidate := leadingCandidate(pairwise, arms, baselineArm)
 	failed, caseCount := resultCounts(results)
 	costs := v2.CostTotals(results)
+	fieldNotes := selectFieldNotes(results, stats, baselineArm, candidate)
 	return reportData{
 		RunID: run.ID, Dataset: run.Dataset, DatasetRevision: run.DatasetRevision,
 		GeneratedAt: time.Now().UTC().Format("2006-01-02 15:04 UTC"),
 		TotalTrials: len(results), FailedTrials: failed, CaseCount: caseCount, CostScope: costs.Scope,
 		Runtime: runtimeValues(run.Runtime), Arms: stats, BaselineArm: baselineArm, CandidateArm: candidate,
 		Pairwise: buildPairwise(stats, pairwise), Categories: buildCategories(stats, candidate, summaries, pairwise),
-		QualityChart:  buildChart(stats, summaries, func(row v2.SummaryRow) float64 { return row.MeanTokenF1 }, func(value float64) string { return fmt.Sprintf("%.3f", value) }),
-		CostChart:     buildChart(stats, summaries, func(row v2.SummaryRow) float64 { return row.MeanCompletedCost }, func(value float64) string { return fmt.Sprintf("$%.5f", value) }),
-		DurationChart: buildChart(stats, summaries, func(row v2.SummaryRow) float64 { return row.MeanDurationMS / 1000 }, func(value float64) string { return fmt.Sprintf("%.1fs", value) }),
-		FieldNotes:    selectFieldNotes(results, stats, baselineArm, candidate),
-		CaseGroups:    buildCaseGroups(results, stats, baselineArm),
+		QualityChart:    buildChart(stats, summaries, func(row v2.SummaryRow) float64 { return row.MeanTokenF1 }, func(value float64) string { return fmt.Sprintf("%.3f", value) }),
+		CostChart:       buildChart(stats, summaries, func(row v2.SummaryRow) float64 { return row.MeanCompletedCost }, func(value float64) string { return fmt.Sprintf("$%.5f", value) }),
+		DurationChart:   buildChart(stats, summaries, func(row v2.SummaryRow) float64 { return row.MeanDurationMS / 1000 }, func(value float64) string { return fmt.Sprintf("%.1fs", value) }),
+		AcceptanceCases: selectAcceptanceCases(results, stats, baselineArm, fieldNotes),
+		FieldNotes:      fieldNotes,
+		CaseGroups:      buildCaseGroups(results, stats, baselineArm),
 	}
 }
 
@@ -323,14 +327,23 @@ func buildCaseGroups(results []v2.TrialResult, arms []armStat, baselineArm strin
 func newCaseDetail(caseID string, byArm map[string]v2.TrialResult, arms []armStat, baselineArm string) caseDetail {
 	baseline := byArm[baselineArm]
 	detail := caseDetail{CaseID: caseID}
+	for _, result := range byArm {
+		detail.Question, detail.Expected = result.Question, result.Expected
+		break
+	}
 	for _, arm := range arms {
 		result, ok := byArm[arm.Name]
 		if !ok {
+			detail.Answers = append(detail.Answers, caseAnswer{
+				Arm: arm.Name, SeriesClass: arm.SeriesClass, Status: "missing",
+				F1Display: "—", DeltaDisplay: "not comparable", Error: "No trial result for this arm.",
+			})
 			continue
 		}
-		detail.Question, detail.Expected = result.Question, result.Expected
-		delta := "baseline"
-		if arm.Name != baselineArm && result.Status == "completed" && baseline.Status == "completed" {
+		delta := "not comparable"
+		if arm.Name == baselineArm {
+			delta = "baseline"
+		} else if result.Status == "completed" && baseline.Status == "completed" {
 			delta = fmt.Sprintf("%+.3f vs %s", result.TokenF1-baseline.TokenF1, baselineArm)
 		}
 		detail.Answers = append(detail.Answers, caseAnswer{
@@ -356,11 +369,54 @@ func selectFieldNotes(results []v2.TrialResult, arms []armStat, baselineArm, can
 	for _, selection := range selected {
 		detail := newCaseDetail(selection.caseID, allResults[selection.caseID], arms, baselineArm)
 		notes = append(notes, fieldNote{
-			CaseID: detail.CaseID, Question: detail.Question, Expected: detail.Expected,
+			CaseID: detail.CaseID, Category: caseCategory(allResults[selection.caseID]), Question: detail.Question, Expected: detail.Expected,
 			Tag: selection.tag, Flagged: selection.flagged, Answers: detail.Answers,
 		})
 	}
 	return notes
+}
+
+func selectAcceptanceCases(results []v2.TrialResult, arms []armStat, baselineArm string, fieldNotes []fieldNote) []fieldNote {
+	const targetCases = 3
+	selected := append([]fieldNote(nil), fieldNotes...)
+	if len(selected) >= targetCases {
+		return selected[:targetCases]
+	}
+	allResults := resultsByCase(results)
+	usedCases := make(map[string]bool, len(selected))
+	usedCategories := make(map[string]bool, len(selected))
+	for _, note := range selected {
+		usedCases[note.CaseID] = true
+		usedCategories[note.Category] = true
+	}
+	appendCases := func(preferNewCategory bool) {
+		for _, caseID := range sortedKeys(allResults) {
+			if len(selected) >= targetCases {
+				return
+			}
+			category := caseCategory(allResults[caseID])
+			if usedCases[caseID] || (preferNewCategory && usedCategories[category]) {
+				continue
+			}
+			detail := newCaseDetail(caseID, allResults[caseID], arms, baselineArm)
+			selected = append(selected, fieldNote{
+				CaseID: detail.CaseID, Category: category, Question: detail.Question, Expected: detail.Expected,
+				Tag: "additional scenario", Answers: detail.Answers,
+			})
+			usedCases[caseID] = true
+			usedCategories[category] = true
+		}
+	}
+	appendCases(true)
+	appendCases(false)
+	return selected
+}
+
+func caseCategory(byArm map[string]v2.TrialResult) string {
+	for _, result := range byArm {
+		return result.Category
+	}
+	return ""
 }
 
 type caseDelta struct {
