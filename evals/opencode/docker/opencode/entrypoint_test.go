@@ -152,11 +152,13 @@ func (s *entrypointSuite) TestPassiveRecallThresholdGuard() {
 			s.InDelta(-1.0, config.RecallProfiles["passive"].Thresholds.MinScore, 0.000001)
 			var providers struct {
 				Providers map[string]struct {
-					ScoreSemantics string `yaml:"score_semantics"`
+					ScoreSemantics     string `yaml:"score_semantics"`
+					SearchScopePayload string `yaml:"search_scope_payload"`
 				} `yaml:"providers"`
 			}
 			s.Require().NoError(yaml.Unmarshal(input, &providers))
 			s.Equal("distance", providers.Providers["memory"].ScoreSemantics)
+			s.Equal("top_level", providers.Providers["memory"].SearchScopePayload)
 		})
 	}
 }
@@ -177,9 +179,8 @@ func (s *entrypointSuite) TestRejectsUnexpectedPaxmVersion() {
 		"PAXM_CONFIG_ROOT=" + directory,
 		"PAXM_PLUGIN_SOURCE=" + plugin,
 		"PAXM_BINARY=" + binary,
-		"PAXM_EXPECTED_VERSION=v0.1.28",
 	}
 	output, err := command.CombinedOutput()
 	s.Require().Error(err)
-	s.Contains(string(output), "paxm version v0.1.27 does not match required v0.1.28")
+	s.Contains(string(output), "paxm version v0.1.27 does not match required v0.1.29")
 }

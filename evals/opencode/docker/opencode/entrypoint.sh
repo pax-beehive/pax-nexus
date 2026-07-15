@@ -13,7 +13,8 @@ set -eu
 : "${PAXM_PASSIVE_MIN_SCORE:=-1}"
 : "${PAXM_INSERTION_MIN_SCORE:=0}"
 : "${MEM0_SCORE_SEMANTICS:=distance}"
-: "${PAXM_EXPECTED_VERSION:=v0.1.28}"
+: "${MEM0_SEARCH_SCOPE_PAYLOAD:=top_level}"
+: "${PAXM_EXPECTED_VERSION:=v0.1.29}"
 : "${PAXM_BINARY:=/usr/local/bin/paxm}"
 : "${PAXM_EVAL_CONSUMER_POLICY:=0}"
 
@@ -54,7 +55,8 @@ case "${PAXM_PROVIDER_TYPE}" in
     api_key: \"${MEM0_API_KEY:-}\"
     user_id: \"${PAXM_USER_ID}\"
     run_id: \"${MEM0_RUN_ID}\"
-    score_semantics: \"${MEM0_SCORE_SEMANTICS}\""
+    score_semantics: \"${MEM0_SCORE_SEMANTICS}\"
+    search_scope_payload: \"${MEM0_SEARCH_SCOPE_PAYLOAD}\""
     ;;
   *)
     echo "unsupported PAXM_PROVIDER_TYPE: ${PAXM_PROVIDER_TYPE}" >&2

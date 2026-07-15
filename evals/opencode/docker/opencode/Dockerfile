@@ -10,7 +10,7 @@ RUN CGO_ENABLED=0 go build -trimpath -o /out/eval-v2-memory ./cmd/eval-v2-memory
 FROM paxm AS paxm-source
 
 FROM golang:1.25-bookworm AS paxm-build
-ARG PAXM_VERSION=v0.1.28
+ARG PAXM_VERSION=v0.1.29
 WORKDIR /src/paxm
 COPY --from=paxm-source . .
 COPY evals/opencode/docker/exportplugin/main.go.txt ./cmd/export-opencode-plugin/main.go

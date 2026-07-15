@@ -43,7 +43,8 @@ run_agent() {
     -e PAXM_AGENT_ID="${agent_id}" \
     -e MEM0_RUN_ID="${mem0_run_id}" \
     -e MEM0_SCORE_SEMANTICS="${MEM0_SCORE_SEMANTICS:-distance}" \
-    -e PAXM_EXPECTED_VERSION="${PAXM_EXPECTED_VERSION:-v0.1.28}" \
+    -e MEM0_SEARCH_SCOPE_PAYLOAD="${MEM0_SEARCH_SCOPE_PAYLOAD:-top_level}" \
+    -e PAXM_EXPECTED_VERSION="${PAXM_EXPECTED_VERSION:-v0.1.29}" \
     -e PAXM_RECALL_ENABLED="${recall_enabled}" \
     -e PAXM_WRITE_ENABLED="${write_enabled}" \
     -e PAXM_EVAL_CONSUMER_POLICY="${consumer_policy}" \
