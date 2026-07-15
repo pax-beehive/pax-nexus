@@ -44,7 +44,71 @@ Do not delete raw runs until a retention policy has been reviewed. A later
 proposal may retain all recent runs plus daily and weekly checkpoints, but it
 must not silently remove evidence.
 
-## Current Team Note latency baseline
+## Current native 50-case final-record snapshot
+
+The completed run
+`groupmembench-finance-v2-shared-mem0-50-20260715-r9` is the current native
+multi-agent result snapshot. It completed all 150 arm trials over 50 cases. The
+selected inputs contained 1,467 source events, 295 actor appearances, and 391
+native sessions.
+
+| Stage | Team Note | Mem0 | Team Note delta |
+| --- | ---: | ---: | ---: |
+| Write-to-ready | 277.67 s | 14.12 s | +263.55 s |
+| Consumer | 17.63 s | 22.13 s | -4.50 s |
+| Total arm trial | 295.31 s | 36.26 s | +259.05 s |
+
+These are means over the final successful records, not a clean first-pass
+latency baseline. The five retried records replaced their original failed
+attempts and completed readiness in about one second after background
+extraction had already progressed. The reported 277.67-second mean therefore
+understates first-pass readiness, which cannot be reconstructed from the final
+artifacts. Even with that bias, Team Note readiness consumed about 94 percent of
+its mean trial time. Its consumer was faster than the Mem0 consumer, so recall
+and answer generation do not explain the end-to-end gap.
+
+Operator observation recorded about 46 minutes of wall time, eight runner
+workers, a 30-minute trial timeout, a temporary 1,800-poll readiness allowance,
+and four single-worker extraction shards. The retained artifacts do not capture
+these settings, so they are operational evidence rather than independently
+reproducible run provenance.
+
+The final report completed 150 of 150 trials with no failed results. During the
+first pass, five Team Note trials incorrectly failed because the readiness
+script stopped after 480 one-second polls even though extraction was still
+progressing. Raising the local readiness allowance to 1,800 polls and retrying
+only those five trials completed all five. This is evidence of a timeout
+contract bug, not evidence that a longer timeout fixes latency.
+
+## Known readiness issues
+
+| ID | Severity | Known problem | Evidence from `r9` | Required fix |
+| --- | --- | --- | --- | --- |
+| `TN-RDY-001` | P0 | Native session fan-out creates one extraction barrier per case, and readiness waits for every stream, including low-value and noisy sessions. | 50 cases expanded into 391 sessions; mean Team Note readiness was 277.67 s. | Batch extraction work without losing actor, session, channel, phase, timestamp, or ordering boundaries. Avoid making the case barrier wait on work that cannot affect durable notes. |
+| `TN-RDY-002` | P0 | The runner trial timeout and readiness poll limit are independent clocks. | A 30-minute `trial_timeout` did not prevent five failures at the hidden 480-second readiness limit. | Define one deadline contract. Derive readiness from the trial context or an explicit duration in the run config; remove the independent attempt-count timeout. |
+| `TN-RDY-003` | P0 | Four single-worker extraction shards cause head-of-line blocking between unrelated sessions. | All runner slots could remain occupied while four extraction workers processed 391 session jobs; individual jobs observed in logs took up to about 41 s. | Preserve same-stream ordering while allowing unrelated streams to progress. Measure queue depth, shard collisions, queue wait, and per-shard utilization before changing concurrency. |
+| `TN-RDY-004` | P1 | Extraction responses are too large and occasionally invalid. | A single session produced 10 candidates and 6,000 output tokens in about 41 s. Another response emitted an empty timestamp, failed decoding, and required a job retry. | Tighten the schema, output-token limit, and candidate cap. Treat optional timestamps explicitly and regression-test malformed or empty model fields. |
+| `TN-RDY-005` | P1 | Readiness is a one-second SQL polling loop with no explicit completion or terminal-failure signal. | The harness could only observe an incomplete cursor and eventually print a generic timeout, even when a job was retrying after an extractor error. | Expose scope completion and terminal job errors through a provider API or notification. Report the failing stream and job instead of timing out generically. |
+| `TN-RDY-006` | P1 | The report aggregates the entire asynchronous path into one readiness number and omits provider-internal cost. | `r9` reports 277.67 s but cannot split queue wait from extraction LLM and persistence time. Its `$0.0189` Team Note cost is consumer-only. | Record enqueue, scheduler, queue, extraction, persistence, and visibility timings plus extraction and embedding tokens/cost. Preserve `unknown` when unavailable. |
+| `TN-RDY-007` | P1 | A retry can finish quickly after background extraction completes, but the runner cannot reuse that completion automatically. | The five targeted retries completed in seconds after the first-pass readiness timers expired. | Make readiness resumable and idempotent. A resumed trial should observe the existing scope cursor without repeating completed memory work. |
+| `TN-RDY-008` | P1 | Trial result persistence retains only the latest attempt, so retries erase first-pass latency and failure evidence from exported artifacts. | The five final `r9` Team Note records contain roughly one-second readiness waits; their earlier roughly 480-second failed waits are absent from `trials.jsonl` and the summary mean. | Append attempt records instead of replacing them. Export attempt index, retry/resume reason, failure, stage timings, tokens, cost, and the final-attempt selection rule. |
+| `TN-RDY-009` | P1 | Runtime provenance does not include the settings that control readiness concurrency and deadlines. | `r9` artifacts omit runner parallelism, trial timeout, readiness allowance, extraction shard count, and workers per shard. | Export the sanitized effective run config and Team Note worker topology. Reports must distinguish artifact-recorded values from operator observations. |
+
+### Temporary operating workaround
+
+Until `TN-RDY-002` is fixed, the known-sufficient operator setting for the
+observed `r9` workload is a 30-minute trial timeout and a readiness allowance of
+1,800 one-second polls. These values have not been proven to be minimums. This
+only prevents false failures; it does not improve latency. If the harness times
+out while extraction workers are healthy, retry only the failed trials after
+verifying that their source artifacts and scopes are unchanged. Do not restart
+the entire paid matrix.
+
+Hourly automation remains disabled. A system whose mean write-to-ready time is
+over four minutes and whose failure behavior depends on a hidden poll count is
+not ready for unattended recurring evaluation.
+
+## Historical shared-producer baseline
 
 The selected 10-case run
 `groupmembench-finance-v2-team-note-poor10-20260715-r2` produced these means:
@@ -88,6 +152,17 @@ session into durable structured notes:
 
 ## Implementation order
 
+### 0. Repair the readiness contract
+
+- Replace the attempt-count deadline with one duration derived from the trial
+  context or declared in the run configuration.
+- Return scope-level completion, retrying, and terminal-failure states with the
+  responsible stream and extraction job.
+- Preserve idempotent resume behavior so a harness retry observes completed
+  cursors rather than repeating extraction.
+- Add an acceptance test where extraction takes longer than the old 480-second
+  limit but completes within the declared trial deadline.
+
 ### 1. Correct the measurement contract
 
 - Report a shared producer only for legacy runs; native runs report source-event
@@ -97,12 +172,18 @@ session into durable structured notes:
 - Report recall-hook latency separately from consumer-model latency.
 - Add per-layer input/output tokens and attributed cost; preserve `unknown`
   when a provider does not expose a value.
+- Preserve every trial attempt and state which attempt supplies the final score;
+  do not let a successful resume erase the first failure or its elapsed time.
+- Record runner parallelism, trial timeout, readiness deadline, extraction
+  shards, and workers per shard in the artifact runtime provenance.
 
 ### 2. Reduce extraction generation
 
 - Tighten the extraction response schema and prompt.
 - Cap candidate count and output tokens for the eval/MVP profile.
 - Avoid verbose candidate rationale that is not stored or scored.
+- Batch compatible session extractions while retaining explicit per-session
+  provenance and actor-local order in both the input and output contract.
 - Compare the change on the pinned cohort and reject it if answer quality,
   provenance, or absence behavior regresses.
 
@@ -132,6 +213,14 @@ after the measurement contract and cost guardrails are present.
 - Team Note recall p95 remains below 250 ms.
 - Mean write-to-ready latency falls below 20 seconds and p95 below 30 seconds
   on the pinned 10-case cohort.
+- A native 50-case run completes every Team Note trial without a hidden poll
+  limit expiring before the declared trial deadline.
+- Every incomplete readiness result identifies whether extraction is queued,
+  running, retrying, or terminally failed, including its stream and job ID.
+- Reports preserve every attempt with failure reason, stage timings, cost, and
+  retry/resume identity while clearly identifying the final scored attempt.
+- Artifacts record runner parallelism, trial timeout, readiness deadline,
+  extraction shard count, and workers per shard as effective values.
 - No regression in Team Note pass count, absence handling, token F1, provenance,
   or actor-local ordering.
 - Reports distinguish legacy shared producer time from arm-specific latency and
