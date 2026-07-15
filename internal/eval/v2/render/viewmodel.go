@@ -345,15 +345,16 @@ func selectFieldNotes(results []v2.TrialResult, arms []armStat, baselineArm, can
 	if candidate == "" {
 		return nil
 	}
-	byCase := completedByCase(results)
-	pairs := pairedDeltas(byCase, baselineArm, candidate)
+	completed := completedByCase(results)
+	pairs := pairedDeltas(completed, baselineArm, candidate)
 	if len(pairs) == 0 {
 		return nil
 	}
+	allResults := resultsByCase(results)
 	selected := selectRepresentativeCases(pairs)
 	notes := make([]fieldNote, 0, len(selected))
 	for _, selection := range selected {
-		detail := newCaseDetail(selection.caseID, byCase[selection.caseID], arms, baselineArm)
+		detail := newCaseDetail(selection.caseID, allResults[selection.caseID], arms, baselineArm)
 		notes = append(notes, fieldNote{
 			CaseID: detail.CaseID, Question: detail.Question, Expected: detail.Expected,
 			Tag: selection.tag, Flagged: selection.flagged, Answers: detail.Answers,
@@ -375,9 +376,17 @@ type caseSelection struct {
 }
 
 func completedByCase(results []v2.TrialResult) map[string]map[string]v2.TrialResult {
+	return resultsByCaseMatching(results, func(result v2.TrialResult) bool { return result.Status == "completed" })
+}
+
+func resultsByCase(results []v2.TrialResult) map[string]map[string]v2.TrialResult {
+	return resultsByCaseMatching(results, func(v2.TrialResult) bool { return true })
+}
+
+func resultsByCaseMatching(results []v2.TrialResult, include func(v2.TrialResult) bool) map[string]map[string]v2.TrialResult {
 	byCase := make(map[string]map[string]v2.TrialResult)
 	for _, result := range results {
-		if result.Status != "completed" {
+		if !include(result) {
 			continue
 		}
 		if byCase[result.CaseID] == nil {

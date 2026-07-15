@@ -109,6 +109,21 @@ func (s *renderSuite) TestFieldNotesDegradeForSparseComparisons() {
 	}
 }
 
+func (s *renderSuite) TestFieldNotesShowFailedThirdArm() {
+	run := v2.RunRecord{Config: v2.Config{Arms: []v2.ArmConfig{{Name: "control"}, {Name: "memory"}, {Name: "third"}}}}
+	results := []v2.TrialResult{
+		trial("one", "a", "control", 0.1),
+		trial("one", "a", "memory", 0.5),
+		failedTrial("one", "a", "third"),
+	}
+	data := buildReportData(run, "control", results)
+	s.Require().Len(data.FieldNotes, 1)
+	s.Require().Len(data.FieldNotes[0].Answers, 3)
+	s.Equal("third", data.FieldNotes[0].Answers[2].Arm)
+	s.Equal("failed", data.FieldNotes[0].Answers[2].Status)
+	s.Equal("failed", data.FieldNotes[0].Answers[2].Error)
+}
+
 func (s *renderSuite) TestSeriesClassesRemainUniqueBeyondBasePalette() {
 	seen := make(map[string]bool)
 	for index := range 20 {
