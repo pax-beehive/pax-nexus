@@ -300,12 +300,14 @@ func recallableNotes(ctx context.Context, tx pgx.Tx, scopeID string, request tea
          to_tsvector('simple', subject || ' ' || body),
          to_tsquery('simple', array_to_string(tsvector_to_array(to_tsvector('simple', $7)), ' | '))
      ) END DESC,
+     CASE WHEN $8 AND origin_user_id = $9 THEN 0 ELSE 1 END,
      CASE kind
      WHEN 'handoff' THEN 0 WHEN 'blocker' THEN 1 WHEN 'status' THEN 2 ELSE 3 END,
      source_occurred_at DESC NULLS LAST,
      updated_at DESC
- FOR UPDATE OF team_notes`, scopeID, now, request.TaskRef, request.ThreadRef,
-		request.Actor.AgentID, request.Actor.SessionID, teamnote.SearchQuery(request.Query))
+	FOR UPDATE OF team_notes`, scopeID, now, request.TaskRef, request.ThreadRef,
+		request.Actor.AgentID, request.Actor.SessionID, teamnote.SearchQuery(request.Query),
+		teamnote.QueryRequestsOwnContext(request.Query), request.Actor.UserID)
 	if err != nil {
 		return nil, fmt.Errorf("query recallable notes: %w", err)
 	}

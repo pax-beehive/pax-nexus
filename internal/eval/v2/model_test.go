@@ -50,7 +50,6 @@ func (s *modelSuite) TestValidationMatrix() {
 		{name: "shared producer without ingest", mutate: func(config *Config) {
 			config.SharedProducer = &CommandSpec{Program: "producer", SuccessMarker: "marker"}
 		}},
-		{name: "ingest without shared producer", mutate: func(config *Config) { config.Arms[1].Ingest = &CommandSpec{Program: "ingest"} }},
 		{name: "shared producer without success marker", mutate: func(config *Config) {
 			config.SharedProducer = &CommandSpec{Program: "producer"}
 			config.Arms[1].Producer = nil
@@ -71,6 +70,11 @@ func (s *modelSuite) TestValidationMatrix() {
 		})
 	}
 	s.Require().NoError(valid.Validate())
+	nativeIngest := valid
+	nativeIngest.Arms = append([]ArmConfig(nil), valid.Arms...)
+	nativeIngest.Arms[1].Producer = nil
+	nativeIngest.Arms[1].Ingest = &CommandSpec{Program: "ingest"}
+	s.Require().NoError(nativeIngest.Validate())
 	firstHash, err := valid.Hash()
 	s.Require().NoError(err)
 	secondHash, err := valid.Hash()

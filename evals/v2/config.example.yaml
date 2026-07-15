@@ -19,9 +19,12 @@ runtime_env:
   - MEM0_DEFAULT_LLM_MODEL
   - MEM0_DEEPSEEK_BASE_URL
   - MEM0_DEFAULT_EMBEDDER_MODEL
+  - MEM0_EVAL_USER_ID
+  - MEM0_EVAL_AGENT_ID
   - PAXM_PASSIVE_MIN_RELEVANCE
   - PAXM_PASSIVE_MIN_SCORE
   - MEM0_SCORE_SEMANTICS
+  - MEM0_SEARCH_SCOPE_PAYLOAD
   - PAXM_EXPECTED_VERSION
   - PAXM_INSERTION_MIN_SCORE
   - PAXM_EVAL_DIAGNOSTICS
@@ -30,10 +33,6 @@ output:
 preflight:
   program: scripts/eval-v2-opencode.sh
   args: [preflight, all]
-shared_producer:
-  program: scripts/eval-v2-opencode.sh
-  args: [producer, shared]
-  success_marker: "{{shared_artifact_dir}}/producer.command-success"
 arms:
   - name: control
     consumer:

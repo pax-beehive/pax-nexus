@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/pax-beehive/pax-nexus/internal/eval/v2/memoryprobe"
+	"github.com/pax-beehive/pax-nexus/internal/session"
 )
 
 func main() {
@@ -27,6 +28,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, output 
 	action := flags.String("action", "", "preflight or ingest")
 	provider := flags.String("provider", "", "memory provider for ingest")
 	textFile := flags.String("text-file", "", "shared producer transcript path")
+	sessionBatchesFile := flags.String("session-batches-file", "", "native session batches path")
 	marker := flags.String("marker", "", "preflight marker")
 	if err := flags.Parse(args); err != nil {
 		return fmt.Errorf("parse eval memory flags: %w", err)
@@ -45,16 +47,28 @@ func run(ctx context.Context, args []string, getenv func(string) string, output 
 	case "preflight":
 		return client.Preflight(ctx, *marker)
 	case "ingest":
-		if strings.TrimSpace(*textFile) == "" {
-			return fmt.Errorf("ingest shared producer transcript: text-file is required")
+		if (*textFile == "") == (*sessionBatchesFile == "") {
+			return fmt.Errorf("ingest eval memory: exactly one of text-file or session-batches-file is required")
 		}
-		text, err := os.ReadFile(*textFile)
-		if err != nil {
-			return fmt.Errorf("read shared producer transcript: %w", err)
-		}
-		result, err := client.Ingest(ctx, *provider, string(text))
-		if err != nil {
-			return err
+		var result memoryprobe.IngestResult
+		if *sessionBatchesFile != "" {
+			batches, err := readSessionBatches(*sessionBatchesFile)
+			if err != nil {
+				return fmt.Errorf("ingest native session batches: %w", err)
+			}
+			result, err = client.IngestBatches(ctx, *provider, batches)
+			if err != nil {
+				return fmt.Errorf("ingest native session batches: %w", err)
+			}
+		} else {
+			text, err := os.ReadFile(*textFile)
+			if err != nil {
+				return fmt.Errorf("read shared producer transcript: %w", err)
+			}
+			result, err = client.Ingest(ctx, *provider, string(text))
+			if err != nil {
+				return err
+			}
 		}
 		if err := json.NewEncoder(output).Encode(result); err != nil {
 			return fmt.Errorf("encode eval ingest result: %w", err)
@@ -63,6 +77,18 @@ func run(ctx context.Context, args []string, getenv func(string) string, output 
 	default:
 		return fmt.Errorf("eval memory action must be preflight or ingest")
 	}
+}
+
+func readSessionBatches(path string) ([]session.SessionBatch, error) {
+	input, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read native session batches: %w", err)
+	}
+	var batches []session.SessionBatch
+	if err := json.Unmarshal(input, &batches); err != nil {
+		return nil, fmt.Errorf("decode native session batches: %w", err)
+	}
+	return batches, nil
 }
 
 func envOrDefault(getenv func(string) string, name, fallback string) string {

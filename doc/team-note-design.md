@@ -653,6 +653,13 @@ contiguous activity while preserving global timestamps and reply links. The
 consumer cannot read other Agents' raw Events; it receives only selected Team
 Notes.
 
+For the official-compatible BM25 track, retrieval produces a sparse context
+after the original conversation has been sampled. Treat `(author, channel,
+phase)` as the contiguous-activity boundary for that sparse fixture; do not
+infer additional idle-time splits from gaps where unselected messages are no
+longer present. PAX-native full-conversation fixtures may use explicit activity
+boundaries before retrieval.
+
 ### 14.2 Two score tracks
 
 **Official-compatible QA** preserves questions, answers, reader, judge, and

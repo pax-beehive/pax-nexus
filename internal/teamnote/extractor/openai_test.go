@@ -64,6 +64,18 @@ func (s *openAISuite) TestExtractsTemporalMetadataAndSourceTime() {
 	s.Equal(slice.Events[0].OccurredAt, result.Candidates[0].SourceOccurredAt)
 }
 
+func (s *openAISuite) TestModelCannotAssignAudienceIdentity() {
+	client := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		return response(http.StatusOK, `{"choices":[{"message":{"content":"{\"candidates\":[{\"action\":\"create\",\"kind\":\"handoff\",\"subject\":\"review\",\"body\":\"User_7 reviews the pack.\",\"audience_agent_ids\":[\"User_7\"],\"evidence_event_ids\":[\"event-1\"]}]}"}}]}`), nil
+	})}
+	adapter, err := extractor.NewOpenAI(extractor.OpenAIConfig{BaseURL: "http://extractor.test", Model: "model", Client: client})
+	s.Require().NoError(err)
+	result, err := adapter.Extract(context.Background(), extractorSlice())
+	s.Require().NoError(err)
+	s.Require().Len(result.Candidates, 1)
+	s.Empty(result.Candidates[0].AudienceAgentIDs)
+}
+
 func (s *openAISuite) TestRejectsInvalidResponses() {
 	tooMany := make([]string, 11)
 	for index := range tooMany {

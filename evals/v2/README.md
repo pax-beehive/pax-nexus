@@ -10,16 +10,22 @@ The included configuration compares:
 - `team_note`: OpenCode using the PAX Team Note provider
 - `mem0`: OpenCode using a self-hosted Mem0 OSS REST server
 
-Every arm receives the same `asking_user_id`. Mem0 additionally receives a
-case-specific `run_id`, which prevents cross-case contamination without changing
-the user identity under comparison. Producer and consumer agent IDs remain
-distinct so provenance is observable.
+Every trial records the same benchmark `asking_user_id`. Team Note uses it as
+the consumer principal so actor-aware recall can resolve first-person queries.
+Mem0 instead uses one shared synthetic user and agent identity across all cases,
+configured by `MEM0_EVAL_USER_ID` and `MEM0_EVAL_AGENT_ID`. A case-specific
+`run_id` prevents cross-case contamination without turning source actors into
+separate Mem0 namespaces.
 
-The two memory arms also receive the exact same producer handoff. Eval v2 runs
-one capture-only producer per case, persists its text under
-`<output_dir>/trials/<case>/shared/producer.txt`, and explicitly ingests that
-text into Team Note and Mem0 before their consumers run. This removes the
-producer-model call as a variable between the memory implementations.
+The two memory arms receive the exact same selected GroupMemBench messages,
+without a producer-model rewrite. Case preparation writes native session batches
+partitioned by source author, channel, and phase. Team Note ingests those batches
+with their original user, agent, session, timestamp, and reply provenance. Mem0
+receives a deterministic transcript rendered from the same events because its
+API accepts conversational messages rather than PAX session batches.
+Channel and phase remain provenance metadata rather than recall filters; the
+case-specific scope already provides isolation, and consumers do not declare a
+benchmark task or thread reference.
 
 ## Prepare a run
 
@@ -64,6 +70,8 @@ This writes:
   abstention behavior
 - `manifest.json`: the 30-case acceptance matrix, with 5 cases in each of the
   6 benchmark categories
+- `cases/<case>/producer/session-batches.json`: the native multi-agent source
+  events used by both memory arms
 
 Run the smoke profile first:
 
@@ -141,16 +149,16 @@ probe uses a run-specific preflight scope that is never visible to benchmark
 cases. A preflight failure leaves all paid trials pending. Resuming a run with
 no runnable work skips preflight.
 
-Each trial has one total timeout covering shared producer reuse, transcript
-ingest, memory readiness, and the consumer. Command stdout and stderr are
-retained under `<output_dir>/trials/<case>/<arm>/`; the shared producer JSONL,
-stderr, and plain-text transcript live in the sibling `shared/` directory and
-are reused on a bounded retry instead of paying for another producer call. A
-`producer.command-success` is published only after a successful process exit
-and durable stdout/stderr write; `producer.complete` is published after that
-JSONL parses successfully. Command-success JSONL can finish recovery and repair
-a missing text file, while partial JSONL without the command marker may be
-replaced only by an eligible bounded retry.
+Each trial has one total timeout covering native source ingest, memory readiness,
+and the consumer. Command stdout and stderr are retained under
+`<output_dir>/trials/<case>/<arm>/`. Native session batches are deterministic
+case artifacts, so a bounded retry reuses them without another model call.
+The runner and memory helper retain legacy `shared_producer`/`text-file`
+compatibility for custom commands, but the supplied GroupMemBench script and
+templates use native session batches.
+Native multi-agent cases can create several source sessions. Readiness requires
+every session cursor to complete, not merely the first one; the shell helper
+allows up to 480 one-second checks by default within the trial timeout.
 
 ## Output contract
 
@@ -172,7 +180,7 @@ trials. Every completed run can export:
   per-category token-F1 summaries, representative field notes, and an
   expandable breakdown of every case and every arm
 
-The stable artifact schema is `pax-eval-v2.5`. `report.html` covers the common
+The stable artifact schema is `pax-eval-v2.6`. `report.html` covers the common
 comparison views; raw CSV/JSONL files remain available for other analysis.
 Token F1 and its paired win/loss/tie counts are lexical diagnostics, not counts
 of semantically correct answers. Exact remains a full-string diagnostic.
@@ -181,9 +189,8 @@ answer explicitly says the information is unavailable; token F1 remains lexical
 for all answers.
 
 Cost fields use the `opencode_reported` scope. Per-arm values now contain the
-consumer call plus any legacy arm-local producer, but do not allocate the one
-shared producer call to either memory arm. The shared producer's OpenCode JSONL
-retains its reported usage for future run-level accounting. Team Note
+consumer call plus any legacy arm-local or shared producer. The native
+GroupMemBench path has no producer-model cost. Team Note
 extraction calls and Mem0's internal model/embedder calls are also not yet
 included because those backends do not expose one common billing contract.
 Therefore `artifacts.json.cost_summary` remains an arm-level subtotal, not the

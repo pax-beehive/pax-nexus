@@ -194,6 +194,9 @@ func (s *renderSuite) TestReportShowsMemoryIngestNoOpBreakdown() {
 	results[1].MemoryIngestUpdated = 1
 	results[1].MemoryIngestDeleted = 2
 	results[1].MemoryIngestNoOpKnown = true
+	results[1].MemorySourceEvents = 32
+	results[1].MemorySourceActors = 7
+	results[1].MemorySourceSessions = 9
 	results[2].MemoryIngestProvider = "team_note"
 	results[2].MemoryIngestAccepted = 1
 	results[4].MemoryIngestProvider = "mem0"
@@ -212,6 +215,10 @@ func (s *renderSuite) TestReportShowsMemoryIngestNoOpBreakdown() {
 	s.Contains(ingestHTML, "Created")
 	s.Contains(ingestHTML, "Updated")
 	s.Contains(ingestHTML, "Deleted")
+	s.Contains(ingestHTML, "Source events")
+	s.Contains(ingestHTML, "Source actors")
+	s.Contains(ingestHTML, "Source sessions")
+	s.Contains(ingestHTML, `<td class="num">32</td><td class="num">7</td><td class="num">9</td>`)
 	s.Contains(ingestHTML, `<td class="mono">one</td><td>temporal</td><td>mem0</td>`)
 	s.Contains(ingestHTML, `<td class="num">3</td><td class="num">1</td><td class="num">2</td><td>no</td>`)
 	s.Contains(ingestHTML, `<td class="mono">two</td><td>multi_hop</td><td>mem0</td>`)

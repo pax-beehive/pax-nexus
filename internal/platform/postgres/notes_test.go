@@ -258,6 +258,36 @@ WHERE scope_id = $1 AND note_id = $2 AND revision = 1`, scopeID, created.ID).Sca
 	s.Equal(second.ValidAt.UTC(), invalidAt.UTC())
 }
 
+func (s *noteStoreSuite) TestFirstPersonQueryPrefersTheAskingUsersOwnSource() {
+	ctx := context.Background()
+	scopeID := uniqueScope("note-identity-ranking")
+	own := teamnote.Actor{UserID: "User_3", AgentID: "agent-3", SessionID: "session-3"}
+	other := teamnote.Actor{UserID: "User_7", AgentID: "agent-7", SessionID: "session-7"}
+	ownEvent := event("identity-own", own, 1)
+	otherEvent := event("identity-other", other, 1)
+	s.appendEvents(ctx, scopeID, ownEvent)
+	s.appendEvents(ctx, scopeID, otherEvent)
+	notes := s.newNoteStore()
+
+	otherCandidate := candidate("identity-other-candidate", teamnote.ActionCreate, "The delivery assignment is validate billing.", other, otherEvent.ID)
+	otherCandidate.Kind = teamnote.KindHandoff
+	_, err := notes.ApplyCandidate(ctx, scopeID, "identity-other-run", otherCandidate, []teamnote.SessionEvent{otherEvent})
+	s.Require().NoError(err)
+	_, err = notes.ApplyCandidate(ctx, scopeID, "identity-own-run",
+		candidate("identity-own-candidate", teamnote.ActionCreate, "The delivery assignment is verify exports.", own, ownEvent.ID),
+		[]teamnote.SessionEvent{ownEvent})
+	s.Require().NoError(err)
+
+	envelope, err := notes.RecallNotes(ctx, scopeID, teamnote.RecallRequest{
+		Actor:   teamnote.Actor{UserID: "User_3", AgentID: "consumer", SessionID: "identity-consumer"},
+		TaskRef: "task-1", TokenBudget: 256, Query: "What is my delivery assignment?", MaxItems: 1,
+	})
+	s.Require().NoError(err)
+	s.Require().Len(envelope.Details, 1)
+	s.Equal("User_3", envelope.Details[0].Origin.UserID)
+	s.Contains(envelope.Details[0].Text, "verify exports")
+}
+
 func (s *noteStoreSuite) TestRelatedFactIsComposedForRecall() {
 	ctx := context.Background()
 	scopeID := uniqueScope("note-related")

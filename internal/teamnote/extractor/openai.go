@@ -164,6 +164,9 @@ func normalizeCandidates(result *Result, slice sessionlake.Slice) error {
 		}
 		candidate.ID = "extract-" + checksum + "-" + strconv.Itoa(index+1)
 		candidate.Origin = slice.Actor
+		// Audience is an authorization boundary owned by the server, not a
+		// classification decision delegated to the extraction model.
+		candidate.AudienceAgentIDs = nil
 		candidate.SourceOccurredAt = latestEvidenceTime(candidate.EvidenceEventIDs, slice.Events)
 	}
 	return nil
@@ -236,6 +239,10 @@ authorization, approval, membership, or facts not stated in the events. Return a
 empty candidates array when no grounded collaboration note is present. Return at
 most 10 candidates. Every candidate must cite at least one ID from new_event_ids;
 overlap_event_ids may only provide context and cannot be the sole evidence.
+Always return audience_agent_ids as an empty array; the server owns audience and
+authorization. If more than 10 grounded facts are available, prioritize explicit
+decisions, changes, owners, exact values, deadlines, dependencies, and blockers
+over routine progress updates or conversational acknowledgements.
 valid_at and invalid_at are optional RFC3339 timestamps describing when the fact
 became true and stopped being true in the source domain. Do not use ingestion time
 as valid_at. Use the same stable subject and action update when a later event

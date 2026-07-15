@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/pax-beehive/pax-nexus/internal/eval/v2/memoryprobe"
+	"github.com/pax-beehive/pax-nexus/internal/session"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -39,6 +40,99 @@ func (s *clientSuite) TestIngestSendsTheSameTranscriptToBothProviders() {
 	s.Equal("/memories", calls[1].path)
 	for _, call := range calls {
 		s.Contains(call.body, `  identical handoff\n`)
+	}
+}
+
+func (s *clientSuite) TestIngestBatchesPreservesTeamNoteActorsAndRendersTheSameEventsForMem0() {
+	transport := &recordingTransport{}
+	client, err := memoryprobe.New(memoryprobe.Config{
+		TeamNoteURL: "http://team-note", TeamNoteAPIKey: "key", Mem0URL: "http://mem0",
+		UserID: "asking-user", AgentID: "ingest-helper", RunID: "run", HTTPClient: &http.Client{Transport: transport},
+	})
+	s.Require().NoError(err)
+	batches := []session.SessionBatch{
+		{Complete: true, Events: []session.SessionEvent{{
+			ID: "Msg_1", Actor: session.Actor{UserID: "User_3", AgentID: "groupmembench-User_3", SessionID: "session-3"},
+			Sequence: 1, Type: "message", Content: "Ops owns rollback.", OccurredAt: time.Date(2025, time.July, 5, 7, 0, 0, 0, time.UTC),
+			Metadata: map[string]string{"role": "PM", "channel": "Finance", "phase": "Plan", "topic": "Controls", "decision_point": "true", "noise": "false", "decision_change_metadata": `{"supersedes":"Msg_0"}`, "reply_to": "Msg_0"},
+		}}},
+		{Complete: true, Events: []session.SessionEvent{{
+			ID: "Msg_2", Actor: session.Actor{UserID: "User_7", AgentID: "groupmembench-User_7", SessionID: "session-7"},
+			Sequence: 1, Type: "message", Content: "Finance confirms cutoff.", OccurredAt: time.Date(2025, time.July, 5, 8, 0, 0, 0, time.UTC),
+			Metadata: map[string]string{"role": "Analyst"},
+		}}},
+	}
+
+	teamResult, err := client.IngestBatches(context.Background(), memoryprobe.ProviderTeamNote, batches)
+	s.Require().NoError(err)
+	s.Equal(2, teamResult.Accepted)
+	s.Equal(2, teamResult.SourceEvents)
+	s.Equal(2, teamResult.SourceActors)
+	s.Equal(2, teamResult.SourceSessions)
+	mem0Result, err := client.IngestBatches(context.Background(), memoryprobe.ProviderMem0, batches)
+	s.Require().NoError(err)
+	s.Equal(2, mem0Result.SourceEvents)
+
+	calls := transport.snapshot()
+	s.Require().Len(calls, 3)
+	s.Equal("/v1/session-batches", calls[0].path)
+	s.Contains(calls[0].body, `"user_id":"User_3"`)
+	s.Contains(calls[0].body, `"agent_id":"groupmembench-User_3"`)
+	s.Equal("/v1/session-batches", calls[1].path)
+	s.Contains(calls[1].body, `"user_id":"User_7"`)
+	s.Equal("/memories", calls[2].path)
+	for _, expected := range []string{"Msg_1", "User_3", "PM", "Finance", "Plan", "Controls", "Decision point", "Noise", "supersedes", "Ops owns rollback.", "Msg_2", "User_7", "Finance confirms cutoff."} {
+		s.Contains(calls[2].body, expected)
+	}
+}
+
+func (s *clientSuite) TestIngestBatchesValidationMatrix() {
+	client, err := memoryprobe.New(memoryprobe.Config{
+		TeamNoteURL: "http://team-note", TeamNoteAPIKey: "key", Mem0URL: "http://mem0",
+		UserID: "asking-user", AgentID: "agent", RunID: "run", HTTPClient: &http.Client{Transport: &recordingTransport{}},
+	})
+	s.Require().NoError(err)
+	valid := func() []session.SessionBatch {
+		actor := session.Actor{UserID: "User_3", AgentID: "groupmembench-User_3", SessionID: "session-3"}
+		return []session.SessionBatch{{Complete: true, Events: []session.SessionEvent{{
+			ID: "Msg_1", Actor: actor, Sequence: 1, Type: "message", Content: "decision",
+			OccurredAt: time.Date(2025, time.July, 5, 7, 0, 0, 0, time.UTC),
+		}}}}
+	}
+	tests := []struct {
+		name     string
+		provider string
+		mutate   func([]session.SessionBatch) []session.SessionBatch
+	}{
+		{name: "empty batches", provider: memoryprobe.ProviderTeamNote, mutate: func([]session.SessionBatch) []session.SessionBatch { return nil }},
+		{name: "incomplete batch", provider: memoryprobe.ProviderTeamNote, mutate: func(batches []session.SessionBatch) []session.SessionBatch {
+			batches[0].Complete = false
+			return batches
+		}},
+		{name: "empty events", provider: memoryprobe.ProviderTeamNote, mutate: func(batches []session.SessionBatch) []session.SessionBatch { batches[0].Events = nil; return batches }},
+		{name: "missing required field", provider: memoryprobe.ProviderTeamNote, mutate: func(batches []session.SessionBatch) []session.SessionBatch {
+			batches[0].Events[0].ID = ""
+			return batches
+		}},
+		{name: "mixed actor sessions", provider: memoryprobe.ProviderTeamNote, mutate: func(batches []session.SessionBatch) []session.SessionBatch {
+			second := batches[0].Events[0]
+			second.ID, second.Sequence, second.Actor.SessionID = "Msg_2", 2, "session-other"
+			batches[0].Events = append(batches[0].Events, second)
+			return batches
+		}},
+		{name: "non increasing sequence", provider: memoryprobe.ProviderTeamNote, mutate: func(batches []session.SessionBatch) []session.SessionBatch {
+			second := batches[0].Events[0]
+			second.ID = "Msg_2"
+			batches[0].Events = append(batches[0].Events, second)
+			return batches
+		}},
+		{name: "unknown provider", provider: "unknown", mutate: func(batches []session.SessionBatch) []session.SessionBatch { return batches }},
+	}
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			_, ingestErr := client.IngestBatches(context.Background(), test.provider, test.mutate(valid()))
+			s.Require().Error(ingestErr)
+		})
 	}
 }
 
