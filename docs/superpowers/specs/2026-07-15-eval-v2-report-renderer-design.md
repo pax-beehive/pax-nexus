@@ -23,8 +23,9 @@ from whatever arms and cases a given run actually contains.
 - The visual design matches the hand-built report already approved this
   session: stat tiles per arm, a token-F1 bar chart, a win/loss/tie summary
   vs. baseline, a by-category table, cost/latency bars, a small set of
-  concrete example answers ("field notes"), an expandable breakdown of every
-  case and arm, and a methodology footer. Light and dark mode both styled.
+  concrete example answers ("field notes"), a three-case acceptance comparison
+  table, an expandable breakdown of every case and arm, and a methodology
+  footer. Light and dark mode both styled.
 - Existing completed runs hydrate question text from the case manifest, so
   adding the report does not require rerunning paid trials.
 - `artifacts.json` declares `report.html` only after the report has been
@@ -94,6 +95,11 @@ against a `bytes.Buffer` and so the caller decides the destination.
        already used above
      Each card shows every arm's answer for that case, not just baseline
      and the leading candidate.
+   - **Three-case acceptance breakdown**: the selected examples also render as
+     a horizontally scrollable comparison table. Each row contains the scenario
+     label, case/question, expected answer, and every arm's status, token F1,
+     delta, verbatim answer, and error. The table does not infer semantic pass
+     or fail from lexical metrics.
    - **All case breakdown**: every case grouped by category, with question,
      expected answer, status, token F1, delta from baseline, verbatim answer,
      and error for every arm. Native `details` elements keep this usable

@@ -2,6 +2,7 @@ package render
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 	"time"
 
@@ -141,6 +142,24 @@ func (s *renderSuite) TestReportEscapesAnswers() {
 	s.Require().NoError(Report(run, "control", results, &output))
 	s.NotContains(output.String(), "<script>")
 	s.Contains(output.String(), "&lt;script&gt;")
+}
+
+func (s *renderSuite) TestReportIncludesThreeCaseAcceptanceBreakdownTable() {
+	run := v2.RunRecord{ID: "run", Config: v2.Config{Arms: []v2.ArmConfig{{Name: "control"}, {Name: "team_note"}, {Name: "mem0"}}}}
+	results := []v2.TrialResult{
+		trial("win", "temporal", "control", 0.1), trial("win", "temporal", "team_note", 0.9), trial("win", "temporal", "mem0", 0.2),
+		trial("loss", "abstention", "control", 0.5), trial("loss", "abstention", "team_note", 0.1), trial("loss", "abstention", "mem0", 0.3),
+		trial("shift", "temporal", "control", 0.1), trial("shift", "temporal", "team_note", 0.6), trial("shift", "temporal", "mem0", 0.2),
+	}
+	var output bytes.Buffer
+	s.Require().NoError(Report(run, "control", results, &output))
+	html := output.String()
+	s.Contains(html, "Three-case acceptance breakdown")
+	s.Contains(html, "Expected answer")
+	s.Equal(3, strings.Count(html, `class="acceptance-row`))
+	for _, arm := range []string{"control", "team_note", "mem0"} {
+		s.Contains(html, `<th>`+arm+`</th>`)
+	}
 }
 
 func trial(caseID, category, arm string, f1 float64) v2.TrialResult {
