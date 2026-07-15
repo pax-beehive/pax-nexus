@@ -164,6 +164,7 @@ func (s *runnerSuite) TestSharedProducerRecoversPlainTextFromCompletedJSONL() {
 	sharedDirectory := filepath.Join(config.Run.OutputDir, "trials", "case", "shared")
 	s.Require().NoError(os.MkdirAll(sharedDirectory, 0o755))
 	s.Require().NoError(os.WriteFile(filepath.Join(sharedDirectory, "producer.jsonl"), producerJSONL(), 0o644))
+	s.Require().NoError(os.WriteFile(filepath.Join(sharedDirectory, "producer.complete"), []byte("complete\n"), 0o644))
 
 	_, _, err = runner.Run(context.Background(), config, []Case{{ID: "case", Question: "q", Expected: "answer", AskingUserID: "user"}}, "revision")
 	s.Require().NoError(err)
@@ -171,6 +172,28 @@ func (s *runnerSuite) TestSharedProducerRecoversPlainTextFromCompletedJSONL() {
 	text, err := os.ReadFile(filepath.Join(sharedDirectory, "producer.txt"))
 	s.Require().NoError(err)
 	s.Equal("handoff", string(text))
+}
+
+func (s *runnerSuite) TestBoundedRetryReplacesIncompleteSharedProducerArtifact() {
+	store := newFakeStore()
+	executor := &fakeExecutor{failProgram: "producer"}
+	runner, err := NewRunner(store, executor, nil)
+	s.Require().NoError(err)
+	config := testConfig(s.T().TempDir())
+	config.SharedProducer = &CommandSpec{Program: "producer"}
+	config.Arms[1].Producer = nil
+	config.Arms[1].Ingest = &CommandSpec{Program: "ingest"}
+	config.RetryFailed = true
+	config.RetryMaxAttempts = 2
+	cases := []Case{{ID: "case", Question: "q", Expected: "answer", AskingUserID: "user"}}
+
+	_, _, err = runner.Run(context.Background(), config, cases, "revision")
+	s.Require().NoError(err)
+	executor.failProgram = ""
+	_, _, err = runner.Run(context.Background(), config, cases, "revision")
+	s.Require().NoError(err)
+	s.Equal(2, executor.count("producer"))
+	s.Equal("completed", findResult(store.results, "memory").Status)
 }
 
 func (s *runnerSuite) TestFailureCostMatrix() {

@@ -78,6 +78,9 @@ case "${stage}" in
     fi
     run_agent "${PAX_EVAL_PRODUCER_WORKSPACE}" 0 "${producer_write_enabled}" \
       "Read source.md. Produce a complete factual handoff of every current decision, date, owner, dependency, and unresolved blocker. Preserve author identities and exact values."
+    if [ "${arm}" = "shared" ]; then
+      touch "${PAX_EVAL_SHARED_ARTIFACT_DIR}/producer.complete"
+    fi
     ;;
   ingest)
     shared_dir="$(dirname "${PAX_EVAL_SHARED_PRODUCER_TEXT}")"

@@ -397,12 +397,16 @@ func (r *Runner) executeSharedProducer(
 	artifactDir := filepath.Join(outputDir, "trials", evalCase.ID, "shared")
 	stdoutPath := filepath.Join(artifactDir, "producer.jsonl")
 	textPath := filepath.Join(artifactDir, "producer.txt")
-	cachedResult, cachedOutput, found, err := loadSharedProducer(stdoutPath, textPath)
+	markerPath := filepath.Join(artifactDir, "producer.complete")
+	cachedResult, cachedOutput, found, err := loadSharedProducer(stdoutPath, textPath, markerPath)
 	if err != nil {
 		return CommandResult{}, harness.AgentOutput{}, err
 	}
 	if found {
 		return cachedResult, cachedOutput, nil
+	}
+	if err := os.MkdirAll(artifactDir, 0o755); err != nil {
+		return CommandResult{}, harness.AgentOutput{}, fmt.Errorf("create shared producer artifact directory: %w", err)
 	}
 	variables := trialVariables(run, evalCase, "shared", outputDir)
 	result, executeErr := r.executor.Execute(ctx, spec, variables, stdoutPath, filepath.Join(artifactDir, "producer.stderr.log"))
@@ -420,19 +424,27 @@ func (r *Runner) executeSharedProducer(
 	if output.Text == "" {
 		return result, output, fmt.Errorf("parse shared producer output: OpenCode output contains no text")
 	}
+	if err := writeCommandOutput(markerPath, []byte("complete\n")); err != nil {
+		return result, output, fmt.Errorf("persist shared producer completion marker: %w", err)
+	}
 	if err := writeCommandOutput(textPath, []byte(output.Text)); err != nil {
 		return result, output, fmt.Errorf("persist shared producer transcript: %w", err)
 	}
 	return result, output, nil
 }
 
-func loadSharedProducer(stdoutPath, textPath string) (CommandResult, harness.AgentOutput, bool, error) {
+func loadSharedProducer(stdoutPath, textPath, markerPath string) (CommandResult, harness.AgentOutput, bool, error) {
 	raw, err := os.ReadFile(stdoutPath)
 	if errors.Is(err, os.ErrNotExist) {
 		return CommandResult{}, harness.AgentOutput{}, false, nil
 	}
 	if err != nil {
 		return CommandResult{}, harness.AgentOutput{}, false, fmt.Errorf("read cached shared producer output: %w", err)
+	}
+	if _, err := os.Stat(markerPath); errors.Is(err, os.ErrNotExist) {
+		return CommandResult{}, harness.AgentOutput{}, false, nil
+	} else if err != nil {
+		return CommandResult{}, harness.AgentOutput{}, false, fmt.Errorf("inspect cached shared producer completion marker: %w", err)
 	}
 	output, err := harness.ParseOpenCodeJSON(bytes.NewReader(raw))
 	if err != nil {
