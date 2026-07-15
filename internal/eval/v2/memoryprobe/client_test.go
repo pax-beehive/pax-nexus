@@ -39,6 +39,17 @@ func (s *clientSuite) TestIngestSendsTheSameTranscriptToBothProviders() {
 	}
 }
 
+func (s *clientSuite) TestIngestAcceptsMem0NoOpExtraction() {
+	transport := &recordingTransport{memoryResponse: `{"results":[]}`}
+	client, err := memoryprobe.New(memoryprobe.Config{
+		TeamNoteURL: "http://team-note", TeamNoteAPIKey: "key", Mem0URL: "http://mem0",
+		UserID: "user", AgentID: "producer", RunID: "run", HTTPClient: &http.Client{Transport: transport},
+	})
+	s.Require().NoError(err)
+
+	s.Require().NoError(client.Ingest(context.Background(), memoryprobe.ProviderMem0, "handoff"))
+}
+
 func (s *clientSuite) TestPreflightExercisesAddRecallAndSupportedCleanup() {
 	transport := &recordingTransport{}
 	client, err := memoryprobe.New(memoryprobe.Config{
@@ -94,9 +105,10 @@ type recordedCall struct {
 }
 
 type recordingTransport struct {
-	mu          sync.Mutex
-	calls       []recordedCall
-	searchCount int
+	mu             sync.Mutex
+	calls          []recordedCall
+	searchCount    int
+	memoryResponse string
 }
 
 func (t *recordingTransport) RoundTrip(request *http.Request) (*http.Response, error) {
@@ -122,7 +134,10 @@ func (t *recordingTransport) RoundTrip(request *http.Request) (*http.Response, e
 	case "/v1/notes/recall":
 		responseBody = `{"revision":"1","items":["Confirmed active for this run."],"tokens":1}`
 	case "/memories":
-		responseBody = `{"results":[{"id":"mem-1","event":"ADD"}]}`
+		responseBody = t.memoryResponse
+		if responseBody == "" {
+			responseBody = `{"results":[{"id":"mem-1","event":"ADD"}]}`
+		}
 	case "/search":
 		t.searchCount++
 		if t.searchCount == 1 {

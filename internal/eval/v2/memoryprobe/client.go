@@ -109,6 +109,9 @@ func (c *Client) Preflight(ctx context.Context, marker string) error {
 	if err != nil {
 		return fmt.Errorf("preflight Mem0 add: %w", err)
 	}
+	if len(refs) == 0 {
+		return fmt.Errorf("preflight Mem0 add: add returned no memory IDs")
+	}
 	if err := c.pollNonEmpty(ctx, preflightNeedle, "results", c.searchMem0); err != nil {
 		return fmt.Errorf("preflight Mem0 recall: %w", err)
 	}
@@ -168,9 +171,6 @@ func (c *Client) addMem0(ctx context.Context, text string) ([]string, error) {
 	refs, err := memoryIDs(body)
 	if err != nil {
 		return nil, err
-	}
-	if len(refs) == 0 {
-		return nil, fmt.Errorf("Mem0 add returned no memory IDs")
 	}
 	return refs, nil
 }
