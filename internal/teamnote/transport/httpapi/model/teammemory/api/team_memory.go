@@ -1476,6 +1476,7 @@ type RecallRequest struct {
 	ThreadRef   *string `thrift:"thread_ref,3,optional" form:"thread_ref" json:"thread_ref,omitempty"`
 	TokenBudget int32   `thrift:"token_budget,4,required" form:"token_budget,required" json:"token_budget,required"`
 	Query       *string `thrift:"query,5,optional" form:"query" json:"query,omitempty"`
+	MaxItems    *int32  `thrift:"max_items,6,optional" form:"max_items" json:"max_items,omitempty"`
 }
 
 func NewRecallRequest() *RecallRequest {
@@ -1525,12 +1526,22 @@ func (p *RecallRequest) GetQuery() (v string) {
 	return *p.Query
 }
 
+var RecallRequest_MaxItems_DEFAULT int32
+
+func (p *RecallRequest) GetMaxItems() (v int32) {
+	if !p.IsSetMaxItems() {
+		return RecallRequest_MaxItems_DEFAULT
+	}
+	return *p.MaxItems
+}
+
 var fieldIDToName_RecallRequest = map[int16]string{
 	1: "actor",
 	2: "task_ref",
 	3: "thread_ref",
 	4: "token_budget",
 	5: "query",
+	6: "max_items",
 }
 
 func (p *RecallRequest) IsSetActor() bool {
@@ -1547,6 +1558,10 @@ func (p *RecallRequest) IsSetThreadRef() bool {
 
 func (p *RecallRequest) IsSetQuery() bool {
 	return p.Query != nil
+}
+
+func (p *RecallRequest) IsSetMaxItems() bool {
+	return p.MaxItems != nil
 }
 
 func (p *RecallRequest) Read(iprot thrift.TProtocol) (err error) {
@@ -1607,6 +1622,14 @@ func (p *RecallRequest) Read(iprot thrift.TProtocol) (err error) {
 		case 5:
 			if fieldTypeId == thrift.STRING {
 				if err = p.ReadField5(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 6:
+			if fieldTypeId == thrift.I32 {
+				if err = p.ReadField6(iprot); err != nil {
 					goto ReadFieldError
 				}
 			} else if err = iprot.Skip(fieldTypeId); err != nil {
@@ -1704,6 +1727,17 @@ func (p *RecallRequest) ReadField5(iprot thrift.TProtocol) error {
 	p.Query = _field
 	return nil
 }
+func (p *RecallRequest) ReadField6(iprot thrift.TProtocol) error {
+
+	var _field *int32
+	if v, err := iprot.ReadI32(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.MaxItems = _field
+	return nil
+}
 
 func (p *RecallRequest) Write(oprot thrift.TProtocol) (err error) {
 	var fieldId int16
@@ -1729,6 +1763,10 @@ func (p *RecallRequest) Write(oprot thrift.TProtocol) (err error) {
 		}
 		if err = p.writeField5(oprot); err != nil {
 			fieldId = 5
+			goto WriteFieldError
+		}
+		if err = p.writeField6(oprot); err != nil {
+			fieldId = 6
 			goto WriteFieldError
 		}
 	}
@@ -1840,6 +1878,25 @@ WriteFieldEndError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 5 end error: ", p), err)
 }
 
+func (p *RecallRequest) writeField6(oprot thrift.TProtocol) (err error) {
+	if p.IsSetMaxItems() {
+		if err = oprot.WriteFieldBegin("max_items", thrift.I32, 6); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteI32(*p.MaxItems); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 6 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 6 end error: ", p), err)
+}
+
 func (p *RecallRequest) String() string {
 	if p == nil {
 		return "<nil>"
@@ -1849,10 +1906,12 @@ func (p *RecallRequest) String() string {
 }
 
 type RecalledNote struct {
-	NoteID   string `thrift:"note_id,1,required" form:"note_id,required" json:"note_id,required" query:"note_id,required"`
-	Revision int32  `thrift:"revision,2,required" form:"revision,required" json:"revision,required" query:"revision,required"`
-	Text     string `thrift:"text,3,required" form:"text,required" json:"text,required" query:"text,required"`
-	Origin   *Actor `thrift:"origin,4,required" form:"origin,required" json:"origin,required" query:"origin,required"`
+	NoteID    string  `thrift:"note_id,1,required" form:"note_id,required" json:"note_id,required" query:"note_id,required"`
+	Revision  int32   `thrift:"revision,2,required" form:"revision,required" json:"revision,required" query:"revision,required"`
+	Text      string  `thrift:"text,3,required" form:"text,required" json:"text,required" query:"text,required"`
+	Origin    *Actor  `thrift:"origin,4,required" form:"origin,required" json:"origin,required" query:"origin,required"`
+	Relevance float64 `thrift:"relevance,5,required" form:"relevance,required" json:"relevance,required" query:"relevance,required"`
+	Certainty string  `thrift:"certainty,6,required" form:"certainty,required" json:"certainty,required" query:"certainty,required"`
 }
 
 func NewRecalledNote() *RecalledNote {
@@ -1883,11 +1942,21 @@ func (p *RecalledNote) GetOrigin() (v *Actor) {
 	return p.Origin
 }
 
+func (p *RecalledNote) GetRelevance() (v float64) {
+	return p.Relevance
+}
+
+func (p *RecalledNote) GetCertainty() (v string) {
+	return p.Certainty
+}
+
 var fieldIDToName_RecalledNote = map[int16]string{
 	1: "note_id",
 	2: "revision",
 	3: "text",
 	4: "origin",
+	5: "relevance",
+	6: "certainty",
 }
 
 func (p *RecalledNote) IsSetOrigin() bool {
@@ -1902,6 +1971,8 @@ func (p *RecalledNote) Read(iprot thrift.TProtocol) (err error) {
 	var issetRevision bool = false
 	var issetText bool = false
 	var issetOrigin bool = false
+	var issetRelevance bool = false
+	var issetCertainty bool = false
 
 	if _, err = iprot.ReadStructBegin(); err != nil {
 		goto ReadStructBeginError
@@ -1953,6 +2024,24 @@ func (p *RecalledNote) Read(iprot thrift.TProtocol) (err error) {
 			} else if err = iprot.Skip(fieldTypeId); err != nil {
 				goto SkipFieldError
 			}
+		case 5:
+			if fieldTypeId == thrift.DOUBLE {
+				if err = p.ReadField5(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetRelevance = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 6:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField6(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetCertainty = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
 		default:
 			if err = iprot.Skip(fieldTypeId); err != nil {
 				goto SkipFieldError
@@ -1983,6 +2072,16 @@ func (p *RecalledNote) Read(iprot thrift.TProtocol) (err error) {
 
 	if !issetOrigin {
 		fieldId = 4
+		goto RequiredFieldNotSetError
+	}
+
+	if !issetRelevance {
+		fieldId = 5
+		goto RequiredFieldNotSetError
+	}
+
+	if !issetCertainty {
+		fieldId = 6
 		goto RequiredFieldNotSetError
 	}
 	return nil
@@ -2044,6 +2143,28 @@ func (p *RecalledNote) ReadField4(iprot thrift.TProtocol) error {
 	p.Origin = _field
 	return nil
 }
+func (p *RecalledNote) ReadField5(iprot thrift.TProtocol) error {
+
+	var _field float64
+	if v, err := iprot.ReadDouble(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.Relevance = _field
+	return nil
+}
+func (p *RecalledNote) ReadField6(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.Certainty = _field
+	return nil
+}
 
 func (p *RecalledNote) Write(oprot thrift.TProtocol) (err error) {
 	var fieldId int16
@@ -2065,6 +2186,14 @@ func (p *RecalledNote) Write(oprot thrift.TProtocol) (err error) {
 		}
 		if err = p.writeField4(oprot); err != nil {
 			fieldId = 4
+			goto WriteFieldError
+		}
+		if err = p.writeField5(oprot); err != nil {
+			fieldId = 5
+			goto WriteFieldError
+		}
+		if err = p.writeField6(oprot); err != nil {
+			fieldId = 6
 			goto WriteFieldError
 		}
 	}
@@ -2151,6 +2280,40 @@ WriteFieldBeginError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 4 begin error: ", p), err)
 WriteFieldEndError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 4 end error: ", p), err)
+}
+
+func (p *RecalledNote) writeField5(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("relevance", thrift.DOUBLE, 5); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteDouble(p.Relevance); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 5 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 5 end error: ", p), err)
+}
+
+func (p *RecalledNote) writeField6(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("certainty", thrift.STRING, 6); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.Certainty); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 6 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 6 end error: ", p), err)
 }
 
 func (p *RecalledNote) String() string {

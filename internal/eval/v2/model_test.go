@@ -12,6 +12,17 @@ type modelSuite struct{ suite.Suite }
 
 func TestModelSuite(t *testing.T) { suite.Run(t, new(modelSuite)) }
 
+func (s *modelSuite) TestRescoresStoredSemanticAbstention() {
+	results := []TrialResult{{
+		Status: "completed", Arm: "team_note",
+		Expected: "There is no information available in the conversation to answer this question.",
+		Answer:   "The information is unavailable.",
+	}}
+	rescored := RescoreResults(results)
+	s.True(rescored[0].SafeSuccess)
+	s.False(results[0].SafeSuccess)
+}
+
 func (s *modelSuite) TestValidationMatrix() {
 	valid := testConfig(s.T().TempDir())
 	tests := []struct {

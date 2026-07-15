@@ -23,6 +23,7 @@ writes ignored artifacts under `runs/groupmembench-<run-id>`.
 
 This is a bounded-context diagnostic rather than an official benchmark score.
 Question-conditioned BM25 selects up to 32 source messages before ingestion,
-and local scoring uses exact match plus token F1 instead of the official
+and local scoring uses exact match, conservative safe-abstention success, and
+token F1 instead of the official
 semantic judge. See `doc/groupmembench-eval.md` for methodology, current results,
 and limitations.

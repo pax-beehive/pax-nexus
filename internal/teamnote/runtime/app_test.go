@@ -72,7 +72,7 @@ func (s *appSuite) TestObserveQueuesExtractionAndRecallWithinScope() {
 		TaskRef: "release-42", TokenBudget: 256,
 	})
 	s.Require().NoError(err)
-	s.Equal([]string{"[blocker] Tests are failing."}, envelope.Items)
+	s.Equal([]string{"[blocker certainty=unresolved] Tests are failing."}, envelope.Items)
 
 	otherScope := teamnote.WithScope(context.Background(), "scope-b")
 	envelope, err = s.app.RecallNotes(otherScope, teamnote.RecallRequest{

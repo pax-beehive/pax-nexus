@@ -316,7 +316,7 @@ func (p *Provider) search(ctx context.Context, query searchQuery) ([]map[string]
 	payload := map[string]any{
 		"actor":    p.actor(query.Metadata, sessionID),
 		"task_ref": query.Metadata["task_ref"], "thread_ref": query.Metadata["thread_ref"],
-		"token_budget": budget, "query": query.Text,
+		"token_budget": budget, "query": query.Text, "max_items": query.Limit,
 	}
 	request, err := p.newRequest(ctx, http.MethodPost, "/v1/notes/recall", payload)
 	if err != nil {
@@ -337,10 +337,12 @@ func (p *Provider) search(ctx context.Context, query searchQuery) ([]map[string]
 }
 
 type recalledNotePayload struct {
-	NoteID   string `json:"note_id"`
-	Revision int    `json:"revision"`
-	Text     string `json:"text"`
-	Origin   actor  `json:"origin"`
+	NoteID    string  `json:"note_id"`
+	Revision  int     `json:"revision"`
+	Text      string  `json:"text"`
+	Origin    actor   `json:"origin"`
+	Relevance float64 `json:"relevance"`
+	Certainty string  `json:"certainty"`
 }
 
 func attributedHits(notes []recalledNotePayload) []map[string]any {
@@ -349,8 +351,8 @@ func attributedHits(notes []recalledNotePayload) []map[string]any {
 		revision := fmt.Sprintf("%s:%d", note.NoteID, note.Revision)
 		hits = append(hits, map[string]any{
 			"provider": "team-memory", "id": revision, "text": note.Text,
-			"relevance": 1.0, "score": 1.0, "source": "team-note", "origin": note.Origin,
-			"metadata": map[string]string{"revision": revision},
+			"relevance": note.Relevance, "score": note.Relevance, "source": "team-note", "origin": note.Origin,
+			"metadata": map[string]string{"revision": revision, "certainty": note.Certainty},
 		})
 	}
 	return hits

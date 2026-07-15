@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-const ArtifactSchemaVersion = "pax-eval-v2.4"
+const ArtifactSchemaVersion = "pax-eval-v2.5"
 
 type SummaryRow struct {
 	DimensionType     string

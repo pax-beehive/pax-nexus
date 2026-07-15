@@ -66,21 +66,25 @@ func (s *handlerSuite) TestRecallNotes() {
 			s.Equal("scope-1", scopeID)
 			s.Equal("consumer", request.Actor.AgentID)
 			s.Equal("When is the deadline?", request.Query)
+			s.Equal(3, request.MaxItems)
 			return teamnote.NoteEnvelope{
 				Revision: "note:1", Items: []string{"[blocker] Tests fail."}, Tokens: 7,
 				Details: []teamnote.RecalledNote{{
 					NoteID: "note", Revision: 1, Text: "[blocker] Tests fail.",
+					Relevance: 0.5, Certainty: teamnote.CertaintyUnresolved,
 					Origin: teamnote.Actor{UserID: "owner", AgentID: "producer", SessionID: "producer-session"},
 				}},
 			}, nil
 		},
 	)
-	body := `{"actor":{"user_id":"owner","agent_id":"consumer","session_id":"session-2"},"task_ref":"release-42","token_budget":256,"query":"When is the deadline?"}`
+	body := `{"actor":{"user_id":"owner","agent_id":"consumer","session_id":"session-2"},"task_ref":"release-42","token_budget":256,"query":"When is the deadline?","max_items":3}`
 	response := perform(handler.RecallNotes, http.MethodPost, body, "secret")
 	s.Equal(consts.StatusOK, response.Code)
 	s.Contains(response.Body.String(), "Tests fail")
 	s.Contains(response.Body.String(), `"agent_id":"producer"`)
 	s.Contains(response.Body.String(), `"session_id":"producer-session"`)
+	s.Contains(response.Body.String(), `"relevance":0.5`)
+	s.Contains(response.Body.String(), `"certainty":"unresolved"`)
 	s.Contains(s.logs.String(), `"msg":"team notes recalled"`)
 	s.Contains(s.logs.String(), `"notes":1`)
 	s.Contains(s.logs.String(), `"tokens":7`)

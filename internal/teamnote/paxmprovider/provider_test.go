@@ -92,11 +92,13 @@ func (s *providerSuite) TestSearchMapsEnvelopeToHighConfidenceHits() {
 			SessionID string `json:"session_id"`
 		} `json:"actor"`
 		TokenBudget int `json:"token_budget"`
+		MaxItems    int `json:"max_items"`
 	}
 	s.Require().NoError(json.Unmarshal(s.transport.bodies[0], &payload))
 	s.Equal("metadata-consumer", payload.Actor.AgentID)
 	s.Equal("consumer-session", payload.Actor.SessionID)
 	s.Equal(200, payload.TokenBudget)
+	s.Equal(2, payload.MaxItems)
 	var temporalPayload struct {
 		Query string `json:"query"`
 	}
@@ -117,6 +119,7 @@ func (s *providerSuite) TestSearchMapsEnvelopeToHighConfidenceHits() {
 func (s *providerSuite) TestSearchReturnsPerNoteOriginAttribution() {
 	s.transport.responseBody = `{"revision":"note-1:2","items":["[handoff] Continue release."],"tokens":8,"details":[` +
 		`{"note_id":"note-1","revision":2,"text":"[handoff] Continue release.",` +
+		`"relevance":0.75,"certainty":"proposed",` +
 		`"origin":{"user_id":"owner","agent_id":"producer","session_id":"producer-session"}}]}`
 	response := s.serve(`{"jsonrpc":"2.0","id":"origin","method":"paxm.search","params":{` +
 		`"text":"continue","limit":5,"metadata":{"session_id":"consumer-session"}}}`)
@@ -134,6 +137,11 @@ func (s *providerSuite) TestSearchReturnsPerNoteOriginAttribution() {
 	s.Equal("owner", origin["user_id"])
 	s.Equal("producer", origin["agent_id"])
 	s.Equal("producer-session", origin["session_id"])
+	s.InDelta(0.75, hit["relevance"], 0.0001)
+	s.InDelta(0.75, hit["score"], 0.0001)
+	metadata, ok := hit["metadata"].(map[string]any)
+	s.Require().True(ok)
+	s.Equal("proposed", metadata["certainty"])
 }
 
 func (s *providerSuite) TestPutAcceptsTopLevelPaxmOrigin() {

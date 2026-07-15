@@ -37,6 +37,7 @@ struct RecallRequest {
   3: optional string thread_ref (api.body="thread_ref")
   4: required i32 token_budget (api.body="token_budget")
   5: optional string query (api.body="query")
+  6: optional i32 max_items (api.body="max_items")
 }
 
 struct RecalledNote {
@@ -44,6 +45,8 @@ struct RecalledNote {
   2: required i32 revision
   3: required string text
   4: required Actor origin
+  5: required double relevance
+  6: required string certainty
 }
 
 struct NoteEnvelope {

@@ -61,6 +61,7 @@ func run(ctx context.Context, args []string, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	results = v2.RescoreResults(results)
 	return v2.ExportArtifacts(config.Run.OutputDir, runRecord, config.BaselineArm, config.OutputFormats(), results, func(writer io.Writer) error {
 		return render.Report(runRecord, config.BaselineArm, results, writer)
 	})

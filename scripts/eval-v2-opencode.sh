@@ -37,6 +37,8 @@ run_agent() {
     -e PAXM_USER_ID="${eval_user_id}" \
     -e PAXM_AGENT_ID="${agent_id}" \
     -e MEM0_RUN_ID="${mem0_run_id}" \
+    -e MEM0_SCORE_SEMANTICS="${MEM0_SCORE_SEMANTICS:-distance}" \
+    -e PAXM_EXPECTED_VERSION="${PAXM_EXPECTED_VERSION:-v0.1.28}" \
     -e PAXM_RECALL_ENABLED="${recall_enabled}" \
     -e PAXM_WRITE_ENABLED="${write_enabled}" \
     -e PAXM_PASSIVE_MIN_RELEVANCE="${PAXM_PASSIVE_MIN_RELEVANCE:--1}" \
@@ -122,7 +124,7 @@ case "${stage}" in
       consumer_recall_enabled=0
     fi
     run_agent "${PAX_EVAL_CONSUMER_WORKSPACE}" "${consumer_recall_enabled}" 0 \
-      "${PAX_EVAL_QUESTION} Answer directly and concisely without explaining your reasoning."
+      "${PAX_EVAL_QUESTION} Answer directly and concisely without explaining your reasoning. Only if the question requests an exact owner, name, date, time, timestamp, version, count, or value, require the available evidence to state that exact slot for the same subject; if that slot is missing, state that the information is unavailable. For all other question types, answer normally from the available evidence."
     ;;
   *)
     echo "unsupported stage: ${stage}" >&2

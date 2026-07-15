@@ -321,6 +321,23 @@ func ScoreResult(run RunRecord, evalCase Case, arm string, producer, consumer ha
 	}
 }
 
+// RescoreResults applies the current deterministic scorer to stored completed
+// answers so report-only reruns pick up scoring fixes without calling models.
+func RescoreResults(results []TrialResult) []TrialResult {
+	rescored := make([]TrialResult, len(results))
+	copy(rescored, results)
+	for index := range rescored {
+		if rescored[index].Status != "completed" {
+			continue
+		}
+		score := harness.ScoreExact(rescored[index].Arm, rescored[index].Expected, harness.AgentOutput{Text: rescored[index].Answer})
+		rescored[index].Exact = score.Exact
+		rescored[index].SafeSuccess = score.SafeSuccess
+		rescored[index].TokenF1 = score.TokenF1
+	}
+	return rescored
+}
+
 func validateArm(arm ArmConfig) error {
 	if strings.TrimSpace(arm.Name) == "" {
 		return fmt.Errorf("validate eval config: arm name is required")

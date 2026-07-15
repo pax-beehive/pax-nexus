@@ -44,11 +44,12 @@ func (s *ledgerSuite) TestGroundedNoteIsDeliveredOncePerRevisionAndSession() {
 	}
 	first, err := s.ledger.Recall(context.Background(), request)
 	s.Require().NoError(err)
-	s.Require().Equal([]string{"[blocker] Integration tests are failing."}, first.Items)
+	s.Require().Equal([]string{"[blocker certainty=unresolved] Integration tests are failing."}, first.Items)
 	s.Require().Len(first.Details, 1)
 	s.Equal(evidence.Actor, first.Details[0].Origin)
 	s.Equal(note.ID, first.Details[0].NoteID)
 	s.Equal(note.Revision, first.Details[0].Revision)
+	s.Equal(teamnote.CertaintyUnresolved, first.Details[0].Certainty)
 
 	second, err := s.ledger.Recall(context.Background(), request)
 	s.Require().NoError(err)
@@ -80,7 +81,7 @@ func (s *ledgerSuite) TestUpdateRedeliversAndResolveStopsDelivery() {
 
 	envelope, err := s.ledger.Recall(context.Background(), request)
 	s.Require().NoError(err)
-	s.Require().Equal([]string{"[status] The build passed."}, envelope.Items)
+	s.Require().Equal([]string{"[status certainty=confirmed] The build passed."}, envelope.Items)
 
 	resolveEvidence := producerEvent("event-resolve", "The build status is no longer active.")
 	resolved, err := s.ledger.Apply(context.Background(), teamnote.Candidate{
@@ -214,8 +215,49 @@ func (s *ledgerSuite) TestQueryPrioritizesRelevantCurrentFact() {
 	request.Query = "By which date should release readiness be complete?"
 	envelope, err := s.ledger.Recall(context.Background(), request)
 	s.Require().NoError(err)
-	s.Require().Len(envelope.Items, 2)
-	s.Equal("[status] The deadline moved to July 18. [valid: 2026-07-15T00:00:00Z to present]", envelope.Items[0])
+	s.Require().Len(envelope.Items, 1)
+	s.Equal("[status certainty=confirmed] The deadline moved to July 18. [valid: 2026-07-15T00:00:00Z to present]", envelope.Items[0])
+	s.Greater(envelope.Details[0].Relevance, 0.0)
+}
+
+func (s *ledgerSuite) TestQueryFiltersIrrelevantNotesAndEnforcesItemLimit() {
+	tests := []struct {
+		id      string
+		subject string
+		body    string
+	}{
+		{id: "candidate-cutover-date", subject: "cutover readiness date", body: "The cutover readiness date is July 28."},
+		{id: "candidate-cutover-owner", subject: "cutover owner", body: "Finance owns cutover readiness."},
+		{id: "candidate-adjacent-date", subject: "cutover downtime", body: "Cutover downtime is targeted for July 29."},
+		{id: "candidate-unrelated", subject: "lunch menu", body: "Lunch is served at noon."},
+	}
+	for index, test := range tests {
+		evidence := producerEvent("event-"+test.id, test.body)
+		evidence.OccurredAt = evidence.OccurredAt.Add(time.Duration(index) * time.Minute)
+		_, err := s.ledger.Apply(context.Background(), teamnote.Candidate{
+			ID: test.id, Action: teamnote.ActionCreate, Kind: teamnote.KindStatus,
+			Subject: test.subject, Body: test.body, Origin: evidence.Actor,
+			EvidenceEventIDs: []string{evidence.ID}, SourceOccurredAt: evidence.OccurredAt,
+		}, []teamnote.SessionEvent{evidence})
+		s.Require().NoError(err)
+	}
+
+	request := consumerRecall("", "limited-consumer")
+	request.Query = "What is the exact cutover readiness target date?"
+	request.MaxItems = 1
+	envelope, err := s.ledger.Recall(context.Background(), request)
+	s.Require().NoError(err)
+	s.Require().Len(envelope.Details, 1)
+	s.Contains(envelope.Details[0].Text, "July 28")
+	s.Greater(envelope.Details[0].Relevance, 0.0)
+	s.Equal(teamnote.CertaintyConfirmed, envelope.Details[0].Certainty)
+
+	request.Actor.SessionID = "unlimited-consumer"
+	request.MaxItems = 10
+	envelope, err = s.ledger.Recall(context.Background(), request)
+	s.Require().NoError(err)
+	s.Require().Len(envelope.Details, 1)
+	s.Contains(envelope.Details[0].Text, "July 28")
 }
 
 func (s *ledgerSuite) TestRecallComposesOneHopRelatedFact() {
@@ -244,7 +286,23 @@ func (s *ledgerSuite) TestRecallComposesOneHopRelatedFact() {
 	s.Require().NoError(err)
 	s.Require().NotEmpty(envelope.Items)
 	s.Contains(envelope.Items[0], "Legal reviews the provisional rows")
-	s.Contains(envelope.Items[0], "related: posting final Ops rows: User_7 must post final Ops rows by 2025-07-17")
+	s.Contains(envelope.Items[0], "related: [certainty=confirmed] posting final Ops rows: User_7 must post final Ops rows by 2025-07-17")
+	s.Equal(teamnote.CertaintyProposed, envelope.Details[0].Certainty)
+
+	request.Actor.SessionID = "related-limited-consumer"
+	request.MaxItems = 1
+	envelope, err = s.ledger.Recall(context.Background(), request)
+	s.Require().NoError(err)
+	s.Require().Len(envelope.Items, 1)
+	s.NotContains(envelope.Items[0], "related:")
+
+	request.Actor.SessionID = "related-exact-consumer"
+	request.Query = "What is the exact date for Legal review of provisional rows?"
+	request.MaxItems = 5
+	envelope, err = s.ledger.Recall(context.Background(), request)
+	s.Require().NoError(err)
+	s.Require().Len(envelope.Items, 1)
+	s.NotContains(envelope.Items[0], "related:")
 }
 
 func timePointer(value time.Time) *time.Time {

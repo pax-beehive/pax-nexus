@@ -105,8 +105,21 @@ func (s *NoteStore) RecallNotes(ctx context.Context, scopeID string, request tea
 	if err != nil {
 		return teamnote.NoteEnvelope{}, err
 	}
+	selectedNotes := 0
 	for _, note := range notes {
-		item := teamnote.FormatForRecallWithRelated(note, findRelatedNotes(note, notes))
+		relevance := teamnote.QueryRelevance(note, request.Query)
+		if !teamnote.QueryRelevant(note, request.Query) {
+			continue
+		}
+		if request.MaxItems > 0 && selectedNotes >= request.MaxItems {
+			break
+		}
+		remainingRelated := 0
+		if request.MaxItems > 0 {
+			remainingRelated = request.MaxItems - selectedNotes - 1
+		}
+		related := filterRelatedNotes(findRelatedNotes(note, notes), request.Query, remainingRelated, request.MaxItems > 0)
+		item := teamnote.FormatForRecallWithRelated(note, related)
 		tokens := estimateNoteTokens(item)
 		if envelope.Tokens+tokens > request.TokenBudget {
 			continue
@@ -121,8 +134,10 @@ func (s *NoteStore) RecallNotes(ctx context.Context, scopeID string, request tea
 		envelope.Items = append(envelope.Items, item)
 		envelope.Details = append(envelope.Details, teamnote.RecalledNote{
 			NoteID: note.ID, Revision: note.Revision, Text: item, Origin: note.Origin,
+			Relevance: relevance, Certainty: teamnote.CertaintyForKind(note.Kind),
 		})
 		envelope.Tokens += tokens
+		selectedNotes += 1 + len(related)
 		envelope.Revision = fmt.Sprintf("%s:%d", note.ID, note.Revision)
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -391,6 +406,20 @@ func findRelatedNotes(note teamnote.Note, notes []teamnote.Note) []teamnote.Note
 		if _, ok := wanted[strings.ToLower(candidate.Subject)]; ok {
 			result = append(result, candidate)
 		}
+	}
+	return result
+}
+
+func filterRelatedNotes(notes []teamnote.Note, query string, limit int, limited bool) []teamnote.Note {
+	result := make([]teamnote.Note, 0, len(notes))
+	for _, note := range notes {
+		if !teamnote.QueryRelated(note, query) {
+			continue
+		}
+		if limited && len(result) >= max(0, limit) {
+			break
+		}
+		result = append(result, note)
 	}
 	return result
 }

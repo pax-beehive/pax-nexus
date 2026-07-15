@@ -65,7 +65,7 @@ func (s *noteStoreSuite) TestLifecycleDeliveryAndPersistence() {
 	request := teamnote.RecallRequest{Actor: consumer, TaskRef: "task-1", TokenBudget: 100}
 	first, err := notes.RecallNotes(ctx, scopeID, request)
 	s.Require().NoError(err)
-	s.Equal([]string{"[status] work started"}, first.Items)
+	s.Equal([]string{"[status certainty=confirmed] work started"}, first.Items)
 	s.Require().Len(first.Details, 1)
 	s.Equal(producer, first.Details[0].Origin)
 	s.Equal(created.ID, first.Details[0].NoteID)
@@ -90,7 +90,7 @@ func (s *noteStoreSuite) TestLifecycleDeliveryAndPersistence() {
 
 	refreshed, err := restarted.RecallNotes(ctx, scopeID, request)
 	s.Require().NoError(err)
-	s.Equal([]string{"[status] work finished"}, refreshed.Items)
+	s.Equal([]string{"[status certainty=confirmed] work finished"}, refreshed.Items)
 
 	thirdEvent := event("note-event-3", producer, 3)
 	s.appendEvents(ctx, scopeID, thirdEvent)
@@ -240,11 +240,13 @@ func (s *noteStoreSuite) TestTemporalRevisionAndQueryRankingPersist() {
 
 	envelope, err := notes.RecallNotes(ctx, scopeID, teamnote.RecallRequest{
 		Actor:   teamnote.Actor{UserID: "owner", AgentID: "consumer", SessionID: "temporal-query"},
-		TaskRef: "task-1", TokenBudget: 256, Query: "By which date should validation owners confirm?",
+		TaskRef: "task-1", TokenBudget: 256, Query: "By which date should validation owners confirm?", MaxItems: 1,
 	})
 	s.Require().NoError(err)
-	s.Require().NotEmpty(envelope.Items)
-	s.Equal("[status] Validation owners must confirm by July 18. [valid: 2026-07-12T00:00:00Z to present]", envelope.Items[0])
+	s.Require().Len(envelope.Items, 1)
+	s.Equal("[status certainty=confirmed] Validation owners must confirm by July 18. [valid: 2026-07-12T00:00:00Z to present]", envelope.Items[0])
+	s.Greater(envelope.Details[0].Relevance, 0.0)
+	s.Equal(teamnote.CertaintyConfirmed, envelope.Details[0].Certainty)
 
 	var invalidAt, expiredAt *time.Time
 	err = s.store.Pool().QueryRow(ctx, `
@@ -286,7 +288,7 @@ func (s *noteStoreSuite) TestRelatedFactIsComposedForRecall() {
 	s.Require().NoError(err)
 	s.Require().NotEmpty(envelope.Items)
 	s.Contains(envelope.Items[0], "Legal reviews the provisional rows")
-	s.Contains(envelope.Items[0], "related: posting final Ops rows: User_7 must post final Ops rows by 2025-07-17")
+	s.Contains(envelope.Items[0], "related: [certainty=confirmed] posting final Ops rows: User_7 must post final Ops rows by 2025-07-17")
 }
 
 func (s *noteStoreSuite) newNoteStore() *postgres.NoteStore {

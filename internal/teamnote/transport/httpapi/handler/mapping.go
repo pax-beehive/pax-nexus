@@ -46,6 +46,7 @@ func recallRequestToDomain(request *api.RecallRequest) (teamnote.RecallRequest, 
 	return teamnote.RecallRequest{
 		Actor: actorToDomain(request.Actor), TaskRef: request.GetTaskRef(),
 		ThreadRef: request.GetThreadRef(), TokenBudget: int(request.TokenBudget), Query: request.GetQuery(),
+		MaxItems: int(request.GetMaxItems()),
 	}, nil
 }
 
@@ -68,6 +69,7 @@ func noteEnvelopeToAPI(envelope teamnote.NoteEnvelope) *api.NoteEnvelope {
 	for index, detail := range envelope.Details {
 		details[index] = &api.RecalledNote{
 			NoteID: detail.NoteID, Revision: int32(detail.Revision), Text: detail.Text, Origin: actorToAPI(detail.Origin),
+			Relevance: detail.Relevance, Certainty: string(detail.Certainty),
 		}
 	}
 	return &api.NoteEnvelope{

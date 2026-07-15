@@ -59,6 +59,36 @@ func (s *entrypointSuite) TestPassiveRecallThresholdGuard() {
 			s.Require().NoError(yaml.Unmarshal(input, &config))
 			s.InDelta(-1.0, config.RecallProfiles["passive"].Thresholds.MinRelevance, 0.000001)
 			s.InDelta(-1.0, config.RecallProfiles["passive"].Thresholds.MinScore, 0.000001)
+			var providers struct {
+				Providers map[string]struct {
+					ScoreSemantics string `yaml:"score_semantics"`
+				} `yaml:"providers"`
+			}
+			s.Require().NoError(yaml.Unmarshal(input, &providers))
+			s.Equal("distance", providers.Providers["memory"].ScoreSemantics)
 		})
 	}
+}
+
+func (s *entrypointSuite) TestRejectsUnexpectedPaxmVersion() {
+	directory := s.T().TempDir()
+	plugin := filepath.Join(directory, "paxm.js")
+	binary := filepath.Join(directory, "paxm")
+	s.Require().NoError(os.WriteFile(plugin, []byte("// test plugin"), 0o600))
+	s.Require().NoError(os.WriteFile(binary, []byte("#!/bin/sh\necho v0.1.27\n"), 0o700))
+	command := exec.Command("sh", "entrypoint.sh")
+	command.Env = []string{
+		"PATH=" + os.Getenv("PATH"),
+		"PAXM_AGENT_ID=version-test",
+		"PAXM_PROVIDER_TYPE=mem0",
+		"PAXM_USER_ID=eval-owner",
+		"MEM0_RUN_ID=version-test",
+		"PAXM_CONFIG_ROOT=" + directory,
+		"PAXM_PLUGIN_SOURCE=" + plugin,
+		"PAXM_BINARY=" + binary,
+		"PAXM_EXPECTED_VERSION=v0.1.28",
+	}
+	output, err := command.CombinedOutput()
+	s.Require().Error(err)
+	s.Contains(string(output), "paxm version v0.1.27 does not match required v0.1.28")
 }

@@ -23,7 +23,18 @@ type RecallRequest struct {
 	ThreadRef   string `json:"thread_ref,omitempty"`
 	TokenBudget int    `json:"token_budget"`
 	Query       string `json:"query,omitempty"`
+	MaxItems    int    `json:"max_items,omitempty"`
 }
+
+// NoteCertainty describes whether recalled text is an answerable fact or an
+// open/proposed collaboration state.
+type NoteCertainty string
+
+const (
+	CertaintyConfirmed  NoteCertainty = "confirmed"
+	CertaintyProposed   NoteCertainty = "proposed"
+	CertaintyUnresolved NoteCertainty = "unresolved"
+)
 
 // NoteEnvelope carries context text plus per-item identity and origin for
 // provider attribution and evaluation.
@@ -37,10 +48,12 @@ type NoteEnvelope struct {
 // RecalledNote carries per-item identity and origin without changing the
 // context text consumed by existing callers.
 type RecalledNote struct {
-	NoteID   string `json:"note_id"`
-	Revision int    `json:"revision"`
-	Text     string `json:"text"`
-	Origin   Actor  `json:"origin"`
+	NoteID    string        `json:"note_id"`
+	Revision  int           `json:"revision"`
+	Text      string        `json:"text"`
+	Origin    Actor         `json:"origin"`
+	Relevance float64       `json:"relevance"`
+	Certainty NoteCertainty `json:"certainty"`
 }
 
 // Runtime is the small caller interface shared by HTTP and eval adapters.

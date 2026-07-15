@@ -78,11 +78,87 @@ func ScoreExact(arm, expected string, output AgentOutput) Score {
 	expected = strings.TrimSpace(expected)
 	answer := strings.TrimSpace(output.Text)
 	exact := strings.EqualFold(answer, expected)
+	safeSuccess := exact || (isAbstention(expected) && isAbstention(answer))
 	return Score{
-		Arm: arm, Expected: expected, Answer: answer, Exact: exact, SafeSuccess: exact, TokenF1: tokenF1(expected, answer),
+		Arm: arm, Expected: expected, Answer: answer, Exact: exact, SafeSuccess: safeSuccess, TokenF1: tokenF1(expected, answer),
 		SessionID: output.SessionID, InputTokens: output.InputTokens,
 		OutputTokens: output.OutputTokens, Cost: output.Cost,
 	}
+}
+
+func isAbstention(value string) bool {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "" {
+		return false
+	}
+	unsafeQualifiers := []string{
+		" but ", " however", " although ", " while ", " even though ", " yet ", " despite ",
+		" likely ", " probably ", " appears to be ", " suggests that ", " leads ", " owns ",
+	}
+	for _, qualifier := range unsafeQualifiers {
+		if strings.Contains(value, qualifier) {
+			return false
+		}
+	}
+	markers := []string{
+		"no information", "information unavailable", "information is unavailable",
+		"cannot find", "can't find", "could not find", "couldn't find",
+		"cannot determine", "can't determine", "could not determine", "couldn't determine",
+		"cannot answer", "can't answer", "unable to answer", "not enough information",
+		"insufficient information", "does not contain", "do not contain", "doesn't contain",
+		"not present", "not mention", "does not mention", "do not mention", "doesn't mention",
+		"not specified", "not provided", "no final decision", "has not been decided",
+		"remains unresolved", "still unresolved", "no relevant", "no files", "no document",
+		"don't have access", "do not have access", "doesn't have access",
+	}
+	foundMarker := false
+	for _, statement := range splitStatements(value) {
+		statementHasMarker := false
+		for _, marker := range markers {
+			if strings.Contains(statement, marker) {
+				foundMarker = true
+				statementHasMarker = true
+				break
+			}
+		}
+		if statementHasMarker || containsAnyText(statement,
+			"could you", "please provide", "point me", "provide more context", "clarify which", "clarify what") {
+			continue
+		}
+		return false
+	}
+	return foundMarker
+}
+
+func splitStatements(value string) []string {
+	runes := []rune(value)
+	statements := make([]string, 0, 2)
+	start := 0
+	for index, character := range runes {
+		if character != '.' && character != '!' && character != '?' && character != ';' && character != '\n' {
+			continue
+		}
+		if character != '\n' && index+1 < len(runes) && !unicode.IsSpace(runes[index+1]) {
+			continue
+		}
+		if statement := strings.TrimSpace(string(runes[start:index])); statement != "" {
+			statements = append(statements, statement)
+		}
+		start = index + 1
+	}
+	if statement := strings.TrimSpace(string(runes[start:])); statement != "" {
+		statements = append(statements, statement)
+	}
+	return statements
+}
+
+func containsAnyText(value string, candidates ...string) bool {
+	for _, candidate := range candidates {
+		if strings.Contains(value, candidate) {
+			return true
+		}
+	}
+	return false
 }
 
 func tokenF1(expected, answer string) float64 {

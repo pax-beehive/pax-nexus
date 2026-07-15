@@ -131,7 +131,7 @@ run_case() {
   control_agent_id="control-${agent_suffix}"
   memory_agent_id="memory-${agent_suffix}"
   producer_prompt="Read source.md. Produce a complete factual handoff of every current decision, date, owner, dependency, and unresolved blocker. Preserve message author identities and exact values. Do not omit facts because they seem unrelated."
-  consumer_prompt="${question} Answer directly and concisely without explaining your reasoning."
+  consumer_prompt="${question} Answer directly and concisely without explaining your reasoning. Only if the question requests an exact owner, name, date, time, timestamp, version, count, or value, require the available evidence to state that exact slot for the same subject; if that slot is missing, state that the information is unavailable. For all other question types, answer normally from the available evidence."
 
   run_compose run --rm --no-deps \
     --volume "${producer_workspace}:/workspace:ro" \

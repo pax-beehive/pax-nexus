@@ -72,7 +72,7 @@ func (s *artifactSuite) TestSummaryPairwiseAndExport() {
 		Files         map[string]string `json:"files"`
 	}
 	s.Require().NoError(json.Unmarshal(manifestInput, &manifest))
-	s.Equal("pax-eval-v2.4", manifest.SchemaVersion)
+	s.Equal("pax-eval-v2.5", manifest.SchemaVersion)
 	s.Equal("report.html", manifest.Files["report"])
 	s.InDelta(0.06, manifest.CostSummary.TotalCost, 0.000001)
 	summaryCSV, err := os.ReadFile(filepath.Join(directory, "summary.csv"))

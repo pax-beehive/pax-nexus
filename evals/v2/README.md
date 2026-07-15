@@ -172,11 +172,13 @@ trials. Every completed run can export:
   per-category token-F1 summaries, representative field notes, and an
   expandable breakdown of every case and every arm
 
-The stable artifact schema is `pax-eval-v2.4`. `report.html` covers the common
+The stable artifact schema is `pax-eval-v2.5`. `report.html` covers the common
 comparison views; raw CSV/JSONL files remain available for other analysis.
 Token F1 and its paired win/loss/tie counts are lexical diagnostics, not counts
-of semantically correct answers. Exact and safe-success remain full-string
-diagnostics until a semantic-equivalence and safe-abstention judge is added.
+of semantically correct answers. Exact remains a full-string diagnostic.
+`safe_success` also accepts conservative semantic abstentions when the reference
+answer explicitly says the information is unavailable; token F1 remains lexical
+for all answers.
 
 Cost fields use the `opencode_reported` scope. Per-arm values now contain the
 consumer call plus any legacy arm-local producer, but do not allocate the one

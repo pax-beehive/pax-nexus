@@ -58,6 +58,33 @@ func (s *scoreSuite) TestScoresTokenOverlap() {
 	s.InDelta(0.857142, score.TokenF1, 0.0001)
 }
 
+func (s *scoreSuite) TestScoresSafeSemanticAbstention() {
+	expected := "There is no information available in the conversation to answer this question."
+	tests := []struct {
+		name   string
+		answer string
+		want   bool
+	}{
+		{name: "missing workspace evidence", answer: "The workspace does not contain that information. I cannot determine the answer.", want: true},
+		{name: "unresolved decision", answer: "No final decision has been made; ownership remains unresolved.", want: true},
+		{name: "concrete answer", answer: "Product", want: false},
+		{name: "date from adjacent fact", answer: "July 28", want: false},
+		{name: "hedged concrete answer", answer: "No final decision is recorded, but Product probably owns it.", want: false},
+		{name: "unqualified concrete answer", answer: "I cannot determine the owner. Product owns it.", want: false},
+		{name: "different concrete verb", answer: "I cannot determine the owner. Product leads this work.", want: false},
+		{name: "mixed assertion", answer: "I cannot determine the owner although Product leads this work.", want: false},
+		{name: "number inside missing fact", answer: "Version 4 is not specified in the available information.", want: true},
+		{name: "concise unavailable", answer: "The information is unavailable.", want: true},
+	}
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			score := harness.ScoreExact("team_note", expected, harness.AgentOutput{Text: test.answer})
+			s.False(score.Exact)
+			s.Equal(test.want, score.SafeSuccess)
+		})
+	}
+}
+
 func (s *scoreSuite) TestRejectsOutputWithoutText() {
 	_, err := harness.ParseOpenCodeJSON(strings.NewReader(`{"type":"step_finish","part":{}}`))
 	s.Error(err)

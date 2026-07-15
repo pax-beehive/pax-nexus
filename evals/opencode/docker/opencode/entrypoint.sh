@@ -12,6 +12,9 @@ set -eu
 : "${PAXM_PASSIVE_MIN_RELEVANCE:=-1}"
 : "${PAXM_PASSIVE_MIN_SCORE:=-1}"
 : "${PAXM_INSERTION_MIN_SCORE:=0}"
+: "${MEM0_SCORE_SEMANTICS:=distance}"
+: "${PAXM_EXPECTED_VERSION:=v0.1.28}"
+: "${PAXM_BINARY:=/usr/local/bin/paxm}"
 
 if [ "${PAXM_PASSIVE_MIN_RELEVANCE}" = "0" ] && [ "${PAXM_PASSIVE_MIN_SCORE}" = "0" ]; then
   echo "passive recall thresholds cannot both be 0 because paxm normalizes the zero-value profile to its defaults; use -1 to preserve raw top-k" >&2
@@ -49,7 +52,8 @@ case "${PAXM_PROVIDER_TYPE}" in
     base_url: \"${MEM0_BASE_URL}\"
     api_key: \"${MEM0_API_KEY:-}\"
     user_id: \"${PAXM_USER_ID}\"
-    run_id: \"${MEM0_RUN_ID}\""
+    run_id: \"${MEM0_RUN_ID}\"
+    score_semantics: \"${MEM0_SCORE_SEMANTICS}\""
     ;;
   *)
     echo "unsupported PAXM_PROVIDER_TYPE: ${PAXM_PROVIDER_TYPE}" >&2
@@ -134,13 +138,19 @@ export OPENCODE_CONFIG_DIR="${opencode_config}"
 export OPENCODE_DISABLE_AUTOUPDATE=true
 export OPENCODE_DISABLE_CLAUDE_CODE=true
 export OPENCODE_DISABLE_LSP_DOWNLOAD=true
-export PAXM_BINARY=/usr/local/bin/paxm
+export PAXM_BINARY
 export PAXM_CONFIG="${paxm_config}"
 export PAXM_OPENCODE_RECALL="${PAXM_RECALL_ENABLED}"
 export PAXM_OPENCODE_WRITE="${PAXM_WRITE_ENABLED}"
 
 if [ "${PAXM_CONFIG_ONLY:-0}" = "1" ]; then
   exit 0
+fi
+
+actual_paxm_version="$("${PAXM_BINARY}" version)"
+if [ "${actual_paxm_version}" != "${PAXM_EXPECTED_VERSION}" ]; then
+  echo "paxm version ${actual_paxm_version} does not match required ${PAXM_EXPECTED_VERSION}" >&2
+  exit 1
 fi
 
 if [ "$#" -eq 0 ]; then

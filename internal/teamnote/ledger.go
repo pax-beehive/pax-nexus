@@ -159,16 +159,33 @@ func (l *Ledger) Recall(ctx context.Context, request RecallRequest) (NoteEnvelop
 	items := make([]string, 0, len(eligible))
 	details := make([]RecalledNote, 0, len(eligible))
 	usedTokens := 0
+	selectedNotes := 0
 	lastRevision := ""
 	for _, note := range eligible {
-		item := FormatForRecallWithRelated(note, relatedNotes(note, eligible))
+		relevance := QueryRelevance(note, request.Query)
+		if !QueryRelevant(note, request.Query) {
+			continue
+		}
+		if request.MaxItems > 0 && selectedNotes >= request.MaxItems {
+			break
+		}
+		remainingRelated := 0
+		if request.MaxItems > 0 {
+			remainingRelated = request.MaxItems - selectedNotes - 1
+		}
+		related := relevantRelatedNotes(relatedNotes(note, eligible), request.Query, remainingRelated, request.MaxItems > 0)
+		item := FormatForRecallWithRelated(note, related)
 		tokens := estimateTokens(item)
 		if usedTokens+tokens > request.TokenBudget {
 			continue
 		}
 		items = append(items, item)
-		details = append(details, RecalledNote{NoteID: note.ID, Revision: note.Revision, Text: item, Origin: note.Origin})
+		details = append(details, RecalledNote{
+			NoteID: note.ID, Revision: note.Revision, Text: item, Origin: note.Origin,
+			Relevance: relevance, Certainty: CertaintyForKind(note.Kind),
+		})
 		usedTokens += tokens
+		selectedNotes += 1 + len(related)
 		lastRevision = fmt.Sprintf("%s:%d", note.ID, note.Revision)
 		l.deliveries[deliveryKey(note, request.Actor)] = struct{}{}
 	}
@@ -338,7 +355,7 @@ func stateForValidity(invalidAt *time.Time) NoteState {
 }
 
 func ValidateRecall(request RecallRequest) error {
-	if strings.TrimSpace(request.Actor.UserID) == "" || strings.TrimSpace(request.Actor.AgentID) == "" || strings.TrimSpace(request.Actor.SessionID) == "" || request.TokenBudget <= 0 {
+	if strings.TrimSpace(request.Actor.UserID) == "" || strings.TrimSpace(request.Actor.AgentID) == "" || strings.TrimSpace(request.Actor.SessionID) == "" || request.TokenBudget <= 0 || request.MaxItems < 0 {
 		return fmt.Errorf("recall actor or budget: %w", ErrInvalidRecall)
 	}
 	return nil
@@ -349,11 +366,11 @@ func FormatForRecall(note Note) string {
 }
 
 func FormatForRecallWithRelated(note Note, related []Note) string {
-	text := fmt.Sprintf("[%s] %s", note.Kind, note.Body)
+	text := fmt.Sprintf("[%s certainty=%s] %s", note.Kind, CertaintyForKind(note.Kind), note.Body)
 	if len(related) > 0 {
 		parts := make([]string, 0, len(related))
 		for _, linked := range related {
-			parts = append(parts, linked.Subject+": "+linked.Body)
+			parts = append(parts, fmt.Sprintf("[certainty=%s] %s: %s", CertaintyForKind(linked.Kind), linked.Subject, linked.Body))
 		}
 		text += " [related: " + strings.Join(parts, "; ") + "]"
 	}
@@ -369,6 +386,18 @@ func FormatForRecallWithRelated(note Note, related []Note) string {
 		invalidAt = note.InvalidAt.UTC().Format(time.RFC3339)
 	}
 	return fmt.Sprintf("%s [valid: %s to %s]", text, validAt, invalidAt)
+}
+
+// CertaintyForKind maps the current note taxonomy onto conservative answerability.
+func CertaintyForKind(kind NoteKind) NoteCertainty {
+	switch kind {
+	case KindBlocker:
+		return CertaintyUnresolved
+	case KindHandoff:
+		return CertaintyProposed
+	default:
+		return CertaintyConfirmed
+	}
 }
 
 func relatedNotes(note Note, candidates []Note) []Note {
@@ -421,6 +450,100 @@ func QueryScore(note Note, query string) int {
 	return score
 }
 
+// QueryRelevance reports query-term coverage in the range [0, 1].
+func QueryRelevance(note Note, query string) float64 {
+	queryTerms := searchableTerms(query)
+	if len(queryTerms) == 0 {
+		return 1
+	}
+	return float64(QueryScore(note, query)) / float64(len(queryTerms))
+}
+
+// QueryRelevant rejects weak lexical neighbors and notes that cannot supply an
+// explicitly requested scalar slot.
+func QueryRelevant(note Note, query string) bool {
+	if strings.TrimSpace(query) == "" {
+		return true
+	}
+	queryTerms := searchableTerms(query)
+	if scalarSlotRequested(query) && len(queryTerms) < 2 {
+		return false
+	}
+	minimumOverlap := min(2, len(queryTerms))
+	if QueryScore(note, query) < minimumOverlap {
+		return false
+	}
+	return slotCompatible(note.Subject+" "+note.Body, query)
+}
+
+// QueryRelated allows a weaker lexical match only for an explicit one-hop
+// relation while preserving scalar-slot compatibility.
+func QueryRelated(note Note, query string) bool {
+	if strings.TrimSpace(query) == "" {
+		return true
+	}
+	if strings.Contains(strings.ToLower(query), "exact") {
+		return QueryRelevant(note, query)
+	}
+	return QueryScore(note, query) > 0 && slotCompatible(note.Subject+" "+note.Body, query)
+}
+
+func relevantRelatedNotes(notes []Note, query string, limit int, limited bool) []Note {
+	result := make([]Note, 0, len(notes))
+	for _, note := range notes {
+		if !QueryRelated(note, query) {
+			continue
+		}
+		if limited && len(result) >= max(0, limit) {
+			break
+		}
+		result = append(result, note)
+	}
+	return result
+}
+
+func slotCompatible(noteText, query string) bool {
+	noteText = strings.ToLower(noteText)
+	query = strings.ToLower(query)
+	if containsAny(query, "when", " date", "deadline", " timestamp", " time") {
+		return containsDigit(noteText) || containsAny(noteText,
+			"january", "february", "march", "april", "may", "june", "july", "august",
+			"september", "october", "november", "december", "today", "tomorrow", "eod",
+			"before", "after", " by ", "monday", "tuesday", "wednesday", "thursday", "friday")
+	}
+	if containsAny(query, "version", " count", " number", " value", "how many") {
+		return containsDigit(noteText)
+	}
+	if containsAny(query, "who", " owner", " owns", "designated", "responsible") {
+		return containsAny(noteText, " owns ", " owner", "assigned", "responsible", "designated", "@", "user_")
+	}
+	return true
+}
+
+func scalarSlotRequested(query string) bool {
+	query = strings.ToLower(query)
+	return containsAny(query, "when", " date", "deadline", " timestamp", " time", "version",
+		" count", " number", " value", "how many", "who", " owner", " owns", "designated", "responsible")
+}
+
+func containsAny(value string, candidates ...string) bool {
+	for _, candidate := range candidates {
+		if strings.Contains(value, candidate) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsDigit(value string) bool {
+	for _, character := range value {
+		if character >= '0' && character <= '9' {
+			return true
+		}
+	}
+	return false
+}
+
 func SearchQuery(query string) string {
 	terms := searchableTerms(query)
 	ordered := make([]string, 0, len(terms))
@@ -447,6 +570,10 @@ func searchableTerms(text string) map[string]struct{} {
 var temporalStopWords = map[string]bool{
 	"and": true, "are": true, "for": true, "from": true, "has": true, "the": true,
 	"this": true, "was": true, "what": true, "when": true, "which": true, "with": true,
+	"answer": true, "available": true, "conversation": true, "count": true, "date": true,
+	"exact": true, "information": true, "name": true, "number": true, "owner": true,
+	"owners": true, "owns": true, "should": true, "target": true, "time": true,
+	"timestamp": true, "value": true, "version": true, "who": true,
 }
 
 func CanonicalKey(candidate Candidate) string {
