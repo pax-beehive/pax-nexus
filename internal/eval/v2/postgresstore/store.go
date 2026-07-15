@@ -150,13 +150,28 @@ WHERE run_id = $1 AND status = 'running'`, runID)
 	return nil
 }
 
-func (s *Store) Claim(ctx context.Context, key v2.TrialKey, retryFailed bool) (bool, error) {
+func (s *Store) HasRunnable(ctx context.Context, runID string, retryFailed bool, maxAttempts int) (bool, error) {
+	var runnable bool
+	err := s.pool.QueryRow(ctx, `
+SELECT EXISTS (
+    SELECT 1 FROM eval_v2_trials
+    WHERE run_id = $1
+      AND (status = 'pending' OR ($2 AND status = 'failed' AND attempts < $3))
+)`, runID, retryFailed, maxAttempts).Scan(&runnable)
+	if err != nil {
+		return false, fmt.Errorf("query runnable eval trials: %w", err)
+	}
+	return runnable, nil
+}
+
+func (s *Store) Claim(ctx context.Context, key v2.TrialKey, retryFailed bool, maxAttempts int) (bool, error) {
 	result, err := s.pool.Exec(ctx, `
 UPDATE eval_v2_trials
 SET status = 'running', attempts = attempts + 1, started_at = NOW(), completed_at = NULL,
     result = NULL, updated_at = NOW()
 WHERE run_id = $1 AND case_id = $2 AND arm = $3
-  AND (status = 'pending' OR ($4 AND status = 'failed'))`, key.RunID, key.CaseID, key.Arm, retryFailed)
+  AND (status = 'pending' OR ($4 AND status = 'failed' AND attempts < $5))`,
+		key.RunID, key.CaseID, key.Arm, retryFailed, maxAttempts)
 	if err != nil {
 		return false, fmt.Errorf("claim eval trial: %w", err)
 	}

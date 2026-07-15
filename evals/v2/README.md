@@ -15,6 +15,12 @@ case-specific `run_id`, which prevents cross-case contamination without changing
 the user identity under comparison. Producer and consumer agent IDs remain
 distinct so provenance is observable.
 
+The two memory arms also receive the exact same producer handoff. Eval v2 runs
+one capture-only producer per case, persists its text under
+`<output_dir>/trials/<case>/shared/producer.txt`, and explicitly ingests that
+text into Team Note and Mem0 before their consumers run. This removes the
+producer-model call as a variable between the memory implementations.
+
 ## Prepare a run
 
 Keep the existing `.env` for shared DeepSeek and paxm credentials. Create the
@@ -41,11 +47,38 @@ upstream API image so its configured pgvector store is actually available. It
 removes the upstream image's unusable Neo4j default because this vector-only
 benchmark does not run a graph store.
 
-Prepare a deterministic 30-case GroupMemBench selection:
+Prepare both deterministic GroupMemBench profiles:
 
 ```bash
 make eval-v2-prepare
 ```
+
+This writes:
+
+- `manifest.smoke.json`: 3 cases covering multi-hop, knowledge-update, and
+  abstention behavior
+- `manifest.json`: the 30-case acceptance matrix, with 5 cases in each of the
+  6 benchmark categories
+
+Run the smoke profile first:
+
+```bash
+make eval-v2-smoke-up
+make eval-v2-smoke
+```
+
+Only after smoke is green, run the 30-case acceptance profile:
+
+```bash
+make eval-v2-acceptance-up
+make eval-v2-acceptance
+```
+
+The convenience targets use the tracked example configs. For a publishable
+named run, copy the relevant config, change its run ID and output directory,
+and use the generic `make eval-v2-up` / `make eval-v2` targets. Smoke and
+acceptance use different run IDs and output directories, so their durable
+results cannot collide.
 
 The supplied templates use matching run IDs and manifest paths. Change the run
 ID in `.env.eval-v2` and `config.local.yaml`, plus `run.output_dir`, together
@@ -76,12 +109,24 @@ Pin `MEM0_IMAGE` to a tested release or digest for publishable benchmark runs.
 
 The runner pre-creates the complete case-by-arm matrix. A trial moves through
 `pending`, `running`, and either `completed` or `failed`. On restart, interrupted
-`running` trials return to `pending`; completed trials are skipped. When
-`retry_failed` is enabled, failed trials are attempted again.
+`running` trials return to `pending`; completed trials are skipped. Failed
+trials are not retried by default. Enabling `retry_failed` also requires an
+explicit `retry_max_attempts` of at least 2, and the store refuses to claim a
+failed trial after that cap. Diagnose and correct a systemic failure before
+opting into a bounded retry.
 
-Each trial has one total timeout covering producer, memory readiness, and
-consumer stages. Command stdout and stderr are retained under
-`<output_dir>/trials/<case>/<arm>/`.
+Before any runnable trial starts, the configured preflight performs real
+health, add, and recall operations against both providers. It also deletes the
+Mem0 probe and verifies it is gone. Team Note does not expose delete, so its
+probe uses a run-specific preflight scope that is never visible to benchmark
+cases. A preflight failure leaves all paid trials pending. Resuming a run with
+no runnable work skips preflight.
+
+Each trial has one total timeout covering shared producer reuse, transcript
+ingest, memory readiness, and the consumer. Command stdout and stderr are
+retained under `<output_dir>/trials/<case>/<arm>/`; the shared producer JSONL,
+stderr, and plain-text transcript live in the sibling `shared/` directory and
+are reused on a bounded retry instead of paying for another producer call.
 
 ## Output contract
 
@@ -108,14 +153,14 @@ Token F1 and its paired win/loss/tie counts are lexical diagnostics, not counts
 of semantically correct answers. Exact and safe-success remain full-string
 diagnostics until a semantic-equivalence and safe-abstention judge is added.
 
-Cost fields use the `opencode_reported` scope. They include all producer and
-consumer costs reported by OpenCode, including producer cost incurred before a
-later trial failure. `artifacts.json.cost_summary` exposes total run cost,
-completed versus failed cost, token totals, and per-arm totals. Team Note
-extraction calls and Mem0's internal model/embedder calls are not yet included
-because those backends do not expose one common billing contract; the output
-names its scope explicitly so this subtotal is not mistaken for full-stack
-provider spend.
+Cost fields use the `opencode_reported` scope. Per-arm values now contain the
+consumer call plus any legacy arm-local producer, but do not allocate the one
+shared producer call to either memory arm. The shared producer's OpenCode JSONL
+retains its reported usage for future run-level accounting. Team Note
+extraction calls and Mem0's internal model/embedder calls are also not yet
+included because those backends do not expose one common billing contract.
+Therefore `artifacts.json.cost_summary` remains an arm-level subtotal, not the
+full billed cost of the run.
 
 Exact match and token F1 remain diagnostic metrics rather than an official
 GroupMemBench score. A semantic-equivalence judge and evidence-coverage labels

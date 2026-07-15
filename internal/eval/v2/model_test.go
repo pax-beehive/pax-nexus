@@ -35,6 +35,14 @@ func (s *modelSuite) TestValidationMatrix() {
 		{name: "invalid runtime", mutate: func(config *Config) { config.RuntimeEnv = []string{"BAD NAME"} }},
 		{name: "output format", mutate: func(config *Config) { config.Output.Formats = []string{"xml"} }},
 		{name: "duplicate output", mutate: func(config *Config) { config.Output.Formats = []string{"csv", "csv"} }},
+		{name: "unbounded failed retry", mutate: func(config *Config) { config.RetryFailed = true }},
+		{name: "shared producer without ingest", mutate: func(config *Config) { config.SharedProducer = &CommandSpec{Program: "producer"} }},
+		{name: "ingest without shared producer", mutate: func(config *Config) { config.Arms[1].Ingest = &CommandSpec{Program: "ingest"} }},
+		{name: "producer and ingest", mutate: func(config *Config) {
+			config.SharedProducer = &CommandSpec{Program: "producer"}
+			config.Arms[1].Ingest = &CommandSpec{Program: "ingest"}
+		}},
+		{name: "empty preflight", mutate: func(config *Config) { config.Preflight = &CommandSpec{} }},
 	}
 	for _, test := range tests {
 		s.Run(test.name, func() {
@@ -51,6 +59,12 @@ func (s *modelSuite) TestValidationMatrix() {
 	s.Require().NoError(err)
 	s.Equal(firstHash, secondHash)
 	s.Equal([]string{"csv", "jsonl", "html"}, valid.OutputFormats())
+	s.Equal(1, valid.MaxAttempts())
+	boundedRetry := valid
+	boundedRetry.RetryFailed = true
+	boundedRetry.RetryMaxAttempts = 2
+	s.Require().NoError(boundedRetry.Validate())
+	s.Equal(2, boundedRetry.MaxAttempts())
 	valid.Output.Formats = []string{"csv"}
 	s.Equal([]string{"csv"}, valid.OutputFormats())
 	valid.RuntimeEnv = []string{"MODEL"}

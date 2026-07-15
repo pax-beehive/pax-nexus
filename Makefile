@@ -16,7 +16,7 @@ MOCK_VERSION := v0.6.0
 GOLANGCI_LINT_VERSION := v2.11.3
 COVERAGE_MIN := 75
 
-.PHONY: all tools generate-init generate mocks fmt format-check lint test test-unit coverage integration-test docker-eval groupmembench-data groupmembench-eval eval-v2-prepare eval-v2-up eval-v2 eval-v2-down eval-v2-reset up down logs db-up db-down clean
+.PHONY: all tools generate-init generate mocks fmt format-check lint test test-unit coverage integration-test docker-eval groupmembench-data groupmembench-eval eval-v2-prepare eval-v2-up eval-v2 eval-v2-smoke-up eval-v2-smoke eval-v2-acceptance-up eval-v2-acceptance eval-v2-down eval-v2-reset up down logs db-up db-down clean
 
 all: lint test
 
@@ -117,6 +117,18 @@ eval-v2:
 		config="$(CONFIG)"; config="$${config:-$${EVAL_V2_CONFIG:-}}"; \
 		test -n "$$config" || (echo "CONFIG or EVAL_V2_CONFIG is required" >&2; exit 1); \
 		GOCACHE=$${GOCACHE:-/tmp/team-memory-go-cache} go run ./cmd/team-memory-eval-v2 -config "$$config"
+
+eval-v2-smoke-up: eval-v2-prepare
+	$(MAKE) eval-v2-up MANIFEST=runs/groupmembench-v2-selection/manifest.smoke.json RUN_ID=groupmembench-finance-v2-deepseek-v4-flash-smoke
+
+eval-v2-smoke:
+	$(MAKE) eval-v2 CONFIG=evals/v2/config.smoke.example.yaml
+
+eval-v2-acceptance-up: eval-v2-prepare
+	$(MAKE) eval-v2-up MANIFEST=runs/groupmembench-v2-selection/manifest.json RUN_ID=groupmembench-finance-v2-deepseek-v4-flash
+
+eval-v2-acceptance:
+	$(MAKE) eval-v2 CONFIG=evals/v2/config.example.yaml
 
 eval-v2-down:
 	./scripts/eval-v2-stack.sh down

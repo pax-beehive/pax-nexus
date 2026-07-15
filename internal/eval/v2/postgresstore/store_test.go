@@ -56,17 +56,18 @@ func (s *storeSuite) TestLifecycleResumeAndRetry() {
 		run  func() (bool, error)
 		want bool
 	}{
-		{name: "claim pending", run: func() (bool, error) { return s.store.Claim(ctx, keys[0], false) }, want: true},
-		{name: "reject running", run: func() (bool, error) { return s.store.Claim(ctx, keys[0], false) }},
+		{name: "claim pending", run: func() (bool, error) { return s.store.Claim(ctx, keys[0], false, 1) }, want: true},
+		{name: "reject running", run: func() (bool, error) { return s.store.Claim(ctx, keys[0], false, 1) }},
 		{name: "reset interrupted", run: func() (bool, error) { return false, s.store.ResetRunning(ctx, runID) }},
-		{name: "reclaim reset", run: func() (bool, error) { return s.store.Claim(ctx, keys[0], false) }, want: true},
+		{name: "reclaim reset", run: func() (bool, error) { return s.store.Claim(ctx, keys[0], false, 1) }, want: true},
 		{name: "complete", run: func() (bool, error) { return false, s.store.Complete(ctx, result(runID, "control", "completed")) }},
-		{name: "do not retry complete", run: func() (bool, error) { return s.store.Claim(ctx, keys[0], true) }},
-		{name: "claim second", run: func() (bool, error) { return s.store.Claim(ctx, keys[1], false) }, want: true},
+		{name: "do not retry complete", run: func() (bool, error) { return s.store.Claim(ctx, keys[0], true, 2) }},
+		{name: "claim second", run: func() (bool, error) { return s.store.Claim(ctx, keys[1], false, 1) }, want: true},
 		{name: "fail", run: func() (bool, error) { return false, s.store.Fail(ctx, result(runID, "memory", "failed")) }},
-		{name: "skip failed", run: func() (bool, error) { return s.store.Claim(ctx, keys[1], false) }},
-		{name: "retry failed", run: func() (bool, error) { return s.store.Claim(ctx, keys[1], true) }, want: true},
+		{name: "skip failed", run: func() (bool, error) { return s.store.Claim(ctx, keys[1], false, 1) }},
+		{name: "retry failed", run: func() (bool, error) { return s.store.Claim(ctx, keys[1], true, 2) }, want: true},
 		{name: "fail retry", run: func() (bool, error) { return false, s.store.Fail(ctx, result(runID, "memory", "failed")) }},
+		{name: "cap failed retry", run: func() (bool, error) { return s.store.Claim(ctx, keys[1], true, 2) }},
 	}
 	for _, step := range steps {
 		s.Run(step.name, func() {
@@ -79,6 +80,9 @@ func (s *storeSuite) TestLifecycleResumeAndRetry() {
 	results, err := s.store.Results(ctx, runID)
 	s.Require().NoError(err)
 	s.Len(results, 2)
+	runnable, err := s.store.HasRunnable(ctx, runID, true, 2)
+	s.Require().NoError(err)
+	s.False(runnable)
 	s.Require().NoError(s.store.Finish(ctx, runID))
 }
 

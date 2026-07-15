@@ -21,4 +21,5 @@ GOCACHE="${GOCACHE:-/tmp/team-memory-go-cache}" go run ./cmd/groupmembench-selec
   -neighbor-radius "${GROUPMEMBENCH_NEIGHBOR_RADIUS:-1}" \
   -max-context-messages "${GROUPMEMBENCH_MAX_CONTEXT_MESSAGES:-32}"
 
-echo "Eval v2 manifest: ${output}/manifest.json"
+echo "Eval v2 smoke manifest: ${output}/manifest.smoke.json"
+echo "Eval v2 acceptance manifest: ${output}/manifest.json"

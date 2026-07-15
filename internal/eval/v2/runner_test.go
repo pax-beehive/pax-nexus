@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -52,6 +54,102 @@ func (s *runnerSuite) TestRunCompletesResumableMatrixAndExports() {
 	s.Require().Len(resumed, 2)
 	s.Equal("question", resumed[0].Question)
 	s.Equal(previousCalls+2, executor.total())
+}
+
+func (s *runnerSuite) TestRunPreflightsOnlyWhenWorkIsRunnable() {
+	store := newFakeStore()
+	executor := &fakeExecutor{}
+	runner, err := NewRunner(store, executor, nil)
+	s.Require().NoError(err)
+	config := testConfig(s.T().TempDir())
+	config.Preflight = &CommandSpec{Program: "preflight"}
+	cases := []Case{{ID: "case", Category: "temporal", Question: "q", Expected: "answer", AskingUserID: "user"}}
+
+	_, _, err = runner.Run(context.Background(), config, cases, "revision")
+	s.Require().NoError(err)
+	_, _, err = runner.Run(context.Background(), config, cases, "revision")
+	s.Require().NoError(err)
+	s.Equal(1, executor.count("preflight"))
+}
+
+func (s *runnerSuite) TestPreflightFailureStopsBeforePaidTrials() {
+	store := newFakeStore()
+	executor := &fakeExecutor{failProgram: "preflight"}
+	runner, err := NewRunner(store, executor, nil)
+	s.Require().NoError(err)
+	config := testConfig(s.T().TempDir())
+	config.Preflight = &CommandSpec{Program: "preflight"}
+
+	_, _, err = runner.Run(context.Background(), config, []Case{{ID: "case", Question: "q", Expected: "answer", AskingUserID: "user"}}, "revision")
+	s.Require().ErrorContains(err, "preflight eval run")
+	s.Zero(executor.count("producer"))
+	s.Zero(executor.count("consumer"))
+}
+
+func (s *runnerSuite) TestSharedProducerRunsOnceAndFeedsBothMemoryArms() {
+	store := newFakeStore()
+	executor := &fakeExecutor{}
+	runner, err := NewRunner(store, executor, nil)
+	s.Require().NoError(err)
+	config := testConfig(s.T().TempDir())
+	config.SharedProducer = &CommandSpec{Program: "producer"}
+	config.Arms[1].Producer = nil
+	config.Arms[1].Ingest = &CommandSpec{Program: "ingest"}
+	config.Arms = append(config.Arms, ArmConfig{Name: "memory-2", Ingest: &CommandSpec{Program: "ingest"}, Consumer: CommandSpec{Program: "consumer"}})
+
+	_, results, err := runner.Run(context.Background(), config, []Case{{ID: "case", Question: "q", Expected: "answer", AskingUserID: "user"}}, "revision")
+	s.Require().NoError(err)
+	s.Len(results, 3)
+	s.Equal(1, executor.count("producer"))
+	s.Equal(2, executor.count("ingest"))
+	s.Equal(3, executor.count("consumer"))
+	for _, result := range results {
+		if result.Arm != "control" {
+			s.Zero(result.ProducerCost)
+		}
+	}
+	_, err = os.Stat(filepath.Join(config.Run.OutputDir, "trials", "case", "shared", "producer.txt"))
+	s.Require().NoError(err)
+}
+
+func (s *runnerSuite) TestSharedProducerFailureIsReusedAcrossDependentArms() {
+	store := newFakeStore()
+	executor := &fakeExecutor{failProgram: "producer"}
+	runner, err := NewRunner(store, executor, nil)
+	s.Require().NoError(err)
+	config := testConfig(s.T().TempDir())
+	config.SharedProducer = &CommandSpec{Program: "producer"}
+	config.Arms[1].Producer = nil
+	config.Arms[1].Ingest = &CommandSpec{Program: "ingest"}
+	config.Arms = append(config.Arms, ArmConfig{Name: "memory-2", Ingest: &CommandSpec{Program: "ingest"}, Consumer: CommandSpec{Program: "consumer"}})
+
+	_, _, err = runner.Run(context.Background(), config, []Case{{ID: "case", Question: "q", Expected: "answer", AskingUserID: "user"}}, "revision")
+	s.Require().NoError(err)
+	s.Equal(1, executor.count("producer"))
+	s.Equal("completed", findResult(store.results, "control").Status)
+	s.Equal("failed", findResult(store.results, "memory").Status)
+	s.Equal("failed", findResult(store.results, "memory-2").Status)
+}
+
+func (s *runnerSuite) TestBoundedRetryReusesPersistedSharedProducer() {
+	store := newFakeStore()
+	executor := &fakeExecutor{failProgram: "consumer"}
+	runner, err := NewRunner(store, executor, nil)
+	s.Require().NoError(err)
+	config := testConfig(s.T().TempDir())
+	config.SharedProducer = &CommandSpec{Program: "producer"}
+	config.Arms[1].Producer = nil
+	config.Arms[1].Ingest = &CommandSpec{Program: "ingest"}
+	config.RetryFailed = true
+	config.RetryMaxAttempts = 2
+	cases := []Case{{ID: "case", Question: "q", Expected: "answer", AskingUserID: "user"}}
+
+	_, _, err = runner.Run(context.Background(), config, cases, "revision")
+	s.Require().NoError(err)
+	_, _, err = runner.Run(context.Background(), config, cases, "revision")
+	s.Require().NoError(err)
+	s.Equal(1, executor.count("producer"))
+	s.Equal(4, executor.count("consumer"))
 }
 
 func (s *runnerSuite) TestFailureCostMatrix() {
@@ -142,12 +240,15 @@ func (s *runnerSuite) TestConstructionAndRunErrors() {
 type fakeStore struct {
 	mu       sync.Mutex
 	statuses map[TrialKey]string
+	attempts map[TrialKey]int
 	results  []TrialResult
 	finished bool
 	acquired bool
 }
 
-func newFakeStore() *fakeStore { return &fakeStore{statuses: make(map[TrialKey]string)} }
+func newFakeStore() *fakeStore {
+	return &fakeStore{statuses: make(map[TrialKey]string), attempts: make(map[TrialKey]int)}
+}
 
 func (s *fakeStore) Acquire(context.Context, string) (bool, error) {
 	s.mu.Lock()
@@ -179,14 +280,26 @@ func (s *fakeStore) Initialize(_ context.Context, _ RunRecord, trials []TrialKey
 
 func (s *fakeStore) ResetRunning(context.Context, string) error { return nil }
 
-func (s *fakeStore) Claim(_ context.Context, key TrialKey, retry bool) (bool, error) {
+func (s *fakeStore) HasRunnable(_ context.Context, _ string, retry bool, maxAttempts int) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for key, status := range s.statuses {
+		if status == "pending" || (retry && status == "failed" && s.attempts[key] < maxAttempts) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (s *fakeStore) Claim(_ context.Context, key TrialKey, retry bool, maxAttempts int) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	status := s.statuses[key]
-	if status != "pending" && (!retry || status != "failed") {
+	if status != "pending" && (!retry || status != "failed" || s.attempts[key] >= maxAttempts) {
 		return false, nil
 	}
 	s.statuses[key] = "running"
+	s.attempts[key]++
 	return true, nil
 }
 
@@ -222,7 +335,7 @@ type fakeExecutor struct {
 	failProgram string
 }
 
-func (e *fakeExecutor) Execute(_ context.Context, spec CommandSpec, _ map[string]string, _, _ string) (CommandResult, error) {
+func (e *fakeExecutor) Execute(_ context.Context, spec CommandSpec, _ map[string]string, stdoutPath, _ string) (CommandResult, error) {
 	e.mu.Lock()
 	e.programs = append(e.programs, spec.Program)
 	e.mu.Unlock()
@@ -235,6 +348,14 @@ func (e *fakeExecutor) Execute(_ context.Context, spec CommandSpec, _ map[string
 	}
 	if result.Duration == 0 {
 		result.Duration = time.Millisecond
+	}
+	if len(result.Output) > 0 {
+		if err := os.MkdirAll(filepath.Dir(stdoutPath), 0o755); err != nil {
+			return CommandResult{}, err
+		}
+		if err := os.WriteFile(stdoutPath, result.Output, 0o644); err != nil {
+			return CommandResult{}, err
+		}
 	}
 	if spec.Program == e.failProgram {
 		return result, errors.New("command failed")

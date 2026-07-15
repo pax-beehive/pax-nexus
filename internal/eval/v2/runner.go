@@ -22,6 +22,13 @@ type Runner struct {
 	now      func() time.Time
 }
 
+type sharedProducerState struct {
+	once   sync.Once
+	result CommandResult
+	output harness.AgentOutput
+	err    error
+}
+
 func NewRunner(store Store, executor Executor, logger *slog.Logger) (*Runner, error) {
 	if store == nil || executor == nil {
 		return nil, fmt.Errorf("create eval runner: store and executor are required")
@@ -39,15 +46,10 @@ func (r *Runner) Run(ctx context.Context, config Config, cases []Case, revision 
 	if len(cases) == 0 {
 		return RunRecord{}, nil, fmt.Errorf("run eval: cases are required")
 	}
-	runtimeValues, err := config.ResolveRuntime(os.Getenv)
+	run, err := buildRunRecord(config, revision)
 	if err != nil {
 		return RunRecord{}, nil, err
 	}
-	hash, err := config.HashWithRuntime(runtimeValues)
-	if err != nil {
-		return RunRecord{}, nil, err
-	}
-	run = RunRecord{ID: config.Run.ID, Dataset: config.Run.Dataset, DatasetRevision: revision, ConfigHash: hash, Config: config, Runtime: runtimeValues}
 	acquired, err := r.store.Acquire(ctx, run.ID)
 	if err != nil {
 		return RunRecord{}, nil, fmt.Errorf("acquire eval run: %w", err)
@@ -55,39 +57,19 @@ func (r *Runner) Run(ctx context.Context, config Config, cases []Case, revision 
 	if !acquired {
 		return RunRecord{}, nil, fmt.Errorf("acquire eval run: run %q is already active", run.ID)
 	}
-	defer func() {
-		if err := r.store.Release(context.Background(), run.ID); err != nil {
-			returnedErr = errors.Join(returnedErr, fmt.Errorf("release eval run: %w", err))
-		}
-	}()
-	trials := trialKeys(run.ID, cases, config.Arms)
-	if err := r.store.Initialize(ctx, run, trials); err != nil {
-		return RunRecord{}, nil, fmt.Errorf("initialize eval run: %w", err)
-	}
-	if err := r.store.ResetRunning(ctx, run.ID); err != nil {
-		return RunRecord{}, nil, fmt.Errorf("reset interrupted eval trials: %w", err)
-	}
-	if err := os.MkdirAll(config.Run.OutputDir, 0o755); err != nil {
-		return RunRecord{}, nil, fmt.Errorf("create eval output directory: %w", err)
-	}
+	defer r.releaseRun(run.ID, &returnedErr)
 	lifecycleVariables := map[string]string{
 		"run_id": run.ID, "dataset": run.Dataset, "dataset_revision": run.DatasetRevision,
 		"manifest": config.Run.Manifest, "output_dir": config.Run.OutputDir,
 	}
-	if config.BeforeRun != nil {
-		if _, err := r.executor.Execute(ctx, *config.BeforeRun, lifecycleVariables, filepath.Join(config.Run.OutputDir, "before-run.log"), filepath.Join(config.Run.OutputDir, "before-run.stderr.log")); err != nil {
-			return RunRecord{}, nil, fmt.Errorf("prepare eval run: %w", err)
-		}
+	if err := r.prepareRun(ctx, run, cases, config, lifecycleVariables); err != nil {
+		return RunRecord{}, nil, err
 	}
 	if config.AfterRun != nil {
-		defer func() {
-			teardownCtx, cancel := context.WithTimeout(context.Background(), time.Minute)
-			defer cancel()
-			if _, err := r.executor.Execute(teardownCtx, *config.AfterRun, lifecycleVariables, filepath.Join(config.Run.OutputDir, "after-run.log"), filepath.Join(config.Run.OutputDir, "after-run.stderr.log")); err != nil {
-				r.logger.Error("tear down eval run", "error", err)
-				returnedErr = errors.Join(returnedErr, fmt.Errorf("tear down eval run: %w", err))
-			}
-		}()
+		defer r.tearDownRun(config, lifecycleVariables, &returnedErr)
+	}
+	if err := r.preflightRun(ctx, run.ID, config, lifecycleVariables); err != nil {
+		return RunRecord{}, nil, err
 	}
 	timeout, err := config.Timeout()
 	if err != nil {
@@ -106,6 +88,69 @@ func (r *Runner) Run(ctx context.Context, config Config, cases []Case, revision 
 	}
 	r.logger.InfoContext(ctx, "eval v2 completed", "run_id", run.ID, "trials", len(results), "output_dir", config.Run.OutputDir)
 	return run, results, nil
+}
+
+func buildRunRecord(config Config, revision string) (RunRecord, error) {
+	runtimeValues, err := config.ResolveRuntime(os.Getenv)
+	if err != nil {
+		return RunRecord{}, err
+	}
+	hash, err := config.HashWithRuntime(runtimeValues)
+	if err != nil {
+		return RunRecord{}, err
+	}
+	return RunRecord{
+		ID: config.Run.ID, Dataset: config.Run.Dataset, DatasetRevision: revision,
+		ConfigHash: hash, Config: config, Runtime: runtimeValues,
+	}, nil
+}
+
+func (r *Runner) prepareRun(ctx context.Context, run RunRecord, cases []Case, config Config, variables map[string]string) error {
+	if err := r.store.Initialize(ctx, run, trialKeys(run.ID, cases, config.Arms)); err != nil {
+		return fmt.Errorf("initialize eval run: %w", err)
+	}
+	if err := r.store.ResetRunning(ctx, run.ID); err != nil {
+		return fmt.Errorf("reset interrupted eval trials: %w", err)
+	}
+	if err := os.MkdirAll(config.Run.OutputDir, 0o755); err != nil {
+		return fmt.Errorf("create eval output directory: %w", err)
+	}
+	if config.BeforeRun == nil {
+		return nil
+	}
+	if _, err := r.executor.Execute(ctx, *config.BeforeRun, variables, filepath.Join(config.Run.OutputDir, "before-run.log"), filepath.Join(config.Run.OutputDir, "before-run.stderr.log")); err != nil {
+		return fmt.Errorf("prepare eval run: %w", err)
+	}
+	return nil
+}
+
+func (r *Runner) preflightRun(ctx context.Context, runID string, config Config, variables map[string]string) error {
+	runnable, err := r.store.HasRunnable(ctx, runID, config.RetryFailed, config.MaxAttempts())
+	if err != nil {
+		return fmt.Errorf("check runnable eval trials: %w", err)
+	}
+	if !runnable || config.Preflight == nil {
+		return nil
+	}
+	if _, err := r.executor.Execute(ctx, *config.Preflight, variables, filepath.Join(config.Run.OutputDir, "preflight.log"), filepath.Join(config.Run.OutputDir, "preflight.stderr.log")); err != nil {
+		return fmt.Errorf("preflight eval run: %w", err)
+	}
+	return nil
+}
+
+func (r *Runner) releaseRun(runID string, returnedErr *error) {
+	if err := r.store.Release(context.Background(), runID); err != nil {
+		*returnedErr = errors.Join(*returnedErr, fmt.Errorf("release eval run: %w", err))
+	}
+}
+
+func (r *Runner) tearDownRun(config Config, variables map[string]string, returnedErr *error) {
+	teardownCtx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	if _, err := r.executor.Execute(teardownCtx, *config.AfterRun, variables, filepath.Join(config.Run.OutputDir, "after-run.log"), filepath.Join(config.Run.OutputDir, "after-run.stderr.log")); err != nil {
+		r.logger.Error("tear down eval run", "error", err)
+		*returnedErr = errors.Join(*returnedErr, fmt.Errorf("tear down eval run: %w", err))
+	}
 }
 
 func HydrateResults(results []TrialResult, cases []Case) []TrialResult {
@@ -139,6 +184,13 @@ func (r *Runner) runTrials(ctx context.Context, run RunRecord, cases []Case, con
 	type job struct {
 		evalCase Case
 		arm      ArmConfig
+		shared   *sharedProducerState
+	}
+	sharedByCase := make(map[string]*sharedProducerState, len(cases))
+	if config.SharedProducer != nil {
+		for _, evalCase := range cases {
+			sharedByCase[evalCase.ID] = &sharedProducerState{}
+		}
 	}
 	jobs := make(chan job)
 	errCh := make(chan error, 1)
@@ -150,7 +202,7 @@ func (r *Runner) runTrials(ctx context.Context, run RunRecord, cases []Case, con
 		go func() {
 			defer workers.Done()
 			for current := range jobs {
-				if err := r.runTrial(workerCtx, run, current.evalCase, current.arm, config.RetryFailed, timeout, config.Run.OutputDir); err != nil {
+				if err := r.runTrial(workerCtx, run, current.evalCase, current.arm, config, timeout, current.shared); err != nil {
 					select {
 					case errCh <- err:
 						cancel()
@@ -165,7 +217,7 @@ sendLoop:
 	for _, evalCase := range cases {
 		for _, arm := range config.Arms {
 			select {
-			case jobs <- job{evalCase: evalCase, arm: arm}:
+			case jobs <- job{evalCase: evalCase, arm: arm, shared: sharedByCase[evalCase.ID]}:
 			case <-workerCtx.Done():
 				break sendLoop
 			}
@@ -181,9 +233,9 @@ sendLoop:
 	}
 }
 
-func (r *Runner) runTrial(ctx context.Context, run RunRecord, evalCase Case, arm ArmConfig, retryFailed bool, timeout time.Duration, outputDir string) error {
+func (r *Runner) runTrial(ctx context.Context, run RunRecord, evalCase Case, arm ArmConfig, config Config, timeout time.Duration, shared *sharedProducerState) error {
 	key := TrialKey{RunID: run.ID, CaseID: evalCase.ID, Arm: arm.Name}
-	claimed, err := r.store.Claim(ctx, key, retryFailed)
+	claimed, err := r.store.Claim(ctx, key, config.RetryFailed, config.MaxAttempts())
 	if err != nil {
 		return fmt.Errorf("claim eval trial %s/%s: %w", evalCase.ID, arm.Name, err)
 	}
@@ -193,7 +245,7 @@ func (r *Runner) runTrial(ctx context.Context, run RunRecord, evalCase Case, arm
 	started := r.now()
 	trialCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	result, runErr := r.executeTrial(trialCtx, run, evalCase, arm, outputDir, started)
+	result, runErr := r.executeTrial(trialCtx, run, evalCase, arm, config.SharedProducer, shared, config.Run.OutputDir, started)
 	if runErr == nil {
 		if err := r.store.Complete(ctx, result); err != nil {
 			return fmt.Errorf("complete eval trial %s/%s: %w", evalCase.ID, arm.Name, err)
@@ -209,7 +261,16 @@ func (r *Runner) runTrial(ctx context.Context, run RunRecord, evalCase Case, arm
 	return nil
 }
 
-func (r *Runner) executeTrial(ctx context.Context, run RunRecord, evalCase Case, arm ArmConfig, outputDir string, started time.Time) (TrialResult, error) {
+func (r *Runner) executeTrial(
+	ctx context.Context,
+	run RunRecord,
+	evalCase Case,
+	arm ArmConfig,
+	sharedSpec *CommandSpec,
+	shared *sharedProducerState,
+	outputDir string,
+	started time.Time,
+) (TrialResult, error) {
 	variables := trialVariables(run, evalCase, arm.Name, outputDir)
 	artifactDir := variables["artifact_dir"]
 	durations := [3]time.Duration{}
@@ -219,52 +280,151 @@ func (r *Runner) executeTrial(ctx context.Context, run RunRecord, evalCase Case,
 		Expected: evalCase.Expected, Status: "running", CostScope: "opencode_reported", StartedAt: started,
 	}
 	var producerOutput harness.AgentOutput
+	if arm.Ingest != nil {
+		producerDuration, ingestDuration, err := r.runSharedIngest(ctx, run, evalCase, arm, sharedSpec, shared, variables, artifactDir, outputDir)
+		durations[0], durations[1] = producerDuration, ingestDuration
+		partial.ProducerDurationMS = durations[0].Milliseconds()
+		if err != nil {
+			return partial, err
+		}
+		partial.ReadinessDurationMS = durations[1].Milliseconds()
+	}
 	if arm.Producer != nil {
-		result, executeErr := r.executor.Execute(ctx, *arm.Producer, variables, filepath.Join(artifactDir, "producer.jsonl"), filepath.Join(artifactDir, "producer.stderr.log"))
-		durations[0] = result.Duration
-		if len(result.Output) > 0 {
-			var parseErr error
-			producerOutput, parseErr = harness.ParseOpenCodeJSON(bytes.NewReader(result.Output))
-			if parseErr != nil && executeErr == nil {
-				return partial, fmt.Errorf("parse producer output: %w", parseErr)
-			}
-		}
-		if executeErr == nil && len(result.Output) == 0 {
-			return partial, fmt.Errorf("parse producer output: OpenCode output contains no text")
-		}
+		var err error
+		durations[0], producerOutput, err = r.runLegacyProducer(ctx, *arm.Producer, variables, artifactDir)
 		partial = withProducerUsage(partial, producerOutput)
 		partial.ProducerDurationMS = durations[0].Milliseconds()
-		if executeErr != nil {
-			return partial, fmt.Errorf("run producer: %w", executeErr)
+		if err != nil {
+			return partial, err
 		}
 	}
 	if arm.AfterProducer != nil {
-		result, err := r.executor.Execute(ctx, *arm.AfterProducer, variables, filepath.Join(artifactDir, "readiness.log"), filepath.Join(artifactDir, "readiness.stderr.log"))
+		readinessDuration, err := r.waitForMemory(ctx, *arm.AfterProducer, variables, artifactDir)
 		if err != nil {
-			return partial, fmt.Errorf("wait for memory: %w", err)
+			return partial, err
 		}
-		durations[1] = result.Duration
+		durations[1] += readinessDuration
 		partial.ReadinessDurationMS = durations[1].Milliseconds()
 	}
-	consumer, executeErr := r.executor.Execute(ctx, arm.Consumer, variables, filepath.Join(artifactDir, "consumer.jsonl"), filepath.Join(artifactDir, "consumer.stderr.log"))
-	durations[2] = consumer.Duration
 	var output harness.AgentOutput
-	if len(consumer.Output) > 0 {
-		var parseErr error
-		output, parseErr = harness.ParseOpenCodeJSON(bytes.NewReader(consumer.Output))
-		if parseErr != nil && executeErr == nil {
-			return partial, fmt.Errorf("parse consumer output: %w", parseErr)
-		}
-	}
-	if executeErr == nil && len(consumer.Output) == 0 {
-		return partial, fmt.Errorf("parse consumer output: OpenCode output contains no text")
-	}
+	var executeErr error
+	durations[2], output, executeErr = r.runConsumer(ctx, arm.Consumer, variables, artifactDir)
 	partial = withConsumerUsage(partial, output)
 	partial.ConsumerDurationMS = durations[2].Milliseconds()
 	if executeErr != nil {
-		return partial, fmt.Errorf("run consumer: %w", executeErr)
+		return partial, executeErr
 	}
 	return ScoreResult(run, evalCase, arm.Name, producerOutput, output, started, durations), nil
+}
+
+func (r *Runner) runSharedIngest(
+	ctx context.Context,
+	run RunRecord,
+	evalCase Case,
+	arm ArmConfig,
+	sharedSpec *CommandSpec,
+	shared *sharedProducerState,
+	variables map[string]string,
+	artifactDir string,
+	outputDir string,
+) (time.Duration, time.Duration, error) {
+	if sharedSpec == nil || shared == nil {
+		return 0, 0, fmt.Errorf("run shared producer: shared producer is not configured")
+	}
+	shared.once.Do(func() {
+		shared.result, shared.output, shared.err = r.executeSharedProducer(ctx, run, evalCase, *sharedSpec, outputDir)
+	})
+	if shared.err != nil {
+		return shared.result.Duration, 0, shared.err
+	}
+	result, err := r.executor.Execute(ctx, *arm.Ingest, variables, filepath.Join(artifactDir, "ingest.log"), filepath.Join(artifactDir, "ingest.stderr.log"))
+	if err != nil {
+		return shared.result.Duration, result.Duration, fmt.Errorf("ingest shared producer transcript: %w", err)
+	}
+	return shared.result.Duration, result.Duration, nil
+}
+
+func (r *Runner) runLegacyProducer(ctx context.Context, spec CommandSpec, variables map[string]string, artifactDir string) (time.Duration, harness.AgentOutput, error) {
+	result, executeErr := r.executor.Execute(ctx, spec, variables, filepath.Join(artifactDir, "producer.jsonl"), filepath.Join(artifactDir, "producer.stderr.log"))
+	output, parseErr := parseAgentOutput(result, "producer")
+	if executeErr != nil {
+		return result.Duration, output, fmt.Errorf("run producer: %w", executeErr)
+	}
+	if parseErr != nil {
+		return result.Duration, output, parseErr
+	}
+	return result.Duration, output, nil
+}
+
+func (r *Runner) waitForMemory(ctx context.Context, spec CommandSpec, variables map[string]string, artifactDir string) (time.Duration, error) {
+	result, err := r.executor.Execute(ctx, spec, variables, filepath.Join(artifactDir, "readiness.log"), filepath.Join(artifactDir, "readiness.stderr.log"))
+	if err != nil {
+		return result.Duration, fmt.Errorf("wait for memory: %w", err)
+	}
+	return result.Duration, nil
+}
+
+func (r *Runner) runConsumer(ctx context.Context, spec CommandSpec, variables map[string]string, artifactDir string) (time.Duration, harness.AgentOutput, error) {
+	result, executeErr := r.executor.Execute(ctx, spec, variables, filepath.Join(artifactDir, "consumer.jsonl"), filepath.Join(artifactDir, "consumer.stderr.log"))
+	output, parseErr := parseAgentOutput(result, "consumer")
+	if executeErr != nil {
+		return result.Duration, output, fmt.Errorf("run consumer: %w", executeErr)
+	}
+	if parseErr != nil {
+		return result.Duration, output, parseErr
+	}
+	return result.Duration, output, nil
+}
+
+func parseAgentOutput(result CommandResult, label string) (harness.AgentOutput, error) {
+	if len(result.Output) == 0 {
+		return harness.AgentOutput{}, fmt.Errorf("parse %s output: OpenCode output contains no text", label)
+	}
+	output, err := harness.ParseOpenCodeJSON(bytes.NewReader(result.Output))
+	if err != nil {
+		return output, fmt.Errorf("parse %s output: %w", label, err)
+	}
+	return output, nil
+}
+
+func (r *Runner) executeSharedProducer(
+	ctx context.Context,
+	run RunRecord,
+	evalCase Case,
+	spec CommandSpec,
+	outputDir string,
+) (CommandResult, harness.AgentOutput, error) {
+	artifactDir := filepath.Join(outputDir, "trials", evalCase.ID, "shared")
+	stdoutPath := filepath.Join(artifactDir, "producer.jsonl")
+	textPath := filepath.Join(artifactDir, "producer.txt")
+	if raw, readErr := os.ReadFile(stdoutPath); readErr == nil {
+		if _, textErr := os.Stat(textPath); textErr == nil {
+			output, parseErr := harness.ParseOpenCodeJSON(bytes.NewReader(raw))
+			if parseErr == nil && output.Text != "" {
+				return CommandResult{Output: raw}, output, nil
+			}
+		}
+	}
+	variables := trialVariables(run, evalCase, "shared", outputDir)
+	result, executeErr := r.executor.Execute(ctx, spec, variables, stdoutPath, filepath.Join(artifactDir, "producer.stderr.log"))
+	var output harness.AgentOutput
+	if len(result.Output) > 0 {
+		var parseErr error
+		output, parseErr = harness.ParseOpenCodeJSON(bytes.NewReader(result.Output))
+		if parseErr != nil && executeErr == nil {
+			return result, output, fmt.Errorf("parse shared producer output: %w", parseErr)
+		}
+	}
+	if executeErr != nil {
+		return result, output, fmt.Errorf("run shared producer: %w", executeErr)
+	}
+	if output.Text == "" {
+		return result, output, fmt.Errorf("parse shared producer output: OpenCode output contains no text")
+	}
+	if err := writeCommandOutput(textPath, []byte(output.Text)); err != nil {
+		return result, output, fmt.Errorf("persist shared producer transcript: %w", err)
+	}
+	return result, output, nil
 }
 
 func withProducerUsage(result TrialResult, output harness.AgentOutput) TrialResult {
@@ -299,12 +459,15 @@ func trialKeys(runID string, cases []Case, arms []ArmConfig) []TrialKey {
 
 func trialVariables(run RunRecord, evalCase Case, arm, outputDir string) map[string]string {
 	artifactDir := filepath.Join(outputDir, "trials", evalCase.ID, arm)
+	sharedArtifactDir := filepath.Join(outputDir, "trials", evalCase.ID, "shared")
 	return map[string]string{
 		"run_id": run.ID, "dataset": run.Dataset, "dataset_revision": run.DatasetRevision,
 		"case_id": evalCase.ID, "category": evalCase.Category, "arm": arm,
 		"question": evalCase.Question, "expected": evalCase.Expected, "user_id": evalCase.AskingUserID,
 		"scope_id": evalCase.ScopeID, "producer_workspace": evalCase.ProducerWorkspace,
 		"consumer_workspace": evalCase.ConsumerWorkspace, "artifact_dir": artifactDir,
+		"shared_artifact_dir":  sharedArtifactDir,
+		"shared_producer_text": filepath.Join(sharedArtifactDir, "producer.txt"),
 	}
 }
 

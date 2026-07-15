@@ -90,7 +90,34 @@ func WriteCases(directory, revision, domain, seed string, cases []Case) error {
 			ScopeID: "groupmembench-" + caseID, ContextMessages: len(evalCase.Messages),
 		})
 	}
-	return writeJSON(filepath.Join(directory, "manifest.json"), manifest)
+	smoke, err := smokeManifest(manifest)
+	if err != nil {
+		return err
+	}
+	if err := writeJSON(filepath.Join(directory, "manifest.json"), manifest); err != nil {
+		return err
+	}
+	return writeJSON(filepath.Join(directory, "manifest.smoke.json"), smoke)
+}
+
+func smokeManifest(source Manifest) (Manifest, error) {
+	targets := []string{"multi_hop", "knowledge_update", "abstention"}
+	smoke := source
+	smoke.Cases = make([]ManifestCase, 0, len(targets))
+	for _, target := range targets {
+		found := false
+		for _, evalCase := range source.Cases {
+			if evalCase.Category == target {
+				smoke.Cases = append(smoke.Cases, evalCase)
+				found = true
+				break
+			}
+		}
+		if !found {
+			return Manifest{}, fmt.Errorf("write GroupMemBench smoke profile: category %q is missing", target)
+		}
+	}
+	return smoke, nil
 }
 
 func loadQuestionFile(path string) ([]Question, error) {

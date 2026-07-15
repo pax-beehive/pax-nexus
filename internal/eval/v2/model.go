@@ -16,17 +16,20 @@ import (
 const ConfigVersion = "v2"
 
 type Config struct {
-	Version      string       `json:"version" yaml:"version"`
-	Run          RunConfig    `json:"run" yaml:"run"`
-	Store        StoreConfig  `json:"store" yaml:"store"`
-	BaselineArm  string       `json:"baseline_arm" yaml:"baseline_arm"`
-	Arms         []ArmConfig  `json:"arms" yaml:"arms"`
-	RetryFailed  bool         `json:"retry_failed" yaml:"retry_failed"`
-	TrialTimeout string       `json:"trial_timeout" yaml:"trial_timeout"`
-	RuntimeEnv   []string     `json:"runtime_env,omitempty" yaml:"runtime_env,omitempty"`
-	Output       OutputConfig `json:"output,omitempty" yaml:"output,omitempty"`
-	BeforeRun    *CommandSpec `json:"before_run,omitempty" yaml:"before_run,omitempty"`
-	AfterRun     *CommandSpec `json:"after_run,omitempty" yaml:"after_run,omitempty"`
+	Version          string       `json:"version" yaml:"version"`
+	Run              RunConfig    `json:"run" yaml:"run"`
+	Store            StoreConfig  `json:"store" yaml:"store"`
+	BaselineArm      string       `json:"baseline_arm" yaml:"baseline_arm"`
+	Arms             []ArmConfig  `json:"arms" yaml:"arms"`
+	RetryFailed      bool         `json:"retry_failed" yaml:"retry_failed"`
+	RetryMaxAttempts int          `json:"retry_max_attempts,omitempty" yaml:"retry_max_attempts,omitempty"`
+	TrialTimeout     string       `json:"trial_timeout" yaml:"trial_timeout"`
+	RuntimeEnv       []string     `json:"runtime_env,omitempty" yaml:"runtime_env,omitempty"`
+	Output           OutputConfig `json:"output,omitempty" yaml:"output,omitempty"`
+	BeforeRun        *CommandSpec `json:"before_run,omitempty" yaml:"before_run,omitempty"`
+	Preflight        *CommandSpec `json:"preflight,omitempty" yaml:"preflight,omitempty"`
+	SharedProducer   *CommandSpec `json:"shared_producer,omitempty" yaml:"shared_producer,omitempty"`
+	AfterRun         *CommandSpec `json:"after_run,omitempty" yaml:"after_run,omitempty"`
 }
 
 type RunConfig struct {
@@ -48,6 +51,7 @@ type OutputConfig struct {
 type ArmConfig struct {
 	Name          string       `json:"name" yaml:"name"`
 	Producer      *CommandSpec `json:"producer,omitempty" yaml:"producer,omitempty"`
+	Ingest        *CommandSpec `json:"ingest,omitempty" yaml:"ingest,omitempty"`
 	AfterProducer *CommandSpec `json:"after_producer,omitempty" yaml:"after_producer,omitempty"`
 	Consumer      CommandSpec  `json:"consumer" yaml:"consumer"`
 }
@@ -136,24 +140,54 @@ func (c Config) Validate() error {
 	if _, err := c.Timeout(); err != nil {
 		return err
 	}
+	if err := validateRetry(c); err != nil {
+		return err
+	}
 	if err := validateRuntimeEnvironment(c.RuntimeEnv); err != nil {
 		return err
 	}
 	if err := validateOutputFormats(c.Output.Formats); err != nil {
 		return err
 	}
-	for label, command := range map[string]*CommandSpec{"before_run": c.BeforeRun, "after_run": c.AfterRun} {
-		if command != nil {
-			if err := validateCommand(label, *command); err != nil {
-				return err
-			}
+	if err := validateLifecycleCommands(c); err != nil {
+		return err
+	}
+	return validateArms(c)
+}
+
+func validateRetry(config Config) error {
+	if config.RetryFailed && config.RetryMaxAttempts < 2 {
+		return fmt.Errorf("validate eval config: retry_failed requires retry_max_attempts of at least 2")
+	}
+	if !config.RetryFailed && config.RetryMaxAttempts > 1 {
+		return fmt.Errorf("validate eval config: retry_max_attempts requires retry_failed")
+	}
+	return nil
+}
+
+func validateLifecycleCommands(config Config) error {
+	commands := map[string]*CommandSpec{
+		"before_run": config.BeforeRun, "preflight": config.Preflight,
+		"shared_producer": config.SharedProducer, "after_run": config.AfterRun,
+	}
+	for label, command := range commands {
+		if command == nil {
+			continue
+		}
+		if err := validateCommand(label, *command); err != nil {
+			return err
 		}
 	}
-	if len(c.Arms) < 2 {
+	return nil
+}
+
+func validateArms(config Config) error {
+	if len(config.Arms) < 2 {
 		return fmt.Errorf("validate eval config: at least two arms are required")
 	}
-	names := make(map[string]struct{}, len(c.Arms))
-	for _, arm := range c.Arms {
+	names := make(map[string]struct{}, len(config.Arms))
+	ingestArms := 0
+	for _, arm := range config.Arms {
 		if err := validateArm(arm); err != nil {
 			return err
 		}
@@ -161,11 +195,24 @@ func (c Config) Validate() error {
 			return fmt.Errorf("validate eval config: duplicate arm %q", arm.Name)
 		}
 		names[arm.Name] = struct{}{}
+		if arm.Ingest != nil {
+			ingestArms++
+		}
 	}
-	if _, exists := names[c.BaselineArm]; !exists {
-		return fmt.Errorf("validate eval config: baseline arm %q is not configured", c.BaselineArm)
+	if (config.SharedProducer == nil) != (ingestArms == 0) {
+		return fmt.Errorf("validate eval config: shared_producer and at least one ingest arm are required together")
+	}
+	if _, exists := names[config.BaselineArm]; !exists {
+		return fmt.Errorf("validate eval config: baseline arm %q is not configured", config.BaselineArm)
 	}
 	return nil
+}
+
+func (c Config) MaxAttempts() int {
+	if !c.RetryFailed {
+		return 1
+	}
+	return c.RetryMaxAttempts
 }
 
 func validateRuntimeEnvironment(names []string) error {
@@ -269,14 +316,19 @@ func validateArm(arm ArmConfig) error {
 	if err := validateCommand(arm.Name+" consumer", arm.Consumer); err != nil {
 		return err
 	}
-	for label, command := range map[string]*CommandSpec{"producer": arm.Producer, "after_producer": arm.AfterProducer} {
+	for label, command := range map[string]*CommandSpec{
+		"producer": arm.Producer, "ingest": arm.Ingest, "after_producer": arm.AfterProducer,
+	} {
 		if command != nil {
 			if err := validateCommand(arm.Name+" "+label, *command); err != nil {
 				return err
 			}
 		}
 	}
-	if arm.Producer == nil && arm.AfterProducer != nil {
+	if arm.Producer != nil && arm.Ingest != nil {
+		return fmt.Errorf("validate eval config: arm %q cannot configure both producer and ingest", arm.Name)
+	}
+	if arm.Producer == nil && arm.Ingest == nil && arm.AfterProducer != nil {
 		return fmt.Errorf("validate eval config: arm %q cannot wait without a producer", arm.Name)
 	}
 	return nil
