@@ -19,7 +19,7 @@ runtime_env:
   - MEM0_DEFAULT_LLM_MODEL
   - MEM0_DEFAULT_EMBEDDER_MODEL
 output:
-  formats: [csv, jsonl]
+  formats: [csv, jsonl, html]
 arms:
   - name: control
     consumer:

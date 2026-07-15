@@ -33,7 +33,7 @@ func (s *modelSuite) TestValidationMatrix() {
 		{name: "lifecycle", mutate: func(config *Config) { config.BeforeRun = &CommandSpec{} }},
 		{name: "secret runtime", mutate: func(config *Config) { config.RuntimeEnv = []string{"API_KEY"} }},
 		{name: "invalid runtime", mutate: func(config *Config) { config.RuntimeEnv = []string{"BAD NAME"} }},
-		{name: "output format", mutate: func(config *Config) { config.Output.Formats = []string{"html"} }},
+		{name: "output format", mutate: func(config *Config) { config.Output.Formats = []string{"xml"} }},
 		{name: "duplicate output", mutate: func(config *Config) { config.Output.Formats = []string{"csv", "csv"} }},
 	}
 	for _, test := range tests {
@@ -50,7 +50,7 @@ func (s *modelSuite) TestValidationMatrix() {
 	secondHash, err := valid.Hash()
 	s.Require().NoError(err)
 	s.Equal(firstHash, secondHash)
-	s.Equal([]string{"csv", "jsonl"}, valid.OutputFormats())
+	s.Equal([]string{"csv", "jsonl", "html"}, valid.OutputFormats())
 	valid.Output.Formats = []string{"csv"}
 	s.Equal([]string{"csv"}, valid.OutputFormats())
 	valid.RuntimeEnv = []string{"MODEL"}
@@ -62,18 +62,28 @@ func (s *modelSuite) TestValidationMatrix() {
 	runtimeHash, err := valid.HashWithRuntime(runtimeValues)
 	s.Require().NoError(err)
 	s.NotEqual(firstHash, runtimeHash)
+	withoutHTML := valid
+	withoutHTML.Output.Formats = []string{"csv", "jsonl"}
+	withoutHTMLHash, err := withoutHTML.Hash()
+	s.Require().NoError(err)
+	withHTML := withoutHTML
+	withHTML.Output.Formats = []string{"csv", "jsonl", "html"}
+	htmlHash, err := withHTML.Hash()
+	s.Require().NoError(err)
+	s.Equal(withoutHTMLHash, htmlHash)
 }
 
 func (s *modelSuite) TestScoreResult() {
 	started := time.Now().Add(-time.Second).UTC()
 	result := ScoreResult(
 		RunRecord{ID: "run", Dataset: "suite", DatasetRevision: "revision"},
-		Case{ID: "case", Category: "temporal", Expected: "answer", AskingUserID: "user"},
+		Case{ID: "case", Category: "temporal", Question: "what happened", Expected: "answer", AskingUserID: "user"},
 		"memory",
 		harness.AgentOutput{Text: "handoff", InputTokens: 3, OutputTokens: 1, Cost: 0.2},
 		harness.AgentOutput{Text: "answer", SessionID: "session", InputTokens: 4, OutputTokens: 2, Cost: 0.1},
 		started, [3]time.Duration{time.Millisecond, 2 * time.Millisecond, 3 * time.Millisecond},
 	)
+	s.Equal("what happened", result.Question)
 	s.True(result.Exact)
 	s.InDelta(1, result.TokenF1, 0.000001)
 	s.Equal(int64(1), result.ProducerDurationMS)

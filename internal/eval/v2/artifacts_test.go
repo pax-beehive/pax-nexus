@@ -1,7 +1,9 @@
 package v2
 
 import (
+	"bytes"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -52,8 +54,11 @@ func (s *artifactSuite) TestSummaryPairwiseAndExport() {
 
 	directory := s.T().TempDir()
 	run := RunRecord{ID: "run", Dataset: "suite", DatasetRevision: "rev", ConfigHash: "hash"}
-	s.Require().NoError(ExportArtifacts(directory, run, "control", []string{"csv", "jsonl"}, results))
-	for _, name := range []string{"trials.jsonl", "trials.csv", "summary.csv", "pairwise.csv", "artifacts.json"} {
+	s.Require().NoError(ExportArtifacts(directory, run, "control", []string{"csv", "jsonl", "html"}, results, func(writer io.Writer) error {
+		_, err := io.Copy(writer, bytes.NewBufferString("<!doctype html><title>report</title>"))
+		return err
+	}))
+	for _, name := range []string{"trials.jsonl", "trials.csv", "summary.csv", "pairwise.csv", "report.html", "artifacts.json"} {
 		info, err := os.Stat(filepath.Join(directory, name))
 		s.Require().NoError(err)
 		s.Positive(info.Size())
@@ -61,11 +66,13 @@ func (s *artifactSuite) TestSummaryPairwiseAndExport() {
 	manifestInput, err := os.ReadFile(filepath.Join(directory, "artifacts.json"))
 	s.Require().NoError(err)
 	var manifest struct {
-		SchemaVersion string      `json:"schema_version"`
-		CostSummary   CostSummary `json:"cost_summary"`
+		SchemaVersion string            `json:"schema_version"`
+		CostSummary   CostSummary       `json:"cost_summary"`
+		Files         map[string]string `json:"files"`
 	}
 	s.Require().NoError(json.Unmarshal(manifestInput, &manifest))
 	s.Equal(ArtifactSchemaVersion, manifest.SchemaVersion)
+	s.Equal("report.html", manifest.Files["report"])
 	s.InDelta(0.06, manifest.CostSummary.TotalCost, 0.000001)
 	summaryCSV, err := os.ReadFile(filepath.Join(directory, "summary.csv"))
 	s.Require().NoError(err)
@@ -76,8 +83,9 @@ func (s *artifactSuite) TestSummaryPairwiseAndExport() {
 }
 
 func (s *artifactSuite) TestExportRejectsEmptyResults() {
-	s.Require().Error(ExportArtifacts(s.T().TempDir(), RunRecord{}, "control", []string{"csv"}, nil))
-	s.Require().Error(ExportArtifacts(s.T().TempDir(), RunRecord{}, "control", []string{"unknown"}, []TrialResult{trial("case", "category", "control", "completed", 1, true, 1)}))
+	s.Require().Error(ExportArtifacts(s.T().TempDir(), RunRecord{}, "control", []string{"csv"}, nil, nil))
+	s.Require().Error(ExportArtifacts(s.T().TempDir(), RunRecord{}, "control", []string{"unknown"}, []TrialResult{trial("case", "category", "control", "completed", 1, true, 1)}, nil))
+	s.Require().Error(ExportArtifacts(s.T().TempDir(), RunRecord{}, "control", []string{"html"}, []TrialResult{trial("case", "category", "control", "completed", 1, true, 1)}, nil))
 }
 
 func trial(caseID, category, arm, status string, f1 float64, exact bool, duration int64) TrialResult {

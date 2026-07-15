@@ -34,7 +34,10 @@ func LoadCases(path string) ([]Case, string, error) {
 	if strings.TrimSpace(source.DatasetRevision) == "" || len(source.Cases) == 0 {
 		return nil, "", fmt.Errorf("decode eval manifest: dataset revision and cases are required")
 	}
-	base := filepath.Dir(path)
+	base, err := filepath.Abs(filepath.Dir(path))
+	if err != nil {
+		return nil, "", fmt.Errorf("resolve eval manifest directory: %w", err)
+	}
 	cases := make([]Case, 0, len(source.Cases))
 	seen := make(map[string]struct{}, len(source.Cases))
 	for _, item := range source.Cases {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -27,14 +26,16 @@ func (s *runnerSuite) TestRunCompletesResumableMatrixAndExports() {
 	config.AfterRun = &CommandSpec{Program: "teardown"}
 	cases := []Case{{ID: "case-1", Category: "temporal", Question: "question", Expected: "answer", AskingUserID: "same-user", ScopeID: "scope"}}
 
-	s.Require().NoError(runner.Run(context.Background(), config, cases, "revision"))
+	run, results, err := runner.Run(context.Background(), config, cases, "revision")
+	s.Require().NoError(err)
+	s.Equal("run", run.ID)
+	s.Len(results, 2)
 	s.True(store.finished)
 	s.Len(store.results, 2)
 	s.Equal(1, executor.count("setup"))
 	s.Equal(1, executor.count("teardown"))
 	s.Equal(1, executor.count("producer"))
 	s.Equal(2, executor.count("consumer"))
-	s.FileExists(filepath.Join(config.Run.OutputDir, "summary.csv"))
 	for _, result := range store.results {
 		s.Equal("same-user", result.AskingUserID)
 		s.True(result.Exact)
@@ -46,7 +47,10 @@ func (s *runnerSuite) TestRunCompletesResumableMatrixAndExports() {
 	}
 
 	previousCalls := executor.total()
-	s.Require().NoError(runner.Run(context.Background(), config, cases, "revision"))
+	_, resumed, err := runner.Run(context.Background(), config, cases, "revision")
+	s.Require().NoError(err)
+	s.Require().Len(resumed, 2)
+	s.Equal("question", resumed[0].Question)
 	s.Equal(previousCalls+2, executor.total())
 }
 
@@ -72,7 +76,8 @@ func (s *runnerSuite) TestFailureCostMatrix() {
 			config := testConfig(s.T().TempDir())
 			test.configure(&config)
 			cases := []Case{{ID: "case", Category: "temporal", Question: "q", Expected: "answer", AskingUserID: "user"}}
-			s.Require().NoError(runner.Run(context.Background(), config, cases, "revision"))
+			_, _, runErr := runner.Run(context.Background(), config, cases, "revision")
+			s.Require().NoError(runErr)
 			memory := findResult(store.results, "memory")
 			s.Equal("failed", memory.Status)
 			s.InDelta(test.wantMemoryCost, memory.Cost, 0.000001)
@@ -98,7 +103,7 @@ func (s *runnerSuite) TestTeardownFailureIsReturned() {
 	s.Require().NoError(err)
 	config := testConfig(s.T().TempDir())
 	config.AfterRun = &CommandSpec{Program: "teardown"}
-	err = runner.Run(context.Background(), config, []Case{{ID: "case", Category: "temporal", Question: "q", Expected: "answer", AskingUserID: "user"}}, "revision")
+	_, _, err = runner.Run(context.Background(), config, []Case{{ID: "case", Category: "temporal", Question: "q", Expected: "answer", AskingUserID: "user"}}, "revision")
 	s.Require().Error(err)
 	s.Contains(err.Error(), "tear down eval run")
 }
@@ -115,7 +120,8 @@ func (s *runnerSuite) TestConstructionAndRunErrors() {
 			if err != nil {
 				return err
 			}
-			return runner.Run(context.Background(), testConfig(s.T().TempDir()), nil, "revision")
+			_, _, err = runner.Run(context.Background(), testConfig(s.T().TempDir()), nil, "revision")
+			return err
 		}},
 		{name: "invalid config", run: func() error {
 			runner, err := NewRunner(newFakeStore(), &fakeExecutor{}, nil)
@@ -124,7 +130,8 @@ func (s *runnerSuite) TestConstructionAndRunErrors() {
 			}
 			config := testConfig(s.T().TempDir())
 			config.Version = "bad"
-			return runner.Run(context.Background(), config, []Case{{ID: "case"}}, "revision")
+			_, _, err = runner.Run(context.Background(), config, []Case{{ID: "case"}}, "revision")
+			return err
 		}},
 	}
 	for _, test := range tests {

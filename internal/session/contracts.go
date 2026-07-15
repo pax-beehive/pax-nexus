@@ -12,16 +12,18 @@ type Actor struct {
 
 // SessionEvent is immutable source evidence received from paxm.
 type SessionEvent struct {
-	ID         string            `json:"id"`
-	Actor      Actor             `json:"actor"`
-	Sequence   int64             `json:"sequence"`
-	Type       string            `json:"type"`
-	Content    string            `json:"content"`
-	TaskRef    string            `json:"task_ref,omitempty"`
-	ThreadRef  string            `json:"thread_ref,omitempty"`
-	Visibility string            `json:"visibility,omitempty"`
-	OccurredAt time.Time         `json:"occurred_at"`
-	Metadata   map[string]string `json:"metadata,omitempty"`
+	ID          string            `json:"id"`
+	Actor       Actor             `json:"actor"`
+	Sequence    int64             `json:"sequence"`
+	Type        string            `json:"type"`
+	Content     string            `json:"content"`
+	TaskRef     string            `json:"task_ref,omitempty"`
+	ThreadRef   string            `json:"thread_ref,omitempty"`
+	Visibility  string            `json:"visibility,omitempty"`
+	OccurredAt  time.Time         `json:"occurred_at"`
+	CapturedAt  time.Time         `json:"captured_at"`
+	ExtractedAt *time.Time        `json:"extracted_at,omitempty"`
+	Metadata    map[string]string `json:"metadata,omitempty"`
 }
 
 // SessionBatch is the durable ingestion unit for a session stream.

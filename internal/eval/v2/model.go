@@ -91,6 +91,7 @@ type TrialResult struct {
 	DatasetRevision      string    `json:"dataset_revision"`
 	CaseID               string    `json:"case_id"`
 	Category             string    `json:"category"`
+	Question             string    `json:"question"`
 	Arm                  string    `json:"arm"`
 	AskingUserID         string    `json:"asking_user_id"`
 	Status               string    `json:"status"`
@@ -185,7 +186,7 @@ func validateRuntimeEnvironment(names []string) error {
 func validateOutputFormats(formats []string) error {
 	seen := make(map[string]struct{}, len(formats))
 	for _, format := range formats {
-		if format != "csv" && format != "jsonl" {
+		if format != "csv" && format != "jsonl" && format != "html" {
 			return fmt.Errorf("validate eval config: unsupported output format %q", format)
 		}
 		if _, exists := seen[format]; exists {
@@ -198,7 +199,7 @@ func validateOutputFormats(formats []string) error {
 
 func (c Config) OutputFormats() []string {
 	if len(c.Output.Formats) == 0 {
-		return []string{"csv", "jsonl"}
+		return []string{"csv", "jsonl", "html"}
 	}
 	return slices.Clone(c.Output.Formats)
 }
@@ -216,10 +217,14 @@ func (c Config) Hash() (string, error) {
 }
 
 func (c Config) HashWithRuntime(runtime map[string]string) (string, error) {
+	hashConfig := c
+	hashConfig.Output.Formats = slices.DeleteFunc(slices.Clone(c.Output.Formats), func(format string) bool {
+		return format == "html"
+	})
 	encoded, err := json.Marshal(struct {
 		Config  Config            `json:"config"`
 		Runtime map[string]string `json:"runtime,omitempty"`
-	}{Config: c, Runtime: runtime})
+	}{Config: hashConfig, Runtime: runtime})
 	if err != nil {
 		return "", fmt.Errorf("hash eval config: %w", err)
 	}
@@ -244,7 +249,7 @@ func ScoreResult(run RunRecord, evalCase Case, arm string, producer, consumer ha
 	completed := time.Now().UTC()
 	return TrialResult{
 		RunID: run.ID, Dataset: run.Dataset, DatasetRevision: run.DatasetRevision,
-		CaseID: evalCase.ID, Category: evalCase.Category, Arm: arm, AskingUserID: evalCase.AskingUserID,
+		CaseID: evalCase.ID, Category: evalCase.Category, Question: evalCase.Question, Arm: arm, AskingUserID: evalCase.AskingUserID,
 		Status: "completed", Expected: score.Expected, Answer: score.Answer, Exact: score.Exact,
 		SafeSuccess: score.SafeSuccess, TokenF1: score.TokenF1, SessionID: score.SessionID,
 		InputTokens: producer.InputTokens + score.InputTokens, OutputTokens: producer.OutputTokens + score.OutputTokens,

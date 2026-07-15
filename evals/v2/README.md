@@ -74,8 +74,10 @@ consumer stages. Command stdout and stderr are retained under
 
 ## Output contract
 
-Eval v2 deliberately does not generate an HTML dashboard. `output.formats`
-selects `csv`, `jsonl`, or both. Every completed run can export:
+`output.formats` selects any of `csv`, `jsonl`, and `html`; all three are on
+by default. Adding or removing `html` does not change the trial config hash,
+so a completed run can be resumed to generate its report without rerunning
+trials. Every completed run can export:
 
 - `trials.csv`: one row per case and arm, including identity, quality, tokens,
   producer/consumer cost, total observed cost, stage latency, status, and error
@@ -85,11 +87,15 @@ selects `csv`, `jsonl`, or both. Every completed run can export:
   lift, safe-success lift, and incremental cost over paired completed trials
 - `artifacts.json`: schema version, dataset revision, config hash, and artifact
   paths, plus the non-secret runtime versions named by `runtime_env`
+- `report.html`: a self-contained comparison report with overall and
+  per-category token-F1 summaries, representative field notes, and an
+  expandable breakdown of every case and every arm
 
-The stable artifact schema is `pax-eval-v2.2`. A workstation renderer should
-read `artifacts.json`, then generate PNG, SVG, or PDF charts from the declared
-CSV files. Suggested views are category heatmaps, paired F1 deltas, latency-cost
-scatter plots, failure rates, and cumulative progress over time.
+The stable artifact schema is `pax-eval-v2.3`. `report.html` covers the common
+comparison views; raw CSV/JSONL files remain available for other analysis.
+Token F1 and its paired win/loss/tie counts are lexical diagnostics, not counts
+of semantically correct answers. Exact and safe-success remain full-string
+diagnostics until a semantic-equivalence and safe-abstention judge is added.
 
 Cost fields use the `opencode_reported` scope. They include all producer and
 consumer costs reported by OpenCode, including producer cost incurred before a

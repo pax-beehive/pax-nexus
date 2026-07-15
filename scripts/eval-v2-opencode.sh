@@ -42,7 +42,7 @@ case "${stage}" in
     if [ "${arm}" = "team_note" ]; then
       attempts=0
       while [ "${attempts}" -lt 120 ]; do
-        ready="$(docker compose -p "${project_name}" -f "${compose_file}" exec -T postgres psql -U team_memory -d team_memory -v scope_id="${team_note_scope_id}" -Atc "SELECT CASE WHEN EXISTS (SELECT 1 FROM session_streams WHERE scope_id = :'scope_id' AND complete AND extraction_cursor >= last_sequence) THEN 1 ELSE 0 END" 2>/dev/null || true)"
+        ready="$(printf '%s' "SELECT CASE WHEN EXISTS (SELECT 1 FROM session_streams WHERE scope_id = :'scope_id' AND complete AND extraction_cursor >= last_sequence) THEN 1 ELSE 0 END" | docker compose -p "${project_name}" -f "${compose_file}" exec -T postgres psql -U team_memory -d team_memory -v scope_id="${team_note_scope_id}" -At 2>/dev/null || true)"
         if [ "${ready:-0}" -eq 1 ] 2>/dev/null; then
           exit 0
         fi
@@ -54,7 +54,11 @@ case "${stage}" in
     fi
     ;;
   consumer)
-    run_agent "${PAX_EVAL_CONSUMER_WORKSPACE}" 1 0 \
+    consumer_recall_enabled=1
+    if [ "${arm}" = "control" ]; then
+      consumer_recall_enabled=0
+    fi
+    run_agent "${PAX_EVAL_CONSUMER_WORKSPACE}" "${consumer_recall_enabled}" 0 \
       "${PAX_EVAL_QUESTION} Answer directly and concisely without explaining your reasoning."
     ;;
   *)

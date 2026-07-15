@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -13,7 +14,7 @@ import (
 	"time"
 )
 
-const ArtifactSchemaVersion = "pax-eval-v2.2"
+const ArtifactSchemaVersion = "pax-eval-v2.3"
 
 type SummaryRow struct {
 	DimensionType     string
@@ -70,7 +71,9 @@ type ArmCost struct {
 	TotalOutputTokens int     `json:"total_output_tokens"`
 }
 
-func ExportArtifacts(directory string, run RunRecord, baselineArm string, formats []string, results []TrialResult) error {
+type HTMLRenderer func(io.Writer) error
+
+func ExportArtifacts(directory string, run RunRecord, baselineArm string, formats []string, results []TrialResult, renderHTML HTMLRenderer) error {
 	if len(results) == 0 {
 		return fmt.Errorf("export eval artifacts: results are required")
 	}
@@ -98,6 +101,14 @@ func ExportArtifacts(directory string, run RunRecord, baselineArm string, format
 			files["trials"] = "trials.csv"
 			files["summary"] = "summary.csv"
 			files["pairwise"] = "pairwise.csv"
+		case "html":
+			if renderHTML == nil {
+				return fmt.Errorf("export eval artifacts: html renderer is required")
+			}
+			if err := writeHTMLReport(directory, renderHTML); err != nil {
+				return err
+			}
+			files["report"] = "report.html"
 		default:
 			return fmt.Errorf("export eval artifacts: unsupported format %q", format)
 		}
@@ -111,6 +122,32 @@ func ExportArtifacts(directory string, run RunRecord, baselineArm string, format
 		"cost_summary": CostTotals(results),
 	}
 	return writeJSON(filepath.Join(directory, "artifacts.json"), manifest)
+}
+
+func writeHTMLReport(directory string, render HTMLRenderer) (returnedErr error) {
+	file, err := os.CreateTemp(directory, ".report-*.html")
+	if err != nil {
+		return fmt.Errorf("create temporary eval report: %w", err)
+	}
+	temporaryPath := file.Name()
+	defer func() {
+		if err := os.Remove(temporaryPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			returnedErr = errors.Join(returnedErr, fmt.Errorf("remove temporary eval report: %w", err))
+		}
+	}()
+	if err := render(file); err != nil {
+		if closeErr := file.Close(); closeErr != nil {
+			return errors.Join(fmt.Errorf("render eval report: %w", err), fmt.Errorf("close temporary eval report: %w", closeErr))
+		}
+		return fmt.Errorf("render eval report: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("close temporary eval report: %w", err)
+	}
+	if err := os.Rename(temporaryPath, filepath.Join(directory, "report.html")); err != nil {
+		return fmt.Errorf("publish eval report: %w", err)
+	}
+	return nil
 }
 
 func CostTotals(results []TrialResult) CostSummary {
@@ -319,7 +356,7 @@ func writeJSONLines(path string, results []TrialResult) error {
 }
 
 func writeTrialsCSV(path string, results []TrialResult) error {
-	header := []string{"run_id", "dataset", "dataset_revision", "case_id", "category", "arm", "asking_user_id", "status", "exact", "safe_success", "token_f1", "input_tokens", "output_tokens", "cost", "cost_scope", "producer_input_tokens", "producer_output_tokens", "producer_cost", "consumer_input_tokens", "consumer_output_tokens", "consumer_cost", "producer_duration_ms", "readiness_duration_ms", "consumer_duration_ms", "total_duration_ms", "session_id", "expected", "answer", "error", "started_at", "completed_at"}
+	header := []string{"run_id", "dataset", "dataset_revision", "case_id", "category", "arm", "asking_user_id", "status", "exact", "safe_success", "token_f1", "input_tokens", "output_tokens", "cost", "cost_scope", "producer_input_tokens", "producer_output_tokens", "producer_cost", "consumer_input_tokens", "consumer_output_tokens", "consumer_cost", "producer_duration_ms", "readiness_duration_ms", "consumer_duration_ms", "total_duration_ms", "session_id", "question", "expected", "answer", "error", "started_at", "completed_at"}
 	rows := make([][]string, 0, len(results))
 	for _, result := range results {
 		rows = append(rows, []string{
@@ -329,7 +366,7 @@ func writeTrialsCSV(path string, results []TrialResult) error {
 			strconv.Itoa(result.ProducerInputTokens), strconv.Itoa(result.ProducerOutputTokens), floatString(result.ProducerCost),
 			strconv.Itoa(result.ConsumerInputTokens), strconv.Itoa(result.ConsumerOutputTokens), floatString(result.ConsumerCost),
 			strconv.FormatInt(result.ProducerDurationMS, 10), strconv.FormatInt(result.ReadinessDurationMS, 10),
-			strconv.FormatInt(result.ConsumerDurationMS, 10), strconv.FormatInt(result.TotalDurationMS, 10), result.SessionID, result.Expected, result.Answer, result.Error,
+			strconv.FormatInt(result.ConsumerDurationMS, 10), strconv.FormatInt(result.TotalDurationMS, 10), result.SessionID, result.Question, result.Expected, result.Answer, result.Error,
 			result.StartedAt.Format(time.RFC3339Nano), result.CompletedAt.Format(time.RFC3339Nano),
 		})
 	}

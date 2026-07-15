@@ -32,28 +32,28 @@ func NewRunner(store Store, executor Executor, logger *slog.Logger) (*Runner, er
 	return &Runner{store: store, executor: executor, logger: logger, now: func() time.Time { return time.Now().UTC() }}, nil
 }
 
-func (r *Runner) Run(ctx context.Context, config Config, cases []Case, revision string) (returnedErr error) {
+func (r *Runner) Run(ctx context.Context, config Config, cases []Case, revision string) (run RunRecord, results []TrialResult, returnedErr error) {
 	if err := config.Validate(); err != nil {
-		return err
+		return RunRecord{}, nil, err
 	}
 	if len(cases) == 0 {
-		return fmt.Errorf("run eval: cases are required")
+		return RunRecord{}, nil, fmt.Errorf("run eval: cases are required")
 	}
 	runtimeValues, err := config.ResolveRuntime(os.Getenv)
 	if err != nil {
-		return err
+		return RunRecord{}, nil, err
 	}
 	hash, err := config.HashWithRuntime(runtimeValues)
 	if err != nil {
-		return err
+		return RunRecord{}, nil, err
 	}
-	run := RunRecord{ID: config.Run.ID, Dataset: config.Run.Dataset, DatasetRevision: revision, ConfigHash: hash, Config: config, Runtime: runtimeValues}
+	run = RunRecord{ID: config.Run.ID, Dataset: config.Run.Dataset, DatasetRevision: revision, ConfigHash: hash, Config: config, Runtime: runtimeValues}
 	acquired, err := r.store.Acquire(ctx, run.ID)
 	if err != nil {
-		return fmt.Errorf("acquire eval run: %w", err)
+		return RunRecord{}, nil, fmt.Errorf("acquire eval run: %w", err)
 	}
 	if !acquired {
-		return fmt.Errorf("acquire eval run: run %q is already active", run.ID)
+		return RunRecord{}, nil, fmt.Errorf("acquire eval run: run %q is already active", run.ID)
 	}
 	defer func() {
 		if err := r.store.Release(context.Background(), run.ID); err != nil {
@@ -62,13 +62,13 @@ func (r *Runner) Run(ctx context.Context, config Config, cases []Case, revision 
 	}()
 	trials := trialKeys(run.ID, cases, config.Arms)
 	if err := r.store.Initialize(ctx, run, trials); err != nil {
-		return fmt.Errorf("initialize eval run: %w", err)
+		return RunRecord{}, nil, fmt.Errorf("initialize eval run: %w", err)
 	}
 	if err := r.store.ResetRunning(ctx, run.ID); err != nil {
-		return fmt.Errorf("reset interrupted eval trials: %w", err)
+		return RunRecord{}, nil, fmt.Errorf("reset interrupted eval trials: %w", err)
 	}
 	if err := os.MkdirAll(config.Run.OutputDir, 0o755); err != nil {
-		return fmt.Errorf("create eval output directory: %w", err)
+		return RunRecord{}, nil, fmt.Errorf("create eval output directory: %w", err)
 	}
 	lifecycleVariables := map[string]string{
 		"run_id": run.ID, "dataset": run.Dataset, "dataset_revision": run.DatasetRevision,
@@ -76,7 +76,7 @@ func (r *Runner) Run(ctx context.Context, config Config, cases []Case, revision 
 	}
 	if config.BeforeRun != nil {
 		if _, err := r.executor.Execute(ctx, *config.BeforeRun, lifecycleVariables, filepath.Join(config.Run.OutputDir, "before-run.log"), filepath.Join(config.Run.OutputDir, "before-run.stderr.log")); err != nil {
-			return fmt.Errorf("prepare eval run: %w", err)
+			return RunRecord{}, nil, fmt.Errorf("prepare eval run: %w", err)
 		}
 	}
 	if config.AfterRun != nil {
@@ -91,23 +91,48 @@ func (r *Runner) Run(ctx context.Context, config Config, cases []Case, revision 
 	}
 	timeout, err := config.Timeout()
 	if err != nil {
-		return err
+		return RunRecord{}, nil, err
 	}
 	if err := r.runTrials(ctx, run, cases, config, timeout); err != nil {
-		return err
+		return RunRecord{}, nil, err
 	}
-	results, err := r.store.Results(ctx, run.ID)
+	results, err = r.store.Results(ctx, run.ID)
 	if err != nil {
-		return fmt.Errorf("load eval results: %w", err)
+		return RunRecord{}, nil, fmt.Errorf("load eval results: %w", err)
 	}
-	if err := ExportArtifacts(config.Run.OutputDir, run, config.BaselineArm, config.OutputFormats(), results); err != nil {
-		return err
-	}
+	results = HydrateResults(results, cases)
 	if err := r.store.Finish(ctx, run.ID); err != nil {
-		return fmt.Errorf("finish eval run: %w", err)
+		return RunRecord{}, nil, fmt.Errorf("finish eval run: %w", err)
 	}
 	r.logger.InfoContext(ctx, "eval v2 completed", "run_id", run.ID, "trials", len(results), "output_dir", config.Run.OutputDir)
-	return nil
+	return run, results, nil
+}
+
+func HydrateResults(results []TrialResult, cases []Case) []TrialResult {
+	byID := make(map[string]Case, len(cases))
+	for _, evalCase := range cases {
+		byID[evalCase.ID] = evalCase
+	}
+	hydrated := append([]TrialResult(nil), results...)
+	for index := range hydrated {
+		evalCase, ok := byID[hydrated[index].CaseID]
+		if !ok {
+			continue
+		}
+		if hydrated[index].Question == "" {
+			hydrated[index].Question = evalCase.Question
+		}
+		if hydrated[index].Expected == "" {
+			hydrated[index].Expected = evalCase.Expected
+		}
+		if hydrated[index].Category == "" {
+			hydrated[index].Category = evalCase.Category
+		}
+		if hydrated[index].AskingUserID == "" {
+			hydrated[index].AskingUserID = evalCase.AskingUserID
+		}
+	}
+	return hydrated
 }
 
 func (r *Runner) runTrials(ctx context.Context, run RunRecord, cases []Case, config Config, timeout time.Duration) error {
@@ -190,7 +215,7 @@ func (r *Runner) executeTrial(ctx context.Context, run RunRecord, evalCase Case,
 	durations := [3]time.Duration{}
 	partial := TrialResult{
 		RunID: run.ID, Dataset: run.Dataset, DatasetRevision: run.DatasetRevision,
-		CaseID: evalCase.ID, Category: evalCase.Category, Arm: arm.Name, AskingUserID: evalCase.AskingUserID,
+		CaseID: evalCase.ID, Category: evalCase.Category, Question: evalCase.Question, Arm: arm.Name, AskingUserID: evalCase.AskingUserID,
 		Expected: evalCase.Expected, Status: "running", CostScope: "opencode_reported", StartedAt: started,
 	}
 	var producerOutput harness.AgentOutput
@@ -288,7 +313,7 @@ func failureResult(partial TrialResult, run RunRecord, evalCase Case, arm string
 	if partial.RunID == "" {
 		partial = TrialResult{
 			RunID: run.ID, Dataset: run.Dataset, DatasetRevision: run.DatasetRevision,
-			CaseID: evalCase.ID, Category: evalCase.Category, Arm: arm, AskingUserID: evalCase.AskingUserID,
+			CaseID: evalCase.ID, Category: evalCase.Category, Question: evalCase.Question, Arm: arm, AskingUserID: evalCase.AskingUserID,
 			Expected: evalCase.Expected, CostScope: "opencode_reported", StartedAt: started,
 		}
 	}

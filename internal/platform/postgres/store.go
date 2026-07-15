@@ -13,7 +13,7 @@ import (
 	"github.com/pax-beehive/pax-nexus/internal/session"
 )
 
-//go:embed migrations/001_init.sql migrations/002_temporal_notes.sql migrations/003_note_relations.sql
+//go:embed migrations/001_init.sql migrations/002_temporal_notes.sql migrations/003_note_relations.sql migrations/004_extraction_latency.sql
 var migrations embed.FS
 
 var ErrInvalidSessionBatch = errors.New("invalid session batch")
@@ -66,6 +66,7 @@ func (s *Store) Migrate(ctx context.Context) error {
 		"migrations/001_init.sql",
 		"migrations/002_temporal_notes.sql",
 		"migrations/003_note_relations.sql",
+		"migrations/004_extraction_latency.sql",
 	} {
 		migration, err := migrations.ReadFile(path)
 		if err != nil {
@@ -137,7 +138,7 @@ func (s *Store) SessionEvents(ctx context.Context, scopeID string, actor session
 	}
 	rows, err := s.pool.Query(ctx, `
 SELECT event_id, user_id, agent_id, session_id, sequence, event_type, content,
-       task_ref, thread_ref, visibility, occurred_at, metadata
+       task_ref, thread_ref, visibility, occurred_at, captured_at, extracted_at, metadata
 FROM session_events
 WHERE scope_id = $1 AND agent_id = $2 AND session_id = $3 AND sequence > $4
 ORDER BY sequence
@@ -160,7 +161,7 @@ func (s *Store) SessionEventsBefore(ctx context.Context, scopeID string, actor s
 	}
 	rows, err := s.pool.Query(ctx, `
 SELECT event_id, user_id, agent_id, session_id, sequence, event_type, content,
-       task_ref, thread_ref, visibility, occurred_at, metadata
+       task_ref, thread_ref, visibility, occurred_at, captured_at, extracted_at, metadata
 FROM session_events
 WHERE scope_id = $1 AND agent_id = $2 AND session_id = $3 AND sequence <= $4
 ORDER BY sequence DESC
@@ -194,8 +195,17 @@ WHERE scope_id = $1 AND agent_id = $2 AND session_id = $3`, scopeID, actor.Agent
 	return cursor, nil
 }
 
-func (s *Store) AdvanceExtractionCursor(ctx context.Context, scopeID string, actor session.Actor, cursor int64) error {
-	result, err := s.pool.Exec(ctx, `
+func (s *Store) AdvanceExtractionCursor(ctx context.Context, scopeID string, actor session.Actor, cursor int64) (returnedErr error) {
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return fmt.Errorf("begin extraction cursor update: %w", err)
+	}
+	defer func() {
+		if err := tx.Rollback(context.Background()); err != nil && !errors.Is(err, pgx.ErrTxClosed) {
+			returnedErr = errors.Join(returnedErr, fmt.Errorf("rollback extraction cursor update: %w", err))
+		}
+	}()
+	result, err := tx.Exec(ctx, `
 UPDATE session_streams
 SET extraction_cursor = GREATEST(extraction_cursor, $4), updated_at = NOW()
 WHERE scope_id = $1 AND agent_id = $2 AND session_id = $3 AND last_sequence >= $4`,
@@ -205,6 +215,16 @@ WHERE scope_id = $1 AND agent_id = $2 AND session_id = $3 AND last_sequence >= $
 	}
 	if result.RowsAffected() != 1 {
 		return fmt.Errorf("advance extraction cursor: %w", ErrInvalidSessionBatch)
+	}
+	if _, err := tx.Exec(ctx, `
+UPDATE session_events
+SET extracted_at = COALESCE(extracted_at, NOW())
+WHERE scope_id = $1 AND agent_id = $2 AND session_id = $3 AND sequence <= $4`,
+		scopeID, actor.AgentID, actor.SessionID, cursor); err != nil {
+		return fmt.Errorf("mark session events extracted: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit extraction cursor update: %w", err)
 	}
 	return nil
 }
@@ -278,7 +298,7 @@ func scanSessionEvent(row pgx.CollectableRow) (session.SessionEvent, error) {
 	err := row.Scan(
 		&event.ID, &event.Actor.UserID, &event.Actor.AgentID, &event.Actor.SessionID,
 		&event.Sequence, &event.Type, &event.Content, &event.TaskRef, &event.ThreadRef,
-		&event.Visibility, &event.OccurredAt, &metadata,
+		&event.Visibility, &event.OccurredAt, &event.CapturedAt, &event.ExtractedAt, &metadata,
 	)
 	if err != nil {
 		return session.SessionEvent{}, fmt.Errorf("scan event columns: %w", err)

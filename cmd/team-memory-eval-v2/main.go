@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -12,6 +13,7 @@ import (
 
 	v2 "github.com/pax-beehive/pax-nexus/internal/eval/v2"
 	"github.com/pax-beehive/pax-nexus/internal/eval/v2/postgresstore"
+	"github.com/pax-beehive/pax-nexus/internal/eval/v2/render"
 	"github.com/pax-beehive/pax-nexus/internal/platform/observability"
 )
 
@@ -55,5 +57,11 @@ func run(ctx context.Context, args []string, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	return runner.Run(ctx, config, cases, revision)
+	runRecord, results, err := runner.Run(ctx, config, cases, revision)
+	if err != nil {
+		return err
+	}
+	return v2.ExportArtifacts(config.Run.OutputDir, runRecord, config.BaselineArm, config.OutputFormats(), results, func(writer io.Writer) error {
+		return render.Report(runRecord, config.BaselineArm, results, writer)
+	})
 }
