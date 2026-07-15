@@ -27,6 +27,7 @@ func run(args []string, logger *slog.Logger) error {
 	revision := flags.String("revision", "", "GroupMemBench dataset revision")
 	seed := flags.String("seed", "team-memory-v1", "deterministic selection seed")
 	perCategory := flags.Int("per-category", 2, "questions selected per category")
+	totalCases := flags.Int("total-cases", 0, "exact balanced question count; overrides per-category when positive")
 	topK := flags.Int("top-k", 8, "BM25 messages selected per question")
 	neighborRadius := flags.Int("neighbor-radius", 1, "adjacent messages included around BM25 hits")
 	maxContextMessages := flags.Int("max-context-messages", 32, "maximum source messages per case")
@@ -42,7 +43,7 @@ func run(args []string, logger *slog.Logger) error {
 		return err
 	}
 	cases, err := groupmembench.Select(questions, messages, groupmembench.Config{
-		PerCategory: *perCategory, TopK: *topK, NeighborRadius: *neighborRadius,
+		PerCategory: *perCategory, TotalCases: *totalCases, TopK: *topK, NeighborRadius: *neighborRadius,
 		MaxContextMessages: *maxContextMessages, Seed: *seed,
 	})
 	if err != nil {

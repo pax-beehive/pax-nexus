@@ -52,6 +52,7 @@ type Case struct {
 
 type Config struct {
 	PerCategory        int
+	TotalCases         int
 	TopK               int
 	NeighborRadius     int
 	MaxContextMessages int
@@ -72,16 +73,18 @@ func Select(questions map[string][]Question, messages []Message, config Config) 
 	}
 	messages = normalizeMessages(messages)
 	index := newBM25Index(messages)
-	result := make([]Case, 0, len(categories)*config.PerCategory)
-	for _, category := range categories {
+	limits := selectionLimits(config)
+	result := make([]Case, 0, totalLimit(limits))
+	for categoryIndex, category := range categories {
 		available := slices.Clone(questions[category])
-		if len(available) < config.PerCategory {
-			return nil, fmt.Errorf("select GroupMemBench cases: category %q has %d questions, need %d", category, len(available), config.PerCategory)
+		limit := limits[categoryIndex]
+		if len(available) < limit {
+			return nil, fmt.Errorf("select GroupMemBench cases: category %q has %d questions, need %d", category, len(available), limit)
 		}
 		slices.SortFunc(available, func(left, right Question) int {
 			return strings.Compare(selectionKey(config.Seed, category, left.ID), selectionKey(config.Seed, category, right.ID))
 		})
-		for _, question := range available[:config.PerCategory] {
+		for _, question := range available[:limit] {
 			contextMessages := index.retrieve(question.Question, config.TopK, config.NeighborRadius, config.MaxContextMessages)
 			result = append(result, Case{Category: category, Question: question, Messages: contextMessages})
 		}
@@ -90,10 +93,10 @@ func Select(questions map[string][]Question, messages []Message, config Config) 
 }
 
 func normalizeConfig(config Config) (Config, error) {
-	if config.PerCategory < 0 || config.TopK < 0 || config.NeighborRadius < 0 || config.MaxContextMessages < 0 {
+	if config.PerCategory < 0 || config.TotalCases < 0 || config.TopK < 0 || config.NeighborRadius < 0 || config.MaxContextMessages < 0 {
 		return Config{}, fmt.Errorf("select GroupMemBench cases: limits cannot be negative")
 	}
-	if config.PerCategory == 0 {
+	if config.PerCategory == 0 && config.TotalCases == 0 {
 		config.PerCategory = 2
 	}
 	if config.TopK == 0 {
@@ -109,6 +112,33 @@ func normalizeConfig(config Config) (Config, error) {
 		config.Seed = "team-memory-v1"
 	}
 	return config, nil
+}
+
+func selectionLimits(config Config) []int {
+	limits := make([]int, len(categories))
+	if config.TotalCases == 0 {
+		for index := range limits {
+			limits[index] = config.PerCategory
+		}
+		return limits
+	}
+	base := config.TotalCases / len(categories)
+	remainder := config.TotalCases % len(categories)
+	for index := range limits {
+		limits[index] = base
+		if index < remainder {
+			limits[index]++
+		}
+	}
+	return limits
+}
+
+func totalLimit(limits []int) int {
+	total := 0
+	for _, limit := range limits {
+		total += limit
+	}
+	return total
 }
 
 func normalizeMessages(messages []Message) []Message {

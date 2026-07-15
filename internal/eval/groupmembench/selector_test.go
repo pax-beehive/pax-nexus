@@ -44,6 +44,32 @@ func (s *selectorSuite) TestSelectsDeterministicBalancedCases() {
 	}
 }
 
+func (s *selectorSuite) TestSelectsExactBalancedTotalAcrossCategories() {
+	questions := map[string][]groupmembench.Question{}
+	for _, category := range groupmembench.Categories() {
+		for index := range 10 {
+			questions[category] = append(questions[category], groupmembench.Question{
+				ID: fmt.Sprintf("%s_%d", category, index), Question: "question", Answer: "answer", AskingUserID: "user",
+			})
+		}
+	}
+	selected, err := groupmembench.Select(
+		questions,
+		[]groupmembench.Message{{NodeID: "message", Channel: "channel", Content: "question"}},
+		groupmembench.Config{TotalCases: 50, TopK: 1, Seed: "fixed"},
+	)
+	s.Require().NoError(err)
+	s.Len(selected, 50)
+	counts := make(map[string]int)
+	for _, evalCase := range selected {
+		counts[evalCase.Category]++
+	}
+	s.Equal(map[string]int{
+		"multi_hop": 9, "knowledge_update": 9, "temporal": 8,
+		"user_implicit": 8, "term_ambiguity": 8, "abstention": 8,
+	}, counts)
+}
+
 func (s *selectorSuite) TestRetrievesMessagesAndConversationContext() {
 	messages := []groupmembench.Message{
 		{NodeID: "Msg_1", Channel: "risk", Content: "The old deadline is July 10.", Timestamp: "2026-07-01T10:00:00"},
@@ -111,6 +137,7 @@ func (s *selectorSuite) TestRejectsIncompleteInputs() {
 		{name: "missing messages", questions: map[string][]groupmembench.Question{"multi_hop": {{ID: "one"}}}},
 		{name: "missing categories", messages: []groupmembench.Message{{NodeID: "Msg_1", Content: "value"}}},
 		{name: "invalid limits", questions: completeQuestions(), messages: []groupmembench.Message{{NodeID: "Msg_1", Content: "value"}}, config: groupmembench.Config{PerCategory: -1}},
+		{name: "invalid total", questions: completeQuestions(), messages: []groupmembench.Message{{NodeID: "Msg_1", Content: "value"}}, config: groupmembench.Config{TotalCases: -1}},
 	}
 	for _, test := range tests {
 		s.Run(test.name, func() {
