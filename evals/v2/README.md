@@ -27,8 +27,19 @@ cp evals/v2/config.example.yaml evals/v2/config.local.yaml
 
 Eval v2 loads `.env.eval-v2` after `.env`, so eval-specific values override the
 base environment without entering Git. Replace `MEM0_OPENAI_API_KEY=replace-me`
-before starting the stack. Mem0 needs an embedding-capable provider key in
-addition to the DeepSeek key used by OpenCode and Team Note extraction.
+before starting the stack. Mem0 uses DeepSeek V4 Flash for memory extraction,
+while retaining OpenAI `text-embedding-3-small` embeddings, so both provider
+keys are required.
+
+The upstream Mem0 API image does not apply `MEM0_DEFAULT_LLM_MODEL` by itself.
+After Mem0 becomes healthy, `eval-v2-stack.sh` runs a one-shot configurator that
+posts the complete provider configuration to Mem0's `/configure` endpoint. The
+stack startup fails if that configuration is rejected, preventing the recorded
+model name from drifting away from the model Mem0 actually uses.
+The local Eval v2 Mem0 image also installs the PostgreSQL driver omitted by the
+upstream API image so its configured pgvector store is actually available. It
+removes the upstream image's unusable Neo4j default because this vector-only
+benchmark does not run a graph store.
 
 Prepare a deterministic 30-case GroupMemBench selection:
 

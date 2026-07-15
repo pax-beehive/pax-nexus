@@ -48,7 +48,12 @@ services:
       - ./mem0-init.sql:/docker-entrypoint-initdb.d/001-init.sql:ro
 
   mem0:
-    image: ${MEM0_IMAGE:-mem0/mem0-api-server:latest}
+    image: ${MEM0_EVAL_IMAGE:-pax-nexus-mem0-eval:local}
+    build:
+      context: ../..
+      dockerfile: evals/v2/docker/mem0/Dockerfile
+      args:
+        MEM0_BASE_IMAGE: ${MEM0_IMAGE:-mem0/mem0-api-server:latest}
     environment:
       OPENAI_API_KEY: ${MEM0_OPENAI_API_KEY:?MEM0_OPENAI_API_KEY is required}
       POSTGRES_HOST: mem0-postgres
@@ -61,10 +66,37 @@ services:
       JWT_SECRET: ${MEM0_JWT_SECRET:-eval-only-jwt-secret-change-me}
       AUTH_DISABLED: "true"
       MEM0_TELEMETRY: "false"
-      MEM0_DEFAULT_LLM_MODEL: ${MEM0_DEFAULT_LLM_MODEL:-gpt-5-mini}
+      MEM0_DEFAULT_LLM_MODEL: ${MEM0_DEFAULT_LLM_MODEL:-deepseek-v4-flash}
       MEM0_DEFAULT_EMBEDDER_MODEL: ${MEM0_DEFAULT_EMBEDDER_MODEL:-text-embedding-3-small}
+    volumes:
+      - eval-v2-mem0-history:/app/history
     depends_on:
       mem0-postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/docs', timeout=2)"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  mem0-configure:
+    build:
+      context: ../..
+      dockerfile: evals/v2/docker/mem0-configure/Dockerfile
+    environment:
+      MEM0_CONFIGURE_URL: http://mem0:8000/configure
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:?DEEPSEEK_API_KEY is required}
+      MEM0_OPENAI_API_KEY: ${MEM0_OPENAI_API_KEY:?MEM0_OPENAI_API_KEY is required}
+      MEM0_DEFAULT_LLM_MODEL: ${MEM0_DEFAULT_LLM_MODEL:-deepseek-v4-flash}
+      MEM0_DEFAULT_EMBEDDER_MODEL: ${MEM0_DEFAULT_EMBEDDER_MODEL:-text-embedding-3-small}
+      POSTGRES_HOST: mem0-postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${MEM0_POSTGRES_PASSWORD:-mem0-eval-password}
+      POSTGRES_COLLECTION_NAME: memories
+    depends_on:
+      mem0:
         condition: service_healthy
 
   opencode:
@@ -87,3 +119,4 @@ services:
 volumes:
   eval-v2-postgres:
   eval-v2-mem0-postgres:
+  eval-v2-mem0-history:

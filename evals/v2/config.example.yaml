@@ -1,9 +1,9 @@
 version: v2
 run:
-  id: groupmembench-finance-v2-gpt5mini
+  id: groupmembench-finance-v2-deepseek-v4-flash
   dataset: GroupMemBench
   manifest: runs/groupmembench-v2-selection/manifest.json
-  output_dir: runs/eval-v2/groupmembench-finance-v2-gpt5mini
+  output_dir: runs/eval-v2/groupmembench-finance-v2-deepseek-v4-flash
   parallelism: 4
 store:
   dsn_env: EVAL_V2_POSTGRES_DSN
