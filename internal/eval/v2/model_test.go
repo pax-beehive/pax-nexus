@@ -36,10 +36,17 @@ func (s *modelSuite) TestValidationMatrix() {
 		{name: "output format", mutate: func(config *Config) { config.Output.Formats = []string{"xml"} }},
 		{name: "duplicate output", mutate: func(config *Config) { config.Output.Formats = []string{"csv", "csv"} }},
 		{name: "unbounded failed retry", mutate: func(config *Config) { config.RetryFailed = true }},
-		{name: "shared producer without ingest", mutate: func(config *Config) { config.SharedProducer = &CommandSpec{Program: "producer"} }},
+		{name: "shared producer without ingest", mutate: func(config *Config) {
+			config.SharedProducer = &CommandSpec{Program: "producer", SuccessMarker: "marker"}
+		}},
 		{name: "ingest without shared producer", mutate: func(config *Config) { config.Arms[1].Ingest = &CommandSpec{Program: "ingest"} }},
-		{name: "producer and ingest", mutate: func(config *Config) {
+		{name: "shared producer without success marker", mutate: func(config *Config) {
 			config.SharedProducer = &CommandSpec{Program: "producer"}
+			config.Arms[1].Producer = nil
+			config.Arms[1].Ingest = &CommandSpec{Program: "ingest"}
+		}},
+		{name: "producer and ingest", mutate: func(config *Config) {
+			config.SharedProducer = &CommandSpec{Program: "producer", SuccessMarker: "marker"}
 			config.Arms[1].Ingest = &CommandSpec{Program: "ingest"}
 		}},
 		{name: "empty preflight", mutate: func(config *Config) { config.Preflight = &CommandSpec{} }},

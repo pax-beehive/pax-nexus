@@ -398,7 +398,8 @@ func (r *Runner) executeSharedProducer(
 	stdoutPath := filepath.Join(artifactDir, "producer.jsonl")
 	textPath := filepath.Join(artifactDir, "producer.txt")
 	markerPath := filepath.Join(artifactDir, "producer.complete")
-	cachedResult, cachedOutput, found, err := loadSharedProducer(stdoutPath, textPath, markerPath)
+	commandMarkerPath := filepath.Join(artifactDir, "producer.command-success")
+	cachedResult, cachedOutput, found, err := loadSharedProducer(stdoutPath, textPath, markerPath, commandMarkerPath)
 	if err != nil {
 		return CommandResult{}, harness.AgentOutput{}, err
 	}
@@ -407,6 +408,9 @@ func (r *Runner) executeSharedProducer(
 	}
 	if err := os.MkdirAll(artifactDir, 0o755); err != nil {
 		return CommandResult{}, harness.AgentOutput{}, fmt.Errorf("create shared producer artifact directory: %w", err)
+	}
+	if err := removeIfExists(commandMarkerPath); err != nil {
+		return CommandResult{}, harness.AgentOutput{}, fmt.Errorf("clear incomplete shared producer command marker: %w", err)
 	}
 	variables := trialVariables(run, evalCase, "shared", outputDir)
 	result, executeErr := r.executor.Execute(ctx, spec, variables, stdoutPath, filepath.Join(artifactDir, "producer.stderr.log"))
@@ -421,6 +425,9 @@ func (r *Runner) executeSharedProducer(
 	if executeErr != nil {
 		return result, output, fmt.Errorf("run shared producer: %w", executeErr)
 	}
+	if err := writeCommandOutput(commandMarkerPath, []byte("success\n")); err != nil {
+		return result, output, fmt.Errorf("persist shared producer command marker: %w", err)
+	}
 	if output.Text == "" {
 		return result, output, fmt.Errorf("parse shared producer output: OpenCode output contains no text")
 	}
@@ -433,25 +440,39 @@ func (r *Runner) executeSharedProducer(
 	return result, output, nil
 }
 
-func loadSharedProducer(stdoutPath, textPath, markerPath string) (CommandResult, harness.AgentOutput, bool, error) {
-	raw, err := os.ReadFile(stdoutPath)
-	if errors.Is(err, os.ErrNotExist) {
-		return CommandResult{}, harness.AgentOutput{}, false, nil
-	}
+func loadSharedProducer(stdoutPath, textPath, markerPath, commandMarkerPath string) (CommandResult, harness.AgentOutput, bool, error) {
+	complete, err := fileExists(markerPath)
 	if err != nil {
-		return CommandResult{}, harness.AgentOutput{}, false, fmt.Errorf("read cached shared producer output: %w", err)
-	}
-	if _, err := os.Stat(markerPath); errors.Is(err, os.ErrNotExist) {
-		return CommandResult{}, harness.AgentOutput{}, false, nil
-	} else if err != nil {
 		return CommandResult{}, harness.AgentOutput{}, false, fmt.Errorf("inspect cached shared producer completion marker: %w", err)
+	}
+	commandSucceeded, err := fileExists(commandMarkerPath)
+	if err != nil {
+		return CommandResult{}, harness.AgentOutput{}, false, fmt.Errorf("inspect cached shared producer command marker: %w", err)
+	}
+	if !complete && !commandSucceeded {
+		return CommandResult{}, harness.AgentOutput{}, false, nil
+	}
+	raw, err := os.ReadFile(stdoutPath)
+	if err != nil {
+		return CommandResult{}, harness.AgentOutput{}, false, fmt.Errorf("read marked shared producer output: %w", err)
 	}
 	output, err := harness.ParseOpenCodeJSON(bytes.NewReader(raw))
 	if err != nil {
+		if !complete {
+			return CommandResult{}, harness.AgentOutput{}, false, nil
+		}
 		return CommandResult{}, harness.AgentOutput{}, false, fmt.Errorf("parse cached shared producer output: %w", err)
 	}
 	if output.Text == "" {
+		if !complete {
+			return CommandResult{}, harness.AgentOutput{}, false, nil
+		}
 		return CommandResult{}, harness.AgentOutput{}, false, fmt.Errorf("parse cached shared producer output: OpenCode output contains no text")
+	}
+	if !complete {
+		if err := writeCommandOutput(markerPath, []byte("complete\n")); err != nil {
+			return CommandResult{}, harness.AgentOutput{}, false, fmt.Errorf("finalize cached shared producer output: %w", err)
+		}
 	}
 	text, err := os.ReadFile(textPath)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -463,6 +484,25 @@ func loadSharedProducer(stdoutPath, textPath, markerPath string) (CommandResult,
 		}
 	}
 	return CommandResult{Output: raw}, output, true, nil
+}
+
+func fileExists(path string) (bool, error) {
+	_, err := os.Stat(path)
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	return false, err
+}
+
+func removeIfExists(path string) error {
+	err := os.Remove(path)
+	if err == nil || errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	return err
 }
 
 func withProducerUsage(result TrialResult, output harness.AgentOutput) TrialResult {

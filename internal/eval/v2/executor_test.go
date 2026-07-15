@@ -37,12 +37,20 @@ func (s *executorSuite) TestProcessExecutionAndExpansion() {
 			directory := s.T().TempDir()
 			stdoutPath := filepath.Join(directory, "nested", "stdout")
 			stderrPath := filepath.Join(directory, "nested", "stderr")
-			result, err := (ProcessExecutor{}).Execute(context.Background(), test.command, test.variables, stdoutPath, stderrPath)
+			markerPath := filepath.Join(directory, "nested", "success")
+			command := test.command
+			command.SuccessMarker = markerPath
+			result, err := (ProcessExecutor{}).Execute(context.Background(), command, test.variables, stdoutPath, stderrPath)
 			if test.wantError {
 				s.Require().Error(err)
+				_, markerErr := os.Stat(markerPath)
+				s.Require().ErrorIs(markerErr, os.ErrNotExist)
 				return
 			}
 			s.Require().NoError(err)
+			marker, err := os.ReadFile(markerPath)
+			s.Require().NoError(err)
+			s.Equal("success\n", string(marker))
 			s.Equal(test.wantOutput, string(result.Output))
 			stderr, err := os.ReadFile(stderrPath)
 			s.Require().NoError(err)

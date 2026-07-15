@@ -92,7 +92,7 @@ func (s *runnerSuite) TestSharedProducerRunsOnceAndFeedsBothMemoryArms() {
 	runner, err := NewRunner(store, executor, nil)
 	s.Require().NoError(err)
 	config := testConfig(s.T().TempDir())
-	config.SharedProducer = &CommandSpec{Program: "producer"}
+	config.SharedProducer = sharedProducerCommand()
 	config.Arms[1].Producer = nil
 	config.Arms[1].Ingest = &CommandSpec{Program: "ingest"}
 	config.Arms = append(config.Arms, ArmConfig{Name: "memory-2", Ingest: &CommandSpec{Program: "ingest"}, Consumer: CommandSpec{Program: "consumer"}})
@@ -118,7 +118,7 @@ func (s *runnerSuite) TestSharedProducerFailureIsReusedAcrossDependentArms() {
 	runner, err := NewRunner(store, executor, nil)
 	s.Require().NoError(err)
 	config := testConfig(s.T().TempDir())
-	config.SharedProducer = &CommandSpec{Program: "producer"}
+	config.SharedProducer = sharedProducerCommand()
 	config.Arms[1].Producer = nil
 	config.Arms[1].Ingest = &CommandSpec{Program: "ingest"}
 	config.Arms = append(config.Arms, ArmConfig{Name: "memory-2", Ingest: &CommandSpec{Program: "ingest"}, Consumer: CommandSpec{Program: "consumer"}})
@@ -137,7 +137,7 @@ func (s *runnerSuite) TestBoundedRetryReusesPersistedSharedProducer() {
 	runner, err := NewRunner(store, executor, nil)
 	s.Require().NoError(err)
 	config := testConfig(s.T().TempDir())
-	config.SharedProducer = &CommandSpec{Program: "producer"}
+	config.SharedProducer = sharedProducerCommand()
 	config.Arms[1].Producer = nil
 	config.Arms[1].Ingest = &CommandSpec{Program: "ingest"}
 	config.RetryFailed = true
@@ -158,13 +158,13 @@ func (s *runnerSuite) TestSharedProducerRecoversPlainTextFromCompletedJSONL() {
 	runner, err := NewRunner(store, executor, nil)
 	s.Require().NoError(err)
 	config := testConfig(s.T().TempDir())
-	config.SharedProducer = &CommandSpec{Program: "producer"}
+	config.SharedProducer = sharedProducerCommand()
 	config.Arms[1].Producer = nil
 	config.Arms[1].Ingest = &CommandSpec{Program: "ingest"}
 	sharedDirectory := filepath.Join(config.Run.OutputDir, "trials", "case", "shared")
 	s.Require().NoError(os.MkdirAll(sharedDirectory, 0o755))
 	s.Require().NoError(os.WriteFile(filepath.Join(sharedDirectory, "producer.jsonl"), producerJSONL(), 0o644))
-	s.Require().NoError(os.WriteFile(filepath.Join(sharedDirectory, "producer.complete"), []byte("complete\n"), 0o644))
+	s.Require().NoError(os.WriteFile(filepath.Join(sharedDirectory, "producer.command-success"), []byte("success\n"), 0o644))
 
 	_, _, err = runner.Run(context.Background(), config, []Case{{ID: "case", Question: "q", Expected: "answer", AskingUserID: "user"}}, "revision")
 	s.Require().NoError(err)
@@ -172,6 +172,8 @@ func (s *runnerSuite) TestSharedProducerRecoversPlainTextFromCompletedJSONL() {
 	text, err := os.ReadFile(filepath.Join(sharedDirectory, "producer.txt"))
 	s.Require().NoError(err)
 	s.Equal("handoff", string(text))
+	_, err = os.Stat(filepath.Join(sharedDirectory, "producer.complete"))
+	s.Require().NoError(err)
 }
 
 func (s *runnerSuite) TestBoundedRetryReplacesIncompleteSharedProducerArtifact() {
@@ -180,7 +182,7 @@ func (s *runnerSuite) TestBoundedRetryReplacesIncompleteSharedProducerArtifact()
 	runner, err := NewRunner(store, executor, nil)
 	s.Require().NoError(err)
 	config := testConfig(s.T().TempDir())
-	config.SharedProducer = &CommandSpec{Program: "producer"}
+	config.SharedProducer = sharedProducerCommand()
 	config.Arms[1].Producer = nil
 	config.Arms[1].Ingest = &CommandSpec{Program: "ingest"}
 	config.RetryFailed = true
@@ -409,6 +411,10 @@ func (e *fakeExecutor) Execute(_ context.Context, spec CommandSpec, _ map[string
 
 func producerJSONL() []byte {
 	return []byte(`{"type":"text","sessionID":"producer-session","part":{"text":"handoff"}}` + "\n" + `{"type":"step_finish","part":{"cost":0.2,"tokens":{"input":3,"output":1}}}` + "\n")
+}
+
+func sharedProducerCommand() *CommandSpec {
+	return &CommandSpec{Program: "producer", SuccessMarker: "{{shared_artifact_dir}}/producer.command-success"}
 }
 
 func (e *fakeExecutor) count(program string) int {

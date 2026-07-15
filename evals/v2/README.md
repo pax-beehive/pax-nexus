@@ -127,9 +127,11 @@ ingest, memory readiness, and the consumer. Command stdout and stderr are
 retained under `<output_dir>/trials/<case>/<arm>/`; the shared producer JSONL,
 stderr, and plain-text transcript live in the sibling `shared/` directory and
 are reused on a bounded retry instead of paying for another producer call. A
-`producer.complete` marker distinguishes a successful paid call from partial
-JSONL left by a failed command: completed JSONL repairs a missing text file,
-while incomplete JSONL may be replaced only by an eligible bounded retry.
+`producer.command-success` is published only after a successful process exit
+and durable stdout/stderr write; `producer.complete` is published after that
+JSONL parses successfully. Command-success JSONL can finish recovery and repair
+a missing text file, while partial JSONL without the command marker may be
+replaced only by an eligible bounded retry.
 
 ## Output contract
 

@@ -51,6 +51,12 @@ func (ProcessExecutor) Execute(ctx context.Context, spec CommandSpec, variables 
 	if err != nil {
 		return result, fmt.Errorf("execute %q: %w", program, err)
 	}
+	if spec.SuccessMarker != "" {
+		markerPath := expand(spec.SuccessMarker, variables)
+		if writeErr := writeCommandOutput(markerPath, []byte("success\n")); writeErr != nil {
+			return result, fmt.Errorf("write command success marker: %w", writeErr)
+		}
+	}
 	return result, nil
 }
 

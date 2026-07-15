@@ -57,10 +57,11 @@ type ArmConfig struct {
 }
 
 type CommandSpec struct {
-	Program    string            `json:"program" yaml:"program"`
-	Args       []string          `json:"args,omitempty" yaml:"args,omitempty"`
-	Env        map[string]string `json:"env,omitempty" yaml:"env,omitempty"`
-	WorkingDir string            `json:"working_dir,omitempty" yaml:"working_dir,omitempty"`
+	Program       string            `json:"program" yaml:"program"`
+	Args          []string          `json:"args,omitempty" yaml:"args,omitempty"`
+	Env           map[string]string `json:"env,omitempty" yaml:"env,omitempty"`
+	WorkingDir    string            `json:"working_dir,omitempty" yaml:"working_dir,omitempty"`
+	SuccessMarker string            `json:"success_marker,omitempty" yaml:"success_marker,omitempty"`
 }
 
 type Case struct {
@@ -201,6 +202,9 @@ func validateArms(config Config) error {
 	}
 	if (config.SharedProducer == nil) != (ingestArms == 0) {
 		return fmt.Errorf("validate eval config: shared_producer and at least one ingest arm are required together")
+	}
+	if config.SharedProducer != nil && strings.TrimSpace(config.SharedProducer.SuccessMarker) == "" {
+		return fmt.Errorf("validate eval config: shared_producer success_marker is required")
 	}
 	if _, exists := names[config.BaselineArm]; !exists {
 		return fmt.Errorf("validate eval config: baseline arm %q is not configured", config.BaselineArm)
