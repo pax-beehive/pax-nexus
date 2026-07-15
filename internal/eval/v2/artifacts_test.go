@@ -1,6 +1,7 @@
 package v2
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -32,6 +33,7 @@ func (s *artifactSuite) TestSummaryPairwiseAndExport() {
 	}
 	s.Equal(3, memoryOverall.Completed)
 	s.InDelta(0.466666, memoryOverall.MeanTokenF1, 0.00001)
+	s.InDelta(0.03, memoryOverall.TotalCost, 0.000001)
 
 	pairs := Pairwise(results, "control")
 	s.Require().NotEmpty(pairs)
@@ -39,6 +41,14 @@ func (s *artifactSuite) TestSummaryPairwiseAndExport() {
 	s.Equal(2, pairs[0].Pairs)
 	s.Equal(1, pairs[0].Wins)
 	s.Equal(1, pairs[0].Losses)
+	s.InDelta(0.01, pairs[0].BaselineMeanCost, 0.000001)
+	s.InDelta(0.01, pairs[0].CandidateMeanCost, 0.000001)
+	s.Zero(pairs[0].MeanDeltaCost)
+
+	costs := CostTotals(results)
+	s.Equal("opencode_reported", costs.Scope)
+	s.InDelta(0.06, costs.TotalCost, 0.000001)
+	s.InDelta(0.03, costs.ByArm["memory"].TotalCost, 0.000001)
 
 	directory := s.T().TempDir()
 	run := RunRecord{ID: "run", Dataset: "suite", DatasetRevision: "rev", ConfigHash: "hash"}
@@ -48,6 +58,21 @@ func (s *artifactSuite) TestSummaryPairwiseAndExport() {
 		s.Require().NoError(err)
 		s.Positive(info.Size())
 	}
+	manifestInput, err := os.ReadFile(filepath.Join(directory, "artifacts.json"))
+	s.Require().NoError(err)
+	var manifest struct {
+		SchemaVersion string      `json:"schema_version"`
+		CostSummary   CostSummary `json:"cost_summary"`
+	}
+	s.Require().NoError(json.Unmarshal(manifestInput, &manifest))
+	s.Equal(ArtifactSchemaVersion, manifest.SchemaVersion)
+	s.InDelta(0.06, manifest.CostSummary.TotalCost, 0.000001)
+	summaryCSV, err := os.ReadFile(filepath.Join(directory, "summary.csv"))
+	s.Require().NoError(err)
+	s.Contains(string(summaryCSV), "cost_scope,total_cost,mean_completed_cost")
+	pairwiseCSV, err := os.ReadFile(filepath.Join(directory, "pairwise.csv"))
+	s.Require().NoError(err)
+	s.Contains(string(pairwiseCSV), "paired_completed_incremental_cost")
 }
 
 func (s *artifactSuite) TestExportRejectsEmptyResults() {
@@ -59,7 +84,7 @@ func trial(caseID, category, arm, status string, f1 float64, exact bool, duratio
 	return TrialResult{
 		RunID: "run", Dataset: "suite", DatasetRevision: "rev", CaseID: caseID, Category: category,
 		Arm: arm, Status: status, Expected: "expected", Answer: "answer", TokenF1: f1,
-		Exact: exact, SafeSuccess: exact, Cost: 0.01, TotalDurationMS: duration,
+		Exact: exact, SafeSuccess: exact, Cost: 0.01, CostScope: "opencode_reported", InputTokens: 10, OutputTokens: 5, TotalDurationMS: duration,
 		StartedAt: time.Unix(1, 0).UTC(), CompletedAt: time.Unix(2, 0).UTC(),
 	}
 }

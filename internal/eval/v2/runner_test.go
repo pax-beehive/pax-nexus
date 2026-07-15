@@ -38,6 +38,11 @@ func (s *runnerSuite) TestRunCompletesResumableMatrixAndExports() {
 	for _, result := range store.results {
 		s.Equal("same-user", result.AskingUserID)
 		s.True(result.Exact)
+		if result.Arm == "memory" {
+			s.InDelta(0.3, result.Cost, 0.000001)
+		} else {
+			s.InDelta(0.1, result.Cost, 0.000001)
+		}
 	}
 
 	previousCalls := executor.total()
@@ -45,21 +50,45 @@ func (s *runnerSuite) TestRunCompletesResumableMatrixAndExports() {
 	s.Equal(previousCalls+2, executor.total())
 }
 
-func (s *runnerSuite) TestTrialFailureIsPersistedWithoutStoppingOtherTrials() {
-	store := newFakeStore()
-	executor := &fakeExecutor{failProgram: "producer"}
-	runner, err := NewRunner(store, executor, nil)
-	s.Require().NoError(err)
-	config := testConfig(s.T().TempDir())
-	cases := []Case{{ID: "case", Category: "temporal", Question: "q", Expected: "answer", AskingUserID: "user"}}
-	s.Require().NoError(runner.Run(context.Background(), config, cases, "revision"))
-	s.Len(store.results, 2)
-	statuses := map[string]string{}
-	for _, result := range store.results {
-		statuses[result.Arm] = result.Status
+func (s *runnerSuite) TestFailureCostMatrix() {
+	tests := []struct {
+		name             string
+		failProgram      string
+		configure        func(*Config)
+		wantMemoryCost   float64
+		wantConsumerCost float64
+	}{
+		{name: "producer failure", failProgram: "producer", configure: func(*Config) {}, wantMemoryCost: 0.2},
+		{name: "readiness failure", failProgram: "wait", configure: func(config *Config) {
+			config.Arms[1].AfterProducer = &CommandSpec{Program: "wait"}
+		}, wantMemoryCost: 0.2},
+		{name: "consumer failure", failProgram: "consumer", configure: func(*Config) {}, wantMemoryCost: 0.3, wantConsumerCost: 0.1},
 	}
-	s.Equal("completed", statuses["control"])
-	s.Equal("failed", statuses["memory"])
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			store := newFakeStore()
+			runner, err := NewRunner(store, &fakeExecutor{failProgram: test.failProgram}, nil)
+			s.Require().NoError(err)
+			config := testConfig(s.T().TempDir())
+			test.configure(&config)
+			cases := []Case{{ID: "case", Category: "temporal", Question: "q", Expected: "answer", AskingUserID: "user"}}
+			s.Require().NoError(runner.Run(context.Background(), config, cases, "revision"))
+			memory := findResult(store.results, "memory")
+			s.Equal("failed", memory.Status)
+			s.InDelta(test.wantMemoryCost, memory.Cost, 0.000001)
+			s.InDelta(0.2, memory.ProducerCost, 0.000001)
+			s.InDelta(test.wantConsumerCost, memory.ConsumerCost, 0.000001)
+		})
+	}
+}
+
+func findResult(results []TrialResult, arm string) TrialResult {
+	for _, result := range results {
+		if result.Arm == arm {
+			return result
+		}
+	}
+	return TrialResult{}
 }
 
 func (s *runnerSuite) TestTeardownFailureIsReturned() {
@@ -190,13 +219,20 @@ func (e *fakeExecutor) Execute(_ context.Context, spec CommandSpec, _ map[string
 	e.mu.Lock()
 	e.programs = append(e.programs, spec.Program)
 	e.mu.Unlock()
-	if spec.Program == e.failProgram {
-		return CommandResult{}, errors.New("command failed")
+	var result CommandResult
+	if spec.Program == "producer" {
+		result = CommandResult{Output: []byte(`{"type":"text","sessionID":"producer-session","part":{"text":"handoff"}}` + "\n" + `{"type":"step_finish","part":{"cost":0.2,"tokens":{"input":3,"output":1}}}` + "\n"), Duration: time.Millisecond}
 	}
 	if spec.Program == "consumer" {
-		return CommandResult{Output: []byte(`{"type":"text","sessionID":"session","part":{"text":"answer"}}` + "\n"), Duration: time.Millisecond}, nil
+		result = CommandResult{Output: []byte(`{"type":"text","sessionID":"session","part":{"text":"answer"}}` + "\n" + `{"type":"step_finish","part":{"cost":0.1,"tokens":{"input":4,"output":2}}}` + "\n"), Duration: time.Millisecond}
 	}
-	return CommandResult{Duration: time.Millisecond}, nil
+	if result.Duration == 0 {
+		result.Duration = time.Millisecond
+	}
+	if spec.Program == e.failProgram {
+		return result, errors.New("command failed")
+	}
+	return result, nil
 }
 
 func (e *fakeExecutor) count(program string) int {

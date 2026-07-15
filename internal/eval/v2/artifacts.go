@@ -13,34 +13,61 @@ import (
 	"time"
 )
 
-const ArtifactSchemaVersion = "pax-eval-v2.1"
+const ArtifactSchemaVersion = "pax-eval-v2.2"
 
 type SummaryRow struct {
-	DimensionType  string
-	DimensionValue string
-	Arm            string
-	Trials         int
-	Completed      int
-	Failed         int
-	Exact          int
-	SafeSuccess    int
-	MeanTokenF1    float64
-	MeanCost       float64
-	MeanDurationMS float64
+	DimensionType     string
+	DimensionValue    string
+	Arm               string
+	Trials            int
+	Completed         int
+	Failed            int
+	Exact             int
+	SafeSuccess       int
+	MeanTokenF1       float64
+	CostScope         string
+	TotalCost         float64
+	MeanCompletedCost float64
+	TotalInputTokens  int
+	TotalOutputTokens int
+	MeanDurationMS    float64
 }
 
 type PairwiseRow struct {
-	Category        string
-	BaselineArm     string
-	CandidateArm    string
-	Pairs           int
-	Wins            int
-	Losses          int
-	Ties            int
-	MeanTokenF1     float64
-	MeanDeltaF1     float64
-	ExactLift       int
-	SafeSuccessLift int
+	Category                       string
+	BaselineArm                    string
+	CandidateArm                   string
+	Pairs                          int
+	Wins                           int
+	Losses                         int
+	Ties                           int
+	MeanTokenF1                    float64
+	MeanDeltaF1                    float64
+	CostScope                      string
+	BaselineMeanCost               float64
+	CandidateMeanCost              float64
+	MeanDeltaCost                  float64
+	PairedCompletedIncrementalCost float64
+	ExactLift                      int
+	SafeSuccessLift                int
+}
+
+type CostSummary struct {
+	Scope             string             `json:"scope"`
+	TotalCost         float64            `json:"total_cost"`
+	CompletedCost     float64            `json:"completed_cost"`
+	FailedCost        float64            `json:"failed_cost"`
+	TotalInputTokens  int                `json:"total_input_tokens"`
+	TotalOutputTokens int                `json:"total_output_tokens"`
+	ByArm             map[string]ArmCost `json:"by_arm"`
+}
+
+type ArmCost struct {
+	Trials            int     `json:"trials"`
+	TotalCost         float64 `json:"total_cost"`
+	MeanAttemptCost   float64 `json:"mean_attempt_cost"`
+	TotalInputTokens  int     `json:"total_input_tokens"`
+	TotalOutputTokens int     `json:"total_output_tokens"`
 }
 
 func ExportArtifacts(directory string, run RunRecord, baselineArm string, formats []string, results []TrialResult) error {
@@ -79,10 +106,38 @@ func ExportArtifacts(directory string, run RunRecord, baselineArm string, format
 		"schema_version": ArtifactSchemaVersion,
 		"run_id":         run.ID, "dataset": run.Dataset, "dataset_revision": run.DatasetRevision,
 		"config_hash": run.ConfigHash, "generated_at": time.Now().UTC(),
-		"runtime": run.Runtime,
-		"files":   files,
+		"runtime":      run.Runtime,
+		"files":        files,
+		"cost_summary": CostTotals(results),
 	}
 	return writeJSON(filepath.Join(directory, "artifacts.json"), manifest)
+}
+
+func CostTotals(results []TrialResult) CostSummary {
+	summary := CostSummary{Scope: "opencode_reported", ByArm: make(map[string]ArmCost)}
+	for _, result := range results {
+		summary.TotalCost += result.Cost
+		summary.TotalInputTokens += result.InputTokens
+		summary.TotalOutputTokens += result.OutputTokens
+		if result.Status == "completed" {
+			summary.CompletedCost += result.Cost
+		} else {
+			summary.FailedCost += result.Cost
+		}
+		arm := summary.ByArm[result.Arm]
+		arm.Trials++
+		arm.TotalCost += result.Cost
+		arm.TotalInputTokens += result.InputTokens
+		arm.TotalOutputTokens += result.OutputTokens
+		summary.ByArm[result.Arm] = arm
+	}
+	for name, arm := range summary.ByArm {
+		if arm.Trials > 0 {
+			arm.MeanAttemptCost = arm.TotalCost / float64(arm.Trials)
+		}
+		summary.ByArm[name] = arm
+	}
+	return summary
 }
 
 func exportCSVArtifacts(directory, baselineArm string, results []TrialResult) error {
@@ -152,8 +207,11 @@ func Pairwise(results []TrialResult, baselineArm string) []PairwiseRow {
 }
 
 func summarizeGroup(dimensionType, dimensionValue, arm string, results []TrialResult) SummaryRow {
-	row := SummaryRow{DimensionType: dimensionType, DimensionValue: dimensionValue, Arm: arm, Trials: len(results)}
+	row := SummaryRow{DimensionType: dimensionType, DimensionValue: dimensionValue, Arm: arm, Trials: len(results), CostScope: "opencode_reported"}
 	for _, result := range results {
+		row.TotalCost += result.Cost
+		row.TotalInputTokens += result.InputTokens
+		row.TotalOutputTokens += result.OutputTokens
 		if result.Status != "completed" {
 			row.Failed++
 			continue
@@ -162,19 +220,19 @@ func summarizeGroup(dimensionType, dimensionValue, arm string, results []TrialRe
 		row.Exact += boolInt(result.Exact)
 		row.SafeSuccess += boolInt(result.SafeSuccess)
 		row.MeanTokenF1 += result.TokenF1
-		row.MeanCost += result.Cost
+		row.MeanCompletedCost += result.Cost
 		row.MeanDurationMS += float64(result.TotalDurationMS)
 	}
 	if row.Completed > 0 {
 		row.MeanTokenF1 /= float64(row.Completed)
-		row.MeanCost /= float64(row.Completed)
+		row.MeanCompletedCost /= float64(row.Completed)
 		row.MeanDurationMS /= float64(row.Completed)
 	}
 	return row
 }
 
 func compareArm(byCase map[string]map[string]TrialResult, category, baselineArm, candidateArm string) PairwiseRow {
-	row := PairwiseRow{Category: category, BaselineArm: baselineArm, CandidateArm: candidateArm}
+	row := PairwiseRow{Category: category, BaselineArm: baselineArm, CandidateArm: candidateArm, CostScope: "opencode_reported"}
 	for _, arms := range byCase {
 		baseline, baselineOK := arms[baselineArm]
 		candidate, candidateOK := arms[candidateArm]
@@ -182,9 +240,14 @@ func compareArm(byCase map[string]map[string]TrialResult, category, baselineArm,
 			continue
 		}
 		delta := candidate.TokenF1 - baseline.TokenF1
+		costDelta := candidate.Cost - baseline.Cost
 		row.Pairs++
 		row.MeanTokenF1 += candidate.TokenF1
 		row.MeanDeltaF1 += delta
+		row.BaselineMeanCost += baseline.Cost
+		row.CandidateMeanCost += candidate.Cost
+		row.MeanDeltaCost += costDelta
+		row.PairedCompletedIncrementalCost += costDelta
 		row.ExactLift += boolInt(candidate.Exact) - boolInt(baseline.Exact)
 		row.SafeSuccessLift += boolInt(candidate.SafeSuccess) - boolInt(baseline.SafeSuccess)
 		switch {
@@ -199,6 +262,9 @@ func compareArm(byCase map[string]map[string]TrialResult, category, baselineArm,
 	if row.Pairs > 0 {
 		row.MeanTokenF1 /= float64(row.Pairs)
 		row.MeanDeltaF1 /= float64(row.Pairs)
+		row.BaselineMeanCost /= float64(row.Pairs)
+		row.CandidateMeanCost /= float64(row.Pairs)
+		row.MeanDeltaCost /= float64(row.Pairs)
 	}
 	return row
 }
@@ -253,13 +319,16 @@ func writeJSONLines(path string, results []TrialResult) error {
 }
 
 func writeTrialsCSV(path string, results []TrialResult) error {
-	header := []string{"run_id", "dataset", "dataset_revision", "case_id", "category", "arm", "asking_user_id", "status", "exact", "safe_success", "token_f1", "input_tokens", "output_tokens", "cost", "producer_duration_ms", "readiness_duration_ms", "consumer_duration_ms", "total_duration_ms", "session_id", "expected", "answer", "error", "started_at", "completed_at"}
+	header := []string{"run_id", "dataset", "dataset_revision", "case_id", "category", "arm", "asking_user_id", "status", "exact", "safe_success", "token_f1", "input_tokens", "output_tokens", "cost", "cost_scope", "producer_input_tokens", "producer_output_tokens", "producer_cost", "consumer_input_tokens", "consumer_output_tokens", "consumer_cost", "producer_duration_ms", "readiness_duration_ms", "consumer_duration_ms", "total_duration_ms", "session_id", "expected", "answer", "error", "started_at", "completed_at"}
 	rows := make([][]string, 0, len(results))
 	for _, result := range results {
 		rows = append(rows, []string{
 			result.RunID, result.Dataset, result.DatasetRevision, result.CaseID, result.Category, result.Arm, result.AskingUserID, result.Status,
 			strconv.FormatBool(result.Exact), strconv.FormatBool(result.SafeSuccess), floatString(result.TokenF1), strconv.Itoa(result.InputTokens),
-			strconv.Itoa(result.OutputTokens), floatString(result.Cost), strconv.FormatInt(result.ProducerDurationMS, 10), strconv.FormatInt(result.ReadinessDurationMS, 10),
+			strconv.Itoa(result.OutputTokens), floatString(result.Cost), result.CostScope,
+			strconv.Itoa(result.ProducerInputTokens), strconv.Itoa(result.ProducerOutputTokens), floatString(result.ProducerCost),
+			strconv.Itoa(result.ConsumerInputTokens), strconv.Itoa(result.ConsumerOutputTokens), floatString(result.ConsumerCost),
+			strconv.FormatInt(result.ProducerDurationMS, 10), strconv.FormatInt(result.ReadinessDurationMS, 10),
 			strconv.FormatInt(result.ConsumerDurationMS, 10), strconv.FormatInt(result.TotalDurationMS, 10), result.SessionID, result.Expected, result.Answer, result.Error,
 			result.StartedAt.Format(time.RFC3339Nano), result.CompletedAt.Format(time.RFC3339Nano),
 		})
@@ -268,19 +337,19 @@ func writeTrialsCSV(path string, results []TrialResult) error {
 }
 
 func writeSummaryCSV(path string, summaries []SummaryRow) error {
-	header := []string{"dimension_type", "dimension_value", "arm", "trials", "completed", "failed", "exact", "safe_success", "mean_token_f1", "mean_cost", "mean_duration_ms"}
+	header := []string{"dimension_type", "dimension_value", "arm", "trials", "completed", "failed", "exact", "safe_success", "mean_token_f1", "cost_scope", "total_cost", "mean_completed_cost", "total_input_tokens", "total_output_tokens", "mean_duration_ms"}
 	rows := make([][]string, 0, len(summaries))
 	for _, row := range summaries {
-		rows = append(rows, []string{row.DimensionType, row.DimensionValue, row.Arm, strconv.Itoa(row.Trials), strconv.Itoa(row.Completed), strconv.Itoa(row.Failed), strconv.Itoa(row.Exact), strconv.Itoa(row.SafeSuccess), floatString(row.MeanTokenF1), floatString(row.MeanCost), floatString(row.MeanDurationMS)})
+		rows = append(rows, []string{row.DimensionType, row.DimensionValue, row.Arm, strconv.Itoa(row.Trials), strconv.Itoa(row.Completed), strconv.Itoa(row.Failed), strconv.Itoa(row.Exact), strconv.Itoa(row.SafeSuccess), floatString(row.MeanTokenF1), row.CostScope, floatString(row.TotalCost), floatString(row.MeanCompletedCost), strconv.Itoa(row.TotalInputTokens), strconv.Itoa(row.TotalOutputTokens), floatString(row.MeanDurationMS)})
 	}
 	return writeCSV(path, header, rows)
 }
 
 func writePairwiseCSV(path string, comparisons []PairwiseRow) error {
-	header := []string{"category", "baseline_arm", "candidate_arm", "pairs", "wins", "losses", "ties", "mean_token_f1", "mean_delta_f1", "exact_lift", "safe_success_lift"}
+	header := []string{"category", "baseline_arm", "candidate_arm", "pairs", "wins", "losses", "ties", "mean_token_f1", "mean_delta_f1", "cost_scope", "baseline_mean_cost", "candidate_mean_cost", "mean_delta_cost", "paired_completed_incremental_cost", "exact_lift", "safe_success_lift"}
 	rows := make([][]string, 0, len(comparisons))
 	for _, row := range comparisons {
-		rows = append(rows, []string{row.Category, row.BaselineArm, row.CandidateArm, strconv.Itoa(row.Pairs), strconv.Itoa(row.Wins), strconv.Itoa(row.Losses), strconv.Itoa(row.Ties), floatString(row.MeanTokenF1), floatString(row.MeanDeltaF1), strconv.Itoa(row.ExactLift), strconv.Itoa(row.SafeSuccessLift)})
+		rows = append(rows, []string{row.Category, row.BaselineArm, row.CandidateArm, strconv.Itoa(row.Pairs), strconv.Itoa(row.Wins), strconv.Itoa(row.Losses), strconv.Itoa(row.Ties), floatString(row.MeanTokenF1), floatString(row.MeanDeltaF1), row.CostScope, floatString(row.BaselineMeanCost), floatString(row.CandidateMeanCost), floatString(row.MeanDeltaCost), floatString(row.PairedCompletedIncrementalCost), strconv.Itoa(row.ExactLift), strconv.Itoa(row.SafeSuccessLift)})
 	}
 	return writeCSV(path, header, rows)
 }

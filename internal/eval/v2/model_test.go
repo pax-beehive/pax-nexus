@@ -69,7 +69,9 @@ func (s *modelSuite) TestScoreResult() {
 	result := ScoreResult(
 		RunRecord{ID: "run", Dataset: "suite", DatasetRevision: "revision"},
 		Case{ID: "case", Category: "temporal", Expected: "answer", AskingUserID: "user"},
-		"memory", harness.AgentOutput{Text: "answer", SessionID: "session", InputTokens: 4, OutputTokens: 2, Cost: 0.1},
+		"memory",
+		harness.AgentOutput{Text: "handoff", InputTokens: 3, OutputTokens: 1, Cost: 0.2},
+		harness.AgentOutput{Text: "answer", SessionID: "session", InputTokens: 4, OutputTokens: 2, Cost: 0.1},
 		started, [3]time.Duration{time.Millisecond, 2 * time.Millisecond, 3 * time.Millisecond},
 	)
 	s.True(result.Exact)
@@ -78,6 +80,12 @@ func (s *modelSuite) TestScoreResult() {
 	s.Equal(int64(2), result.ReadinessDurationMS)
 	s.Equal(int64(3), result.ConsumerDurationMS)
 	s.Equal("user", result.AskingUserID)
+	s.Equal(7, result.InputTokens)
+	s.Equal(3, result.OutputTokens)
+	s.InDelta(0.3, result.Cost, 0.000001)
+	s.InDelta(0.2, result.ProducerCost, 0.000001)
+	s.InDelta(0.1, result.ConsumerCost, 0.000001)
+	s.Equal("opencode_reported", result.CostScope)
 }
 
 func testConfig(output string) Config {

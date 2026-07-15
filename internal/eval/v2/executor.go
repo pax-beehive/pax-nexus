@@ -41,6 +41,7 @@ func (ProcessExecutor) Execute(ctx context.Context, spec CommandSpec, variables 
 	started := time.Now()
 	err := command.Run()
 	duration := time.Since(started)
+	result := CommandResult{Output: slices.Clone(stdout.Bytes()), Duration: duration}
 	if writeErr := writeCommandOutput(stdoutPath, stdout.Bytes()); writeErr != nil {
 		return CommandResult{}, writeErr
 	}
@@ -48,9 +49,9 @@ func (ProcessExecutor) Execute(ctx context.Context, spec CommandSpec, variables 
 		return CommandResult{}, writeErr
 	}
 	if err != nil {
-		return CommandResult{}, fmt.Errorf("execute %q: %w", program, err)
+		return result, fmt.Errorf("execute %q: %w", program, err)
 	}
-	return CommandResult{Output: slices.Clone(stdout.Bytes()), Duration: duration}, nil
+	return result, nil
 }
 
 func expand(value string, variables map[string]string) string {

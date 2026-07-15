@@ -176,7 +176,7 @@ func (r *Runner) runTrial(ctx context.Context, run RunRecord, evalCase Case, arm
 		r.logger.InfoContext(ctx, "eval trial completed", "case_id", evalCase.ID, "arm", arm.Name, "token_f1", result.TokenF1)
 		return nil
 	}
-	failed := failureResult(run, evalCase, arm.Name, started, runErr)
+	failed := failureResult(result, run, evalCase, arm.Name, started, runErr)
 	if err := r.store.Fail(ctx, failed); err != nil {
 		return errors.Join(fmt.Errorf("run eval trial %s/%s: %w", evalCase.ID, arm.Name, runErr), fmt.Errorf("persist eval failure: %w", err))
 	}
@@ -188,30 +188,78 @@ func (r *Runner) executeTrial(ctx context.Context, run RunRecord, evalCase Case,
 	variables := trialVariables(run, evalCase, arm.Name, outputDir)
 	artifactDir := variables["artifact_dir"]
 	durations := [3]time.Duration{}
+	partial := TrialResult{
+		RunID: run.ID, Dataset: run.Dataset, DatasetRevision: run.DatasetRevision,
+		CaseID: evalCase.ID, Category: evalCase.Category, Arm: arm.Name, AskingUserID: evalCase.AskingUserID,
+		Expected: evalCase.Expected, Status: "running", CostScope: "opencode_reported", StartedAt: started,
+	}
+	var producerOutput harness.AgentOutput
 	if arm.Producer != nil {
-		result, err := r.executor.Execute(ctx, *arm.Producer, variables, filepath.Join(artifactDir, "producer.jsonl"), filepath.Join(artifactDir, "producer.stderr.log"))
-		if err != nil {
-			return TrialResult{}, fmt.Errorf("run producer: %w", err)
-		}
+		result, executeErr := r.executor.Execute(ctx, *arm.Producer, variables, filepath.Join(artifactDir, "producer.jsonl"), filepath.Join(artifactDir, "producer.stderr.log"))
 		durations[0] = result.Duration
+		if len(result.Output) > 0 {
+			var parseErr error
+			producerOutput, parseErr = harness.ParseOpenCodeJSON(bytes.NewReader(result.Output))
+			if parseErr != nil && executeErr == nil {
+				return partial, fmt.Errorf("parse producer output: %w", parseErr)
+			}
+		}
+		if executeErr == nil && len(result.Output) == 0 {
+			return partial, fmt.Errorf("parse producer output: OpenCode output contains no text")
+		}
+		partial = withProducerUsage(partial, producerOutput)
+		partial.ProducerDurationMS = durations[0].Milliseconds()
+		if executeErr != nil {
+			return partial, fmt.Errorf("run producer: %w", executeErr)
+		}
 	}
 	if arm.AfterProducer != nil {
 		result, err := r.executor.Execute(ctx, *arm.AfterProducer, variables, filepath.Join(artifactDir, "readiness.log"), filepath.Join(artifactDir, "readiness.stderr.log"))
 		if err != nil {
-			return TrialResult{}, fmt.Errorf("wait for memory: %w", err)
+			return partial, fmt.Errorf("wait for memory: %w", err)
 		}
 		durations[1] = result.Duration
+		partial.ReadinessDurationMS = durations[1].Milliseconds()
 	}
-	consumer, err := r.executor.Execute(ctx, arm.Consumer, variables, filepath.Join(artifactDir, "consumer.jsonl"), filepath.Join(artifactDir, "consumer.stderr.log"))
-	if err != nil {
-		return TrialResult{}, fmt.Errorf("run consumer: %w", err)
-	}
+	consumer, executeErr := r.executor.Execute(ctx, arm.Consumer, variables, filepath.Join(artifactDir, "consumer.jsonl"), filepath.Join(artifactDir, "consumer.stderr.log"))
 	durations[2] = consumer.Duration
-	output, err := harness.ParseOpenCodeJSON(bytes.NewReader(consumer.Output))
-	if err != nil {
-		return TrialResult{}, fmt.Errorf("parse consumer output: %w", err)
+	var output harness.AgentOutput
+	if len(consumer.Output) > 0 {
+		var parseErr error
+		output, parseErr = harness.ParseOpenCodeJSON(bytes.NewReader(consumer.Output))
+		if parseErr != nil && executeErr == nil {
+			return partial, fmt.Errorf("parse consumer output: %w", parseErr)
+		}
 	}
-	return ScoreResult(run, evalCase, arm.Name, output, started, durations), nil
+	if executeErr == nil && len(consumer.Output) == 0 {
+		return partial, fmt.Errorf("parse consumer output: OpenCode output contains no text")
+	}
+	partial = withConsumerUsage(partial, output)
+	partial.ConsumerDurationMS = durations[2].Milliseconds()
+	if executeErr != nil {
+		return partial, fmt.Errorf("run consumer: %w", executeErr)
+	}
+	return ScoreResult(run, evalCase, arm.Name, producerOutput, output, started, durations), nil
+}
+
+func withProducerUsage(result TrialResult, output harness.AgentOutput) TrialResult {
+	result.ProducerInputTokens = output.InputTokens
+	result.ProducerOutputTokens = output.OutputTokens
+	result.ProducerCost = output.Cost
+	result.InputTokens += output.InputTokens
+	result.OutputTokens += output.OutputTokens
+	result.Cost += output.Cost
+	return result
+}
+
+func withConsumerUsage(result TrialResult, output harness.AgentOutput) TrialResult {
+	result.ConsumerInputTokens = output.InputTokens
+	result.ConsumerOutputTokens = output.OutputTokens
+	result.ConsumerCost = output.Cost
+	result.InputTokens += output.InputTokens
+	result.OutputTokens += output.OutputTokens
+	result.Cost += output.Cost
+	return result
 }
 
 func trialKeys(runID string, cases []Case, arms []ArmConfig) []TrialKey {
@@ -235,12 +283,18 @@ func trialVariables(run RunRecord, evalCase Case, arm, outputDir string) map[str
 	}
 }
 
-func failureResult(run RunRecord, evalCase Case, arm string, started time.Time, err error) TrialResult {
+func failureResult(partial TrialResult, run RunRecord, evalCase Case, arm string, started time.Time, err error) TrialResult {
 	completed := time.Now().UTC()
-	return TrialResult{
-		RunID: run.ID, Dataset: run.Dataset, DatasetRevision: run.DatasetRevision,
-		CaseID: evalCase.ID, Category: evalCase.Category, Arm: arm, AskingUserID: evalCase.AskingUserID,
-		Status: "failed", Expected: evalCase.Expected, StartedAt: started, CompletedAt: completed,
-		TotalDurationMS: completed.Sub(started).Milliseconds(), Error: err.Error(),
+	if partial.RunID == "" {
+		partial = TrialResult{
+			RunID: run.ID, Dataset: run.Dataset, DatasetRevision: run.DatasetRevision,
+			CaseID: evalCase.ID, Category: evalCase.Category, Arm: arm, AskingUserID: evalCase.AskingUserID,
+			Expected: evalCase.Expected, CostScope: "opencode_reported", StartedAt: started,
+		}
 	}
+	partial.Status = "failed"
+	partial.CompletedAt = completed
+	partial.TotalDurationMS = completed.Sub(started).Milliseconds()
+	partial.Error = err.Error()
+	return partial
 }

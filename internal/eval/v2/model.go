@@ -86,30 +86,37 @@ type RunRecord struct {
 }
 
 type TrialResult struct {
-	RunID               string    `json:"run_id"`
-	Dataset             string    `json:"dataset"`
-	DatasetRevision     string    `json:"dataset_revision"`
-	CaseID              string    `json:"case_id"`
-	Category            string    `json:"category"`
-	Arm                 string    `json:"arm"`
-	AskingUserID        string    `json:"asking_user_id"`
-	Status              string    `json:"status"`
-	Expected            string    `json:"expected"`
-	Answer              string    `json:"answer"`
-	Exact               bool      `json:"exact"`
-	SafeSuccess         bool      `json:"safe_success"`
-	TokenF1             float64   `json:"token_f1"`
-	SessionID           string    `json:"session_id"`
-	InputTokens         int       `json:"input_tokens"`
-	OutputTokens        int       `json:"output_tokens"`
-	Cost                float64   `json:"cost"`
-	ProducerDurationMS  int64     `json:"producer_duration_ms"`
-	ReadinessDurationMS int64     `json:"readiness_duration_ms"`
-	ConsumerDurationMS  int64     `json:"consumer_duration_ms"`
-	TotalDurationMS     int64     `json:"total_duration_ms"`
-	StartedAt           time.Time `json:"started_at"`
-	CompletedAt         time.Time `json:"completed_at"`
-	Error               string    `json:"error,omitempty"`
+	RunID                string    `json:"run_id"`
+	Dataset              string    `json:"dataset"`
+	DatasetRevision      string    `json:"dataset_revision"`
+	CaseID               string    `json:"case_id"`
+	Category             string    `json:"category"`
+	Arm                  string    `json:"arm"`
+	AskingUserID         string    `json:"asking_user_id"`
+	Status               string    `json:"status"`
+	Expected             string    `json:"expected"`
+	Answer               string    `json:"answer"`
+	Exact                bool      `json:"exact"`
+	SafeSuccess          bool      `json:"safe_success"`
+	TokenF1              float64   `json:"token_f1"`
+	SessionID            string    `json:"session_id"`
+	InputTokens          int       `json:"input_tokens"`
+	OutputTokens         int       `json:"output_tokens"`
+	Cost                 float64   `json:"cost"`
+	CostScope            string    `json:"cost_scope"`
+	ProducerInputTokens  int       `json:"producer_input_tokens"`
+	ProducerOutputTokens int       `json:"producer_output_tokens"`
+	ProducerCost         float64   `json:"producer_cost"`
+	ConsumerInputTokens  int       `json:"consumer_input_tokens"`
+	ConsumerOutputTokens int       `json:"consumer_output_tokens"`
+	ConsumerCost         float64   `json:"consumer_cost"`
+	ProducerDurationMS   int64     `json:"producer_duration_ms"`
+	ReadinessDurationMS  int64     `json:"readiness_duration_ms"`
+	ConsumerDurationMS   int64     `json:"consumer_duration_ms"`
+	TotalDurationMS      int64     `json:"total_duration_ms"`
+	StartedAt            time.Time `json:"started_at"`
+	CompletedAt          time.Time `json:"completed_at"`
+	Error                string    `json:"error,omitempty"`
 }
 
 func (c Config) Validate() error {
@@ -232,15 +239,18 @@ func (c Config) ResolveRuntime(getenv func(string) string) (map[string]string, e
 	return values, nil
 }
 
-func ScoreResult(run RunRecord, evalCase Case, arm string, output harness.AgentOutput, started time.Time, durations [3]time.Duration) TrialResult {
-	score := harness.ScoreExact(arm, evalCase.Expected, output)
+func ScoreResult(run RunRecord, evalCase Case, arm string, producer, consumer harness.AgentOutput, started time.Time, durations [3]time.Duration) TrialResult {
+	score := harness.ScoreExact(arm, evalCase.Expected, consumer)
 	completed := time.Now().UTC()
 	return TrialResult{
 		RunID: run.ID, Dataset: run.Dataset, DatasetRevision: run.DatasetRevision,
 		CaseID: evalCase.ID, Category: evalCase.Category, Arm: arm, AskingUserID: evalCase.AskingUserID,
 		Status: "completed", Expected: score.Expected, Answer: score.Answer, Exact: score.Exact,
 		SafeSuccess: score.SafeSuccess, TokenF1: score.TokenF1, SessionID: score.SessionID,
-		InputTokens: score.InputTokens, OutputTokens: score.OutputTokens, Cost: score.Cost,
+		InputTokens: producer.InputTokens + score.InputTokens, OutputTokens: producer.OutputTokens + score.OutputTokens,
+		Cost: producer.Cost + score.Cost, CostScope: "opencode_reported",
+		ProducerInputTokens: producer.InputTokens, ProducerOutputTokens: producer.OutputTokens, ProducerCost: producer.Cost,
+		ConsumerInputTokens: score.InputTokens, ConsumerOutputTokens: score.OutputTokens, ConsumerCost: score.Cost,
 		ProducerDurationMS: durations[0].Milliseconds(), ReadinessDurationMS: durations[1].Milliseconds(),
 		ConsumerDurationMS: durations[2].Milliseconds(), TotalDurationMS: completed.Sub(started).Milliseconds(),
 		StartedAt: started, CompletedAt: completed,

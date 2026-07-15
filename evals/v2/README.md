@@ -69,18 +69,27 @@ Eval v2 deliberately does not generate an HTML dashboard. `output.formats`
 selects `csv`, `jsonl`, or both. Every completed run can export:
 
 - `trials.csv`: one row per case and arm, including identity, quality, tokens,
-  cost, stage latency, status, and error
+  producer/consumer cost, total observed cost, stage latency, status, and error
 - `trials.jsonl`: lossless trial records for downstream processing
 - `summary.csv`: overall and per-category arm aggregates
 - `pairwise.csv`: candidate versus control wins, losses, ties, F1 delta, exact
-  lift, and safe-success lift
+  lift, safe-success lift, and incremental cost over paired completed trials
 - `artifacts.json`: schema version, dataset revision, config hash, and artifact
   paths, plus the non-secret runtime versions named by `runtime_env`
 
-The stable artifact schema is `pax-eval-v2.1`. A workstation renderer should
+The stable artifact schema is `pax-eval-v2.2`. A workstation renderer should
 read `artifacts.json`, then generate PNG, SVG, or PDF charts from the declared
 CSV files. Suggested views are category heatmaps, paired F1 deltas, latency-cost
 scatter plots, failure rates, and cumulative progress over time.
+
+Cost fields use the `opencode_reported` scope. They include all producer and
+consumer costs reported by OpenCode, including producer cost incurred before a
+later trial failure. `artifacts.json.cost_summary` exposes total run cost,
+completed versus failed cost, token totals, and per-arm totals. Team Note
+extraction calls and Mem0's internal model/embedder calls are not yet included
+because those backends do not expose one common billing contract; the output
+names its scope explicitly so this subtotal is not mistaken for full-stack
+provider spend.
 
 Exact match and token F1 remain diagnostic metrics rather than an official
 GroupMemBench score. A semantic-equivalence judge and evidence-coverage labels
