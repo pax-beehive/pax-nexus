@@ -26,6 +26,11 @@ run_agent() {
   recall_enabled="$2"
   write_enabled="$3"
   prompt="$4"
+  consumer_policy="$5"
+  opencode_agent="build"
+  if [ "${consumer_policy}" = "1" ]; then
+    opencode_agent="eval-consumer"
+  fi
   provider_type="team-memory"
   if [ "${arm}" = "mem0" ]; then
     provider_type="mem0"
@@ -41,11 +46,12 @@ run_agent() {
     -e PAXM_EXPECTED_VERSION="${PAXM_EXPECTED_VERSION:-v0.1.28}" \
     -e PAXM_RECALL_ENABLED="${recall_enabled}" \
     -e PAXM_WRITE_ENABLED="${write_enabled}" \
+    -e PAXM_EVAL_CONSUMER_POLICY="${consumer_policy}" \
     -e PAXM_PASSIVE_MIN_RELEVANCE="${PAXM_PASSIVE_MIN_RELEVANCE:--1}" \
     -e PAXM_PASSIVE_MIN_SCORE="${PAXM_PASSIVE_MIN_SCORE:--1}" \
     -e PAXM_INSERTION_MIN_SCORE="${PAXM_INSERTION_MIN_SCORE:-0}" \
     -e PAXM_EVAL_DIAGNOSTICS="${PAXM_EVAL_DIAGNOSTICS:-1}" \
-    opencode run --format json --model "${OPENCODE_MODEL}" "${prompt}"
+    opencode run --agent "${opencode_agent}" --format json --model "${OPENCODE_MODEL}" "${prompt}"
 }
 
 run_memory_ingest() {
@@ -89,7 +95,7 @@ case "${stage}" in
       producer_write_enabled=0
     fi
     run_agent "${PAX_EVAL_PRODUCER_WORKSPACE}" 0 "${producer_write_enabled}" \
-      "Read source.md. Produce a complete factual handoff of every current decision, date, owner, dependency, and unresolved blocker. Preserve author identities and exact values."
+      "Read source.md. Produce a complete factual handoff of every current decision, date, owner, dependency, and unresolved blocker. Preserve author identities and exact values." 0
     ;;
   ingest)
     shared_dir="$(dirname "${PAX_EVAL_SHARED_PRODUCER_TEXT}")"
@@ -123,8 +129,7 @@ case "${stage}" in
     if [ "${arm}" = "control" ]; then
       consumer_recall_enabled=0
     fi
-    run_agent "${PAX_EVAL_CONSUMER_WORKSPACE}" "${consumer_recall_enabled}" 0 \
-      "${PAX_EVAL_QUESTION} Answer directly and concisely without explaining your reasoning. Only if the question requests an exact owner, name, date, time, timestamp, version, count, or value, require the available evidence to state that exact slot for the same subject; if that slot is missing, state that the information is unavailable. For all other question types, answer normally from the available evidence."
+    run_agent "${PAX_EVAL_CONSUMER_WORKSPACE}" "${consumer_recall_enabled}" 0 "${PAX_EVAL_QUESTION}" 1
     ;;
   *)
     echo "unsupported stage: ${stage}" >&2

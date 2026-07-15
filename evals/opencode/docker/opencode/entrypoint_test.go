@@ -1,9 +1,11 @@
 package opencode_test
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/suite"
@@ -13,6 +15,95 @@ import (
 type entrypointSuite struct{ suite.Suite }
 
 func TestEntrypointSuite(t *testing.T) { suite.Run(t, new(entrypointSuite)) }
+
+func (s *entrypointSuite) TestConsumerKeepsAnswerPolicyOutOfRecallPrompt() {
+	repositoryRoot, err := filepath.Abs(filepath.Join("..", "..", "..", ".."))
+	s.Require().NoError(err)
+	directory := s.T().TempDir()
+	binDirectory := filepath.Join(directory, "bin")
+	s.Require().NoError(os.Mkdir(binDirectory, 0o700))
+	capture := filepath.Join(directory, "docker-args")
+	docker := filepath.Join(binDirectory, "docker")
+	s.Require().NoError(os.WriteFile(docker, []byte("#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$DOCKER_CAPTURE\"\n"), 0o700))
+
+	question := "What is the current approach?"
+	command := exec.Command("sh", filepath.Join(repositoryRoot, "scripts", "eval-v2-opencode.sh"), "consumer", "team_note")
+	command.Dir = repositoryRoot
+	command.Env = []string{
+		"PATH=" + binDirectory + string(os.PathListSeparator) + os.Getenv("PATH"),
+		"DOCKER_CAPTURE=" + capture,
+		"PAX_EVAL_RUN_ID=consumer-query-test",
+		"PAX_EVAL_CASE_ID=case-1",
+		"PAX_EVAL_SCOPE_ID=scope-1",
+		"PAX_EVAL_USER_ID=eval-owner",
+		"PAX_EVAL_CONSUMER_WORKSPACE=" + directory,
+		"PAX_EVAL_QUESTION=" + question,
+		"OPENCODE_MODEL=deepseek/deepseek-v4-flash",
+		"TEAM_MEMORY_API_KEYS={}",
+	}
+	output, err := command.CombinedOutput()
+	s.Require().NoError(err, string(output))
+	input, err := os.ReadFile(capture)
+	s.Require().NoError(err)
+	arguments := strings.Split(strings.TrimSpace(string(input)), "\n")
+	s.Equal(question, arguments[len(arguments)-1])
+	s.Contains(arguments, "PAXM_EVAL_CONSUMER_POLICY=1")
+	s.Contains(arguments, "--agent")
+	s.Contains(arguments, "eval-consumer")
+}
+
+func (s *entrypointSuite) TestConsumerPolicyUsesDedicatedOpenCodeAgent() {
+	directory := s.T().TempDir()
+	plugin := filepath.Join(directory, "paxm.js")
+	s.Require().NoError(os.WriteFile(plugin, []byte("// test plugin"), 0o600))
+	command := exec.Command("sh", "entrypoint.sh")
+	command.Env = []string{
+		"PATH=" + os.Getenv("PATH"),
+		"PAXM_AGENT_ID=consumer-policy-test",
+		"PAXM_PROVIDER_TYPE=mem0",
+		"PAXM_USER_ID=eval-owner",
+		"MEM0_RUN_ID=consumer-policy-test",
+		"PAXM_CONFIG_ROOT=" + directory,
+		"PAXM_PLUGIN_SOURCE=" + plugin,
+		"PAXM_CONFIG_ONLY=1",
+		"PAXM_EVAL_CONSUMER_POLICY=1",
+	}
+	output, err := command.CombinedOutput()
+	s.Require().NoError(err, string(output))
+
+	input, err := os.ReadFile(filepath.Join(directory, "opencode", "opencode.json"))
+	s.Require().NoError(err)
+	var config struct {
+		Instructions []string          `json:"instructions"`
+		Permission   map[string]string `json:"permission"`
+		Tools        map[string]bool   `json:"tools"`
+		Agent        map[string]struct {
+			Mode       string            `json:"mode"`
+			Prompt     string            `json:"prompt"`
+			Permission map[string]string `json:"permission"`
+			Tools      map[string]bool   `json:"tools"`
+		} `json:"agent"`
+	}
+	s.Require().NoError(json.Unmarshal(input, &config))
+	s.Empty(config.Instructions)
+	s.False(config.Tools["read"])
+	s.False(config.Tools["glob"])
+	s.False(config.Tools["grep"])
+	s.NotContains(config.Permission, "read")
+	s.NotContains(config.Permission, "glob")
+	s.NotContains(config.Permission, "grep")
+	consumerAgent := config.Agent["eval-consumer"]
+	s.Equal("primary", consumerAgent.Mode)
+	s.Equal("{file:./eval-consumer-prompt.md}", consumerAgent.Prompt)
+	s.Equal("deny", consumerAgent.Permission["*"])
+	s.False(consumerAgent.Tools["*"])
+	policy, err := os.ReadFile(filepath.Join(directory, "opencode", "eval-consumer-prompt.md"))
+	s.Require().NoError(err)
+	s.Contains(string(policy), "same subject")
+	s.Contains(string(policy), "recalled memory context")
+	s.Contains(string(policy), "Do not search, inspect, or mention the workspace")
+	s.Contains(string(policy), "Do not describe or propose searches, tool calls, or attempts")
+}
 
 func (s *entrypointSuite) TestPassiveRecallThresholdGuard() {
 	tests := []struct {

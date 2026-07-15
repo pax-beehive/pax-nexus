@@ -15,6 +15,7 @@ set -eu
 : "${MEM0_SCORE_SEMANTICS:=distance}"
 : "${PAXM_EXPECTED_VERSION:=v0.1.28}"
 : "${PAXM_BINARY:=/usr/local/bin/paxm}"
+: "${PAXM_EVAL_CONSUMER_POLICY:=0}"
 
 if [ "${PAXM_PASSIVE_MIN_RELEVANCE}" = "0" ] && [ "${PAXM_PASSIVE_MIN_SCORE}" = "0" ]; then
   echo "passive recall thresholds cannot both be 0 because paxm normalizes the zero-value profile to its defaults; use -1 to preserve raw top-k" >&2
@@ -116,20 +117,51 @@ capture_queue:
   max_attempts: 3
 EOF
 
+agent_config=""
+permission_config='    "*": "deny",
+    "read": "allow",
+    "glob": "allow",
+    "grep": "allow"'
+tools_config='    "*": false,
+    "read": true,
+    "glob": true,
+    "grep": true'
+if [ "${PAXM_EVAL_CONSUMER_POLICY}" = "1" ]; then
+  cat > "${opencode_config}/eval-consumer-prompt.md" <<'EOF'
+# Evaluation consumer policy
+
+Use recalled memory context as the only evidence. The consumer workspace
+intentionally contains no source messages. Do not search, inspect, or mention the workspace.
+Do not describe or propose searches, tool calls, or attempts. If recalled memory
+does not contain the answer, state directly that the information is unavailable.
+
+Answer directly and concisely without explaining your reasoning. Only if the
+question requests an exact owner, name, date, time, timestamp, version, count,
+or value, require the available evidence to state that exact slot for the same subject.
+If that slot is missing, state that the information is unavailable.
+For all other question types, answer normally from the available evidence.
+EOF
+  agent_config='  "agent": {
+    "eval-consumer": {
+      "mode": "primary",
+      "prompt": "{file:./eval-consumer-prompt.md}",
+      "permission": {"*": "deny"},
+      "tools": {"*": false}
+    }
+  },'
+  permission_config='    "*": "deny"'
+  tools_config='    "*": false'
+fi
+
 cat > "${opencode_config}/opencode.json" <<EOF
 {
   "\$schema": "https://opencode.ai/config.json",
+${agent_config}
   "permission": {
-    "*": "deny",
-    "read": "allow",
-    "glob": "allow",
-    "grep": "allow"
+${permission_config}
   },
   "tools": {
-    "*": false,
-    "read": true,
-    "glob": true,
-    "grep": true
+${tools_config}
   }
 }
 EOF
