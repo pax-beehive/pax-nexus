@@ -7,11 +7,7 @@ run_id="${3:-}"
 compose_file="evals/v2/compose.yaml"
 project_name="pax-nexus-eval-v2"
 
-if [ -f .env ]; then
-  set -a
-  . ./.env
-  set +a
-fi
+. ./scripts/load-eval-v2-env.sh
 
 case "${action}" in
   up)

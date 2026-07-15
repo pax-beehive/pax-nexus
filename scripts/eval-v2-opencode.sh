@@ -10,11 +10,7 @@ agent_id="${arm}-${stage}-${PAX_EVAL_CASE_ID}"
 mem0_run_id="${PAX_EVAL_RUN_ID}-${PAX_EVAL_CASE_ID}"
 team_note_scope_id="${PAX_EVAL_RUN_ID}-${PAX_EVAL_SCOPE_ID}"
 
-if [ -f .env ]; then
-  set -a
-  . ./.env
-  set +a
-fi
+. ./scripts/load-eval-v2-env.sh
 
 run_agent() {
   workspace="$1"

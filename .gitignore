@@ -47,3 +47,5 @@ go.work
 go.work.sum
 runs/
 tmp/
+.env.eval-v2
+evals/v2/config.local.yaml

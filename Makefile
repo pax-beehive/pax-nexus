@@ -105,14 +105,18 @@ eval-v2-prepare:
 	./scripts/eval-v2-prepare-groupmembench.sh
 
 eval-v2-up:
-	@test -n "$(MANIFEST)" || (echo "MANIFEST is required" >&2; exit 1)
-	@test -n "$(RUN_ID)" || (echo "RUN_ID is required" >&2; exit 1)
-	./scripts/eval-v2-stack.sh up "$(MANIFEST)" "$(RUN_ID)"
+	@. ./scripts/load-eval-v2-env.sh; \
+		manifest="$(MANIFEST)"; manifest="$${manifest:-$${EVAL_V2_MANIFEST:-}}"; \
+		run_id="$(RUN_ID)"; run_id="$${run_id:-$${EVAL_V2_RUN_ID:-}}"; \
+		test -n "$$manifest" || (echo "MANIFEST or EVAL_V2_MANIFEST is required" >&2; exit 1); \
+		test -n "$$run_id" || (echo "RUN_ID or EVAL_V2_RUN_ID is required" >&2; exit 1); \
+		./scripts/eval-v2-stack.sh up "$$manifest" "$$run_id"
 
 eval-v2:
-	@test -n "$(CONFIG)" || (echo "CONFIG is required" >&2; exit 1)
-	@set -a; [ ! -f .env ] || . ./.env; set +a; \
-		GOCACHE=$${GOCACHE:-/tmp/team-memory-go-cache} go run ./cmd/team-memory-eval-v2 -config "$(CONFIG)"
+	@. ./scripts/load-eval-v2-env.sh; \
+		config="$(CONFIG)"; config="$${config:-$${EVAL_V2_CONFIG:-}}"; \
+		test -n "$$config" || (echo "CONFIG or EVAL_V2_CONFIG is required" >&2; exit 1); \
+		GOCACHE=$${GOCACHE:-/tmp/team-memory-go-cache} go run ./cmd/team-memory-eval-v2 -config "$$config"
 
 eval-v2-down:
 	./scripts/eval-v2-stack.sh down

@@ -61,7 +61,7 @@ services:
       JWT_SECRET: ${MEM0_JWT_SECRET:-eval-only-jwt-secret-change-me}
       AUTH_DISABLED: "true"
       MEM0_TELEMETRY: "false"
-      MEM0_DEFAULT_LLM_MODEL: ${MEM0_DEFAULT_LLM_MODEL:-gpt-4.1-nano-2025-04-14}
+      MEM0_DEFAULT_LLM_MODEL: ${MEM0_DEFAULT_LLM_MODEL:-gpt-5-mini}
       MEM0_DEFAULT_EMBEDDER_MODEL: ${MEM0_DEFAULT_EMBEDDER_MODEL:-text-embedding-3-small}
     depends_on:
       mem0-postgres:

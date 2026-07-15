@@ -17,17 +17,28 @@ distinct so provenance is observable.
 
 ## Prepare a run
 
-Copy `.env.example` to `.env` and replace every required placeholder. Mem0's
-default self-hosted image needs an embedding-capable provider key in addition to
-the DeepSeek key used by OpenCode and Team Note extraction.
+Keep the existing `.env` for shared DeepSeek and paxm credentials. Create the
+ignored Eval v2 environment and local run config from the tracked templates:
+
+```bash
+cp .env.eval-v2.example .env.eval-v2
+cp evals/v2/config.example.yaml evals/v2/config.local.yaml
+```
+
+Eval v2 loads `.env.eval-v2` after `.env`, so eval-specific values override the
+base environment without entering Git. Replace `MEM0_OPENAI_API_KEY=replace-me`
+before starting the stack. Mem0 needs an embedding-capable provider key in
+addition to the DeepSeek key used by OpenCode and Team Note extraction.
 
 Prepare a deterministic 30-case GroupMemBench selection:
 
 ```bash
 make eval-v2-prepare
-cp evals/v2/config.example.yaml evals/v2/config.yaml
 ```
 
+The supplied templates use matching run IDs and manifest paths. Change the run
+ID in `.env.eval-v2` and `config.local.yaml`, plus `run.output_dir`, together
+when starting a new named run.
 Set a unique `run.id`, and make `run.manifest` point at the generated manifest.
 The run ID is durable: rerunning the same config resumes completed work, while
 reusing the ID with a changed config is rejected.
@@ -35,10 +46,8 @@ reusing the ID with a changed config is rejected.
 Start the evaluation stack and run the matrix:
 
 ```bash
-make eval-v2-up \
-  MANIFEST=runs/groupmembench-v2-selection/manifest.json \
-  RUN_ID=groupmembench-finance-v2-example
-make eval-v2 CONFIG=evals/v2/config.yaml
+make eval-v2-up
+make eval-v2
 make eval-v2-down
 ```
 
