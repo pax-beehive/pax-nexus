@@ -2,7 +2,7 @@
 set -eu
 
 : "${PAXM_AGENT_ID:?PAXM_AGENT_ID is required}"
-: "${TEAM_MEMORY_API_KEY:?TEAM_MEMORY_API_KEY is required}"
+: "${PAXM_PROVIDER_TYPE:=team-memory}"
 : "${TEAM_MEMORY_BASE_URL:=http://team-memory:8080}"
 : "${PAXM_USER_ID:=eval-owner}"
 : "${PAXM_RECALL_ENABLED:=1}"
@@ -16,30 +16,51 @@ opencode_config="${config_root}/opencode"
 mkdir -p "${opencode_config}/plugins" "${config_root}/data"
 cp /opt/paxm/paxm.js "${opencode_config}/plugins/paxm.js"
 
-cat > "${paxm_config}" <<EOF
-version: 1
-providers:
-  team-memory:
-    type: jsonrpc
+case "${PAXM_PROVIDER_TYPE}" in
+  team-memory)
+    : "${TEAM_MEMORY_API_KEY:?TEAM_MEMORY_API_KEY is required for team-memory}"
+    provider_config="type: jsonrpc
     enabled: true
     transport: stdio
     command: /usr/local/bin/paxm-team-memory-provider
     timeout: ${TEAM_MEMORY_PROVIDER_TIMEOUT}
     env:
-      TEAM_MEMORY_BASE_URL: "${TEAM_MEMORY_BASE_URL}"
-      TEAM_MEMORY_API_KEY: "${TEAM_MEMORY_API_KEY}"
-      PAXM_USER_ID: "${PAXM_USER_ID}"
-      PAXM_AGENT_ID: "${PAXM_AGENT_ID}"
-      TEAM_MEMORY_REQUEST_TIMEOUT: "${TEAM_MEMORY_REQUEST_TIMEOUT}"
+      TEAM_MEMORY_BASE_URL: \"${TEAM_MEMORY_BASE_URL}\"
+      TEAM_MEMORY_API_KEY: \"${TEAM_MEMORY_API_KEY}\"
+      PAXM_USER_ID: \"${PAXM_USER_ID}\"
+      PAXM_AGENT_ID: \"${PAXM_AGENT_ID}\"
+      TEAM_MEMORY_REQUEST_TIMEOUT: \"${TEAM_MEMORY_REQUEST_TIMEOUT}\""
+    ;;
+  mem0)
+    : "${MEM0_BASE_URL:=http://mem0:8000}"
+    : "${MEM0_RUN_ID:?MEM0_RUN_ID is required for eval isolation}"
+    provider_config="type: mem0
+    enabled: true
+    base_url: \"${MEM0_BASE_URL}\"
+    api_key: \"${MEM0_API_KEY:-}\"
+    user_id: \"${PAXM_USER_ID}\"
+    run_id: \"${MEM0_RUN_ID}\""
+    ;;
+  *)
+    echo "unsupported PAXM_PROVIDER_TYPE: ${PAXM_PROVIDER_TYPE}" >&2
+    exit 1
+    ;;
+esac
+
+cat > "${paxm_config}" <<EOF
+version: 1
+providers:
+  memory:
+    ${provider_config}
 recall_profiles:
   default:
     providers:
-      - name: team-memory
+      - name: memory
         required: true
     max_results: 5
   passive:
     providers:
-      - name: team-memory
+      - name: memory
         required: true
     max_results: 5
     thresholds:
@@ -47,7 +68,7 @@ recall_profiles:
       min_score: 0.75
   passive_initial:
     providers:
-      - name: team-memory
+      - name: memory
         required: true
     max_results: 5
     thresholds:
@@ -57,7 +78,7 @@ write_profiles:
   ltm:
     tier: ltm
     providers:
-      - name: team-memory
+      - name: memory
         required: true
 agents:
   opencode:

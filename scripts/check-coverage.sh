@@ -12,7 +12,7 @@ go test ./... -count=1 -covermode=atomic -coverprofile="${raw_profile}"
 awk '
 NR == 1 { print; next }
 $1 !~ /\/internal\/teamnote\/transport\/httpapi\/(model|router)\// &&
-$1 !~ /\/internal\/platform\/postgres\// && $1 !~ /\/mocks\// &&
+$1 !~ /\/internal\/platform\/postgres\// && $1 !~ /\/internal\/eval\/v2\/postgresstore\// && $1 !~ /\/mocks\// &&
 $1 !~ /\/cmd\// && $1 !~ /\.gen\.go:/ { print }
 ' "${raw_profile}" > "${profile}"
 

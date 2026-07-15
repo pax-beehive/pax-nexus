@@ -1,0 +1,89 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: team_memory
+      POSTGRES_USER: team_memory
+      POSTGRES_PASSWORD: team_memory
+    ports:
+      - "${EVAL_V2_POSTGRES_PORT:-55433}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U team_memory -d team_memory"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+    volumes:
+      - eval-v2-postgres:/var/lib/postgresql/data
+
+  team-memory:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    environment:
+      TEAM_MEMORY_DATABASE_URL: postgres://team_memory:team_memory@postgres:5432/team_memory?sslmode=disable
+      TEAM_MEMORY_API_KEYS: '${TEAM_MEMORY_API_KEYS:?TEAM_MEMORY_API_KEYS is required}'
+      TEAM_MEMORY_EXTRACTOR_MODE: ${TEAM_MEMORY_EXTRACTOR_MODE:-openai}
+      TEAM_MEMORY_EXTRACTOR_BASE_URL: ${TEAM_MEMORY_EXTRACTOR_BASE_URL:-https://api.deepseek.com}
+      TEAM_MEMORY_EXTRACTOR_API_KEY: ${TEAM_MEMORY_EXTRACTOR_API_KEY:?TEAM_MEMORY_EXTRACTOR_API_KEY is required}
+      TEAM_MEMORY_EXTRACTOR_MODEL: ${TEAM_MEMORY_EXTRACTOR_MODEL:-deepseek-v4-flash}
+      TEAM_MEMORY_PROMPT_VERSION: ${TEAM_MEMORY_PROMPT_VERSION:-v1}
+      TEAM_MEMORY_WORKER_SHARDS: ${TEAM_MEMORY_WORKER_SHARDS:-4}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  mem0-postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${MEM0_POSTGRES_PASSWORD:-mem0-eval-password}
+      POSTGRES_DB: postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -q -d postgres -U postgres"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    volumes:
+      - eval-v2-mem0-postgres:/var/lib/postgresql/data
+      - ./mem0-init.sql:/docker-entrypoint-initdb.d/001-init.sql:ro
+
+  mem0:
+    image: ${MEM0_IMAGE:-mem0/mem0-api-server:latest}
+    environment:
+      OPENAI_API_KEY: ${MEM0_OPENAI_API_KEY:?MEM0_OPENAI_API_KEY is required}
+      POSTGRES_HOST: mem0-postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${MEM0_POSTGRES_PASSWORD:-mem0-eval-password}
+      POSTGRES_COLLECTION_NAME: memories
+      APP_DB_NAME: mem0_app
+      JWT_SECRET: ${MEM0_JWT_SECRET:-eval-only-jwt-secret-change-me}
+      AUTH_DISABLED: "true"
+      MEM0_TELEMETRY: "false"
+      MEM0_DEFAULT_LLM_MODEL: ${MEM0_DEFAULT_LLM_MODEL:-gpt-4.1-nano-2025-04-14}
+      MEM0_DEFAULT_EMBEDDER_MODEL: ${MEM0_DEFAULT_EMBEDDER_MODEL:-text-embedding-3-small}
+    depends_on:
+      mem0-postgres:
+        condition: service_healthy
+
+  opencode:
+    build:
+      context: ../..
+      dockerfile: evals/opencode/docker/opencode/Dockerfile
+      additional_contexts:
+        paxm: ${PAXM_SOURCE_DIR:?PAXM_SOURCE_DIR is required}
+      args:
+        OPENCODE_VERSION: ${OPENCODE_VERSION:-1.17.20}
+    environment:
+      OPENCODE_MODEL: ${OPENCODE_MODEL:?OPENCODE_MODEL is required}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+    depends_on:
+      - team-memory
+      - mem0
+
+volumes:
+  eval-v2-postgres:
+  eval-v2-mem0-postgres:

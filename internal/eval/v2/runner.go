@@ -1,0 +1,246 @@
+package v2
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"os"
+	"path/filepath"
+	"sync"
+	"time"
+
+	"github.com/pax-beehive/pax-nexus/internal/eval/harness"
+	"github.com/pax-beehive/pax-nexus/internal/platform/observability"
+)
+
+type Runner struct {
+	store    Store
+	executor Executor
+	logger   *slog.Logger
+	now      func() time.Time
+}
+
+func NewRunner(store Store, executor Executor, logger *slog.Logger) (*Runner, error) {
+	if store == nil || executor == nil {
+		return nil, fmt.Errorf("create eval runner: store and executor are required")
+	}
+	if logger == nil {
+		logger = observability.DiscardLogger()
+	}
+	return &Runner{store: store, executor: executor, logger: logger, now: func() time.Time { return time.Now().UTC() }}, nil
+}
+
+func (r *Runner) Run(ctx context.Context, config Config, cases []Case, revision string) (returnedErr error) {
+	if err := config.Validate(); err != nil {
+		return err
+	}
+	if len(cases) == 0 {
+		return fmt.Errorf("run eval: cases are required")
+	}
+	runtimeValues, err := config.ResolveRuntime(os.Getenv)
+	if err != nil {
+		return err
+	}
+	hash, err := config.HashWithRuntime(runtimeValues)
+	if err != nil {
+		return err
+	}
+	run := RunRecord{ID: config.Run.ID, Dataset: config.Run.Dataset, DatasetRevision: revision, ConfigHash: hash, Config: config, Runtime: runtimeValues}
+	acquired, err := r.store.Acquire(ctx, run.ID)
+	if err != nil {
+		return fmt.Errorf("acquire eval run: %w", err)
+	}
+	if !acquired {
+		return fmt.Errorf("acquire eval run: run %q is already active", run.ID)
+	}
+	defer func() {
+		if err := r.store.Release(context.Background(), run.ID); err != nil {
+			returnedErr = errors.Join(returnedErr, fmt.Errorf("release eval run: %w", err))
+		}
+	}()
+	trials := trialKeys(run.ID, cases, config.Arms)
+	if err := r.store.Initialize(ctx, run, trials); err != nil {
+		return fmt.Errorf("initialize eval run: %w", err)
+	}
+	if err := r.store.ResetRunning(ctx, run.ID); err != nil {
+		return fmt.Errorf("reset interrupted eval trials: %w", err)
+	}
+	if err := os.MkdirAll(config.Run.OutputDir, 0o755); err != nil {
+		return fmt.Errorf("create eval output directory: %w", err)
+	}
+	lifecycleVariables := map[string]string{
+		"run_id": run.ID, "dataset": run.Dataset, "dataset_revision": run.DatasetRevision,
+		"manifest": config.Run.Manifest, "output_dir": config.Run.OutputDir,
+	}
+	if config.BeforeRun != nil {
+		if _, err := r.executor.Execute(ctx, *config.BeforeRun, lifecycleVariables, filepath.Join(config.Run.OutputDir, "before-run.log"), filepath.Join(config.Run.OutputDir, "before-run.stderr.log")); err != nil {
+			return fmt.Errorf("prepare eval run: %w", err)
+		}
+	}
+	if config.AfterRun != nil {
+		defer func() {
+			teardownCtx, cancel := context.WithTimeout(context.Background(), time.Minute)
+			defer cancel()
+			if _, err := r.executor.Execute(teardownCtx, *config.AfterRun, lifecycleVariables, filepath.Join(config.Run.OutputDir, "after-run.log"), filepath.Join(config.Run.OutputDir, "after-run.stderr.log")); err != nil {
+				r.logger.Error("tear down eval run", "error", err)
+				returnedErr = errors.Join(returnedErr, fmt.Errorf("tear down eval run: %w", err))
+			}
+		}()
+	}
+	timeout, err := config.Timeout()
+	if err != nil {
+		return err
+	}
+	if err := r.runTrials(ctx, run, cases, config, timeout); err != nil {
+		return err
+	}
+	results, err := r.store.Results(ctx, run.ID)
+	if err != nil {
+		return fmt.Errorf("load eval results: %w", err)
+	}
+	if err := ExportArtifacts(config.Run.OutputDir, run, config.BaselineArm, config.OutputFormats(), results); err != nil {
+		return err
+	}
+	if err := r.store.Finish(ctx, run.ID); err != nil {
+		return fmt.Errorf("finish eval run: %w", err)
+	}
+	r.logger.InfoContext(ctx, "eval v2 completed", "run_id", run.ID, "trials", len(results), "output_dir", config.Run.OutputDir)
+	return nil
+}
+
+func (r *Runner) runTrials(ctx context.Context, run RunRecord, cases []Case, config Config, timeout time.Duration) error {
+	type job struct {
+		evalCase Case
+		arm      ArmConfig
+	}
+	jobs := make(chan job)
+	errCh := make(chan error, 1)
+	workerCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var workers sync.WaitGroup
+	for range config.Run.Parallelism {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			for current := range jobs {
+				if err := r.runTrial(workerCtx, run, current.evalCase, current.arm, config.RetryFailed, timeout, config.Run.OutputDir); err != nil {
+					select {
+					case errCh <- err:
+						cancel()
+					default:
+					}
+					return
+				}
+			}
+		}()
+	}
+sendLoop:
+	for _, evalCase := range cases {
+		for _, arm := range config.Arms {
+			select {
+			case jobs <- job{evalCase: evalCase, arm: arm}:
+			case <-workerCtx.Done():
+				break sendLoop
+			}
+		}
+	}
+	close(jobs)
+	workers.Wait()
+	select {
+	case err := <-errCh:
+		return err
+	default:
+		return ctx.Err()
+	}
+}
+
+func (r *Runner) runTrial(ctx context.Context, run RunRecord, evalCase Case, arm ArmConfig, retryFailed bool, timeout time.Duration, outputDir string) error {
+	key := TrialKey{RunID: run.ID, CaseID: evalCase.ID, Arm: arm.Name}
+	claimed, err := r.store.Claim(ctx, key, retryFailed)
+	if err != nil {
+		return fmt.Errorf("claim eval trial %s/%s: %w", evalCase.ID, arm.Name, err)
+	}
+	if !claimed {
+		return nil
+	}
+	started := r.now()
+	trialCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	result, runErr := r.executeTrial(trialCtx, run, evalCase, arm, outputDir, started)
+	if runErr == nil {
+		if err := r.store.Complete(ctx, result); err != nil {
+			return fmt.Errorf("complete eval trial %s/%s: %w", evalCase.ID, arm.Name, err)
+		}
+		r.logger.InfoContext(ctx, "eval trial completed", "case_id", evalCase.ID, "arm", arm.Name, "token_f1", result.TokenF1)
+		return nil
+	}
+	failed := failureResult(run, evalCase, arm.Name, started, runErr)
+	if err := r.store.Fail(ctx, failed); err != nil {
+		return errors.Join(fmt.Errorf("run eval trial %s/%s: %w", evalCase.ID, arm.Name, runErr), fmt.Errorf("persist eval failure: %w", err))
+	}
+	r.logger.ErrorContext(ctx, "eval trial failed", "case_id", evalCase.ID, "arm", arm.Name, "error", runErr)
+	return nil
+}
+
+func (r *Runner) executeTrial(ctx context.Context, run RunRecord, evalCase Case, arm ArmConfig, outputDir string, started time.Time) (TrialResult, error) {
+	variables := trialVariables(run, evalCase, arm.Name, outputDir)
+	artifactDir := variables["artifact_dir"]
+	durations := [3]time.Duration{}
+	if arm.Producer != nil {
+		result, err := r.executor.Execute(ctx, *arm.Producer, variables, filepath.Join(artifactDir, "producer.jsonl"), filepath.Join(artifactDir, "producer.stderr.log"))
+		if err != nil {
+			return TrialResult{}, fmt.Errorf("run producer: %w", err)
+		}
+		durations[0] = result.Duration
+	}
+	if arm.AfterProducer != nil {
+		result, err := r.executor.Execute(ctx, *arm.AfterProducer, variables, filepath.Join(artifactDir, "readiness.log"), filepath.Join(artifactDir, "readiness.stderr.log"))
+		if err != nil {
+			return TrialResult{}, fmt.Errorf("wait for memory: %w", err)
+		}
+		durations[1] = result.Duration
+	}
+	consumer, err := r.executor.Execute(ctx, arm.Consumer, variables, filepath.Join(artifactDir, "consumer.jsonl"), filepath.Join(artifactDir, "consumer.stderr.log"))
+	if err != nil {
+		return TrialResult{}, fmt.Errorf("run consumer: %w", err)
+	}
+	durations[2] = consumer.Duration
+	output, err := harness.ParseOpenCodeJSON(bytes.NewReader(consumer.Output))
+	if err != nil {
+		return TrialResult{}, fmt.Errorf("parse consumer output: %w", err)
+	}
+	return ScoreResult(run, evalCase, arm.Name, output, started, durations), nil
+}
+
+func trialKeys(runID string, cases []Case, arms []ArmConfig) []TrialKey {
+	result := make([]TrialKey, 0, len(cases)*len(arms))
+	for _, evalCase := range cases {
+		for _, arm := range arms {
+			result = append(result, TrialKey{RunID: runID, CaseID: evalCase.ID, Arm: arm.Name})
+		}
+	}
+	return result
+}
+
+func trialVariables(run RunRecord, evalCase Case, arm, outputDir string) map[string]string {
+	artifactDir := filepath.Join(outputDir, "trials", evalCase.ID, arm)
+	return map[string]string{
+		"run_id": run.ID, "dataset": run.Dataset, "dataset_revision": run.DatasetRevision,
+		"case_id": evalCase.ID, "category": evalCase.Category, "arm": arm,
+		"question": evalCase.Question, "expected": evalCase.Expected, "user_id": evalCase.AskingUserID,
+		"scope_id": evalCase.ScopeID, "producer_workspace": evalCase.ProducerWorkspace,
+		"consumer_workspace": evalCase.ConsumerWorkspace, "artifact_dir": artifactDir,
+	}
+}
+
+func failureResult(run RunRecord, evalCase Case, arm string, started time.Time, err error) TrialResult {
+	completed := time.Now().UTC()
+	return TrialResult{
+		RunID: run.ID, Dataset: run.Dataset, DatasetRevision: run.DatasetRevision,
+		CaseID: evalCase.ID, Category: evalCase.Category, Arm: arm, AskingUserID: evalCase.AskingUserID,
+		Status: "failed", Expected: evalCase.Expected, StartedAt: started, CompletedAt: completed,
+		TotalDurationMS: completed.Sub(started).Milliseconds(), Error: err.Error(),
+	}
+}

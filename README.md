@@ -29,12 +29,15 @@ internal/teamnote/runtime/              Team Note orchestration
 internal/teamnote/transport/httpapi/    Hertz adapter generated from Thrift IDL
 internal/teamnote/paxmprovider/         paxm bridge to Team Note HTTP
 internal/eval/                          Evaluation harness and benchmark adapters
+internal/eval/v2/                       Resumable multi-arm evaluation engine
 internal/llmwiki/                       Reserved durable LLM Wiki module
 internal/platform/                      Shared PostgreSQL and observability adapters
 evals/opencode/                         Two-OpenCode scenarios and Docker orchestration
+evals/v2/                               Team Note versus self-hosted Mem0 configuration
 idl/                                    Thrift source of truth for HTTP interfaces
 cmd/paxm-team-memory-provider paxm provider process used by OpenCode
 cmd/team-memory-eval/        Deterministic OpenCode output scorer
+cmd/team-memory-eval-v2/     Durable configuration-driven evaluation runner
 ```
 
 Team Note and LLM Wiki are independent product modules. Both consume Session
@@ -97,6 +100,10 @@ See [the design draft](doc/team-note-design.md) and the
 [OpenCode eval layout](evals/opencode/README.md). The exact extraction schema
 and recall participation rules are documented in
 [extraction and recall](doc/extraction-and-recall.md).
+
+For longer paired runs, Eval v2 persists a control, Team Note, and self-hosted
+Mem0 matrix in PostgreSQL and exports CSV/JSONL rather than an HTML dashboard.
+See [the Eval v2 runbook](evals/v2/README.md).
 
 ## Development gates
 

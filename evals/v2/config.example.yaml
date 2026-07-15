@@ -1,0 +1,47 @@
+version: v2
+run:
+  id: groupmembench-finance-v2-example
+  dataset: GroupMemBench
+  manifest: runs/groupmembench-v2-selection/manifest.json
+  output_dir: runs/eval-v2/groupmembench-finance-v2-example
+  parallelism: 4
+store:
+  dsn_env: EVAL_V2_POSTGRES_DSN
+baseline_arm: control
+retry_failed: true
+trial_timeout: 8m
+runtime_env:
+  - OPENCODE_MODEL
+  - OPENCODE_VERSION
+  - TEAM_MEMORY_EXTRACTOR_MODEL
+  - TEAM_MEMORY_PROMPT_VERSION
+  - MEM0_IMAGE
+  - MEM0_DEFAULT_LLM_MODEL
+  - MEM0_DEFAULT_EMBEDDER_MODEL
+output:
+  formats: [csv, jsonl]
+arms:
+  - name: control
+    consumer:
+      program: scripts/eval-v2-opencode.sh
+      args: [consumer, control]
+  - name: team_note
+    producer:
+      program: scripts/eval-v2-opencode.sh
+      args: [producer, team_note]
+    after_producer:
+      program: scripts/eval-v2-opencode.sh
+      args: [ready, team_note]
+    consumer:
+      program: scripts/eval-v2-opencode.sh
+      args: [consumer, team_note]
+  - name: mem0
+    producer:
+      program: scripts/eval-v2-opencode.sh
+      args: [producer, mem0]
+    after_producer:
+      program: scripts/eval-v2-opencode.sh
+      args: [ready, mem0]
+    consumer:
+      program: scripts/eval-v2-opencode.sh
+      args: [consumer, mem0]
