@@ -535,12 +535,20 @@ func (s *entrypointSuite) TestPassiveRecallProfilesUseConfiguredProviderTimeout(
 		} `yaml:"recall_profiles"`
 	}
 	s.Require().NoError(yaml.Unmarshal(input, &config))
-	for _, profileName := range []string{"passive", "passive_initial"} {
-		profile, ok := config.RecallProfiles[profileName]
-		s.Require().True(ok, profileName)
-		s.Require().Len(profile.Providers, 1, profileName)
-		s.Equal("memory", profile.Providers[0].Name, profileName)
-		s.Equal("2s", profile.Providers[0].Timeout, profileName)
+	for _, test := range []struct {
+		name    string
+		profile string
+	}{
+		{name: "passive recall", profile: "passive"},
+		{name: "initial passive recall", profile: "passive_initial"},
+	} {
+		s.Run(test.name, func() {
+			profile, ok := config.RecallProfiles[test.profile]
+			s.Require().True(ok)
+			s.Require().Len(profile.Providers, 1)
+			s.Equal("memory", profile.Providers[0].Name)
+			s.Equal("2s", profile.Providers[0].Timeout)
+		})
 	}
 }
 
