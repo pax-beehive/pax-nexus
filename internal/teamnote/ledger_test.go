@@ -194,6 +194,15 @@ func (s *ledgerSuite) TestAdmissionRejectsUnsafeCandidates() {
 			},
 			events: []teamnote.SessionEvent{otherTaskEvidence}, wantError: teamnote.ErrMissingEvidence,
 		},
+		{
+			name: "omitted task scope",
+			candidate: teamnote.Candidate{
+				ID: "task-omitted", Action: teamnote.ActionCreate, Kind: teamnote.KindStatus,
+				Subject: "build", Body: "The build passed.", Origin: evidence.Actor,
+				EvidenceEventIDs: []string{evidence.ID},
+			},
+			events: []teamnote.SessionEvent{evidence}, wantError: teamnote.ErrMissingEvidence,
+		},
 	}
 
 	for _, test := range tests {
@@ -227,7 +236,7 @@ func (s *ledgerSuite) TestStatusIdentityPreservesDifferentAgentReports() {
 	envelope, err := s.ledger.Recall(context.Background(), consumerRecall("release-42", "status-conflict-consumer"))
 	s.Require().NoError(err)
 	s.Len(envelope.Items, 2)
-	s.ElementsMatch([]string{
+	s.Equal([]string{
 		"[status certainty=confirmed] The rollout is ready for review.",
 		"[status certainty=confirmed] The rollout is blocked on approval.",
 	}, envelope.Items)
@@ -249,6 +258,11 @@ func (s *ledgerSuite) TestExtractionRunRejectsMismatchedReplay() {
 	s.Require().NoError(err)
 
 	run.InputChecksum = "checksum-two"
+	_, err = s.ledger.ApplyRun(context.Background(), run)
+	s.Require().ErrorIs(err, teamnote.ErrExtractionRunConflict)
+
+	run.InputChecksum = "checksum-one"
+	run.Candidates[0].Body = "The rollout changed after the durable result."
 	_, err = s.ledger.ApplyRun(context.Background(), run)
 	s.Require().ErrorIs(err, teamnote.ErrExtractionRunConflict)
 }
@@ -279,6 +293,7 @@ func (s *ledgerSuite) TestAudienceAndBudgetAreEnforced() {
 
 func (s *ledgerSuite) TestQueryPrioritizesRelevantCurrentFact() {
 	generalEvidence := producerEvent("event-general", "The release has a blocker.")
+	generalEvidence.TaskRef = ""
 	_, err := s.ledger.Apply(context.Background(), teamnote.Candidate{
 		ID: "candidate-general", Action: teamnote.ActionCreate, Kind: teamnote.KindBlocker,
 		Subject: "release blocker", Body: "The release has a blocker.", Origin: generalEvidence.Actor,
@@ -287,6 +302,7 @@ func (s *ledgerSuite) TestQueryPrioritizesRelevantCurrentFact() {
 	s.Require().NoError(err)
 
 	temporalEvidence := producerEvent("event-temporal", "The deadline moved to July 18.")
+	temporalEvidence.TaskRef = ""
 	temporalEvidence.OccurredAt = temporalEvidence.OccurredAt.Add(time.Minute)
 	_, err = s.ledger.Apply(context.Background(), teamnote.Candidate{
 		ID: "candidate-temporal", Action: teamnote.ActionUpdate, Kind: teamnote.KindStatus,
@@ -318,6 +334,7 @@ func (s *ledgerSuite) TestQueryFiltersIrrelevantNotesAndEnforcesItemLimit() {
 	}
 	for index, test := range tests {
 		evidence := producerEvent("event-"+test.id, test.body)
+		evidence.TaskRef = ""
 		evidence.OccurredAt = evidence.OccurredAt.Add(time.Duration(index) * time.Minute)
 		_, err := s.ledger.Apply(context.Background(), teamnote.Candidate{
 			ID: test.id, Action: teamnote.ActionCreate, Kind: teamnote.KindStatus,
@@ -347,6 +364,7 @@ func (s *ledgerSuite) TestQueryFiltersIrrelevantNotesAndEnforcesItemLimit() {
 
 func (s *ledgerSuite) TestFirstPersonQueryPrefersTheAskingUsersOwnSource() {
 	otherEvidence := producerEvent("event-other-assignment", "The rollout assignment is to validate billing.")
+	otherEvidence.TaskRef = ""
 	otherEvidence.Actor.UserID = "User_7"
 	otherEvidence.OccurredAt = otherEvidence.OccurredAt.Add(time.Minute)
 	_, err := s.ledger.Apply(context.Background(), teamnote.Candidate{
@@ -357,6 +375,7 @@ func (s *ledgerSuite) TestFirstPersonQueryPrefersTheAskingUsersOwnSource() {
 	s.Require().NoError(err)
 
 	ownEvidence := producerEvent("event-own-assignment", "The rollout assignment is to verify exports.")
+	ownEvidence.TaskRef = ""
 	_, err = s.ledger.Apply(context.Background(), teamnote.Candidate{
 		ID: "candidate-own-assignment", Action: teamnote.ActionCreate, Kind: teamnote.KindStatus,
 		Subject: "rollout assignment", Body: "The rollout assignment is to verify exports.",
@@ -376,6 +395,7 @@ func (s *ledgerSuite) TestFirstPersonQueryPrefersTheAskingUsersOwnSource() {
 
 func (s *ledgerSuite) TestRecallComposesOneHopRelatedFact() {
 	postingEvidence := producerEvent("event-posting", "User_7 must post final Ops rows by 2025-07-17.")
+	postingEvidence.TaskRef = ""
 	_, err := s.ledger.Apply(context.Background(), teamnote.Candidate{
 		ID: "candidate-posting", Action: teamnote.ActionCreate, Kind: teamnote.KindStatus,
 		Subject: "posting final Ops rows", Body: "User_7 must post final Ops rows by 2025-07-17.",
@@ -384,6 +404,7 @@ func (s *ledgerSuite) TestRecallComposesOneHopRelatedFact() {
 	s.Require().NoError(err)
 
 	reviewEvidence := producerEvent("event-review", "Legal reviews the provisional rows after User_7 posts them.")
+	reviewEvidence.TaskRef = ""
 	reviewEvidence.OccurredAt = reviewEvidence.OccurredAt.Add(time.Minute)
 	_, err = s.ledger.Apply(context.Background(), teamnote.Candidate{
 		ID: "candidate-review", Action: teamnote.ActionCreate, Kind: teamnote.KindHandoff,

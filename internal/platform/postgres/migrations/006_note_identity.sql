@@ -5,7 +5,7 @@ UPDATE team_notes
 SET note_key = note_key || octet_length(origin_agent_id)::text || ':' || origin_agent_id,
     identity_version = 2
 WHERE identity_version < 2
-  AND kind IN ('status', 'blocker', 'handoff');
+  AND kind IN ('status', 'handoff');
 
 UPDATE team_notes
 SET identity_version = 2

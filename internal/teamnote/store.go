@@ -2,6 +2,10 @@ package teamnote
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
 	"sync"
 )
 
@@ -12,17 +16,33 @@ type NoteStore interface {
 
 // ExtractionRun is one durable extraction decision over a bounded Session Slice.
 type ExtractionRun struct {
-	ID            string
-	Actor         Actor
-	FromSequence  int64
-	ToSequence    int64
-	InputChecksum string
-	Model         string
-	PromptVersion string
-	InputTokens   int
-	OutputTokens  int
-	Candidates    []Candidate
-	Evidence      []SessionEvent
+	ID                string
+	Actor             Actor
+	FromSequence      int64
+	ToSequence        int64
+	InputChecksum     string
+	CandidateChecksum string
+	Model             string
+	PromptVersion     string
+	InputTokens       int
+	OutputTokens      int
+	Candidates        []Candidate
+	Evidence          []SessionEvent
+}
+
+// NormalizeExtractionRun binds one idempotency key to the complete Candidate batch.
+func NormalizeExtractionRun(run ExtractionRun) (ExtractionRun, error) {
+	encoded, err := json.Marshal(run.Candidates)
+	if err != nil {
+		return ExtractionRun{}, fmt.Errorf("encode extraction run candidates: %w", err)
+	}
+	sum := sha256.Sum256(encoded)
+	checksum := hex.EncodeToString(sum[:])
+	if run.CandidateChecksum != "" && run.CandidateChecksum != checksum {
+		return ExtractionRun{}, fmt.Errorf("candidate checksum for extraction run %q: %w", run.ID, ErrExtractionRunConflict)
+	}
+	run.CandidateChecksum = checksum
+	return run, nil
 }
 
 type ScopedLedgerStore struct {

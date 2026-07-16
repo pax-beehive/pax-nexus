@@ -151,7 +151,10 @@ func sortRecallCandidates(candidates []RecallCandidate, request RecallRequest) {
 		if !candidates[left].SourceOccurredAt.Equal(candidates[right].SourceOccurredAt) {
 			return candidates[left].SourceOccurredAt.After(candidates[right].SourceOccurredAt)
 		}
-		return candidates[left].UpdatedAt.After(candidates[right].UpdatedAt)
+		if !candidates[left].UpdatedAt.Equal(candidates[right].UpdatedAt) {
+			return candidates[left].UpdatedAt.After(candidates[right].UpdatedAt)
+		}
+		return candidates[left].ID < candidates[right].ID
 	})
 }
 

@@ -113,37 +113,41 @@ func (s *noteStoreSuite) TestExtractionRunPersistsZeroCandidateProvenance() {
 	s.appendEvents(ctx, scopeID, evidence)
 	notes := s.newNoteStore()
 
-	admitted, err := notes.ApplyExtractionRun(ctx, scopeID, teamnote.ExtractionRun{
+	run := teamnote.ExtractionRun{
 		ID: "zero-candidate-run", Actor: producer, FromSequence: 1, ToSequence: 1,
 		InputChecksum: "zero-candidate-checksum", Model: "extractor-model", PromptVersion: "prompt-v2",
 		InputTokens: 41, OutputTokens: 3, Evidence: []teamnote.SessionEvent{evidence},
-	})
+	}
+	admitted, err := notes.ApplyExtractionRun(ctx, scopeID, run)
 	s.Require().NoError(err)
 	s.Empty(admitted)
 
-	var status, model, promptVersion string
-	var fromSequence, toSequence int64
-	var inputTokens, outputTokens int
-	err = s.store.Pool().QueryRow(ctx, `
-SELECT status, model, prompt_version, from_sequence, to_sequence, input_tokens, output_tokens
-FROM extraction_runs WHERE scope_id = $1 AND run_id = $2`, scopeID, "zero-candidate-run").Scan(
-		&status, &model, &promptVersion, &fromSequence, &toSequence, &inputTokens, &outputTokens,
-	)
+	replayed, err := notes.ApplyExtractionRun(ctx, scopeID, run)
 	s.Require().NoError(err)
-	s.Equal("completed", status)
-	s.Equal("extractor-model", model)
-	s.Equal("prompt-v2", promptVersion)
-	s.Equal(int64(1), fromSequence)
-	s.Equal(int64(1), toSequence)
-	s.Equal(41, inputTokens)
-	s.Equal(3, outputTokens)
+	s.Empty(replayed)
 
-	_, err = notes.ApplyExtractionRun(ctx, scopeID, teamnote.ExtractionRun{
-		ID: "zero-candidate-run", Actor: producer, FromSequence: 1, ToSequence: 1,
-		InputChecksum: "changed-checksum", Model: "extractor-model", PromptVersion: "prompt-v2",
-		InputTokens: 41, OutputTokens: 3, Evidence: []teamnote.SessionEvent{evidence},
-	})
-	s.Require().ErrorIs(err, teamnote.ErrExtractionRunConflict)
+	tests := []struct {
+		name   string
+		mutate func(*teamnote.ExtractionRun)
+	}{
+		{name: "input checksum", mutate: func(changed *teamnote.ExtractionRun) { changed.InputChecksum = "changed-checksum" }},
+		{name: "model", mutate: func(changed *teamnote.ExtractionRun) { changed.Model = "changed-model" }},
+		{name: "prompt version", mutate: func(changed *teamnote.ExtractionRun) { changed.PromptVersion = "prompt-v3" }},
+		{name: "usage", mutate: func(changed *teamnote.ExtractionRun) { changed.InputTokens++ }},
+		{name: "candidate batch", mutate: func(changed *teamnote.ExtractionRun) {
+			changed.Candidates = []teamnote.Candidate{
+				candidate("changed-candidate", teamnote.ActionCreate, "changed", producer, evidence.ID),
+			}
+		}},
+	}
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			changed := run
+			test.mutate(&changed)
+			_, replayErr := notes.ApplyExtractionRun(ctx, scopeID, changed)
+			s.Require().ErrorIs(replayErr, teamnote.ErrExtractionRunConflict)
+		})
+	}
 }
 
 func (s *noteStoreSuite) TestExtractionRunRejectsPartialCandidateBatchAtomically() {
@@ -382,7 +386,7 @@ func (s *noteStoreSuite) TestStatusIdentityPreservesDifferentAgentReports() {
 	})
 	s.Require().NoError(err)
 	s.Require().Len(envelope.Items, 2)
-	s.ElementsMatch([]string{
+	s.Equal([]string{
 		"[status certainty=confirmed] Agent one reports ready.",
 		"[status certainty=confirmed] Agent two reports blocked.",
 	}, envelope.Items)

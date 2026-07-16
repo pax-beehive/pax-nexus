@@ -73,6 +73,11 @@ func (s *NoteStore) ApplyCandidate(ctx context.Context, scopeID, runID string, c
 }
 
 func (s *NoteStore) ApplyExtractionRun(ctx context.Context, scopeID string, run teamnote.ExtractionRun) (notes []teamnote.Note, returnedErr error) {
+	var err error
+	run, err = teamnote.NormalizeExtractionRun(run)
+	if err != nil {
+		return nil, err
+	}
 	if err := validateExtractionRun(scopeID, run); err != nil {
 		return nil, err
 	}
@@ -207,11 +212,11 @@ func ensureExtractionRun(ctx context.Context, tx pgx.Tx, scopeID string, run tea
 	result, err := tx.Exec(ctx, `
 INSERT INTO extraction_runs (
     scope_id, run_id, user_id, agent_id, session_id, from_sequence, to_sequence,
-    input_checksum, model, prompt_version, status, input_tokens, output_tokens
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'processing', $11, $12)
+    input_checksum, candidate_checksum, model, prompt_version, status, input_tokens, output_tokens
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'processing', $12, $13)
 ON CONFLICT (scope_id, run_id) DO NOTHING`,
 		scopeID, run.ID, run.Actor.UserID, run.Actor.AgentID, run.Actor.SessionID, run.FromSequence, run.ToSequence,
-		run.InputChecksum, run.Model, run.PromptVersion, run.InputTokens, run.OutputTokens)
+		run.InputChecksum, run.CandidateChecksum, run.Model, run.PromptVersion, run.InputTokens, run.OutputTokens)
 	if err != nil {
 		return false, fmt.Errorf("ensure extraction run: %w", err)
 	}
@@ -223,11 +228,12 @@ func existingExtractionRunNotes(ctx context.Context, tx pgx.Tx, scopeID string, 
 	var status string
 	err := tx.QueryRow(ctx, `
 SELECT user_id, agent_id, session_id, from_sequence, to_sequence, input_checksum,
-       model, prompt_version, input_tokens, output_tokens, status
+       candidate_checksum, model, prompt_version, input_tokens, output_tokens, status
 FROM extraction_runs WHERE scope_id = $1 AND run_id = $2`, scopeID, run.ID).Scan(
 		&stored.Actor.UserID, &stored.Actor.AgentID, &stored.Actor.SessionID,
 		&stored.FromSequence, &stored.ToSequence, &stored.InputChecksum,
-		&stored.Model, &stored.PromptVersion, &stored.InputTokens, &stored.OutputTokens, &status,
+		&stored.CandidateChecksum, &stored.Model, &stored.PromptVersion,
+		&stored.InputTokens, &stored.OutputTokens, &status,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("load extraction run %q: %w", run.ID, err)
@@ -266,6 +272,7 @@ ORDER BY candidate_id`, scopeID, run.ID)
 func sameExtractionRunIdentity(left, right teamnote.ExtractionRun) bool {
 	return left.Actor == right.Actor && left.FromSequence == right.FromSequence &&
 		left.ToSequence == right.ToSequence && left.InputChecksum == right.InputChecksum &&
+		left.CandidateChecksum == right.CandidateChecksum &&
 		left.Model == right.Model && left.PromptVersion == right.PromptVersion &&
 		left.InputTokens == right.InputTokens && left.OutputTokens == right.OutputTokens
 }
@@ -274,6 +281,7 @@ func validateExtractionRun(scopeID string, run teamnote.ExtractionRun) error {
 	if strings.TrimSpace(scopeID) == "" || strings.TrimSpace(run.ID) == "" ||
 		strings.TrimSpace(run.Actor.UserID) == "" || strings.TrimSpace(run.Actor.AgentID) == "" ||
 		strings.TrimSpace(run.Actor.SessionID) == "" || strings.TrimSpace(run.InputChecksum) == "" ||
+		strings.TrimSpace(run.CandidateChecksum) == "" ||
 		run.FromSequence <= 0 || run.ToSequence < run.FromSequence || run.InputTokens < 0 || run.OutputTokens < 0 {
 		return fmt.Errorf("apply postgres extraction run: invalid scope or run")
 	}
@@ -470,8 +478,9 @@ func recallableNotes(ctx context.Context, tx pgx.Tx, scopeID string, request tea
      CASE WHEN $8 AND origin_user_id = $9 THEN 0 ELSE 1 END,
      CASE kind
      WHEN 'handoff' THEN 0 WHEN 'blocker' THEN 1 WHEN 'status' THEN 2 ELSE 3 END,
-     source_occurred_at DESC NULLS LAST,
-     updated_at DESC
+	     source_occurred_at DESC NULLS LAST,
+	     updated_at DESC,
+	     note_id ASC
 	FOR UPDATE OF team_notes`, scopeID, now, request.TaskRef, request.ThreadRef,
 		request.Actor.AgentID, request.Actor.SessionID, teamnote.SearchQuery(request.Query),
 		teamnote.QueryRequestsOwnContext(request.Query), request.Actor.UserID, vectorValue, embeddingModel)

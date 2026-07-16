@@ -164,14 +164,43 @@ func normalizeCandidates(result *Result, slice sessionlake.Slice) error {
 		if err := validateCandidateEvidence(index, candidate.EvidenceEventIDs, allEvents, newEvents); err != nil {
 			return err
 		}
+		taskRef, threadRef, err := evidenceScope(candidate.EvidenceEventIDs, slice.Events)
+		if err != nil {
+			return fmt.Errorf("extractor candidate %d scope: %w", index, err)
+		}
+		if (candidate.TaskRef != "" && candidate.TaskRef != taskRef) ||
+			(candidate.ThreadRef != "" && candidate.ThreadRef != threadRef) {
+			return fmt.Errorf("extractor candidate %d scope differs from evidence: %w", index, ErrInvalidModelResponse)
+		}
 		candidate.ID = "extract-" + checksum + "-" + strconv.Itoa(index+1)
 		candidate.Origin = slice.Actor
+		candidate.TaskRef = taskRef
+		candidate.ThreadRef = threadRef
 		// Audience is an authorization boundary owned by the server, not a
 		// classification decision delegated to the extraction model.
 		candidate.AudienceAgentIDs = nil
 		candidate.SourceOccurredAt = latestEvidenceTime(candidate.EvidenceEventIDs, slice.Events)
 	}
 	return nil
+}
+
+func evidenceScope(evidenceIDs []string, events []teamnote.SessionEvent) (string, string, error) {
+	evidence := stringSet(evidenceIDs)
+	var taskRef, threadRef string
+	found := false
+	for _, event := range events {
+		if _, ok := evidence[event.ID]; !ok {
+			continue
+		}
+		if !found {
+			taskRef, threadRef, found = event.TaskRef, event.ThreadRef, true
+			continue
+		}
+		if event.TaskRef != taskRef || event.ThreadRef != threadRef {
+			return "", "", ErrInvalidModelResponse
+		}
+	}
+	return taskRef, threadRef, nil
 }
 
 func latestEvidenceTime(evidenceIDs []string, events []teamnote.SessionEvent) time.Time {

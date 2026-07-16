@@ -114,14 +114,15 @@ type Ledger struct {
 }
 
 type extractionRunIdentity struct {
-	Actor         Actor
-	FromSequence  int64
-	ToSequence    int64
-	InputChecksum string
-	Model         string
-	PromptVersion string
-	InputTokens   int
-	OutputTokens  int
+	Actor             Actor
+	FromSequence      int64
+	ToSequence        int64
+	InputChecksum     string
+	CandidateChecksum string
+	Model             string
+	PromptVersion     string
+	InputTokens       int
+	OutputTokens      int
 }
 
 type storedExtractionRun struct {
@@ -151,6 +152,11 @@ func (l *Ledger) ApplyRun(ctx context.Context, run ExtractionRun) ([]Note, error
 		return nil, fmt.Errorf("apply extraction run context: %w", err)
 	}
 	if err := validateRunIdentity(run); err != nil {
+		return nil, err
+	}
+	var err error
+	run, err = NormalizeExtractionRun(run)
+	if err != nil {
 		return nil, err
 	}
 	l.mu.Lock()
@@ -200,7 +206,8 @@ func identityForExtractionRun(run ExtractionRun) extractionRunIdentity {
 	return extractionRunIdentity{
 		Actor: run.Actor, FromSequence: run.FromSequence, ToSequence: run.ToSequence,
 		InputChecksum: run.InputChecksum, Model: run.Model, PromptVersion: run.PromptVersion,
-		InputTokens: run.InputTokens, OutputTokens: run.OutputTokens,
+		CandidateChecksum: run.CandidateChecksum,
+		InputTokens:       run.InputTokens, OutputTokens: run.OutputTokens,
 	}
 }
 
@@ -410,8 +417,7 @@ func validateEvidence(candidate Candidate, events []SessionEvent) error {
 	for _, id := range candidate.EvidenceEventIDs {
 		event, ok := byID[id]
 		if !ok || event.Actor != candidate.Origin || !evidenceVisible(event.Visibility) ||
-			(candidate.TaskRef != "" && event.TaskRef != candidate.TaskRef) ||
-			(candidate.ThreadRef != "" && event.ThreadRef != candidate.ThreadRef) {
+			event.TaskRef != candidate.TaskRef || event.ThreadRef != candidate.ThreadRef {
 			return fmt.Errorf("candidate %q evidence %q: %w", candidate.ID, id, ErrMissingEvidence)
 		}
 	}
@@ -697,7 +703,7 @@ func CanonicalKey(candidate Candidate) string {
 		len(candidate.Kind), candidate.Kind,
 		len(candidate.Subject), candidate.Subject,
 	)
-	if candidate.Kind == KindStatus || candidate.Kind == KindBlocker || candidate.Kind == KindHandoff {
+	if candidate.Kind == KindStatus || candidate.Kind == KindHandoff {
 		key += fmt.Sprintf("%d:%s", len(candidate.Origin.AgentID), candidate.Origin.AgentID)
 	}
 	return key
