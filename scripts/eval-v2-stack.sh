@@ -18,6 +18,7 @@ case "${action}" in
     TEAM_MEMORY_API_KEYS="$(jq -c --arg run_id "${run_id}" 'reduce .cases[] as $case ({("eval-" + $run_id + "-preflight"): ($run_id + "-preflight")}; .["eval-" + $run_id + "-" + $case.id] = ($run_id + "-" + $case.scope_id) | .["eval-" + $run_id + "-" + $case.id + "-team-note-hybrid"] = ($run_id + "-" + $case.scope_id + "-team-note-hybrid"))' "${manifest}")"
     export TEAM_MEMORY_API_KEYS
     docker compose -p "${project_name}" -f "${compose_file}" build team-memory opencode mem0 mem0-configure
+    ./scripts/start-local-embedding.sh -p "${project_name}" -f "${compose_file}"
     docker compose -p "${project_name}" -f "${compose_file}" up -d --wait postgres team-memory mem0-postgres mem0
     docker compose -p "${project_name}" -f "${compose_file}" run --rm --no-deps mem0-configure
     ;;

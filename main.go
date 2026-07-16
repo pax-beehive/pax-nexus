@@ -14,6 +14,7 @@ import (
 	"github.com/cloudwego/hertz/pkg/app/server"
 	"github.com/pax-beehive/pax-nexus/internal/platform/observability"
 	"github.com/pax-beehive/pax-nexus/internal/platform/postgres"
+	"github.com/pax-beehive/pax-nexus/internal/platform/textembedding"
 	"github.com/pax-beehive/pax-nexus/internal/sessionlake"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote/extractionqueue"
@@ -21,6 +22,8 @@ import (
 	teamruntime "github.com/pax-beehive/pax-nexus/internal/teamnote/runtime"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote/transport/httpapi/handler"
 )
+
+const embeddingBackfillBatchSize = 32
 
 func main() {
 	logger := observability.NewLogger(os.Stdout)
@@ -47,9 +50,23 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	if err != nil {
 		return fmt.Errorf("initialize extractor: %w", err)
 	}
-	noteStore, err := postgres.NewNoteStore(store, teamnote.DefaultTTLPolicy(), teamnote.SystemClock{})
+	embedder, err := buildEmbedder(config)
+	if err != nil {
+		return fmt.Errorf("initialize embedding adapter: %w", err)
+	}
+	noteStore, err := postgres.NewNoteStore(store, teamnote.DefaultTTLPolicy(), teamnote.SystemClock{}, postgres.RetrievalConfig{
+		Embedder: embedder, EmbeddingModel: config.embeddingModel,
+		SemanticThreshold: config.semanticThreshold, CandidateLimit: config.retrievalCandidateLimit,
+	})
 	if err != nil {
 		return fmt.Errorf("initialize note store: %w", err)
+	}
+	backfilled, err := noteStore.BackfillEmbeddings(ctx, embeddingBackfillBatchSize)
+	if err != nil {
+		return fmt.Errorf("backfill note embeddings: %w", err)
+	}
+	if backfilled > 0 {
+		logger.Info("team note embeddings backfilled", "notes", backfilled, "model", config.embeddingModel)
 	}
 	runtime, err := teamruntime.New(sessionlake.New(store), candidateExtractor, teamruntime.Config{
 		NoteStore: noteStore, Logger: logger, SliceEventLimit: config.sliceEventLimit, SliceTokenLimit: config.sliceTokenLimit,
@@ -78,6 +95,7 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	if err := queue.Start(ctx); err != nil {
 		return fmt.Errorf("start extraction queue: %w", err)
 	}
+	go continueEmbeddingBackfill(ctx, noteStore, logger)
 
 	h := server.Default(server.WithHostPorts(config.listenAddress))
 	register(h)
@@ -92,25 +110,46 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	return nil
 }
 
+func continueEmbeddingBackfill(ctx context.Context, noteStore *postgres.NoteStore, logger *slog.Logger) {
+	for {
+		backfilled, err := noteStore.BackfillEmbeddings(ctx, embeddingBackfillBatchSize)
+		if err != nil {
+			logger.Error("team note embedding backfill failed", "error", err)
+			return
+		}
+		if backfilled > 0 {
+			logger.Info("team note embeddings backfilled", "notes", backfilled)
+		}
+		if backfilled < embeddingBackfillBatchSize {
+			return
+		}
+	}
+}
+
 type applicationConfig struct {
-	databaseURL       string
-	listenAddress     string
-	apiKeys           map[string]string
-	extractorMode     string
-	extractorBaseURL  string
-	extractorAPIKey   string
-	extractorModel    string
-	promptVersion     string
-	workerShards      int
-	workerMaxAttempts int
-	workerDebounce    time.Duration
-	batchTimeout      time.Duration
-	workerJobTimeout  time.Duration
-	workerStopTimeout time.Duration
-	sliceEventLimit   int
-	sliceTokenLimit   int
-	sliceOverlap      int
-	maxSlicesPerJob   int
+	databaseURL             string
+	listenAddress           string
+	apiKeys                 map[string]string
+	extractorMode           string
+	extractorBaseURL        string
+	extractorAPIKey         string
+	extractorModel          string
+	promptVersion           string
+	workerShards            int
+	workerMaxAttempts       int
+	workerDebounce          time.Duration
+	batchTimeout            time.Duration
+	workerJobTimeout        time.Duration
+	workerStopTimeout       time.Duration
+	sliceEventLimit         int
+	sliceTokenLimit         int
+	sliceOverlap            int
+	maxSlicesPerJob         int
+	embeddingBaseURL        string
+	embeddingModel          string
+	embeddingTimeout        time.Duration
+	semanticThreshold       float64
+	retrievalCandidateLimit int
 }
 
 func loadConfig() (applicationConfig, error) {
@@ -118,7 +157,9 @@ func loadConfig() (applicationConfig, error) {
 		databaseURL: os.Getenv("TEAM_MEMORY_DATABASE_URL"), listenAddress: os.Getenv("TEAM_MEMORY_LISTEN_ADDRESS"),
 		extractorMode: os.Getenv("TEAM_MEMORY_EXTRACTOR_MODE"), extractorBaseURL: os.Getenv("TEAM_MEMORY_EXTRACTOR_BASE_URL"),
 		extractorAPIKey: os.Getenv("TEAM_MEMORY_EXTRACTOR_API_KEY"), extractorModel: os.Getenv("TEAM_MEMORY_EXTRACTOR_MODEL"),
-		promptVersion: os.Getenv("TEAM_MEMORY_PROMPT_VERSION"),
+		promptVersion:    os.Getenv("TEAM_MEMORY_PROMPT_VERSION"),
+		embeddingBaseURL: os.Getenv("TEAM_MEMORY_EMBEDDING_BASE_URL"),
+		embeddingModel:   os.Getenv("TEAM_MEMORY_EMBEDDING_MODEL"),
 	}
 	var err error
 	if config.workerShards, err = intEnvironment("TEAM_MEMORY_WORKER_SHARDS", 16); err != nil {
@@ -151,6 +192,9 @@ func loadConfig() (applicationConfig, error) {
 	if config.maxSlicesPerJob, err = intEnvironment("TEAM_MEMORY_MAX_SLICES_PER_JOB", 4); err != nil {
 		return applicationConfig{}, err
 	}
+	if err = loadRetrievalConfig(&config); err != nil {
+		return applicationConfig{}, err
+	}
 	if config.listenAddress == "" {
 		config.listenAddress = ":8080"
 	}
@@ -159,6 +203,9 @@ func loadConfig() (applicationConfig, error) {
 	}
 	if config.promptVersion == "" {
 		config.promptVersion = "v1"
+	}
+	if config.embeddingModel == "" && strings.TrimSpace(config.embeddingBaseURL) != "" {
+		config.embeddingModel = "Qwen/Qwen3-Embedding-0.6B"
 	}
 	if strings.TrimSpace(config.databaseURL) == "" {
 		return applicationConfig{}, fmt.Errorf("TEAM_MEMORY_DATABASE_URL is required")
@@ -170,6 +217,35 @@ func loadConfig() (applicationConfig, error) {
 		return applicationConfig{}, fmt.Errorf("TEAM_MEMORY_API_KEYS must contain at least one key")
 	}
 	return config, nil
+}
+
+func loadRetrievalConfig(config *applicationConfig) error {
+	var err error
+	if config.embeddingTimeout, err = durationEnvironment("TEAM_MEMORY_EMBEDDING_TIMEOUT", 10*time.Second); err != nil {
+		return err
+	}
+	if config.retrievalCandidateLimit, err = intEnvironment("TEAM_MEMORY_RETRIEVAL_CANDIDATE_LIMIT", 16); err != nil {
+		return err
+	}
+	if config.semanticThreshold, err = floatEnvironment("TEAM_MEMORY_SEMANTIC_THRESHOLD", 0.65); err != nil {
+		return err
+	}
+	return nil
+}
+
+func floatEnvironment(name string, fallback float64) (float64, error) {
+	value := os.Getenv(name)
+	if value == "" {
+		return fallback, nil
+	}
+	parsed, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be a number: %w", name, err)
+	}
+	if parsed < 0 || parsed > 1 {
+		return 0, fmt.Errorf("%s must be between zero and one", name)
+	}
+	return parsed, nil
 }
 
 func intEnvironment(name string, fallback int) (int, error) {
@@ -214,4 +290,14 @@ func buildExtractor(config applicationConfig) (extractor.Extractor, error) {
 	default:
 		return nil, fmt.Errorf("unsupported extractor mode %q", config.extractorMode)
 	}
+}
+
+func buildEmbedder(config applicationConfig) (textembedding.Embedder, error) {
+	if strings.TrimSpace(config.embeddingBaseURL) == "" {
+		return nil, nil
+	}
+	return textembedding.NewOpenAI(textembedding.OpenAIConfig{
+		BaseURL: config.embeddingBaseURL, Model: config.embeddingModel, Dimensions: postgres.EmbeddingDimensions,
+		Client: &http.Client{Timeout: config.embeddingTimeout},
+	})
 }

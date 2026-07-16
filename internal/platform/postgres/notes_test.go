@@ -2,6 +2,7 @@ package postgres_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"testing"
@@ -321,8 +322,165 @@ func (s *noteStoreSuite) TestRelatedFactIsComposedForRecall() {
 	s.Contains(envelope.Items[0], "related: [certainty=confirmed] posting final Ops rows: User_7 must post final Ops rows by 2025-07-17")
 }
 
+func (s *noteStoreSuite) TestHybridRecallFindsSemanticParaphrase() {
+	ctx := context.Background()
+	scopeID := uniqueScope("note-semantic")
+	producer := teamnote.Actor{UserID: "owner", AgentID: "producer", SessionID: "producer-session"}
+	evidence := event("semantic-event", producer, 1)
+	s.appendEvents(ctx, scopeID, evidence)
+	embedder := &semanticEmbedder{}
+	notes := s.newHybridNoteStore(embedder)
+	blocked := candidate("semantic-candidate", teamnote.ActionCreate,
+		"Release remains blocked pending legal approval.", producer, evidence.ID)
+	blocked.Kind = teamnote.KindBlocker
+	blocked.Subject = "release approval"
+	_, err := notes.ApplyCandidate(ctx, scopeID, "semantic-run", blocked, []teamnote.SessionEvent{evidence})
+	s.Require().NoError(err)
+
+	envelope, err := notes.RecallNotes(ctx, scopeID, teamnote.RecallRequest{
+		Actor:   teamnote.Actor{UserID: "owner", AgentID: "consumer", SessionID: "semantic-consumer"},
+		TaskRef: "task-1", TokenBudget: 256, Query: "What is stopping the launch?", MaxItems: 1,
+	})
+	s.Require().NoError(err)
+	s.Require().Len(envelope.Items, 1)
+	s.Contains(envelope.Items[0], "legal approval")
+	s.Greater(envelope.Details[0].Relevance, 0.9)
+}
+
+func (s *noteStoreSuite) TestHybridRecallFallsBackToLexicalWhenEmbeddingFails() {
+	ctx := context.Background()
+	scopeID := uniqueScope("note-embedding-fallback")
+	producer := teamnote.Actor{UserID: "owner", AgentID: "producer", SessionID: "producer-session"}
+	evidence := event("fallback-event", producer, 1)
+	s.appendEvents(ctx, scopeID, evidence)
+	notes := s.newHybridNoteStore(failingEmbedder{})
+	entry := candidate("fallback-candidate", teamnote.ActionCreate,
+		"The launch checklist belongs to User_7.", producer, evidence.ID)
+	entry.Subject = "launch checklist ownership"
+	_, err := notes.ApplyCandidate(ctx, scopeID, "fallback-run", entry, []teamnote.SessionEvent{evidence})
+	s.Require().NoError(err)
+
+	envelope, err := notes.RecallNotes(ctx, scopeID, teamnote.RecallRequest{
+		Actor:   teamnote.Actor{UserID: "owner", AgentID: "consumer", SessionID: "fallback-consumer"},
+		TaskRef: "task-1", TokenBudget: 256, Query: "Who owns the launch checklist?", MaxItems: 1,
+	})
+	s.Require().NoError(err)
+	s.Require().Len(envelope.Items, 1)
+	s.Contains(envelope.Items[0], "User_7")
+}
+
+func (s *noteStoreSuite) TestEmbeddingBackfillMakesExistingNoteSemantic() {
+	ctx := context.Background()
+	scopeID := uniqueScope("note-embedding-backfill")
+	producer := teamnote.Actor{UserID: "owner", AgentID: "producer", SessionID: "producer-session"}
+	evidence := event("backfill-event", producer, 1)
+	s.appendEvents(ctx, scopeID, evidence)
+	entry := candidate("backfill-candidate", teamnote.ActionCreate,
+		"Release remains blocked pending legal approval.", producer, evidence.ID)
+	entry.Kind = teamnote.KindBlocker
+	entry.Subject = "release approval"
+	_, err := s.newNoteStore().ApplyCandidate(ctx, scopeID, "backfill-run", entry, []teamnote.SessionEvent{evidence})
+	s.Require().NoError(err)
+
+	notes := s.newHybridNoteStore(semanticEmbedder{})
+	backfilled, err := notes.BackfillEmbeddings(ctx, 10000)
+	s.Require().NoError(err)
+	s.Positive(backfilled)
+	envelope, err := notes.RecallNotes(ctx, scopeID, teamnote.RecallRequest{
+		Actor:   teamnote.Actor{UserID: "owner", AgentID: "consumer", SessionID: "backfill-consumer"},
+		TaskRef: "task-1", TokenBudget: 256, Query: "What is stopping the launch?", MaxItems: 1,
+	})
+	s.Require().NoError(err)
+	s.Require().Len(envelope.Items, 1)
+}
+
+func (s *noteStoreSuite) TestUpdatedNoteDoesNotUseStaleEmbedding() {
+	ctx := context.Background()
+	scopeID := uniqueScope("note-stale-embedding")
+	producer := teamnote.Actor{UserID: "owner", AgentID: "producer", SessionID: "producer-session"}
+	firstEvent := event("stale-first-event", producer, 1)
+	secondEvent := event("stale-second-event", producer, 2)
+	s.appendEvents(ctx, scopeID, firstEvent, secondEvent)
+	embedder := &toggleEmbedder{}
+	notes := s.newHybridNoteStore(embedder)
+	first := candidate("stale-first-candidate", teamnote.ActionCreate,
+		"Release remains blocked pending legal approval.", producer, firstEvent.ID)
+	first.Kind = teamnote.KindBlocker
+	first.Subject = "release approval"
+	_, err := notes.ApplyCandidate(ctx, scopeID, "stale-first-run", first, []teamnote.SessionEvent{firstEvent})
+	s.Require().NoError(err)
+
+	embedder.fail = true
+	updated := candidate("stale-second-candidate", teamnote.ActionUpdate,
+		"Release is ready after approval completed.", producer, secondEvent.ID)
+	updated.Kind = teamnote.KindBlocker
+	updated.Subject = first.Subject
+	_, err = notes.ApplyCandidate(ctx, scopeID, "stale-second-run", updated, []teamnote.SessionEvent{secondEvent})
+	s.Require().NoError(err)
+	embedder.fail = false
+
+	envelope, err := notes.RecallNotes(ctx, scopeID, teamnote.RecallRequest{
+		Actor:   teamnote.Actor{UserID: "owner", AgentID: "consumer", SessionID: "stale-consumer"},
+		TaskRef: "task-1", TokenBudget: 256, Query: "What is stopping the launch?", MaxItems: 1,
+	})
+	s.Require().NoError(err)
+	s.Empty(envelope.Items)
+}
+
+func (s *noteStoreSuite) TestOldEmbeddingFailureDoesNotClearNewRevisionVector() {
+	ctx := context.Background()
+	scopeID := uniqueScope("note-embedding-race")
+	producer := teamnote.Actor{UserID: "owner", AgentID: "producer", SessionID: "producer-session"}
+	firstEvent := event("race-first-event", producer, 1)
+	secondEvent := event("race-second-event", producer, 2)
+	s.appendEvents(ctx, scopeID, firstEvent, secondEvent)
+	blocking := newBlockingFailEmbedder()
+	firstStore := s.newHybridNoteStore(blocking)
+	first := candidate("race-first-candidate", teamnote.ActionCreate,
+		"Release remains blocked pending legal approval.", producer, firstEvent.ID)
+	first.Kind = teamnote.KindBlocker
+	first.Subject = "release approval"
+	firstResult := make(chan error, 1)
+	go func() {
+		_, applyErr := firstStore.ApplyCandidate(ctx, scopeID, "race-first-run", first, []teamnote.SessionEvent{firstEvent})
+		firstResult <- applyErr
+	}()
+	<-blocking.started
+
+	updated := candidate("race-second-candidate", teamnote.ActionUpdate,
+		"Release is ready after approval completed.", producer, secondEvent.ID)
+	updated.Kind = first.Kind
+	updated.Subject = first.Subject
+	_, err := s.newHybridNoteStore(semanticEmbedder{}).ApplyCandidate(
+		ctx, scopeID, "race-second-run", updated, []teamnote.SessionEvent{secondEvent},
+	)
+	s.Require().NoError(err)
+	close(blocking.release)
+	s.Require().NoError(<-firstResult)
+
+	var revision int
+	var hasEmbedding bool
+	err = s.store.Pool().QueryRow(ctx, `
+SELECT embedding_revision, embedding IS NOT NULL
+FROM team_notes WHERE scope_id = $1 AND note_key = $2`, scopeID, teamnote.CanonicalKey(first)).Scan(&revision, &hasEmbedding)
+	s.Require().NoError(err)
+	s.Equal(2, revision)
+	s.True(hasEmbedding)
+}
+
 func (s *noteStoreSuite) newNoteStore() *postgres.NoteStore {
-	store, err := postgres.NewNoteStore(s.store, teamnote.DefaultTTLPolicy(), s.clock)
+	store, err := postgres.NewNoteStore(s.store, teamnote.DefaultTTLPolicy(), s.clock, postgres.RetrievalConfig{})
+	s.Require().NoError(err)
+	return store
+}
+
+func (s *noteStoreSuite) newHybridNoteStore(embedder interface {
+	Embed(context.Context, []string) ([][]float32, error)
+}) *postgres.NoteStore {
+	store, err := postgres.NewNoteStore(s.store, teamnote.DefaultTTLPolicy(), s.clock, postgres.RetrievalConfig{
+		Embedder: embedder, EmbeddingModel: "Qwen/Qwen3-Embedding-0.6B",
+		SemanticThreshold: 0.65, CandidateLimit: 16,
+	})
 	s.Require().NoError(err)
 	return store
 }
@@ -341,4 +499,53 @@ func candidate(id string, action teamnote.CandidateAction, body string, actor te
 
 func timestampPointer(value time.Time) *time.Time {
 	return &value
+}
+
+type semanticEmbedder struct{}
+
+func (semanticEmbedder) Embed(_ context.Context, texts []string) ([][]float32, error) {
+	result := make([][]float32, 0, len(texts))
+	for _, text := range texts {
+		vector := make([]float32, postgres.EmbeddingDimensions)
+		if text == "Instruct: Retrieve Team Notes containing facts, decisions, blockers, ownership, deadlines, or status relevant to the current agent request.\nQuery:What is stopping the launch?" ||
+			text == "Kind: blocker\nSubject: release approval\nBody: Release remains blocked pending legal approval." {
+			vector[0] = 1
+		} else {
+			vector[1] = 1
+		}
+		result = append(result, vector)
+	}
+	return result, nil
+}
+
+type failingEmbedder struct{}
+
+func (failingEmbedder) Embed(context.Context, []string) ([][]float32, error) {
+	return nil, errors.New("embedding unavailable")
+}
+
+type toggleEmbedder struct {
+	fail bool
+}
+
+type blockingFailEmbedder struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func newBlockingFailEmbedder() *blockingFailEmbedder {
+	return &blockingFailEmbedder{started: make(chan struct{}), release: make(chan struct{})}
+}
+
+func (e *blockingFailEmbedder) Embed(context.Context, []string) ([][]float32, error) {
+	close(e.started)
+	<-e.release
+	return nil, errors.New("delayed embedding failure")
+}
+
+func (e *toggleEmbedder) Embed(ctx context.Context, texts []string) ([][]float32, error) {
+	if e.fail {
+		return nil, errors.New("embedding unavailable")
+	}
+	return semanticEmbedder{}.Embed(ctx, texts)
 }

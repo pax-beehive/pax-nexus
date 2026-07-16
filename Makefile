@@ -75,6 +75,7 @@ integration-test: db-up
 		GOCACHE=$${GOCACHE:-/tmp/team-memory-go-cache} go test ./internal/platform/postgres ./internal/teamnote/extractionqueue ./internal/eval/v2/postgresstore -count=1
 
 up:
+	./scripts/start-local-embedding.sh
 	docker compose up -d --build --wait postgres team-memory
 
 down:

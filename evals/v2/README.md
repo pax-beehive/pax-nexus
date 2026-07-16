@@ -13,6 +13,13 @@ The included configuration compares:
   arm-specific Team Note scope so ingest and readiness metrics stay independent
 - `mem0`: OpenCode using a self-hosted Mem0 OSS REST server
 
+The Team Note arms use local CPU `Qwen/Qwen3-Embedding-0.6B` embeddings in
+addition to lexical retrieval. Each lane contributes up to 16 candidates;
+reciprocal rank fusion and deterministic Team Note rules produce the final
+delivery order. This retrieval fusion is separate from the
+`team_note_hybrid` arm name, which means passive recall plus at most two active
+recall tool calls.
+
 Every trial records the same benchmark `asking_user_id`. Team Note uses it as
 the consumer principal so actor-aware recall can resolve first-person queries.
 Mem0 instead uses one shared synthetic user and agent identity across all cases,

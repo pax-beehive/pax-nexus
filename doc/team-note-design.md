@@ -5,7 +5,7 @@
   extraction, short-lived Team Notes, conservative delivery, and cross-agent
   evaluation
 - Out of scope: LLM Wiki implementation, long-term knowledge consolidation,
-  knowledge graphs, and semantic retrieval
+  knowledge graphs, and semantic search across historical Sessions
 
 ### MVP identity decision
 
@@ -26,8 +26,9 @@ PAX records agent activity in an immutable Session Lake. A bounded small-model
 pipeline reads incremental session slices and proposes Note Candidates. A
 deterministic admission module verifies scope, evidence, authority, visibility,
 duplication, and lifecycle policy before a Candidate becomes a Team Note.
-Authorized agents receive active notes through exact collaboration scope rather
-than embeddings or an online LLM query.
+Authorized agents receive active notes through exact collaboration scope. A
+local embedding model may expand candidates within that already-authorized
+active set; no online generative LLM participates in recall.
 
 Each note has a soft TTL that real delivery or explicit confirmation may extend,
 and a hard TTL that passive use can never exceed. Resolution, retraction, and
@@ -48,7 +49,8 @@ The central rule is:
 - Process unbounded Session streams with bounded small-model context.
 - Preserve exact speaker, Session, Space, time, and source evidence.
 - Keep notes short-lived through TTL and bounded lease renewal.
-- Deliver notes without online LLM calls or embedding search.
+- Deliver notes without online generative LLM calls; local embeddings may
+  expand candidates before deterministic precision checks.
 - Support concurrent Agents, conflicts, supersession, resolution, and audit.
 - Prevent derived notes from widening source-event visibility.
 - Measure construction, state, delivery, utility, safety, latency, and cost
@@ -481,7 +483,9 @@ resolution or supersession always wins over TTL.
 
 ## 9. Conservative delivery
 
-Recall uses no LLM and no embeddings.
+Recall uses no online generative LLM. A local CPU embedding model supplies a
+semantic candidate lane; it never overrides authorization or deterministic
+precision checks.
 
 ```text
 input:
@@ -499,7 +503,9 @@ selection:
   -> exact scope
   -> audience
   -> suppress unchanged Revision already delivered to this Session
-  -> deterministic priority
+  -> lexical top-K + semantic top-K
+  -> reciprocal rank fusion
+  -> scalar-slot, ownership, kind, and recency rerank
   -> token budget
   -> NoteDelivery
   -> eligible renewal
@@ -560,13 +566,15 @@ The Team Note MVP adopts the same semantics without adopting a graph database:
 - `related_subjects` forms explicit, scoped one-hop edges between extracted
   facts. Recall composes the linked fact into the same context item so a
   dependency date is not separated from the action that depends on it.
-- Query terms rank current facts before kind and recency. Invalid facts stay in
-  revision history but are excluded from current passive recall.
+- Query terms and local Qwen3 embeddings independently rank current facts. RRF
+  combines their top-K candidates before scalar-slot, kind, ownership, and
+  recency rules. Invalid facts stay in revision history but are excluded from
+  current passive recall.
 
 This is intentionally not a general knowledge graph. It does not perform entity
-resolution, arbitrary traversal, historical point-in-time queries, or semantic
-embedding search. Those capabilities should be justified by eval failures
-rather than added preemptively.
+resolution, arbitrary traversal, historical point-in-time queries, approximate
+vector indexes, or model-based cross-encoder reranking. Those capabilities
+should be justified by eval failures rather than added preemptively.
 
 ## 12. Module interfaces and repository fit
 
@@ -960,7 +968,8 @@ test results.
 3. Session Events remain immutable evidence.
 4. The small model emits Candidates and never writes canonical notes directly.
 5. Admission and recall are deterministic and authorization-aware.
-6. Recall is exact-scope and budget-driven, with no online LLM or embeddings.
+6. Recall is exact-scope and budget-driven, with local embedding candidate
+   generation but no online generative LLM or model-based reranker.
 7. Passive hits may extend soft TTL but never hard TTL.
 8. Concurrent disagreement remains visible instead of last-write-wins.
 9. GroupMemBench is the primary public benchmark, but PAX-native annotation is

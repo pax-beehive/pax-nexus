@@ -50,6 +50,7 @@ wait_for_notes() {
   return 1
 }
 
+./scripts/start-local-embedding.sh -p "${project_name}" -f "${compose_file}"
 run_compose up -d --build postgres team-memory
 
 producer_prompt="Read brief.md. Report the exact release approval code and why it matters."

@@ -4,24 +4,58 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/pax-beehive/pax-nexus/internal/platform/textembedding"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote"
 )
 
-type NoteStore struct {
-	store  *Store
-	policy teamnote.TTLPolicy
-	clock  teamnote.Clock
+const (
+	EmbeddingDimensions      = 384
+	defaultCandidateLimit    = 16
+	defaultSemanticThreshold = 0.65
+	rrfConstant              = 60.0
+	queryInstruction         = "Retrieve Team Notes containing facts, decisions, blockers, ownership, deadlines, or status relevant to the current agent request."
+)
+
+type RetrievalConfig struct {
+	Embedder          textembedding.Embedder
+	EmbeddingModel    string
+	SemanticThreshold float64
+	CandidateLimit    int
 }
 
-func NewNoteStore(store *Store, policy teamnote.TTLPolicy, clock teamnote.Clock) (*NoteStore, error) {
+type NoteStore struct {
+	store     *Store
+	policy    teamnote.TTLPolicy
+	clock     teamnote.Clock
+	retrieval RetrievalConfig
+}
+
+func NewNoteStore(store *Store, policy teamnote.TTLPolicy, clock teamnote.Clock, retrieval RetrievalConfig) (*NoteStore, error) {
 	if store == nil || policy == nil || clock == nil {
 		return nil, fmt.Errorf("create postgres note store: store, policy, and clock are required")
 	}
-	return &NoteStore{store: store, policy: policy, clock: clock}, nil
+	if retrieval.Embedder != nil && strings.TrimSpace(retrieval.EmbeddingModel) == "" {
+		return nil, fmt.Errorf("create postgres note store: embedding model is required when embedding is enabled")
+	}
+	if retrieval.SemanticThreshold == 0 {
+		retrieval.SemanticThreshold = defaultSemanticThreshold
+	}
+	if retrieval.SemanticThreshold < 0 || retrieval.SemanticThreshold > 1 {
+		return nil, fmt.Errorf("create postgres note store: semantic threshold must be between zero and one")
+	}
+	if retrieval.CandidateLimit == 0 {
+		retrieval.CandidateLimit = defaultCandidateLimit
+	}
+	if retrieval.CandidateLimit < 1 {
+		return nil, fmt.Errorf("create postgres note store: candidate limit must be positive")
+	}
+	return &NoteStore{store: store, policy: policy, clock: clock, retrieval: retrieval}, nil
 }
 
 func (s *NoteStore) ApplyCandidate(ctx context.Context, scopeID, runID string, candidate teamnote.Candidate, evidence []teamnote.SessionEvent) (note teamnote.Note, returnedErr error) {
@@ -81,6 +115,9 @@ func (s *NoteStore) ApplyCandidate(ctx context.Context, scopeID, runID string, c
 	if err := tx.Commit(ctx); err != nil {
 		return teamnote.Note{}, fmt.Errorf("commit candidate: %w", err)
 	}
+	if err := s.refreshEmbedding(ctx, scopeID, note); err != nil {
+		return teamnote.Note{}, err
+	}
 	return note, nil
 }
 
@@ -90,6 +127,11 @@ func (s *NoteStore) RecallNotes(ctx context.Context, scopeID string, request tea
 	}
 	if err := teamnote.ValidateRecall(request); err != nil {
 		return teamnote.NoteEnvelope{}, err
+	}
+	queryVector, embeddingErr := s.embedQuery(ctx, request.Query)
+	if embeddingErr != nil {
+		// Semantic recall is best effort; lexical recall remains available when the local model is unavailable.
+		queryVector = nil
 	}
 	tx, err := s.store.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -101,14 +143,17 @@ func (s *NoteStore) RecallNotes(ctx context.Context, scopeID string, request tea
 			returnedErr = errors.Join(returnedErr, fmt.Errorf("rollback recall notes: %w", rollbackErr))
 		}
 	}()
-	notes, err := recallableNotes(ctx, tx, scopeID, request, s.clock.Now())
+	eligible, err := recallableNotes(ctx, tx, scopeID, request, s.clock.Now(), queryVector, s.retrieval.EmbeddingModel)
 	if err != nil {
 		return teamnote.NoteEnvelope{}, err
 	}
+	candidates := rankRecallCandidates(eligible, request, s.retrieval)
+	allNotes := notesFromRanked(eligible)
 	selectedNotes := 0
-	for _, note := range notes {
-		relevance := teamnote.QueryRelevance(note, request.Query)
-		if !teamnote.QueryRelevant(note, request.Query) {
+	for _, candidate := range candidates {
+		note := candidate.Note
+		relevance := hybridRelevance(candidate, request.Query)
+		if !hybridRelevant(candidate, request.Query, s.retrieval.SemanticThreshold) {
 			continue
 		}
 		if request.MaxItems > 0 && selectedNotes >= request.MaxItems {
@@ -118,7 +163,7 @@ func (s *NoteStore) RecallNotes(ctx context.Context, scopeID string, request tea
 		if request.MaxItems > 0 {
 			remainingRelated = request.MaxItems - selectedNotes - 1
 		}
-		related := filterRelatedNotes(findRelatedNotes(note, notes), request.Query, remainingRelated, request.MaxItems > 0)
+		related := filterRelatedNotes(findRelatedNotes(note, allNotes), request.Query, remainingRelated, request.MaxItems > 0)
 		item := teamnote.FormatForRecallWithRelated(note, related)
 		tokens := estimateNoteTokens(item)
 		if envelope.Tokens+tokens > request.TokenBudget {
@@ -231,9 +276,13 @@ ON CONFLICT (scope_id, note_id) DO UPDATE SET
     current_revision = EXCLUDED.current_revision,
     soft_expires_at = EXCLUDED.soft_expires_at,
     valid_at = EXCLUDED.valid_at,
-    invalid_at = EXCLUDED.invalid_at,
-    source_occurred_at = EXCLUDED.source_occurred_at,
-    updated_at = EXCLUDED.updated_at`,
+	    invalid_at = EXCLUDED.invalid_at,
+	    source_occurred_at = EXCLUDED.source_occurred_at,
+	    updated_at = EXCLUDED.updated_at,
+	    embedding = NULL,
+	    embedding_model = '',
+	    embedding_revision = NULL,
+	    embedding_error = ''`,
 		scopeID, note.ID, note.Key, note.Kind, note.Subject, note.Body, note.TaskRef,
 		note.ThreadRef, note.Origin.UserID, note.Origin.AgentID, note.Origin.SessionID,
 		nonNilStrings(note.AudienceAgentIDs), nonNilStrings(note.RelatedSubjects), note.State, note.Revision, note.SoftExpiresAt,
@@ -279,8 +328,28 @@ VALUES ($1, $2, $3, $4)`, scopeID, note.ID, note.Revision, eventID)
 	return nil
 }
 
-func recallableNotes(ctx context.Context, tx pgx.Tx, scopeID string, request teamnote.RecallRequest, now time.Time) ([]teamnote.Note, error) {
-	rows, err := tx.Query(ctx, noteSelect+`
+type rankedNote struct {
+	teamnote.Note
+	LexicalScore  float64
+	SemanticScore *float64
+	FusionScore   float64
+	RerankScore   float64
+}
+
+func recallableNotes(ctx context.Context, tx pgx.Tx, scopeID string, request teamnote.RecallRequest, now time.Time, queryVector []float32, embeddingModel string) ([]rankedNote, error) {
+	var vectorValue any
+	if len(queryVector) > 0 {
+		vectorValue = formatVector(queryVector)
+	}
+	rows, err := tx.Query(ctx, `SELECT `+noteColumns+`,
+       CASE WHEN $7 = '' THEN 0 ELSE ts_rank_cd(
+           to_tsvector('simple', subject || ' ' || body),
+           to_tsquery('simple', array_to_string(tsvector_to_array(to_tsvector('simple', $7)), ' | '))
+       ) END,
+	       CASE WHEN $10::vector IS NULL OR embedding IS NULL
+	                 OR embedding_revision != current_revision OR embedding_model != $11 THEN NULL
+	            ELSE 1 - (embedding <=> $10::vector) END
+ FROM team_notes
  WHERE scope_id = $1
    AND state = 'active'
    AND invalid_at IS NULL
@@ -296,7 +365,7 @@ func recallableNotes(ctx context.Context, tx pgx.Tx, scopeID string, request tea
          AND delivery.revision = team_notes.current_revision
          AND delivery.recipient_session_id = $6
    )
- ORDER BY CASE WHEN $7 = '' THEN 0 ELSE ts_rank_cd(
+	 ORDER BY CASE WHEN $7 = '' THEN 0 ELSE ts_rank_cd(
          to_tsvector('simple', subject || ' ' || body),
          to_tsquery('simple', array_to_string(tsvector_to_array(to_tsvector('simple', $7)), ' | '))
      ) END DESC,
@@ -307,15 +376,301 @@ func recallableNotes(ctx context.Context, tx pgx.Tx, scopeID string, request tea
      updated_at DESC
 	FOR UPDATE OF team_notes`, scopeID, now, request.TaskRef, request.ThreadRef,
 		request.Actor.AgentID, request.Actor.SessionID, teamnote.SearchQuery(request.Query),
-		teamnote.QueryRequestsOwnContext(request.Query), request.Actor.UserID)
+		teamnote.QueryRequestsOwnContext(request.Query), request.Actor.UserID, vectorValue, embeddingModel)
 	if err != nil {
 		return nil, fmt.Errorf("query recallable notes: %w", err)
 	}
-	notes, err := pgx.CollectRows(rows, scanCollectableNote)
+	notes, err := pgx.CollectRows(rows, scanRankedNote)
 	if err != nil {
 		return nil, fmt.Errorf("scan recallable notes: %w", err)
 	}
 	return notes, nil
+}
+
+func (s *NoteStore) refreshEmbedding(ctx context.Context, scopeID string, note teamnote.Note) error {
+	if s.retrieval.Embedder == nil {
+		return nil
+	}
+	if note.State != teamnote.StateActive {
+		_, err := s.store.pool.Exec(ctx, `UPDATE team_notes SET embedding = NULL, embedding_revision = NULL, embedding_error = '' WHERE scope_id = $1 AND note_id = $2`, scopeID, note.ID)
+		if err != nil {
+			return fmt.Errorf("clear resolved note embedding: %w", err)
+		}
+		return nil
+	}
+	vectors, err := s.retrieval.Embedder.Embed(ctx, []string{embeddingDocument(note)})
+	if err != nil {
+		return s.recordEmbeddingError(ctx, scopeID, note, err)
+	}
+	if len(vectors) != 1 || len(vectors[0]) != EmbeddingDimensions {
+		return s.recordEmbeddingError(ctx, scopeID, note, fmt.Errorf("unexpected embedding dimensions"))
+	}
+	return s.saveEmbedding(ctx, scopeID, note, vectors[0])
+}
+
+func (s *NoteStore) saveEmbedding(ctx context.Context, scopeID string, note teamnote.Note, vector []float32) error {
+	_, err := s.store.pool.Exec(ctx, `
+UPDATE team_notes
+SET embedding = $4::vector, embedding_model = $5, embedding_revision = $3, embedding_error = ''
+WHERE scope_id = $1 AND note_id = $2 AND current_revision = $3`,
+		scopeID, note.ID, note.Revision, formatVector(vector), s.retrieval.EmbeddingModel)
+	if err != nil {
+		return fmt.Errorf("save note embedding: %w", err)
+	}
+	return nil
+}
+
+// BackfillEmbeddings refreshes at most one bounded batch after an upgrade or
+// embedding model change. Provider failures are recorded and leave lexical
+// recall available.
+func (s *NoteStore) BackfillEmbeddings(ctx context.Context, batchSize int) (int, error) {
+	if s.retrieval.Embedder == nil {
+		return 0, nil
+	}
+	if batchSize <= 0 {
+		return 0, fmt.Errorf("backfill note embeddings: positive batch size is required")
+	}
+	targets, err := s.embeddingTargets(ctx, batchSize)
+	if err != nil {
+		return 0, err
+	}
+	if len(targets) == 0 {
+		return 0, nil
+	}
+	return s.backfillEmbeddingTargets(ctx, targets)
+}
+
+func (s *NoteStore) backfillEmbeddingTargets(ctx context.Context, targets []embeddingTarget) (int, error) {
+	texts := make([]string, 0, len(targets))
+	for _, target := range targets {
+		texts = append(texts, embeddingDocument(target.Note))
+	}
+	vectors, err := s.retrieval.Embedder.Embed(ctx, texts)
+	if err != nil {
+		return 0, s.recordTargetEmbeddingErrors(ctx, targets, err)
+	}
+	if len(vectors) != len(targets) {
+		mismatch := fmt.Errorf("received %d vectors for %d notes", len(vectors), len(targets))
+		return 0, s.recordTargetEmbeddingErrors(ctx, targets, mismatch)
+	}
+	return s.saveTargetEmbeddings(ctx, targets, vectors)
+}
+
+func (s *NoteStore) recordTargetEmbeddingErrors(ctx context.Context, targets []embeddingTarget, embeddingErr error) error {
+	for _, target := range targets {
+		if err := s.recordEmbeddingError(ctx, target.ScopeID, target.Note, embeddingErr); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *NoteStore) saveTargetEmbeddings(ctx context.Context, targets []embeddingTarget, vectors [][]float32) (int, error) {
+	completed := 0
+	for index, target := range targets {
+		if len(vectors[index]) != EmbeddingDimensions {
+			if err := s.recordEmbeddingError(ctx, target.ScopeID, target.Note, fmt.Errorf("unexpected embedding dimensions")); err != nil {
+				return completed, err
+			}
+			continue
+		}
+		if err := s.saveEmbedding(ctx, target.ScopeID, target.Note, vectors[index]); err != nil {
+			return completed, err
+		}
+		completed++
+	}
+	return completed, nil
+}
+
+type embeddingTarget struct {
+	ScopeID string
+	teamnote.Note
+}
+
+func (s *NoteStore) embeddingTargets(ctx context.Context, limit int) ([]embeddingTarget, error) {
+	rows, err := s.store.pool.Query(ctx, `
+SELECT scope_id, note_id, kind, subject, body, current_revision
+FROM team_notes
+WHERE state = 'active'
+	AND invalid_at IS NULL
+	AND soft_expires_at > NOW()
+	AND hard_expires_at > NOW()
+  AND (embedding IS NULL OR embedding_revision != current_revision OR embedding_model != $1)
+ORDER BY scope_id, note_id
+LIMIT $2`, s.retrieval.EmbeddingModel, limit)
+	if err != nil {
+		return nil, fmt.Errorf("query note embedding backfill: %w", err)
+	}
+	targets, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (embeddingTarget, error) {
+		var target embeddingTarget
+		scanErr := row.Scan(&target.ScopeID, &target.ID, &target.Kind, &target.Subject, &target.Body, &target.Revision)
+		return target, scanErr
+	})
+	if err != nil {
+		return nil, fmt.Errorf("scan note embedding backfill: %w", err)
+	}
+	return targets, nil
+}
+
+func (s *NoteStore) recordEmbeddingError(ctx context.Context, scopeID string, note teamnote.Note, embeddingErr error) error {
+	message := embeddingErr.Error()
+	if len(message) > 1000 {
+		message = message[:1000]
+	}
+	_, err := s.store.pool.Exec(ctx, `
+UPDATE team_notes
+SET embedding = NULL, embedding_model = $4, embedding_revision = NULL, embedding_error = $3
+WHERE scope_id = $1 AND note_id = $2 AND current_revision = $5`,
+		scopeID, note.ID, message, s.retrieval.EmbeddingModel, note.Revision)
+	if err != nil {
+		return fmt.Errorf("record note embedding failure: %w", err)
+	}
+	return nil
+}
+
+func (s *NoteStore) embedQuery(ctx context.Context, query string) ([]float32, error) {
+	if s.retrieval.Embedder == nil || strings.TrimSpace(query) == "" {
+		return nil, nil
+	}
+	input := "Instruct: " + queryInstruction + "\nQuery:" + strings.TrimSpace(query)
+	vectors, err := s.retrieval.Embedder.Embed(ctx, []string{input})
+	if err != nil {
+		return nil, fmt.Errorf("embed recall query: %w", err)
+	}
+	if len(vectors) != 1 || len(vectors[0]) != EmbeddingDimensions {
+		return nil, fmt.Errorf("embed recall query: expected one %d-dimensional vector", EmbeddingDimensions)
+	}
+	return vectors[0], nil
+}
+
+func embeddingDocument(note teamnote.Note) string {
+	return fmt.Sprintf("Kind: %s\nSubject: %s\nBody: %s", note.Kind, note.Subject, note.Body)
+}
+
+func formatVector(vector []float32) string {
+	var result strings.Builder
+	result.Grow(len(vector) * 8)
+	result.WriteByte('[')
+	for index, value := range vector {
+		if index > 0 {
+			result.WriteByte(',')
+		}
+		result.WriteString(strconv.FormatFloat(float64(value), 'g', -1, 32))
+	}
+	result.WriteByte(']')
+	return result.String()
+}
+
+func rankRecallCandidates(eligible []rankedNote, request teamnote.RecallRequest, config RetrievalConfig) []rankedNote {
+	if strings.TrimSpace(request.Query) == "" {
+		return append([]rankedNote(nil), eligible...)
+	}
+	lexical := append([]rankedNote(nil), eligible...)
+	sort.SliceStable(lexical, func(left, right int) bool {
+		return lexical[left].LexicalScore > lexical[right].LexicalScore
+	})
+	semantic := append([]rankedNote(nil), eligible...)
+	sort.SliceStable(semantic, func(left, right int) bool {
+		leftScore, rightScore := semantic[left].SemanticScore, semantic[right].SemanticScore
+		if leftScore == nil {
+			return false
+		}
+		if rightScore == nil {
+			return true
+		}
+		return *leftScore > *rightScore
+	})
+
+	scores := make(map[string]float64, config.CandidateLimit*2)
+	for rank, candidate := range lexical {
+		if rank >= config.CandidateLimit || candidate.LexicalScore <= 0 {
+			break
+		}
+		scores[candidate.ID] += reciprocalRank(rank)
+	}
+	for rank, candidate := range semantic {
+		if rank >= config.CandidateLimit || candidate.SemanticScore == nil || *candidate.SemanticScore < config.SemanticThreshold {
+			break
+		}
+		scores[candidate.ID] += reciprocalRank(rank)
+	}
+
+	result := make([]rankedNote, 0, len(scores))
+	for _, candidate := range eligible {
+		if score, ok := scores[candidate.ID]; ok {
+			candidate.FusionScore = score
+			if hybridRelevant(candidate, request.Query, config.SemanticThreshold) {
+				result = append(result, candidate)
+			}
+		}
+	}
+	sort.SliceStable(result, func(left, right int) bool {
+		if ownSourceRank(result[left].Note, request) != ownSourceRank(result[right].Note, request) {
+			return ownSourceRank(result[left].Note, request) < ownSourceRank(result[right].Note, request)
+		}
+		if noteKindRank(result[left].Kind) != noteKindRank(result[right].Kind) {
+			return noteKindRank(result[left].Kind) < noteKindRank(result[right].Kind)
+		}
+		if !result[left].SourceOccurredAt.Equal(result[right].SourceOccurredAt) {
+			return result[left].SourceOccurredAt.After(result[right].SourceOccurredAt)
+		}
+		return result[left].UpdatedAt.After(result[right].UpdatedAt)
+	})
+	for rank := range result {
+		result[rank].RerankScore = result[rank].FusionScore + reciprocalRank(rank)
+	}
+	sort.SliceStable(result, func(left, right int) bool {
+		return result[left].RerankScore > result[right].RerankScore
+	})
+	return result
+}
+
+func reciprocalRank(zeroBasedRank int) float64 {
+	return 1 / (rrfConstant + float64(zeroBasedRank+1))
+}
+
+func ownSourceRank(note teamnote.Note, request teamnote.RecallRequest) int {
+	if teamnote.QueryRequestsOwnContext(request.Query) && note.Origin.UserID == request.Actor.UserID {
+		return 0
+	}
+	return 1
+}
+
+func noteKindRank(kind teamnote.NoteKind) int {
+	switch kind {
+	case teamnote.KindHandoff:
+		return 0
+	case teamnote.KindBlocker:
+		return 1
+	case teamnote.KindStatus:
+		return 2
+	default:
+		return 3
+	}
+}
+
+func hybridRelevant(candidate rankedNote, query string, semanticThreshold float64) bool {
+	if teamnote.QueryRelevant(candidate.Note, query) {
+		return true
+	}
+	return candidate.SemanticScore != nil && *candidate.SemanticScore >= semanticThreshold &&
+		teamnote.QuerySemanticallyRelevant(candidate.Note, query)
+}
+
+func hybridRelevance(candidate rankedNote, query string) float64 {
+	relevance := teamnote.QueryRelevance(candidate.Note, query)
+	if candidate.SemanticScore != nil && *candidate.SemanticScore > relevance {
+		return *candidate.SemanticScore
+	}
+	return relevance
+}
+
+func notesFromRanked(ranked []rankedNote) []teamnote.Note {
+	notes := make([]teamnote.Note, 0, len(ranked))
+	for _, candidate := range ranked {
+		notes = append(notes, candidate.Note)
+	}
+	return notes
 }
 
 func insertDelivery(ctx context.Context, tx pgx.Tx, scopeID string, note teamnote.Note, actor teamnote.Actor, tokens int) (bool, error) {
@@ -331,8 +686,7 @@ ON CONFLICT DO NOTHING`, scopeID, note.ID, note.Revision, actor.UserID, actor.Ag
 	return result.RowsAffected() == 1, nil
 }
 
-const noteSelect = `
-SELECT note_id, note_key, kind, subject, body, task_ref, thread_ref,
+const noteColumns = `note_id, note_key, kind, subject, body, task_ref, thread_ref,
        origin_user_id, origin_agent_id, origin_session_id, audience_agent_ids, related_subjects,
        COALESCE((
            SELECT array_agg(event_id ORDER BY event_id)
@@ -342,8 +696,9 @@ SELECT note_id, note_key, kind, subject, body, task_ref, thread_ref,
              AND revision = team_notes.current_revision
        ), '{}'),
        state, current_revision, soft_expires_at, hard_expires_at, created_at, updated_at,
-       valid_at, invalid_at, COALESCE(source_occurred_at, updated_at)
-FROM team_notes`
+       valid_at, invalid_at, COALESCE(source_occurred_at, updated_at)`
+
+const noteSelect = `SELECT ` + noteColumns + ` FROM team_notes`
 
 type rowScanner interface {
 	Scan(dest ...any) error
@@ -361,6 +716,27 @@ func scanNote(row rowScanner) (teamnote.Note, error) {
 	if err != nil {
 		return teamnote.Note{}, err
 	}
+	normalizeNoteTimes(&note)
+	return note, nil
+}
+
+func scanRankedNote(row pgx.CollectableRow) (rankedNote, error) {
+	var ranked rankedNote
+	err := row.Scan(
+		&ranked.ID, &ranked.Key, &ranked.Kind, &ranked.Subject, &ranked.Body, &ranked.TaskRef,
+		&ranked.ThreadRef, &ranked.Origin.UserID, &ranked.Origin.AgentID, &ranked.Origin.SessionID,
+		&ranked.AudienceAgentIDs, &ranked.RelatedSubjects, &ranked.EvidenceEventIDs, &ranked.State,
+		&ranked.Revision, &ranked.SoftExpiresAt, &ranked.HardExpiresAt, &ranked.CreatedAt, &ranked.UpdatedAt,
+		&ranked.ValidAt, &ranked.InvalidAt, &ranked.SourceOccurredAt, &ranked.LexicalScore, &ranked.SemanticScore,
+	)
+	if err != nil {
+		return rankedNote{}, err
+	}
+	normalizeNoteTimes(&ranked.Note)
+	return ranked, nil
+}
+
+func normalizeNoteTimes(note *teamnote.Note) {
 	note.SoftExpiresAt = note.SoftExpiresAt.UTC()
 	note.HardExpiresAt = note.HardExpiresAt.UTC()
 	note.CreatedAt = note.CreatedAt.UTC()
@@ -377,11 +753,6 @@ func scanNote(row rowScanner) (teamnote.Note, error) {
 		note.RelatedSubjects = nil
 	}
 	note.SourceOccurredAt = note.SourceOccurredAt.UTC()
-	return note, nil
-}
-
-func scanCollectableNote(row pgx.CollectableRow) (teamnote.Note, error) {
-	return scanNote(row)
 }
 
 func estimateNoteTokens(text string) int {
