@@ -2,6 +2,7 @@ package teamnote_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -242,6 +243,38 @@ func (s *ledgerSuite) TestStatusIdentityPreservesDifferentAgentReports() {
 	}, envelope.Items)
 }
 
+func (s *ledgerSuite) TestStableIdentityRefSurvivesSubjectRewording() {
+	tests := []struct {
+		name        string
+		kind        teamnote.NoteKind
+		identityRef string
+	}{
+		{name: "blocker", kind: teamnote.KindBlocker, identityRef: "BLOCK-42"},
+		{name: "artifact", kind: teamnote.KindArtifactReference, identityRef: "/reports/release.csv"},
+	}
+	for index, test := range tests {
+		s.Run(test.name, func() {
+			firstEvidence := producerEvent(fmt.Sprintf("identity-ref-first-%d", index), "The collaboration fact was created.")
+			secondEvidence := producerEvent(fmt.Sprintf("identity-ref-second-%d", index), "The collaboration fact changed.")
+			secondEvidence.Sequence = 2
+			created, err := s.ledger.Apply(context.Background(), teamnote.Candidate{
+				ID: fmt.Sprintf("identity-ref-create-%d", index), Action: teamnote.ActionCreate, Kind: test.kind,
+				Subject: "initial wording", IdentityRef: test.identityRef, Body: "The collaboration fact was created.",
+				TaskRef: "release-42", Origin: firstEvidence.Actor, EvidenceEventIDs: []string{firstEvidence.ID},
+			}, []teamnote.SessionEvent{firstEvidence})
+			s.Require().NoError(err)
+			updated, err := s.ledger.Apply(context.Background(), teamnote.Candidate{
+				ID: fmt.Sprintf("identity-ref-update-%d", index), Action: teamnote.ActionUpdate, Kind: test.kind,
+				Subject: "reworded subject", IdentityRef: test.identityRef, Body: "The collaboration fact changed.",
+				TaskRef: "release-42", Origin: secondEvidence.Actor, EvidenceEventIDs: []string{secondEvidence.ID},
+			}, []teamnote.SessionEvent{secondEvidence})
+			s.Require().NoError(err)
+			s.Equal(created.ID, updated.ID)
+			s.Equal(2, updated.Revision)
+		})
+	}
+}
+
 func (s *ledgerSuite) TestExtractionRunRejectsMismatchedReplay() {
 	evidence := producerEvent("event-run-replay", "The rollout is ready.")
 	run := teamnote.ExtractionRun{
@@ -256,15 +289,47 @@ func (s *ledgerSuite) TestExtractionRunRejectsMismatchedReplay() {
 	}
 	_, err := s.ledger.ApplyRun(context.Background(), run)
 	s.Require().NoError(err)
+	updateEvidence := producerEvent("event-run-update", "The rollout is now complete.")
+	updateEvidence.Sequence = 2
+	updateRun := teamnote.ExtractionRun{
+		ID: "run-update", Actor: updateEvidence.Actor, FromSequence: 2, ToSequence: 2,
+		InputChecksum: "checksum-update", Model: "extractor-model", PromptVersion: "prompt-v1",
+		Candidates: []teamnote.Candidate{{
+			ID: "candidate-run-update", Action: teamnote.ActionUpdate, Kind: teamnote.KindStatus,
+			Subject: "rollout", Body: "The rollout is now complete.", TaskRef: "release-42",
+			Origin: updateEvidence.Actor, EvidenceEventIDs: []string{updateEvidence.ID},
+		}},
+		Evidence: []teamnote.SessionEvent{updateEvidence},
+	}
+	updated, err := s.ledger.ApplyRun(context.Background(), updateRun)
+	s.Require().NoError(err)
+	s.Require().Equal(2, updated[0].Revision)
 
-	run.InputChecksum = "checksum-two"
-	_, err = s.ledger.ApplyRun(context.Background(), run)
-	s.Require().ErrorIs(err, teamnote.ErrExtractionRunConflict)
+	replayed, err := s.ledger.ApplyRun(context.Background(), run)
+	s.Require().NoError(err)
+	s.Require().Equal(1, replayed[0].Revision)
+	s.Equal("The rollout is ready.", replayed[0].Body)
 
-	run.InputChecksum = "checksum-one"
-	run.Candidates[0].Body = "The rollout changed after the durable result."
-	_, err = s.ledger.ApplyRun(context.Background(), run)
-	s.Require().ErrorIs(err, teamnote.ErrExtractionRunConflict)
+	tests := []struct {
+		name   string
+		mutate func(*teamnote.ExtractionRun)
+	}{
+		{name: "input checksum", mutate: func(changed *teamnote.ExtractionRun) {
+			changed.InputChecksum = "checksum-two"
+		}},
+		{name: "candidate batch", mutate: func(changed *teamnote.ExtractionRun) {
+			changed.Candidates[0].Body = "The rollout changed after the durable result."
+		}},
+	}
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			changed := run
+			changed.Candidates = append([]teamnote.Candidate(nil), run.Candidates...)
+			test.mutate(&changed)
+			_, replayErr := s.ledger.ApplyRun(context.Background(), changed)
+			s.Require().ErrorIs(replayErr, teamnote.ErrExtractionRunConflict)
+		})
+	}
 }
 
 func (s *ledgerSuite) TestAudienceAndBudgetAreEnforced() {

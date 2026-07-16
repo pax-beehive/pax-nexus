@@ -176,6 +176,7 @@ func normalizeCandidates(result *Result, slice sessionlake.Slice) error {
 		candidate.Origin = slice.Actor
 		candidate.TaskRef = taskRef
 		candidate.ThreadRef = threadRef
+		candidate.IdentityRef = strings.TrimSpace(candidate.IdentityRef)
 		// Audience is an authorization boundary owned by the server, not a
 		// classification decision delegated to the extraction model.
 		candidate.AudienceAgentIDs = nil
@@ -260,7 +261,7 @@ func trimCodeFence(content string) string {
 
 const systemPrompt = `You extract short-lived collaboration notes from session events.
 Return exactly one JSON object in this shape:
-{"candidates":[{"action":"create","kind":"status","subject":"stable short subject","body":"concise factual note","task_ref":"","thread_ref":"","valid_at":null,"invalid_at":null,"related_subjects":[],"audience_agent_ids":[],"evidence_event_ids":["event-id"]}]}
+{"candidates":[{"action":"create","kind":"status","subject":"stable short subject","identity_ref":"","body":"concise factual note","task_ref":"","thread_ref":"","valid_at":null,"invalid_at":null,"related_subjects":[],"audience_agent_ids":[],"evidence_event_ids":["event-id"]}]}
 Allowed actions are create, update, resolve. Allowed kinds are status, blocker,
 handoff, artifact_reference. Use exactly the field names shown above. Never use
 description, citations, evidence, or other aliases. Preserve exact identifiers,
@@ -274,6 +275,9 @@ Always return audience_agent_ids as an empty array; the server owns audience and
 authorization. If more than 10 grounded facts are available, prioritize explicit
 decisions, changes, owners, exact values, deadlines, dependencies, and blockers
 over routine progress updates or conversational acknowledgements.
+For blocker and artifact_reference candidates, set identity_ref to an exact stable
+external identifier when one is present, such as a ticket ID, artifact path, or
+artifact ID. Otherwise leave identity_ref empty and keep subject stable across updates.
 valid_at and invalid_at are optional RFC3339 timestamps describing when the fact
 became true and stopped being true in the source domain. Do not use ingestion time
 as valid_at. Use the same stable subject and action update when a later event

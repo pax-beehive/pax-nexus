@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -124,7 +125,13 @@ func (s *NoteStore) applyExtractionRunTx(ctx context.Context, tx pgx.Tx, scopeID
 		}
 		notes = append(notes, note)
 	}
-	if _, err := tx.Exec(ctx, `UPDATE extraction_runs SET status = 'completed', completed_at = NOW() WHERE scope_id = $1 AND run_id = $2`, scopeID, run.ID); err != nil {
+	result, err := json.Marshal(notes)
+	if err != nil {
+		return nil, fmt.Errorf("encode extraction run result: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+UPDATE extraction_runs SET status = 'completed', result = $3::jsonb, completed_at = NOW()
+WHERE scope_id = $1 AND run_id = $2`, scopeID, run.ID, string(result)); err != nil {
 		return nil, fmt.Errorf("complete extraction run: %w", err)
 	}
 	return notes, nil
@@ -226,14 +233,15 @@ ON CONFLICT (scope_id, run_id) DO NOTHING`,
 func existingExtractionRunNotes(ctx context.Context, tx pgx.Tx, scopeID string, run teamnote.ExtractionRun) ([]teamnote.Note, error) {
 	var stored teamnote.ExtractionRun
 	var status string
+	var encodedResult []byte
 	err := tx.QueryRow(ctx, `
 SELECT user_id, agent_id, session_id, from_sequence, to_sequence, input_checksum,
-       candidate_checksum, model, prompt_version, input_tokens, output_tokens, status
+       candidate_checksum, model, prompt_version, input_tokens, output_tokens, status, result
 FROM extraction_runs WHERE scope_id = $1 AND run_id = $2`, scopeID, run.ID).Scan(
 		&stored.Actor.UserID, &stored.Actor.AgentID, &stored.Actor.SessionID,
 		&stored.FromSequence, &stored.ToSequence, &stored.InputChecksum,
 		&stored.CandidateChecksum, &stored.Model, &stored.PromptVersion,
-		&stored.InputTokens, &stored.OutputTokens, &status,
+		&stored.InputTokens, &stored.OutputTokens, &status, &encodedResult,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("load extraction run %q: %w", run.ID, err)
@@ -241,30 +249,9 @@ FROM extraction_runs WHERE scope_id = $1 AND run_id = $2`, scopeID, run.ID).Scan
 	if status != "completed" || !sameExtractionRunIdentity(stored, run) {
 		return nil, fmt.Errorf("replay extraction run %q: %w", run.ID, teamnote.ErrExtractionRunConflict)
 	}
-	rows, err := tx.Query(ctx, `
-SELECT candidate_id FROM note_candidates
-WHERE scope_id = $1 AND run_id = $2
-ORDER BY candidate_id`, scopeID, run.ID)
-	if err != nil {
-		return nil, fmt.Errorf("list extraction run candidates: %w", err)
-	}
-	ids, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (string, error) {
-		var id string
-		if err := row.Scan(&id); err != nil {
-			return "", err
-		}
-		return id, nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("scan extraction run candidates: %w", err)
-	}
-	notes := make([]teamnote.Note, 0, len(ids))
-	for _, id := range ids {
-		note, err := noteForCandidate(ctx, tx, scopeID, id)
-		if err != nil {
-			return nil, err
-		}
-		notes = append(notes, note)
+	var notes []teamnote.Note
+	if err := json.Unmarshal(encodedResult, &notes); err != nil {
+		return nil, fmt.Errorf("decode extraction run result: %w", err)
 	}
 	return notes, nil
 }
@@ -322,12 +309,12 @@ func evidenceRange(evidence []teamnote.SessionEvent) (int64, int64) {
 func insertCandidate(ctx context.Context, tx pgx.Tx, scopeID, runID string, candidate teamnote.Candidate) (bool, error) {
 	result, err := tx.Exec(ctx, `
 INSERT INTO note_candidates (
-    scope_id, candidate_id, run_id, action, kind, subject, body, task_ref,
+    scope_id, candidate_id, run_id, action, kind, subject, identity_ref, body, task_ref,
     thread_ref, origin_user_id, origin_agent_id, origin_session_id,
     audience_agent_ids, related_subjects, evidence_event_ids, valid_at, invalid_at, source_occurred_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
 ON CONFLICT (scope_id, candidate_id) DO NOTHING`,
-		scopeID, candidate.ID, runID, candidate.Action, candidate.Kind, candidate.Subject,
+		scopeID, candidate.ID, runID, candidate.Action, candidate.Kind, candidate.Subject, candidate.IdentityRef,
 		candidate.Body, candidate.TaskRef, candidate.ThreadRef, candidate.Origin.UserID,
 		candidate.Origin.AgentID, candidate.Origin.SessionID, nonNilStrings(candidate.AudienceAgentIDs),
 		nonNilStrings(candidate.RelatedSubjects), candidate.EvidenceEventIDs, candidate.ValidAt,

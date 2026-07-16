@@ -48,6 +48,7 @@ type Candidate struct {
 	Action           CandidateAction `json:"action"`
 	Kind             NoteKind        `json:"kind"`
 	Subject          string          `json:"subject"`
+	IdentityRef      string          `json:"identity_ref,omitempty"`
 	Body             string          `json:"body"`
 	TaskRef          string          `json:"task_ref,omitempty"`
 	ThreadRef        string          `json:"thread_ref,omitempty"`
@@ -126,8 +127,8 @@ type extractionRunIdentity struct {
 }
 
 type storedExtractionRun struct {
-	Identity     extractionRunIdentity
-	CandidateIDs []string
+	Identity extractionRunIdentity
+	Notes    []Note
 }
 
 func NewLedger(policy TTLPolicy, clock Clock) *Ledger {
@@ -166,7 +167,7 @@ func (l *Ledger) ApplyRun(ctx context.Context, run ExtractionRun) ([]Note, error
 		if stored.Identity != identity {
 			return nil, fmt.Errorf("replay extraction run %q: %w", run.ID, ErrExtractionRunConflict)
 		}
-		return l.notesForCandidateIDs(stored.CandidateIDs), nil
+		return cloneNoteSlice(stored.Notes), nil
 	}
 
 	notes := cloneNotes(l.notes)
@@ -197,7 +198,7 @@ func (l *Ledger) ApplyRun(ctx context.Context, run ExtractionRun) ([]Note, error
 	l.notes = notes
 	l.candidates = candidates
 	if run.ID != "" {
-		l.runs[run.ID] = storedExtractionRun{Identity: identity, CandidateIDs: candidateIDs(run.Candidates)}
+		l.runs[run.ID] = storedExtractionRun{Identity: identity, Notes: cloneNoteSlice(result)}
 	}
 	return result, nil
 }
@@ -211,22 +212,12 @@ func identityForExtractionRun(run ExtractionRun) extractionRunIdentity {
 	}
 }
 
-func candidateIDs(candidates []Candidate) []string {
-	ids := make([]string, len(candidates))
-	for index, candidate := range candidates {
-		ids[index] = candidate.ID
+func cloneNoteSlice(notes []Note) []Note {
+	cloned := make([]Note, len(notes))
+	for index, note := range notes {
+		cloned[index] = cloneNote(note)
 	}
-	return ids
-}
-
-func (l *Ledger) notesForCandidateIDs(ids []string) []Note {
-	notes := make([]Note, 0, len(ids))
-	for _, id := range ids {
-		if key, ok := l.candidates[id]; ok {
-			notes = append(notes, cloneNote(l.notes[key]))
-		}
-	}
-	return notes
+	return cloned
 }
 
 func validateRunIdentity(run ExtractionRun) error {
@@ -697,11 +688,18 @@ var temporalStopWords = map[string]bool{
 }
 
 func CanonicalKey(candidate Candidate) string {
+	identity := candidate.Subject
+	if candidate.Kind == KindBlocker || candidate.Kind == KindArtifactReference {
+		identity = strings.TrimSpace(candidate.IdentityRef)
+		if identity == "" {
+			identity = strings.Join(strings.Fields(strings.ToLower(candidate.Subject)), " ")
+		}
+	}
 	key := fmt.Sprintf("%d:%s%d:%s%d:%s%d:%s",
 		len(candidate.TaskRef), candidate.TaskRef,
 		len(candidate.ThreadRef), candidate.ThreadRef,
 		len(candidate.Kind), candidate.Kind,
-		len(candidate.Subject), candidate.Subject,
+		len(identity), identity,
 	)
 	if candidate.Kind == KindStatus || candidate.Kind == KindHandoff {
 		key += fmt.Sprintf("%d:%s", len(candidate.Origin.AgentID), candidate.Origin.AgentID)

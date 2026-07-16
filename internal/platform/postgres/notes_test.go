@@ -57,8 +57,9 @@ func (s *noteStoreSuite) TestLifecycleDeliveryAndPersistence() {
 	firstEvent := event("note-event-1", producer, 1)
 	s.appendEvents(ctx, scopeID, firstEvent)
 	notes := s.newNoteStore()
+	firstCandidate := candidate("candidate-1", teamnote.ActionCreate, "work started", producer, firstEvent.ID)
 
-	created, err := notes.ApplyCandidate(ctx, scopeID, "run-1", candidate("candidate-1", teamnote.ActionCreate, "work started", producer, firstEvent.ID), []teamnote.SessionEvent{firstEvent})
+	created, err := notes.ApplyCandidate(ctx, scopeID, "run-1", firstCandidate, []teamnote.SessionEvent{firstEvent})
 	s.Require().NoError(err)
 	s.Equal(1, created.Revision)
 	s.Equal(teamnote.StateActive, created.State)
@@ -88,6 +89,10 @@ func (s *noteStoreSuite) TestLifecycleDeliveryAndPersistence() {
 	s.Require().NoError(err)
 	s.Equal(created.ID, updated.ID)
 	s.Equal(2, updated.Revision)
+	replayedRun, err := restarted.ApplyCandidate(ctx, scopeID, "run-1", firstCandidate, []teamnote.SessionEvent{firstEvent})
+	s.Require().NoError(err)
+	s.Equal(1, replayedRun.Revision)
+	s.Equal("work started", replayedRun.Body)
 
 	refreshed, err := restarted.RecallNotes(ctx, scopeID, request)
 	s.Require().NoError(err)
