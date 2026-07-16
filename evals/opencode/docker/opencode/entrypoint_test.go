@@ -89,6 +89,49 @@ func (s *entrypointSuite) TestHybridArmEnablesBoundedActiveRecall() {
 	s.Contains(arguments, "PAXM_ACTIVE_RECALL_MAX_CALLS=2")
 }
 
+func (s *entrypointSuite) TestDirectContextArmSuppliesRawConversationWithoutRecall() {
+	repositoryRoot, err := filepath.Abs(filepath.Join("..", "..", "..", ".."))
+	s.Require().NoError(err)
+	directory := s.T().TempDir()
+	producerWorkspace := filepath.Join(directory, "producer")
+	s.Require().NoError(os.Mkdir(producerWorkspace, 0o700))
+	s.Require().NoError(os.WriteFile(
+		filepath.Join(producerWorkspace, "source.md"),
+		[]byte("Ops Lead owns the rollback evidence pack."),
+		0o600,
+	))
+	binDirectory := filepath.Join(directory, "bin")
+	s.Require().NoError(os.Mkdir(binDirectory, 0o700))
+	capture := filepath.Join(directory, "docker-args")
+	docker := filepath.Join(binDirectory, "docker")
+	s.Require().NoError(os.WriteFile(docker, []byte("#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$DOCKER_CAPTURE\"\n"), 0o700))
+
+	command := exec.Command("sh", filepath.Join(repositoryRoot, "scripts", "eval-v2-opencode.sh"), "consumer", "direct_context")
+	command.Dir = repositoryRoot
+	command.Env = []string{
+		"PATH=" + binDirectory + string(os.PathListSeparator) + os.Getenv("PATH"),
+		"DOCKER_CAPTURE=" + capture,
+		"PAX_EVAL_RUN_ID=direct-context-test",
+		"PAX_EVAL_CASE_ID=case-1",
+		"PAX_EVAL_SCOPE_ID=scope-1",
+		"PAX_EVAL_USER_ID=User_3",
+		"PAX_EVAL_PRODUCER_WORKSPACE=" + producerWorkspace,
+		"PAX_EVAL_CONSUMER_WORKSPACE=" + directory,
+		"PAX_EVAL_QUESTION=Who owns the rollback evidence pack?",
+		"OPENCODE_MODEL=deepseek/deepseek-v4-flash",
+		"TEAM_MEMORY_API_KEYS={}",
+	}
+	output, err := command.CombinedOutput()
+	s.Require().NoError(err, string(output))
+	input, err := os.ReadFile(capture)
+	s.Require().NoError(err)
+	arguments := strings.Split(strings.TrimSpace(string(input)), "\n")
+	s.Contains(arguments, "PAXM_RECALL_ENABLED=0")
+	s.Contains(arguments, "PAXM_EVAL_RECALL_MODE=direct")
+	s.Contains(arguments, "Asking user: User_3")
+	s.Contains(arguments, "Ops Lead owns the rollback evidence pack.")
+}
+
 func (s *entrypointSuite) TestMem0UsesSharedIdentityAcrossAskingUsers() {
 	repositoryRoot, err := filepath.Abs(filepath.Join("..", "..", "..", ".."))
 	s.Require().NoError(err)
@@ -459,6 +502,45 @@ func (s *entrypointSuite) TestPassiveRecallThresholdGuard() {
 			s.Equal("top_level", providers.Providers["memory"].SearchScopePayload)
 			s.Equal("threshold-test", providers.Providers["memory"].AgentID)
 		})
+	}
+}
+
+func (s *entrypointSuite) TestPassiveRecallProfilesUseConfiguredProviderTimeout() {
+	directory := s.T().TempDir()
+	plugin := filepath.Join(directory, "paxm.js")
+	s.Require().NoError(os.WriteFile(plugin, []byte("// test plugin"), 0o600))
+	command := exec.Command("sh", "entrypoint.sh")
+	command.Env = []string{
+		"PATH=" + os.Getenv("PATH"),
+		"PAXM_AGENT_ID=passive-timeout-test",
+		"PAXM_PROVIDER_TYPE=team-memory",
+		"PAXM_USER_ID=eval-owner",
+		"TEAM_MEMORY_API_KEY=eval-key",
+		"PAXM_CONFIG_ROOT=" + directory,
+		"PAXM_PLUGIN_SOURCE=" + plugin,
+		"PAXM_CONFIG_ONLY=1",
+		"PAXM_PASSIVE_PROVIDER_TIMEOUT=2s",
+	}
+	output, err := command.CombinedOutput()
+	s.Require().NoError(err, string(output))
+
+	input, err := os.ReadFile(filepath.Join(directory, "paxm.yaml"))
+	s.Require().NoError(err)
+	var config struct {
+		RecallProfiles map[string]struct {
+			Providers []struct {
+				Name    string `yaml:"name"`
+				Timeout string `yaml:"timeout"`
+			} `yaml:"providers"`
+		} `yaml:"recall_profiles"`
+	}
+	s.Require().NoError(yaml.Unmarshal(input, &config))
+	for _, profileName := range []string{"passive", "passive_initial"} {
+		profile, ok := config.RecallProfiles[profileName]
+		s.Require().True(ok, profileName)
+		s.Require().Len(profile.Providers, 1, profileName)
+		s.Equal("memory", profile.Providers[0].Name, profileName)
+		s.Equal("2s", profile.Providers[0].Timeout, profileName)
 	}
 }
 

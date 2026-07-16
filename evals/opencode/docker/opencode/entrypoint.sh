@@ -11,6 +11,7 @@ set -eu
 : "${TEAM_MEMORY_REQUEST_TIMEOUT:=60s}"
 : "${PAXM_PASSIVE_MIN_RELEVANCE:=-1}"
 : "${PAXM_PASSIVE_MIN_SCORE:=-1}"
+: "${PAXM_PASSIVE_PROVIDER_TIMEOUT:=2s}"
 : "${PAXM_INSERTION_MIN_SCORE:=0}"
 : "${MEM0_SCORE_SEMANTICS:=distance}"
 : "${MEM0_SEARCH_SCOPE_PAYLOAD:=top_level}"
@@ -83,6 +84,16 @@ recall_profiles:
     providers:
       - name: memory
         required: true
+        timeout: ${PAXM_PASSIVE_PROVIDER_TIMEOUT}
+    max_results: 5
+    thresholds:
+      min_relevance: ${PAXM_PASSIVE_MIN_RELEVANCE}
+      min_score: ${PAXM_PASSIVE_MIN_SCORE}
+  passive_initial:
+    providers:
+      - name: memory
+        required: true
+        timeout: ${PAXM_PASSIVE_PROVIDER_TIMEOUT}
     max_results: 5
     thresholds:
       min_relevance: ${PAXM_PASSIVE_MIN_RELEVANCE}
@@ -134,6 +145,11 @@ tools_config='    "*": false,
     "grep": true'
 if [ "${PAXM_EVAL_CONSUMER_POLICY}" = "1" ]; then
   case "${PAXM_EVAL_RECALL_MODE}" in
+    direct)
+      recall_policy='Use only the conversation passages supplied in the user prompt as evidence.
+Do not search, inspect, or mention the workspace. Do not use tools. If the supplied
+passages do not contain the answer, state directly that the information is unavailable.'
+      ;;
     passive)
       recall_policy='Use recalled memory context as the only evidence. The consumer workspace
 intentionally contains no source messages. Do not search, inspect, or mention the workspace.

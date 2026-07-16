@@ -25,6 +25,7 @@ runtime_env:
   - MEM0_EVAL_AGENT_ID
   - PAXM_PASSIVE_MIN_RELEVANCE
   - PAXM_PASSIVE_MIN_SCORE
+  - PAXM_PASSIVE_PROVIDER_TIMEOUT
   - MEM0_SCORE_SEMANTICS
   - MEM0_SEARCH_SCOPE_PAYLOAD
   - PAXM_EXPECTED_VERSION
@@ -38,6 +39,10 @@ preflight:
 judge:
   program: scripts/eval-v2-judge.sh
 arms:
+  - name: direct_context
+    consumer:
+      program: scripts/eval-v2-opencode.sh
+      args: [consumer, direct_context]
   - name: control
     consumer:
       program: scripts/eval-v2-opencode.sh

@@ -61,6 +61,7 @@ run_agent() {
     -e PAXM_ACTIVE_RECALL_MAX_CALLS=2 \
     -e PAXM_PASSIVE_MIN_RELEVANCE="${PAXM_PASSIVE_MIN_RELEVANCE:--1}" \
     -e PAXM_PASSIVE_MIN_SCORE="${PAXM_PASSIVE_MIN_SCORE:--1}" \
+    -e PAXM_PASSIVE_PROVIDER_TIMEOUT="${PAXM_PASSIVE_PROVIDER_TIMEOUT:-2s}" \
     -e PAXM_INSERTION_MIN_SCORE="${PAXM_INSERTION_MIN_SCORE:-0}" \
     -e PAXM_EVAL_DIAGNOSTICS="${PAXM_EVAL_DIAGNOSTICS:-1}" \
     opencode run --agent "${opencode_agent}" --format json --model "${OPENCODE_MODEL}" "${prompt}"
@@ -151,13 +152,24 @@ case "${stage}" in
   consumer)
     consumer_recall_enabled=1
     consumer_recall_mode=passive
+    consumer_prompt="${PAX_EVAL_QUESTION}"
     if [ "${arm}" = "control" ]; then
       consumer_recall_enabled=0
+    fi
+    if [ "${arm}" = "direct_context" ]; then
+      consumer_recall_enabled=0
+      consumer_recall_mode=direct
+      source_file="${PAX_EVAL_PRODUCER_WORKSPACE}/source.md"
+      if [ ! -f "${source_file}" ]; then
+        echo "direct context source is missing: ${source_file}" >&2
+        exit 1
+      fi
+      consumer_prompt="$(printf 'Asking user: %s\n\nQuestion:\n%s\n\nRetrieved conversation passages:\n' "${eval_user_id}" "${PAX_EVAL_QUESTION}"; cat "${source_file}")"
     fi
     if [ "${arm}" = "team_note_hybrid" ]; then
       consumer_recall_mode=hybrid
     fi
-    run_agent "${PAX_EVAL_CONSUMER_WORKSPACE}" "${consumer_recall_enabled}" 0 "${PAX_EVAL_QUESTION}" 1 "${consumer_recall_mode}"
+    run_agent "${PAX_EVAL_CONSUMER_WORKSPACE}" "${consumer_recall_enabled}" 0 "${consumer_prompt}" 1 "${consumer_recall_mode}"
     ;;
   *)
     echo "unsupported stage: ${stage}" >&2
