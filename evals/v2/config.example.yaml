@@ -48,6 +48,16 @@ arms:
     consumer:
       program: scripts/eval-v2-opencode.sh
       args: [consumer, team_note]
+  - name: team_note_hybrid
+    ingest:
+      program: scripts/eval-v2-opencode.sh
+      args: [ingest, team_note]
+    after_producer:
+      program: scripts/eval-v2-opencode.sh
+      args: [ready, team_note]
+    consumer:
+      program: scripts/eval-v2-opencode.sh
+      args: [consumer, team_note_hybrid]
   - name: mem0
     ingest:
       program: scripts/eval-v2-opencode.sh

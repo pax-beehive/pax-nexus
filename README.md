@@ -61,7 +61,7 @@ make down
 ```
 
 The HTTP API listens on `http://localhost:58080` by default. `make logs` follows
-both services. River defaults to four single-worker queue shards, which keeps a
+both services. River defaults to sixteen single-worker queue shards, which keeps a
 session on one serial shard while allowing different sessions to be extracted
 in parallel. Configure the pool with `TEAM_MEMORY_WORKER_SHARDS`, retry count
 with `TEAM_MEMORY_WORKER_MAX_ATTEMPTS`, and lifecycle timeouts with
@@ -101,9 +101,9 @@ See [the design draft](doc/team-note-design.md) and the
 and recall participation rules are documented in
 [extraction and recall](doc/extraction-and-recall.md).
 
-For current paired runs, Eval v2 persists a control, Team Note, and self-hosted
-Mem0 matrix in PostgreSQL and exports CSV, JSONL, and a self-contained HTML
-report. See [the evaluation runbook](evals/README.md).
+For current paired runs, Eval v2 persists control, passive Team Note, hybrid
+Team Note, and self-hosted Mem0 trials in PostgreSQL and exports CSV, JSONL, and
+a self-contained HTML report. See [the evaluation runbook](evals/README.md).
 
 ## Development gates
 

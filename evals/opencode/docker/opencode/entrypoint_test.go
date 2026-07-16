@@ -48,9 +48,45 @@ func (s *entrypointSuite) TestConsumerKeepsAnswerPolicyOutOfRecallPrompt() {
 	arguments := strings.Split(strings.TrimSpace(string(input)), "\n")
 	s.Equal(question, arguments[len(arguments)-1])
 	s.Contains(arguments, "PAXM_EVAL_CONSUMER_POLICY=1")
+	s.Contains(arguments, "PAXM_EVAL_RECALL_MODE=passive")
 	s.Contains(arguments, "PAXM_AGENT_ID=groupmembench-eval-owner")
 	s.Contains(arguments, "--agent")
 	s.Contains(arguments, "eval-consumer")
+}
+
+func (s *entrypointSuite) TestHybridArmEnablesBoundedActiveRecall() {
+	repositoryRoot, err := filepath.Abs(filepath.Join("..", "..", "..", ".."))
+	s.Require().NoError(err)
+	directory := s.T().TempDir()
+	binDirectory := filepath.Join(directory, "bin")
+	s.Require().NoError(os.Mkdir(binDirectory, 0o700))
+	capture := filepath.Join(directory, "docker-args")
+	docker := filepath.Join(binDirectory, "docker")
+	s.Require().NoError(os.WriteFile(docker, []byte("#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$DOCKER_CAPTURE\"\n"), 0o700))
+
+	command := exec.Command("sh", filepath.Join(repositoryRoot, "scripts", "eval-v2-opencode.sh"), "consumer", "team_note_hybrid")
+	command.Dir = repositoryRoot
+	command.Env = []string{
+		"PATH=" + binDirectory + string(os.PathListSeparator) + os.Getenv("PATH"),
+		"DOCKER_CAPTURE=" + capture,
+		"PAX_EVAL_RUN_ID=hybrid-query-test",
+		"PAX_EVAL_CASE_ID=case-1",
+		"PAX_EVAL_SCOPE_ID=scope-1",
+		"PAX_EVAL_USER_ID=eval-owner",
+		"PAX_EVAL_CONSUMER_WORKSPACE=" + directory,
+		"PAX_EVAL_QUESTION=What is the current approach?",
+		"OPENCODE_MODEL=deepseek/deepseek-v4-flash",
+		"TEAM_MEMORY_API_KEYS={}",
+	}
+	output, err := command.CombinedOutput()
+	s.Require().NoError(err, string(output))
+	input, err := os.ReadFile(capture)
+	s.Require().NoError(err)
+	arguments := strings.Split(strings.TrimSpace(string(input)), "\n")
+	s.Contains(arguments, "PAXM_PROVIDER_TYPE=team-memory")
+	s.Contains(arguments, "PAXM_RECALL_ENABLED=1")
+	s.Contains(arguments, "PAXM_EVAL_RECALL_MODE=hybrid")
+	s.Contains(arguments, "PAXM_ACTIVE_RECALL_MAX_CALLS=2")
 }
 
 func (s *entrypointSuite) TestMem0UsesSharedIdentityAcrossAskingUsers() {
@@ -224,6 +260,82 @@ func (s *entrypointSuite) TestConsumerPolicyUsesDedicatedOpenCodeAgent() {
 	s.Contains(string(policy), "recalled memory context")
 	s.Contains(string(policy), "Do not search, inspect, or mention the workspace")
 	s.Contains(string(policy), "Do not describe or propose searches, tool calls, or attempts")
+}
+
+func (s *entrypointSuite) TestHybridConsumerAllowsOnlyTwoActiveRecalls() {
+	directory := s.T().TempDir()
+	plugin := filepath.Join(directory, "paxm.js")
+	toolSource := filepath.Join(directory, "active_recall.ts")
+	s.Require().NoError(os.WriteFile(plugin, []byte("// test plugin"), 0o600))
+	s.Require().NoError(os.WriteFile(toolSource, []byte("// test active recall tool"), 0o600))
+	command := exec.Command("sh", "entrypoint.sh")
+	command.Env = []string{
+		"PATH=" + os.Getenv("PATH"),
+		"PAXM_AGENT_ID=hybrid-policy-test",
+		"PAXM_PROVIDER_TYPE=mem0",
+		"PAXM_USER_ID=eval-owner",
+		"MEM0_RUN_ID=hybrid-policy-test",
+		"PAXM_CONFIG_ROOT=" + directory,
+		"PAXM_PLUGIN_SOURCE=" + plugin,
+		"PAXM_ACTIVE_RECALL_TOOL_SOURCE=" + toolSource,
+		"PAXM_CONFIG_ONLY=1",
+		"PAXM_EVAL_CONSUMER_POLICY=1",
+		"PAXM_EVAL_RECALL_MODE=hybrid",
+		"PAXM_ACTIVE_RECALL_MAX_CALLS=2",
+	}
+	output, err := command.CombinedOutput()
+	s.Require().NoError(err, string(output))
+
+	input, err := os.ReadFile(filepath.Join(directory, "opencode", "opencode.json"))
+	s.Require().NoError(err)
+	var config struct {
+		Permission map[string]string `json:"permission"`
+		Tools      map[string]bool   `json:"tools"`
+		Agent      map[string]struct {
+			Permission map[string]string `json:"permission"`
+			Tools      map[string]bool   `json:"tools"`
+		} `json:"agent"`
+	}
+	s.Require().NoError(json.Unmarshal(input, &config))
+	s.Equal("allow", config.Permission["active_recall"])
+	s.True(config.Tools["active_recall"])
+	s.Equal("allow", config.Agent["eval-consumer"].Permission["active_recall"])
+	s.True(config.Agent["eval-consumer"].Tools["active_recall"])
+	s.False(config.Agent["eval-consumer"].Tools["read"])
+
+	policy, err := os.ReadFile(filepath.Join(directory, "opencode", "eval-consumer-prompt.md"))
+	s.Require().NoError(err)
+	s.Contains(string(policy), "at most 2 times")
+	s.Contains(string(policy), "active_recall")
+	tool, err := os.ReadFile(filepath.Join(directory, "opencode", "tools", "active_recall.ts"))
+	s.Require().NoError(err)
+	s.Equal("// test active recall tool", string(tool))
+}
+
+func (s *entrypointSuite) TestHybridConsumerRejectsRecallLimitAboveTwo() {
+	directory := s.T().TempDir()
+	plugin := filepath.Join(directory, "paxm.js")
+	toolSource := filepath.Join(directory, "active_recall.ts")
+	s.Require().NoError(os.WriteFile(plugin, []byte("// test plugin"), 0o600))
+	s.Require().NoError(os.WriteFile(toolSource, []byte("// test active recall tool"), 0o600))
+	command := exec.Command("sh", "entrypoint.sh")
+	command.Env = []string{
+		"PATH=" + os.Getenv("PATH"),
+		"PAXM_AGENT_ID=hybrid-limit-test",
+		"PAXM_PROVIDER_TYPE=mem0",
+		"PAXM_USER_ID=eval-owner",
+		"MEM0_RUN_ID=hybrid-limit-test",
+		"PAXM_CONFIG_ROOT=" + directory,
+		"PAXM_PLUGIN_SOURCE=" + plugin,
+		"PAXM_ACTIVE_RECALL_TOOL_SOURCE=" + toolSource,
+		"PAXM_CONFIG_ONLY=1",
+		"PAXM_EVAL_CONSUMER_POLICY=1",
+		"PAXM_EVAL_RECALL_MODE=hybrid",
+		"PAXM_ACTIVE_RECALL_MAX_CALLS=3",
+	}
+	output, err := command.CombinedOutput()
+	s.Require().Error(err)
+	s.Contains(string(output), "must be between 1 and 2")
 }
 
 func (s *entrypointSuite) TestPassiveRecallThresholdGuard() {

@@ -27,6 +27,7 @@ run_agent() {
   write_enabled="$3"
   prompt="$4"
   consumer_policy="$5"
+  recall_mode="$6"
   opencode_agent="build"
   if [ "${consumer_policy}" = "1" ]; then
     opencode_agent="eval-consumer"
@@ -52,6 +53,8 @@ run_agent() {
     -e PAXM_RECALL_ENABLED="${recall_enabled}" \
     -e PAXM_WRITE_ENABLED="${write_enabled}" \
     -e PAXM_EVAL_CONSUMER_POLICY="${consumer_policy}" \
+    -e PAXM_EVAL_RECALL_MODE="${recall_mode}" \
+    -e PAXM_ACTIVE_RECALL_MAX_CALLS=2 \
     -e PAXM_PASSIVE_MIN_RELEVANCE="${PAXM_PASSIVE_MIN_RELEVANCE:--1}" \
     -e PAXM_PASSIVE_MIN_SCORE="${PAXM_PASSIVE_MIN_SCORE:--1}" \
     -e PAXM_INSERTION_MIN_SCORE="${PAXM_INSERTION_MIN_SCORE:-0}" \
@@ -101,7 +104,7 @@ case "${stage}" in
       producer_write_enabled=0
     fi
     run_agent "${PAX_EVAL_PRODUCER_WORKSPACE}" 0 "${producer_write_enabled}" \
-      "Read source.md. Produce a complete factual handoff of every current decision, date, owner, dependency, and unresolved blocker. Preserve author identities and exact values." 0
+      "Read source.md. Produce a complete factual handoff of every current decision, date, owner, dependency, and unresolved blocker. Preserve author identities and exact values." 0 passive
     ;;
   ingest)
     batches_dir="$(dirname "${PAX_EVAL_SESSION_BATCHES_FILE}")"
@@ -139,10 +142,14 @@ case "${stage}" in
     ;;
   consumer)
     consumer_recall_enabled=1
+    consumer_recall_mode=passive
     if [ "${arm}" = "control" ]; then
       consumer_recall_enabled=0
     fi
-    run_agent "${PAX_EVAL_CONSUMER_WORKSPACE}" "${consumer_recall_enabled}" 0 "${PAX_EVAL_QUESTION}" 1
+    if [ "${arm}" = "team_note_hybrid" ]; then
+      consumer_recall_mode=hybrid
+    fi
+    run_agent "${PAX_EVAL_CONSUMER_WORKSPACE}" "${consumer_recall_enabled}" 0 "${PAX_EVAL_QUESTION}" 1 "${consumer_recall_mode}"
     ;;
   *)
     echo "unsupported stage: ${stage}" >&2

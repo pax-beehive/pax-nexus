@@ -8,6 +8,8 @@ The included configuration compares:
 
 - `control`: OpenCode without passive recall or writes
 - `team_note`: OpenCode using the PAX Team Note provider
+- `team_note_hybrid`: Team Note passive recall plus an `active_recall` tool with
+  a runtime-enforced maximum of two calls per consumer trial
 - `mem0`: OpenCode using a self-hosted Mem0 OSS REST server
 
 Every trial records the same benchmark `asking_user_id`. Team Note uses it as
@@ -17,7 +19,7 @@ configured by `MEM0_EVAL_USER_ID` and `MEM0_EVAL_AGENT_ID`. A case-specific
 `run_id` prevents cross-case contamination without turning source actors into
 separate Mem0 namespaces.
 
-The two memory arms receive the exact same selected GroupMemBench messages,
+The memory arms receive the exact same selected GroupMemBench messages,
 without a producer-model rewrite. Case preparation writes native session batches
 partitioned by source author, channel, and phase. Team Note ingests those batches
 with their original user, agent, session, timestamp, and reply provenance. Mem0

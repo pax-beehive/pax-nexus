@@ -17,6 +17,8 @@ set -eu
 : "${PAXM_EXPECTED_VERSION:=v0.1.29}"
 : "${PAXM_BINARY:=/usr/local/bin/paxm}"
 : "${PAXM_EVAL_CONSUMER_POLICY:=0}"
+: "${PAXM_EVAL_RECALL_MODE:=passive}"
+: "${PAXM_ACTIVE_RECALL_MAX_CALLS:=2}"
 
 if [ "${PAXM_PASSIVE_MIN_RELEVANCE}" = "0" ] && [ "${PAXM_PASSIVE_MIN_SCORE}" = "0" ]; then
   echo "passive recall thresholds cannot both be 0 because paxm normalizes the zero-value profile to its defaults; use -1 to preserve raw top-k" >&2
@@ -25,6 +27,7 @@ fi
 
 : "${PAXM_CONFIG_ROOT:=/tmp/eval-${PAXM_AGENT_ID}}"
 : "${PAXM_PLUGIN_SOURCE:=/opt/paxm/paxm.js}"
+: "${PAXM_ACTIVE_RECALL_TOOL_SOURCE:=/opt/team-memory/active_recall.ts}"
 config_root="${PAXM_CONFIG_ROOT}"
 paxm_config="${config_root}/paxm.yaml"
 opencode_config="${config_root}/opencode"
@@ -130,13 +133,38 @@ tools_config='    "*": false,
     "glob": true,
     "grep": true'
 if [ "${PAXM_EVAL_CONSUMER_POLICY}" = "1" ]; then
-  cat > "${opencode_config}/eval-consumer-prompt.md" <<'EOF'
-# Evaluation consumer policy
-
-Use recalled memory context as the only evidence. The consumer workspace
+  case "${PAXM_EVAL_RECALL_MODE}" in
+    passive)
+      recall_policy='Use recalled memory context as the only evidence. The consumer workspace
 intentionally contains no source messages. Do not search, inspect, or mention the workspace.
 Do not describe or propose searches, tool calls, or attempts. If recalled memory
-does not contain the answer, state directly that the information is unavailable.
+does not contain the answer, state directly that the information is unavailable.'
+      ;;
+    hybrid)
+      case "${PAXM_ACTIVE_RECALL_MAX_CALLS}" in
+        1|2) ;;
+        *)
+          echo "PAXM_ACTIVE_RECALL_MAX_CALLS must be between 1 and 2" >&2
+          exit 1
+          ;;
+      esac
+      mkdir -p "${opencode_config}/tools"
+      cp "${PAXM_ACTIVE_RECALL_TOOL_SOURCE}" "${opencode_config}/tools/active_recall.ts"
+      recall_policy="Use passively recalled memory context first. If it is insufficient, you may call
+active_recall with a focused query at most ${PAXM_ACTIVE_RECALL_MAX_CALLS} times. The consumer workspace
+intentionally contains no source messages. Do not search, inspect, or mention the workspace,
+and do not use any tool other than active_recall. If the available memory evidence does not
+contain the answer, state directly that the information is unavailable."
+      ;;
+    *)
+      echo "unsupported PAXM_EVAL_RECALL_MODE: ${PAXM_EVAL_RECALL_MODE}" >&2
+      exit 1
+      ;;
+  esac
+  cat > "${opencode_config}/eval-consumer-prompt.md" <<EOF
+# Evaluation consumer policy
+
+${recall_policy}
 
 Answer directly and concisely without explaining your reasoning. Only if the
 question requests an exact owner, name, date, time, timestamp, version, count,
@@ -154,6 +182,20 @@ EOF
   },'
   permission_config='    "*": "deny"'
   tools_config='    "*": false'
+  if [ "${PAXM_EVAL_RECALL_MODE}" = "hybrid" ]; then
+    agent_config='  "agent": {
+    "eval-consumer": {
+      "mode": "primary",
+      "prompt": "{file:./eval-consumer-prompt.md}",
+      "permission": {"*": "deny", "active_recall": "allow"},
+      "tools": {"*": false, "active_recall": true}
+    }
+  },'
+    permission_config='    "*": "deny",
+    "active_recall": "allow"'
+    tools_config='    "*": false,
+    "active_recall": true'
+  fi
 fi
 
 cat > "${opencode_config}/opencode.json" <<EOF

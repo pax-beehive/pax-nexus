@@ -26,6 +26,7 @@ COPY --from=paxm-build /out/paxm /usr/local/bin/paxm
 COPY --from=paxm-build /out/paxm.js /opt/paxm/paxm.js
 COPY --from=team-memory-build /out/paxm-team-memory-provider /usr/local/bin/paxm-team-memory-provider
 COPY --from=team-memory-build /out/eval-v2-memory /usr/local/bin/eval-v2-memory
+COPY evals/opencode/docker/opencode/active_recall.ts /opt/team-memory/active_recall.ts
 COPY evals/opencode/docker/opencode/entrypoint.sh /usr/local/bin/team-memory-opencode
 RUN chmod 0755 /usr/local/bin/team-memory-opencode
 
