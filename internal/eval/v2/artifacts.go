@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-const ArtifactSchemaVersion = "pax-eval-v2.6"
+const ArtifactSchemaVersion = "pax-eval-v2.7"
 
 type SummaryRow struct {
 	DimensionType     string
@@ -25,7 +25,12 @@ type SummaryRow struct {
 	Failed            int
 	Exact             int
 	SafeSuccess       int
+	Judged            int
+	Correct           int
+	Accuracy          float64
 	MeanTokenF1       float64
+	TotalJudgeCost    float64
+	MeanJudgeCost     float64
 	CostScope         string
 	TotalCost         float64
 	MeanCompletedCost float64
@@ -42,6 +47,12 @@ type PairwiseRow struct {
 	Wins                           int
 	Losses                         int
 	Ties                           int
+	AccuracyPairs                  int
+	AccuracyWins                   int
+	AccuracyLosses                 int
+	AccuracyTies                   int
+	CandidateAccuracy              float64
+	AccuracyDelta                  float64
 	MeanTokenF1                    float64
 	MeanDeltaF1                    float64
 	CostScope                      string
@@ -72,6 +83,35 @@ type ArmCost struct {
 }
 
 type HTMLRenderer func(io.Writer) error
+
+func LoadTrialResultsJSONL(path string) (results []TrialResult, returnedErr error) {
+	input, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("open eval trial JSONL: %w", err)
+	}
+	defer func() {
+		if closeErr := input.Close(); closeErr != nil {
+			returnedErr = errors.Join(returnedErr, fmt.Errorf("close eval trial JSONL: %w", closeErr))
+		}
+	}()
+	results = make([]TrialResult, 0)
+	scanner := bufio.NewScanner(input)
+	scanner.Buffer(make([]byte, 64*1024), 4*1024*1024)
+	for scanner.Scan() {
+		var result TrialResult
+		if err := json.Unmarshal(scanner.Bytes(), &result); err != nil {
+			return nil, fmt.Errorf("decode eval trial JSONL: %w", err)
+		}
+		results = append(results, result)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("scan eval trial JSONL: %w", err)
+	}
+	if len(results) == 0 {
+		return nil, fmt.Errorf("load eval trial JSONL: results are required")
+	}
+	return results, nil
+}
 
 func ExportArtifacts(directory string, run RunRecord, baselineArm string, formats []string, results []TrialResult, renderHTML HTMLRenderer) error {
 	if len(results) == 0 {
@@ -271,6 +311,11 @@ func summarizeGroup(dimensionType, dimensionValue, arm string, results []TrialRe
 		row.Completed++
 		row.Exact += boolInt(result.Exact)
 		row.SafeSuccess += boolInt(result.SafeSuccess)
+		if result.Judged {
+			row.Judged++
+			row.Correct += boolInt(result.Correct)
+			row.TotalJudgeCost += result.JudgeCost
+		}
 		row.MeanTokenF1 += result.TokenF1
 		row.MeanCompletedCost += result.Cost
 		row.MeanDurationMS += float64(result.TotalDurationMS)
@@ -279,6 +324,10 @@ func summarizeGroup(dimensionType, dimensionValue, arm string, results []TrialRe
 		row.MeanTokenF1 /= float64(row.Completed)
 		row.MeanCompletedCost /= float64(row.Completed)
 		row.MeanDurationMS /= float64(row.Completed)
+	}
+	if row.Judged > 0 {
+		row.Accuracy = float64(row.Correct) / float64(row.Judged)
+		row.MeanJudgeCost = row.TotalJudgeCost / float64(row.Judged)
 	}
 	return row
 }
@@ -302,6 +351,21 @@ func compareArm(byCase map[string]map[string]TrialResult, category, baselineArm,
 		row.PairedCompletedIncrementalCost += costDelta
 		row.ExactLift += boolInt(candidate.Exact) - boolInt(baseline.Exact)
 		row.SafeSuccessLift += boolInt(candidate.SafeSuccess) - boolInt(baseline.SafeSuccess)
+		if baseline.Judged && candidate.Judged {
+			baselineCorrect := boolInt(baseline.Correct)
+			candidateCorrect := boolInt(candidate.Correct)
+			row.AccuracyPairs++
+			row.CandidateAccuracy += float64(candidateCorrect)
+			row.AccuracyDelta += float64(candidateCorrect - baselineCorrect)
+			switch {
+			case candidateCorrect > baselineCorrect:
+				row.AccuracyWins++
+			case candidateCorrect < baselineCorrect:
+				row.AccuracyLosses++
+			default:
+				row.AccuracyTies++
+			}
+		}
 		switch {
 		case delta > 0:
 			row.Wins++
@@ -317,6 +381,10 @@ func compareArm(byCase map[string]map[string]TrialResult, category, baselineArm,
 		row.BaselineMeanCost /= float64(row.Pairs)
 		row.CandidateMeanCost /= float64(row.Pairs)
 		row.MeanDeltaCost /= float64(row.Pairs)
+	}
+	if row.AccuracyPairs > 0 {
+		row.CandidateAccuracy /= float64(row.AccuracyPairs)
+		row.AccuracyDelta /= float64(row.AccuracyPairs)
 	}
 	return row
 }
@@ -371,7 +439,7 @@ func writeJSONLines(path string, results []TrialResult) error {
 }
 
 func writeTrialsCSV(path string, results []TrialResult) error {
-	header := []string{"run_id", "dataset", "dataset_revision", "case_id", "category", "arm", "asking_user_id", "status", "memory_ingest_provider", "memory_ingest_accepted", "memory_ingest_duplicate", "memory_ingest_created", "memory_ingest_updated", "memory_ingest_deleted", "memory_ingest_noop_known", "memory_ingest_noop", "memory_source_events", "memory_source_actors", "memory_source_sessions", "exact", "safe_success", "token_f1", "input_tokens", "output_tokens", "cost", "cost_scope", "producer_input_tokens", "producer_output_tokens", "producer_cost", "consumer_input_tokens", "consumer_output_tokens", "consumer_cost", "producer_duration_ms", "readiness_duration_ms", "consumer_duration_ms", "total_duration_ms", "session_id", "question", "expected", "answer", "error", "started_at", "completed_at"}
+	header := []string{"run_id", "dataset", "dataset_revision", "case_id", "category", "arm", "asking_user_id", "status", "memory_ingest_provider", "memory_ingest_accepted", "memory_ingest_duplicate", "memory_ingest_created", "memory_ingest_updated", "memory_ingest_deleted", "memory_ingest_noop_known", "memory_ingest_noop", "memory_source_events", "memory_source_actors", "memory_source_sessions", "exact", "safe_success", "token_f1", "judged", "correct", "judge_answer", "judge_error", "judge_session_id", "judge_input_tokens", "judge_output_tokens", "judge_cost", "judge_duration_ms", "input_tokens", "output_tokens", "cost", "cost_scope", "producer_input_tokens", "producer_output_tokens", "producer_cost", "consumer_input_tokens", "consumer_output_tokens", "consumer_cost", "producer_duration_ms", "readiness_duration_ms", "consumer_duration_ms", "total_duration_ms", "session_id", "question", "expected", "answer", "error", "started_at", "completed_at"}
 	rows := make([][]string, 0, len(results))
 	for _, result := range results {
 		rows = append(rows, []string{
@@ -380,7 +448,9 @@ func writeTrialsCSV(path string, results []TrialResult) error {
 			strconv.Itoa(result.MemoryIngestCreated), strconv.Itoa(result.MemoryIngestUpdated), strconv.Itoa(result.MemoryIngestDeleted),
 			strconv.FormatBool(result.MemoryIngestNoOpKnown), strconv.FormatBool(result.MemoryIngestNoOp),
 			strconv.Itoa(result.MemorySourceEvents), strconv.Itoa(result.MemorySourceActors), strconv.Itoa(result.MemorySourceSessions),
-			strconv.FormatBool(result.Exact), strconv.FormatBool(result.SafeSuccess), floatString(result.TokenF1), strconv.Itoa(result.InputTokens),
+			strconv.FormatBool(result.Exact), strconv.FormatBool(result.SafeSuccess), floatString(result.TokenF1),
+			strconv.FormatBool(result.Judged), strconv.FormatBool(result.Correct), result.JudgeAnswer, result.JudgeError, result.JudgeSessionID,
+			strconv.Itoa(result.JudgeInputTokens), strconv.Itoa(result.JudgeOutputTokens), floatString(result.JudgeCost), strconv.FormatInt(result.JudgeDurationMS, 10), strconv.Itoa(result.InputTokens),
 			strconv.Itoa(result.OutputTokens), floatString(result.Cost), result.CostScope,
 			strconv.Itoa(result.ProducerInputTokens), strconv.Itoa(result.ProducerOutputTokens), floatString(result.ProducerCost),
 			strconv.Itoa(result.ConsumerInputTokens), strconv.Itoa(result.ConsumerOutputTokens), floatString(result.ConsumerCost),
@@ -393,19 +463,19 @@ func writeTrialsCSV(path string, results []TrialResult) error {
 }
 
 func writeSummaryCSV(path string, summaries []SummaryRow) error {
-	header := []string{"dimension_type", "dimension_value", "arm", "trials", "completed", "failed", "exact", "safe_success", "mean_token_f1", "cost_scope", "total_cost", "mean_completed_cost", "total_input_tokens", "total_output_tokens", "mean_duration_ms"}
+	header := []string{"dimension_type", "dimension_value", "arm", "trials", "completed", "failed", "judged", "correct", "accuracy", "exact", "safe_success", "mean_token_f1", "cost_scope", "total_cost", "mean_completed_cost", "total_judge_cost", "mean_judge_cost", "total_input_tokens", "total_output_tokens", "mean_duration_ms"}
 	rows := make([][]string, 0, len(summaries))
 	for _, row := range summaries {
-		rows = append(rows, []string{row.DimensionType, row.DimensionValue, row.Arm, strconv.Itoa(row.Trials), strconv.Itoa(row.Completed), strconv.Itoa(row.Failed), strconv.Itoa(row.Exact), strconv.Itoa(row.SafeSuccess), floatString(row.MeanTokenF1), row.CostScope, floatString(row.TotalCost), floatString(row.MeanCompletedCost), strconv.Itoa(row.TotalInputTokens), strconv.Itoa(row.TotalOutputTokens), floatString(row.MeanDurationMS)})
+		rows = append(rows, []string{row.DimensionType, row.DimensionValue, row.Arm, strconv.Itoa(row.Trials), strconv.Itoa(row.Completed), strconv.Itoa(row.Failed), strconv.Itoa(row.Judged), strconv.Itoa(row.Correct), floatString(row.Accuracy), strconv.Itoa(row.Exact), strconv.Itoa(row.SafeSuccess), floatString(row.MeanTokenF1), row.CostScope, floatString(row.TotalCost), floatString(row.MeanCompletedCost), floatString(row.TotalJudgeCost), floatString(row.MeanJudgeCost), strconv.Itoa(row.TotalInputTokens), strconv.Itoa(row.TotalOutputTokens), floatString(row.MeanDurationMS)})
 	}
 	return writeCSV(path, header, rows)
 }
 
 func writePairwiseCSV(path string, comparisons []PairwiseRow) error {
-	header := []string{"category", "baseline_arm", "candidate_arm", "pairs", "wins", "losses", "ties", "mean_token_f1", "mean_delta_f1", "cost_scope", "baseline_mean_cost", "candidate_mean_cost", "mean_delta_cost", "paired_completed_incremental_cost", "exact_lift", "safe_success_lift"}
+	header := []string{"category", "baseline_arm", "candidate_arm", "accuracy_pairs", "accuracy_wins", "accuracy_losses", "accuracy_ties", "candidate_accuracy", "accuracy_delta", "lexical_pairs", "lexical_wins", "lexical_losses", "lexical_ties", "mean_token_f1", "mean_delta_f1", "cost_scope", "baseline_mean_cost", "candidate_mean_cost", "mean_delta_cost", "paired_completed_incremental_cost", "exact_lift", "safe_success_lift"}
 	rows := make([][]string, 0, len(comparisons))
 	for _, row := range comparisons {
-		rows = append(rows, []string{row.Category, row.BaselineArm, row.CandidateArm, strconv.Itoa(row.Pairs), strconv.Itoa(row.Wins), strconv.Itoa(row.Losses), strconv.Itoa(row.Ties), floatString(row.MeanTokenF1), floatString(row.MeanDeltaF1), row.CostScope, floatString(row.BaselineMeanCost), floatString(row.CandidateMeanCost), floatString(row.MeanDeltaCost), floatString(row.PairedCompletedIncrementalCost), strconv.Itoa(row.ExactLift), strconv.Itoa(row.SafeSuccessLift)})
+		rows = append(rows, []string{row.Category, row.BaselineArm, row.CandidateArm, strconv.Itoa(row.AccuracyPairs), strconv.Itoa(row.AccuracyWins), strconv.Itoa(row.AccuracyLosses), strconv.Itoa(row.AccuracyTies), floatString(row.CandidateAccuracy), floatString(row.AccuracyDelta), strconv.Itoa(row.Pairs), strconv.Itoa(row.Wins), strconv.Itoa(row.Losses), strconv.Itoa(row.Ties), floatString(row.MeanTokenF1), floatString(row.MeanDeltaF1), row.CostScope, floatString(row.BaselineMeanCost), floatString(row.CandidateMeanCost), floatString(row.MeanDeltaCost), floatString(row.PairedCompletedIncrementalCost), strconv.Itoa(row.ExactLift), strconv.Itoa(row.SafeSuccessLift)})
 	}
 	return writeCSV(path, header, rows)
 }

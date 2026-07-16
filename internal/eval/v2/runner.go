@@ -41,6 +41,75 @@ func NewRunner(store Store, executor Executor, logger *slog.Logger) (*Runner, er
 	return &Runner{store: store, executor: executor, logger: logger, now: func() time.Time { return time.Now().UTC() }}, nil
 }
 
+func JudgeExistingRun(ctx context.Context, executor Executor, logger *slog.Logger, config Config, revision string, results []TrialResult) (RunRecord, []TrialResult, error) {
+	if err := config.Validate(); err != nil {
+		return RunRecord{}, nil, fmt.Errorf("judge existing run: %w", err)
+	}
+	if executor == nil || config.Judge == nil {
+		return RunRecord{}, nil, fmt.Errorf("judge existing run: executor and judge command are required")
+	}
+	if logger == nil {
+		logger = observability.DiscardLogger()
+	}
+	run, err := buildRunRecord(config, revision)
+	if err != nil {
+		return RunRecord{}, nil, fmt.Errorf("judge existing run: %w", err)
+	}
+	judged := make([]TrialResult, len(results))
+	copy(judged, results)
+	jobs := make(chan int)
+	var workers sync.WaitGroup
+	for range config.Run.Parallelism {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			for index := range jobs {
+				result := &judged[index]
+				if result.Status != "completed" || result.Judged {
+					continue
+				}
+				artifactDir := filepath.Join(config.Run.OutputDir, "trials", result.CaseID, result.Arm)
+				variables := map[string]string{
+					"run_id": run.ID, "dataset": run.Dataset, "dataset_revision": run.DatasetRevision,
+					"case_id": result.CaseID, "category": result.Category, "arm": result.Arm,
+					"question": result.Question, "expected": result.Expected, "answer": result.Answer,
+					"asking_user_id": result.AskingUserID, "output_dir": config.Run.OutputDir, "artifact_dir": artifactDir,
+				}
+				duration, judgment, judgeErr := (&Runner{executor: executor}).runJudge(ctx, *config.Judge, variables, artifactDir)
+				result.JudgeDurationMS = duration.Milliseconds()
+				if judgeErr != nil {
+					result.JudgeError = judgeErr.Error()
+					logger.ErrorContext(ctx, "eval judgment failed", "case_id", result.CaseID, "arm", result.Arm, "error", judgeErr)
+					continue
+				}
+				result.Judged = true
+				result.Correct = judgment.Correct
+				result.JudgeAnswer = judgment.Text
+				result.JudgeSessionID = judgment.SessionID
+				result.JudgeInputTokens = judgment.InputTokens
+				result.JudgeOutputTokens = judgment.OutputTokens
+				result.JudgeCost = judgment.Cost
+				result.JudgeError = ""
+			}
+		}()
+	}
+	for index := range judged {
+		select {
+		case jobs <- index:
+		case <-ctx.Done():
+			close(jobs)
+			workers.Wait()
+			return RunRecord{}, nil, fmt.Errorf("judge existing run: %w", ctx.Err())
+		}
+	}
+	close(jobs)
+	workers.Wait()
+	if incomplete := countIncompleteJudgments(judged); incomplete > 0 {
+		return run, judged, fmt.Errorf("judge existing run: %d completed trials remain unjudged", incomplete)
+	}
+	return run, judged, nil
+}
+
 func (r *Runner) Run(ctx context.Context, config Config, cases []Case, revision string) (run RunRecord, results []TrialResult, returnedErr error) {
 	if err := config.Validate(); err != nil {
 		return RunRecord{}, nil, err
@@ -87,6 +156,11 @@ func (r *Runner) Run(ctx context.Context, config Config, cases []Case, revision 
 	results = HydrateResults(results, cases)
 	if err := r.store.Finish(ctx, run.ID); err != nil {
 		return RunRecord{}, nil, fmt.Errorf("finish eval run: %w", err)
+	}
+	if config.Judge != nil {
+		if incomplete := countIncompleteJudgments(results); incomplete > 0 {
+			return run, results, fmt.Errorf("finish eval run: %d completed trials remain unjudged", incomplete)
+		}
 	}
 	r.logger.InfoContext(ctx, "eval v2 completed", "run_id", run.ID, "trials", len(results), "output_dir", config.Run.OutputDir)
 	return run, results, nil
@@ -247,7 +321,7 @@ func (r *Runner) runTrial(ctx context.Context, run RunRecord, evalCase Case, arm
 	started := r.now()
 	trialCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	result, runErr := r.executeTrial(trialCtx, run, evalCase, arm, config.SharedProducer, shared, config.Run.OutputDir, started)
+	result, runErr := r.executeTrial(trialCtx, run, evalCase, arm, config.SharedProducer, config.Judge, shared, config.Run.OutputDir, started)
 	if runErr == nil {
 		if err := r.store.Complete(ctx, result); err != nil {
 			return fmt.Errorf("complete eval trial %s/%s: %w", evalCase.ID, arm.Name, err)
@@ -269,6 +343,7 @@ func (r *Runner) executeTrial(
 	evalCase Case,
 	arm ArmConfig,
 	sharedSpec *CommandSpec,
+	judgeSpec *CommandSpec,
 	shared *sharedProducerState,
 	outputDir string,
 	started time.Time,
@@ -319,7 +394,38 @@ func (r *Runner) executeTrial(
 	if executeErr != nil {
 		return partial, executeErr
 	}
-	return withMemoryIngest(ScoreResult(run, evalCase, arm.Name, producerOutput, output, started, durations), ingestResult), nil
+	scored := withMemoryIngest(ScoreResult(run, evalCase, arm.Name, producerOutput, output, started, durations), ingestResult)
+	if judgeSpec == nil {
+		return scored, nil
+	}
+	variables["answer"] = output.Text
+	judgeDuration, judgment, judgeErr := r.runJudge(ctx, *judgeSpec, variables, artifactDir)
+	scored.JudgeDurationMS = judgeDuration.Milliseconds()
+	if judgeErr != nil {
+		scored.JudgeError = judgeErr.Error()
+		return scored, nil //nolint:nilerr // Judge infrastructure failures preserve the completed consumer result and fail the run through the completeness gate.
+	}
+	completed := time.Now().UTC()
+	scored.Judged = true
+	scored.Correct = judgment.Correct
+	scored.JudgeAnswer = judgment.Text
+	scored.JudgeSessionID = judgment.SessionID
+	scored.JudgeInputTokens = judgment.InputTokens
+	scored.JudgeOutputTokens = judgment.OutputTokens
+	scored.JudgeCost = judgment.Cost
+	scored.CompletedAt = completed
+	scored.TotalDurationMS = completed.Sub(started).Milliseconds()
+	return scored, nil
+}
+
+func countIncompleteJudgments(results []TrialResult) int {
+	incomplete := 0
+	for _, result := range results {
+		if result.Status == "completed" && !result.Judged {
+			incomplete++
+		}
+	}
+	return incomplete
 }
 
 func (r *Runner) runMemoryIngest(
@@ -405,6 +511,22 @@ func (r *Runner) runConsumer(ctx context.Context, spec CommandSpec, variables ma
 		return result.Duration, output, parseErr
 	}
 	return result.Duration, output, nil
+}
+
+func (r *Runner) runJudge(ctx context.Context, spec CommandSpec, variables map[string]string, artifactDir string) (time.Duration, harness.GroupMemBenchJudgment, error) {
+	result, executeErr := r.executor.Execute(ctx, spec, variables, filepath.Join(artifactDir, "judge.jsonl"), filepath.Join(artifactDir, "judge.stderr.log"))
+	output, parseErr := parseAgentOutput(result, "judge")
+	if executeErr != nil {
+		return result.Duration, harness.GroupMemBenchJudgment{}, fmt.Errorf("run judge: %w", executeErr)
+	}
+	if parseErr != nil {
+		return result.Duration, harness.GroupMemBenchJudgment{}, parseErr
+	}
+	judgment, err := harness.ParseGroupMemBenchJudgment(output)
+	if err != nil {
+		return result.Duration, harness.GroupMemBenchJudgment{}, err
+	}
+	return result.Duration, judgment, nil
 }
 
 func parseAgentOutput(result CommandResult, label string) (harness.AgentOutput, error) {

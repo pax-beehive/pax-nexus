@@ -29,6 +29,7 @@ type Config struct {
 	BeforeRun        *CommandSpec `json:"before_run,omitempty" yaml:"before_run,omitempty"`
 	Preflight        *CommandSpec `json:"preflight,omitempty" yaml:"preflight,omitempty"`
 	SharedProducer   *CommandSpec `json:"shared_producer,omitempty" yaml:"shared_producer,omitempty"`
+	Judge            *CommandSpec `json:"judge,omitempty" yaml:"judge,omitempty"`
 	AfterRun         *CommandSpec `json:"after_run,omitempty" yaml:"after_run,omitempty"`
 }
 
@@ -143,6 +144,15 @@ type TrialResult struct {
 	Exact                 bool      `json:"exact"`
 	SafeSuccess           bool      `json:"safe_success"`
 	TokenF1               float64   `json:"token_f1"`
+	Judged                bool      `json:"judged"`
+	Correct               bool      `json:"correct"`
+	JudgeAnswer           string    `json:"judge_answer,omitempty"`
+	JudgeError            string    `json:"judge_error,omitempty"`
+	JudgeSessionID        string    `json:"judge_session_id,omitempty"`
+	JudgeInputTokens      int       `json:"judge_input_tokens"`
+	JudgeOutputTokens     int       `json:"judge_output_tokens"`
+	JudgeCost             float64   `json:"judge_cost"`
+	JudgeDurationMS       int64     `json:"judge_duration_ms"`
 	SessionID             string    `json:"session_id"`
 	InputTokens           int       `json:"input_tokens"`
 	OutputTokens          int       `json:"output_tokens"`
@@ -207,7 +217,7 @@ func validateRetry(config Config) error {
 func validateLifecycleCommands(config Config) error {
 	commands := map[string]*CommandSpec{
 		"before_run": config.BeforeRun, "preflight": config.Preflight,
-		"shared_producer": config.SharedProducer, "after_run": config.AfterRun,
+		"shared_producer": config.SharedProducer, "judge": config.Judge, "after_run": config.AfterRun,
 	}
 	for label, command := range commands {
 		if command == nil {

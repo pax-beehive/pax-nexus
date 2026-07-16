@@ -35,6 +35,9 @@ func (s *artifactSuite) TestSummaryPairwiseAndExport() {
 		}
 	}
 	s.Equal(3, memoryOverall.Completed)
+	s.Equal(3, memoryOverall.Judged)
+	s.Equal(1, memoryOverall.Correct)
+	s.InDelta(1.0/3.0, memoryOverall.Accuracy, 0.00001)
 	s.InDelta(0.466666, memoryOverall.MeanTokenF1, 0.00001)
 	s.InDelta(0.03, memoryOverall.TotalCost, 0.000001)
 
@@ -44,6 +47,12 @@ func (s *artifactSuite) TestSummaryPairwiseAndExport() {
 	s.Equal(2, pairs[0].Pairs)
 	s.Equal(1, pairs[0].Wins)
 	s.Equal(1, pairs[0].Losses)
+	s.Equal(2, pairs[0].AccuracyPairs)
+	s.Equal(1, pairs[0].AccuracyWins)
+	s.Zero(pairs[0].AccuracyLosses)
+	s.Equal(1, pairs[0].AccuracyTies)
+	s.InDelta(0.5, pairs[0].CandidateAccuracy, 0.00001)
+	s.InDelta(0.5, pairs[0].AccuracyDelta, 0.00001)
 	s.InDelta(0.01, pairs[0].BaselineMeanCost, 0.000001)
 	s.InDelta(0.01, pairs[0].CandidateMeanCost, 0.000001)
 	s.Zero(pairs[0].MeanDeltaCost)
@@ -72,16 +81,16 @@ func (s *artifactSuite) TestSummaryPairwiseAndExport() {
 		Files         map[string]string `json:"files"`
 	}
 	s.Require().NoError(json.Unmarshal(manifestInput, &manifest))
-	s.Equal("pax-eval-v2.6", manifest.SchemaVersion)
+	s.Equal("pax-eval-v2.7", manifest.SchemaVersion)
 	s.Equal("report.html", manifest.Files["report"])
 	s.Equal("config.resolved.json", manifest.Files["resolved_config"])
 	s.InDelta(0.06, manifest.CostSummary.TotalCost, 0.000001)
 	summaryCSV, err := os.ReadFile(filepath.Join(directory, "summary.csv"))
 	s.Require().NoError(err)
-	s.Contains(string(summaryCSV), "cost_scope,total_cost,mean_completed_cost")
+	s.Contains(string(summaryCSV), "judged,correct,accuracy")
 	pairwiseCSV, err := os.ReadFile(filepath.Join(directory, "pairwise.csv"))
 	s.Require().NoError(err)
-	s.Contains(string(pairwiseCSV), "paired_completed_incremental_cost")
+	s.Contains(string(pairwiseCSV), "accuracy_pairs,accuracy_wins,accuracy_losses,accuracy_ties")
 	trialsCSV, err := os.ReadFile(filepath.Join(directory, "trials.csv"))
 	s.Require().NoError(err)
 	s.Contains(string(trialsCSV), "memory_ingest_provider,memory_ingest_accepted,memory_ingest_duplicate,memory_ingest_created,memory_ingest_updated,memory_ingest_deleted,memory_ingest_noop_known,memory_ingest_noop,memory_source_events,memory_source_actors,memory_source_sessions")
@@ -108,6 +117,17 @@ func (s *artifactSuite) TestExportRejectsEmptyResults() {
 			s.Require().Error(ExportArtifacts(s.T().TempDir(), RunRecord{}, "control", test.formats, test.results, test.renderer))
 		})
 	}
+}
+
+func (s *artifactSuite) TestLoadsTrialResultsJSONLines() {
+	path := filepath.Join(s.T().TempDir(), "trials.jsonl")
+	s.Require().NoError(os.WriteFile(path, []byte("{\"case_id\":\"one\",\"arm\":\"control\"}\n{\"case_id\":\"two\",\"arm\":\"memory\"}\n"), 0o600))
+
+	results, err := LoadTrialResultsJSONL(path)
+	s.Require().NoError(err)
+	s.Require().Len(results, 2)
+	s.Equal("one", results[0].CaseID)
+	s.Equal("memory", results[1].Arm)
 }
 
 func (s *artifactSuite) TestHTMLPublicationIsAtomicOnRendererFailure() {
@@ -137,7 +157,8 @@ func trial(caseID, category, arm, status string, f1 float64, exact bool, duratio
 	return TrialResult{
 		RunID: "run", Dataset: "suite", DatasetRevision: "rev", CaseID: caseID, Category: category,
 		Arm: arm, Status: status, Expected: "expected", Answer: "answer", TokenF1: f1,
-		Exact: exact, SafeSuccess: exact, Cost: 0.01, CostScope: "opencode_reported", InputTokens: 10, OutputTokens: 5, TotalDurationMS: duration,
+		Exact: exact, SafeSuccess: exact, Judged: status == "completed", Correct: exact,
+		Cost: 0.01, CostScope: "opencode_reported", InputTokens: 10, OutputTokens: 5, TotalDurationMS: duration,
 		StartedAt: time.Unix(1, 0).UTC(), CompletedAt: time.Unix(2, 0).UTC(),
 	}
 }

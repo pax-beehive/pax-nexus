@@ -13,6 +13,8 @@ trial_timeout: 8m
 runtime_env:
   - OPENCODE_MODEL
   - OPENCODE_VERSION
+  - EVAL_V2_JUDGE_MODEL
+  - EVAL_V2_JUDGE_THINKING
   - TEAM_MEMORY_EXTRACTOR_MODEL
   - TEAM_MEMORY_PROMPT_VERSION
   - MEM0_IMAGE
@@ -33,6 +35,8 @@ output:
 preflight:
   program: scripts/eval-v2-opencode.sh
   args: [preflight, all]
+judge:
+  program: scripts/eval-v2-judge.sh
 arms:
   - name: control
     consumer:

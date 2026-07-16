@@ -56,6 +56,67 @@ func (s *runnerSuite) TestRunCompletesResumableMatrixAndExports() {
 	s.Equal(previousCalls+2, executor.total())
 }
 
+func (s *runnerSuite) TestRunJudgesCompletedAnswers() {
+	store := newFakeStore()
+	executor := &fakeExecutor{}
+	runner, err := NewRunner(store, executor, nil)
+	s.Require().NoError(err)
+	config := testConfig(s.T().TempDir())
+	config.Judge = &CommandSpec{Program: "judge"}
+
+	_, results, err := runner.Run(context.Background(), config, []Case{{ID: "case", Question: "q", Expected: "answer", AskingUserID: "user"}}, "revision")
+	s.Require().NoError(err)
+	s.Len(results, 2)
+	s.Equal(2, executor.count("judge"))
+	for _, result := range results {
+		s.True(result.Judged)
+		s.True(result.Correct)
+		s.Contains(result.JudgeAnswer, "Final: Correct")
+		s.Equal(7, result.JudgeInputTokens)
+		s.Equal(3, result.JudgeOutputTokens)
+		s.InDelta(0.05, result.JudgeCost, 0.000001)
+		s.Equal(int64(1), result.JudgeDurationMS)
+	}
+}
+
+func (s *runnerSuite) TestJudgeFailurePreservesCompletedConsumerResultAndFailsRun() {
+	store := newFakeStore()
+	runner, err := NewRunner(store, &fakeExecutor{failProgram: "judge"}, nil)
+	s.Require().NoError(err)
+	config := testConfig(s.T().TempDir())
+	config.Judge = &CommandSpec{Program: "judge"}
+
+	_, results, err := runner.Run(context.Background(), config, []Case{{ID: "case", Question: "q", Expected: "answer", AskingUserID: "user"}}, "revision")
+	s.Require().ErrorContains(err, "completed trials remain unjudged")
+	s.Require().Len(results, 2)
+	for _, result := range results {
+		s.Equal("completed", result.Status)
+		s.False(result.Judged)
+		s.Contains(result.JudgeError, "run judge")
+	}
+}
+
+func (s *runnerSuite) TestJudgeExistingRunOnlyJudgesMissingCompletedAnswers() {
+	executor := &fakeExecutor{}
+	config := testConfig(s.T().TempDir())
+	config.Judge = &CommandSpec{Program: "judge"}
+	results := []TrialResult{
+		{RunID: "run", CaseID: "new", Arm: "control", Status: "completed", Question: "q", Expected: "answer", Answer: "answer"},
+		{RunID: "run", CaseID: "done", Arm: "control", Status: "completed", Judged: true, Correct: false},
+		{RunID: "run", CaseID: "failed", Arm: "control", Status: "failed"},
+	}
+
+	run, judged, err := JudgeExistingRun(context.Background(), executor, nil, config, "revision", results)
+	s.Require().NoError(err)
+	s.Equal("run", run.ID)
+	s.Equal(1, executor.count("judge"))
+	s.True(judged[0].Judged)
+	s.True(judged[0].Correct)
+	s.True(judged[1].Judged)
+	s.False(judged[1].Correct)
+	s.False(judged[2].Judged)
+}
+
 func (s *runnerSuite) TestRunPreflightsOnlyWhenWorkIsRunnable() {
 	store := newFakeStore()
 	executor := &fakeExecutor{}
@@ -436,6 +497,9 @@ func (e *fakeExecutor) Execute(_ context.Context, spec CommandSpec, _ map[string
 			output = []byte(`{"provider":"test","accepted":1,"duplicate":0,"created":1,"updated":0,"deleted":0,"noop":false}`)
 		}
 		result = CommandResult{Output: append([]byte(nil), output...), Duration: time.Millisecond}
+	}
+	if spec.Program == "judge" {
+		result = CommandResult{Output: []byte(`{"type":"text","sessionID":"judge-session","part":{"text":"The answer matches.\nFinal: Correct"}}` + "\n" + `{"type":"step_finish","part":{"cost":0.05,"tokens":{"input":7,"output":3}}}` + "\n"), Duration: time.Millisecond}
 	}
 	if result.Duration == 0 {
 		result.Duration = time.Millisecond

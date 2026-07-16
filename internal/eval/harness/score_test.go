@@ -89,3 +89,39 @@ func (s *scoreSuite) TestRejectsOutputWithoutText() {
 	_, err := harness.ParseOpenCodeJSON(strings.NewReader(`{"type":"step_finish","part":{}}`))
 	s.Error(err)
 }
+
+func (s *scoreSuite) TestParsesOfficialGroupMemBenchJudgment() {
+	tests := []struct {
+		name    string
+		text    string
+		correct bool
+	}{
+		{name: "correct", text: "The answer is a faithful paraphrase.\nFinal: Correct", correct: true},
+		{name: "incorrect", text: "The answer misses the requested owner.\nFinal: Incorrect", correct: false},
+	}
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			judgment, err := harness.ParseGroupMemBenchJudgment(harness.AgentOutput{Text: test.text})
+			s.Require().NoError(err)
+			s.Equal(test.correct, judgment.Correct)
+			s.Equal(test.text, judgment.Text)
+		})
+	}
+}
+
+func (s *scoreSuite) TestRejectsAmbiguousGroupMemBenchJudgment() {
+	tests := []struct {
+		name string
+		text string
+	}{
+		{name: "missing final prefix", text: "Correct"},
+		{name: "unsupported verdict", text: "Final: Unclear"},
+		{name: "multiple verdicts", text: "Final: Correct\nFinal: Incorrect"},
+	}
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			_, err := harness.ParseGroupMemBenchJudgment(harness.AgentOutput{Text: test.text})
+			s.Error(err)
+		})
+	}
+}

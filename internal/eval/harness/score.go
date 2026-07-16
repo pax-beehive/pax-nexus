@@ -30,6 +30,15 @@ type Score struct {
 	Cost         float64 `json:"cost"`
 }
 
+type GroupMemBenchJudgment struct {
+	Correct      bool
+	Text         string
+	SessionID    string
+	InputTokens  int
+	OutputTokens int
+	Cost         float64
+}
+
 func ParseOpenCodeJSON(input io.Reader) (AgentOutput, error) {
 	var output AgentOutput
 	scanner := bufio.NewScanner(input)
@@ -84,6 +93,25 @@ func ScoreExact(arm, expected string, output AgentOutput) Score {
 		SessionID: output.SessionID, InputTokens: output.InputTokens,
 		OutputTokens: output.OutputTokens, Cost: output.Cost,
 	}
+}
+
+func ParseGroupMemBenchJudgment(output AgentOutput) (GroupMemBenchJudgment, error) {
+	verdicts := make([]bool, 0, 1)
+	for _, line := range strings.Split(output.Text, "\n") {
+		switch strings.ToLower(strings.TrimSpace(line)) {
+		case "final: correct":
+			verdicts = append(verdicts, true)
+		case "final: incorrect":
+			verdicts = append(verdicts, false)
+		}
+	}
+	if len(verdicts) != 1 {
+		return GroupMemBenchJudgment{}, fmt.Errorf("parse GroupMemBench judgment: expected exactly one final verdict")
+	}
+	return GroupMemBenchJudgment{
+		Correct: verdicts[0], Text: output.Text, SessionID: output.SessionID,
+		InputTokens: output.InputTokens, OutputTokens: output.OutputTokens, Cost: output.Cost,
+	}, nil
 }
 
 func isAbstention(value string) bool {

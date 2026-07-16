@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -33,6 +34,7 @@ func run(ctx context.Context, args []string, logger *slog.Logger) error {
 	runID := flags.String("run-id", "", "Override the configured run ID")
 	manifestPath := flags.String("manifest", "", "Override the configured manifest path")
 	outputDirectory := flags.String("output-dir", "", "Override the configured output directory")
+	judgeInput := flags.String("judge-input", "", "Judge completed answers from an existing trials.jsonl without rerunning trials")
 	resolvedConfigOutput := flags.String("resolved-config-output", "", "Write the resolved non-secret configuration before running")
 	automationProvenance := flags.Bool("automation-provenance", false, "Record workstation automation provenance from the environment")
 	if err := flags.Parse(args); err != nil {
@@ -63,13 +65,25 @@ func run(ctx context.Context, args []string, logger *slog.Logger) error {
 			return fmt.Errorf("export resolved eval config: %w", exportErr)
 		}
 	}
-	dsn := strings.TrimSpace(os.Getenv(config.Store.DSNEnv))
-	if dsn == "" {
-		return fmt.Errorf("load eval v2 store: environment variable %s is required", config.Store.DSNEnv)
-	}
 	cases, revision, err := v2.LoadCases(config.Run.Manifest)
 	if err != nil {
 		return err
+	}
+	if strings.TrimSpace(*judgeInput) != "" {
+		results, loadErr := v2.LoadTrialResultsJSONL(*judgeInput)
+		if loadErr != nil {
+			return fmt.Errorf("load judge input: %w", loadErr)
+		}
+		runRecord, judged, judgeErr := v2.JudgeExistingRun(ctx, v2.ProcessExecutor{}, logger, config, revision, v2.HydrateResults(results, cases))
+		if judgeErr != nil {
+			exportErr := exportResults(config, runRecord, v2.RescoreResults(judged))
+			return errors.Join(fmt.Errorf("judge existing eval results: %w", judgeErr), exportErr)
+		}
+		return exportResults(config, runRecord, v2.RescoreResults(judged))
+	}
+	dsn := strings.TrimSpace(os.Getenv(config.Store.DSNEnv))
+	if dsn == "" {
+		return fmt.Errorf("load eval v2 store: environment variable %s is required", config.Store.DSNEnv)
 	}
 	store, err := postgresstore.Open(ctx, dsn)
 	if err != nil {
@@ -85,9 +99,16 @@ func run(ctx context.Context, args []string, logger *slog.Logger) error {
 	}
 	runRecord, results, err := runner.Run(ctx, config, cases, revision)
 	if err != nil {
-		return err
+		if len(results) == 0 {
+			return err
+		}
+		exportErr := exportResults(config, runRecord, v2.RescoreResults(results))
+		return errors.Join(err, exportErr)
 	}
-	results = v2.RescoreResults(results)
+	return exportResults(config, runRecord, v2.RescoreResults(results))
+}
+
+func exportResults(config v2.Config, runRecord v2.RunRecord, results []v2.TrialResult) error {
 	return v2.ExportArtifacts(config.Run.OutputDir, runRecord, config.BaselineArm, config.OutputFormats(), results, func(writer io.Writer) error {
 		return render.Report(runRecord, config.BaselineArm, results, writer)
 	})
