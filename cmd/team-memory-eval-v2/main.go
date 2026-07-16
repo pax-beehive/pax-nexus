@@ -30,12 +30,38 @@ func main() {
 func run(ctx context.Context, args []string, logger *slog.Logger) error {
 	flags := flag.NewFlagSet("team-memory-eval-v2", flag.ContinueOnError)
 	configPath := flags.String("config", "evals/v2/config.yaml", "Eval v2 YAML configuration")
+	runID := flags.String("run-id", "", "Override the configured run ID")
+	manifestPath := flags.String("manifest", "", "Override the configured manifest path")
+	outputDirectory := flags.String("output-dir", "", "Override the configured output directory")
+	resolvedConfigOutput := flags.String("resolved-config-output", "", "Write the resolved non-secret configuration before running")
+	automationProvenance := flags.Bool("automation-provenance", false, "Record workstation automation provenance from the environment")
 	if err := flags.Parse(args); err != nil {
 		return fmt.Errorf("parse eval v2 flags: %w", err)
 	}
 	config, err := v2.LoadConfig(*configPath)
 	if err != nil {
 		return err
+	}
+	config = config.WithRunOverrides(*runID, *manifestPath, *outputDirectory)
+	if *automationProvenance {
+		config = config.WithRuntimeEnvironment(
+			"CANDIDATE_GIT_SHA",
+			"EVAL_FRAMEWORK_GIT_SHA",
+			"EVAL_FRAMEWORK_VERSION",
+			"EVAL_SELECTION_SEED",
+			"EVAL_SELECTION_ALGORITHM",
+			"EVAL_MANIFEST_SHA256",
+			"EVAL_IMAGE_DIGESTS",
+		)
+	}
+	if strings.TrimSpace(*resolvedConfigOutput) != "" {
+		runtimeValues, runtimeErr := config.ResolveRuntime(os.Getenv)
+		if runtimeErr != nil {
+			return fmt.Errorf("resolve eval runtime provenance: %w", runtimeErr)
+		}
+		if exportErr := v2.ExportResolvedConfig(*resolvedConfigOutput, config, runtimeValues); exportErr != nil {
+			return fmt.Errorf("export resolved eval config: %w", exportErr)
+		}
 	}
 	dsn := strings.TrimSpace(os.Getenv(config.Store.DSNEnv))
 	if dsn == "" {

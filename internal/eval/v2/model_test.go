@@ -134,6 +134,28 @@ func (s *modelSuite) TestScoreResult() {
 	s.Equal("opencode_reported", result.CostScope)
 }
 
+func (s *modelSuite) TestRunOverrides() {
+	config := Config{Run: RunConfig{ID: "original", Manifest: "manifest.json", OutputDir: "output"}}
+	tests := []struct {
+		name                    string
+		runID, manifest, output string
+		want                    RunConfig
+	}{
+		{name: "replace values", runID: "nightly", manifest: "selected.json", output: "runs/nightly", want: RunConfig{ID: "nightly", Manifest: "selected.json", OutputDir: "runs/nightly"}},
+		{name: "ignore empty values", runID: "", manifest: " ", output: "", want: config.Run},
+	}
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			s.Equal(test.want, config.WithRunOverrides(test.runID, test.manifest, test.output).Run)
+		})
+	}
+}
+
+func (s *modelSuite) TestRuntimeEnvironmentOverridesAreUnique() {
+	withRuntime := Config{RuntimeEnv: []string{"MODEL"}}.WithRuntimeEnvironment("MODEL", "REVISION")
+	s.Equal([]string{"MODEL", "REVISION"}, withRuntime.RuntimeEnv)
+}
+
 func testConfig(output string) Config {
 	return Config{
 		Version: ConfigVersion, Run: RunConfig{ID: "run", Dataset: "suite", Manifest: "manifest.json", OutputDir: output, Parallelism: 2},

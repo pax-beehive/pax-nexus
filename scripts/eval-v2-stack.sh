@@ -4,8 +4,8 @@ set -eu
 action="${1:-}"
 manifest="${2:-}"
 run_id="${3:-}"
-compose_file="evals/v2/compose.yaml"
-project_name="pax-nexus-eval-v2"
+compose_file="${EVAL_V2_COMPOSE_FILE:-evals/v2/compose.yaml}"
+project_name="${EVAL_V2_COMPOSE_PROJECT:-pax-nexus-eval-v2}"
 
 . ./scripts/load-eval-v2-env.sh
 

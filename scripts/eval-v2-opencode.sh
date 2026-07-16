@@ -3,8 +3,8 @@ set -eu
 
 stage="${1:?stage is required}"
 arm="${2:?arm is required}"
-compose_file="evals/v2/compose.yaml"
-project_name="pax-nexus-eval-v2"
+compose_file="${EVAL_V2_COMPOSE_FILE:-evals/v2/compose.yaml}"
+project_name="${EVAL_V2_COMPOSE_PROJECT:-pax-nexus-eval-v2}"
 case_id="${PAX_EVAL_CASE_ID:-preflight}"
 eval_user_id="${PAX_EVAL_USER_ID:-eval-owner}"
 scope_id="${PAX_EVAL_SCOPE_ID:-preflight}"

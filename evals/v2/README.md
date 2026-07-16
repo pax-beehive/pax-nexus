@@ -192,6 +192,47 @@ trials. Every completed run can export:
 
 The stable artifact schema is `pax-eval-v2.6`. `report.html` covers the common
 comparison views; raw CSV/JSONL files remain available for other analysis.
+
+## Automated workstation job
+
+`make eval-v2-job` builds a dedicated runner image and executes one isolated,
+reproducible eval job. The runner image contains the eval and deterministic
+GroupMemBench selection binaries plus pinned Docker CLI tooling. It mounts the
+workstation Docker socket, so use it only on a dedicated trusted workstation.
+
+The job refuses a dirty checkout, derives a unique run ID and selection seed,
+uses a unique Compose project, enforces a process lock and a whole-run timeout,
+and always removes its Compose volumes. A successful run updates `latest` and
+`latest-success` symlinks under `runs/eval-v2/automated`. A failed model run
+still retains `run.json`, command logs, and a self-contained failure
+`report.html`. Successful runs also include `config.resolved.json`, containing
+the exact non-secret configuration and runtime provenance used by the runner.
+
+Each run records the candidate and framework Git revisions, selection seed and
+algorithm, manifest SHA-256, resolved runtime versions, and the exact image IDs
+used by the runner and Compose services. The generated manifest and all case
+workspaces live under the immutable run directory.
+
+Useful runtime controls are:
+
+- `EVAL_V2_TOTAL_CASES`, default `120`
+- `EVAL_V2_SEED`, default the unique run ID
+- `EVAL_V2_JOB_RUN_ID`, default `nightly-<UTC>-<Git SHA>`
+- `EVAL_V2_JOB_TIMEOUT`, default `24h`
+- `EVAL_V2_OUTPUT_ROOT`, default `runs/eval-v2/automated`
+- `EVAL_V2_BASE_CONFIG`, default `evals/v2/config.example.yaml`
+
+Configure a dedicated clean checkout with `.env` and `.env.eval-v2`, then let
+the cron agent run only:
+
+```sh
+git pull --ff-only origin main
+make eval-v2-job
+```
+
+The agent should publish or retain the resulting `report.html`; it should not
+choose cases or modify eval configuration. `make test-scripts` runs a dry-run
+cron smoke test without starting providers or calling models.
 Token F1 and its paired win/loss/tie counts are lexical diagnostics, not counts
 of semantically correct answers. Exact remains a full-string diagnostic.
 `safe_success` also accepts conservative semantic abstentions when the reference

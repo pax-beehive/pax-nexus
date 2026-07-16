@@ -59,7 +59,7 @@ func (s *artifactSuite) TestSummaryPairwiseAndExport() {
 		_, err := io.Copy(writer, bytes.NewBufferString("<!doctype html><title>report</title>"))
 		return err
 	}))
-	for _, name := range []string{"trials.jsonl", "trials.csv", "summary.csv", "pairwise.csv", "report.html", "artifacts.json"} {
+	for _, name := range []string{"trials.jsonl", "trials.csv", "summary.csv", "pairwise.csv", "report.html", "config.resolved.json", "artifacts.json"} {
 		info, err := os.Stat(filepath.Join(directory, name))
 		s.Require().NoError(err)
 		s.Positive(info.Size())
@@ -74,6 +74,7 @@ func (s *artifactSuite) TestSummaryPairwiseAndExport() {
 	s.Require().NoError(json.Unmarshal(manifestInput, &manifest))
 	s.Equal("pax-eval-v2.6", manifest.SchemaVersion)
 	s.Equal("report.html", manifest.Files["report"])
+	s.Equal("config.resolved.json", manifest.Files["resolved_config"])
 	s.InDelta(0.06, manifest.CostSummary.TotalCost, 0.000001)
 	summaryCSV, err := os.ReadFile(filepath.Join(directory, "summary.csv"))
 	s.Require().NoError(err)

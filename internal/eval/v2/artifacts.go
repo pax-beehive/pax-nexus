@@ -113,6 +113,10 @@ func ExportArtifacts(directory string, run RunRecord, baselineArm string, format
 			return fmt.Errorf("export eval artifacts: unsupported format %q", format)
 		}
 	}
+	if err := ExportResolvedConfig(filepath.Join(directory, "config.resolved.json"), run.Config, run.Runtime); err != nil {
+		return err
+	}
+	files["resolved_config"] = "config.resolved.json"
 	manifest := map[string]any{
 		"schema_version": ArtifactSchemaVersion,
 		"run_id":         run.ID, "dataset": run.Dataset, "dataset_revision": run.DatasetRevision,
@@ -122,6 +126,17 @@ func ExportArtifacts(directory string, run RunRecord, baselineArm string, format
 		"cost_summary": CostTotals(results),
 	}
 	return writeJSON(filepath.Join(directory, "artifacts.json"), manifest)
+}
+
+func ExportResolvedConfig(path string, config Config, runtime map[string]string) error {
+	resolved := struct {
+		Config  Config            `json:"config"`
+		Runtime map[string]string `json:"runtime,omitempty"`
+	}{Config: config, Runtime: runtime}
+	if err := writeJSON(path, resolved); err != nil {
+		return fmt.Errorf("write resolved eval config: %w", err)
+	}
+	return nil
 }
 
 func writeHTMLReport(directory string, render HTMLRenderer) (returnedErr error) {
