@@ -173,6 +173,70 @@ func (s *entrypointSuite) TestIngestUsesNativeSessionBatchArtifact() {
 	s.NotContains(arguments, "-text-file")
 }
 
+func (s *entrypointSuite) TestHybridIngestUsesIsolatedTeamNoteScope() {
+	repositoryRoot, err := filepath.Abs(filepath.Join("..", "..", "..", ".."))
+	s.Require().NoError(err)
+	directory := s.T().TempDir()
+	binDirectory := filepath.Join(directory, "bin")
+	s.Require().NoError(os.Mkdir(binDirectory, 0o700))
+	capture := filepath.Join(directory, "docker-args")
+	docker := filepath.Join(binDirectory, "docker")
+	s.Require().NoError(os.WriteFile(docker, []byte("#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$DOCKER_CAPTURE\"\n"), 0o700))
+	batches := filepath.Join(directory, "session-batches.json")
+	s.Require().NoError(os.WriteFile(batches, []byte("[]"), 0o600))
+
+	command := exec.Command("sh", filepath.Join(repositoryRoot, "scripts", "eval-v2-opencode.sh"), "ingest", "team_note_hybrid")
+	command.Dir = repositoryRoot
+	command.Env = []string{
+		"PATH=" + binDirectory + string(os.PathListSeparator) + os.Getenv("PATH"),
+		"DOCKER_CAPTURE=" + capture,
+		"PAX_EVAL_RUN_ID=hybrid-ingest-test",
+		"PAX_EVAL_CASE_ID=case-1",
+		"PAX_EVAL_SCOPE_ID=scope-1",
+		"PAX_EVAL_USER_ID=User_3",
+		"PAX_EVAL_SESSION_BATCHES_FILE=" + batches,
+		"TEAM_MEMORY_API_KEYS={}",
+	}
+	output, err := command.CombinedOutput()
+	s.Require().NoError(err, string(output))
+	input, err := os.ReadFile(capture)
+	s.Require().NoError(err)
+	arguments := strings.Split(strings.TrimSpace(string(input)), "\n")
+	s.Contains(arguments, "TEAM_MEMORY_API_KEY=eval-hybrid-ingest-test-case-1-team-note-hybrid")
+	s.Contains(arguments, "team_note")
+	s.NotContains(arguments, "team_note_hybrid")
+}
+
+func (s *entrypointSuite) TestEvalStackProvisionsIsolatedHybridScope() {
+	repositoryRoot, err := filepath.Abs(filepath.Join("..", "..", "..", ".."))
+	s.Require().NoError(err)
+	directory := s.T().TempDir()
+	binDirectory := filepath.Join(directory, "bin")
+	s.Require().NoError(os.Mkdir(binDirectory, 0o700))
+	capture := filepath.Join(directory, "key-maps")
+	docker := filepath.Join(binDirectory, "docker")
+	s.Require().NoError(os.WriteFile(docker, []byte("#!/bin/sh\nprintf '%s\\n' \"$TEAM_MEMORY_API_KEYS\" >> \"$DOCKER_CAPTURE\"\n"), 0o700))
+	manifest := filepath.Join(directory, "manifest.json")
+	s.Require().NoError(os.WriteFile(manifest, []byte(`{"cases":[{"id":"case-1","scope_id":"scope-1"}]}`), 0o600))
+
+	command := exec.Command("sh", filepath.Join(repositoryRoot, "scripts", "eval-v2-stack.sh"), "up", manifest, "scope-test")
+	command.Dir = repositoryRoot
+	command.Env = []string{
+		"PATH=" + binDirectory + string(os.PathListSeparator) + os.Getenv("PATH"),
+		"DOCKER_CAPTURE=" + capture,
+		"EVAL_V2_ENV_FILE=" + filepath.Join(directory, "missing.env"),
+	}
+	output, err := command.CombinedOutput()
+	s.Require().NoError(err, string(output))
+	input, err := os.ReadFile(capture)
+	s.Require().NoError(err)
+	first := strings.Split(strings.TrimSpace(string(input)), "\n")[0]
+	var keyMap map[string]string
+	s.Require().NoError(json.Unmarshal([]byte(first), &keyMap))
+	s.Equal("scope-test-scope-1", keyMap["eval-scope-test-case-1"])
+	s.Equal("scope-test-scope-1-team-note-hybrid", keyMap["eval-scope-test-case-1-team-note-hybrid"])
+}
+
 func (s *entrypointSuite) TestMem0IngestUsesSharedIdentity() {
 	repositoryRoot, err := filepath.Abs(filepath.Join("..", "..", "..", ".."))
 	s.Require().NoError(err)

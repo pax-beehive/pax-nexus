@@ -217,6 +217,7 @@ export OPENCODE_DISABLE_CLAUDE_CODE=true
 export OPENCODE_DISABLE_LSP_DOWNLOAD=true
 export PAXM_BINARY
 export PAXM_CONFIG="${paxm_config}"
+export PAXM_ACTIVE_RECALL_STATE_DIR="${config_root}/data/active-recall"
 export PAXM_OPENCODE_RECALL="${PAXM_RECALL_ENABLED}"
 export PAXM_OPENCODE_WRITE="${PAXM_WRITE_ENABLED}"
 

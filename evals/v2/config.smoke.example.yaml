@@ -51,10 +51,10 @@ arms:
   - name: team_note_hybrid
     ingest:
       program: scripts/eval-v2-opencode.sh
-      args: [ingest, team_note]
+      args: [ingest, team_note_hybrid]
     after_producer:
       program: scripts/eval-v2-opencode.sh
-      args: [ready, team_note]
+      args: [ready, team_note_hybrid]
     consumer:
       program: scripts/eval-v2-opencode.sh
       args: [consumer, team_note_hybrid]

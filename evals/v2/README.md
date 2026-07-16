@@ -9,7 +9,8 @@ The included configuration compares:
 - `control`: OpenCode without passive recall or writes
 - `team_note`: OpenCode using the PAX Team Note provider
 - `team_note_hybrid`: Team Note passive recall plus an `active_recall` tool with
-  a runtime-enforced maximum of two calls per consumer trial
+  a runtime-enforced maximum of two calls per consumer trial; it uses an
+  arm-specific Team Note scope so ingest and readiness metrics stay independent
 - `mem0`: OpenCode using a self-hosted Mem0 OSS REST server
 
 Every trial records the same benchmark `asking_user_id`. Team Note uses it as

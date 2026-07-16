@@ -12,6 +12,10 @@ api_key="eval-${PAX_EVAL_RUN_ID}-${case_id}"
 agent_id="groupmembench-${eval_user_id}"
 mem0_run_id="${PAX_EVAL_RUN_ID}-${case_id}"
 team_note_scope_id="${PAX_EVAL_RUN_ID}-${scope_id}"
+if [ "${arm}" = "team_note_hybrid" ]; then
+  api_key="${api_key}-team-note-hybrid"
+  team_note_scope_id="${team_note_scope_id}-team-note-hybrid"
+fi
 
 . ./scripts/load-eval-v2-env.sh
 
@@ -112,11 +116,15 @@ case "${stage}" in
     batches_absolute="$(cd "${batches_dir}" && pwd -P)"
     ingest_user_id="${eval_user_id}"
     ingest_agent_id="${agent_id}"
+    ingest_provider="${arm}"
     if [ "${arm}" = "mem0" ]; then
       ingest_user_id="${MEM0_EVAL_USER_ID}"
       ingest_agent_id="${MEM0_EVAL_AGENT_ID}"
     fi
-    run_memory_ingest "${arm}" "${api_key}" "${ingest_user_id}" "${ingest_agent_id}" "${mem0_run_id}" \
+    if [ "${arm}" = "team_note_hybrid" ]; then
+      ingest_provider="team_note"
+    fi
+    run_memory_ingest "${ingest_provider}" "${api_key}" "${ingest_user_id}" "${ingest_agent_id}" "${mem0_run_id}" \
       "${batches_absolute}" "/artifact/${batches_file}"
     ;;
   preflight)
@@ -125,7 +133,7 @@ case "${stage}" in
     run_memory_preflight "${preflight_key}" "${preflight_run_id}" "PAX-EVAL-PREFLIGHT-${PAX_EVAL_RUN_ID}"
     ;;
   ready)
-    if [ "${arm}" = "team_note" ]; then
+    if [ "${arm}" = "team_note" ] || [ "${arm}" = "team_note_hybrid" ]; then
       attempts=0
       readiness_attempts="${PAX_EVAL_READINESS_ATTEMPTS:-480}"
       while [ "${attempts}" -lt "${readiness_attempts}" ]; do
