@@ -101,9 +101,9 @@ See [the design draft](doc/team-note-design.md) and the
 and recall participation rules are documented in
 [extraction and recall](doc/extraction-and-recall.md).
 
-For longer paired runs, Eval v2 persists a control, Team Note, and self-hosted
-Mem0 matrix in PostgreSQL and exports CSV/JSONL rather than an HTML dashboard.
-See [the Eval v2 runbook](evals/v2/README.md).
+For current paired runs, Eval v2 persists a control, Team Note, and self-hosted
+Mem0 matrix in PostgreSQL and exports CSV, JSONL, and a self-contained HTML
+report. See [the evaluation runbook](evals/README.md).
 
 ## Development gates
 
