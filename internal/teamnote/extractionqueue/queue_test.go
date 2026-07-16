@@ -25,7 +25,7 @@ func TestQueueSuite(t *testing.T) {
 func (s *queueSuite) TestDefaultsAndValidation() {
 	defaults := withDefaults(Config{})
 	s.Equal("team_note_extract", defaults.QueuePrefix)
-	s.Equal(4, defaults.Shards)
+	s.Equal(16, defaults.Shards)
 	s.Equal(5, defaults.MaxAttempts)
 	s.Equal(750*time.Millisecond, defaults.Debounce)
 	s.Equal(30*time.Second, defaults.BatchTimeout)

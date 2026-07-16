@@ -121,7 +121,7 @@ func loadConfig() (applicationConfig, error) {
 		promptVersion: os.Getenv("TEAM_MEMORY_PROMPT_VERSION"),
 	}
 	var err error
-	if config.workerShards, err = intEnvironment("TEAM_MEMORY_WORKER_SHARDS", 4); err != nil {
+	if config.workerShards, err = intEnvironment("TEAM_MEMORY_WORKER_SHARDS", 16); err != nil {
 		return applicationConfig{}, err
 	}
 	if config.workerMaxAttempts, err = intEnvironment("TEAM_MEMORY_WORKER_MAX_ATTEMPTS", 5); err != nil {

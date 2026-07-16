@@ -41,7 +41,7 @@ func (s *configSuite) TestLoadsNoopConfiguration() {
 	s.Equal(":8080", config.listenAddress)
 	s.Equal("scope", config.apiKeys["key"])
 	s.Equal("v1", config.promptVersion)
-	s.Equal(4, config.workerShards)
+	s.Equal(16, config.workerShards)
 	s.Equal(5, config.workerMaxAttempts)
 	s.Equal(750*time.Millisecond, config.workerDebounce)
 	s.Equal(30*time.Second, config.batchTimeout)

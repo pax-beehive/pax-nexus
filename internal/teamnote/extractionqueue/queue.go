@@ -185,7 +185,7 @@ func withDefaults(config Config) Config {
 		config.QueuePrefix = "team_note_extract"
 	}
 	if config.Shards == 0 {
-		config.Shards = 4
+		config.Shards = 16
 	}
 	if config.MaxAttempts == 0 {
 		config.MaxAttempts = 5
