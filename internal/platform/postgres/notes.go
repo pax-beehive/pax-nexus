@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -18,7 +17,6 @@ const (
 	EmbeddingDimensions      = 384
 	defaultCandidateLimit    = 16
 	defaultSemanticThreshold = 0.65
-	rrfConstant              = 60.0
 	queryInstruction         = "Retrieve Team Notes containing facts, decisions, blockers, ownership, deadlines, or status relevant to the current agent request."
 )
 
@@ -59,34 +57,81 @@ func NewNoteStore(store *Store, policy teamnote.TTLPolicy, clock teamnote.Clock,
 }
 
 func (s *NoteStore) ApplyCandidate(ctx context.Context, scopeID, runID string, candidate teamnote.Candidate, evidence []teamnote.SessionEvent) (note teamnote.Note, returnedErr error) {
-	if strings.TrimSpace(scopeID) == "" || strings.TrimSpace(runID) == "" {
-		return teamnote.Note{}, fmt.Errorf("apply postgres candidate: scope and run are required")
+	fromSequence, toSequence := evidenceRange(evidence)
+	run := teamnote.ExtractionRun{
+		ID: runID, Actor: candidate.Origin, FromSequence: fromSequence, ToSequence: toSequence,
+		InputChecksum: runID, Candidates: []teamnote.Candidate{candidate}, Evidence: evidence,
 	}
-	candidate = teamnote.WithEvidenceTime(candidate, evidence)
+	notes, err := s.ApplyExtractionRun(ctx, scopeID, run)
+	if err != nil {
+		return teamnote.Note{}, err
+	}
+	if len(notes) != 1 {
+		return teamnote.Note{}, fmt.Errorf("apply postgres candidate: expected one admitted note")
+	}
+	return notes[0], nil
+}
+
+func (s *NoteStore) ApplyExtractionRun(ctx context.Context, scopeID string, run teamnote.ExtractionRun) (notes []teamnote.Note, returnedErr error) {
+	if err := validateExtractionRun(scopeID, run); err != nil {
+		return nil, err
+	}
 	tx, err := s.store.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
-		return teamnote.Note{}, fmt.Errorf("begin apply candidate: %w", err)
+		return nil, fmt.Errorf("begin apply extraction run: %w", err)
 	}
 	defer func() {
 		rollbackErr := tx.Rollback(context.Background())
 		if rollbackErr != nil && !errors.Is(rollbackErr, pgx.ErrTxClosed) {
-			returnedErr = errors.Join(returnedErr, fmt.Errorf("rollback apply candidate: %w", rollbackErr))
+			returnedErr = errors.Join(returnedErr, fmt.Errorf("rollback apply extraction run: %w", rollbackErr))
 		}
 	}()
 
-	if err := ensureExtractionRun(ctx, tx, scopeID, runID, candidate); err != nil {
-		return teamnote.Note{}, err
+	notes, err = s.applyExtractionRunTx(ctx, tx, scopeID, run)
+	if err != nil {
+		return nil, err
 	}
-	inserted, err := insertCandidate(ctx, tx, scopeID, runID, candidate)
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit extraction run: %w", err)
+	}
+	for _, note := range notes {
+		if err := s.refreshEmbedding(ctx, scopeID, note); err != nil {
+			return nil, err
+		}
+	}
+	return notes, nil
+}
+
+func (s *NoteStore) applyExtractionRunTx(ctx context.Context, tx pgx.Tx, scopeID string, run teamnote.ExtractionRun) ([]teamnote.Note, error) {
+	inserted, err := ensureExtractionRun(ctx, tx, scopeID, run)
+	if err != nil {
+		return nil, err
+	}
+	if !inserted {
+		return existingExtractionRunNotes(ctx, tx, scopeID, run)
+	}
+	notes := make([]teamnote.Note, 0, len(run.Candidates))
+	for _, original := range run.Candidates {
+		candidate := teamnote.WithEvidenceTime(original, run.Evidence)
+		note, err := s.applyRunCandidate(ctx, tx, scopeID, run, candidate)
+		if err != nil {
+			return nil, err
+		}
+		notes = append(notes, note)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE extraction_runs SET status = 'completed', completed_at = NOW() WHERE scope_id = $1 AND run_id = $2`, scopeID, run.ID); err != nil {
+		return nil, fmt.Errorf("complete extraction run: %w", err)
+	}
+	return notes, nil
+}
+
+func (s *NoteStore) applyRunCandidate(ctx context.Context, tx pgx.Tx, scopeID string, run teamnote.ExtractionRun, candidate teamnote.Candidate) (teamnote.Note, error) {
+	inserted, err := insertCandidate(ctx, tx, scopeID, run.ID, candidate)
 	if err != nil {
 		return teamnote.Note{}, err
 	}
 	if !inserted {
-		existing, findErr := noteForCandidate(ctx, tx, scopeID, candidate.ID)
-		if findErr != nil {
-			return teamnote.Note{}, findErr
-		}
-		return existing, nil
+		return noteForCandidate(ctx, tx, scopeID, candidate.ID)
 	}
 	noteKey := teamnote.CanonicalKey(candidate)
 	if err := lockNoteKey(ctx, tx, scopeID, noteKey); err != nil {
@@ -96,7 +141,7 @@ func (s *NoteStore) ApplyCandidate(ctx context.Context, scopeID, runID string, c
 	if err != nil {
 		return teamnote.Note{}, err
 	}
-	note, err = teamnote.AdmitCandidate(s.policy, s.clock.Now(), candidate, evidence, current)
+	note, err := teamnote.AdmitCandidate(s.policy, s.clock.Now(), candidate, run.Evidence, current)
 	if err != nil {
 		return teamnote.Note{}, err
 	}
@@ -108,15 +153,6 @@ func (s *NoteStore) ApplyCandidate(ctx context.Context, scopeID, runID string, c
 	}
 	if _, err := tx.Exec(ctx, `UPDATE note_candidates SET admission_status = 'admitted' WHERE scope_id = $1 AND candidate_id = $2`, scopeID, candidate.ID); err != nil {
 		return teamnote.Note{}, fmt.Errorf("mark candidate admitted: %w", err)
-	}
-	if _, err := tx.Exec(ctx, `UPDATE extraction_runs SET status = 'completed', completed_at = NOW() WHERE scope_id = $1 AND run_id = $2`, scopeID, runID); err != nil {
-		return teamnote.Note{}, fmt.Errorf("complete extraction run: %w", err)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return teamnote.Note{}, fmt.Errorf("commit candidate: %w", err)
-	}
-	if err := s.refreshEmbedding(ctx, scopeID, note); err != nil {
-		return teamnote.Note{}, err
 	}
 	return note, nil
 }
@@ -147,43 +183,19 @@ func (s *NoteStore) RecallNotes(ctx context.Context, scopeID string, request tea
 	if err != nil {
 		return teamnote.NoteEnvelope{}, err
 	}
-	candidates := rankRecallCandidates(eligible, request, s.retrieval)
-	allNotes := notesFromRanked(eligible)
-	selectedNotes := 0
-	for _, candidate := range candidates {
-		note := candidate.Note
-		relevance := hybridRelevance(candidate, request.Query)
-		if !hybridRelevant(candidate, request.Query, s.retrieval.SemanticThreshold) {
-			continue
-		}
-		if request.MaxItems > 0 && selectedNotes >= request.MaxItems {
-			break
-		}
-		remainingRelated := 0
-		if request.MaxItems > 0 {
-			remainingRelated = request.MaxItems - selectedNotes - 1
-		}
-		related := filterRelatedNotes(findRelatedNotes(note, allNotes), request.Query, remainingRelated, request.MaxItems > 0)
-		item := teamnote.FormatForRecallWithRelated(note, related)
-		tokens := estimateNoteTokens(item)
-		if envelope.Tokens+tokens > request.TokenBudget {
-			continue
-		}
-		claimed, err := insertDelivery(ctx, tx, scopeID, note, request.Actor, tokens)
+	planned := teamnote.PlanRecall(eligible, request, teamnote.RecallPolicy{
+		SemanticThreshold: s.retrieval.SemanticThreshold,
+		CandidateLimit:    s.retrieval.CandidateLimit,
+	})
+	for _, delivery := range planned {
+		claimed, err := insertDelivery(ctx, tx, scopeID, delivery.Note, request.Actor, delivery.Tokens)
 		if err != nil {
 			return teamnote.NoteEnvelope{}, err
 		}
 		if !claimed {
 			continue
 		}
-		envelope.Items = append(envelope.Items, item)
-		envelope.Details = append(envelope.Details, teamnote.RecalledNote{
-			NoteID: note.ID, Revision: note.Revision, Text: item, Origin: note.Origin,
-			Relevance: relevance, Certainty: teamnote.CertaintyForKind(note.Kind),
-		})
-		envelope.Tokens += tokens
-		selectedNotes += 1 + len(related)
-		envelope.Revision = fmt.Sprintf("%s:%d", note.ID, note.Revision)
+		teamnote.AppendPlannedRecall(&envelope, delivery)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return teamnote.NoteEnvelope{}, fmt.Errorf("commit note delivery: %w", err)
@@ -191,18 +203,112 @@ func (s *NoteStore) RecallNotes(ctx context.Context, scopeID string, request tea
 	return envelope, nil
 }
 
-func ensureExtractionRun(ctx context.Context, tx pgx.Tx, scopeID, runID string, candidate teamnote.Candidate) error {
-	_, err := tx.Exec(ctx, `
+func ensureExtractionRun(ctx context.Context, tx pgx.Tx, scopeID string, run teamnote.ExtractionRun) (bool, error) {
+	result, err := tx.Exec(ctx, `
 INSERT INTO extraction_runs (
-    scope_id, run_id, agent_id, session_id, from_sequence, to_sequence,
-    input_checksum, status
-) VALUES ($1, $2, $3, $4, 0, 0, $2, 'processing')
+    scope_id, run_id, user_id, agent_id, session_id, from_sequence, to_sequence,
+    input_checksum, model, prompt_version, status, input_tokens, output_tokens
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'processing', $11, $12)
 ON CONFLICT (scope_id, run_id) DO NOTHING`,
-		scopeID, runID, candidate.Origin.AgentID, candidate.Origin.SessionID)
+		scopeID, run.ID, run.Actor.UserID, run.Actor.AgentID, run.Actor.SessionID, run.FromSequence, run.ToSequence,
+		run.InputChecksum, run.Model, run.PromptVersion, run.InputTokens, run.OutputTokens)
 	if err != nil {
-		return fmt.Errorf("ensure extraction run: %w", err)
+		return false, fmt.Errorf("ensure extraction run: %w", err)
+	}
+	return result.RowsAffected() == 1, nil
+}
+
+func existingExtractionRunNotes(ctx context.Context, tx pgx.Tx, scopeID string, run teamnote.ExtractionRun) ([]teamnote.Note, error) {
+	var stored teamnote.ExtractionRun
+	var status string
+	err := tx.QueryRow(ctx, `
+SELECT user_id, agent_id, session_id, from_sequence, to_sequence, input_checksum,
+       model, prompt_version, input_tokens, output_tokens, status
+FROM extraction_runs WHERE scope_id = $1 AND run_id = $2`, scopeID, run.ID).Scan(
+		&stored.Actor.UserID, &stored.Actor.AgentID, &stored.Actor.SessionID,
+		&stored.FromSequence, &stored.ToSequence, &stored.InputChecksum,
+		&stored.Model, &stored.PromptVersion, &stored.InputTokens, &stored.OutputTokens, &status,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("load extraction run %q: %w", run.ID, err)
+	}
+	if status != "completed" || !sameExtractionRunIdentity(stored, run) {
+		return nil, fmt.Errorf("replay extraction run %q: %w", run.ID, teamnote.ErrExtractionRunConflict)
+	}
+	rows, err := tx.Query(ctx, `
+SELECT candidate_id FROM note_candidates
+WHERE scope_id = $1 AND run_id = $2
+ORDER BY candidate_id`, scopeID, run.ID)
+	if err != nil {
+		return nil, fmt.Errorf("list extraction run candidates: %w", err)
+	}
+	ids, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (string, error) {
+		var id string
+		if err := row.Scan(&id); err != nil {
+			return "", err
+		}
+		return id, nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("scan extraction run candidates: %w", err)
+	}
+	notes := make([]teamnote.Note, 0, len(ids))
+	for _, id := range ids {
+		note, err := noteForCandidate(ctx, tx, scopeID, id)
+		if err != nil {
+			return nil, err
+		}
+		notes = append(notes, note)
+	}
+	return notes, nil
+}
+
+func sameExtractionRunIdentity(left, right teamnote.ExtractionRun) bool {
+	return left.Actor == right.Actor && left.FromSequence == right.FromSequence &&
+		left.ToSequence == right.ToSequence && left.InputChecksum == right.InputChecksum &&
+		left.Model == right.Model && left.PromptVersion == right.PromptVersion &&
+		left.InputTokens == right.InputTokens && left.OutputTokens == right.OutputTokens
+}
+
+func validateExtractionRun(scopeID string, run teamnote.ExtractionRun) error {
+	if strings.TrimSpace(scopeID) == "" || strings.TrimSpace(run.ID) == "" ||
+		strings.TrimSpace(run.Actor.UserID) == "" || strings.TrimSpace(run.Actor.AgentID) == "" ||
+		strings.TrimSpace(run.Actor.SessionID) == "" || strings.TrimSpace(run.InputChecksum) == "" ||
+		run.FromSequence <= 0 || run.ToSequence < run.FromSequence || run.InputTokens < 0 || run.OutputTokens < 0 {
+		return fmt.Errorf("apply postgres extraction run: invalid scope or run")
+	}
+	seen := make(map[string]struct{}, len(run.Candidates))
+	for _, candidate := range run.Candidates {
+		if candidate.Origin != run.Actor {
+			return fmt.Errorf("apply postgres extraction run candidate %q origin: %w", candidate.ID, teamnote.ErrInvalidCandidate)
+		}
+		if _, ok := seen[candidate.ID]; ok {
+			return fmt.Errorf("apply postgres extraction run duplicate candidate %q: %w", candidate.ID, teamnote.ErrInvalidCandidate)
+		}
+		seen[candidate.ID] = struct{}{}
+	}
+	for _, event := range run.Evidence {
+		if event.Actor != run.Actor {
+			return fmt.Errorf("apply postgres extraction run evidence %q actor: %w", event.ID, teamnote.ErrMissingEvidence)
+		}
 	}
 	return nil
+}
+
+func evidenceRange(evidence []teamnote.SessionEvent) (int64, int64) {
+	if len(evidence) == 0 {
+		return 0, 0
+	}
+	fromSequence, toSequence := evidence[0].Sequence, evidence[0].Sequence
+	for _, event := range evidence[1:] {
+		if event.Sequence < fromSequence {
+			fromSequence = event.Sequence
+		}
+		if event.Sequence > toSequence {
+			toSequence = event.Sequence
+		}
+	}
+	return fromSequence, toSequence
 }
 
 func insertCandidate(ctx context.Context, tx pgx.Tx, scopeID, runID string, candidate teamnote.Candidate) (bool, error) {
@@ -328,15 +434,7 @@ VALUES ($1, $2, $3, $4)`, scopeID, note.ID, note.Revision, eventID)
 	return nil
 }
 
-type rankedNote struct {
-	teamnote.Note
-	LexicalScore  float64
-	SemanticScore *float64
-	FusionScore   float64
-	RerankScore   float64
-}
-
-func recallableNotes(ctx context.Context, tx pgx.Tx, scopeID string, request teamnote.RecallRequest, now time.Time, queryVector []float32, embeddingModel string) ([]rankedNote, error) {
+func recallableNotes(ctx context.Context, tx pgx.Tx, scopeID string, request teamnote.RecallRequest, now time.Time, queryVector []float32, embeddingModel string) ([]teamnote.RecallCandidate, error) {
 	var vectorValue any
 	if len(queryVector) > 0 {
 		vectorValue = formatVector(queryVector)
@@ -380,7 +478,7 @@ func recallableNotes(ctx context.Context, tx pgx.Tx, scopeID string, request tea
 	if err != nil {
 		return nil, fmt.Errorf("query recallable notes: %w", err)
 	}
-	notes, err := pgx.CollectRows(rows, scanRankedNote)
+	notes, err := pgx.CollectRows(rows, scanRecallCandidate)
 	if err != nil {
 		return nil, fmt.Errorf("scan recallable notes: %w", err)
 	}
@@ -561,118 +659,6 @@ func formatVector(vector []float32) string {
 	return result.String()
 }
 
-func rankRecallCandidates(eligible []rankedNote, request teamnote.RecallRequest, config RetrievalConfig) []rankedNote {
-	if strings.TrimSpace(request.Query) == "" {
-		return append([]rankedNote(nil), eligible...)
-	}
-	lexical := append([]rankedNote(nil), eligible...)
-	sort.SliceStable(lexical, func(left, right int) bool {
-		return lexical[left].LexicalScore > lexical[right].LexicalScore
-	})
-	semantic := append([]rankedNote(nil), eligible...)
-	sort.SliceStable(semantic, func(left, right int) bool {
-		leftScore, rightScore := semantic[left].SemanticScore, semantic[right].SemanticScore
-		if leftScore == nil {
-			return false
-		}
-		if rightScore == nil {
-			return true
-		}
-		return *leftScore > *rightScore
-	})
-
-	scores := make(map[string]float64, config.CandidateLimit*2)
-	for rank, candidate := range lexical {
-		if rank >= config.CandidateLimit || candidate.LexicalScore <= 0 {
-			break
-		}
-		scores[candidate.ID] += reciprocalRank(rank)
-	}
-	for rank, candidate := range semantic {
-		if rank >= config.CandidateLimit || candidate.SemanticScore == nil || *candidate.SemanticScore < config.SemanticThreshold {
-			break
-		}
-		scores[candidate.ID] += reciprocalRank(rank)
-	}
-
-	result := make([]rankedNote, 0, len(scores))
-	for _, candidate := range eligible {
-		if score, ok := scores[candidate.ID]; ok {
-			candidate.FusionScore = score
-			if hybridRelevant(candidate, request.Query, config.SemanticThreshold) {
-				result = append(result, candidate)
-			}
-		}
-	}
-	sort.SliceStable(result, func(left, right int) bool {
-		if ownSourceRank(result[left].Note, request) != ownSourceRank(result[right].Note, request) {
-			return ownSourceRank(result[left].Note, request) < ownSourceRank(result[right].Note, request)
-		}
-		if noteKindRank(result[left].Kind) != noteKindRank(result[right].Kind) {
-			return noteKindRank(result[left].Kind) < noteKindRank(result[right].Kind)
-		}
-		if !result[left].SourceOccurredAt.Equal(result[right].SourceOccurredAt) {
-			return result[left].SourceOccurredAt.After(result[right].SourceOccurredAt)
-		}
-		return result[left].UpdatedAt.After(result[right].UpdatedAt)
-	})
-	for rank := range result {
-		result[rank].RerankScore = result[rank].FusionScore + reciprocalRank(rank)
-	}
-	sort.SliceStable(result, func(left, right int) bool {
-		return result[left].RerankScore > result[right].RerankScore
-	})
-	return result
-}
-
-func reciprocalRank(zeroBasedRank int) float64 {
-	return 1 / (rrfConstant + float64(zeroBasedRank+1))
-}
-
-func ownSourceRank(note teamnote.Note, request teamnote.RecallRequest) int {
-	if teamnote.QueryRequestsOwnContext(request.Query) && note.Origin.UserID == request.Actor.UserID {
-		return 0
-	}
-	return 1
-}
-
-func noteKindRank(kind teamnote.NoteKind) int {
-	switch kind {
-	case teamnote.KindHandoff:
-		return 0
-	case teamnote.KindBlocker:
-		return 1
-	case teamnote.KindStatus:
-		return 2
-	default:
-		return 3
-	}
-}
-
-func hybridRelevant(candidate rankedNote, query string, semanticThreshold float64) bool {
-	if teamnote.QueryRelevant(candidate.Note, query) {
-		return true
-	}
-	return candidate.SemanticScore != nil && *candidate.SemanticScore >= semanticThreshold &&
-		teamnote.QuerySemanticallyRelevant(candidate.Note, query)
-}
-
-func hybridRelevance(candidate rankedNote, query string) float64 {
-	relevance := teamnote.QueryRelevance(candidate.Note, query)
-	if candidate.SemanticScore != nil && *candidate.SemanticScore > relevance {
-		return *candidate.SemanticScore
-	}
-	return relevance
-}
-
-func notesFromRanked(ranked []rankedNote) []teamnote.Note {
-	notes := make([]teamnote.Note, 0, len(ranked))
-	for _, candidate := range ranked {
-		notes = append(notes, candidate.Note)
-	}
-	return notes
-}
-
 func insertDelivery(ctx context.Context, tx pgx.Tx, scopeID string, note teamnote.Note, actor teamnote.Actor, tokens int) (bool, error) {
 	result, err := tx.Exec(ctx, `
 INSERT INTO note_deliveries (
@@ -720,8 +706,8 @@ func scanNote(row rowScanner) (teamnote.Note, error) {
 	return note, nil
 }
 
-func scanRankedNote(row pgx.CollectableRow) (rankedNote, error) {
-	var ranked rankedNote
+func scanRecallCandidate(row pgx.CollectableRow) (teamnote.RecallCandidate, error) {
+	var ranked teamnote.RecallCandidate
 	err := row.Scan(
 		&ranked.ID, &ranked.Key, &ranked.Kind, &ranked.Subject, &ranked.Body, &ranked.TaskRef,
 		&ranked.ThreadRef, &ranked.Origin.UserID, &ranked.Origin.AgentID, &ranked.Origin.SessionID,
@@ -730,7 +716,7 @@ func scanRankedNote(row pgx.CollectableRow) (rankedNote, error) {
 		&ranked.ValidAt, &ranked.InvalidAt, &ranked.SourceOccurredAt, &ranked.LexicalScore, &ranked.SemanticScore,
 	)
 	if err != nil {
-		return rankedNote{}, err
+		return teamnote.RecallCandidate{}, err
 	}
 	normalizeNoteTimes(&ranked.Note)
 	return ranked, nil
@@ -755,44 +741,9 @@ func normalizeNoteTimes(note *teamnote.Note) {
 	note.SourceOccurredAt = note.SourceOccurredAt.UTC()
 }
 
-func estimateNoteTokens(text string) int {
-	return max(1, (len(text)+3)/4)
-}
-
 func nonNilStrings(values []string) []string {
 	if values == nil {
 		return []string{}
 	}
 	return values
-}
-
-func findRelatedNotes(note teamnote.Note, notes []teamnote.Note) []teamnote.Note {
-	if len(note.RelatedSubjects) == 0 {
-		return nil
-	}
-	wanted := make(map[string]struct{}, len(note.RelatedSubjects))
-	for _, subject := range note.RelatedSubjects {
-		wanted[strings.ToLower(subject)] = struct{}{}
-	}
-	result := make([]teamnote.Note, 0, len(wanted))
-	for _, candidate := range notes {
-		if _, ok := wanted[strings.ToLower(candidate.Subject)]; ok {
-			result = append(result, candidate)
-		}
-	}
-	return result
-}
-
-func filterRelatedNotes(notes []teamnote.Note, query string, limit int, limited bool) []teamnote.Note {
-	result := make([]teamnote.Note, 0, len(notes))
-	for _, note := range notes {
-		if !teamnote.QueryRelated(note, query) {
-			continue
-		}
-		if limited && len(result) >= max(0, limit) {
-			break
-		}
-		result = append(result, note)
-	}
-	return result
 }

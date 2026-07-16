@@ -99,6 +99,8 @@ func (e *OpenAI) Extract(ctx context.Context, slice sessionlake.Slice) (Result, 
 	if err := normalizeCandidates(&result, slice); err != nil {
 		return Result{}, err
 	}
+	result.Model = e.config.Model
+	result.PromptVersion = e.config.PromptVersion
 	return result, nil
 }
 

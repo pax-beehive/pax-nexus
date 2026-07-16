@@ -11,10 +11,11 @@ import (
 )
 
 var (
-	ErrInvalidCandidate = errors.New("invalid note candidate")
-	ErrMissingEvidence  = errors.New("candidate evidence is missing")
-	ErrNoteNotFound     = errors.New("team note not found")
-	ErrInvalidRecall    = errors.New("invalid recall request")
+	ErrInvalidCandidate      = errors.New("invalid note candidate")
+	ErrMissingEvidence       = errors.New("candidate evidence is missing")
+	ErrNoteNotFound          = errors.New("team note not found")
+	ErrInvalidRecall         = errors.New("invalid recall request")
+	ErrExtractionRunConflict = errors.New("extraction run conflicts with durable result")
 )
 
 type NoteKind string
@@ -109,38 +110,145 @@ type Ledger struct {
 	notes      map[string]Note
 	candidates map[string]string
 	deliveries map[string]struct{}
+	runs       map[string]storedExtractionRun
+}
+
+type extractionRunIdentity struct {
+	Actor         Actor
+	FromSequence  int64
+	ToSequence    int64
+	InputChecksum string
+	Model         string
+	PromptVersion string
+	InputTokens   int
+	OutputTokens  int
+}
+
+type storedExtractionRun struct {
+	Identity     extractionRunIdentity
+	CandidateIDs []string
 }
 
 func NewLedger(policy TTLPolicy, clock Clock) *Ledger {
 	return &Ledger{
 		policy: policy, clock: clock, notes: make(map[string]Note),
 		candidates: make(map[string]string), deliveries: make(map[string]struct{}),
+		runs: make(map[string]storedExtractionRun),
 	}
 }
 
 func (l *Ledger) Apply(ctx context.Context, candidate Candidate, evidence []SessionEvent) (Note, error) {
-	if err := ctx.Err(); err != nil {
-		return Note{}, fmt.Errorf("apply candidate context: %w", err)
-	}
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	if key, ok := l.candidates[candidate.ID]; ok {
-		return l.notes[key], nil
-	}
-	key := CanonicalKey(candidate)
-	note, exists := l.notes[key]
-	var current *Note
-	if exists {
-		current = &note
-	}
-	note, err := AdmitCandidate(l.policy, l.clock.Now(), candidate, evidence, current)
+	notes, err := l.ApplyRun(ctx, ExtractionRun{ID: candidate.ID, Candidates: []Candidate{candidate}, Evidence: evidence})
 	if err != nil {
 		return Note{}, err
 	}
-	l.notes[key] = note
-	l.candidates[candidate.ID] = key
-	return cloneNote(note), nil
+	return notes[0], nil
+}
+
+// ApplyRun atomically admits every Candidate in one ExtractionRun.
+func (l *Ledger) ApplyRun(ctx context.Context, run ExtractionRun) ([]Note, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("apply extraction run context: %w", err)
+	}
+	if err := validateRunIdentity(run); err != nil {
+		return nil, err
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	identity := identityForExtractionRun(run)
+	if stored, ok := l.runs[run.ID]; ok && run.ID != "" {
+		if stored.Identity != identity {
+			return nil, fmt.Errorf("replay extraction run %q: %w", run.ID, ErrExtractionRunConflict)
+		}
+		return l.notesForCandidateIDs(stored.CandidateIDs), nil
+	}
+
+	notes := cloneNotes(l.notes)
+	candidates := make(map[string]string, len(l.candidates)+len(run.Candidates))
+	for id, key := range l.candidates {
+		candidates[id] = key
+	}
+	result := make([]Note, 0, len(run.Candidates))
+	for _, candidate := range run.Candidates {
+		if key, ok := candidates[candidate.ID]; ok {
+			result = append(result, cloneNote(notes[key]))
+			continue
+		}
+		key := CanonicalKey(candidate)
+		note, exists := notes[key]
+		var current *Note
+		if exists {
+			current = &note
+		}
+		admitted, err := AdmitCandidate(l.policy, l.clock.Now(), candidate, run.Evidence, current)
+		if err != nil {
+			return nil, err
+		}
+		notes[key] = admitted
+		candidates[candidate.ID] = key
+		result = append(result, cloneNote(admitted))
+	}
+	l.notes = notes
+	l.candidates = candidates
+	if run.ID != "" {
+		l.runs[run.ID] = storedExtractionRun{Identity: identity, CandidateIDs: candidateIDs(run.Candidates)}
+	}
+	return result, nil
+}
+
+func identityForExtractionRun(run ExtractionRun) extractionRunIdentity {
+	return extractionRunIdentity{
+		Actor: run.Actor, FromSequence: run.FromSequence, ToSequence: run.ToSequence,
+		InputChecksum: run.InputChecksum, Model: run.Model, PromptVersion: run.PromptVersion,
+		InputTokens: run.InputTokens, OutputTokens: run.OutputTokens,
+	}
+}
+
+func candidateIDs(candidates []Candidate) []string {
+	ids := make([]string, len(candidates))
+	for index, candidate := range candidates {
+		ids[index] = candidate.ID
+	}
+	return ids
+}
+
+func (l *Ledger) notesForCandidateIDs(ids []string) []Note {
+	notes := make([]Note, 0, len(ids))
+	for _, id := range ids {
+		if key, ok := l.candidates[id]; ok {
+			notes = append(notes, cloneNote(l.notes[key]))
+		}
+	}
+	return notes
+}
+
+func validateRunIdentity(run ExtractionRun) error {
+	seen := make(map[string]struct{}, len(run.Candidates))
+	for _, candidate := range run.Candidates {
+		if _, ok := seen[candidate.ID]; ok {
+			return fmt.Errorf("duplicate candidate %q in extraction run: %w", candidate.ID, ErrInvalidCandidate)
+		}
+		seen[candidate.ID] = struct{}{}
+		if run.Actor != (Actor{}) && candidate.Origin != run.Actor {
+			return fmt.Errorf("candidate %q origin differs from extraction run: %w", candidate.ID, ErrInvalidCandidate)
+		}
+	}
+	if run.Actor != (Actor{}) {
+		for _, event := range run.Evidence {
+			if event.Actor != run.Actor {
+				return fmt.Errorf("evidence %q actor differs from extraction run: %w", event.ID, ErrMissingEvidence)
+			}
+		}
+	}
+	return nil
+}
+
+func cloneNotes(notes map[string]Note) map[string]Note {
+	cloned := make(map[string]Note, len(notes))
+	for key, note := range notes {
+		cloned[key] = cloneNote(note)
+	}
+	return cloned
 }
 
 func (l *Ledger) Recall(ctx context.Context, request RecallRequest) (NoteEnvelope, error) {
@@ -156,40 +264,16 @@ func (l *Ledger) Recall(ctx context.Context, request RecallRequest) (NoteEnvelop
 
 	now := l.clock.Now()
 	eligible := l.eligibleNotes(now, request)
-	items := make([]string, 0, len(eligible))
-	details := make([]RecalledNote, 0, len(eligible))
-	usedTokens := 0
-	selectedNotes := 0
-	lastRevision := ""
+	candidates := make([]RecallCandidate, 0, len(eligible))
 	for _, note := range eligible {
-		relevance := QueryRelevance(note, request.Query)
-		if !QueryRelevant(note, request.Query) {
-			continue
-		}
-		if request.MaxItems > 0 && selectedNotes >= request.MaxItems {
-			break
-		}
-		remainingRelated := 0
-		if request.MaxItems > 0 {
-			remainingRelated = request.MaxItems - selectedNotes - 1
-		}
-		related := relevantRelatedNotes(relatedNotes(note, eligible), request.Query, remainingRelated, request.MaxItems > 0)
-		item := FormatForRecallWithRelated(note, related)
-		tokens := estimateTokens(item)
-		if usedTokens+tokens > request.TokenBudget {
-			continue
-		}
-		items = append(items, item)
-		details = append(details, RecalledNote{
-			NoteID: note.ID, Revision: note.Revision, Text: item, Origin: note.Origin,
-			Relevance: relevance, Certainty: CertaintyForKind(note.Kind),
-		})
-		usedTokens += tokens
-		selectedNotes += 1 + len(related)
-		lastRevision = fmt.Sprintf("%s:%d", note.ID, note.Revision)
-		l.deliveries[deliveryKey(note, request.Actor)] = struct{}{}
+		candidates = append(candidates, RecallCandidate{Note: note, LexicalScore: float64(QueryScore(note, request.Query))})
 	}
-	return NoteEnvelope{Revision: lastRevision, Items: items, Tokens: usedTokens, Details: details}, nil
+	envelope := NoteEnvelope{}
+	for _, planned := range PlanRecall(candidates, request, RecallPolicy{CandidateLimit: len(candidates)}) {
+		AppendPlannedRecall(&envelope, planned)
+		l.deliveries[deliveryKey(planned.Note, request.Actor)] = struct{}{}
+	}
+	return envelope, nil
 }
 
 func AdmitCandidate(policy TTLPolicy, now time.Time, candidate Candidate, evidence []SessionEvent, current *Note) (Note, error) {
@@ -262,24 +346,6 @@ func (l *Ledger) eligibleNotes(now time.Time, request RecallRequest) []Note {
 			notes = append(notes, note)
 		}
 	}
-	sort.Slice(notes, func(i, j int) bool {
-		leftScore, rightScore := QueryScore(notes[i], request.Query), QueryScore(notes[j], request.Query)
-		if leftScore != rightScore {
-			return leftScore > rightScore
-		}
-		if QueryRequestsOwnContext(request.Query) {
-			leftOwn := notes[i].Origin.UserID == request.Actor.UserID
-			rightOwn := notes[j].Origin.UserID == request.Actor.UserID
-			if leftOwn != rightOwn {
-				return leftOwn
-			}
-		}
-		left, right := notePriority(notes[i].Kind), notePriority(notes[j].Kind)
-		if left != right {
-			return left < right
-		}
-		return notes[i].UpdatedAt.After(notes[j].UpdatedAt)
-	})
 	return notes
 }
 
@@ -343,11 +409,22 @@ func validateEvidence(candidate Candidate, events []SessionEvent) error {
 	}
 	for _, id := range candidate.EvidenceEventIDs {
 		event, ok := byID[id]
-		if !ok || event.Actor.UserID != candidate.Origin.UserID || event.Actor.AgentID != candidate.Origin.AgentID {
+		if !ok || event.Actor != candidate.Origin || !evidenceVisible(event.Visibility) ||
+			(candidate.TaskRef != "" && event.TaskRef != candidate.TaskRef) ||
+			(candidate.ThreadRef != "" && event.ThreadRef != candidate.ThreadRef) {
 			return fmt.Errorf("candidate %q evidence %q: %w", candidate.ID, id, ErrMissingEvidence)
 		}
 	}
 	return nil
+}
+
+func evidenceVisible(visibility string) bool {
+	switch strings.TrimSpace(strings.ToLower(visibility)) {
+	case "", "team_note_eligible", "team_visible":
+		return true
+	default:
+		return false
+	}
 }
 
 func WithEvidenceTime(candidate Candidate, events []SessionEvent) Candidate {
@@ -614,12 +691,16 @@ var temporalStopWords = map[string]bool{
 }
 
 func CanonicalKey(candidate Candidate) string {
-	return fmt.Sprintf("%d:%s%d:%s%d:%s%d:%s",
+	key := fmt.Sprintf("%d:%s%d:%s%d:%s%d:%s",
 		len(candidate.TaskRef), candidate.TaskRef,
 		len(candidate.ThreadRef), candidate.ThreadRef,
 		len(candidate.Kind), candidate.Kind,
 		len(candidate.Subject), candidate.Subject,
 	)
+	if candidate.Kind == KindStatus || candidate.Kind == KindBlocker || candidate.Kind == KindHandoff {
+		key += fmt.Sprintf("%d:%s", len(candidate.Origin.AgentID), candidate.Origin.AgentID)
+	}
+	return key
 }
 
 func deliveryKey(note Note, actor Actor) string {

@@ -105,6 +105,73 @@ func (s *noteStoreSuite) TestLifecycleDeliveryAndPersistence() {
 	s.Empty(afterResolve.Items)
 }
 
+func (s *noteStoreSuite) TestExtractionRunPersistsZeroCandidateProvenance() {
+	ctx := context.Background()
+	scopeID := uniqueScope("zero-candidate-run")
+	producer := teamnote.Actor{UserID: "owner", AgentID: "producer", SessionID: "producer-session"}
+	evidence := event("zero-candidate-event", producer, 1)
+	s.appendEvents(ctx, scopeID, evidence)
+	notes := s.newNoteStore()
+
+	admitted, err := notes.ApplyExtractionRun(ctx, scopeID, teamnote.ExtractionRun{
+		ID: "zero-candidate-run", Actor: producer, FromSequence: 1, ToSequence: 1,
+		InputChecksum: "zero-candidate-checksum", Model: "extractor-model", PromptVersion: "prompt-v2",
+		InputTokens: 41, OutputTokens: 3, Evidence: []teamnote.SessionEvent{evidence},
+	})
+	s.Require().NoError(err)
+	s.Empty(admitted)
+
+	var status, model, promptVersion string
+	var fromSequence, toSequence int64
+	var inputTokens, outputTokens int
+	err = s.store.Pool().QueryRow(ctx, `
+SELECT status, model, prompt_version, from_sequence, to_sequence, input_tokens, output_tokens
+FROM extraction_runs WHERE scope_id = $1 AND run_id = $2`, scopeID, "zero-candidate-run").Scan(
+		&status, &model, &promptVersion, &fromSequence, &toSequence, &inputTokens, &outputTokens,
+	)
+	s.Require().NoError(err)
+	s.Equal("completed", status)
+	s.Equal("extractor-model", model)
+	s.Equal("prompt-v2", promptVersion)
+	s.Equal(int64(1), fromSequence)
+	s.Equal(int64(1), toSequence)
+	s.Equal(41, inputTokens)
+	s.Equal(3, outputTokens)
+
+	_, err = notes.ApplyExtractionRun(ctx, scopeID, teamnote.ExtractionRun{
+		ID: "zero-candidate-run", Actor: producer, FromSequence: 1, ToSequence: 1,
+		InputChecksum: "changed-checksum", Model: "extractor-model", PromptVersion: "prompt-v2",
+		InputTokens: 41, OutputTokens: 3, Evidence: []teamnote.SessionEvent{evidence},
+	})
+	s.Require().ErrorIs(err, teamnote.ErrExtractionRunConflict)
+}
+
+func (s *noteStoreSuite) TestExtractionRunRejectsPartialCandidateBatchAtomically() {
+	ctx := context.Background()
+	scopeID := uniqueScope("atomic-candidate-run")
+	producer := teamnote.Actor{UserID: "owner", AgentID: "producer", SessionID: "producer-session"}
+	firstEvent := event("atomic-event-1", producer, 1)
+	secondEvent := event("atomic-event-2", producer, 2)
+	secondEvent.Visibility = "private"
+	s.appendEvents(ctx, scopeID, firstEvent, secondEvent)
+	valid := candidate("atomic-candidate-1", teamnote.ActionCreate, "first admitted body", producer, firstEvent.ID)
+	invalid := candidate("atomic-candidate-2", teamnote.ActionCreate, "private body", producer, secondEvent.ID)
+
+	_, err := s.newNoteStore().ApplyExtractionRun(ctx, scopeID, teamnote.ExtractionRun{
+		ID: "atomic-candidate-run", Actor: producer, FromSequence: 1, ToSequence: 2,
+		InputChecksum: "atomic-candidate-checksum", Candidates: []teamnote.Candidate{valid, invalid},
+		Evidence: []teamnote.SessionEvent{firstEvent, secondEvent},
+	})
+	s.Require().ErrorIs(err, teamnote.ErrMissingEvidence)
+
+	envelope, err := s.newNoteStore().RecallNotes(ctx, scopeID, teamnote.RecallRequest{
+		Actor:   teamnote.Actor{UserID: "owner", AgentID: "consumer", SessionID: "consumer-session"},
+		TaskRef: "task-1", TokenBudget: 100,
+	})
+	s.Require().NoError(err)
+	s.Empty(envelope.Items)
+}
+
 func (s *noteStoreSuite) TestReplayScopeAudienceAndTTL() {
 	ctx := context.Background()
 	scopeID := uniqueScope("note-policy")
@@ -287,6 +354,38 @@ func (s *noteStoreSuite) TestFirstPersonQueryPrefersTheAskingUsersOwnSource() {
 	s.Require().Len(envelope.Details, 1)
 	s.Equal("User_3", envelope.Details[0].Origin.UserID)
 	s.Contains(envelope.Details[0].Text, "verify exports")
+}
+
+func (s *noteStoreSuite) TestStatusIdentityPreservesDifferentAgentReports() {
+	ctx := context.Background()
+	scopeID := uniqueScope("note-agent-identity")
+	firstActor := teamnote.Actor{UserID: "owner", AgentID: "agent-1", SessionID: "session-1"}
+	secondActor := teamnote.Actor{UserID: "owner", AgentID: "agent-2", SessionID: "session-2"}
+	firstEvent := event("agent-identity-1", firstActor, 1)
+	secondEvent := event("agent-identity-2", secondActor, 1)
+	s.appendEvents(ctx, scopeID, firstEvent)
+	s.appendEvents(ctx, scopeID, secondEvent)
+	notes := s.newNoteStore()
+
+	_, err := notes.ApplyCandidate(ctx, scopeID, "agent-identity-run-1",
+		candidate("agent-identity-candidate-1", teamnote.ActionCreate, "Agent one reports ready.", firstActor, firstEvent.ID),
+		[]teamnote.SessionEvent{firstEvent})
+	s.Require().NoError(err)
+	_, err = notes.ApplyCandidate(ctx, scopeID, "agent-identity-run-2",
+		candidate("agent-identity-candidate-2", teamnote.ActionCreate, "Agent two reports blocked.", secondActor, secondEvent.ID),
+		[]teamnote.SessionEvent{secondEvent})
+	s.Require().NoError(err)
+
+	envelope, err := notes.RecallNotes(ctx, scopeID, teamnote.RecallRequest{
+		Actor:   teamnote.Actor{UserID: "owner", AgentID: "consumer", SessionID: "agent-identity-consumer"},
+		TaskRef: "task-1", TokenBudget: 256,
+	})
+	s.Require().NoError(err)
+	s.Require().Len(envelope.Items, 2)
+	s.ElementsMatch([]string{
+		"[status certainty=confirmed] Agent one reports ready.",
+		"[status certainty=confirmed] Agent two reports blocked.",
+	}, envelope.Items)
 }
 
 func (s *noteStoreSuite) TestRelatedFactIsComposedForRecall() {

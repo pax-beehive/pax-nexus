@@ -14,8 +14,10 @@ type Usage struct {
 }
 
 type Result struct {
-	Candidates []teamnote.Candidate
-	Usage      Usage
+	Candidates    []teamnote.Candidate
+	Usage         Usage
+	Model         string
+	PromptVersion string
 }
 
 type Extractor interface {

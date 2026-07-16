@@ -6,8 +6,23 @@ import (
 )
 
 type NoteStore interface {
-	ApplyCandidate(context.Context, string, string, Candidate, []SessionEvent) (Note, error)
+	ApplyExtractionRun(context.Context, string, ExtractionRun) ([]Note, error)
 	RecallNotes(context.Context, string, RecallRequest) (NoteEnvelope, error)
+}
+
+// ExtractionRun is one durable extraction decision over a bounded Session Slice.
+type ExtractionRun struct {
+	ID            string
+	Actor         Actor
+	FromSequence  int64
+	ToSequence    int64
+	InputChecksum string
+	Model         string
+	PromptVersion string
+	InputTokens   int
+	OutputTokens  int
+	Candidates    []Candidate
+	Evidence      []SessionEvent
 }
 
 type ScopedLedgerStore struct {
@@ -23,6 +38,10 @@ func NewScopedLedgerStore(policy TTLPolicy, clock Clock) *ScopedLedgerStore {
 
 func (s *ScopedLedgerStore) ApplyCandidate(ctx context.Context, scopeID, _ string, candidate Candidate, evidence []SessionEvent) (Note, error) {
 	return s.ledger(scopeID).Apply(ctx, candidate, evidence)
+}
+
+func (s *ScopedLedgerStore) ApplyExtractionRun(ctx context.Context, scopeID string, run ExtractionRun) ([]Note, error) {
+	return s.ledger(scopeID).ApplyRun(ctx, run)
 }
 
 func (s *ScopedLedgerStore) RecallNotes(ctx context.Context, scopeID string, request RecallRequest) (NoteEnvelope, error) {

@@ -114,6 +114,15 @@ func (s *ledgerSuite) TestSoftTTLExpiresNotes() {
 
 func (s *ledgerSuite) TestAdmissionRejectsUnsafeCandidates() {
 	evidence := producerEvent("event-safe", "The build passed.")
+	privateEvidence := evidence
+	privateEvidence.ID = "event-private"
+	privateEvidence.Visibility = "private"
+	otherSessionEvidence := evidence
+	otherSessionEvidence.ID = "event-other-session"
+	otherSessionEvidence.Actor.SessionID = "other-session"
+	otherTaskEvidence := evidence
+	otherTaskEvidence.ID = "event-other-task"
+	otherTaskEvidence.TaskRef = "other-task"
 	tests := []struct {
 		name      string
 		candidate teamnote.Candidate
@@ -158,6 +167,33 @@ func (s *ledgerSuite) TestAdmissionRejectsUnsafeCandidates() {
 			},
 			events: []teamnote.SessionEvent{evidence}, wantError: teamnote.ErrInvalidCandidate,
 		},
+		{
+			name: "private evidence",
+			candidate: teamnote.Candidate{
+				ID: "private", Action: teamnote.ActionCreate, Kind: teamnote.KindStatus,
+				Subject: "build", Body: "The build passed.", Origin: privateEvidence.Actor,
+				EvidenceEventIDs: []string{privateEvidence.ID},
+			},
+			events: []teamnote.SessionEvent{privateEvidence}, wantError: teamnote.ErrMissingEvidence,
+		},
+		{
+			name: "cross session evidence",
+			candidate: teamnote.Candidate{
+				ID: "cross-session", Action: teamnote.ActionCreate, Kind: teamnote.KindStatus,
+				Subject: "build", Body: "The build passed.", Origin: evidence.Actor,
+				EvidenceEventIDs: []string{otherSessionEvidence.ID},
+			},
+			events: []teamnote.SessionEvent{otherSessionEvidence}, wantError: teamnote.ErrMissingEvidence,
+		},
+		{
+			name: "task scope mismatch",
+			candidate: teamnote.Candidate{
+				ID: "task-mismatch", Action: teamnote.ActionCreate, Kind: teamnote.KindStatus,
+				Subject: "build", Body: "The build passed.", TaskRef: "release-42", Origin: evidence.Actor,
+				EvidenceEventIDs: []string{otherTaskEvidence.ID},
+			},
+			events: []teamnote.SessionEvent{otherTaskEvidence}, wantError: teamnote.ErrMissingEvidence,
+		},
 	}
 
 	for _, test := range tests {
@@ -166,6 +202,55 @@ func (s *ledgerSuite) TestAdmissionRejectsUnsafeCandidates() {
 			s.Require().ErrorIs(err, test.wantError)
 		})
 	}
+}
+
+func (s *ledgerSuite) TestStatusIdentityPreservesDifferentAgentReports() {
+	firstEvidence := producerEvent("event-first-agent", "The rollout is ready for review.")
+	secondEvidence := producerEvent("event-second-agent", "The rollout is blocked on approval.")
+	secondEvidence.Actor.AgentID = "second-producer"
+	secondEvidence.Actor.SessionID = "second-session"
+
+	first, err := s.ledger.Apply(context.Background(), teamnote.Candidate{
+		ID: "candidate-first-agent", Action: teamnote.ActionCreate, Kind: teamnote.KindStatus,
+		Subject: "rollout", Body: "The rollout is ready for review.", TaskRef: "release-42",
+		Origin: firstEvidence.Actor, EvidenceEventIDs: []string{firstEvidence.ID},
+	}, []teamnote.SessionEvent{firstEvidence})
+	s.Require().NoError(err)
+	second, err := s.ledger.Apply(context.Background(), teamnote.Candidate{
+		ID: "candidate-second-agent", Action: teamnote.ActionCreate, Kind: teamnote.KindStatus,
+		Subject: "rollout", Body: "The rollout is blocked on approval.", TaskRef: "release-42",
+		Origin: secondEvidence.Actor, EvidenceEventIDs: []string{secondEvidence.ID},
+	}, []teamnote.SessionEvent{secondEvidence})
+	s.Require().NoError(err)
+	s.NotEqual(first.ID, second.ID)
+
+	envelope, err := s.ledger.Recall(context.Background(), consumerRecall("release-42", "status-conflict-consumer"))
+	s.Require().NoError(err)
+	s.Len(envelope.Items, 2)
+	s.ElementsMatch([]string{
+		"[status certainty=confirmed] The rollout is ready for review.",
+		"[status certainty=confirmed] The rollout is blocked on approval.",
+	}, envelope.Items)
+}
+
+func (s *ledgerSuite) TestExtractionRunRejectsMismatchedReplay() {
+	evidence := producerEvent("event-run-replay", "The rollout is ready.")
+	run := teamnote.ExtractionRun{
+		ID: "run-replay", Actor: evidence.Actor, FromSequence: 1, ToSequence: 1,
+		InputChecksum: "checksum-one", Model: "extractor-model", PromptVersion: "prompt-v1",
+		Candidates: []teamnote.Candidate{{
+			ID: "candidate-run-replay", Action: teamnote.ActionCreate, Kind: teamnote.KindStatus,
+			Subject: "rollout", Body: "The rollout is ready.", TaskRef: "release-42",
+			Origin: evidence.Actor, EvidenceEventIDs: []string{evidence.ID},
+		}},
+		Evidence: []teamnote.SessionEvent{evidence},
+	}
+	_, err := s.ledger.ApplyRun(context.Background(), run)
+	s.Require().NoError(err)
+
+	run.InputChecksum = "checksum-two"
+	_, err = s.ledger.ApplyRun(context.Background(), run)
+	s.Require().ErrorIs(err, teamnote.ErrExtractionRunConflict)
 }
 
 func (s *ledgerSuite) TestAudienceAndBudgetAreEnforced() {

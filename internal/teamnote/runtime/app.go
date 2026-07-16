@@ -99,7 +99,7 @@ func (a *App) ProcessExtraction(ctx context.Context, actor teamnote.Actor, throu
 		if extractErr != nil {
 			return false, fmt.Errorf("extract candidates: %w", extractErr)
 		}
-		if applyErr := a.applyCandidates(ctx, slice.InputChecksum, result.Candidates, slice.Events); applyErr != nil {
+		if applyErr := a.applyExtractionRun(ctx, slice, result); applyErr != nil {
 			return false, applyErr
 		}
 		if commitErr := a.lake.CommitSlice(ctx, slice); commitErr != nil {
@@ -128,15 +128,20 @@ func (a *App) RecallNotes(ctx context.Context, request teamnote.RecallRequest) (
 	return a.config.NoteStore.RecallNotes(ctx, scopeID, request)
 }
 
-func (a *App) applyCandidates(ctx context.Context, runID string, candidates []teamnote.Candidate, evidence []teamnote.SessionEvent) error {
+func (a *App) applyExtractionRun(ctx context.Context, slice sessionlake.Slice, result extractor.Result) error {
 	scopeID, err := teamnote.ScopeFromContext(ctx)
 	if err != nil {
-		return fmt.Errorf("apply candidates: %w", err)
+		return fmt.Errorf("apply extraction run: %w", err)
 	}
-	for _, candidate := range candidates {
-		if _, err := a.config.NoteStore.ApplyCandidate(ctx, scopeID, runID, candidate, evidence); err != nil {
-			return fmt.Errorf("apply candidate %q: %w", candidate.ID, err)
-		}
+	run := teamnote.ExtractionRun{
+		ID: slice.InputChecksum, Actor: slice.Actor,
+		FromSequence: slice.FromSequence, ToSequence: slice.ToSequence,
+		InputChecksum: slice.InputChecksum, Model: result.Model, PromptVersion: result.PromptVersion,
+		InputTokens: result.Usage.InputTokens, OutputTokens: result.Usage.OutputTokens,
+		Candidates: result.Candidates, Evidence: slice.Events,
+	}
+	if _, err := a.config.NoteStore.ApplyExtractionRun(ctx, scopeID, run); err != nil {
+		return fmt.Errorf("apply extraction run %q: %w", run.ID, err)
 	}
 	return nil
 }

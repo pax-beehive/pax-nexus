@@ -106,6 +106,37 @@ func (s *appSuite) TestProcessExtractionIsIdempotentAfterCursorAdvance() {
 	s.Equal(1, s.extractor.calls)
 }
 
+func (s *appSuite) TestProcessExtractionCommitsZeroCandidateRunProvenance() {
+	store := newRecordingNoteStore()
+	app, err := teamruntime.New(sessionlake.New(s.repository), s.extractor, teamruntime.Config{NoteStore: store})
+	s.Require().NoError(err)
+	ctx := teamnote.WithScope(context.Background(), "scope-zero-candidate")
+	actor := teamnote.Actor{UserID: "owner", AgentID: "producer", SessionID: "producer-session"}
+	event := runtimeEvent("event-zero-candidate", actor)
+	s.extractor.result = extractor.Result{
+		Usage: extractor.Usage{InputTokens: 41, OutputTokens: 3},
+		Model: "extractor-model", PromptVersion: "prompt-v2",
+	}
+	_, err = app.ObserveSession(ctx, teamnote.SessionBatch{Events: []teamnote.SessionEvent{event}, Complete: true})
+	s.Require().NoError(err)
+
+	more, err := app.ProcessExtraction(ctx, actor, 1, false)
+	s.Require().NoError(err)
+	s.False(more)
+	s.Require().Len(store.runs, 1)
+	run := store.runs[0]
+	s.Equal("scope-zero-candidate", store.scopeIDs[0])
+	s.Equal(event.Sequence, run.FromSequence)
+	s.Equal(event.Sequence, run.ToSequence)
+	s.NotEmpty(run.ID)
+	s.Equal(run.InputChecksum, run.ID)
+	s.Equal("extractor-model", run.Model)
+	s.Equal("prompt-v2", run.PromptVersion)
+	s.Equal(41, run.InputTokens)
+	s.Equal(3, run.OutputTokens)
+	s.Empty(run.Candidates)
+}
+
 func (s *appSuite) TestTimeoutJobSkipsWhenSessionHasAdvanced() {
 	ctx := teamnote.WithScope(context.Background(), "scope-timeout")
 	actor := teamnote.Actor{UserID: "owner", AgentID: "producer", SessionID: "producer-session"}
@@ -180,6 +211,26 @@ func (s *appSuite) TestCapsSlicesAndReportsContinuation() {
 type runtimeExtractor struct {
 	result extractor.Result
 	calls  int
+}
+
+type recordingNoteStore struct {
+	delegate *teamnote.ScopedLedgerStore
+	scopeIDs []string
+	runs     []teamnote.ExtractionRun
+}
+
+func newRecordingNoteStore() *recordingNoteStore {
+	return &recordingNoteStore{delegate: teamnote.NewScopedLedgerStore(teamnote.DefaultTTLPolicy(), teamnote.SystemClock{})}
+}
+
+func (s *recordingNoteStore) ApplyExtractionRun(ctx context.Context, scopeID string, run teamnote.ExtractionRun) ([]teamnote.Note, error) {
+	s.scopeIDs = append(s.scopeIDs, scopeID)
+	s.runs = append(s.runs, run)
+	return s.delegate.ApplyExtractionRun(ctx, scopeID, run)
+}
+
+func (s *recordingNoteStore) RecallNotes(ctx context.Context, scopeID string, request teamnote.RecallRequest) (teamnote.NoteEnvelope, error) {
+	return s.delegate.RecallNotes(ctx, scopeID, request)
 }
 
 func (e *runtimeExtractor) Extract(_ context.Context, _ sessionlake.Slice) (extractor.Result, error) {
