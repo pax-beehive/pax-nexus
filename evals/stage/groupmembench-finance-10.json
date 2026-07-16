@@ -1,0 +1,166 @@
+{
+  "schema_version": "pax-stage-eval-v1",
+  "dataset": "GroupMemBench Finance annotated stage subset v1",
+  "cases": [
+    {
+      "case_id": "multi_hop_13",
+      "category": "multi_hop",
+      "source_revision": "6c79b2531a762ed4fa50dd359ed3e363f63c3c4c640a5151a4174577d9dbc596",
+      "recall_context": {"consumer_user_id":"User_3","query":"Who is expected to own the rollback evidence pack if the July 26 milestone slips?","token_budget":512},
+      "required_atoms": [
+        {
+          "id": "rollback_evidence_owner",
+          "patterns": ["(?i)ops lead.{0,80}(owns?|owner).{0,80}rollback evidence|rollback evidence.{0,80}(owned by|owner.{0,20}is).{0,40}ops lead"],
+          "supporting_event_ids": ["Msg_24904", "Msg_24856"]
+        }
+      ]
+    },
+    {
+      "case_id": "multi_hop_15",
+      "category": "multi_hop",
+      "source_revision": "314726aa30a36c25b79137ef0649825a6800c6919e7832c3ac47dd303b0c2cc2",
+      "recall_context": {"consumer_user_id":"User_2","query":"What additional requirements were identified to avoid audit replay issues during the integration testing cycle revision?","token_budget":512},
+      "required_atoms": [
+        {
+          "id": "rerun_slot",
+          "patterns": ["(?i)rerun slot|intended rerun window"],
+          "supporting_event_ids": ["Msg_3831", "Msg_12591"]
+        },
+        {
+          "id": "timestamped_evidence_linkage",
+          "patterns": ["(?i)timestamp.{0,80}(evidence|build hash|defect id)|evidence.{0,80}timestamp"],
+          "supporting_event_ids": ["Msg_12591", "Msg_15227"]
+        }
+      ]
+    },
+    {
+      "case_id": "multi_hop_39",
+      "category": "multi_hop",
+      "source_revision": "061b0c7f7aa8ce7d484786a54f823e15731d0a913289a32e7419e5f26b1d4bc5",
+      "recall_context": {"consumer_user_id":"User_1","query":"What are the two remaining blockers for marking the ESG Policy Requirements baseline as completed?","token_budget":512},
+      "required_atoms": [
+        {
+          "id": "control_ownership",
+          "patterns": ["(?i)control ownership|owner(ship)?"],
+          "supporting_event_ids": ["Msg_26787"]
+        },
+        {
+          "id": "reporting_timing",
+          "patterns": ["(?i)reporting timing"],
+          "supporting_event_ids": ["Msg_26787"]
+        }
+      ]
+    },
+    {
+      "case_id": "multi_hop_20",
+      "category": "multi_hop",
+      "source_revision": "90e653149be3f3044c844951387d70d4d83338c62943518f070c3d6a0bed82f8",
+      "recall_context": {"consumer_user_id":"User_9","query":"What are the three key controls identified in FRA for stabilizing reconciliation?","token_budget":512},
+      "required_atoms": [
+        {"id": "endpoint", "patterns": ["(?i)endpoint"]},
+        {"id": "cadence", "patterns": ["(?i)cadence"]},
+        {"id": "ip_allowlist", "patterns": ["(?i)ip allowlist|allowlisted? ip"]}
+      ]
+    },
+    {
+      "case_id": "multi_hop_45",
+      "category": "multi_hop",
+      "source_revision": "a0d9b5a16184d7424a65e3f699499e94096589427aa06246585f0f7868b78b66",
+      "recall_context": {"consumer_user_id":"User_6","query":"By what date does the data engineering team need to confirm any unstable fields for the Model Feature Engineering phase?","token_budget":512},
+      "required_atoms": [
+        {
+          "id": "unstable_field_confirmation_date",
+          "patterns": ["(?i)2025-07-18|july 18"],
+          "supporting_event_ids": ["Msg_8440"]
+        }
+      ]
+    },
+    {
+      "case_id": "knowledge_update_23",
+      "category": "knowledge_update",
+      "source_revision": "1c97ba9efb275fd0e4793664b0252cc71a2507e2fe2d6472652171f4588eb2a7",
+      "recall_context": {"consumer_user_id":"User_11","query":"What is the current approach for handling the consent timestamp and audit-trail fields in the requirements?","token_budget":512},
+      "required_atoms": [
+        {
+          "id": "update_baseline_now",
+          "patterns": ["(?i)update.{0,40}baseline now|baseline update"]
+        },
+        {
+          "id": "consent_and_audit_fields",
+          "patterns": ["(?i)consent timestamp.{0,100}audit[- ]trail|audit[- ]trail.{0,100}consent timestamp"],
+          "supporting_event_ids": ["Msg_4174", "Msg_4778"]
+        },
+        {
+          "id": "legal_redline_scope_change",
+          "patterns": ["(?i)(legal.{0,30})?redline.{0,100}scope change|scope change.{0,100}redline"],
+          "supporting_event_ids": ["Msg_4174"]
+        }
+      ]
+    },
+    {
+      "case_id": "knowledge_update_8",
+      "category": "knowledge_update",
+      "source_revision": "899c0bff61f439d9236c09830dd0d0879fc52fa2a7d3818fc239a4ef81b27625",
+      "recall_context": {"consumer_user_id":"User_2","query":"What approach is the team using to address high verification drop-off in the pilot launch?","token_budget":512},
+      "required_atoms": [
+        {"id": "instrument_funnel", "patterns": ["(?i)(instrument|measure).{0,80}(upload|verification).{0,30}(review|funnel)"]},
+        {"id": "timestamps_and_retries", "patterns": ["(?i)(step )?timestamp.{0,80}retr(y|ies)|retr(y|ies).{0,80}(step )?timestamp"]},
+        {
+          "id": "branch_by_device_and_request",
+          "patterns": ["(?i)(device|region).{0,80}request type|request type.{0,80}(device|region)"],
+          "supporting_event_ids": ["Msg_3323"]
+        }
+      ]
+    },
+    {
+      "case_id": "knowledge_update_5",
+      "category": "knowledge_update",
+      "source_revision": "d15c4a86401acce638cb78c81a0d4d68e09a44ac1afec542ec06fa007b498f1e",
+      "recall_context": {"consumer_user_id":"User_13","query":"What is the team currently doing for the flagged bucket in the SAR reporting process?","token_budget":512},
+      "required_atoms": [
+        {
+          "id": "pause_bucket_scenarios",
+          "patterns": ["(?i)pause scenario creation.{0,40}bucket|pause.{0,40}bucket.{0,40}scenario"]
+        },
+        {
+          "id": "legal_ops_freeze_fields",
+          "patterns": ["(?i)legal.{0,30}ops.{0,80}freeze.{0,80}trigger-impacting fields"]
+        },
+        {
+          "id": "freeze_audit_rules",
+          "patterns": ["(?i)freeze.{0,80}audit[- ]trail rules"],
+          "supporting_event_ids": ["Msg_3687"]
+        }
+      ]
+    },
+    {
+      "case_id": "knowledge_update_27",
+      "category": "knowledge_update",
+      "source_revision": "7cfaaa610467ac01f3973fa3bceee8905581fc260cb7f8f9d47230a980d5ab68",
+      "recall_context": {"consumer_user_id":"User_6","query":"What is the team’s current approach for reviewing channel inconsistencies in the customer journey?","token_budget":512},
+      "required_atoms": [
+        {
+          "id": "include_assisted_first_pass",
+          "patterns": ["(?i)(include|keep).{0,40}assisted.{0,80}(first pass|all four|together)"]
+        },
+        {
+          "id": "check_owner_and_handoff_drift",
+          "patterns": ["(?i)(owner drift|handoff inconsistenc|handoff drift)"],
+          "supporting_event_ids": ["Msg_26564", "Msg_26278"]
+        }
+      ],
+      "superseded_event_ids": ["Msg_4476"]
+    },
+    {
+      "case_id": "knowledge_update_24",
+      "category": "knowledge_update",
+      "source_revision": "ff4dc7b79d04e333cecf593f9c96e43ca5c5a42db0d7b98a3fb9e5fced6d7dae",
+      "recall_context": {"consumer_user_id":"User_12","query":"What approach is the team using for regulatory requirements assessment?","token_budget":512},
+      "required_atoms": [
+        {"id": "two_track_intake", "patterns": ["(?i)two[- ]track intake"]},
+        {"id": "legal_minimal_disposition", "patterns": ["(?i)legal.{0,80}minimal disposition"]},
+        {"id": "ops_locked_jurisdiction_metadata", "patterns": ["(?i)ops.{0,100}jurisdiction.{0,100}(locked )?metadata"]}
+      ]
+    }
+  ]
+}

@@ -17,11 +17,25 @@ A versioned collection of Cases, Arms, configuration, and artifacts.
 One durable execution of a Case through an Arm. A Trial is the unit of resume,
 timeout, failure reporting, and paired comparison.
 
+**Stage Fixture**:
+A fixed contract for one memory stage. It names required atoms, supporting
+Events, and forbidden or superseded information while adjacent stages are held
+constant.
+
+**Observation**:
+An immutable capture of one stage output, including item identity, text,
+evidence links, duration, and error state.
+
+**Conditional Recall**:
+Recall measured only over required atoms present in the paired extraction
+Observation. It separates delivery loss from upstream extraction loss.
+
 ## Relationships
 
 - A **Run** contains many **Cases**.
 - Each **Case** executes one or more **Arms**.
 - A **Run** persists the full Case-by-Arm Trial matrix before execution.
+- A **Stage Fixture** may produce paired extraction and recall **Observations**.
 - Evaluation may call Team Note or LLM Wiki through their public seams.
 
 ## V2 artifact boundary

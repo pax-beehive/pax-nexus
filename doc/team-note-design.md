@@ -611,6 +611,44 @@ Evaluation must answer seven separate questions:
 
 No public benchmark covers all of these, so PAX uses a portfolio.
 
+### 13.1 Stage-local control loops
+
+Treat the memory path as nested control loops rather than one opaque QA loop:
+
+```text
+source Events -> extraction/admission/state -> recall -> consumer answer
+     ingest loop          state loop          delivery loop    acceptance loop
+```
+
+Each inner loop fixes its neighbors. Extraction uses source Events pinned by
+revision and a gold Stage Fixture. Recall uses the paired extracted Note IDs,
+consumer identity, query, and budget. End-to-end judged answer accuracy runs
+after the inner loops and remains the acceptance signal for downstream
+usefulness.
+
+Every evaluated case should retain four inspectable artifacts:
+
+1. source Events and ingest cursor/receipt;
+2. extracted/admitted Note snapshots with evidence Event IDs;
+3. recall Observations with delivered Note IDs, text, budget, latency, and
+   error state;
+4. consumer answer and deterministic or blind-judge result.
+
+Recall reports two denominators:
+
+```text
+Gold Recall = delivered required atoms / all required atoms
+
+Conditional Recall = delivered required atoms / required atoms available
+                     in the paired extraction Observation
+```
+
+The difference localizes failures. Missing atoms before recall are extraction
+or state failures; available atoms not delivered are recall failures. Neither
+metric replaces the other, and neither by itself proves downstream utility.
+The accepted rationale and tradeoffs are recorded in
+`internal/eval/docs/adr/0001-stage-local-memory-evaluation.md`.
+
 | Dataset | Priority | Measures | Limitation |
 |---|---:|---|---|
 | PAX TeamNoteBench | P0 | evidence, scope, authority, TTL, conflict, handoff, ACL, delivery | must be authored by PAX |
@@ -692,6 +730,12 @@ forbidden_event_ids
 The public questions contain question, answer, and asking user, but no passive
 delivery scope, source Event IDs, or gold note timeline. Without additional
 annotation they cannot measure grounding, TTL, or exact-scope delivery.
+
+The executable `pax-stage-eval-v1` contract starts with ten Finance cases under
+`evals/stage/`. It adds deterministic atom patterns and scores paired
+extraction/recall Observations supplied by an adapter. This subset is
+development data until its Event links and patterns receive a separate
+annotation review.
 
 Recommended split:
 

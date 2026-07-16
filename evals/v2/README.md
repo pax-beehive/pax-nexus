@@ -239,6 +239,14 @@ of semantically correct answers. Exact remains a full-string diagnostic.
 answer explicitly says the information is unavailable; token F1 remains lexical
 for all answers.
 
+## Stage-local diagnostics
+
+Eval v2 answer accuracy is the outer acceptance loop. When a Team Note arm
+fails, use the stage-local scorer in [`evals/stage/README.md`](../stage/README.md)
+to separate extraction loss from recall loss. Its Observation contract retains
+Note identity and evidence links; it does not infer a cause from the final
+answer alone.
+
 Cost fields use the `opencode_reported` scope. Per-arm values now contain the
 consumer call plus any legacy arm-local or shared producer. The native
 GroupMemBench path has no producer-model cost. Team Note
