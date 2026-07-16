@@ -16,7 +16,7 @@ MOCK_VERSION := v0.6.0
 GOLANGCI_LINT_VERSION := v2.11.3
 COVERAGE_MIN := 75
 
-.PHONY: all tools generate-init generate mocks fmt format-check lint test test-unit coverage integration-test docker-eval groupmembench-data groupmembench-eval eval-v2-prepare eval-v2-up eval-v2 eval-v2-smoke-up eval-v2-smoke eval-v2-acceptance-up eval-v2-acceptance eval-v2-down eval-v2-reset up down logs db-up db-down clean
+.PHONY: all tools generate-init generate mocks fmt format-check lint test test-unit test-scripts coverage integration-test docker-eval groupmembench-data groupmembench-eval eval-v2-prepare eval-v2-up eval-v2 eval-v2-smoke-up eval-v2-smoke eval-v2-acceptance-up eval-v2-acceptance eval-v2-down eval-v2-reset eval-v2-job-image eval-v2-job up down logs db-up db-down clean
 
 all: lint test
 
@@ -65,16 +65,20 @@ format-check: $(GOLANGCI_LINT)
 lint: $(GOLANGCI_LINT)
 	GOCACHE=$${GOCACHE:-/tmp/team-memory-go-cache} GOLANGCI_LINT_CACHE=$(GOLANGCI_LINT_CACHE) $(GOLANGCI_LINT) run ./...
 
-test: coverage integration-test
+test: coverage test-scripts integration-test
 
 test-unit:
 	GOCACHE=$${GOCACHE:-/tmp/team-memory-go-cache} go test ./... -count=1
+
+test-scripts:
+	./scripts/test-eval-v2-job.sh
 
 integration-test: db-up
 	TEAM_MEMORY_TEST_POSTGRES_DSN=postgres://team_memory:team_memory@127.0.0.1:$${TEAM_MEMORY_POSTGRES_PORT:-55432}/team_memory?sslmode=disable \
 		GOCACHE=$${GOCACHE:-/tmp/team-memory-go-cache} go test ./internal/platform/postgres ./internal/teamnote/extractionqueue ./internal/eval/v2/postgresstore -count=1
 
 up:
+	./scripts/start-local-embedding.sh
 	docker compose up -d --build --wait postgres team-memory
 
 down:
@@ -135,6 +139,26 @@ eval-v2-down:
 
 eval-v2-reset:
 	./scripts/eval-v2-stack.sh reset
+
+eval-v2-job-image:
+	docker build -f evals/v2/docker/runner/Dockerfile -t team-memory-eval-v2-runner:local .
+
+eval-v2-job: eval-v2-job-image
+	@. ./scripts/load-eval-v2-env.sh; \
+		extra_mount=""; \
+		if [ -n "$${PAXM_SOURCE_DIR:-}" ]; then extra_mount="-v $${PAXM_SOURCE_DIR}:$${PAXM_SOURCE_DIR}:ro"; fi; \
+		docker run --rm \
+			--add-host host.docker.internal:host-gateway \
+			-v /var/run/docker.sock:/var/run/docker.sock \
+			-v "$(CURDIR):$(CURDIR)" \
+			$$extra_mount \
+			-w "$(CURDIR)" \
+			-e EVAL_V2_ENV_FILE \
+			-e EVAL_V2_JOB_RUN_ID -e EVAL_V2_SEED -e EVAL_V2_TOTAL_CASES -e EVAL_V2_PER_CATEGORY \
+			-e EVAL_V2_OUTPUT_ROOT -e EVAL_V2_BASE_CONFIG -e EVAL_V2_JOB_TIMEOUT -e EVAL_V2_JOB_POSTGRES_DSN \
+			-e EVAL_FRAMEWORK_VERSION -e EVAL_SELECTION_ALGORITHM -e EVAL_V2_COMPOSE_FILE -e EVAL_V2_POSTGRES_PORT \
+			-e EVAL_V2_JOB_DRY_RUN -e EVAL_V2_PREPARED_SELECTION -e EVAL_V2_ALLOW_DIRTY \
+			team-memory-eval-v2-runner:local -c 'mkdir -p .build; exec flock -n .build/eval-v2-job.lock timeout "$${EVAL_V2_JOB_TIMEOUT:-24h}" ./scripts/eval-v2-job.sh'
 
 clean:
 	rm -rf .build

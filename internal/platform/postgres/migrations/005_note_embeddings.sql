@@ -1,0 +1,7 @@
+CREATE EXTENSION IF NOT EXISTS vector;
+
+ALTER TABLE team_notes
+    ADD COLUMN IF NOT EXISTS embedding vector(384),
+    ADD COLUMN IF NOT EXISTS embedding_model TEXT NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS embedding_revision INTEGER,
+    ADD COLUMN IF NOT EXISTS embedding_error TEXT NOT NULL DEFAULT '';

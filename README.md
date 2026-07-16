@@ -51,9 +51,10 @@ those choices to callers.
 
 ## Local runtime
 
-The runtime uses exactly two containers: PostgreSQL and the Team Memory service.
+The runtime uses PostgreSQL with pgvector, the Team Memory service, and a local
+CPU Qwen3 embedding runtime.
 River runs inside the Team Memory process and stores its durable jobs in the
-same PostgreSQL database. Start and stop both containers with:
+same PostgreSQL database. Start and stop the stack with:
 
 ```bash
 make up
@@ -61,7 +62,8 @@ make down
 ```
 
 The HTTP API listens on `http://localhost:58080` by default. `make logs` follows
-both services. River defaults to four single-worker queue shards, which keeps a
+the database and Team Memory process. River defaults to sixteen single-worker
+queue shards, which keeps a
 session on one serial shard while allowing different sessions to be extracted
 in parallel. Configure the pool with `TEAM_MEMORY_WORKER_SHARDS`, retry count
 with `TEAM_MEMORY_WORKER_MAX_ATTEMPTS`, and lifecycle timeouts with
@@ -79,6 +81,18 @@ four slices before yielding a continuation, and each slice may return at most
 10 candidates. Configure these bounds with `TEAM_MEMORY_SLICE_EVENT_LIMIT`,
 `TEAM_MEMORY_SLICE_TOKEN_LIMIT`, `TEAM_MEMORY_SLICE_OVERLAP`, and
 `TEAM_MEMORY_MAX_SLICES_PER_JOB`.
+
+Passive recall uses two candidate lanes behind the existing `RecallNotes`
+interface: PostgreSQL full-text rank and Qwen3 semantic similarity. The runtime
+embeds Team Notes after admission, fuses the top 16 candidates per lane with
+reciprocal rank fusion, and then applies the existing authorization, scalar-slot,
+kind, recency, budget, and delivery-once rules. The default local model is
+`Qwen/Qwen3-Embedding-0.6B`; its Matryoshka output is truncated and normalized
+to 384 dimensions. Configure it with `TEAM_MEMORY_EMBEDDING_BASE_URL`,
+`TEAM_MEMORY_EMBEDDING_MODEL`, `TEAM_MEMORY_EMBEDDING_TIMEOUT`,
+`TEAM_MEMORY_SEMANTIC_THRESHOLD`, and
+`TEAM_MEMORY_RETRIEVAL_CANDIDATE_LIMIT`. Leaving the base URL empty disables
+semantic recall, and embedding failures fall back to lexical recall.
 
 ## Identity assumption
 
@@ -101,9 +115,9 @@ See [the design draft](doc/team-note-design.md) and the
 and recall participation rules are documented in
 [extraction and recall](doc/extraction-and-recall.md).
 
-For current paired runs, Eval v2 persists a control, Team Note, and self-hosted
-Mem0 matrix in PostgreSQL and exports CSV, JSONL, and a self-contained HTML
-report. See [the evaluation runbook](evals/README.md).
+For current paired runs, Eval v2 persists control, passive Team Note, hybrid
+Team Note, and self-hosted Mem0 trials in PostgreSQL and exports CSV, JSONL, and
+a self-contained HTML report. See [the evaluation runbook](evals/README.md).
 
 ## Development gates
 

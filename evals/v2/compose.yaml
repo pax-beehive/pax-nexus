@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:17-alpine
+    image: pgvector/pgvector:pg17
     environment:
       POSTGRES_DB: team_memory
       POSTGRES_USER: team_memory
@@ -27,10 +27,41 @@ services:
       TEAM_MEMORY_EXTRACTOR_API_KEY: ${TEAM_MEMORY_EXTRACTOR_API_KEY:?TEAM_MEMORY_EXTRACTOR_API_KEY is required}
       TEAM_MEMORY_EXTRACTOR_MODEL: ${TEAM_MEMORY_EXTRACTOR_MODEL:-deepseek-v4-flash}
       TEAM_MEMORY_PROMPT_VERSION: ${TEAM_MEMORY_PROMPT_VERSION:-v1}
-      TEAM_MEMORY_WORKER_SHARDS: ${TEAM_MEMORY_WORKER_SHARDS:-4}
+      TEAM_MEMORY_WORKER_SHARDS: ${TEAM_MEMORY_WORKER_SHARDS:-16}
+      TEAM_MEMORY_EMBEDDING_BASE_URL: ${TEAM_MEMORY_EMBEDDING_BASE_URL-http://qwen-embedding:8080}
+      TEAM_MEMORY_EMBEDDING_MODEL: ${TEAM_MEMORY_EMBEDDING_MODEL:-Qwen/Qwen3-Embedding-0.6B}
+      TEAM_MEMORY_EMBEDDING_TIMEOUT: ${TEAM_MEMORY_EMBEDDING_TIMEOUT:-10s}
+      TEAM_MEMORY_SEMANTIC_THRESHOLD: ${TEAM_MEMORY_SEMANTIC_THRESHOLD:-0.65}
+      TEAM_MEMORY_RETRIEVAL_CANDIDATE_LIMIT: ${TEAM_MEMORY_RETRIEVAL_CANDIDATE_LIMIT:-16}
     depends_on:
       postgres:
         condition: service_healthy
+
+  qwen-embedding:
+    image: ghcr.io/ggml-org/llama.cpp:server
+    command:
+      - --hf-repo
+      - Qwen/Qwen3-Embedding-0.6B-GGUF:Q8_0
+      - --embedding
+      - --pooling
+      - last
+      - --alias
+      - Qwen/Qwen3-Embedding-0.6B
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+      - --ctx-size
+      - "512"
+    environment:
+      LLAMA_CACHE: /models
+    volumes:
+      - eval-v2-qwen-cache:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 120
 
   mem0-postgres:
     image: pgvector/pgvector:pg17
@@ -122,5 +153,6 @@ services:
 
 volumes:
   eval-v2-postgres:
+  eval-v2-qwen-cache:
   eval-v2-mem0-postgres:
   eval-v2-mem0-history:

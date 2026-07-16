@@ -3,8 +3,8 @@ set -eu
 
 stage="${1:?stage is required}"
 arm="${2:?arm is required}"
-compose_file="evals/v2/compose.yaml"
-project_name="pax-nexus-eval-v2"
+compose_file="${EVAL_V2_COMPOSE_FILE:-evals/v2/compose.yaml}"
+project_name="${EVAL_V2_COMPOSE_PROJECT:-pax-nexus-eval-v2}"
 case_id="${PAX_EVAL_CASE_ID:-preflight}"
 eval_user_id="${PAX_EVAL_USER_ID:-eval-owner}"
 scope_id="${PAX_EVAL_SCOPE_ID:-preflight}"
@@ -12,6 +12,10 @@ api_key="eval-${PAX_EVAL_RUN_ID}-${case_id}"
 agent_id="groupmembench-${eval_user_id}"
 mem0_run_id="${PAX_EVAL_RUN_ID}-${case_id}"
 team_note_scope_id="${PAX_EVAL_RUN_ID}-${scope_id}"
+if [ "${arm}" = "team_note_hybrid" ]; then
+  api_key="${api_key}-team-note-hybrid"
+  team_note_scope_id="${team_note_scope_id}-team-note-hybrid"
+fi
 
 . ./scripts/load-eval-v2-env.sh
 
@@ -27,6 +31,7 @@ run_agent() {
   write_enabled="$3"
   prompt="$4"
   consumer_policy="$5"
+  recall_mode="$6"
   opencode_agent="build"
   if [ "${consumer_policy}" = "1" ]; then
     opencode_agent="eval-consumer"
@@ -52,6 +57,8 @@ run_agent() {
     -e PAXM_RECALL_ENABLED="${recall_enabled}" \
     -e PAXM_WRITE_ENABLED="${write_enabled}" \
     -e PAXM_EVAL_CONSUMER_POLICY="${consumer_policy}" \
+    -e PAXM_EVAL_RECALL_MODE="${recall_mode}" \
+    -e PAXM_ACTIVE_RECALL_MAX_CALLS=2 \
     -e PAXM_PASSIVE_MIN_RELEVANCE="${PAXM_PASSIVE_MIN_RELEVANCE:--1}" \
     -e PAXM_PASSIVE_MIN_SCORE="${PAXM_PASSIVE_MIN_SCORE:--1}" \
     -e PAXM_INSERTION_MIN_SCORE="${PAXM_INSERTION_MIN_SCORE:-0}" \
@@ -101,7 +108,7 @@ case "${stage}" in
       producer_write_enabled=0
     fi
     run_agent "${PAX_EVAL_PRODUCER_WORKSPACE}" 0 "${producer_write_enabled}" \
-      "Read source.md. Produce a complete factual handoff of every current decision, date, owner, dependency, and unresolved blocker. Preserve author identities and exact values." 0
+      "Read source.md. Produce a complete factual handoff of every current decision, date, owner, dependency, and unresolved blocker. Preserve author identities and exact values." 0 passive
     ;;
   ingest)
     batches_dir="$(dirname "${PAX_EVAL_SESSION_BATCHES_FILE}")"
@@ -109,11 +116,15 @@ case "${stage}" in
     batches_absolute="$(cd "${batches_dir}" && pwd -P)"
     ingest_user_id="${eval_user_id}"
     ingest_agent_id="${agent_id}"
+    ingest_provider="${arm}"
     if [ "${arm}" = "mem0" ]; then
       ingest_user_id="${MEM0_EVAL_USER_ID}"
       ingest_agent_id="${MEM0_EVAL_AGENT_ID}"
     fi
-    run_memory_ingest "${arm}" "${api_key}" "${ingest_user_id}" "${ingest_agent_id}" "${mem0_run_id}" \
+    if [ "${arm}" = "team_note_hybrid" ]; then
+      ingest_provider="team_note"
+    fi
+    run_memory_ingest "${ingest_provider}" "${api_key}" "${ingest_user_id}" "${ingest_agent_id}" "${mem0_run_id}" \
       "${batches_absolute}" "/artifact/${batches_file}"
     ;;
   preflight)
@@ -122,7 +133,7 @@ case "${stage}" in
     run_memory_preflight "${preflight_key}" "${preflight_run_id}" "PAX-EVAL-PREFLIGHT-${PAX_EVAL_RUN_ID}"
     ;;
   ready)
-    if [ "${arm}" = "team_note" ]; then
+    if [ "${arm}" = "team_note" ] || [ "${arm}" = "team_note_hybrid" ]; then
       attempts=0
       readiness_attempts="${PAX_EVAL_READINESS_ATTEMPTS:-480}"
       while [ "${attempts}" -lt "${readiness_attempts}" ]; do
@@ -139,10 +150,14 @@ case "${stage}" in
     ;;
   consumer)
     consumer_recall_enabled=1
+    consumer_recall_mode=passive
     if [ "${arm}" = "control" ]; then
       consumer_recall_enabled=0
     fi
-    run_agent "${PAX_EVAL_CONSUMER_WORKSPACE}" "${consumer_recall_enabled}" 0 "${PAX_EVAL_QUESTION}" 1
+    if [ "${arm}" = "team_note_hybrid" ]; then
+      consumer_recall_mode=hybrid
+    fi
+    run_agent "${PAX_EVAL_CONSUMER_WORKSPACE}" "${consumer_recall_enabled}" 0 "${PAX_EVAL_QUESTION}" 1 "${consumer_recall_mode}"
     ;;
   *)
     echo "unsupported stage: ${stage}" >&2

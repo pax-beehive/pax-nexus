@@ -334,6 +334,33 @@ func (s *ledgerSuite) TestRecallComposesOneHopRelatedFact() {
 	s.NotContains(envelope.Items[0], "related:")
 }
 
+func (s *ledgerSuite) TestSemanticCandidatesPreservePrecisionChecks() {
+	tests := []struct {
+		name  string
+		note  teamnote.Note
+		query string
+		want  bool
+	}{
+		{
+			name: "semantic paraphrase", query: "What is stopping the launch?", want: true,
+			note: teamnote.Note{Subject: "release approval", Body: "Release remains blocked pending legal approval."},
+		},
+		{
+			name: "missing date slot", query: "When is the launch deadline?",
+			note: teamnote.Note{Subject: "launch", Body: "Release remains blocked pending legal approval."},
+		},
+		{
+			name: "exact query requires lexical evidence", query: "What is the exact launch code?",
+			note: teamnote.Note{Subject: "launch", Body: "The launch code is ORBIT-731."},
+		},
+	}
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			s.Equal(test.want, teamnote.QuerySemanticallyRelevant(test.note, test.query))
+		})
+	}
+}
+
 func timePointer(value time.Time) *time.Time {
 	return &value
 }

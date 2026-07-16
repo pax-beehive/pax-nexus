@@ -40,6 +40,33 @@ type RunConfig struct {
 	Parallelism int    `json:"parallelism" yaml:"parallelism"`
 }
 
+func (c Config) WithRunOverrides(runID, manifest, outputDirectory string) Config {
+	if strings.TrimSpace(runID) != "" {
+		c.Run.ID = runID
+	}
+	if strings.TrimSpace(manifest) != "" {
+		c.Run.Manifest = manifest
+	}
+	if strings.TrimSpace(outputDirectory) != "" {
+		c.Run.OutputDir = outputDirectory
+	}
+	return c
+}
+
+func (c Config) WithRuntimeEnvironment(names ...string) Config {
+	seen := make(map[string]struct{}, len(c.RuntimeEnv)+len(names))
+	result := make([]string, 0, len(c.RuntimeEnv)+len(names))
+	for _, name := range append(slices.Clone(c.RuntimeEnv), names...) {
+		if _, exists := seen[name]; exists {
+			continue
+		}
+		seen[name] = struct{}{}
+		result = append(result, name)
+	}
+	c.RuntimeEnv = result
+	return c
+}
+
 type StoreConfig struct {
 	DSNEnv string `json:"dsn_env" yaml:"dsn_env"`
 }

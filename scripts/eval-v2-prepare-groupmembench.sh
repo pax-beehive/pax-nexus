@@ -10,7 +10,15 @@ dataset_dir=".build/datasets/groupmembench/${domain}"
 
 ./scripts/fetch-groupmembench.sh "${domain}"
 revision="$(tr -d '\n' < "${dataset_dir}/REVISION")"
-GOCACHE="${GOCACHE:-/tmp/team-memory-go-cache}" go run ./cmd/groupmembench-select \
+run_selector() {
+  if command -v groupmembench-select >/dev/null 2>&1; then
+    groupmembench-select "$@"
+    return
+  fi
+  GOCACHE="${GOCACHE:-/tmp/team-memory-go-cache}" go run ./cmd/groupmembench-select "$@"
+}
+
+run_selector \
   -conversation "${dataset_dir}/synthetic_domain_channels_rolevariants_${domain}.json" \
   -questions "${dataset_dir}/questions" \
   -output "${output}" \

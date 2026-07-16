@@ -1,10 +1,12 @@
 # Evaluation runbook
 
 Use Eval v2 for current Team Note quality, latency, and cost comparisons. It
-runs the same deterministic GroupMemBench cases through three arms:
+runs the same deterministic GroupMemBench cases through four arms:
 
 - `control`: OpenCode with memory recall and writes disabled
 - `team_note`: OpenCode with the PAX Team Note provider
+- `team_note_hybrid`: the same passive Team Note context plus at most two
+  agent-initiated focused recalls
 - `mem0`: OpenCode with the self-hosted Mem0 provider
 
 Eval v2 persists trial state in PostgreSQL, resumes interrupted runs, and
@@ -58,7 +60,7 @@ prepares deterministic case artifacts.
 ## Run the default acceptance profile
 
 The acceptance profile selects five cases from each of the six GroupMemBench
-categories, for 30 cases and 90 arm trials:
+categories, for 30 cases and 120 arm trials:
 
 ```bash
 make eval-v2-acceptance-up
@@ -185,7 +187,7 @@ selection parameters and regenerate them instead.
 
 ## Outputs
 
-With three arms, an `N`-case run produces `3N` trial records. Files are written
+With four arms, an `N`-case run produces `4N` trial records. Files are written
 under `run.output_dir`:
 
 | File | Contents |

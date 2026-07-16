@@ -178,6 +178,7 @@ run_case() {
 }
 
 run_compose build producer consumer
+./scripts/start-local-embedding.sh -p "${project_name}" -f "${compose_file}"
 run_compose up -d --build postgres team-memory
 
 running=0

@@ -497,6 +497,22 @@ func QueryRelevant(note Note, query string) bool {
 	return slotCompatible(note.Subject+" "+note.Body, query)
 }
 
+// QuerySemanticallyRelevant preserves deterministic precision checks after a
+// semantic retriever has supplied a strong candidate.
+func QuerySemanticallyRelevant(note Note, query string) bool {
+	if strings.TrimSpace(query) == "" {
+		return true
+	}
+	if strings.Contains(strings.ToLower(query), "exact") {
+		return false
+	}
+	queryTerms := searchableTerms(query)
+	if scalarSlotRequested(query) && len(queryTerms) < 2 {
+		return false
+	}
+	return slotCompatible(note.Subject+" "+note.Body, query)
+}
+
 // QueryRelated allows a weaker lexical match only for an explicit one-hop
 // relation while preserving scalar-slot compatibility.
 func QueryRelated(note Note, query string) bool {
