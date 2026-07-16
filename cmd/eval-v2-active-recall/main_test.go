@@ -88,6 +88,7 @@ func (s *activeRecallSuite) TestCallPaxmReportsProtocolAndProcessFailures() {
 		{name: "empty response", script: "#!/bin/sh\nexit 0\n", wantError: "no response"},
 		{name: "invalid JSON", script: "#!/bin/sh\necho not-json\n", wantError: "decode paxm"},
 		{name: "RPC error", script: "#!/bin/sh\necho '{\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"message\":\"provider failed\"}}'\n", wantError: "provider failed"},
+		{name: "MCP tool error", script: "#!/bin/sh\necho '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"isError\":true,\"content\":[{\"type\":\"text\",\"text\":\"recall timed out\"}]}}'\n", wantError: "recall timed out"},
 		{name: "no text", script: "#!/bin/sh\necho '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"content\":[]}}'\n", wantError: "no text content"},
 	}
 	for _, test := range tests {

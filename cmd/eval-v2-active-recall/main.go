@@ -32,6 +32,7 @@ type mcpResponse struct {
 		Message string `json:"message"`
 	} `json:"error,omitempty"`
 	Result struct {
+		IsError bool `json:"isError,omitempty"`
 		Content []struct {
 			Type string `json:"type"`
 			Text string `json:"text"`
@@ -51,7 +52,9 @@ func main() {
 		MaxCalls:   *maxCalls,
 	}
 	if err := run(context.Background(), config, *sessionID, *query, os.Stdout); err != nil {
-		_, _ = fmt.Fprintln(os.Stderr, err)
+		if _, writeErr := fmt.Fprintln(os.Stderr, err); writeErr != nil {
+			os.Exit(1)
+		}
 		os.Exit(1)
 	}
 }
@@ -177,6 +180,13 @@ func callPaxm(ctx context.Context, config runConfig, sessionID, query string, ca
 		if content.Type == "text" && strings.TrimSpace(content.Text) != "" {
 			texts = append(texts, content.Text)
 		}
+	}
+	if response.Result.IsError {
+		message := strings.Join(texts, "\n")
+		if message == "" {
+			message = "unknown MCP tool error"
+		}
+		return "", fmt.Errorf("paxm active recall tool failed: %s", message)
 	}
 	if len(texts) == 0 {
 		return "", errors.New("paxm active recall returned no text content")
