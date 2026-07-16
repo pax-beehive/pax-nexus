@@ -524,7 +524,7 @@ func (s *NoteStore) BackfillEmbeddings(ctx context.Context, batchSize int) (int,
 	if batchSize <= 0 {
 		return 0, fmt.Errorf("backfill note embeddings: positive batch size is required")
 	}
-	targets, err := s.embeddingTargets(ctx, batchSize)
+	targets, err := s.embeddingTargets(ctx, batchSize, s.clock.Now())
 	if err != nil {
 		return 0, err
 	}
@@ -581,17 +581,17 @@ type embeddingTarget struct {
 	teamnote.Note
 }
 
-func (s *NoteStore) embeddingTargets(ctx context.Context, limit int) ([]embeddingTarget, error) {
+func (s *NoteStore) embeddingTargets(ctx context.Context, limit int, now time.Time) ([]embeddingTarget, error) {
 	rows, err := s.store.pool.Query(ctx, `
 SELECT scope_id, note_id, kind, subject, body, current_revision
 FROM team_notes
 WHERE state = 'active'
 	AND invalid_at IS NULL
-	AND soft_expires_at > NOW()
-	AND hard_expires_at > NOW()
+	AND soft_expires_at > $2
+	AND hard_expires_at > $2
   AND (embedding IS NULL OR embedding_revision != current_revision OR embedding_model != $1)
 ORDER BY scope_id, note_id
-LIMIT $2`, s.retrieval.EmbeddingModel, limit)
+LIMIT $3`, s.retrieval.EmbeddingModel, now, limit)
 	if err != nil {
 		return nil, fmt.Errorf("query note embedding backfill: %w", err)
 	}
