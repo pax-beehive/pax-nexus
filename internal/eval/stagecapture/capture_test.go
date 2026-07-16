@@ -72,6 +72,11 @@ func (s *CaptureSuite) TestCaptureExportsAdmittedNotesAndExactRecallEnvelope() {
 	envelope, err := notes.RecallNotes(ctx, scopeID, request)
 	s.Require().NoError(err)
 	s.Require().Len(envelope.Items, 1)
+	secondRequest := request
+	secondRequest.Query = "focused rollback evidence owner"
+	secondEnvelope, err := notes.RecallNotes(ctx, scopeID, secondRequest)
+	s.Require().NoError(err)
+	s.Empty(secondEnvelope.Items)
 
 	observer, err := stagecapture.Open(ctx, s.dsn)
 	s.Require().NoError(err)
@@ -96,6 +101,7 @@ func (s *CaptureSuite) TestCaptureExportsAdmittedNotesAndExactRecallEnvelope() {
 	s.Require().Len(recall.Items, 1)
 	s.Equal(envelope.Items[0], recall.Items[0].Text)
 	s.Equal(extraction.Items[0].ID, recall.Items[0].ID)
+	s.Equal("2", recall.Provenance["recall_count"])
 
 	resolvedEvent := session.SessionEvent{
 		ID: "event-2", Actor: producer, Sequence: 2, Type: "message", Content: "Rollback evidence is no longer current.",

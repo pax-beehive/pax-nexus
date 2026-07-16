@@ -4,9 +4,7 @@ package stagecapture
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -36,6 +34,13 @@ type extractionSnapshot struct {
 	OutputTokens  int64  `json:"output_tokens"`
 	DurationMS    int64  `json:"duration_ms"`
 	Error         string `json:"error,omitempty"`
+}
+
+type persistedRecall struct {
+	Envelope             []byte
+	ExtractionSnapshot   []byte
+	ExtractionProvenance []byte
+	DurationMS           int64
 }
 
 func Open(ctx context.Context, dsn string) (*Observer, error) {
@@ -99,23 +104,30 @@ func (o *Observer) captureExtraction(
 
 func (o *Observer) captureRecall(ctx context.Context, target Target) (stageeval.Observation, extractionSnapshot, error) {
 	context := target.Fixture.RecallContext
-	queryDigest := sha256.Sum256([]byte(context.Query))
-	var encoded, encodedSnapshot, encodedProvenance []byte
-	var durationMS int64
-	err := o.pool.QueryRow(ctx, `
+	rows, err := o.pool.Query(ctx, `
 SELECT envelope, extraction_snapshot, extraction_provenance, duration_ms
 FROM team_note_recall_observations
 WHERE scope_id = $1
   AND recipient_user_id = $2
   AND recipient_agent_id = $3
   AND recipient_session_id = $4
-  AND query_digest = $5
-  AND token_budget = $6
-ORDER BY observation_id DESC
-LIMIT 1`, target.ScopeID, context.ConsumerUserID, target.RecipientAgentID,
-		target.RecipientSessionID, queryDigest[:], context.TokenBudget,
-	).Scan(&encoded, &encodedSnapshot, &encodedProvenance, &durationMS)
-	if errors.Is(err, pgx.ErrNoRows) {
+  AND token_budget = $5
+ORDER BY observation_id`, target.ScopeID, context.ConsumerUserID, target.RecipientAgentID,
+		target.RecipientSessionID, context.TokenBudget,
+	)
+	if err != nil {
+		return stageeval.Observation{}, extractionSnapshot{}, fmt.Errorf("query recall observations: %w", err)
+	}
+	recalls, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (persistedRecall, error) {
+		var recall persistedRecall
+		return recall, row.Scan(
+			&recall.Envelope, &recall.ExtractionSnapshot, &recall.ExtractionProvenance, &recall.DurationMS,
+		)
+	})
+	if err != nil {
+		return stageeval.Observation{}, extractionSnapshot{}, fmt.Errorf("scan recall observations: %w", err)
+	}
+	if len(recalls) == 0 {
 		recallContext := target.Fixture.RecallContext
 		return stageeval.Observation{
 			CaseID: target.Fixture.CaseID, Stage: stageeval.StageRecall,
@@ -127,27 +139,34 @@ LIMIT 1`, target.ScopeID, context.ConsumerUserID, target.RecipientAgentID,
 			},
 		}, extractionSnapshot{}, nil
 	}
-	if err != nil {
-		return stageeval.Observation{}, extractionSnapshot{}, fmt.Errorf("query recall observation: %w", err)
-	}
-	var envelope teamnote.NoteEnvelope
-	if err := json.Unmarshal(encoded, &envelope); err != nil {
-		return stageeval.Observation{}, extractionSnapshot{}, fmt.Errorf("decode recall observation: %w", err)
-	}
 	var snapshot extractionSnapshot
-	if err := json.Unmarshal(encodedSnapshot, &snapshot.Items); err != nil {
+	if err := json.Unmarshal(recalls[0].ExtractionSnapshot, &snapshot.Items); err != nil {
 		return stageeval.Observation{}, extractionSnapshot{}, fmt.Errorf("decode recall extraction snapshot: %w", err)
 	}
-	if err := json.Unmarshal(encodedProvenance, &snapshot); err != nil {
+	if err := json.Unmarshal(recalls[0].ExtractionProvenance, &snapshot); err != nil {
 		return stageeval.Observation{}, extractionSnapshot{}, fmt.Errorf("decode recall extraction provenance: %w", err)
 	}
-	items := make([]stageeval.Item, 0, len(envelope.Details))
-	for _, detail := range envelope.Details {
-		evidence, evidenceErr := o.recallEvidence(ctx, target.ScopeID, detail.NoteID, detail.Revision)
-		if evidenceErr != nil {
-			return stageeval.Observation{}, extractionSnapshot{}, evidenceErr
+	items := make([]stageeval.Item, 0)
+	seen := make(map[string]struct{})
+	var durationMS int64
+	for _, persisted := range recalls {
+		durationMS += persisted.DurationMS
+		var envelope teamnote.NoteEnvelope
+		if err := json.Unmarshal(persisted.Envelope, &envelope); err != nil {
+			return stageeval.Observation{}, extractionSnapshot{}, fmt.Errorf("decode recall observation: %w", err)
 		}
-		items = append(items, stageeval.Item{ID: detail.NoteID, Text: detail.Text, EvidenceEventIDs: evidence})
+		for _, detail := range envelope.Details {
+			key := fmt.Sprintf("%s:%d", detail.NoteID, detail.Revision)
+			if _, exists := seen[key]; exists {
+				continue
+			}
+			evidence, evidenceErr := o.recallEvidence(ctx, target.ScopeID, detail.NoteID, detail.Revision)
+			if evidenceErr != nil {
+				return stageeval.Observation{}, extractionSnapshot{}, evidenceErr
+			}
+			seen[key] = struct{}{}
+			items = append(items, stageeval.Item{ID: detail.NoteID, Text: detail.Text, EvidenceEventIDs: evidence})
+		}
 	}
 	recallContext := target.Fixture.RecallContext
 	return stageeval.Observation{
@@ -157,6 +176,7 @@ LIMIT 1`, target.ScopeID, context.ConsumerUserID, target.RecipientAgentID,
 		Provenance: map[string]string{
 			"scope_id": target.ScopeID, "recipient_agent_id": target.RecipientAgentID,
 			"recipient_session_id": target.RecipientSessionID,
+			"recall_count":         strconv.Itoa(len(recalls)),
 		},
 	}, snapshot, nil
 }
