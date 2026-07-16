@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -26,6 +27,21 @@ type RetrievalConfig struct {
 	EmbeddingModel    string
 	SemanticThreshold float64
 	CandidateLimit    int
+}
+
+type recallSnapshotItem struct {
+	ID               string   `json:"id"`
+	Text             string   `json:"text"`
+	EvidenceEventIDs []string `json:"evidence_event_ids,omitempty"`
+}
+
+type recallExtractionProvenance struct {
+	Model         string `json:"model"`
+	PromptVersion string `json:"prompt_version"`
+	InputTokens   int64  `json:"input_tokens"`
+	OutputTokens  int64  `json:"output_tokens"`
+	DurationMS    int64  `json:"duration_ms"`
+	Error         string `json:"error,omitempty"`
 }
 
 type NoteStore struct {
@@ -170,6 +186,7 @@ func (s *NoteStore) applyRunCandidate(ctx context.Context, tx pgx.Tx, scopeID st
 }
 
 func (s *NoteStore) RecallNotes(ctx context.Context, scopeID string, request teamnote.RecallRequest) (envelope teamnote.NoteEnvelope, returnedErr error) {
+	startedAt := time.Now()
 	if strings.TrimSpace(scopeID) == "" {
 		return teamnote.NoteEnvelope{}, fmt.Errorf("recall postgres notes: scope is required")
 	}
@@ -191,7 +208,8 @@ func (s *NoteStore) RecallNotes(ctx context.Context, scopeID string, request tea
 			returnedErr = errors.Join(returnedErr, fmt.Errorf("rollback recall notes: %w", rollbackErr))
 		}
 	}()
-	eligible, err := recallableNotes(ctx, tx, scopeID, request, s.clock.Now(), queryVector, s.retrieval.EmbeddingModel)
+	observationTime := s.clock.Now()
+	eligible, err := recallableNotes(ctx, tx, scopeID, request, observationTime, queryVector, s.retrieval.EmbeddingModel)
 	if err != nil {
 		return teamnote.NoteEnvelope{}, err
 	}
@@ -209,10 +227,114 @@ func (s *NoteStore) RecallNotes(ctx context.Context, scopeID string, request tea
 		}
 		teamnote.AppendPlannedRecall(&envelope, delivery)
 	}
+	if err := saveRecallObservation(ctx, tx, scopeID, request, envelope, observationTime, time.Since(startedAt)); err != nil {
+		return teamnote.NoteEnvelope{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return teamnote.NoteEnvelope{}, fmt.Errorf("commit note delivery: %w", err)
 	}
 	return envelope, nil
+}
+
+func saveRecallObservation(
+	ctx context.Context,
+	tx pgx.Tx,
+	scopeID string,
+	request teamnote.RecallRequest,
+	envelope teamnote.NoteEnvelope,
+	observationTime time.Time,
+	duration time.Duration,
+) error {
+	encoded, err := json.Marshal(envelope)
+	if err != nil {
+		return fmt.Errorf("encode recall observation: %w", err)
+	}
+	snapshot, err := loadRecallSnapshot(ctx, tx, scopeID, observationTime)
+	if err != nil {
+		return err
+	}
+	encodedSnapshot, err := json.Marshal(snapshot)
+	if err != nil {
+		return fmt.Errorf("encode recall extraction snapshot: %w", err)
+	}
+	provenance, err := loadRecallProvenance(ctx, tx, scopeID, observationTime)
+	if err != nil {
+		return err
+	}
+	encodedProvenance, err := json.Marshal(provenance)
+	if err != nil {
+		return fmt.Errorf("encode recall extraction provenance: %w", err)
+	}
+	queryDigest := sha256.Sum256([]byte(request.Query))
+	if _, err := tx.Exec(ctx, `
+INSERT INTO team_note_recall_observations (
+    scope_id, recipient_user_id, recipient_agent_id, recipient_session_id,
+    task_ref, thread_ref, query_digest, token_budget, max_items,
+    extraction_snapshot, extraction_provenance, envelope, duration_ms, created_at
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11::jsonb, $12::jsonb, $13, $14)`,
+		scopeID, request.Actor.UserID, request.Actor.AgentID, request.Actor.SessionID,
+		request.TaskRef, request.ThreadRef, queryDigest[:], request.TokenBudget, request.MaxItems,
+		string(encodedSnapshot), string(encodedProvenance), string(encoded), duration.Milliseconds(), observationTime,
+	); err != nil {
+		return fmt.Errorf("save recall observation: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM team_note_recall_observations WHERE expires_at <= NOW()`); err != nil {
+		return fmt.Errorf("delete expired recall observations: %w", err)
+	}
+	return nil
+}
+
+func loadRecallProvenance(
+	ctx context.Context,
+	tx pgx.Tx,
+	scopeID string,
+	at time.Time,
+) (recallExtractionProvenance, error) {
+	var provenance recallExtractionProvenance
+	err := tx.QueryRow(ctx, `
+SELECT COALESCE(string_agg(DISTINCT NULLIF(model, ''), ','), ''),
+       COALESCE(string_agg(DISTINCT NULLIF(prompt_version, ''), ','), ''),
+       COALESCE(sum(input_tokens), 0), COALESCE(sum(output_tokens), 0),
+       COALESCE(sum(EXTRACT(EPOCH FROM (completed_at - created_at)) * 1000), 0)::bigint,
+       COALESCE(string_agg(NULLIF(error, ''), '; ' ORDER BY created_at), '')
+FROM extraction_runs
+WHERE scope_id = $1 AND completed_at <= $2`, scopeID, at).Scan(
+		&provenance.Model, &provenance.PromptVersion, &provenance.InputTokens,
+		&provenance.OutputTokens, &provenance.DurationMS, &provenance.Error,
+	)
+	if err != nil {
+		return recallExtractionProvenance{}, fmt.Errorf("query recall extraction provenance: %w", err)
+	}
+	return provenance, nil
+}
+
+func loadRecallSnapshot(ctx context.Context, tx pgx.Tx, scopeID string, at time.Time) ([]recallSnapshotItem, error) {
+	rows, err := tx.Query(ctx, `
+SELECT note_id, body, COALESCE((
+    SELECT array_agg(event_id ORDER BY event_id)
+    FROM note_evidence
+    WHERE scope_id = team_notes.scope_id
+      AND note_id = team_notes.note_id
+      AND revision = team_notes.current_revision
+), '{}')
+FROM team_notes
+WHERE scope_id = $1
+  AND state = 'active'
+  AND invalid_at IS NULL
+  AND soft_expires_at > $2
+  AND hard_expires_at > $2
+ORDER BY note_id`, scopeID, at)
+	if err != nil {
+		return nil, fmt.Errorf("query recall extraction snapshot: %w", err)
+	}
+	items, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (recallSnapshotItem, error) {
+		var item recallSnapshotItem
+		return item, row.Scan(&item.ID, &item.Text, &item.EvidenceEventIDs)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("scan recall extraction snapshot: %w", err)
+	}
+	return items, nil
 }
 
 func ensureExtractionRun(ctx context.Context, tx pgx.Tx, scopeID string, run teamnote.ExtractionRun) (bool, error) {

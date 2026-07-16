@@ -12,9 +12,12 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/pax-beehive/pax-nexus/internal/eval/stagecapture"
+	"github.com/pax-beehive/pax-nexus/internal/eval/stageeval"
 	v2 "github.com/pax-beehive/pax-nexus/internal/eval/v2"
 	"github.com/pax-beehive/pax-nexus/internal/eval/v2/postgresstore"
 	"github.com/pax-beehive/pax-nexus/internal/eval/v2/render"
+	"github.com/pax-beehive/pax-nexus/internal/eval/v2/stageartifacts"
 	"github.com/pax-beehive/pax-nexus/internal/platform/observability"
 )
 
@@ -69,6 +72,7 @@ func run(ctx context.Context, args []string, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	dsn := strings.TrimSpace(os.Getenv(config.Store.DSNEnv))
 	if strings.TrimSpace(*judgeInput) != "" {
 		results, loadErr := v2.LoadTrialResultsJSONL(*judgeInput)
 		if loadErr != nil {
@@ -76,12 +80,11 @@ func run(ctx context.Context, args []string, logger *slog.Logger) error {
 		}
 		runRecord, judged, judgeErr := v2.JudgeExistingRun(ctx, v2.ProcessExecutor{}, logger, config, revision, v2.HydrateResults(results, cases))
 		if judgeErr != nil {
-			exportErr := exportResults(config, runRecord, v2.RescoreResults(judged))
+			exportErr := exportResults(ctx, config, runRecord, cases, v2.RescoreResults(judged), dsn, false)
 			return errors.Join(fmt.Errorf("judge existing eval results: %w", judgeErr), exportErr)
 		}
-		return exportResults(config, runRecord, v2.RescoreResults(judged))
+		return exportResults(ctx, config, runRecord, cases, v2.RescoreResults(judged), dsn, false)
 	}
-	dsn := strings.TrimSpace(os.Getenv(config.Store.DSNEnv))
 	if dsn == "" {
 		return fmt.Errorf("load eval v2 store: environment variable %s is required", config.Store.DSNEnv)
 	}
@@ -102,14 +105,41 @@ func run(ctx context.Context, args []string, logger *slog.Logger) error {
 		if len(results) == 0 {
 			return err
 		}
-		exportErr := exportResults(config, runRecord, v2.RescoreResults(results))
+		exportErr := exportResults(ctx, config, runRecord, cases, v2.RescoreResults(results), dsn, true)
 		return errors.Join(err, exportErr)
 	}
-	return exportResults(config, runRecord, v2.RescoreResults(results))
+	return exportResults(ctx, config, runRecord, cases, v2.RescoreResults(results), dsn, true)
 }
 
-func exportResults(config v2.Config, runRecord v2.RunRecord, results []v2.TrialResult) error {
-	return v2.ExportArtifacts(config.Run.OutputDir, runRecord, config.BaselineArm, config.OutputFormats(), results, func(writer io.Writer) error {
+func exportResults(
+	ctx context.Context,
+	config v2.Config,
+	runRecord v2.RunRecord,
+	cases []v2.Case,
+	results []v2.TrialResult,
+	dsn string,
+	captureStage bool,
+) error {
+	var stageErr error
+	if config.StageCapture != nil && captureStage {
+		fixtures, err := stageeval.LoadFixtureSet(config.StageCapture.Fixtures)
+		if err != nil {
+			stageErr = err
+		} else {
+			observer, openErr := stagecapture.Open(ctx, dsn)
+			if openErr != nil {
+				stageErr = openErr
+			} else {
+				stageErr = stageartifacts.Export(ctx, observer, stageartifacts.Request{
+					RunID: runRecord.ID, OutputDirectory: config.Run.OutputDir,
+					Config: *config.StageCapture, Fixtures: fixtures, Cases: cases, Results: results,
+				})
+				observer.Close()
+			}
+		}
+	}
+	artifactErr := v2.ExportArtifacts(config.Run.OutputDir, runRecord, config.BaselineArm, config.OutputFormats(), results, func(writer io.Writer) error {
 		return render.Report(runRecord, config.BaselineArm, results, writer)
 	})
+	return errors.Join(stageErr, artifactErr)
 }

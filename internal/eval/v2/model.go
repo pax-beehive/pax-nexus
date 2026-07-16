@@ -16,21 +16,22 @@ import (
 const ConfigVersion = "v2"
 
 type Config struct {
-	Version          string       `json:"version" yaml:"version"`
-	Run              RunConfig    `json:"run" yaml:"run"`
-	Store            StoreConfig  `json:"store" yaml:"store"`
-	BaselineArm      string       `json:"baseline_arm" yaml:"baseline_arm"`
-	Arms             []ArmConfig  `json:"arms" yaml:"arms"`
-	RetryFailed      bool         `json:"retry_failed" yaml:"retry_failed"`
-	RetryMaxAttempts int          `json:"retry_max_attempts,omitempty" yaml:"retry_max_attempts,omitempty"`
-	TrialTimeout     string       `json:"trial_timeout" yaml:"trial_timeout"`
-	RuntimeEnv       []string     `json:"runtime_env,omitempty" yaml:"runtime_env,omitempty"`
-	Output           OutputConfig `json:"output,omitempty" yaml:"output,omitempty"`
-	BeforeRun        *CommandSpec `json:"before_run,omitempty" yaml:"before_run,omitempty"`
-	Preflight        *CommandSpec `json:"preflight,omitempty" yaml:"preflight,omitempty"`
-	SharedProducer   *CommandSpec `json:"shared_producer,omitempty" yaml:"shared_producer,omitempty"`
-	Judge            *CommandSpec `json:"judge,omitempty" yaml:"judge,omitempty"`
-	AfterRun         *CommandSpec `json:"after_run,omitempty" yaml:"after_run,omitempty"`
+	Version          string              `json:"version" yaml:"version"`
+	Run              RunConfig           `json:"run" yaml:"run"`
+	Store            StoreConfig         `json:"store" yaml:"store"`
+	BaselineArm      string              `json:"baseline_arm" yaml:"baseline_arm"`
+	Arms             []ArmConfig         `json:"arms" yaml:"arms"`
+	RetryFailed      bool                `json:"retry_failed" yaml:"retry_failed"`
+	RetryMaxAttempts int                 `json:"retry_max_attempts,omitempty" yaml:"retry_max_attempts,omitempty"`
+	TrialTimeout     string              `json:"trial_timeout" yaml:"trial_timeout"`
+	RuntimeEnv       []string            `json:"runtime_env,omitempty" yaml:"runtime_env,omitempty"`
+	Output           OutputConfig        `json:"output,omitempty" yaml:"output,omitempty"`
+	StageCapture     *StageCaptureConfig `json:"stage_capture,omitempty" yaml:"stage_capture,omitempty"`
+	BeforeRun        *CommandSpec        `json:"before_run,omitempty" yaml:"before_run,omitempty"`
+	Preflight        *CommandSpec        `json:"preflight,omitempty" yaml:"preflight,omitempty"`
+	SharedProducer   *CommandSpec        `json:"shared_producer,omitempty" yaml:"shared_producer,omitempty"`
+	Judge            *CommandSpec        `json:"judge,omitempty" yaml:"judge,omitempty"`
+	AfterRun         *CommandSpec        `json:"after_run,omitempty" yaml:"after_run,omitempty"`
 }
 
 type RunConfig struct {
@@ -74,6 +75,11 @@ type StoreConfig struct {
 
 type OutputConfig struct {
 	Formats []string `json:"formats,omitempty" yaml:"formats,omitempty"`
+}
+
+type StageCaptureConfig struct {
+	Fixtures string   `json:"fixtures" yaml:"fixtures"`
+	Arms     []string `json:"arms" yaml:"arms"`
 }
 
 type ArmConfig struct {
@@ -256,6 +262,32 @@ func validateArms(config Config) error {
 	}
 	if _, exists := names[config.BaselineArm]; !exists {
 		return fmt.Errorf("validate eval config: baseline arm %q is not configured", config.BaselineArm)
+	}
+	if err := validateStageCapture(config.StageCapture, names); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateStageCapture(config *StageCaptureConfig, arms map[string]struct{}) error {
+	if config == nil {
+		return nil
+	}
+	if strings.TrimSpace(config.Fixtures) == "" || len(config.Arms) == 0 {
+		return fmt.Errorf("validate eval config: stage_capture fixtures and arms are required")
+	}
+	seen := make(map[string]struct{}, len(config.Arms))
+	for _, arm := range config.Arms {
+		if _, exists := arms[arm]; !exists {
+			return fmt.Errorf("validate eval config: stage_capture arm %q is not configured", arm)
+		}
+		if arm != "team_note" && arm != "team_note_hybrid" {
+			return fmt.Errorf("validate eval config: stage_capture arm %q is not a Team Note arm", arm)
+		}
+		if _, exists := seen[arm]; exists {
+			return fmt.Errorf("validate eval config: duplicate stage_capture arm %q", arm)
+		}
+		seen[arm] = struct{}{}
 	}
 	return nil
 }

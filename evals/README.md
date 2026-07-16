@@ -197,10 +197,11 @@ under `run.output_dir`:
 | `summary.csv` | Overall and per-category aggregates for every arm |
 | `pairwise.csv` | Team Note and Mem0 wins, losses, ties, F1 delta, lifts, and incremental cost versus control |
 | `artifacts.json` | Schema version, revision, config hash, runtime provenance, artifact paths, and cost summary |
+| `stage/artifacts.json` | Optional live Team Note extraction/recall Observations and stage scores |
 | `report.html` | Self-contained overall, category, and case-by-arm comparison report |
 | `trials/<case>/<arm>/` | Raw command stdout and stderr for ingest, readiness, and consumer stages |
 
-The stable artifact schema is `pax-eval-v2.6`. Current cost fields use the
+The stable artifact schema is `pax-eval-v2.8`. Current cost fields use the
 `opencode_reported` scope: they include reported OpenCode calls but not Team
 Note extraction/embedding or Mem0 internal model/embedding billing. Treat them
 as arm-level subtotals, not the complete provider bill.

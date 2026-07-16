@@ -106,6 +106,15 @@ results cannot collide.
 The supplied templates use matching run IDs and manifest paths. Change the run
 ID in `.env.eval-v2` and `config.local.yaml`, plus `run.output_dir`, together
 when starting a new named run.
+
+The acceptance template also enables live stage capture for the first ten
+annotated Finance cases. `stage_capture.fixtures` selects the annotation set;
+`stage_capture.arms` selects Team Note arms whose completed consumer sessions
+must be exported. Smoke does not enable this ten-case fixture because its
+three-case manifest is a different subset.
+Stage files are built in a temporary directory and replace the prior complete
+set only after every configured arm is ready. Judge-only export reuses the
+existing stage artifacts rather than recapturing mutable live state.
 Set a unique `run.id`, and make `run.manifest` point at the generated manifest.
 The run ID is durable: rerunning the same config resumes completed work, while
 reusing the ID with a changed config is rejected.
@@ -186,11 +195,13 @@ trials. Every completed run can export:
   lift, safe-success lift, and incremental cost over paired completed trials
 - `artifacts.json`: schema version, dataset revision, config hash, and artifact
   paths, plus the non-secret runtime versions named by `runtime_env`
+- `stage/artifacts.json`: when `stage_capture` is configured, per-arm live
+  extraction/recall Observations, stage results, and summaries
 - `report.html`: a self-contained comparison report with overall and
   per-category token-F1 summaries, representative field notes, and an
   expandable breakdown of every case and every arm
 
-The stable artifact schema is `pax-eval-v2.6`. `report.html` covers the common
+The stable artifact schema is `pax-eval-v2.8`. `report.html` covers the common
 comparison views; raw CSV/JSONL files remain available for other analysis.
 
 ## Automated workstation job

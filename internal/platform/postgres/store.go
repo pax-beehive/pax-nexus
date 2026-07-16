@@ -13,7 +13,7 @@ import (
 	"github.com/pax-beehive/pax-nexus/internal/session"
 )
 
-//go:embed migrations/001_init.sql migrations/002_temporal_notes.sql migrations/003_note_relations.sql migrations/004_extraction_latency.sql migrations/005_note_embeddings.sql migrations/006_note_identity.sql migrations/007_extraction_run_actor.sql migrations/008_extraction_run_candidates.sql migrations/009_extraction_run_result.sql migrations/010_note_identity_ref.sql
+//go:embed migrations/001_init.sql migrations/002_temporal_notes.sql migrations/003_note_relations.sql migrations/004_extraction_latency.sql migrations/005_note_embeddings.sql migrations/006_note_identity.sql migrations/007_extraction_run_actor.sql migrations/008_extraction_run_candidates.sql migrations/009_extraction_run_result.sql migrations/010_note_identity_ref.sql migrations/011_recall_observations.sql
 var migrations embed.FS
 
 var ErrInvalidSessionBatch = errors.New("invalid session batch")
@@ -73,6 +73,7 @@ func (s *Store) Migrate(ctx context.Context) error {
 		"migrations/008_extraction_run_candidates.sql",
 		"migrations/009_extraction_run_result.sql",
 		"migrations/010_note_identity_ref.sql",
+		"migrations/011_recall_observations.sql",
 	} {
 		migration, err := migrations.ReadFile(path)
 		if err != nil {

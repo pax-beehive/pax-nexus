@@ -27,10 +27,8 @@ Every recalled item ID must exist in the paired extraction Observation.
 ## Run
 
 The tracked ten-case GroupMemBench annotation is an initial development subset,
-not a published benchmark. This command is currently a deterministic scorer and
-artifact contract; capture from a live Team Note run remains an adapter concern.
-`observations.empty.jsonl` verifies the scorer and provides a copyable template;
-its zero scores are not a product result.
+not a published benchmark. `observations.empty.jsonl` verifies the scorer and
+provides a copyable template; its zero scores are not a product result.
 
 ```bash
 go run ./cmd/team-memory-stage-eval \
@@ -59,3 +57,26 @@ and product revisions for real captures.
 
 Evidence and leakage checks are deterministic. An LLM judge remains an outer
 acceptance measure for final answers, not the optimizer for these stage loops.
+
+## Live Eval v2 capture
+
+The acceptance config enables `stage_capture` for `team_note` and
+`team_note_hybrid`. Successful Team Note recalls, including zero-hit recalls,
+persist request controls by query digest and the exact returned envelope in
+PostgreSQL for seven days. The same transaction records the current active
+Note/evidence extraction snapshot, so later TTL or resolution changes cannot
+move the stage boundary. After trials finish, Eval v2 verifies each source
+SHA-256, reads the paired snapshot and recall, and writes per-arm artifacts under:
+
+```text
+<output_dir>/stage/<arm>/observations.jsonl
+<output_dir>/stage/<arm>/stage-results.jsonl
+<output_dir>/stage/<arm>/stage-summary.json
+```
+
+`<output_dir>/stage/artifacts.json` indexes those files, and the main Eval v2
+artifact manifest links it. Capture validates fixture user and query against
+the eval manifest, then matches the successful recall by user, agent, session,
+query digest, and token budget. If a trial/session or successful matching recall
+is absent, the adapter emits an unscored Observation error; it is counted
+separately instead of being fabricated as a zero-quality recall.

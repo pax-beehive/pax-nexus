@@ -46,6 +46,18 @@ func (s *modelSuite) TestValidationMatrix() {
 		{name: "invalid runtime", mutate: func(config *Config) { config.RuntimeEnv = []string{"BAD NAME"} }},
 		{name: "output format", mutate: func(config *Config) { config.Output.Formats = []string{"xml"} }},
 		{name: "duplicate output", mutate: func(config *Config) { config.Output.Formats = []string{"csv", "csv"} }},
+		{name: "stage fixtures", mutate: func(config *Config) { config.StageCapture = &StageCaptureConfig{Arms: []string{"memory"}} }},
+		{name: "stage arms", mutate: func(config *Config) { config.StageCapture = &StageCaptureConfig{Fixtures: "fixtures.json"} }},
+		{name: "unknown stage arm", mutate: func(config *Config) {
+			config.StageCapture = &StageCaptureConfig{Fixtures: "fixtures.json", Arms: []string{"missing"}}
+		}},
+		{name: "non-Team Note stage arm", mutate: func(config *Config) {
+			config.StageCapture = &StageCaptureConfig{Fixtures: "fixtures.json", Arms: []string{"memory"}}
+		}},
+		{name: "duplicate stage arm", mutate: func(config *Config) {
+			config.Arms[1].Name = "team_note"
+			config.StageCapture = &StageCaptureConfig{Fixtures: "fixtures.json", Arms: []string{"team_note", "team_note"}}
+		}},
 		{name: "unbounded failed retry", mutate: func(config *Config) { config.RetryFailed = true }},
 		{name: "shared producer without ingest", mutate: func(config *Config) {
 			config.SharedProducer = &CommandSpec{Program: "producer", SuccessMarker: "marker"}
@@ -87,6 +99,11 @@ func (s *modelSuite) TestValidationMatrix() {
 	boundedRetry.RetryMaxAttempts = 2
 	s.Require().NoError(boundedRetry.Validate())
 	s.Equal(2, boundedRetry.MaxAttempts())
+	withStageCapture := valid
+	withStageCapture.Arms = append([]ArmConfig(nil), valid.Arms...)
+	withStageCapture.Arms[1].Name = "team_note"
+	withStageCapture.StageCapture = &StageCaptureConfig{Fixtures: "fixtures.json", Arms: []string{"team_note"}}
+	s.Require().NoError(withStageCapture.Validate())
 	valid.Output.Formats = []string{"csv"}
 	s.Equal([]string{"csv"}, valid.OutputFormats())
 	valid.RuntimeEnv = []string{"MODEL"}

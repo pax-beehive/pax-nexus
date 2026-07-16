@@ -37,6 +37,8 @@ Observation. It separates delivery loss from upstream extraction loss.
 - A **Run** persists the full Case-by-Arm Trial matrix before execution.
 - A **Stage Fixture** may produce paired extraction and recall **Observations**.
 - Evaluation may call Team Note or LLM Wiki through their public seams.
+- A storage-specific capture adapter may read evaluation Observations after a
+  Run; the stage scorer remains independent of product storage.
 
 ## V2 artifact boundary
 

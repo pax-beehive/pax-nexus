@@ -6,7 +6,7 @@
       "case_id": "multi_hop_13",
       "category": "multi_hop",
       "source_revision": "6c79b2531a762ed4fa50dd359ed3e363f63c3c4c640a5151a4174577d9dbc596",
-      "recall_context": {"consumer_user_id":"User_3","query":"Who is expected to own the rollback evidence pack if the July 26 milestone slips?","token_budget":512},
+      "recall_context": {"consumer_user_id":"User_3","consumer_agent_id":"groupmembench-User_3","query":"Who is expected to own the rollback evidence pack if the July 26 milestone slips?","token_budget":500},
       "required_atoms": [
         {
           "id": "rollback_evidence_owner",
@@ -19,7 +19,7 @@
       "case_id": "multi_hop_15",
       "category": "multi_hop",
       "source_revision": "314726aa30a36c25b79137ef0649825a6800c6919e7832c3ac47dd303b0c2cc2",
-      "recall_context": {"consumer_user_id":"User_2","query":"What additional requirements were identified to avoid audit replay issues during the integration testing cycle revision?","token_budget":512},
+      "recall_context": {"consumer_user_id":"User_2","consumer_agent_id":"groupmembench-User_2","query":"What additional requirements were identified to avoid audit replay issues during the integration testing cycle revision?","token_budget":500},
       "required_atoms": [
         {
           "id": "rerun_slot",
@@ -37,7 +37,7 @@
       "case_id": "multi_hop_39",
       "category": "multi_hop",
       "source_revision": "061b0c7f7aa8ce7d484786a54f823e15731d0a913289a32e7419e5f26b1d4bc5",
-      "recall_context": {"consumer_user_id":"User_1","query":"What are the two remaining blockers for marking the ESG Policy Requirements baseline as completed?","token_budget":512},
+      "recall_context": {"consumer_user_id":"User_1","consumer_agent_id":"groupmembench-User_1","query":"What are the two remaining blockers for marking the ESG Policy Requirements baseline as completed?","token_budget":500},
       "required_atoms": [
         {
           "id": "control_ownership",
@@ -55,7 +55,7 @@
       "case_id": "multi_hop_20",
       "category": "multi_hop",
       "source_revision": "90e653149be3f3044c844951387d70d4d83338c62943518f070c3d6a0bed82f8",
-      "recall_context": {"consumer_user_id":"User_9","query":"What are the three key controls identified in FRA for stabilizing reconciliation?","token_budget":512},
+      "recall_context": {"consumer_user_id":"User_9","consumer_agent_id":"groupmembench-User_9","query":"What are the three key controls identified in FRA for stabilizing reconciliation?","token_budget":500},
       "required_atoms": [
         {"id": "endpoint", "patterns": ["(?i)endpoint"]},
         {"id": "cadence", "patterns": ["(?i)cadence"]},
@@ -66,7 +66,7 @@
       "case_id": "multi_hop_45",
       "category": "multi_hop",
       "source_revision": "a0d9b5a16184d7424a65e3f699499e94096589427aa06246585f0f7868b78b66",
-      "recall_context": {"consumer_user_id":"User_6","query":"By what date does the data engineering team need to confirm any unstable fields for the Model Feature Engineering phase?","token_budget":512},
+      "recall_context": {"consumer_user_id":"User_6","consumer_agent_id":"groupmembench-User_6","query":"By what date does the data engineering team need to confirm any unstable fields for the Model Feature Engineering phase?","token_budget":500},
       "required_atoms": [
         {
           "id": "unstable_field_confirmation_date",
@@ -79,7 +79,7 @@
       "case_id": "knowledge_update_23",
       "category": "knowledge_update",
       "source_revision": "1c97ba9efb275fd0e4793664b0252cc71a2507e2fe2d6472652171f4588eb2a7",
-      "recall_context": {"consumer_user_id":"User_11","query":"What is the current approach for handling the consent timestamp and audit-trail fields in the requirements?","token_budget":512},
+      "recall_context": {"consumer_user_id":"User_11","consumer_agent_id":"groupmembench-User_11","query":"What is the current approach for handling the consent timestamp and audit-trail fields in the requirements?","token_budget":500},
       "required_atoms": [
         {
           "id": "update_baseline_now",
@@ -101,7 +101,7 @@
       "case_id": "knowledge_update_8",
       "category": "knowledge_update",
       "source_revision": "899c0bff61f439d9236c09830dd0d0879fc52fa2a7d3818fc239a4ef81b27625",
-      "recall_context": {"consumer_user_id":"User_2","query":"What approach is the team using to address high verification drop-off in the pilot launch?","token_budget":512},
+      "recall_context": {"consumer_user_id":"User_2","consumer_agent_id":"groupmembench-User_2","query":"What approach is the team using to address high verification drop-off in the pilot launch?","token_budget":500},
       "required_atoms": [
         {"id": "instrument_funnel", "patterns": ["(?i)(instrument|measure).{0,80}(upload|verification).{0,30}(review|funnel)"]},
         {"id": "timestamps_and_retries", "patterns": ["(?i)(step )?timestamp.{0,80}retr(y|ies)|retr(y|ies).{0,80}(step )?timestamp"]},
@@ -116,7 +116,7 @@
       "case_id": "knowledge_update_5",
       "category": "knowledge_update",
       "source_revision": "d15c4a86401acce638cb78c81a0d4d68e09a44ac1afec542ec06fa007b498f1e",
-      "recall_context": {"consumer_user_id":"User_13","query":"What is the team currently doing for the flagged bucket in the SAR reporting process?","token_budget":512},
+      "recall_context": {"consumer_user_id":"User_13","consumer_agent_id":"groupmembench-User_13","query":"What is the team currently doing for the flagged bucket in the SAR reporting process?","token_budget":500},
       "required_atoms": [
         {
           "id": "pause_bucket_scenarios",
@@ -137,7 +137,7 @@
       "case_id": "knowledge_update_27",
       "category": "knowledge_update",
       "source_revision": "7cfaaa610467ac01f3973fa3bceee8905581fc260cb7f8f9d47230a980d5ab68",
-      "recall_context": {"consumer_user_id":"User_6","query":"What is the team’s current approach for reviewing channel inconsistencies in the customer journey?","token_budget":512},
+      "recall_context": {"consumer_user_id":"User_6","consumer_agent_id":"groupmembench-User_6","query":"What is the team’s current approach for reviewing channel inconsistencies in the customer journey?","token_budget":500},
       "required_atoms": [
         {
           "id": "include_assisted_first_pass",
@@ -155,7 +155,7 @@
       "case_id": "knowledge_update_24",
       "category": "knowledge_update",
       "source_revision": "ff4dc7b79d04e333cecf593f9c96e43ca5c5a42db0d7b98a3fb9e5fced6d7dae",
-      "recall_context": {"consumer_user_id":"User_12","query":"What approach is the team using for regulatory requirements assessment?","token_budget":512},
+      "recall_context": {"consumer_user_id":"User_12","consumer_agent_id":"groupmembench-User_12","query":"What approach is the team using for regulatory requirements assessment?","token_budget":500},
       "required_atoms": [
         {"id": "two_track_intake", "patterns": ["(?i)two[- ]track intake"]},
         {"id": "legal_minimal_disposition", "patterns": ["(?i)legal.{0,80}minimal disposition"]},

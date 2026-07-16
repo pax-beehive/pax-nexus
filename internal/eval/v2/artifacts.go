@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-const ArtifactSchemaVersion = "pax-eval-v2.7"
+const ArtifactSchemaVersion = "pax-eval-v2.8"
 
 type SummaryRow struct {
 	DimensionType     string
@@ -157,6 +157,13 @@ func ExportArtifacts(directory string, run RunRecord, baselineArm string, format
 		return err
 	}
 	files["resolved_config"] = "config.resolved.json"
+	if run.Config.StageCapture != nil {
+		if _, err := os.Stat(filepath.Join(directory, "stage", "artifacts.json")); err == nil {
+			files["stage"] = filepath.Join("stage", "artifacts.json")
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("inspect stage artifact manifest: %w", err)
+		}
+	}
 	manifest := map[string]any{
 		"schema_version": ArtifactSchemaVersion,
 		"run_id":         run.ID, "dataset": run.Dataset, "dataset_revision": run.DatasetRevision,

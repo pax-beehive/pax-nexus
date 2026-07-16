@@ -4,6 +4,12 @@ The Team Note context owns short-lived, evidence-backed collaboration state for 
 
 ## Language
 
+**Recall Observation**:
+A seven-day record of one successful recall's request controls (with the query
+stored as a digest), current extraction snapshot, and exact delivered envelope,
+including a zero-hit response. It supports diagnostics and evaluation without
+changing recall decisions.
+
 **Candidate**:
 A model-proposed collaboration fact grounded in one or more Session Events.
 

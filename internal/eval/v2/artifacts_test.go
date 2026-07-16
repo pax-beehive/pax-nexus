@@ -81,7 +81,7 @@ func (s *artifactSuite) TestSummaryPairwiseAndExport() {
 		Files         map[string]string `json:"files"`
 	}
 	s.Require().NoError(json.Unmarshal(manifestInput, &manifest))
-	s.Equal("pax-eval-v2.7", manifest.SchemaVersion)
+	s.Equal("pax-eval-v2.8", manifest.SchemaVersion)
 	s.Equal("report.html", manifest.Files["report"])
 	s.Equal("config.resolved.json", manifest.Files["resolved_config"])
 	s.InDelta(0.06, manifest.CostSummary.TotalCost, 0.000001)
@@ -117,6 +117,23 @@ func (s *artifactSuite) TestExportRejectsEmptyResults() {
 			s.Require().Error(ExportArtifacts(s.T().TempDir(), RunRecord{}, "control", test.formats, test.results, test.renderer))
 		})
 	}
+}
+
+func (s *artifactSuite) TestExportLinksCompletedStageArtifacts() {
+	directory := s.T().TempDir()
+	s.Require().NoError(os.MkdirAll(filepath.Join(directory, "stage"), 0o755))
+	s.Require().NoError(os.WriteFile(filepath.Join(directory, "stage", "artifacts.json"), []byte("{}\n"), 0o600))
+	result := []TrialResult{trial("case", "category", "control", "completed", 1, true, 1)}
+
+	run := RunRecord{Config: Config{StageCapture: &StageCaptureConfig{Fixtures: "fixtures.json", Arms: []string{"memory"}}}}
+	s.Require().NoError(ExportArtifacts(directory, run, "control", []string{"jsonl"}, result, nil))
+	encoded, err := os.ReadFile(filepath.Join(directory, "artifacts.json"))
+	s.Require().NoError(err)
+	var manifest struct {
+		Files map[string]string `json:"files"`
+	}
+	s.Require().NoError(json.Unmarshal(encoded, &manifest))
+	s.Equal(filepath.Join("stage", "artifacts.json"), manifest.Files["stage"])
 }
 
 func (s *artifactSuite) TestLoadsTrialResultsJSONLines() {

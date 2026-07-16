@@ -634,6 +634,13 @@ Every evaluated case should retain four inspectable artifacts:
    error state;
 4. consumer answer and deterministic or blind-judge result.
 
+The PostgreSQL adapter persists each successful recall's request controls by
+query digest and its exact envelope in the same transaction as delivery claims,
+including zero-hit responses. That transaction also freezes the current active
+Note/evidence extraction snapshot. These traces expire after seven days. Eval v2
+joins the paired snapshots only after
+validating the source Event artifact revision and manifest recall controls.
+
 Recall reports two denominators:
 
 ```text
