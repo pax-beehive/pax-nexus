@@ -276,9 +276,6 @@ func Pairwise(results []TrialResult, baselineArm string) []PairwiseRow {
 	byCase := make(map[string]map[string]TrialResult)
 	categories := make(map[string]struct{})
 	for _, result := range results {
-		if result.Status != "completed" {
-			continue
-		}
 		byCase[result.CaseID] = ensureArmMap(byCase[result.CaseID])
 		byCase[result.CaseID][result.Arm] = result
 		categories[result.Category] = struct{}{}
@@ -325,8 +322,10 @@ func summarizeGroup(dimensionType, dimensionValue, arm string, results []TrialRe
 		row.MeanCompletedCost /= float64(row.Completed)
 		row.MeanDurationMS /= float64(row.Completed)
 	}
+	if row.Trials > 0 {
+		row.Accuracy = float64(row.Correct) / float64(row.Trials)
+	}
 	if row.Judged > 0 {
-		row.Accuracy = float64(row.Correct) / float64(row.Judged)
 		row.MeanJudgeCost = row.TotalJudgeCost / float64(row.Judged)
 	}
 	return row
@@ -340,20 +339,9 @@ func compareArm(byCase map[string]map[string]TrialResult, category, baselineArm,
 		if !baselineOK || !candidateOK || (category != "all" && candidate.Category != category) {
 			continue
 		}
-		delta := candidate.TokenF1 - baseline.TokenF1
-		costDelta := candidate.Cost - baseline.Cost
-		row.Pairs++
-		row.MeanTokenF1 += candidate.TokenF1
-		row.MeanDeltaF1 += delta
-		row.BaselineMeanCost += baseline.Cost
-		row.CandidateMeanCost += candidate.Cost
-		row.MeanDeltaCost += costDelta
-		row.PairedCompletedIncrementalCost += costDelta
-		row.ExactLift += boolInt(candidate.Exact) - boolInt(baseline.Exact)
-		row.SafeSuccessLift += boolInt(candidate.SafeSuccess) - boolInt(baseline.SafeSuccess)
-		if baseline.Judged && candidate.Judged {
-			baselineCorrect := boolInt(baseline.Correct)
-			candidateCorrect := boolInt(candidate.Correct)
+		if accuracyResultReady(baseline) && accuracyResultReady(candidate) {
+			baselineCorrect := boolInt(baseline.Status == "completed" && baseline.Correct)
+			candidateCorrect := boolInt(candidate.Status == "completed" && candidate.Correct)
 			row.AccuracyPairs++
 			row.CandidateAccuracy += float64(candidateCorrect)
 			row.AccuracyDelta += float64(candidateCorrect - baselineCorrect)
@@ -366,6 +354,20 @@ func compareArm(byCase map[string]map[string]TrialResult, category, baselineArm,
 				row.AccuracyTies++
 			}
 		}
+		if baseline.Status != "completed" || candidate.Status != "completed" {
+			continue
+		}
+		delta := candidate.TokenF1 - baseline.TokenF1
+		costDelta := candidate.Cost - baseline.Cost
+		row.Pairs++
+		row.MeanTokenF1 += candidate.TokenF1
+		row.MeanDeltaF1 += delta
+		row.BaselineMeanCost += baseline.Cost
+		row.CandidateMeanCost += candidate.Cost
+		row.MeanDeltaCost += costDelta
+		row.PairedCompletedIncrementalCost += costDelta
+		row.ExactLift += boolInt(candidate.Exact) - boolInt(baseline.Exact)
+		row.SafeSuccessLift += boolInt(candidate.SafeSuccess) - boolInt(baseline.SafeSuccess)
 		switch {
 		case delta > 0:
 			row.Wins++
@@ -387,6 +389,10 @@ func compareArm(byCase map[string]map[string]TrialResult, category, baselineArm,
 		row.AccuracyDelta /= float64(row.AccuracyPairs)
 	}
 	return row
+}
+
+func accuracyResultReady(result TrialResult) bool {
+	return result.Status == "failed" || (result.Status == "completed" && result.Judged)
 }
 
 func uniqueArms(results []TrialResult, baseline string) []string {
