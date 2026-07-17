@@ -49,3 +49,10 @@ retrieval limit and score semantics, observed accuracy, published comparison
 targets, and known protocol deviations. The current runner rejects stronger
 reproduction labels until an official Mem0 runner and pinned artifacts are
 available.
+
+Eval v3 is the outer architecture comparison, not the recall-policy tuning
+loop. Before using it to validate a recall change, first improve the fixed
+recall replay and inspect its stage metrics. Gold-source, delivered-evidence,
+leakage, storage-size, and split recall-latency metrics still require the
+separate reviewed-evidence/stage pipeline before the ADR's product-use
+acceptance gate is complete.

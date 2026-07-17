@@ -1,6 +1,6 @@
 # Multi-Agent GroupMemBench Eval v3
 
-Status: Accepted and implemented
+Status: Accepted; protocol runner implemented, product-use acceptance pending
 
 Date: 2026-07-16
 

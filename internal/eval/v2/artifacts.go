@@ -338,10 +338,7 @@ func exportCSVArtifacts(directory, version, baselineArm string, results []TrialR
 	if err := writeSummaryCSV(filepath.Join(directory, "summary.csv"), Summarize(results)); err != nil {
 		return err
 	}
-	comparisons := Pairwise(results, baselineArm)
-	if version == "v3" {
-		comparisons = append(comparisons, pairwiseForCandidates(results, "groupmembench_mem0", []string{"private_sqlite_plus_team_note"})...)
-	}
+	comparisons := PairwiseComparisons(results, version, baselineArm)
 	if err := writePairwiseCSV(filepath.Join(directory, "pairwise.csv"), comparisons); err != nil {
 		return err
 	}
@@ -380,6 +377,16 @@ func Summarize(results []TrialResult) []SummaryRow {
 
 func Pairwise(results []TrialResult, baselineArm string) []PairwiseRow {
 	return pairwiseForCandidates(results, baselineArm, uniqueArms(results, baselineArm))
+}
+
+// PairwiseComparisons adds protocol-specific paired comparisons to the common
+// baseline rows used by CSV and HTML reports.
+func PairwiseComparisons(results []TrialResult, version, baselineArm string) []PairwiseRow {
+	comparisons := Pairwise(results, baselineArm)
+	if version == "v3" {
+		comparisons = append(comparisons, pairwiseForCandidates(results, "groupmembench_mem0", []string{"private_sqlite_plus_team_note"})...)
+	}
+	return comparisons
 }
 
 func pairwiseForCandidates(results []TrialResult, baselineArm string, arms []string) []PairwiseRow {

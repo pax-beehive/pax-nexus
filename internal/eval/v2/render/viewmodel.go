@@ -65,6 +65,7 @@ type memoryIngestStat struct {
 }
 
 type pairwiseSummary struct {
+	BaselineArm          string
 	CandidateArm         string
 	SeriesClass          string
 	RecordDisplay        string
@@ -135,9 +136,10 @@ type caseAnswer struct {
 func buildReportData(run v2.RunRecord, baselineArm string, results []v2.TrialResult) reportData {
 	arms := armOrder(run.Config.Arms, results, baselineArm)
 	summaries := v2.Summarize(results)
-	pairwise := v2.Pairwise(results, baselineArm)
+	baselinePairwise := v2.Pairwise(results, baselineArm)
+	pairwise := v2.PairwiseComparisons(results, run.Config.Version, baselineArm)
 	stats := buildArmStats(arms, baselineArm, summaries)
-	candidate := leadingCandidate(pairwise, arms, baselineArm)
+	candidate := leadingCandidate(baselinePairwise, arms, baselineArm)
 	failed, caseCount := resultCounts(results)
 	costs := v2.CostTotals(results)
 	fieldNotes := selectFieldNotes(results, stats, baselineArm, candidate)
@@ -146,7 +148,7 @@ func buildReportData(run v2.RunRecord, baselineArm string, results []v2.TrialRes
 		GeneratedAt: time.Now().UTC().Format("2006-01-02 15:04 UTC"),
 		TotalTrials: len(results), FailedTrials: failed, CaseCount: caseCount, CostScope: costs.Scope,
 		Runtime: runtimeValues(run.Runtime), Arms: stats, MemoryIngest: buildMemoryIngest(stats, results), BaselineArm: baselineArm, CandidateArm: candidate,
-		Pairwise: buildPairwise(stats, pairwise), Categories: buildCategories(stats, candidate, summaries, pairwise),
+		Pairwise: buildPairwise(stats, pairwise), Categories: buildCategories(stats, candidate, summaries, baselinePairwise),
 		AccuracyChart:   buildChart(stats, summaries, func(row v2.SummaryRow) float64 { return row.Accuracy }, func(value float64) string { return fmt.Sprintf("%.1f%%", value*100) }),
 		QualityChart:    buildChart(stats, summaries, func(row v2.SummaryRow) float64 { return row.MeanTokenF1 }, func(value float64) string { return fmt.Sprintf("%.3f", value) }),
 		CostChart:       buildChart(stats, summaries, func(row v2.SummaryRow) float64 { return row.MeanCompletedCost }, func(value float64) string { return fmt.Sprintf("$%.5f", value) }),
@@ -306,23 +308,21 @@ func leadingCandidate(rows []v2.PairwiseRow, arms []string, baselineArm string) 
 }
 
 func buildPairwise(arms []armStat, rows []v2.PairwiseRow) []pairwiseSummary {
-	overall := make(map[string]v2.PairwiseRow)
-	for _, row := range rows {
-		if row.Category == "all" {
-			overall[row.CandidateArm] = row
-		}
-	}
-	result := make([]pairwiseSummary, 0, max(0, len(arms)-1))
+	armByName := make(map[string]armStat, len(arms))
 	for _, arm := range arms {
-		if arm.IsBaseline {
+		armByName[arm.Name] = arm
+	}
+	result := make([]pairwiseSummary, 0, len(arms))
+	for _, row := range rows {
+		if row.Category != "all" {
 			continue
 		}
-		row, ok := overall[arm.Name]
+		arm, ok := armByName[row.CandidateArm]
 		if !ok {
 			continue
 		}
 		result = append(result, pairwiseSummary{
-			CandidateArm: arm.Name, SeriesClass: arm.SeriesClass,
+			BaselineArm: row.BaselineArm, CandidateArm: arm.Name, SeriesClass: arm.SeriesClass,
 			RecordDisplay:        fmt.Sprintf("%d W / %d L / %d T", row.AccuracyWins, row.AccuracyLosses, row.AccuracyTies),
 			DeltaAccuracyDisplay: fmt.Sprintf("%+.1f pp", row.AccuracyDelta*100),
 			DeltaF1Display:       fmt.Sprintf("%+.3f", row.MeanDeltaF1), CostDisplay: formatSignedCost(row.MeanDeltaCost),

@@ -36,6 +36,31 @@ func (s *renderSuite) TestReportUsesConfigArmOrderAndIncludesEveryCase() {
 	s.NotContains(html, "ZgotmplZ")
 }
 
+func (s *renderSuite) TestEvalV3ReportIncludesPrivateTeamNoteAgainstMem0Comparison() {
+	run := v2.RunRecord{Config: v2.Config{Version: "v3", Arms: []v2.ArmConfig{
+		{Name: "no_memory_team"}, {Name: "groupmembench_mem0"}, {Name: "private_sqlite_plus_team_note"},
+	}}}
+	results := []v2.TrialResult{
+		trial("case", "temporal", "no_memory_team", 0.1),
+		trial("case", "temporal", "groupmembench_mem0", 0.5),
+		trial("case", "temporal", "private_sqlite_plus_team_note", 0.8),
+	}
+	for index := range results {
+		results[index].Judged = true
+	}
+	results[2].Correct = true
+
+	data := buildReportData(run, "no_memory_team", results)
+
+	found := false
+	for _, row := range data.Pairwise {
+		if row.BaselineArm == "groupmembench_mem0" && row.CandidateArm == "private_sqlite_plus_team_note" && row.RecordDisplay == "1 W / 0 L / 0 T" {
+			found = true
+		}
+	}
+	s.True(found)
+}
+
 func (s *renderSuite) TestNiceMax() {
 	tests := []struct {
 		name     string
