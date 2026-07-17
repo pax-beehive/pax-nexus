@@ -300,10 +300,19 @@ func (c Config) MaxAttempts() int {
 }
 
 func validateRuntimeEnvironment(names []string) error {
+	allowedTokenCounts := map[string]struct{}{
+		"TEAM_MEMORY_EXTRACTION_COMPACT_START_TOKENS":   {},
+		"TEAM_MEMORY_EXTRACTION_COMPACT_TOKENS":         {},
+		"TEAM_MEMORY_EXTRACTION_SUMMARY_TRIGGER_TOKENS": {},
+		"TEAM_MEMORY_EXTRACTION_SUMMARY_TAIL_TOKENS":    {},
+	}
 	for _, name := range names {
 		upper := strings.ToUpper(strings.TrimSpace(name))
 		if upper == "" || strings.ContainsAny(upper, " =") {
 			return fmt.Errorf("validate eval config: runtime_env contains an invalid name")
+		}
+		if _, allowed := allowedTokenCounts[upper]; allowed {
+			continue
 		}
 		for _, secretMarker := range []string{"KEY", "TOKEN", "SECRET", "PASSWORD"} {
 			if strings.Contains(upper, secretMarker) {

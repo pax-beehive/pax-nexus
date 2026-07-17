@@ -173,6 +173,15 @@ func (s *modelSuite) TestRuntimeEnvironmentOverridesAreUnique() {
 	s.Equal([]string{"MODEL", "REVISION"}, withRuntime.RuntimeEnv)
 }
 
+func (s *modelSuite) TestRuntimeEnvironmentAllowsExtractionTokenCounts() {
+	s.NoError(validateRuntimeEnvironment([]string{
+		"TEAM_MEMORY_EXTRACTION_COMPACT_START_TOKENS",
+		"TEAM_MEMORY_EXTRACTION_COMPACT_TOKENS",
+		"TEAM_MEMORY_EXTRACTION_SUMMARY_TRIGGER_TOKENS",
+		"TEAM_MEMORY_EXTRACTION_SUMMARY_TAIL_TOKENS",
+	}))
+}
+
 func testConfig(output string) Config {
 	return Config{
 		Version: ConfigVersion, Run: RunConfig{ID: "run", Dataset: "suite", Manifest: "manifest.json", OutputDir: output, Parallelism: 2},

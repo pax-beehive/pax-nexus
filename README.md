@@ -75,12 +75,44 @@ stale scheduled jobs verify their captured cursor and exit without extracting.
 Set `TEAM_MEMORY_BATCH_TIMEOUT` to change this interval. Explicitly complete
 batches use the shorter `TEAM_MEMORY_WORKER_DEBOUNCE`, which defaults to 750ms.
 
-Each model call receives at most 25 new events and approximately 8,192 input
-tokens, with up to three prior events as overlap. A River job handles at most
-four slices before yielding a continuation, and each slice may return at most
-10 candidates. Configure these bounds with `TEAM_MEMORY_SLICE_EVENT_LIMIT`,
-`TEAM_MEMORY_SLICE_TOKEN_LIMIT`, `TEAM_MEMORY_SLICE_OVERLAP`, and
-`TEAM_MEMORY_MAX_SLICES_PER_JOB`.
+Each queue slice still contributes at most 25 new events and approximately
+8,192 input tokens, with up to three prior events as overlap. In the default
+`rolling` extraction mode, slices from different agent sessions that share a
+scope, task, and thread advance one durable LLM episode. The request history is
+append-only so provider prefix caching can reuse earlier context. The model
+returns only candidate deltas. At 12,288 estimated tokens, one asynchronous
+singleflight starts producing a structured, evidence-backed checkpoint. New
+session slices may continue appending while it runs. Before an append would
+cross 16,384 tokens, the worker waits for that flight, installs the checkpoint,
+retains messages appended after the compaction snapshot as a tail, and continues
+from the compacted prefix. Compaction is disabled by default while its retention
+and schema behavior are evaluated; set
+`TEAM_MEMORY_EXTRACTION_COMPACTION_ENABLED=true` to activate these thresholds.
+
+Extraction v2 is available behind `TEAM_MEMORY_EXTRACTION_VERSION=v2` only in
+rolling mode. It emits atomic, evidence-cited State Decisions, exceptional
+Claims, explicit per-Event coverage, and a diagnostic Extraction Trace in one
+primary model call. The default remains `v1` until the fixed extraction shadow
+passes fact-recall, leakage, output-token, cache, and latency gates; changing
+the extraction protocol starts a fresh rolling episode instead of replaying an
+incompatible response history.
+
+The default rolling path instead keeps an append-only recent raw tail and runs a
+non-blocking continuity summary. After the raw message history grows beyond the
+16,384-token tail by another 8,192 tokens, one asynchronous summary updates the
+derived checkpoint and retains the newest raw tail. Extraction never waits for
+this summary; a failed summary leaves the previous checkpoint and raw history in
+place. Configure this with `TEAM_MEMORY_EXTRACTION_SUMMARY_ENABLED`,
+`TEAM_MEMORY_EXTRACTION_SUMMARY_TRIGGER_TOKENS`, and
+`TEAM_MEMORY_EXTRACTION_SUMMARY_TAIL_TOKENS`.
+
+Set `TEAM_MEMORY_EXTRACTION_CONTEXT_MODE=slice` to retain the original isolated
+slice behavior for evaluation. Configure the rolling soft trigger with
+`TEAM_MEMORY_EXTRACTION_COMPACT_START_TOKENS` and the hard wait threshold with
+`TEAM_MEMORY_EXTRACTION_COMPACT_TOKENS`; configure queue slice bounds with
+`TEAM_MEMORY_SLICE_EVENT_LIMIT`, `TEAM_MEMORY_SLICE_TOKEN_LIMIT`,
+`TEAM_MEMORY_SLICE_OVERLAP`, and `TEAM_MEMORY_MAX_SLICES_PER_JOB`. Extraction
+logs expose prompt cache hit and miss tokens when the provider reports them.
 
 Passive recall uses two candidate lanes behind the existing `RecallNotes`
 interface: PostgreSQL full-text rank and Qwen3 semantic similarity. The runtime
@@ -88,7 +120,9 @@ embeds Team Notes after admission, fuses the top 16 candidates per lane with
 reciprocal rank fusion, and then applies the existing authorization, scalar-slot,
 kind, recency, budget, and delivery-once rules. The default local model is
 `Qwen/Qwen3-Embedding-0.6B`; its Matryoshka output is truncated and normalized
-to 384 dimensions. Configure it with `TEAM_MEMORY_EMBEDDING_BASE_URL`,
+to 384 dimensions. One-hop related facts are composed in either direction, so
+a recalled blocker can carry the action that points back to it. Configure it
+with `TEAM_MEMORY_EMBEDDING_BASE_URL`,
 `TEAM_MEMORY_EMBEDDING_MODEL`, `TEAM_MEMORY_EMBEDDING_TIMEOUT`,
 `TEAM_MEMORY_SEMANTIC_THRESHOLD`, and
 `TEAM_MEMORY_RETRIEVAL_CANDIDATE_LIMIT`. Leaving the base URL empty disables

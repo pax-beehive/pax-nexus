@@ -111,7 +111,21 @@ func (s *NoteStore) ApplyExtractionRun(ctx context.Context, scopeID string, run 
 
 	notes, err = s.applyExtractionRunTx(ctx, tx, scopeID, run)
 	if err != nil {
-		return nil, err
+		if !isDeterministicAdmissionError(err) {
+			return nil, err
+		}
+		// Roll back before quarantining: the quarantine insert conflicts with
+		// this transaction's own uncommitted run row and would otherwise wait
+		// on itself forever.
+		if rollbackErr := tx.Rollback(context.Background()); rollbackErr != nil && !errors.Is(rollbackErr, pgx.ErrTxClosed) {
+			return nil, errors.Join(err, fmt.Errorf("rollback apply extraction run: %w", rollbackErr))
+		}
+		// A deterministic admission failure cannot succeed on retry, so the
+		// run is recorded as quarantined and the caller may advance the stream.
+		if quarantineErr := s.quarantineExtractionRun(ctx, scopeID, run, err); quarantineErr != nil {
+			return nil, errors.Join(err, fmt.Errorf("quarantine extraction run: %w", quarantineErr))
+		}
+		return nil, fmt.Errorf("quarantine extraction run %q: %w", run.ID, errors.Join(teamnote.ErrExtractionRunQuarantined, err))
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit extraction run: %w", err)
@@ -122,6 +136,54 @@ func (s *NoteStore) ApplyExtractionRun(ctx context.Context, scopeID string, run 
 		}
 	}
 	return notes, nil
+}
+
+// isDeterministicAdmissionError reports whether re-admitting the same run can
+// never succeed, as opposed to a transient store failure.
+func isDeterministicAdmissionError(err error) bool {
+	return errors.Is(err, teamnote.ErrInvalidCandidate) ||
+		errors.Is(err, teamnote.ErrMissingEvidence) ||
+		errors.Is(err, teamnote.ErrNoteNotFound)
+}
+
+// quarantineExtractionRun durably records a run whose candidates failed
+// deterministic admission, so later replays observe the same outcome and
+// extraction evaluation can attribute the lost slice.
+func (s *NoteStore) quarantineExtractionRun(ctx context.Context, scopeID string, run teamnote.ExtractionRun, cause error) (returnedErr error) {
+	tx, err := s.store.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return fmt.Errorf("begin quarantine extraction run: %w", err)
+	}
+	defer func() {
+		rollbackErr := tx.Rollback(context.Background())
+		if rollbackErr != nil && !errors.Is(rollbackErr, pgx.ErrTxClosed) {
+			returnedErr = errors.Join(returnedErr, fmt.Errorf("rollback quarantine extraction run: %w", rollbackErr))
+		}
+	}()
+	result, err := tx.Exec(ctx, `
+INSERT INTO extraction_runs (
+    scope_id, run_id, user_id, agent_id, session_id, from_sequence, to_sequence,
+    input_checksum, candidate_checksum, model, prompt_version, status, input_tokens, output_tokens,
+    error, completed_at
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'quarantined', $12, $13, $14, NOW())
+ON CONFLICT (scope_id, run_id) DO NOTHING`,
+		scopeID, run.ID, run.Actor.UserID, run.Actor.AgentID, run.Actor.SessionID, run.FromSequence, run.ToSequence,
+		run.InputChecksum, run.CandidateChecksum, run.Model, run.PromptVersion, run.InputTokens, run.OutputTokens,
+		cause.Error())
+	if err != nil {
+		return fmt.Errorf("insert quarantined extraction run: %w", err)
+	}
+	if result.RowsAffected() == 1 {
+		for _, candidate := range run.Candidates {
+			if err := insertRejectedCandidate(ctx, tx, scopeID, run.ID, candidate, cause.Error()); err != nil {
+				return err
+			}
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit quarantined extraction run: %w", err)
+	}
+	return nil
 }
 
 func (s *NoteStore) applyExtractionRunTx(ctx context.Context, tx pgx.Tx, scopeID string, run teamnote.ExtractionRun) ([]teamnote.Note, error) {
@@ -140,6 +202,11 @@ func (s *NoteStore) applyExtractionRunTx(ctx context.Context, tx pgx.Tx, scopeID
 			return nil, err
 		}
 		notes = append(notes, note)
+	}
+	for _, rejection := range run.Rejections {
+		if err := insertRejectedCandidate(ctx, tx, scopeID, run.ID, rejection.Candidate, rejection.Reason); err != nil {
+			return nil, err
+		}
 	}
 	result, err := json.Marshal(notes)
 	if err != nil {
@@ -213,9 +280,11 @@ func (s *NoteStore) RecallNotes(ctx context.Context, scopeID string, request tea
 	if err != nil {
 		return teamnote.NoteEnvelope{}, err
 	}
-	planned := teamnote.PlanRecall(eligible, request, teamnote.RecallPolicy{
-		SemanticThreshold: s.retrieval.SemanticThreshold,
-		CandidateLimit:    s.retrieval.CandidateLimit,
+	planned, trace := teamnote.PlanRecall(eligible, request, teamnote.RecallPolicy{
+		SemanticThreshold:  s.retrieval.SemanticThreshold,
+		CandidateLimit:     s.retrieval.CandidateLimit,
+		SuppressDuplicates: true,
+		DegradeRelated:     true,
 	})
 	for _, delivery := range planned {
 		claimed, err := insertDelivery(ctx, tx, scopeID, delivery.Note, request.Actor, delivery.Tokens)
@@ -223,17 +292,52 @@ func (s *NoteStore) RecallNotes(ctx context.Context, scopeID string, request tea
 			return teamnote.NoteEnvelope{}, err
 		}
 		if !claimed {
+			trace.Rejections = append(trace.Rejections, teamnote.RecallRejection{
+				NoteID: delivery.Note.ID, Reason: teamnote.RejectDeliveryClaim, Tokens: delivery.Tokens,
+			})
 			continue
 		}
 		teamnote.AppendPlannedRecall(&envelope, delivery)
 	}
-	if err := saveRecallObservation(ctx, tx, scopeID, request, envelope, observationTime, time.Since(startedAt)); err != nil {
+	if err := saveRecallObservation(ctx, tx, scopeID, request, envelope, observationTime, time.Since(startedAt), trace); err != nil {
 		return teamnote.NoteEnvelope{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return teamnote.NoteEnvelope{}, fmt.Errorf("commit note delivery: %w", err)
 	}
 	return envelope, nil
+}
+
+// RecallCandidates loads the eligible retrieval candidates exactly as
+// RecallNotes would, without planning, claiming, or observing deliveries.
+// Evaluation tooling uses it to export deterministic recall replay fixtures.
+func (s *NoteStore) RecallCandidates(ctx context.Context, scopeID string, request teamnote.RecallRequest) (candidates []teamnote.RecallCandidate, returnedErr error) {
+	if strings.TrimSpace(scopeID) == "" {
+		return nil, fmt.Errorf("load recall candidates: scope is required")
+	}
+	if err := teamnote.ValidateRecall(request); err != nil {
+		return nil, err
+	}
+	queryVector, embeddingErr := s.embedQuery(ctx, request.Query)
+	if embeddingErr != nil {
+		// Semantic recall is best effort, mirroring RecallNotes.
+		queryVector = nil
+	}
+	tx, err := s.store.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("begin recall candidates: %w", err)
+	}
+	defer func() {
+		rollbackErr := tx.Rollback(context.Background())
+		if rollbackErr != nil && !errors.Is(rollbackErr, pgx.ErrTxClosed) {
+			returnedErr = errors.Join(returnedErr, fmt.Errorf("rollback recall candidates: %w", rollbackErr))
+		}
+	}()
+	candidates, err = recallableNotes(ctx, tx, scopeID, request, s.clock.Now(), queryVector, s.retrieval.EmbeddingModel)
+	if err != nil {
+		return nil, err
+	}
+	return candidates, nil
 }
 
 func saveRecallObservation(
@@ -244,10 +348,15 @@ func saveRecallObservation(
 	envelope teamnote.NoteEnvelope,
 	observationTime time.Time,
 	duration time.Duration,
+	trace teamnote.RecallTrace,
 ) error {
 	encoded, err := json.Marshal(envelope)
 	if err != nil {
 		return fmt.Errorf("encode recall observation: %w", err)
+	}
+	encodedTrace, err := json.Marshal(trace)
+	if err != nil {
+		return fmt.Errorf("encode recall trace: %w", err)
 	}
 	snapshot, err := loadRecallSnapshot(ctx, tx, scopeID, observationTime)
 	if err != nil {
@@ -270,11 +379,11 @@ func saveRecallObservation(
 INSERT INTO team_note_recall_observations (
     scope_id, recipient_user_id, recipient_agent_id, recipient_session_id,
     task_ref, thread_ref, query_digest, token_budget, max_items,
-    extraction_snapshot, extraction_provenance, envelope, duration_ms, created_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11::jsonb, $12::jsonb, $13, $14)`,
+    extraction_snapshot, extraction_provenance, envelope, trace, duration_ms, created_at
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11::jsonb, $12::jsonb, $13::jsonb, $14, $15)`,
 		scopeID, request.Actor.UserID, request.Actor.AgentID, request.Actor.SessionID,
 		request.TaskRef, request.ThreadRef, queryDigest[:], request.TokenBudget, request.MaxItems,
-		string(encodedSnapshot), string(encodedProvenance), string(encoded), duration.Milliseconds(), observationTime,
+		string(encodedSnapshot), string(encodedProvenance), string(encoded), string(encodedTrace), duration.Milliseconds(), observationTime,
 	); err != nil {
 		return fmt.Errorf("save recall observation: %w", err)
 	}
@@ -355,22 +464,31 @@ ON CONFLICT (scope_id, run_id) DO NOTHING`,
 func existingExtractionRunNotes(ctx context.Context, tx pgx.Tx, scopeID string, run teamnote.ExtractionRun) ([]teamnote.Note, error) {
 	var stored teamnote.ExtractionRun
 	var status string
+	var storedError string
 	var encodedResult []byte
 	err := tx.QueryRow(ctx, `
 SELECT user_id, agent_id, session_id, from_sequence, to_sequence, input_checksum,
-       candidate_checksum, model, prompt_version, input_tokens, output_tokens, status, result
+       candidate_checksum, model, prompt_version, input_tokens, output_tokens, status, result, error
 FROM extraction_runs WHERE scope_id = $1 AND run_id = $2`, scopeID, run.ID).Scan(
 		&stored.Actor.UserID, &stored.Actor.AgentID, &stored.Actor.SessionID,
 		&stored.FromSequence, &stored.ToSequence, &stored.InputChecksum,
 		&stored.CandidateChecksum, &stored.Model, &stored.PromptVersion,
-		&stored.InputTokens, &stored.OutputTokens, &status, &encodedResult,
+		&stored.InputTokens, &stored.OutputTokens, &status, &encodedResult, &storedError,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("load extraction run %q: %w", run.ID, err)
 	}
-	if status != "completed" || !sameExtractionRunIdentity(stored, run) {
+	if !sameExtractionRunInputs(stored, run) {
 		return nil, fmt.Errorf("replay extraction run %q: %w", run.ID, teamnote.ErrExtractionRunConflict)
 	}
+	if status == "quarantined" {
+		return nil, fmt.Errorf("replay extraction run %q: %w", run.ID, errors.Join(teamnote.ErrExtractionRunQuarantined, errors.New(storedError)))
+	}
+	if status != "completed" {
+		return nil, fmt.Errorf("replay extraction run %q with status %q: %w", run.ID, status, teamnote.ErrExtractionRunConflict)
+	}
+	// The durable result wins over any recomputation for the same input, so a
+	// replay after a lost saved response cannot double-apply state.
 	var notes []teamnote.Note
 	if err := json.Unmarshal(encodedResult, &notes); err != nil {
 		return nil, fmt.Errorf("decode extraction run result: %w", err)
@@ -378,12 +496,32 @@ FROM extraction_runs WHERE scope_id = $1 AND run_id = $2`, scopeID, run.ID).Scan
 	return notes, nil
 }
 
-func sameExtractionRunIdentity(left, right teamnote.ExtractionRun) bool {
+// sameExtractionRunInputs compares the deterministic inputs of one extraction
+// run. Token usage is telemetry, and a recomputed candidate batch after a lost
+// saved response must not conflict with the durable result, so neither is part
+// of the replay identity.
+func sameExtractionRunInputs(left, right teamnote.ExtractionRun) bool {
 	return left.Actor == right.Actor && left.FromSequence == right.FromSequence &&
 		left.ToSequence == right.ToSequence && left.InputChecksum == right.InputChecksum &&
-		left.CandidateChecksum == right.CandidateChecksum &&
-		left.Model == right.Model && left.PromptVersion == right.PromptVersion &&
-		left.InputTokens == right.InputTokens && left.OutputTokens == right.OutputTokens
+		left.Model == right.Model && left.PromptVersion == right.PromptVersion
+}
+
+// insertRejectedCandidate durably records one candidate dropped before or
+// during admission, so extraction evaluation can attribute lost facts.
+func insertRejectedCandidate(ctx context.Context, tx pgx.Tx, scopeID, runID string, candidate teamnote.Candidate, reason string) error {
+	inserted, err := insertCandidate(ctx, tx, scopeID, runID, candidate)
+	if err != nil {
+		return err
+	}
+	if !inserted {
+		return nil
+	}
+	if _, err := tx.Exec(ctx, `
+UPDATE note_candidates SET admission_status = 'rejected', rejection_reason = $3
+WHERE scope_id = $1 AND candidate_id = $2`, scopeID, candidate.ID, reason); err != nil {
+		return fmt.Errorf("mark candidate rejected: %w", err)
+	}
+	return nil
 }
 
 func validateExtractionRun(scopeID string, run teamnote.ExtractionRun) error {

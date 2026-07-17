@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"sync"
 )
 
@@ -28,6 +29,17 @@ type ExtractionRun struct {
 	OutputTokens      int
 	Candidates        []Candidate
 	Evidence          []SessionEvent
+	// Rejections records candidates dropped before admission. Rejected
+	// candidates are not part of the admitted batch and do not affect the
+	// candidate checksum.
+	Rejections []CandidateRejection
+}
+
+// CandidateRejection records one candidate dropped before admission with the
+// deterministic reason, so extraction evaluation can attribute lost facts.
+type CandidateRejection struct {
+	Candidate Candidate
+	Reason    string
 }
 
 // NormalizeExtractionRun binds one idempotency key to the complete Candidate batch.
@@ -62,6 +74,25 @@ func (s *ScopedLedgerStore) ApplyCandidate(ctx context.Context, scopeID, _ strin
 
 func (s *ScopedLedgerStore) ApplyExtractionRun(ctx context.Context, scopeID string, run ExtractionRun) ([]Note, error) {
 	return s.ledger(scopeID).ApplyRun(ctx, run)
+}
+
+// SnapshotNotes returns the active notes in one scope, ordered by ID. It
+// supports evaluation snapshots that mirror the persisted active-note view.
+func (s *ScopedLedgerStore) SnapshotNotes(scopeID string) []Note {
+	return s.ledger(scopeID).snapshotNotes()
+}
+
+func (l *Ledger) snapshotNotes() []Note {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	notes := make([]Note, 0, len(l.notes))
+	for _, note := range l.notes {
+		if note.State == StateActive && note.InvalidAt == nil {
+			notes = append(notes, cloneNote(note))
+		}
+	}
+	sort.Slice(notes, func(left, right int) bool { return notes[left].ID < notes[right].ID })
+	return notes
 }
 
 func (s *ScopedLedgerStore) RecallNotes(ctx context.Context, scopeID string, request RecallRequest) (NoteEnvelope, error) {

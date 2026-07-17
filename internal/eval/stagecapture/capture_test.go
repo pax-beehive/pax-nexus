@@ -2,6 +2,7 @@ package stagecapture_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"testing"
@@ -102,6 +103,11 @@ func (s *CaptureSuite) TestCaptureExportsAdmittedNotesAndExactRecallEnvelope() {
 	s.Equal(envelope.Items[0], recall.Items[0].Text)
 	s.Equal(extraction.Items[0].ID, recall.Items[0].ID)
 	s.Equal("2", recall.Provenance["recall_count"])
+	var traces []teamnote.RecallTrace
+	s.Require().NoError(json.Unmarshal([]byte(recall.Provenance["recall_traces"]), &traces))
+	s.Require().Len(traces, 2)
+	s.Equal(1, traces[0].Candidates)
+	s.Equal(1, traces[0].PlannedNotes)
 
 	resolvedEvent := session.SessionEvent{
 		ID: "event-2", Actor: producer, Sequence: 2, Type: "message", Content: "Rollback evidence is no longer current.",

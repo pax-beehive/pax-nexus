@@ -58,6 +58,43 @@ and product revisions for real captures.
 Evidence and leakage checks are deterministic. An LLM judge remains an outer
 acceptance measure for final answers, not the optimizer for these stage loops.
 
+## Deterministic recall replay
+
+`cmd/team-memory-recall-replay` replays persisted Team Note candidates through
+recall policy without a consumer Agent, a live store, or an LLM. It is the
+fixed cohort for validating retrieval changes before any paid end-to-end run.
+
+Export pins a cohort from a persisted eval store (candidate notes with the
+exact lexical and semantic scores produced by the recall code path, extraction
+snapshot, recall request, and gold atoms), using schema
+`pax-recall-replay-v1`:
+
+```bash
+go run ./cmd/team-memory-recall-replay -export \
+  -stage-fixtures evals/stage/groupmembench-finance-10.json \
+  -dsn postgres://team_memory:team_memory@localhost:55433/team_memory?sslmode=disable \
+  -run-id <eval-run-id> -arm team_note \
+  -embedding-base-url http://localhost:58081 \
+  -output evals/stage/replay/<eval-run-id>-team_note.json
+```
+
+Replay re-runs `PlanRecall` with an overridable policy and scores the planned
+deliveries with the same stage evaluator, so replay metrics are comparable to
+live stage captures:
+
+```bash
+go run ./cmd/team-memory-recall-replay \
+  -fixtures evals/stage/replay/<eval-run-id>-team_note.json \
+  -semantic-threshold 0.50 -candidate-limit 16 -dedup -degrade-related \
+  -output-dir runs/recall-replay/<label>
+```
+
+The runner writes `replay-results.jsonl` (per-case stage results plus the
+Recall Trace) and `replay-summary.json` (stage summary plus aggregated stage
+counters: candidates, fusion kept, and rejections by reason). The tracked
+fixtures under `evals/stage/replay/` were exported from the
+`team-note-optimization-30-20260716-c20fdd7` store for both arms.
+
 ## Live Eval v2 capture
 
 The acceptance config enables `stage_capture` for `team_note` and

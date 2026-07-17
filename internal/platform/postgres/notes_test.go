@@ -2,12 +2,14 @@ package postgres_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pax-beehive/pax-nexus/internal/platform/postgres"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote"
 	"github.com/stretchr/testify/suite"
@@ -131,13 +133,27 @@ func (s *noteStoreSuite) TestExtractionRunPersistsZeroCandidateProvenance() {
 	s.Require().NoError(err)
 	s.Empty(replayed)
 
-	tests := []struct {
+	conflicting := []struct {
 		name   string
 		mutate func(*teamnote.ExtractionRun)
 	}{
 		{name: "input checksum", mutate: func(changed *teamnote.ExtractionRun) { changed.InputChecksum = "changed-checksum" }},
 		{name: "model", mutate: func(changed *teamnote.ExtractionRun) { changed.Model = "changed-model" }},
 		{name: "prompt version", mutate: func(changed *teamnote.ExtractionRun) { changed.PromptVersion = "prompt-v3" }},
+	}
+	for _, test := range conflicting {
+		s.Run("conflict on changed "+test.name, func() {
+			changed := run
+			test.mutate(&changed)
+			_, replayErr := notes.ApplyExtractionRun(ctx, scopeID, changed)
+			s.Require().ErrorIs(replayErr, teamnote.ErrExtractionRunConflict)
+		})
+	}
+
+	durableWins := []struct {
+		name   string
+		mutate func(*teamnote.ExtractionRun)
+	}{
 		{name: "usage", mutate: func(changed *teamnote.ExtractionRun) { changed.InputTokens++ }},
 		{name: "candidate batch", mutate: func(changed *teamnote.ExtractionRun) {
 			changed.Candidates = []teamnote.Candidate{
@@ -145,12 +161,13 @@ func (s *noteStoreSuite) TestExtractionRunPersistsZeroCandidateProvenance() {
 			}
 		}},
 	}
-	for _, test := range tests {
-		s.Run(test.name, func() {
+	for _, test := range durableWins {
+		s.Run("durable result wins on changed "+test.name, func() {
 			changed := run
 			test.mutate(&changed)
-			_, replayErr := notes.ApplyExtractionRun(ctx, scopeID, changed)
-			s.Require().ErrorIs(replayErr, teamnote.ErrExtractionRunConflict)
+			replayedNotes, replayErr := notes.ApplyExtractionRun(ctx, scopeID, changed)
+			s.Require().NoError(replayErr)
+			s.Empty(replayedNotes)
 		})
 	}
 }
@@ -172,6 +189,7 @@ func (s *noteStoreSuite) TestExtractionRunRejectsPartialCandidateBatchAtomically
 		Evidence: []teamnote.SessionEvent{firstEvent, secondEvent},
 	})
 	s.Require().ErrorIs(err, teamnote.ErrMissingEvidence)
+	s.Require().ErrorIs(err, teamnote.ErrExtractionRunQuarantined)
 
 	envelope, err := s.newNoteStore().RecallNotes(ctx, scopeID, teamnote.RecallRequest{
 		Actor:   teamnote.Actor{UserID: "owner", AgentID: "consumer", SessionID: "consumer-session"},
@@ -179,6 +197,25 @@ func (s *noteStoreSuite) TestExtractionRunRejectsPartialCandidateBatchAtomically
 	})
 	s.Require().NoError(err)
 	s.Empty(envelope.Items)
+
+	pool, err := pgxpool.New(ctx, testDSN(s.T()))
+	s.Require().NoError(err)
+	defer pool.Close()
+	var status, runError string
+	s.Require().NoError(pool.QueryRow(ctx,
+		`SELECT status, error FROM extraction_runs WHERE scope_id = $1 AND run_id = $2`,
+		scopeID, "atomic-candidate-run").Scan(&status, &runError))
+	s.Equal("quarantined", status)
+	s.Contains(runError, "atomic-candidate-2")
+	s.Contains(runError, "evidence is missing")
+
+	replayed, replayErr := s.newNoteStore().ApplyExtractionRun(ctx, scopeID, teamnote.ExtractionRun{
+		ID: "atomic-candidate-run", Actor: producer, FromSequence: 1, ToSequence: 2,
+		InputChecksum: "atomic-candidate-checksum", Candidates: []teamnote.Candidate{valid, invalid},
+		Evidence: []teamnote.SessionEvent{firstEvent, secondEvent},
+	})
+	s.Require().ErrorIs(replayErr, teamnote.ErrExtractionRunQuarantined)
+	s.Nil(replayed)
 }
 
 func (s *noteStoreSuite) TestReplayScopeAudienceAndTTL() {
@@ -428,6 +465,47 @@ func (s *noteStoreSuite) TestRelatedFactIsComposedForRecall() {
 	s.Require().NotEmpty(envelope.Items)
 	s.Contains(envelope.Items[0], "Legal reviews the provisional rows")
 	s.Contains(envelope.Items[0], "related: [certainty=confirmed] posting final Ops rows: User_7 must post final Ops rows by 2025-07-17")
+}
+
+func (s *noteStoreSuite) TestRecallTraceIsPersistedWithObservation() {
+	ctx := context.Background()
+	scopeID := uniqueScope("note-trace")
+	producer := teamnote.Actor{UserID: "owner", AgentID: "producer", SessionID: "producer-session"}
+	firstEvent := event("trace-event-1", producer, 1)
+	secondEvent := event("trace-event-2", producer, 2)
+	s.appendEvents(ctx, scopeID, firstEvent, secondEvent)
+	notes := s.newNoteStore()
+
+	relevant := candidate("trace-candidate-1", teamnote.ActionCreate, "Deploy window moves to Friday.", producer, firstEvent.ID)
+	relevant.Subject = "deploy window"
+	relevantNote, err := notes.ApplyCandidate(ctx, scopeID, "trace-run-1", relevant, []teamnote.SessionEvent{firstEvent})
+	s.Require().NoError(err)
+	offTopic := candidate("trace-candidate-2", teamnote.ActionCreate, "Pancake recipe swap meetup.", producer, secondEvent.ID)
+	offTopic.Subject = "pancake meetup"
+	offTopicNote, err := notes.ApplyCandidate(ctx, scopeID, "trace-run-2", offTopic, []teamnote.SessionEvent{secondEvent})
+	s.Require().NoError(err)
+
+	envelope, err := notes.RecallNotes(ctx, scopeID, teamnote.RecallRequest{
+		Actor:   teamnote.Actor{UserID: "owner", AgentID: "consumer", SessionID: "trace-consumer"},
+		TaskRef: "task-1", TokenBudget: 256, Query: "deploy window friday",
+	})
+	s.Require().NoError(err)
+	s.Require().Len(envelope.Items, 1)
+
+	var encoded []byte
+	err = s.store.Pool().QueryRow(ctx, `
+SELECT trace FROM team_note_recall_observations
+WHERE scope_id = $1 AND recipient_session_id = $2
+ORDER BY observation_id DESC LIMIT 1`, scopeID, "trace-consumer").Scan(&encoded)
+	s.Require().NoError(err)
+	var trace teamnote.RecallTrace
+	s.Require().NoError(json.Unmarshal(encoded, &trace))
+	s.Equal(2, trace.Candidates)
+	s.Equal(1, trace.FusionKept)
+	s.Equal(1, trace.PlannedNotes)
+	s.Require().Len(trace.Rejections, 1)
+	s.Equal(teamnote.RecallRejection{NoteID: offTopicNote.ID, Reason: teamnote.RejectFusionLimit}, trace.Rejections[0])
+	s.NotEqual(relevantNote.ID, trace.Rejections[0].NoteID)
 }
 
 func (s *noteStoreSuite) TestHybridRecallFindsSemanticParaphrase() {

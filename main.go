@@ -46,7 +46,7 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	if err := store.Migrate(ctx); err != nil {
 		return fmt.Errorf("initialize storage schema: %w", err)
 	}
-	candidateExtractor, err := buildExtractor(config)
+	candidateExtractor, err := buildExtractor(config, store)
 	if err != nil {
 		return fmt.Errorf("initialize extractor: %w", err)
 	}
@@ -127,29 +127,37 @@ func continueEmbeddingBackfill(ctx context.Context, noteStore *postgres.NoteStor
 }
 
 type applicationConfig struct {
-	databaseURL             string
-	listenAddress           string
-	apiKeys                 map[string]string
-	extractorMode           string
-	extractorBaseURL        string
-	extractorAPIKey         string
-	extractorModel          string
-	promptVersion           string
-	workerShards            int
-	workerMaxAttempts       int
-	workerDebounce          time.Duration
-	batchTimeout            time.Duration
-	workerJobTimeout        time.Duration
-	workerStopTimeout       time.Duration
-	sliceEventLimit         int
-	sliceTokenLimit         int
-	sliceOverlap            int
-	maxSlicesPerJob         int
-	embeddingBaseURL        string
-	embeddingModel          string
-	embeddingTimeout        time.Duration
-	semanticThreshold       float64
-	retrievalCandidateLimit int
+	databaseURL                    string
+	listenAddress                  string
+	apiKeys                        map[string]string
+	extractorMode                  string
+	extractorBaseURL               string
+	extractorAPIKey                string
+	extractorModel                 string
+	promptVersion                  string
+	extractionContextMode          string
+	extractionVersion              string
+	extractionCompactionEnabled    bool
+	extractionCompactStartTokens   int
+	extractionCompactTokens        int
+	extractionSummaryEnabled       bool
+	extractionSummaryTriggerTokens int
+	extractionSummaryTailTokens    int
+	workerShards                   int
+	workerMaxAttempts              int
+	workerDebounce                 time.Duration
+	batchTimeout                   time.Duration
+	workerJobTimeout               time.Duration
+	workerStopTimeout              time.Duration
+	sliceEventLimit                int
+	sliceTokenLimit                int
+	sliceOverlap                   int
+	maxSlicesPerJob                int
+	embeddingBaseURL               string
+	embeddingModel                 string
+	embeddingTimeout               time.Duration
+	semanticThreshold              float64
+	retrievalCandidateLimit        int
 }
 
 func loadConfig() (applicationConfig, error) {
@@ -157,9 +165,11 @@ func loadConfig() (applicationConfig, error) {
 		databaseURL: os.Getenv("TEAM_MEMORY_DATABASE_URL"), listenAddress: os.Getenv("TEAM_MEMORY_LISTEN_ADDRESS"),
 		extractorMode: os.Getenv("TEAM_MEMORY_EXTRACTOR_MODE"), extractorBaseURL: os.Getenv("TEAM_MEMORY_EXTRACTOR_BASE_URL"),
 		extractorAPIKey: os.Getenv("TEAM_MEMORY_EXTRACTOR_API_KEY"), extractorModel: os.Getenv("TEAM_MEMORY_EXTRACTOR_MODEL"),
-		promptVersion:    os.Getenv("TEAM_MEMORY_PROMPT_VERSION"),
-		embeddingBaseURL: os.Getenv("TEAM_MEMORY_EMBEDDING_BASE_URL"),
-		embeddingModel:   os.Getenv("TEAM_MEMORY_EMBEDDING_MODEL"),
+		promptVersion:         os.Getenv("TEAM_MEMORY_PROMPT_VERSION"),
+		extractionContextMode: os.Getenv("TEAM_MEMORY_EXTRACTION_CONTEXT_MODE"),
+		extractionVersion:     os.Getenv("TEAM_MEMORY_EXTRACTION_VERSION"),
+		embeddingBaseURL:      os.Getenv("TEAM_MEMORY_EMBEDDING_BASE_URL"),
+		embeddingModel:        os.Getenv("TEAM_MEMORY_EMBEDDING_MODEL"),
 	}
 	var err error
 	if config.workerShards, err = intEnvironment("TEAM_MEMORY_WORKER_SHARDS", 16); err != nil {
@@ -180,16 +190,7 @@ func loadConfig() (applicationConfig, error) {
 	if config.workerStopTimeout, err = durationEnvironment("TEAM_MEMORY_WORKER_STOP_TIMEOUT", 30*time.Second); err != nil {
 		return applicationConfig{}, err
 	}
-	if config.sliceEventLimit, err = intEnvironment("TEAM_MEMORY_SLICE_EVENT_LIMIT", 25); err != nil {
-		return applicationConfig{}, err
-	}
-	if config.sliceTokenLimit, err = intEnvironment("TEAM_MEMORY_SLICE_TOKEN_LIMIT", 8192); err != nil {
-		return applicationConfig{}, err
-	}
-	if config.sliceOverlap, err = intEnvironment("TEAM_MEMORY_SLICE_OVERLAP", 3); err != nil {
-		return applicationConfig{}, err
-	}
-	if config.maxSlicesPerJob, err = intEnvironment("TEAM_MEMORY_MAX_SLICES_PER_JOB", 4); err != nil {
+	if err = loadExtractionConfig(&config); err != nil {
 		return applicationConfig{}, err
 	}
 	if err = loadRetrievalConfig(&config); err != nil {
@@ -203,6 +204,9 @@ func loadConfig() (applicationConfig, error) {
 	}
 	if config.promptVersion == "" {
 		config.promptVersion = "v1"
+	}
+	if config.extractionContextMode == "" {
+		config.extractionContextMode = string(extractor.ContextModeRolling)
 	}
 	if config.embeddingModel == "" && strings.TrimSpace(config.embeddingBaseURL) != "" {
 		config.embeddingModel = "Qwen/Qwen3-Embedding-0.6B"
@@ -219,6 +223,58 @@ func loadConfig() (applicationConfig, error) {
 	return config, nil
 }
 
+func loadExtractionConfig(config *applicationConfig) error {
+	var err error
+	if config.extractionCompactionEnabled, err = boolEnvironment("TEAM_MEMORY_EXTRACTION_COMPACTION_ENABLED", false); err != nil {
+		return err
+	}
+	if config.extractionSummaryEnabled, err = boolEnvironment("TEAM_MEMORY_EXTRACTION_SUMMARY_ENABLED", true); err != nil {
+		return err
+	}
+	if config.extractionCompactionEnabled && config.extractionSummaryEnabled {
+		return fmt.Errorf("TEAM_MEMORY_EXTRACTION_COMPACTION_ENABLED and TEAM_MEMORY_EXTRACTION_SUMMARY_ENABLED cannot both be true")
+	}
+	if config.sliceEventLimit, err = intEnvironment("TEAM_MEMORY_SLICE_EVENT_LIMIT", 25); err != nil {
+		return err
+	}
+	if config.sliceTokenLimit, err = intEnvironment("TEAM_MEMORY_SLICE_TOKEN_LIMIT", 8192); err != nil {
+		return err
+	}
+	if config.sliceOverlap, err = intEnvironment("TEAM_MEMORY_SLICE_OVERLAP", 3); err != nil {
+		return err
+	}
+	if config.maxSlicesPerJob, err = intEnvironment("TEAM_MEMORY_MAX_SLICES_PER_JOB", 4); err != nil {
+		return err
+	}
+	if config.extractionCompactStartTokens, err = intEnvironment("TEAM_MEMORY_EXTRACTION_COMPACT_START_TOKENS", 12*1024); err != nil {
+		return err
+	}
+	config.extractionCompactTokens, err = intEnvironment("TEAM_MEMORY_EXTRACTION_COMPACT_TOKENS", 16*1024)
+	if err != nil {
+		return err
+	}
+	if config.extractionCompactStartTokens > config.extractionCompactTokens {
+		return fmt.Errorf("TEAM_MEMORY_EXTRACTION_COMPACT_START_TOKENS cannot exceed TEAM_MEMORY_EXTRACTION_COMPACT_TOKENS")
+	}
+	if config.extractionSummaryTriggerTokens, err = intEnvironment("TEAM_MEMORY_EXTRACTION_SUMMARY_TRIGGER_TOKENS", 8*1024); err != nil {
+		return err
+	}
+	config.extractionSummaryTailTokens, err = intEnvironment("TEAM_MEMORY_EXTRACTION_SUMMARY_TAIL_TOKENS", 16*1024)
+	return err
+}
+
+func boolEnvironment(name string, fallback bool) (bool, error) {
+	value := os.Getenv(name)
+	if value == "" {
+		return fallback, nil
+	}
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		return false, fmt.Errorf("%s must be a boolean: %w", name, err)
+	}
+	return parsed, nil
+}
+
 func loadRetrievalConfig(config *applicationConfig) error {
 	var err error
 	if config.embeddingTimeout, err = durationEnvironment("TEAM_MEMORY_EMBEDDING_TIMEOUT", 10*time.Second); err != nil {
@@ -227,7 +283,7 @@ func loadRetrievalConfig(config *applicationConfig) error {
 	if config.retrievalCandidateLimit, err = intEnvironment("TEAM_MEMORY_RETRIEVAL_CANDIDATE_LIMIT", 16); err != nil {
 		return err
 	}
-	if config.semanticThreshold, err = floatEnvironment("TEAM_MEMORY_SEMANTIC_THRESHOLD", 0.65); err != nil {
+	if config.semanticThreshold, err = floatEnvironment("TEAM_MEMORY_SEMANTIC_THRESHOLD", 0.50); err != nil {
 		return err
 	}
 	return nil
@@ -278,7 +334,11 @@ func durationEnvironment(name string, fallback time.Duration) (time.Duration, er
 	return parsed, nil
 }
 
-func buildExtractor(config applicationConfig) (extractor.Extractor, error) {
+func buildExtractor(config applicationConfig, stores ...extractor.EpisodeStore) (extractor.Extractor, error) {
+	var episodes extractor.EpisodeStore
+	if len(stores) > 0 {
+		episodes = stores[0]
+	}
 	switch config.extractorMode {
 	case "noop":
 		return extractor.Noop{}, nil
@@ -286,6 +346,13 @@ func buildExtractor(config applicationConfig) (extractor.Extractor, error) {
 		return extractor.NewOpenAI(extractor.OpenAIConfig{
 			BaseURL: config.extractorBaseURL, APIKey: config.extractorAPIKey, Model: config.extractorModel,
 			PromptVersion: config.promptVersion, Client: &http.Client{},
+			ContextMode: extractor.ContextMode(config.extractionContextMode), EpisodeStore: episodes,
+			ExtractionVersion:  config.extractionVersion,
+			CompactionEnabled:  config.extractionCompactionEnabled,
+			CompactStartTokens: config.extractionCompactStartTokens, CompactTokens: config.extractionCompactTokens,
+			SummaryEnabled:       config.extractionSummaryEnabled,
+			SummaryTriggerTokens: config.extractionSummaryTriggerTokens,
+			SummaryTailTokens:    config.extractionSummaryTailTokens,
 		})
 	default:
 		return nil, fmt.Errorf("unsupported extractor mode %q", config.extractorMode)

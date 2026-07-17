@@ -137,6 +137,25 @@ func (s *appSuite) TestProcessExtractionCommitsZeroCandidateRunProvenance() {
 	s.Empty(run.Candidates)
 }
 
+func (s *appSuite) TestExtractionV2UsesProtocolScopedRunIdentity() {
+	store := newRecordingNoteStore()
+	app, err := teamruntime.New(sessionlake.New(s.repository), s.extractor, teamruntime.Config{NoteStore: store})
+	s.Require().NoError(err)
+	ctx := teamnote.WithScope(context.Background(), "scope-v2-run")
+	actor := teamnote.Actor{UserID: "owner", AgentID: "producer", SessionID: "producer-session"}
+	event := runtimeEvent("event-v2-run", actor)
+	s.extractor.result = extractor.Result{ExtractionVersion: extractor.ExtractionVersionV2}
+	_, err = app.ObserveSession(ctx, teamnote.SessionBatch{Events: []teamnote.SessionEvent{event}, Complete: true})
+	s.Require().NoError(err)
+
+	more, err := app.ProcessExtraction(ctx, actor, 1, false)
+	s.Require().NoError(err)
+	s.False(more)
+	s.Require().Len(store.runs, 1)
+	run := store.runs[0]
+	s.Equal(run.InputChecksum+":"+extractor.ExtractionVersionV2, run.ID)
+}
+
 func (s *appSuite) TestTimeoutJobSkipsWhenSessionHasAdvanced() {
 	ctx := teamnote.WithScope(context.Background(), "scope-timeout")
 	actor := teamnote.Actor{UserID: "owner", AgentID: "producer", SessionID: "producer-session"}
@@ -157,6 +176,75 @@ func (s *appSuite) TestTimeoutJobSkipsWhenSessionHasAdvanced() {
 	s.Require().NoError(err)
 	s.False(more)
 	s.Equal(1, s.extractor.calls)
+}
+
+func (s *appSuite) TestProcessExtractionFiltersInadmissibleCandidates() {
+	store := newRecordingNoteStore()
+	app, err := teamruntime.New(sessionlake.New(s.repository), s.extractor, teamruntime.Config{NoteStore: store})
+	s.Require().NoError(err)
+	ctx := teamnote.WithScope(context.Background(), "scope-filter")
+	actor := teamnote.Actor{UserID: "owner", AgentID: "producer", SessionID: "producer-session"}
+	event := runtimeEvent("event-filter", actor)
+	s.extractor.result = extractor.Result{Candidates: []teamnote.Candidate{
+		{
+			ID: "candidate-valid", Action: teamnote.ActionCreate, Kind: teamnote.KindStatus,
+			Subject: "release", Body: "Tests are failing.", TaskRef: "release-42",
+			Origin: actor, EvidenceEventIDs: []string{event.ID},
+		},
+		{
+			ID: "candidate-unknown-kind", Action: teamnote.ActionCreate, Kind: "decision",
+			Subject: "release decision", Body: "Ship it.", TaskRef: "release-42",
+			Origin: actor, EvidenceEventIDs: []string{event.ID},
+		},
+	}}
+	_, err = app.ObserveSession(ctx, teamnote.SessionBatch{Events: []teamnote.SessionEvent{event}, Complete: true})
+	s.Require().NoError(err)
+
+	more, err := app.ProcessExtraction(ctx, actor, 1, false)
+	s.Require().NoError(err)
+	s.False(more)
+	s.Require().Len(store.runs, 1)
+	run := store.runs[0]
+	s.Require().Len(run.Candidates, 1)
+	s.Equal("candidate-valid", run.Candidates[0].ID)
+	s.Require().Len(run.Rejections, 1)
+	s.Equal("candidate-unknown-kind", run.Rejections[0].Candidate.ID)
+	s.Contains(run.Rejections[0].Reason, "kind")
+
+	envelope, err := app.RecallNotes(ctx, teamnote.RecallRequest{
+		Actor:   teamnote.Actor{UserID: "owner", AgentID: "consumer", SessionID: "consumer-session"},
+		TaskRef: "release-42", TokenBudget: 256,
+	})
+	s.Require().NoError(err)
+	s.Equal([]string{"[status certainty=confirmed] Tests are failing."}, envelope.Items)
+}
+
+func (s *appSuite) TestProcessExtractionCommitsQuarantinedRun() {
+	app := s.app
+	ctx := teamnote.WithScope(context.Background(), "scope-quarantine")
+	actor := teamnote.Actor{UserID: "owner", AgentID: "producer", SessionID: "producer-session"}
+	event := runtimeEvent("event-quarantine", actor)
+	s.extractor.result = extractor.Result{Candidates: []teamnote.Candidate{{
+		ID: "candidate-missing-resolve", Action: teamnote.ActionResolve, Kind: teamnote.KindStatus,
+		Subject: "never created", TaskRef: "release-42",
+		Origin: actor, EvidenceEventIDs: []string{event.ID},
+	}}}
+	_, err := app.ObserveSession(ctx, teamnote.SessionBatch{Events: []teamnote.SessionEvent{event}, Complete: true})
+	s.Require().NoError(err)
+
+	more, err := app.ProcessExtraction(ctx, actor, 1, false)
+	s.Require().NoError(err)
+	s.False(more)
+	s.Equal(int64(1), s.repository.cursors[runtimeStreamKey("scope-quarantine", actor)])
+	s.Contains(s.logs.String(), `"msg":"extraction run quarantined"`)
+	s.Contains(s.logs.String(), `"quarantined":true`)
+
+	envelope, err := app.RecallNotes(ctx, teamnote.RecallRequest{
+		Actor:   teamnote.Actor{UserID: "owner", AgentID: "consumer", SessionID: "consumer-session"},
+		TaskRef: "release-42", TokenBudget: 256,
+	})
+	s.Require().NoError(err)
+	s.Empty(envelope.Items)
 }
 
 func (s *appSuite) TestCompleteJobStopsAtCapturedBatchCursor() {

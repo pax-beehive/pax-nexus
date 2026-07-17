@@ -2,10 +2,12 @@ package extractor_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -77,10 +79,6 @@ func (s *openAISuite) TestModelCannotAssignAudienceIdentity() {
 }
 
 func (s *openAISuite) TestRejectsInvalidResponses() {
-	tooMany := make([]string, 11)
-	for index := range tooMany {
-		tooMany[index] = fmt.Sprintf(`{"action":"create","kind":"status","subject":"subject-%d","body":"body","evidence_event_ids":["event-1"]}`, index)
-	}
 	tests := []struct {
 		name   string
 		status int
@@ -89,9 +87,6 @@ func (s *openAISuite) TestRejectsInvalidResponses() {
 		{name: "model error", status: http.StatusBadGateway, body: "upstream failed"},
 		{name: "malformed envelope", status: http.StatusOK, body: "not-json"},
 		{name: "malformed candidates", status: http.StatusOK, body: `{"choices":[{"message":{"content":"not-json"}}]}`},
-		{name: "missing required candidate fields", status: http.StatusOK, body: `{"choices":[{"message":{"content":"{\"candidates\":[{\"action\":\"create\",\"kind\":\"status\",\"description\":\"value\",\"citations\":[\"event-1\"]}]}"}}]}`},
-		{name: "unknown evidence", status: http.StatusOK, body: `{"choices":[{"message":{"content":"{\"candidates\":[{\"action\":\"create\",\"kind\":\"status\",\"subject\":\"release\",\"body\":\"body\",\"evidence_event_ids\":[\"unknown\"]}]}"}}]}`},
-		{name: "too many candidates", status: http.StatusOK, body: `{"choices":[{"message":{"content":` + fmt.Sprintf("%q", `{"candidates":[`+strings.Join(tooMany, ",")+`]}`) + `}}]}`},
 	}
 
 	for _, test := range tests {
@@ -107,6 +102,40 @@ func (s *openAISuite) TestRejectsInvalidResponses() {
 	}
 }
 
+func (s *openAISuite) TestDropsInadmissibleCandidatesWithRejections() {
+	tooMany := make([]string, 11)
+	for index := range tooMany {
+		tooMany[index] = fmt.Sprintf(`{"action":"create","kind":"status","subject":"subject-%d","body":"body","evidence_event_ids":["event-1"]}`, index)
+	}
+	tests := []struct {
+		name          string
+		body          string
+		wantKept      int
+		wantRejection string
+	}{
+		{name: "missing required candidate fields", wantKept: 0, wantRejection: "missing subject",
+			body: `{"choices":[{"message":{"content":"{\"candidates\":[{\"action\":\"create\",\"kind\":\"status\",\"description\":\"value\",\"citations\":[\"event-1\"]}]}"}}]}`},
+		{name: "unknown evidence", wantKept: 0, wantRejection: "cites unknown event",
+			body: `{"choices":[{"message":{"content":"{\"candidates\":[{\"action\":\"create\",\"kind\":\"status\",\"subject\":\"release\",\"body\":\"body\",\"evidence_event_ids\":[\"unknown\"]}]}"}}]}`},
+		{name: "too many candidates", wantKept: 10, wantRejection: "overflow",
+			body: `{"choices":[{"message":{"content":` + fmt.Sprintf("%q", `{"candidates":[`+strings.Join(tooMany, ",")+`]}`) + `}}]}`},
+	}
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			client := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+				return response(http.StatusOK, test.body), nil
+			})}
+			adapter, err := extractor.NewOpenAI(extractor.OpenAIConfig{BaseURL: "http://extractor.test", Model: "model", Client: client})
+			s.Require().NoError(err)
+			result, err := adapter.Extract(context.Background(), extractorSlice())
+			s.Require().NoError(err)
+			s.Len(result.Candidates, test.wantKept)
+			s.Require().NotEmpty(result.Rejections)
+			s.Contains(result.Rejections[0].Reason, test.wantRejection)
+		})
+	}
+}
+
 func (s *openAISuite) TestRejectsCandidateGroundedOnlyInOverlap() {
 	slice := extractorSlice()
 	slice.Events = append([]teamnote.SessionEvent{{ID: "event-0", Actor: slice.Actor, Sequence: 0, Type: "assistant", Content: "old"}}, slice.Events...)
@@ -116,8 +145,11 @@ func (s *openAISuite) TestRejectsCandidateGroundedOnlyInOverlap() {
 	})}
 	adapter, err := extractor.NewOpenAI(extractor.OpenAIConfig{BaseURL: "http://extractor.test", Model: "model", Client: client})
 	s.Require().NoError(err)
-	_, err = adapter.Extract(context.Background(), slice)
-	s.Require().ErrorIs(err, extractor.ErrInvalidModelResponse)
+	result, err := adapter.Extract(context.Background(), slice)
+	s.Require().NoError(err)
+	s.Empty(result.Candidates)
+	s.Require().Len(result.Rejections, 1)
+	s.Contains(result.Rejections[0].Reason, "cites only overlap events")
 }
 
 func (s *openAISuite) TestFixtureNoopAndCodeFence() {
@@ -163,7 +195,453 @@ func (s *openAISuite) TestRejectsInvalidConfiguration() {
 	}
 }
 
+func (s *openAISuite) TestRollingContextCarriesKnowledgeAcrossSessions() {
+	store := newMemoryEpisodeStore()
+	var requests []string
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		body, err := io.ReadAll(request.Body)
+		s.Require().NoError(err)
+		requests = append(requests, string(body))
+		eventID := "event-1"
+		action := "create"
+		if strings.Contains(string(body), "event-2") {
+			eventID = "event-2"
+			action = "update"
+		}
+		content := fmt.Sprintf(`{"candidates":[{"action":%q,"kind":"status","subject":"release date","identity_ref":"decision/release-date","body":"Current release state.","evidence_event_ids":[%q]}]}`, action, eventID)
+		return response(http.StatusOK, fmt.Sprintf(`{"choices":[{"message":{"content":%q}}],"usage":{"prompt_tokens":120,"completion_tokens":20,"prompt_cache_hit_tokens":80,"prompt_cache_miss_tokens":40}}`, content)), nil
+	})}
+	adapter, err := extractor.NewOpenAI(extractor.OpenAIConfig{
+		BaseURL: "http://extractor.test", Model: "model", Client: client,
+		ContextMode: extractor.ContextModeRolling, EpisodeStore: store,
+		CompactStartTokens: 10_000, CompactTokens: 10_000,
+	})
+	s.Require().NoError(err)
+	ctx := teamnote.WithScope(context.Background(), "scope-a")
+	first := extractorSlice()
+	_, err = adapter.Extract(ctx, first)
+	s.Require().NoError(err)
+
+	second := extractorSlice()
+	second.Actor = teamnote.Actor{UserID: "owner", AgentID: "reviewer", SessionID: "session-2"}
+	second.InputChecksum = "checksum-2"
+	second.NewEventIDs = []string{"event-2"}
+	second.Events[0].ID = "event-2"
+	second.Events[0].Actor = second.Actor
+	result, err := adapter.Extract(ctx, second)
+	s.Require().NoError(err)
+	s.Require().Len(result.Candidates, 1)
+	s.Equal(teamnote.ActionUpdate, result.Candidates[0].Action)
+	s.Equal("decision/release-date", result.Candidates[0].IdentityRef)
+	s.Len(requests, 2)
+	s.Contains(requests[1], "event-1")
+	s.Contains(requests[1], "decision/release-date")
+	s.Equal(80, result.Usage.PromptCacheHitTokens)
+
+	episode, ok, err := store.LoadEpisode(ctx, extractor.EpisodeKey{ScopeID: "scope-a", TaskRef: "release-42"})
+	s.Require().NoError(err)
+	s.True(ok)
+	s.Equal(2, episode.EventCount)
+	s.Equal(int64(1), episode.Checkpoint.SourceCursors["owner/producer/session-1"])
+	s.Equal(int64(1), episode.Checkpoint.SourceCursors["owner/reviewer/session-2"])
+}
+
+func (s *openAISuite) TestRollingContextKeepsCurrentEvidenceWhenModelAlsoCitesHistory() {
+	store := newMemoryEpisodeStore()
+	var calls atomic.Int32
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		body, err := io.ReadAll(request.Body)
+		s.Require().NoError(err)
+		calls.Add(1)
+		evidence := `"event-1"`
+		if strings.Contains(string(body), "event-2") {
+			evidence = `"event-1","event-2"`
+		}
+		content := fmt.Sprintf(`{"candidates":[{"action":"create","kind":"status","subject":"release","body":"Release state.","evidence_event_ids":[%s]}]}`, evidence)
+		return response(http.StatusOK, fmt.Sprintf(`{"choices":[{"message":{"content":%q}}]}`, content)), nil
+	})}
+	adapter, err := extractor.NewOpenAI(extractor.OpenAIConfig{
+		BaseURL: "http://extractor.test", Model: "model", Client: client,
+		ContextMode: extractor.ContextModeRolling, EpisodeStore: store,
+	})
+	s.Require().NoError(err)
+	ctx := teamnote.WithScope(context.Background(), "scope-history-evidence")
+	_, err = adapter.Extract(ctx, extractionEventSlice("event-1", "checksum-1", 1))
+	s.Require().NoError(err)
+
+	second := extractionEventSlice("event-2", "checksum-2", 2)
+	result, err := adapter.Extract(ctx, second)
+	s.Require().NoError(err)
+	s.Require().Len(result.Candidates, 1)
+	s.Equal([]string{"event-2"}, result.Candidates[0].EvidenceEventIDs)
+
+	replayed, err := adapter.Extract(ctx, second)
+	s.Require().NoError(err)
+	s.Equal(result.Candidates, replayed.Candidates)
+	s.Equal(int32(2), calls.Load())
+}
+
+func (s *openAISuite) TestRollingContextRejectsUnknownEvidenceAlongsideCurrentEvent() {
+	store := newMemoryEpisodeStore()
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		body, err := io.ReadAll(request.Body)
+		s.Require().NoError(err)
+		evidence := `"event-1"`
+		if strings.Contains(string(body), "event-2") {
+			evidence = `"unknown","event-2"`
+		}
+		content := fmt.Sprintf(`{"candidates":[{"action":"create","kind":"status","subject":"release","body":"Release state.","evidence_event_ids":[%s]}]}`, evidence)
+		return response(http.StatusOK, fmt.Sprintf(`{"choices":[{"message":{"content":%q}}]}`, content)), nil
+	})}
+	adapter, err := extractor.NewOpenAI(extractor.OpenAIConfig{
+		BaseURL: "http://extractor.test", Model: "model", Client: client,
+		ContextMode: extractor.ContextModeRolling, EpisodeStore: store,
+	})
+	s.Require().NoError(err)
+	ctx := teamnote.WithScope(context.Background(), "scope-unknown-evidence")
+	_, err = adapter.Extract(ctx, extractionEventSlice("event-1", "checksum-1", 1))
+	s.Require().NoError(err)
+	result, err := adapter.Extract(ctx, extractionEventSlice("event-2", "checksum-2", 2))
+	s.Require().NoError(err)
+	s.Empty(result.Candidates)
+	s.Require().Len(result.Rejections, 1)
+	s.Contains(result.Rejections[0].Reason, "cites unknown event")
+}
+
+func (s *openAISuite) TestRollingContextCompactsIntoStructuredCheckpoint() {
+	store := newMemoryEpisodeStore()
+	calls := 0
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		body, err := io.ReadAll(request.Body)
+		s.Require().NoError(err)
+		calls++
+		if strings.Contains(string(body), "KNOWLEDGE CONTEXT CHECKPOINT COMPACTION") {
+			checkpoint := `{"active_knowledge":[{"memory_id":"decision/release-date","kind":"status","subject":"release date","body":"Release is July 22.","evidence_event_ids":["event-1"]}],"resolved_knowledge":[],"open_questions":[],"evidence_index":{"decision/release-date":["event-1"]},"source_cursors":{}}`
+			return response(http.StatusOK, fmt.Sprintf(`{"choices":[{"message":{"content":%q}}],"usage":{"prompt_tokens":200,"completion_tokens":30}}`, checkpoint)), nil
+		}
+		eventID := "event-1"
+		if strings.Contains(string(body), "event-2") {
+			eventID = "event-2"
+			s.Contains(string(body), "checkpoint_loaded")
+			s.Contains(string(body), "decision/release-date")
+		}
+		content := fmt.Sprintf(`{"candidates":[{"action":"create","kind":"status","subject":"release date","identity_ref":"decision/release-date","body":"Release state.","evidence_event_ids":[%q]}]}`, eventID)
+		return response(http.StatusOK, fmt.Sprintf(`{"choices":[{"message":{"content":%q}}],"usage":{"prompt_tokens":100,"completion_tokens":10}}`, content)), nil
+	})}
+	adapter, err := extractor.NewOpenAI(extractor.OpenAIConfig{
+		BaseURL: "http://extractor.test", Model: "model", Client: client,
+		ContextMode: extractor.ContextModeRolling, EpisodeStore: store,
+		CompactionEnabled:  true,
+		CompactStartTokens: 1, CompactTokens: 1,
+	})
+	s.Require().NoError(err)
+	ctx := teamnote.WithScope(context.Background(), "scope-a")
+	_, err = adapter.Extract(ctx, extractorSlice())
+	s.Require().NoError(err)
+	second := extractorSlice()
+	second.InputChecksum = "checksum-2"
+	second.NewEventIDs = []string{"event-2"}
+	second.Events[0].ID = "event-2"
+	result, err := adapter.Extract(ctx, second)
+	s.Require().NoError(err)
+	s.Equal(3, calls)
+	s.Equal(300, result.Usage.InputTokens)
+	episode, ok, err := store.LoadEpisode(ctx, extractor.EpisodeKey{ScopeID: "scope-a", TaskRef: "release-42"})
+	s.Require().NoError(err)
+	s.True(ok)
+	s.Equal(1, episode.CompactionCount)
+	s.Require().Len(episode.Checkpoint.ActiveKnowledge, 1)
+	s.Equal("decision/release-date", episode.Checkpoint.ActiveKnowledge[0].MemoryID)
+}
+
+func (s *openAISuite) TestRollingContextReplaysSavedRunWithoutCallingModel() {
+	store := newMemoryEpisodeStore()
+	calls := 0
+	client := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		calls++
+		content := `{"candidates":[{"action":"create","kind":"status","subject":"release","identity_ref":"decision/release","body":"Release is ready.","evidence_event_ids":["event-1"]}]}`
+		return response(http.StatusOK, fmt.Sprintf(`{"choices":[{"message":{"content":%q}}]}`, content)), nil
+	})}
+	adapter, err := extractor.NewOpenAI(extractor.OpenAIConfig{
+		BaseURL: "http://extractor.test", Model: "model", Client: client,
+		ContextMode: extractor.ContextModeRolling, EpisodeStore: store,
+	})
+	s.Require().NoError(err)
+	ctx := teamnote.WithScope(context.Background(), "scope-replay")
+	slice := extractorSlice()
+	first, err := adapter.Extract(ctx, slice)
+	s.Require().NoError(err)
+	second, err := adapter.Extract(ctx, slice)
+	s.Require().NoError(err)
+	s.Equal(1, calls)
+	s.Equal(first.Candidates, second.Candidates)
+	s.Zero(second.Usage.InputTokens)
+}
+
+func (s *openAISuite) TestRollingContextDoesNotCompactWhenDisabled() {
+	store := newMemoryEpisodeStore()
+	var calls atomic.Int32
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		body, err := io.ReadAll(request.Body)
+		s.Require().NoError(err)
+		s.NotContains(string(body), "KNOWLEDGE CONTEXT CHECKPOINT COMPACTION")
+		calls.Add(1)
+		eventID := "event-1"
+		if strings.Contains(string(body), "event-2") {
+			eventID = "event-2"
+		}
+		content := fmt.Sprintf(`{"candidates":[{"action":"create","kind":"status","subject":"release","body":"Release state.","evidence_event_ids":[%q]}]}`, eventID)
+		return response(http.StatusOK, fmt.Sprintf(`{"choices":[{"message":{"content":%q}}],"usage":{"prompt_tokens":100,"completion_tokens":10}}`, content)), nil
+	})}
+	adapter, err := extractor.NewOpenAI(extractor.OpenAIConfig{
+		BaseURL: "http://extractor.test", Model: "model", Client: client,
+		ContextMode: extractor.ContextModeRolling, EpisodeStore: store,
+		CompactStartTokens: 1, CompactTokens: 1,
+	})
+	s.Require().NoError(err)
+	ctx := teamnote.WithScope(context.Background(), "scope-no-compaction")
+	_, err = adapter.Extract(ctx, extractionEventSlice("event-1", "checksum-1", 1))
+	s.Require().NoError(err)
+	_, err = adapter.Extract(ctx, extractionEventSlice("event-2", "checksum-2", 2))
+	s.Require().NoError(err)
+	s.Equal(int32(2), calls.Load())
+
+	episode, ok, err := store.LoadEpisode(ctx, extractor.EpisodeKey{ScopeID: "scope-no-compaction", TaskRef: "release-42"})
+	s.Require().NoError(err)
+	s.True(ok)
+	s.Zero(episode.CompactionCount)
+	s.Greater(episode.EstimatedTokens, 1)
+}
+
+func (s *openAISuite) TestRollingSummaryRunsAsynchronouslyAndKeepsRecentTail() {
+	store := newMemoryEpisodeStore()
+	summaryStarted := make(chan struct{})
+	releaseSummary := make(chan struct{})
+	summaryReturned := make(chan struct{})
+	var summaryCalls atomic.Int32
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		body, err := io.ReadAll(request.Body)
+		s.Require().NoError(err)
+		if strings.Contains(string(body), "Update the rolling continuity summary") {
+			if summaryCalls.Add(1) == 1 {
+				close(summaryStarted)
+				<-releaseSummary
+				close(summaryReturned)
+			}
+			content := `{"summary":"Release remains planned; event-1 established the initial state."}`
+			return response(http.StatusOK, fmt.Sprintf(`{"choices":[{"message":{"content":%q}}],"usage":{"prompt_tokens":40,"completion_tokens":10}}`, content)), nil
+		}
+		eventID := "event-1"
+		for _, candidate := range []string{"event-2", "event-3"} {
+			if strings.Contains(string(body), candidate) {
+				eventID = candidate
+			}
+		}
+		if eventID == "event-3" {
+			s.Contains(string(body), "Release remains planned")
+			s.Contains(string(body), "event-2")
+		}
+		content := fmt.Sprintf(`{"candidates":[{"action":"create","kind":"status","subject":"release","body":"Release state.","evidence_event_ids":[%q]}]}`, eventID)
+		return response(http.StatusOK, fmt.Sprintf(`{"choices":[{"message":{"content":%q}}],"usage":{"prompt_tokens":100,"completion_tokens":10}}`, content)), nil
+	})}
+	adapter, err := extractor.NewOpenAI(extractor.OpenAIConfig{
+		BaseURL: "http://extractor.test", Model: "model", Client: client,
+		ContextMode: extractor.ContextModeRolling, EpisodeStore: store,
+		SummaryEnabled: true, SummaryTriggerTokens: 1, SummaryTailTokens: 1,
+	})
+	s.Require().NoError(err)
+	ctx := teamnote.WithScope(context.Background(), "scope-summary")
+	_, err = adapter.Extract(ctx, extractionEventSlice("event-1", "checksum-1", 1))
+	s.Require().NoError(err)
+	select {
+	case <-summaryStarted:
+	case <-time.After(time.Second):
+		s.FailNow("periodic summary did not start")
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		_, extractErr := adapter.Extract(ctx, extractionEventSlice("event-2", "checksum-2", 2))
+		done <- extractErr
+	}()
+	select {
+	case extractErr := <-done:
+		s.Require().NoError(extractErr)
+	case <-time.After(time.Second):
+		s.FailNow("extraction waited for periodic summary")
+	}
+	close(releaseSummary)
+	<-summaryReturned
+	time.Sleep(20 * time.Millisecond)
+
+	_, err = adapter.Extract(ctx, extractionEventSlice("event-3", "checksum-3", 3))
+	s.Require().NoError(err)
+	episode, ok, err := store.LoadEpisode(ctx, extractor.EpisodeKey{ScopeID: "scope-summary", TaskRef: "release-42"})
+	s.Require().NoError(err)
+	s.True(ok)
+	s.Equal(1, episode.Checkpoint.SummaryCount)
+	s.Equal(1, episode.Checkpoint.SummaryAttempts)
+	s.Zero(episode.Checkpoint.SummaryFailures)
+	s.NotEmpty(episode.Checkpoint.Summary)
+}
+
+func (s *openAISuite) TestRollingSummaryFailureDoesNotBlockExtraction() {
+	store := newMemoryEpisodeStore()
+	summaryReturned := make(chan struct{})
+	var summaryCalls atomic.Int32
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		body, err := io.ReadAll(request.Body)
+		s.Require().NoError(err)
+		if strings.Contains(string(body), "Update the rolling continuity summary") {
+			if summaryCalls.Add(1) == 1 {
+				close(summaryReturned)
+			}
+			return response(http.StatusOK, `{"choices":[{"message":{"content":"{\"wrong\":true}"}}]}`), nil
+		}
+		eventID := "event-1"
+		if strings.Contains(string(body), "event-2") {
+			eventID = "event-2"
+		}
+		content := fmt.Sprintf(`{"candidates":[{"action":"create","kind":"status","subject":"release","body":"Release state.","evidence_event_ids":[%q]}]}`, eventID)
+		return response(http.StatusOK, fmt.Sprintf(`{"choices":[{"message":{"content":%q}}],"usage":{"prompt_tokens":100,"completion_tokens":10}}`, content)), nil
+	})}
+	adapter, err := extractor.NewOpenAI(extractor.OpenAIConfig{
+		BaseURL: "http://extractor.test", Model: "model", Client: client,
+		ContextMode: extractor.ContextModeRolling, EpisodeStore: store,
+		SummaryEnabled: true, SummaryTriggerTokens: 1, SummaryTailTokens: 1,
+	})
+	s.Require().NoError(err)
+	ctx := teamnote.WithScope(context.Background(), "scope-summary-failure")
+	_, err = adapter.Extract(ctx, extractionEventSlice("event-1", "checksum-1", 1))
+	s.Require().NoError(err)
+	<-summaryReturned
+	time.Sleep(20 * time.Millisecond)
+	_, err = adapter.Extract(ctx, extractionEventSlice("event-2", "checksum-2", 2))
+	s.Require().NoError(err)
+
+	episode, ok, err := store.LoadEpisode(ctx, extractor.EpisodeKey{ScopeID: "scope-summary-failure", TaskRef: "release-42"})
+	s.Require().NoError(err)
+	s.True(ok)
+	s.Equal(1, episode.Checkpoint.SummaryAttempts)
+	s.Equal(1, episode.Checkpoint.SummaryFailures)
+	s.NotEmpty(episode.Checkpoint.SummaryLastError)
+}
+
+func (s *openAISuite) TestRollingContextCompactsAsynchronouslyAndWaitsAtHardLimit() {
+	store := newMemoryEpisodeStore()
+	compactionStarted := make(chan struct{})
+	releaseCompaction := make(chan struct{})
+	var calls atomic.Int32
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		body, err := io.ReadAll(request.Body)
+		s.Require().NoError(err)
+		calls.Add(1)
+		if strings.Contains(string(body), "KNOWLEDGE CONTEXT CHECKPOINT COMPACTION") {
+			close(compactionStarted)
+			<-releaseCompaction
+			checkpoint := `{"active_knowledge":[{"memory_id":"decision/release","kind":"status","subject":"release","body":"Release is planned.","evidence_event_ids":["event-1"]}],"resolved_knowledge":[],"open_questions":[],"evidence_index":{"decision/release":["event-1"]},"source_cursors":{}}`
+			return response(http.StatusOK, fmt.Sprintf(`{"choices":[{"message":{"content":%q}}],"usage":{"prompt_tokens":300,"completion_tokens":30}}`, checkpoint)), nil
+		}
+		eventID, promptTokens := "event-1", 30
+		if strings.Contains(string(body), "event-2") {
+			eventID, promptTokens = "event-2", 490
+		}
+		if strings.Contains(string(body), "event-3") {
+			eventID, promptTokens = "event-3", 20
+			s.Contains(string(body), "checkpoint_loaded")
+			s.Contains(string(body), "event-2")
+		}
+		content := fmt.Sprintf(`{"candidates":[{"action":"create","kind":"status","subject":"release","identity_ref":"decision/release","body":"Release state.","evidence_event_ids":[%q]}]}`, eventID)
+		return response(http.StatusOK, fmt.Sprintf(`{"choices":[{"message":{"content":%q}}],"usage":{"prompt_tokens":%d,"completion_tokens":10}}`, content, promptTokens)), nil
+	})}
+	adapter, err := extractor.NewOpenAI(extractor.OpenAIConfig{
+		BaseURL: "http://extractor.test", Model: "model", Client: client,
+		ContextMode: extractor.ContextModeRolling, EpisodeStore: store,
+		CompactionEnabled:  true,
+		CompactStartTokens: 40, CompactTokens: 500,
+	})
+	s.Require().NoError(err)
+	ctx := teamnote.WithScope(context.Background(), "scope-async")
+	_, err = adapter.Extract(ctx, extractionEventSlice("event-1", "checksum-1", 1))
+	s.Require().NoError(err)
+	select {
+	case <-compactionStarted:
+	case <-time.After(time.Second):
+		s.FailNow("asynchronous compaction did not start")
+	}
+
+	_, err = adapter.Extract(ctx, extractionEventSlice("event-2", "checksum-2", 2))
+	s.Require().NoError(err, "soft-limit extraction should not wait for compaction")
+
+	type extractionOutcome struct {
+		result extractor.Result
+		err    error
+	}
+	done := make(chan extractionOutcome, 1)
+	go func() {
+		result, extractErr := adapter.Extract(ctx, extractionEventSlice("event-3", "checksum-3", 3))
+		done <- extractionOutcome{result: result, err: extractErr}
+	}()
+	select {
+	case <-done:
+		s.FailNow("hard-limit extraction did not wait for compaction")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(releaseCompaction)
+	select {
+	case outcome := <-done:
+		s.Require().NoError(outcome.err)
+		s.Require().Len(outcome.result.Candidates, 1)
+		s.Equal("event-3", outcome.result.Candidates[0].EvidenceEventIDs[0])
+	case <-time.After(time.Second):
+		s.FailNow("hard-limit extraction did not resume")
+	}
+	s.Equal(int32(4), calls.Load())
+
+	episode, ok, err := store.LoadEpisode(ctx, extractor.EpisodeKey{ScopeID: "scope-async", TaskRef: "release-42"})
+	s.Require().NoError(err)
+	s.True(ok)
+	s.Equal(1, episode.CompactionCount)
+	s.Require().Len(episode.Messages, 4)
+	s.Contains(episode.Messages[0].Content, "event-2")
+	s.Contains(episode.Messages[2].Content, "event-3")
+}
+
 type roundTripFunc func(*http.Request) (*http.Response, error)
+
+type memoryEpisodeStore struct {
+	episodes map[extractor.EpisodeKey]extractor.Episode
+}
+
+func newMemoryEpisodeStore() *memoryEpisodeStore {
+	return &memoryEpisodeStore{episodes: make(map[extractor.EpisodeKey]extractor.Episode)}
+}
+
+func (s *memoryEpisodeStore) LoadEpisode(_ context.Context, key extractor.EpisodeKey) (extractor.Episode, bool, error) {
+	episode, ok := s.episodes[key]
+	if !ok {
+		return extractor.Episode{Key: key}, false, nil
+	}
+	return episode, ok, nil
+}
+
+func (s *memoryEpisodeStore) SaveEpisode(_ context.Context, episode extractor.Episode, expectedVersion int64) error {
+	current, ok := s.episodes[episode.Key]
+	if (!ok && expectedVersion != 0) || (ok && current.Version != expectedVersion) {
+		return extractor.ErrEpisodeConflict
+	}
+	episode.Version = expectedVersion + 1
+	encoded, err := json.Marshal(episode)
+	if err != nil {
+		return err
+	}
+	var copied extractor.Episode
+	if err := json.Unmarshal(encoded, &copied); err != nil {
+		return err
+	}
+	s.episodes[episode.Key] = copied
+	return nil
+}
 
 func (function roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
 	return function(request)
@@ -187,4 +665,15 @@ func extractorSlice() sessionlake.Slice {
 			Content: "Tests are failing.", TaskRef: "release-42", OccurredAt: time.Now().UTC(),
 		}},
 	}
+}
+
+func extractionEventSlice(eventID, checksum string, sequence int64) sessionlake.Slice {
+	slice := extractorSlice()
+	slice.InputChecksum = checksum
+	slice.FromSequence = sequence
+	slice.ToSequence = sequence
+	slice.NewEventIDs = []string{eventID}
+	slice.Events[0].ID = eventID
+	slice.Events[0].Sequence = sequence
+	return slice
 }

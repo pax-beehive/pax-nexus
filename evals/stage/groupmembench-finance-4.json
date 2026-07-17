@@ -1,0 +1,127 @@
+{
+  "schema_version": "pax-stage-eval-v1",
+  "dataset": "GroupMemBench Finance annotated stage subset v1",
+  "cases": [
+    {
+      "case_id": "multi_hop_13",
+      "category": "multi_hop",
+      "source_revision": "6c79b2531a762ed4fa50dd359ed3e363f63c3c4c640a5151a4174577d9dbc596",
+      "recall_context": {
+        "consumer_user_id": "User_3",
+        "consumer_agent_id": "groupmembench-User_3",
+        "query": "Who is expected to own the rollback evidence pack if the July 26 milestone slips?",
+        "token_budget": 500
+      },
+      "required_atoms": [
+        {
+          "id": "rollback_evidence_owner",
+          "patterns": [
+            "(?i)ops lead.{0,80}(owns?|owner).{0,80}rollback evidence|rollback evidence.{0,80}(owned by|owner.{0,20}is).{0,40}ops lead"
+          ],
+          "supporting_event_ids": [
+            "Msg_24904",
+            "Msg_24856"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "multi_hop_15",
+      "category": "multi_hop",
+      "source_revision": "314726aa30a36c25b79137ef0649825a6800c6919e7832c3ac47dd303b0c2cc2",
+      "recall_context": {
+        "consumer_user_id": "User_2",
+        "consumer_agent_id": "groupmembench-User_2",
+        "query": "What additional requirements were identified to avoid audit replay issues during the integration testing cycle revision?",
+        "token_budget": 500
+      },
+      "required_atoms": [
+        {
+          "id": "rerun_slot",
+          "patterns": [
+            "(?i)rerun slot|intended rerun window"
+          ],
+          "supporting_event_ids": [
+            "Msg_3831",
+            "Msg_12591"
+          ]
+        },
+        {
+          "id": "timestamped_evidence_linkage",
+          "patterns": [
+            "(?i)timestamp.{0,80}(evidence|build hash|defect id)|evidence.{0,80}timestamp"
+          ],
+          "supporting_event_ids": [
+            "Msg_12591",
+            "Msg_15227"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "multi_hop_39",
+      "category": "multi_hop",
+      "source_revision": "061b0c7f7aa8ce7d484786a54f823e15731d0a913289a32e7419e5f26b1d4bc5",
+      "recall_context": {
+        "consumer_user_id": "User_1",
+        "consumer_agent_id": "groupmembench-User_1",
+        "query": "What are the two remaining blockers for marking the ESG Policy Requirements baseline as completed?",
+        "token_budget": 500
+      },
+      "required_atoms": [
+        {
+          "id": "control_ownership",
+          "patterns": [
+            "(?i)control ownership|owner(ship)?"
+          ],
+          "supporting_event_ids": [
+            "Msg_26787"
+          ]
+        },
+        {
+          "id": "reporting_timing",
+          "patterns": [
+            "(?i)reporting timing"
+          ],
+          "supporting_event_ids": [
+            "Msg_26787"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "knowledge_update_5",
+      "category": "knowledge_update",
+      "source_revision": "d15c4a86401acce638cb78c81a0d4d68e09a44ac1afec542ec06fa007b498f1e",
+      "recall_context": {
+        "consumer_user_id": "User_13",
+        "consumer_agent_id": "groupmembench-User_13",
+        "query": "What is the team currently doing for the flagged bucket in the SAR reporting process?",
+        "token_budget": 500
+      },
+      "required_atoms": [
+        {
+          "id": "pause_bucket_scenarios",
+          "patterns": [
+            "(?i)pause scenario creation.{0,40}bucket|pause.{0,40}bucket.{0,40}scenario"
+          ]
+        },
+        {
+          "id": "legal_ops_freeze_fields",
+          "patterns": [
+            "(?i)legal.{0,30}ops.{0,80}freeze.{0,80}trigger-impacting fields"
+          ]
+        },
+        {
+          "id": "freeze_audit_rules",
+          "patterns": [
+            "(?i)freeze.{0,80}audit[- ]trail rules"
+          ],
+          "supporting_event_ids": [
+            "Msg_3687"
+          ]
+        }
+      ]
+    }
+  ]
+}

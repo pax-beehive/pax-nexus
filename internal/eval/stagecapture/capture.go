@@ -40,6 +40,7 @@ type persistedRecall struct {
 	Envelope             []byte
 	ExtractionSnapshot   []byte
 	ExtractionProvenance []byte
+	Trace                []byte
 	DurationMS           int64
 }
 
@@ -105,7 +106,7 @@ func (o *Observer) captureExtraction(
 func (o *Observer) captureRecall(ctx context.Context, target Target) (stageeval.Observation, extractionSnapshot, error) {
 	context := target.Fixture.RecallContext
 	rows, err := o.pool.Query(ctx, `
-SELECT envelope, extraction_snapshot, extraction_provenance, duration_ms
+SELECT envelope, extraction_snapshot, extraction_provenance, trace, duration_ms
 FROM team_note_recall_observations
 WHERE scope_id = $1
   AND recipient_user_id = $2
@@ -121,7 +122,7 @@ ORDER BY observation_id`, target.ScopeID, context.ConsumerUserID, target.Recipie
 	recalls, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (persistedRecall, error) {
 		var recall persistedRecall
 		return recall, row.Scan(
-			&recall.Envelope, &recall.ExtractionSnapshot, &recall.ExtractionProvenance, &recall.DurationMS,
+			&recall.Envelope, &recall.ExtractionSnapshot, &recall.ExtractionProvenance, &recall.Trace, &recall.DurationMS,
 		)
 	})
 	if err != nil {
@@ -148,9 +149,13 @@ ORDER BY observation_id`, target.ScopeID, context.ConsumerUserID, target.Recipie
 	}
 	items := make([]stageeval.Item, 0)
 	seen := make(map[string]struct{})
+	traces := make([]json.RawMessage, 0, len(recalls))
 	var durationMS int64
 	for _, persisted := range recalls {
 		durationMS += persisted.DurationMS
+		if len(persisted.Trace) > 0 && string(persisted.Trace) != "{}" {
+			traces = append(traces, json.RawMessage(persisted.Trace))
+		}
 		var envelope teamnote.NoteEnvelope
 		if err := json.Unmarshal(persisted.Envelope, &envelope); err != nil {
 			return stageeval.Observation{}, extractionSnapshot{}, fmt.Errorf("decode recall observation: %w", err)
@@ -169,15 +174,23 @@ ORDER BY observation_id`, target.ScopeID, context.ConsumerUserID, target.Recipie
 		}
 	}
 	recallContext := target.Fixture.RecallContext
+	provenance := map[string]string{
+		"scope_id": target.ScopeID, "recipient_agent_id": target.RecipientAgentID,
+		"recipient_session_id": target.RecipientSessionID,
+		"recall_count":         strconv.Itoa(len(recalls)),
+	}
+	if len(traces) > 0 {
+		encodedTraces, err := json.Marshal(traces)
+		if err != nil {
+			return stageeval.Observation{}, extractionSnapshot{}, fmt.Errorf("encode recall traces: %w", err)
+		}
+		provenance["recall_traces"] = string(encodedTraces)
+	}
 	return stageeval.Observation{
 		CaseID: target.Fixture.CaseID, Stage: stageeval.StageRecall,
 		SourceRevision: target.Fixture.SourceRevision, RecallContext: &recallContext,
 		Items: items, DurationMS: durationMS,
-		Provenance: map[string]string{
-			"scope_id": target.ScopeID, "recipient_agent_id": target.RecipientAgentID,
-			"recipient_session_id": target.RecipientSessionID,
-			"recall_count":         strconv.Itoa(len(recalls)),
-		},
+		Provenance: provenance,
 	}, snapshot, nil
 }
 

@@ -22,7 +22,17 @@ type RecallCandidate struct {
 type RecallPolicy struct {
 	SemanticThreshold float64
 	CandidateLimit    int
+	// SuppressDuplicates skips candidates that restate an already selected
+	// note and keeps selected notes out of later related blocks.
+	SuppressDuplicates bool
+	// DegradeRelated falls back to the note without its related block when
+	// the composed text would exceed the remaining token budget.
+	DegradeRelated bool
 }
+
+// duplicateBodySimilarity is the term-set Jaccard overlap above which two
+// note bodies are treated as the same fact.
+const duplicateBodySimilarity = 0.8
 
 // PlannedRecall is one budgeted Delivery decision awaiting an adapter claim.
 type PlannedRecall struct {
@@ -32,20 +42,56 @@ type PlannedRecall struct {
 	Relevance float64
 }
 
+// RecallRejectReason identifies the recall stage that rejected one available
+// candidate.
+type RecallRejectReason string
+
+const (
+	RejectFusionLimit   RecallRejectReason = "fusion_limit"
+	RejectRelevanceGate RecallRejectReason = "relevance_gate"
+	RejectMaxItems      RecallRejectReason = "max_items"
+	RejectTokenBudget   RecallRejectReason = "token_budget"
+	RejectDeliveryClaim RecallRejectReason = "delivery_claim_lost"
+	RejectDuplicate     RecallRejectReason = "duplicate"
+)
+
+// RecallRejection records why one available candidate was not planned for
+// Delivery.
+type RecallRejection struct {
+	NoteID string             `json:"note_id"`
+	Reason RecallRejectReason `json:"reason"`
+	Tokens int                `json:"tokens,omitempty"`
+}
+
+// RecallTrace summarizes each recall stage for one PlanRecall invocation so
+// evaluations can attribute losses without re-running retrieval.
+type RecallTrace struct {
+	Candidates    int               `json:"candidates"`
+	FusionKept    int               `json:"fusion_kept"`
+	PlannedNotes  int               `json:"planned_notes"`
+	PlannedTokens int               `json:"planned_tokens"`
+	Rejections    []RecallRejection `json:"rejections,omitempty"`
+}
+
 // PlanRecall applies shared precision, ranking, relation, and budget policy to
 // candidates supplied by any NoteStore adapter.
-func PlanRecall(candidates []RecallCandidate, request RecallRequest, policy RecallPolicy) []PlannedRecall {
-	ranked := rankRecallCandidates(candidates, request, policy)
+func PlanRecall(candidates []RecallCandidate, request RecallRequest, policy RecallPolicy) ([]PlannedRecall, RecallTrace) {
+	ranked, rejections := rankRecallCandidates(candidates, request, policy)
+	trace := RecallTrace{Candidates: len(candidates), FusionKept: len(ranked), Rejections: rejections}
 	allNotes := notesFromRecallCandidates(candidates)
 	planned := make([]PlannedRecall, 0, len(ranked))
 	usedTokens := 0
 	selectedNotes := 0
-	for _, candidate := range ranked {
-		if !hybridRelevant(candidate, request.Query, policy.SemanticThreshold) {
-			continue
-		}
+	for index, candidate := range ranked {
 		if request.MaxItems > 0 && selectedNotes >= request.MaxItems {
+			for _, remaining := range ranked[index:] {
+				trace.Rejections = append(trace.Rejections, RecallRejection{NoteID: remaining.ID, Reason: RejectMaxItems})
+			}
 			break
+		}
+		if policy.SuppressDuplicates && duplicatesSelected(candidate.Note, planned) {
+			trace.Rejections = append(trace.Rejections, RecallRejection{NoteID: candidate.ID, Reason: RejectDuplicate})
+			continue
 		}
 		remainingRelated := 0
 		if request.MaxItems > 0 {
@@ -54,9 +100,17 @@ func PlanRecall(candidates []RecallCandidate, request RecallRequest, policy Reca
 		related := relevantRelatedNotes(
 			relatedNotes(candidate.Note, allNotes), request.Query, remainingRelated, request.MaxItems > 0,
 		)
+		if policy.SuppressDuplicates {
+			related = excludeSelected(related, planned)
+		}
 		text := FormatForRecallWithRelated(candidate.Note, related)
 		tokens := estimateTokens(text)
+		if policy.DegradeRelated && len(related) > 0 && usedTokens+tokens > request.TokenBudget {
+			text = FormatForRecall(candidate.Note)
+			tokens = estimateTokens(text)
+		}
 		if usedTokens+tokens > request.TokenBudget {
+			trace.Rejections = append(trace.Rejections, RecallRejection{NoteID: candidate.ID, Reason: RejectTokenBudget, Tokens: tokens})
 			continue
 		}
 		planned = append(planned, PlannedRecall{
@@ -66,7 +120,53 @@ func PlanRecall(candidates []RecallCandidate, request RecallRequest, policy Reca
 		usedTokens += tokens
 		selectedNotes += 1 + len(related)
 	}
-	return planned
+	trace.PlannedNotes = len(planned)
+	trace.PlannedTokens = usedTokens
+	return planned, trace
+}
+
+// duplicatesSelected reports whether a candidate restates an already selected
+// note by near-identical body terms.
+func duplicatesSelected(note Note, planned []PlannedRecall) bool {
+	for _, delivery := range planned {
+		if bodyOverlap(note.Body, delivery.Note.Body) >= duplicateBodySimilarity {
+			return true
+		}
+	}
+	return false
+}
+
+func excludeSelected(related []Note, planned []PlannedRecall) []Note {
+	if len(related) == 0 {
+		return related
+	}
+	selected := make(map[string]struct{}, len(planned))
+	for _, delivery := range planned {
+		selected[delivery.Note.ID] = struct{}{}
+	}
+	kept := make([]Note, 0, len(related))
+	for _, note := range related {
+		if _, ok := selected[note.ID]; !ok {
+			kept = append(kept, note)
+		}
+	}
+	return kept
+}
+
+// bodyOverlap reports the Jaccard similarity of two bodies' searchable terms.
+func bodyOverlap(left, right string) float64 {
+	leftTerms := searchableTerms(left)
+	rightTerms := searchableTerms(right)
+	if len(leftTerms) == 0 || len(rightTerms) == 0 {
+		return 0
+	}
+	shared := 0
+	for term := range leftTerms {
+		if _, ok := rightTerms[term]; ok {
+			shared++
+		}
+	}
+	return float64(shared) / float64(len(leftTerms)+len(rightTerms)-shared)
 }
 
 // AppendPlannedRecall adds a claimed Delivery to its external envelope.
@@ -81,11 +181,11 @@ func AppendPlannedRecall(envelope *NoteEnvelope, planned PlannedRecall) {
 	envelope.Revision = fmt.Sprintf("%s:%d", note.ID, note.Revision)
 }
 
-func rankRecallCandidates(candidates []RecallCandidate, request RecallRequest, policy RecallPolicy) []RecallCandidate {
+func rankRecallCandidates(candidates []RecallCandidate, request RecallRequest, policy RecallPolicy) ([]RecallCandidate, []RecallRejection) {
 	if strings.TrimSpace(request.Query) == "" {
 		result := append([]RecallCandidate(nil), candidates...)
 		sortRecallCandidates(result, request)
-		return result
+		return result, nil
 	}
 	limit := policy.CandidateLimit
 	if limit <= 0 || limit > len(candidates) {
@@ -122,12 +222,18 @@ func rankRecallCandidates(candidates []RecallCandidate, request RecallRequest, p
 	}
 
 	result := make([]RecallCandidate, 0, len(scores))
+	var rejections []RecallRejection
 	for _, candidate := range candidates {
-		if score, ok := scores[candidate.ID]; ok {
-			candidate.fusionScore = score
-			if hybridRelevant(candidate, request.Query, policy.SemanticThreshold) {
-				result = append(result, candidate)
-			}
+		score, ok := scores[candidate.ID]
+		if !ok {
+			rejections = append(rejections, RecallRejection{NoteID: candidate.ID, Reason: RejectFusionLimit})
+			continue
+		}
+		candidate.fusionScore = score
+		if hybridRelevant(candidate, request.Query, policy.SemanticThreshold) {
+			result = append(result, candidate)
+		} else {
+			rejections = append(rejections, RecallRejection{NoteID: candidate.ID, Reason: RejectRelevanceGate})
 		}
 	}
 	sortRecallCandidates(result, request)
@@ -137,7 +243,7 @@ func rankRecallCandidates(candidates []RecallCandidate, request RecallRequest, p
 	sort.SliceStable(result, func(left, right int) bool {
 		return result[left].rerankScore > result[right].rerankScore
 	})
-	return result
+	return result, rejections
 }
 
 func sortRecallCandidates(candidates []RecallCandidate, request RecallRequest) {

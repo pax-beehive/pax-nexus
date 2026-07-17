@@ -21,6 +21,10 @@ func (s *configSuite) SetupTest() {
 		"TEAM_MEMORY_DATABASE_URL", "TEAM_MEMORY_API_KEYS", "TEAM_MEMORY_LISTEN_ADDRESS",
 		"TEAM_MEMORY_EXTRACTOR_MODE", "TEAM_MEMORY_EXTRACTOR_BASE_URL",
 		"TEAM_MEMORY_EXTRACTOR_API_KEY", "TEAM_MEMORY_EXTRACTOR_MODEL", "TEAM_MEMORY_PROMPT_VERSION",
+		"TEAM_MEMORY_EXTRACTION_CONTEXT_MODE", "TEAM_MEMORY_EXTRACTION_COMPACT_START_TOKENS",
+		"TEAM_MEMORY_EXTRACTION_COMPACT_TOKENS", "TEAM_MEMORY_EXTRACTION_COMPACTION_ENABLED",
+		"TEAM_MEMORY_EXTRACTION_SUMMARY_ENABLED", "TEAM_MEMORY_EXTRACTION_SUMMARY_TRIGGER_TOKENS",
+		"TEAM_MEMORY_EXTRACTION_SUMMARY_TAIL_TOKENS",
 		"TEAM_MEMORY_WORKER_SHARDS", "TEAM_MEMORY_WORKER_MAX_ATTEMPTS",
 		"TEAM_MEMORY_WORKER_DEBOUNCE", "TEAM_MEMORY_BATCH_TIMEOUT",
 		"TEAM_MEMORY_WORKER_JOB_TIMEOUT", "TEAM_MEMORY_WORKER_STOP_TIMEOUT",
@@ -44,6 +48,13 @@ func (s *configSuite) TestLoadsNoopConfiguration() {
 	s.Equal(":8080", config.listenAddress)
 	s.Equal("scope", config.apiKeys["key"])
 	s.Equal("v1", config.promptVersion)
+	s.Equal("rolling", config.extractionContextMode)
+	s.False(config.extractionCompactionEnabled)
+	s.True(config.extractionSummaryEnabled)
+	s.Equal(12*1024, config.extractionCompactStartTokens)
+	s.Equal(16*1024, config.extractionCompactTokens)
+	s.Equal(8*1024, config.extractionSummaryTriggerTokens)
+	s.Equal(16*1024, config.extractionSummaryTailTokens)
 	s.Equal(16, config.workerShards)
 	s.Equal(5, config.workerMaxAttempts)
 	s.Equal(750*time.Millisecond, config.workerDebounce)
@@ -54,7 +65,7 @@ func (s *configSuite) TestLoadsNoopConfiguration() {
 	s.Equal(3, config.sliceOverlap)
 	s.Equal(4, config.maxSlicesPerJob)
 	s.Equal(10*time.Second, config.embeddingTimeout)
-	s.InDelta(0.65, config.semanticThreshold, 0.0001)
+	s.InDelta(0.50, config.semanticThreshold, 0.0001)
 	s.Equal(16, config.retrievalCandidateLimit)
 	adapter, err := buildExtractor(config)
 	s.Require().NoError(err)
@@ -78,6 +89,12 @@ func (s *configSuite) TestRejectsInvalidWorkerConfiguration() {
 		{name: "TEAM_MEMORY_SLICE_TOKEN_LIMIT", value: "many"},
 		{name: "TEAM_MEMORY_SLICE_OVERLAP", value: "-1"},
 		{name: "TEAM_MEMORY_MAX_SLICES_PER_JOB", value: "0"},
+		{name: "TEAM_MEMORY_EXTRACTION_COMPACT_TOKENS", value: "0"},
+		{name: "TEAM_MEMORY_EXTRACTION_COMPACT_START_TOKENS", value: "0"},
+		{name: "TEAM_MEMORY_EXTRACTION_COMPACTION_ENABLED", value: "sometimes"},
+		{name: "TEAM_MEMORY_EXTRACTION_SUMMARY_ENABLED", value: "sometimes"},
+		{name: "TEAM_MEMORY_EXTRACTION_SUMMARY_TRIGGER_TOKENS", value: "0"},
+		{name: "TEAM_MEMORY_EXTRACTION_SUMMARY_TAIL_TOKENS", value: "0"},
 		{name: "TEAM_MEMORY_EMBEDDING_TIMEOUT", value: "0s"},
 		{name: "TEAM_MEMORY_SEMANTIC_THRESHOLD", value: "high"},
 		{name: "TEAM_MEMORY_RETRIEVAL_CANDIDATE_LIMIT", value: "0"},
@@ -110,6 +127,24 @@ func (s *configSuite) TestRejectsInvalidConfiguration() {
 			s.Require().Error(err)
 		})
 	}
+}
+
+func (s *configSuite) TestRejectsCompactionStartAboveHardLimit() {
+	s.T().Setenv("TEAM_MEMORY_DATABASE_URL", "postgres://database")
+	s.T().Setenv("TEAM_MEMORY_API_KEYS", `{"key":"scope"}`)
+	s.T().Setenv("TEAM_MEMORY_EXTRACTION_COMPACT_START_TOKENS", "200")
+	s.T().Setenv("TEAM_MEMORY_EXTRACTION_COMPACT_TOKENS", "100")
+	_, err := loadConfig()
+	s.Require().ErrorContains(err, "cannot exceed")
+}
+
+func (s *configSuite) TestRejectsCompactionAndSummaryTogether() {
+	s.T().Setenv("TEAM_MEMORY_DATABASE_URL", "postgres://database")
+	s.T().Setenv("TEAM_MEMORY_API_KEYS", `{"key":"scope"}`)
+	s.T().Setenv("TEAM_MEMORY_EXTRACTION_COMPACTION_ENABLED", "true")
+	s.T().Setenv("TEAM_MEMORY_EXTRACTION_SUMMARY_ENABLED", "true")
+	_, err := loadConfig()
+	s.Require().ErrorContains(err, "cannot both be true")
 }
 
 func (s *configSuite) TestRejectsUnsupportedExtractor() {

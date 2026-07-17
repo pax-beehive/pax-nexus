@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/pax-beehive/pax-nexus/internal/sessionlake"
@@ -22,15 +23,30 @@ var ErrInvalidModelResponse = errors.New("invalid extractor model response")
 const maxCandidatesPerSlice = 10
 
 type OpenAIConfig struct {
-	BaseURL       string
-	APIKey        string
-	Model         string
-	PromptVersion string
-	Client        *http.Client
+	BaseURL              string
+	APIKey               string
+	Model                string
+	PromptVersion        string
+	Client               *http.Client
+	ContextMode          ContextMode
+	ExtractionVersion    string
+	EpisodeStore         EpisodeStore
+	CompactionEnabled    bool
+	CompactStartTokens   int
+	CompactTokens        int
+	SummaryEnabled       bool
+	SummaryTriggerTokens int
+	SummaryTailTokens    int
 }
 
 type OpenAI struct {
-	config OpenAIConfig
+	config      OpenAIConfig
+	locksMu     sync.Mutex
+	locks       map[EpisodeKey]*sync.Mutex
+	flightsMu   sync.Mutex
+	flights     map[EpisodeKey]*compactionFlight
+	summariesMu sync.Mutex
+	summaries   map[EpisodeKey]*summaryFlight
 }
 
 func NewOpenAI(config OpenAIConfig) (*OpenAI, error) {
@@ -44,55 +60,97 @@ func NewOpenAI(config OpenAIConfig) (*OpenAI, error) {
 	if baseURL.Scheme == "" || baseURL.Host == "" {
 		return nil, fmt.Errorf("create OpenAI extractor: valid base URL is required")
 	}
+	if err := normalizeOpenAIConfig(&config); err != nil {
+		return nil, err
+	}
+	return &OpenAI{
+		config: config, locks: make(map[EpisodeKey]*sync.Mutex),
+		flights:   make(map[EpisodeKey]*compactionFlight),
+		summaries: make(map[EpisodeKey]*summaryFlight),
+	}, nil
+}
+
+func normalizeOpenAIConfig(config *OpenAIConfig) error {
 	if config.Client == nil {
 		config.Client = http.DefaultClient
 	}
-	return &OpenAI{config: config}, nil
+	if config.ContextMode == "" {
+		config.ContextMode = ContextModeSlice
+	}
+	if config.ContextMode != ContextModeSlice && config.ContextMode != ContextModeRolling {
+		return fmt.Errorf("create OpenAI extractor: unsupported context mode %q", config.ContextMode)
+	}
+	if config.ContextMode == ContextModeRolling && config.EpisodeStore == nil {
+		return fmt.Errorf("create OpenAI extractor: episode store is required in rolling mode")
+	}
+	if err := normalizeExtractionVersion(config); err != nil {
+		return err
+	}
+	if config.CompactTokens == 0 {
+		config.CompactTokens = 16 * 1024
+	}
+	if config.CompactStartTokens == 0 {
+		config.CompactStartTokens = 12 * 1024
+	}
+	if config.CompactStartTokens < 1 || config.CompactTokens < config.CompactStartTokens {
+		return fmt.Errorf("create OpenAI extractor: compact thresholds must be positive and ordered")
+	}
+	if config.SummaryTriggerTokens == 0 {
+		config.SummaryTriggerTokens = 8 * 1024
+	}
+	if config.SummaryTailTokens == 0 {
+		config.SummaryTailTokens = 16 * 1024
+	}
+	if config.SummaryTriggerTokens < 1 || config.SummaryTailTokens < 1 {
+		return fmt.Errorf("create OpenAI extractor: summary token thresholds must be positive")
+	}
+	if config.CompactionEnabled && config.SummaryEnabled {
+		return fmt.Errorf("create OpenAI extractor: compaction and periodic summary cannot both be enabled")
+	}
+	return nil
+}
+
+func normalizeExtractionVersion(config *OpenAIConfig) error {
+	if config.ExtractionVersion == "" {
+		config.ExtractionVersion = ExtractionVersionV1
+	}
+	if config.ExtractionVersion != ExtractionVersionV1 && config.ExtractionVersion != ExtractionVersionV2 {
+		return fmt.Errorf("create OpenAI extractor: unsupported extraction version %q", config.ExtractionVersion)
+	}
+	if config.ExtractionVersion == ExtractionVersionV2 && config.ContextMode != ContextModeRolling {
+		return fmt.Errorf("create OpenAI extractor: extraction v2 requires rolling context mode")
+	}
+	return nil
 }
 
 func (e *OpenAI) Extract(ctx context.Context, slice sessionlake.Slice) (Result, error) {
+	if e.config.ContextMode == ContextModeRolling {
+		if e.config.ExtractionVersion == ExtractionVersionV2 {
+			return e.extractRollingV2(ctx, slice)
+		}
+		return e.extractRolling(ctx, slice)
+	}
+	return e.extractSlice(ctx, slice)
+}
+
+// systemPrompt returns the stable extraction system prompt for the configured
+// protocol, shared by extraction, compaction, and summary calls.
+func (e *OpenAI) systemPrompt() string {
+	if e.config.ExtractionVersion == ExtractionVersionV2 {
+		return rollingSystemPromptV2
+	}
+	return rollingSystemPrompt
+}
+
+func (e *OpenAI) extractSlice(ctx context.Context, slice sessionlake.Slice) (Result, error) {
 	prompt, err := buildPrompt(slice, e.config.PromptVersion)
 	if err != nil {
 		return Result{}, err
 	}
-	body, err := json.Marshal(chatRequest{
-		Model: e.config.Model,
-		Messages: []chatMessage{
-			{Role: "system", Content: systemPrompt},
-			{Role: "user", Content: prompt},
-		},
-		Temperature:    0,
-		ResponseFormat: responseFormat{Type: "json_object"},
+	result, _, err := e.complete(ctx, []chatMessage{
+		{Role: "system", Content: systemPrompt},
+		{Role: "user", Content: prompt},
 	})
-	if err != nil {
-		return Result{}, fmt.Errorf("encode extractor request: %w", err)
-	}
-
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(e.config.BaseURL, "/")+"/v1/chat/completions", bytes.NewReader(body))
-	if err != nil {
-		return Result{}, fmt.Errorf("create extractor request: %w", err)
-	}
-	request.Header.Set("Content-Type", "application/json")
-	if e.config.APIKey != "" {
-		request.Header.Set("Authorization", "Bearer "+e.config.APIKey)
-	}
-
-	response, err := e.config.Client.Do(request)
-	if err != nil {
-		return Result{}, fmt.Errorf("call extractor model: %w", err)
-	}
-	responseBody, err := io.ReadAll(io.LimitReader(response.Body, 1<<20))
-	closeErr := response.Body.Close()
-	if err != nil {
-		return Result{}, fmt.Errorf("read extractor response: %w", err)
-	}
-	if closeErr != nil {
-		return Result{}, fmt.Errorf("close extractor response: %w", closeErr)
-	}
-	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		return Result{}, fmt.Errorf("extractor response status %d: %s", response.StatusCode, strings.TrimSpace(string(responseBody)))
-	}
-	result, err := decodeResponse(responseBody)
 	if err != nil {
 		return Result{}, err
 	}
@@ -101,19 +159,78 @@ func (e *OpenAI) Extract(ctx context.Context, slice sessionlake.Slice) (Result, 
 	}
 	result.Model = e.config.Model
 	result.PromptVersion = e.config.PromptVersion
+	result.ExtractionVersion = e.config.ExtractionVersion
 	return result, nil
+}
+
+func (e *OpenAI) complete(ctx context.Context, messages []chatMessage) (Result, string, error) {
+	return e.completeWith(ctx, messages, decodeResponse)
+}
+
+// completeWith decodes one chat response with the protocol-specific decoder
+// so v1 and v2 share the transport path.
+func (e *OpenAI) completeWith(ctx context.Context, messages []chatMessage, decode func([]byte) (Result, string, error)) (Result, string, error) {
+	responseBody, err := e.call(ctx, messages)
+	if err != nil {
+		return Result{}, "", err
+	}
+	result, content, err := decode(responseBody)
+	if err != nil {
+		return Result{}, "", err
+	}
+	return result, content, nil
+}
+
+func (e *OpenAI) call(ctx context.Context, messages []chatMessage) ([]byte, error) {
+	return e.callWithMaxTokens(ctx, messages, 0)
+}
+
+func (e *OpenAI) callWithMaxTokens(ctx context.Context, messages []chatMessage, maxTokens int) ([]byte, error) {
+	body, err := json.Marshal(chatRequest{
+		Model: e.config.Model, Messages: messages, Temperature: 0,
+		ResponseFormat: responseFormat{Type: "json_object"},
+		MaxTokens:      maxTokens,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("encode extractor request: %w", err)
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(e.config.BaseURL, "/")+"/v1/chat/completions", bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("create extractor request: %w", err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	if e.config.APIKey != "" {
+		request.Header.Set("Authorization", "Bearer "+e.config.APIKey)
+	}
+	response, err := e.config.Client.Do(request)
+	if err != nil {
+		return nil, fmt.Errorf("call extractor model: %w", err)
+	}
+	responseBody, err := io.ReadAll(io.LimitReader(response.Body, 1<<20))
+	closeErr := response.Body.Close()
+	if err != nil {
+		return nil, fmt.Errorf("read extractor response: %w", err)
+	}
+	if closeErr != nil {
+		return nil, fmt.Errorf("close extractor response: %w", closeErr)
+	}
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		return nil, fmt.Errorf("extractor response status %d: %s", response.StatusCode, strings.TrimSpace(string(responseBody)))
+	}
+	return responseBody, nil
 }
 
 func buildPrompt(slice sessionlake.Slice, promptVersion string) (string, error) {
 	input := struct {
 		PromptVersion   string                  `json:"prompt_version"`
+		InputChecksum   string                  `json:"input_checksum"`
 		Actor           teamnote.Actor          `json:"actor"`
 		FromSequence    int64                   `json:"from_sequence"`
 		ToSequence      int64                   `json:"to_sequence"`
 		NewEventIDs     []string                `json:"new_event_ids"`
 		OverlapEventIDs []string                `json:"overlap_event_ids,omitempty"`
 		Events          []teamnote.SessionEvent `json:"events"`
-	}{promptVersion, slice.Actor, slice.FromSequence, slice.ToSequence, slice.NewEventIDs, slice.OverlapEventIDs, slice.Events}
+	}{promptVersion, slice.InputChecksum, slice.Actor, slice.FromSequence, slice.ToSequence, slice.NewEventIDs, slice.OverlapEventIDs, slice.Events}
 	encoded, err := json.Marshal(input)
 	if err != nil {
 		return "", fmt.Errorf("encode extractor prompt: %w", err)
@@ -121,29 +238,30 @@ func buildPrompt(slice sessionlake.Slice, promptVersion string) (string, error) 
 	return string(encoded), nil
 }
 
-func decodeResponse(body []byte) (Result, error) {
+func decodeResponse(body []byte) (Result, string, error) {
 	var response chatResponse
 	if err := json.Unmarshal(body, &response); err != nil {
-		return Result{}, fmt.Errorf("decode extractor response: %w", errors.Join(ErrInvalidModelResponse, err))
+		return Result{}, "", fmt.Errorf("decode extractor response: %w", errors.Join(ErrInvalidModelResponse, err))
 	}
 	if len(response.Choices) == 0 {
-		return Result{}, fmt.Errorf("extractor response has no choices: %w", ErrInvalidModelResponse)
+		return Result{}, "", fmt.Errorf("extractor response has no choices: %w", ErrInvalidModelResponse)
 	}
 	content := trimCodeFence(response.Choices[0].Message.Content)
 	var output candidateOutput
 	if err := json.Unmarshal([]byte(content), &output); err != nil {
-		return Result{}, fmt.Errorf("decode extractor candidates: %w", errors.Join(ErrInvalidModelResponse, err))
+		return Result{}, "", fmt.Errorf("decode extractor candidates: %w", errors.Join(ErrInvalidModelResponse, err))
 	}
 	return Result{
 		Candidates: output.Candidates,
-		Usage:      Usage{InputTokens: response.Usage.PromptTokens, OutputTokens: response.Usage.CompletionTokens},
-	}, nil
+		Usage: Usage{
+			InputTokens: response.Usage.PromptTokens, OutputTokens: response.Usage.CompletionTokens,
+			PromptCacheHitTokens:  response.Usage.PromptCacheHitTokens,
+			PromptCacheMissTokens: response.Usage.PromptCacheMissTokens,
+		},
+	}, content, nil
 }
 
 func normalizeCandidates(result *Result, slice sessionlake.Slice) error {
-	if len(result.Candidates) > maxCandidatesPerSlice {
-		return fmt.Errorf("extractor returned %d candidates, maximum is %d: %w", len(result.Candidates), maxCandidatesPerSlice, ErrInvalidModelResponse)
-	}
 	checksum := slice.InputChecksum
 	if len(checksum) > 16 {
 		checksum = checksum[:16]
@@ -153,36 +271,68 @@ func normalizeCandidates(result *Result, slice sessionlake.Slice) error {
 	}
 	allEvents := stringSet(eventIDs(slice.Events))
 	newEvents := stringSet(slice.NewEventIDs)
+	kept := make([]teamnote.Candidate, 0, len(result.Candidates))
 	for index := range result.Candidates {
-		candidate := &result.Candidates[index]
-		if strings.TrimSpace(candidate.Subject) == "" || len(candidate.EvidenceEventIDs) == 0 {
-			return fmt.Errorf("extractor candidate %d is missing subject or evidence: %w", index, ErrInvalidModelResponse)
-		}
-		if candidate.Action != teamnote.ActionResolve && strings.TrimSpace(candidate.Body) == "" {
-			return fmt.Errorf("extractor candidate %d is missing body: %w", index, ErrInvalidModelResponse)
-		}
-		if err := validateCandidateEvidence(index, candidate.EvidenceEventIDs, allEvents, newEvents); err != nil {
-			return err
-		}
-		taskRef, threadRef, err := evidenceScope(candidate.EvidenceEventIDs, slice.Events)
-		if err != nil {
-			return fmt.Errorf("extractor candidate %d scope: %w", index, err)
-		}
-		if (candidate.TaskRef != "" && candidate.TaskRef != taskRef) ||
-			(candidate.ThreadRef != "" && candidate.ThreadRef != threadRef) {
-			return fmt.Errorf("extractor candidate %d scope differs from evidence: %w", index, ErrInvalidModelResponse)
-		}
+		candidate := result.Candidates[index]
 		candidate.ID = "extract-" + checksum + "-" + strconv.Itoa(index+1)
 		candidate.Origin = slice.Actor
-		candidate.TaskRef = taskRef
-		candidate.ThreadRef = threadRef
 		candidate.IdentityRef = strings.TrimSpace(candidate.IdentityRef)
 		// Audience is an authorization boundary owned by the server, not a
 		// classification decision delegated to the extraction model.
 		candidate.AudienceAgentIDs = nil
+		if reason := candidateRejectionReason(index, candidate, allEvents, newEvents); reason != "" {
+			result.Rejections = append(result.Rejections, teamnote.CandidateRejection{Candidate: candidate, Reason: reason})
+			continue
+		}
+		taskRef, threadRef, err := evidenceScope(candidate.EvidenceEventIDs, slice.Events)
+		if err != nil {
+			result.Rejections = append(result.Rejections, teamnote.CandidateRejection{
+				Candidate: candidate, Reason: fmt.Sprintf("extractor candidate %d scope spans multiple tasks or threads", index),
+			})
+			continue
+		}
+		if (candidate.TaskRef != "" && candidate.TaskRef != taskRef) ||
+			(candidate.ThreadRef != "" && candidate.ThreadRef != threadRef) {
+			result.Rejections = append(result.Rejections, teamnote.CandidateRejection{
+				Candidate: candidate, Reason: fmt.Sprintf("extractor candidate %d scope differs from evidence", index),
+			})
+			continue
+		}
+		candidate.TaskRef = taskRef
+		candidate.ThreadRef = threadRef
 		candidate.SourceOccurredAt = latestEvidenceTime(candidate.EvidenceEventIDs, slice.Events)
+		kept = append(kept, candidate)
 	}
+	if len(kept) > maxCandidatesPerSlice {
+		for _, overflow := range kept[maxCandidatesPerSlice:] {
+			result.Rejections = append(result.Rejections, teamnote.CandidateRejection{
+				Candidate: overflow, Reason: "extractor candidate overflow beyond the per-slice maximum",
+			})
+		}
+		kept = kept[:maxCandidatesPerSlice]
+	}
+	result.Candidates = kept
 	return nil
+}
+
+// candidateRejectionReason returns the deterministic reason one candidate can
+// never pass admission, or "" when it is admissible at this stage. A saved
+// extraction response is replayed verbatim, so a malformed candidate would
+// otherwise poison every retry of the same slice.
+func candidateRejectionReason(index int, candidate teamnote.Candidate, allEvents, newEvents map[string]struct{}) string {
+	if strings.TrimSpace(candidate.Subject) == "" {
+		return fmt.Sprintf("extractor candidate %d is missing subject", index)
+	}
+	if len(candidate.EvidenceEventIDs) == 0 {
+		return fmt.Sprintf("extractor candidate %d is missing evidence", index)
+	}
+	if candidate.Action != teamnote.ActionResolve && strings.TrimSpace(candidate.Body) == "" {
+		return fmt.Sprintf("extractor candidate %d is missing body", index)
+	}
+	if err := validateCandidateEvidence(index, candidate.EvidenceEventIDs, allEvents, newEvents); err != nil {
+		return err.Error()
+	}
+	return ""
 }
 
 func evidenceScope(evidenceIDs []string, events []teamnote.SessionEvent) (string, string, error) {
@@ -297,6 +447,7 @@ type chatRequest struct {
 	Messages       []chatMessage  `json:"messages"`
 	Temperature    float64        `json:"temperature"`
 	ResponseFormat responseFormat `json:"response_format"`
+	MaxTokens      int            `json:"max_tokens,omitempty"`
 }
 
 type chatMessage struct {
@@ -313,8 +464,10 @@ type chatResponse struct {
 		Message chatMessage `json:"message"`
 	} `json:"choices"`
 	Usage struct {
-		PromptTokens     int `json:"prompt_tokens"`
-		CompletionTokens int `json:"completion_tokens"`
+		PromptTokens          int `json:"prompt_tokens"`
+		CompletionTokens      int `json:"completion_tokens"`
+		PromptCacheHitTokens  int `json:"prompt_cache_hit_tokens"`
+		PromptCacheMissTokens int `json:"prompt_cache_miss_tokens"`
 	} `json:"usage"`
 }
 

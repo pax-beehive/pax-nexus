@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/pax-beehive/pax-nexus/internal/platform/postgres"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote"
+	"github.com/pax-beehive/pax-nexus/internal/teamnote/extractor"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -78,6 +79,31 @@ func (s *storeSuite) TestAppendReplayAndOrderedRead() {
 	s.Require().NoError(err)
 	s.Require().Len(overlap, 1)
 	s.Equal("event-2", overlap[0].ID)
+}
+
+func (s *storeSuite) TestExtractionEpisodePersistsAndRejectsStaleVersion() {
+	key := extractor.EpisodeKey{ScopeID: uniqueScope("episode"), TaskRef: "release-42", ThreadRef: "thread-a"}
+	episode := extractor.Episode{
+		Key: key, EstimatedTokens: 120, EventCount: 2, ProtocolVersion: extractor.ExtractionVersionV2,
+		Model: "model", PromptVersion: "v2-rolling",
+		Messages:   []extractor.EpisodeMessage{{Role: "user", Content: "events"}},
+		Runs:       map[string]extractor.EpisodeRun{"checksum": {Response: `{"candidates":[]}`, Ordinal: 2}},
+		Checkpoint: extractor.Checkpoint{SourceCursors: map[string]int64{"owner/agent/session": 2}},
+	}
+	s.Require().NoError(s.store.SaveEpisode(context.Background(), episode, 0))
+
+	loaded, ok, err := s.store.LoadEpisode(context.Background(), key)
+	s.Require().NoError(err)
+	s.True(ok)
+	s.Equal(int64(1), loaded.Version)
+	s.Equal(2, loaded.EventCount)
+	s.Equal(extractor.ExtractionVersionV2, loaded.ProtocolVersion)
+	s.Equal("events", loaded.Messages[0].Content)
+	s.JSONEq(`{"candidates":[]}`, loaded.Runs["checksum"].Response)
+
+	loaded.EventCount = 3
+	s.Require().NoError(s.store.SaveEpisode(context.Background(), loaded, loaded.Version))
+	s.ErrorIs(s.store.SaveEpisode(context.Background(), loaded, loaded.Version), extractor.ErrEpisodeConflict)
 }
 
 func (s *storeSuite) TestRejectsInvalidBatches() {

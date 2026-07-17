@@ -243,6 +243,28 @@ func (s *ledgerSuite) TestStatusIdentityPreservesDifferentAgentReports() {
 	}, envelope.Items)
 }
 
+func (s *ledgerSuite) TestExplicitIdentityRefUnifiesCrossAgentStatusUpdates() {
+	firstEvidence := producerEvent("event-first", "The release target is July 18.")
+	created, err := s.ledger.Apply(context.Background(), teamnote.Candidate{
+		ID: "candidate-first", Action: teamnote.ActionCreate, Kind: teamnote.KindStatus,
+		Subject: "release target", IdentityRef: "decision/release-target", Body: "The release target is July 18.",
+		TaskRef: "release-42", Origin: firstEvidence.Actor, EvidenceEventIDs: []string{firstEvidence.ID},
+	}, []teamnote.SessionEvent{firstEvidence})
+	s.Require().NoError(err)
+
+	secondEvidence := producerEvent("event-second", "The release target moved to July 22.")
+	secondEvidence.Actor.AgentID = "reviewer"
+	secondEvidence.Actor.SessionID = "review-session"
+	updated, err := s.ledger.Apply(context.Background(), teamnote.Candidate{
+		ID: "candidate-second", Action: teamnote.ActionUpdate, Kind: teamnote.KindStatus,
+		Subject: "new release wording", IdentityRef: "decision/release-target", Body: "The release target is July 22.",
+		TaskRef: "release-42", Origin: secondEvidence.Actor, EvidenceEventIDs: []string{secondEvidence.ID},
+	}, []teamnote.SessionEvent{secondEvidence})
+	s.Require().NoError(err)
+	s.Equal(created.ID, updated.ID)
+	s.Equal(2, updated.Revision)
+}
+
 func (s *ledgerSuite) TestStableIdentityRefSurvivesSubjectRewording() {
 	tests := []struct {
 		name        string
@@ -317,8 +339,8 @@ func (s *ledgerSuite) TestExtractionRunRejectsMismatchedReplay() {
 		{name: "input checksum", mutate: func(changed *teamnote.ExtractionRun) {
 			changed.InputChecksum = "checksum-two"
 		}},
-		{name: "candidate batch", mutate: func(changed *teamnote.ExtractionRun) {
-			changed.Candidates[0].Body = "The rollout changed after the durable result."
+		{name: "sequence range", mutate: func(changed *teamnote.ExtractionRun) {
+			changed.ToSequence = 2
 		}},
 	}
 	for _, test := range tests {
@@ -330,6 +352,75 @@ func (s *ledgerSuite) TestExtractionRunRejectsMismatchedReplay() {
 			s.Require().ErrorIs(replayErr, teamnote.ErrExtractionRunConflict)
 		})
 	}
+}
+
+func (s *ledgerSuite) TestExtractionRunReplayLetsDurableResultWin() {
+	evidence := producerEvent("event-run-durable", "The rollout is ready.")
+	run := teamnote.ExtractionRun{
+		ID: "run-durable", Actor: evidence.Actor, FromSequence: 1, ToSequence: 1,
+		InputChecksum: "checksum-durable", Model: "extractor-model", PromptVersion: "prompt-v1",
+		InputTokens: 100, OutputTokens: 20,
+		Candidates: []teamnote.Candidate{{
+			ID: "candidate-run-durable", Action: teamnote.ActionCreate, Kind: teamnote.KindStatus,
+			Subject: "rollout", Body: "The rollout is ready.", TaskRef: "release-42",
+			Origin: evidence.Actor, EvidenceEventIDs: []string{evidence.ID},
+		}},
+		Evidence: []teamnote.SessionEvent{evidence},
+	}
+	admitted, err := s.ledger.ApplyRun(context.Background(), run)
+	s.Require().NoError(err)
+	s.Require().Len(admitted, 1)
+
+	tests := []struct {
+		name   string
+		mutate func(*teamnote.ExtractionRun)
+	}{
+		{name: "zeroed usage from saved-response replay", mutate: func(changed *teamnote.ExtractionRun) {
+			changed.InputTokens, changed.OutputTokens = 0, 0
+		}},
+		{name: "recomputed candidate batch", mutate: func(changed *teamnote.ExtractionRun) {
+			changed.Candidates[0].Body = "The rollout changed after the durable result."
+		}},
+	}
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			changed := run
+			changed.Candidates = append([]teamnote.Candidate(nil), run.Candidates...)
+			test.mutate(&changed)
+			replayed, replayErr := s.ledger.ApplyRun(context.Background(), changed)
+			s.Require().NoError(replayErr)
+			s.Require().Len(replayed, 1)
+			s.Equal(admitted[0].ID, replayed[0].ID)
+			s.Equal("The rollout is ready.", replayed[0].Body)
+		})
+	}
+}
+
+func (s *ledgerSuite) TestExtractionRunQuarantinesDeterministicAdmissionFailure() {
+	evidence := producerEvent("event-run-quarantine", "The rollout is decided.")
+	run := teamnote.ExtractionRun{
+		ID: "run-quarantine", Actor: evidence.Actor, FromSequence: 1, ToSequence: 1,
+		InputChecksum: "checksum-quarantine", Model: "extractor-model", PromptVersion: "prompt-v1",
+		Candidates: []teamnote.Candidate{{
+			ID: "candidate-run-quarantine", Action: teamnote.ActionCreate, Kind: "decision",
+			Subject: "rollout", Body: "The rollout is decided.", TaskRef: "release-42",
+			Origin: evidence.Actor, EvidenceEventIDs: []string{evidence.ID},
+		}},
+		Evidence: []teamnote.SessionEvent{evidence},
+	}
+	_, err := s.ledger.ApplyRun(context.Background(), run)
+	s.Require().ErrorIs(err, teamnote.ErrExtractionRunQuarantined)
+	s.Require().ErrorIs(err, teamnote.ErrInvalidCandidate)
+
+	_, replayErr := s.ledger.ApplyRun(context.Background(), run)
+	s.Require().ErrorIs(replayErr, teamnote.ErrExtractionRunQuarantined)
+
+	recall, recallErr := s.ledger.Recall(context.Background(), teamnote.RecallRequest{
+		Actor: teamnote.Actor{UserID: "consumer", AgentID: "consumer", SessionID: "consumer-session"},
+		Query: "rollout", TokenBudget: 100,
+	})
+	s.Require().NoError(recallErr)
+	s.Empty(recall.Items)
 }
 
 func (s *ledgerSuite) TestAudienceAndBudgetAreEnforced() {
@@ -503,6 +594,41 @@ func (s *ledgerSuite) TestRecallComposesOneHopRelatedFact() {
 	s.Require().NoError(err)
 	s.Require().Len(envelope.Items, 1)
 	s.NotContains(envelope.Items[0], "related:")
+}
+
+func (s *ledgerSuite) TestRecallComposesReverseRelatedAction() {
+	blockerEvidence := producerEvent("event-risky-bucket", "The flagged SAR bucket still feeds filing validation.")
+	blockerEvidence.TaskRef = ""
+	_, err := s.ledger.Apply(context.Background(), teamnote.Candidate{
+		ID: "candidate-risky-bucket", Action: teamnote.ActionCreate, Kind: teamnote.KindBlocker,
+		Subject: "risky SAR bucket", Body: "The flagged SAR bucket still feeds filing validation.",
+		Origin: blockerEvidence.Actor, EvidenceEventIDs: []string{blockerEvidence.ID},
+	}, []teamnote.SessionEvent{blockerEvidence})
+	s.Require().NoError(err)
+
+	actionEvidence := producerEvent("event-pause-scenarios", "Pause scenario creation and freeze audit-trail rules.")
+	actionEvidence.TaskRef = ""
+	_, err = s.ledger.Apply(context.Background(), teamnote.Candidate{
+		ID: "candidate-pause-scenarios", Action: teamnote.ActionCreate, Kind: teamnote.KindStatus,
+		Subject: "pause scenario creation", Body: "Pause scenario creation for that bucket; Legal and Ops jointly freeze trigger-impacting fields and audit-trail rules.",
+		RelatedSubjects: []string{"risky SAR bucket"}, Origin: actionEvidence.Actor,
+		EvidenceEventIDs: []string{actionEvidence.ID},
+	}, []teamnote.SessionEvent{actionEvidence})
+	s.Require().NoError(err)
+
+	query := "What is the team currently doing for the flagged bucket in the SAR reporting process?"
+	s.Equal(1, teamnote.QueryScore(teamnote.Note{
+		Subject: "pause scenario creation",
+		Body:    "Pause scenario creation for that bucket; Legal and Ops jointly freeze trigger-impacting fields and audit-trail rules.",
+	}, query))
+	request := consumerRecall("", "reverse-related-consumer")
+	request.Query = query
+	envelope, err := s.ledger.Recall(context.Background(), request)
+	s.Require().NoError(err)
+	s.Require().NotEmpty(envelope.Items)
+	s.Contains(envelope.Items[0], "flagged SAR bucket")
+	s.Contains(envelope.Items[0], "related: [certainty=confirmed] pause scenario creation")
+	s.Contains(envelope.Items[0], "freeze trigger-impacting fields")
 }
 
 func (s *ledgerSuite) TestSemanticCandidatesPreservePrecisionChecks() {

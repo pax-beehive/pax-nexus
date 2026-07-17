@@ -16,6 +16,10 @@ var (
 	ErrNoteNotFound          = errors.New("team note not found")
 	ErrInvalidRecall         = errors.New("invalid recall request")
 	ErrExtractionRunConflict = errors.New("extraction run conflicts with durable result")
+	// ErrExtractionRunQuarantined marks a run whose candidates failed
+	// deterministic admission. The run is recorded as quarantined instead of
+	// admitted, so callers may skip the slice instead of retrying forever.
+	ErrExtractionRunQuarantined = errors.New("extraction run quarantined")
 )
 
 type NoteKind string
@@ -127,8 +131,10 @@ type extractionRunIdentity struct {
 }
 
 type storedExtractionRun struct {
-	Identity extractionRunIdentity
-	Notes    []Note
+	Identity    extractionRunIdentity
+	Notes       []Note
+	Quarantined bool
+	Reason      string
 }
 
 func NewLedger(policy TTLPolicy, clock Clock) *Ledger {
@@ -164,9 +170,14 @@ func (l *Ledger) ApplyRun(ctx context.Context, run ExtractionRun) ([]Note, error
 	defer l.mu.Unlock()
 	identity := identityForExtractionRun(run)
 	if stored, ok := l.runs[run.ID]; ok && run.ID != "" {
-		if stored.Identity != identity {
+		if !sameExtractionRunInputs(stored.Identity, identity) {
 			return nil, fmt.Errorf("replay extraction run %q: %w", run.ID, ErrExtractionRunConflict)
 		}
+		if stored.Quarantined {
+			return nil, fmt.Errorf("replay extraction run %q: %w", run.ID, errors.Join(ErrExtractionRunQuarantined, errors.New(stored.Reason)))
+		}
+		// The durable result wins over any recomputation for the same input,
+		// so a replay after a lost saved response cannot double-apply state.
 		return cloneNoteSlice(stored.Notes), nil
 	}
 
@@ -189,7 +200,13 @@ func (l *Ledger) ApplyRun(ctx context.Context, run ExtractionRun) ([]Note, error
 		}
 		admitted, err := AdmitCandidate(l.policy, l.clock.Now(), candidate, run.Evidence, current)
 		if err != nil {
-			return nil, err
+			// Deterministic admission failures cannot succeed on retry, so the
+			// run is quarantined and replayed attempts observe the same outcome.
+			quarantine := storedExtractionRun{Identity: identity, Quarantined: true, Reason: err.Error()}
+			if run.ID != "" {
+				l.runs[run.ID] = quarantine
+			}
+			return nil, fmt.Errorf("quarantine extraction run %q: %w", run.ID, errors.Join(ErrExtractionRunQuarantined, err))
 		}
 		notes[key] = admitted
 		candidates[candidate.ID] = key
@@ -210,6 +227,23 @@ func identityForExtractionRun(run ExtractionRun) extractionRunIdentity {
 		CandidateChecksum: run.CandidateChecksum,
 		InputTokens:       run.InputTokens, OutputTokens: run.OutputTokens,
 	}
+}
+
+// sameExtractionRunInputs compares the deterministic inputs of one extraction
+// run. Token usage is telemetry, and a recomputed candidate batch after a lost
+// saved response must not conflict with the durable result, so neither is part
+// of the replay identity.
+func sameExtractionRunInputs(left, right extractionRunIdentity) bool {
+	return left.Actor == right.Actor && left.FromSequence == right.FromSequence &&
+		left.ToSequence == right.ToSequence && left.InputChecksum == right.InputChecksum &&
+		left.Model == right.Model && left.PromptVersion == right.PromptVersion
+}
+
+// ValidateCandidate reports whether one candidate satisfies the deterministic
+// admission policy without consulting store state. Callers use it to drop
+// candidates that can never be admitted before applying an extraction run.
+func ValidateCandidate(candidate Candidate, policy TTLPolicy) error {
+	return validateCandidate(candidate, policy)
 }
 
 func cloneNoteSlice(notes []Note) []Note {
@@ -267,9 +301,12 @@ func (l *Ledger) Recall(ctx context.Context, request RecallRequest) (NoteEnvelop
 		candidates = append(candidates, RecallCandidate{Note: note, LexicalScore: float64(QueryScore(note, request.Query))})
 	}
 	envelope := NoteEnvelope{}
-	for _, planned := range PlanRecall(candidates, request, RecallPolicy{CandidateLimit: len(candidates)}) {
-		AppendPlannedRecall(&envelope, planned)
-		l.deliveries[deliveryKey(planned.Note, request.Actor)] = struct{}{}
+	planned, _ := PlanRecall(candidates, request, RecallPolicy{
+		CandidateLimit: len(candidates), SuppressDuplicates: true, DegradeRelated: true,
+	})
+	for _, item := range planned {
+		AppendPlannedRecall(&envelope, item)
+		l.deliveries[deliveryKey(item.Note, request.Actor)] = struct{}{}
 	}
 	return envelope, nil
 }
@@ -496,16 +533,24 @@ func CertaintyForKind(kind NoteKind) NoteCertainty {
 }
 
 func relatedNotes(note Note, candidates []Note) []Note {
-	if len(note.RelatedSubjects) == 0 {
-		return nil
-	}
 	wanted := make(map[string]struct{}, len(note.RelatedSubjects))
 	for _, subject := range note.RelatedSubjects {
 		wanted[strings.ToLower(subject)] = struct{}{}
 	}
-	result := make([]Note, 0, len(wanted))
+	result := make([]Note, 0, len(wanted)+1)
 	for _, candidate := range candidates {
-		if _, ok := wanted[strings.ToLower(candidate.Subject)]; ok {
+		if candidate.ID == note.ID {
+			continue
+		}
+		_, forward := wanted[strings.ToLower(candidate.Subject)]
+		reverse := false
+		for _, related := range candidate.RelatedSubjects {
+			if strings.EqualFold(related, note.Subject) {
+				reverse = true
+				break
+			}
+		}
+		if forward || reverse {
 			result = append(result, candidate)
 		}
 	}
@@ -688,10 +733,11 @@ var temporalStopWords = map[string]bool{
 }
 
 func CanonicalKey(candidate Candidate) string {
-	identity := candidate.Subject
-	if candidate.Kind == KindBlocker || candidate.Kind == KindArtifactReference {
-		identity = strings.TrimSpace(candidate.IdentityRef)
-		if identity == "" {
+	identityRef := strings.TrimSpace(candidate.IdentityRef)
+	identity := identityRef
+	if identity == "" {
+		identity = candidate.Subject
+		if candidate.Kind == KindBlocker || candidate.Kind == KindArtifactReference {
 			identity = strings.Join(strings.Fields(strings.ToLower(candidate.Subject)), " ")
 		}
 	}
@@ -701,7 +747,7 @@ func CanonicalKey(candidate Candidate) string {
 		len(candidate.Kind), candidate.Kind,
 		len(identity), identity,
 	)
-	if candidate.Kind == KindStatus || candidate.Kind == KindHandoff {
+	if identityRef == "" && (candidate.Kind == KindStatus || candidate.Kind == KindHandoff) {
 		key += fmt.Sprintf("%d:%s", len(candidate.Origin.AgentID), candidate.Origin.AgentID)
 	}
 	return key

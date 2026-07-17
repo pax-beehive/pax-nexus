@@ -1,0 +1,40 @@
+{
+ "schema_version": "pax-stage-eval-v1",
+ "dataset": "GroupMemBench Finance annotated stage subset v1",
+ "cases": [
+  {
+   "case_id": "knowledge_update_5",
+   "category": "knowledge_update",
+   "source_revision": "d15c4a86401acce638cb78c81a0d4d68e09a44ac1afec542ec06fa007b498f1e",
+   "recall_context": {
+    "consumer_user_id": "User_13",
+    "consumer_agent_id": "groupmembench-User_13",
+    "query": "What is the team currently doing for the flagged bucket in the SAR reporting process?",
+    "token_budget": 500
+   },
+   "required_atoms": [
+    {
+     "id": "pause_bucket_scenarios",
+     "patterns": [
+      "(?i)pause scenario creation.{0,40}bucket|pause.{0,40}bucket.{0,40}scenario"
+     ]
+    },
+    {
+     "id": "legal_ops_freeze_fields",
+     "patterns": [
+      "(?i)legal.{0,30}ops.{0,80}freeze.{0,80}trigger-impacting fields"
+     ]
+    },
+    {
+     "id": "freeze_audit_rules",
+     "patterns": [
+      "(?i)freeze.{0,80}audit[- ]trail rules"
+     ],
+     "supporting_event_ids": [
+      "Msg_3687"
+     ]
+    }
+   ]
+  }
+ ]
+}

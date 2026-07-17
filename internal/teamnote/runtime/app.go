@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -99,19 +100,41 @@ func (a *App) ProcessExtraction(ctx context.Context, actor teamnote.Actor, throu
 		if extractErr != nil {
 			return false, fmt.Errorf("extract candidates: %w", extractErr)
 		}
+		result = a.filterAdmissible(result)
+		quarantined := false
 		if applyErr := a.applyExtractionRun(ctx, slice, result); applyErr != nil {
-			return false, applyErr
+			if !errors.Is(applyErr, teamnote.ErrExtractionRunQuarantined) {
+				return false, applyErr
+			}
+			quarantined = true
+			a.logger.WarnContext(ctx, "extraction run quarantined",
+				"user_id", actor.UserID, "agent_id", actor.AgentID, "session_id", actor.SessionID,
+				"from_sequence", slice.FromSequence, "to_sequence", slice.ToSequence,
+				"error", applyErr,
+			)
 		}
 		if commitErr := a.lake.CommitSlice(ctx, slice); commitErr != nil {
 			return false, commitErr
 		}
-		a.logger.InfoContext(ctx, "extraction slice completed",
+		attrs := []any{
 			"user_id", actor.UserID, "agent_id", actor.AgentID, "session_id", actor.SessionID,
 			"from_sequence", slice.FromSequence, "to_sequence", slice.ToSequence,
 			"events", len(slice.Events), "candidates", len(result.Candidates),
+			"rejections", len(result.Rejections), "quarantined", quarantined,
 			"input_tokens", result.Usage.InputTokens, "output_tokens", result.Usage.OutputTokens,
+			"prompt_cache_hit_tokens", result.Usage.PromptCacheHitTokens,
+			"prompt_cache_miss_tokens", result.Usage.PromptCacheMissTokens,
 			"duration_ms", time.Since(startedAt).Milliseconds(),
-		)
+		}
+		if result.Trace != nil {
+			attrs = append(attrs,
+				"claims", len(result.Trace.Claims),
+				"state_decisions", len(result.Trace.StateDecisions),
+				"claim_rejections", len(result.Trace.ClaimRejections),
+				"decision_rejections", len(result.Trace.DecisionRejections),
+			)
+		}
+		a.logger.InfoContext(ctx, "extraction slice completed", attrs...)
 	}
 	next, err := a.lake.NextSlice(ctx, actor, policy)
 	if err != nil {
@@ -134,14 +157,40 @@ func (a *App) applyExtractionRun(ctx context.Context, slice sessionlake.Slice, r
 		return fmt.Errorf("apply extraction run: %w", err)
 	}
 	run := teamnote.ExtractionRun{
-		ID: slice.InputChecksum, Actor: slice.Actor,
+		ID: extractionRunID(slice.InputChecksum, result.ExtractionVersion), Actor: slice.Actor,
 		FromSequence: slice.FromSequence, ToSequence: slice.ToSequence,
 		InputChecksum: slice.InputChecksum, Model: result.Model, PromptVersion: result.PromptVersion,
 		InputTokens: result.Usage.InputTokens, OutputTokens: result.Usage.OutputTokens,
-		Candidates: result.Candidates, Evidence: slice.Events,
+		Candidates: result.Candidates, Evidence: slice.Events, Rejections: result.Rejections,
 	}
 	if _, err := a.config.NoteStore.ApplyExtractionRun(ctx, scopeID, run); err != nil {
 		return fmt.Errorf("apply extraction run %q: %w", run.ID, err)
 	}
 	return nil
+}
+
+func extractionRunID(inputChecksum string, extractionVersion string) string {
+	if extractionVersion == "" || extractionVersion == extractor.ExtractionVersionV1 {
+		return inputChecksum
+	}
+	return inputChecksum + ":" + extractionVersion
+}
+
+// filterAdmissible drops candidates that can never pass deterministic
+// admission, so one malformed candidate cannot poison its siblings or wedge
+// the stream. Rejections are attached to the run for provenance.
+func (a *App) filterAdmissible(result extractor.Result) extractor.Result {
+	if len(result.Candidates) == 0 {
+		return result
+	}
+	kept := make([]teamnote.Candidate, 0, len(result.Candidates))
+	for _, candidate := range result.Candidates {
+		if err := teamnote.ValidateCandidate(candidate, a.config.TTLPolicy); err != nil {
+			result.Rejections = append(result.Rejections, teamnote.CandidateRejection{Candidate: candidate, Reason: err.Error()})
+			continue
+		}
+		kept = append(kept, candidate)
+	}
+	result.Candidates = kept
+	return result
 }
