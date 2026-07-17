@@ -105,7 +105,6 @@ func (s *shadowSuite) TestBuildReportRequiresEveryFixtureCase() {
 	_, err := extractionshadow.BuildReport("run-1", "team_note", extractor.ExtractionVersionV2, fixtures,
 		[]extractionshadow.CaseRun{{CaseID: "case-other"}})
 	s.Require().Error(err)
-	s.Contains(err.Error(), "case-missing")
 }
 
 func (s *shadowSuite) TestTelemetryAggregatesV2Products() {

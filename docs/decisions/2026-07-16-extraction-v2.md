@@ -426,6 +426,8 @@ Store, or paxm seams. The second v2 protocol revision is implemented as
 - temporal metadata is rejected when it lacks a source expression, uses an
   invalid RFC3339 window, or marks an unresolved expression with a resolved
   validity timestamp;
+- interaction observations are retained only when their stance and speech act
+  use the explicit vocabulary and their evidence cites a new source Event;
 - rolling episodes are reset when the model, operator prompt version, or
   internal response-protocol revision changes, preventing a v2 worker from
   replaying v1 assistant responses;

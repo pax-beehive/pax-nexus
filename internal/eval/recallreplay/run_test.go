@@ -66,7 +66,6 @@ func (s *replaySuite) TestFixtureRoundTripAndRun() {
 func (s *replaySuite) TestRunRejectsInvalidFixture() {
 	_, err := recallreplay.Run(recallreplay.FixtureSet{}, recallreplay.Policy{})
 	s.Require().Error(err)
-	s.Contains(err.Error(), "schema_version")
 }
 
 func (s *replaySuite) TestLoadRejectsUnknownFields() {

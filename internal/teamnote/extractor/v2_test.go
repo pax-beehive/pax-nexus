@@ -32,8 +32,12 @@ func v2Body(claims string, decisions string) string {
 }
 
 func v2BodyWithNoStateEvents(claims string, decisions string, noStateEventIDs string) string {
-	content := fmt.Sprintf(`{"claims":[%s],"state_decisions":[%s],"no_state_event_ids":[%s],"interaction_observations":[]}`,
-		claims, decisions, noStateEventIDs)
+	return v2BodyWithProducts(claims, decisions, noStateEventIDs, "")
+}
+
+func v2BodyWithProducts(claims string, decisions string, noStateEventIDs string, interactions string) string {
+	content := fmt.Sprintf(`{"claims":[%s],"state_decisions":[%s],"no_state_event_ids":[%s],"interaction_observations":[%s]}`,
+		claims, decisions, noStateEventIDs, interactions)
 	return fmt.Sprintf(`{"choices":[{"message":{"content":%s}}],"usage":{"prompt_tokens":100,"completion_tokens":10}}`,
 		fmt.Sprintf("%q", content))
 }
@@ -49,20 +53,26 @@ func newV2Adapter(s *extractionV2Suite, client *http.Client) extractor.Extractor
 }
 
 func (s *extractionV2Suite) TestConfigValidation() {
-	_, err := extractor.NewOpenAI(extractor.OpenAIConfig{
-		BaseURL: "http://extractor.test", Model: "model",
-		ContextMode: extractor.ContextModeSlice, ExtractionVersion: extractor.ExtractionVersionV2,
-	})
-	s.Require().Error(err)
-	s.Contains(err.Error(), "rolling")
-
-	_, err = extractor.NewOpenAI(extractor.OpenAIConfig{
-		BaseURL: "http://extractor.test", Model: "model",
-		ContextMode: extractor.ContextModeRolling, EpisodeStore: extractor.NewMemoryEpisodeStore(),
-		ExtractionVersion: "v3",
-	})
-	s.Require().Error(err)
-	s.Contains(err.Error(), "unsupported extraction version")
+	tests := []struct {
+		name   string
+		config extractor.OpenAIConfig
+	}{
+		{name: "v2 requires rolling context", config: extractor.OpenAIConfig{
+			BaseURL: "http://extractor.test", Model: "model",
+			ContextMode: extractor.ContextModeSlice, ExtractionVersion: extractor.ExtractionVersionV2,
+		}},
+		{name: "unsupported extraction version", config: extractor.OpenAIConfig{
+			BaseURL: "http://extractor.test", Model: "model",
+			ContextMode: extractor.ContextModeRolling, EpisodeStore: extractor.NewMemoryEpisodeStore(),
+			ExtractionVersion: "v3",
+		}},
+	}
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			_, err := extractor.NewOpenAI(test.config)
+			s.Require().Error(err)
+		})
+	}
 }
 
 func (s *extractionV2Suite) TestMapsClaimsAndDecisionsToCandidates() {
@@ -161,6 +171,26 @@ func (s *extractionV2Suite) TestEvidenceCannotAlsoBeDeclaredNoState() {
 	s.Empty(result.Trace.NoStateEventIDs)
 	s.Equal([]string{"event-1"}, result.Trace.InvalidNoStateEventIDs)
 	s.Empty(result.Trace.UnreviewedEventIDs)
+}
+
+func (s *extractionV2Suite) TestInteractionObservationsRequireGroundedVocabulary() {
+	interactions := strings.Join([]string{
+		`{"actor":"producer","target":"reviewer","stance":"support","speech_act":"approve","evidence_event_id":"event-1"}`,
+		`{"actor":"producer","target":"reviewer","stance":"enthusiastic","speech_act":"approve","evidence_event_id":"event-1"}`,
+		`{"actor":"producer","target":"reviewer","stance":"oppose","speech_act":"reject","evidence_event_id":"unknown"}`,
+	}, ",")
+	client := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		return response(http.StatusOK, v2BodyWithProducts("", "", `"event-1"`, interactions)), nil
+	})}
+	adapter := newV2Adapter(s, client)
+
+	result, err := adapter.Extract(teamnote.WithScope(context.Background(), "scope-v2-interactions"), v2Slice())
+	s.Require().NoError(err)
+	s.Require().Len(result.Trace.InteractionObservations, 1)
+	s.Equal("support", result.Trace.InteractionObservations[0].Stance)
+	s.Require().Len(result.Trace.InteractionRejections, 2)
+	s.Contains(result.Trace.InteractionRejections[0].Reason, "stance")
+	s.Contains(result.Trace.InteractionRejections[1].Reason, "unknown event")
 }
 
 func (s *extractionV2Suite) TestTraceOnlyDecisionsAndWouldVerifyTriggers() {

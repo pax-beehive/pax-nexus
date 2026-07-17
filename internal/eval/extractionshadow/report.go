@@ -38,6 +38,7 @@ type Telemetry struct {
 	StateDecisions             int            `json:"state_decisions,omitempty"`
 	ClaimRejections            int            `json:"claim_rejections,omitempty"`
 	DecisionRejections         int            `json:"decision_rejections,omitempty"`
+	InteractionRejections      int            `json:"interaction_rejections,omitempty"`
 	NoStateEvents              int            `json:"no_state_events,omitempty"`
 	UnreviewedEvents           int            `json:"unreviewed_events,omitempty"`
 	SlicesWithUnreviewedEvents int            `json:"slices_with_unreviewed_events,omitempty"`
@@ -153,6 +154,7 @@ func (t *Telemetry) add(slices []SliceRecord) {
 		t.StateDecisions += slice.StateDecisions
 		t.ClaimRejections += slice.ClaimRejections
 		t.DecisionRejections += slice.DecisionRejections
+		t.InteractionRejections += slice.InteractionRejections
 		t.NoStateEvents += slice.NoStateEvents
 		t.UnreviewedEvents += slice.UnreviewedEvents
 		if slice.UnreviewedEvents > 0 {

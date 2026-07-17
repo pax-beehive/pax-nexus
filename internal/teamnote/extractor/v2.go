@@ -97,6 +97,16 @@ var validReasonCodes = map[string]struct{}{
 	"insufficient_temporal_anchor": {},
 }
 
+var validInteractionStances = map[string]struct{}{
+	"support": {}, "oppose": {}, "question": {}, "neutral": {},
+}
+
+var validInteractionSpeechActs = map[string]struct{}{
+	"propose": {}, "request": {}, "commit": {}, "approve": {}, "reject": {},
+	"handoff": {}, "escalate": {}, "acknowledge": {}, "question": {},
+	"express_concern": {}, "express_urgency": {},
+}
+
 // DecisionCandidate is the storage-ready note proposed by one create, update,
 // or resolve decision.
 type DecisionCandidate struct {
@@ -144,6 +154,13 @@ type DecisionRejection struct {
 	Reason   string        `json:"reason"`
 }
 
+// InteractionRejection records one coordination signal dropped by
+// deterministic source and vocabulary validation.
+type InteractionRejection struct {
+	Observation InteractionObservation `json:"observation"`
+	Reason      string                 `json:"reason"`
+}
+
 // TraceV2 is the per-slice extraction v2 diagnostic product. It never enters
 // passive agent context.
 type TraceV2 struct {
@@ -152,6 +169,7 @@ type TraceV2 struct {
 	InteractionObservations []InteractionObservation `json:"interaction_observations,omitempty"`
 	ClaimRejections         []ClaimRejection         `json:"claim_rejections,omitempty"`
 	DecisionRejections      []DecisionRejection      `json:"decision_rejections,omitempty"`
+	InteractionRejections   []InteractionRejection   `json:"interaction_rejections,omitempty"`
 	// NoStateEventIDs are new Events the model explicitly reviewed and
 	// classified as containing no durable collaboration state. Together with
 	// evidence citations, they make source-event coverage inspectable without
@@ -251,10 +269,45 @@ func mapExtractionV2(result *Result, slice sessionlake.Slice) {
 		}
 	}
 	trace.StateDecisions = keptDecisions
+	keptInteractions := trace.InteractionObservations[:0]
+	for _, observation := range trace.InteractionObservations {
+		if reason := interactionRejectionReason(observation, allEvents, newEvents); reason != "" {
+			trace.InteractionRejections = append(trace.InteractionRejections, InteractionRejection{
+				Observation: observation, Reason: reason,
+			})
+			continue
+		}
+		keptInteractions = append(keptInteractions, observation)
+	}
+	trace.InteractionObservations = keptInteractions
 	traceCoverage(trace, slice, admittedClaims)
 	trace.WouldVerify = wouldVerifyTriggers(trace)
 	result.Candidates = candidates
 	result.ExtractionVersion = ExtractionVersionV2
+}
+
+func interactionRejectionReason(
+	observation InteractionObservation,
+	allEvents map[string]struct{},
+	newEvents map[string]struct{},
+) string {
+	if strings.TrimSpace(observation.Actor) == "" {
+		return "interaction observation is missing actor"
+	}
+	if _, ok := validInteractionStances[observation.Stance]; !ok {
+		return fmt.Sprintf("interaction stance %q is not in the stance vocabulary", observation.Stance)
+	}
+	if _, ok := validInteractionSpeechActs[observation.SpeechAct]; !ok {
+		return fmt.Sprintf("interaction speech act %q is not in the speech-act vocabulary", observation.SpeechAct)
+	}
+	eventID := strings.TrimSpace(observation.EvidenceEventID)
+	if _, ok := allEvents[eventID]; !ok {
+		return fmt.Sprintf("interaction observation cites unknown event %q", eventID)
+	}
+	if _, ok := newEvents[eventID]; !ok {
+		return "interaction observation is not grounded in a new event"
+	}
+	return ""
 }
 
 // claimRejectionReason returns the deterministic reason one claim can never

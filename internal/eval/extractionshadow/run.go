@@ -15,25 +15,26 @@ import (
 // SliceRecord captures one extraction call's products and usage for the
 // shadow telemetry.
 type SliceRecord struct {
-	SessionID            string             `json:"session_id"`
-	FromSequence         int64              `json:"from_sequence"`
-	ToSequence           int64              `json:"to_sequence"`
-	Events               int                `json:"events"`
-	Candidates           int                `json:"candidates"`
-	Rejections           int                `json:"rejections"`
-	Claims               int                `json:"claims,omitempty"`
-	StateDecisions       int                `json:"state_decisions,omitempty"`
-	ClaimRejections      int                `json:"claim_rejections,omitempty"`
-	DecisionRejections   int                `json:"decision_rejections,omitempty"`
-	NoStateEvents        int                `json:"no_state_events,omitempty"`
-	UnreviewedEvents     int                `json:"unreviewed_events,omitempty"`
-	InvalidNoStateEvents int                `json:"invalid_no_state_events,omitempty"`
-	OrphanClaims         int                `json:"orphan_claims,omitempty"`
-	WouldVerify          []string           `json:"would_verify,omitempty"`
-	Trace                *extractor.TraceV2 `json:"trace,omitempty"`
-	Usage                extractor.Usage    `json:"usage"`
-	DurationMS           int64              `json:"duration_ms"`
-	Error                string             `json:"error,omitempty"`
+	SessionID             string             `json:"session_id"`
+	FromSequence          int64              `json:"from_sequence"`
+	ToSequence            int64              `json:"to_sequence"`
+	Events                int                `json:"events"`
+	Candidates            int                `json:"candidates"`
+	Rejections            int                `json:"rejections"`
+	Claims                int                `json:"claims,omitempty"`
+	StateDecisions        int                `json:"state_decisions,omitempty"`
+	ClaimRejections       int                `json:"claim_rejections,omitempty"`
+	DecisionRejections    int                `json:"decision_rejections,omitempty"`
+	InteractionRejections int                `json:"interaction_rejections,omitempty"`
+	NoStateEvents         int                `json:"no_state_events,omitempty"`
+	UnreviewedEvents      int                `json:"unreviewed_events,omitempty"`
+	InvalidNoStateEvents  int                `json:"invalid_no_state_events,omitempty"`
+	OrphanClaims          int                `json:"orphan_claims,omitempty"`
+	WouldVerify           []string           `json:"would_verify,omitempty"`
+	Trace                 *extractor.TraceV2 `json:"trace,omitempty"`
+	Usage                 extractor.Usage    `json:"usage"`
+	DurationMS            int64              `json:"duration_ms"`
+	Error                 string             `json:"error,omitempty"`
 }
 
 // recordingExtractor wraps the protocol extractor and records every slice
@@ -58,6 +59,7 @@ func (r *recordingExtractor) Extract(ctx context.Context, slice sessionlake.Slic
 		record.StateDecisions = len(result.Trace.StateDecisions)
 		record.ClaimRejections = len(result.Trace.ClaimRejections)
 		record.DecisionRejections = len(result.Trace.DecisionRejections)
+		record.InteractionRejections = len(result.Trace.InteractionRejections)
 		record.NoStateEvents = len(result.Trace.NoStateEventIDs)
 		record.UnreviewedEvents = len(result.Trace.UnreviewedEventIDs)
 		record.InvalidNoStateEvents = len(result.Trace.InvalidNoStateEventIDs)

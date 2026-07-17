@@ -94,6 +94,7 @@ func mergeTraceV2(result *Result, trace *TraceV2) {
 	merged.InteractionObservations = append(merged.InteractionObservations, trace.InteractionObservations...)
 	merged.ClaimRejections = append(merged.ClaimRejections, trace.ClaimRejections...)
 	merged.DecisionRejections = append(merged.DecisionRejections, trace.DecisionRejections...)
+	merged.InteractionRejections = append(merged.InteractionRejections, trace.InteractionRejections...)
 	merged.NoStateEventIDs = append(merged.NoStateEventIDs, trace.NoStateEventIDs...)
 	merged.UnreviewedEventIDs = append(merged.UnreviewedEventIDs, trace.UnreviewedEventIDs...)
 	merged.InvalidNoStateEventIDs = append(merged.InvalidNoStateEventIDs, trace.InvalidNoStateEventIDs...)
