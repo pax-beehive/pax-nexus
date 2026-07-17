@@ -106,6 +106,26 @@ func (s *filesSuite) TestWriteV3CasesUsesOneFullDomainHistory() {
 	s.NoError(err)
 }
 
+func (s *filesSuite) TestWriteV3CasesOrdersDomainEventsChronologically() {
+	directory := s.T().TempDir()
+	messages := []groupmembench.Message{
+		{NodeID: "Msg_2", Channel: "ops", Author: "User_1", Content: "second", Timestamp: "2026-07-01T10:01:00"},
+		{NodeID: "Msg_1", Channel: "ops", Author: "User_1", Content: "first", Timestamp: "2026-07-01T10:00:00"},
+	}
+	cases := []groupmembench.Case{{Category: "multi_hop", Question: groupmembench.Question{ID: "q1", Question: "question", Answer: "answer", AskingUserID: "User_1"}}}
+
+	s.Require().NoError(groupmembench.WriteV3Cases(directory, "revision", "Finance", "seed", cases, messages))
+
+	input, err := os.ReadFile(filepath.Join(directory, "domain", "producer", "session-batches.json"))
+	s.Require().NoError(err)
+	var batches []session.SessionBatch
+	s.Require().NoError(json.Unmarshal(input, &batches))
+	s.Require().Len(batches, 1)
+	s.Require().Len(batches[0].Events, 2)
+	s.Equal("Msg_1", batches[0].Events[0].ID)
+	s.Equal("Msg_2", batches[0].Events[1].ID)
+}
+
 func loadManifest(t *testing.T, path string) groupmembench.Manifest {
 	t.Helper()
 	input, err := os.ReadFile(path)

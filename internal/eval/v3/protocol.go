@@ -54,8 +54,8 @@ func Validate(config v2.Config) error {
 	if strings.TrimSpace(config.AnswererSeed) == "" {
 		return fmt.Errorf("validate eval v3 config: answerer_seed is required")
 	}
-	if !validReproductionLevel(config.Mem0ReproductionLevel) {
-		return fmt.Errorf("validate eval v3 config: invalid mem0_reproduction_level %q", config.Mem0ReproductionLevel)
+	if config.Mem0ReproductionLevel != ReproductionComparable {
+		return fmt.Errorf("validate eval v3 config: current self-hosted runner requires mem0_reproduction_level %q", ReproductionComparable)
 	}
 	if config.BaselineArm != ArmNoMemoryTeam {
 		return fmt.Errorf("validate eval v3 config: baseline_arm must be %q", ArmNoMemoryTeam)
@@ -82,19 +82,10 @@ func Validate(config v2.Config) error {
 	return nil
 }
 
-func validReproductionLevel(value string) bool {
-	switch value {
-	case ReproductionExact, ReproductionProtocol, ReproductionComparable:
-		return true
-	default:
-		return false
-	}
-}
-
 // SelectAnswerer deterministically chooses one case participant. Annotated
 // cases exclude both the Asking User and all gold-supporting authors. Cases
 // without annotations exclude only the Asking User and are not strict trials.
-func SelectAnswerer(evalCase v2.Case, seed string) AnswererSelection {
+func SelectAnswerer(evalCase v2.Case, datasetRevision, seed string) AnswererSelection {
 	askingAgentID := groupMemBenchAgentID(evalCase.AskingUserID)
 	supporting := make(map[string]struct{}, len(evalCase.SupportingAgentIDs))
 	for _, agentID := range evalCase.SupportingAgentIDs {
@@ -122,7 +113,7 @@ func SelectAnswerer(evalCase v2.Case, seed string) AnswererSelection {
 		return AnswererSelection{SourceOverlap: SourceOverlapNoEligible}
 	}
 	slices.SortFunc(eligible, func(left, right string) int {
-		return strings.Compare(answererKey(seed, evalCase.ID, left), answererKey(seed, evalCase.ID, right))
+		return strings.Compare(answererKey(datasetRevision, seed, evalCase.ID, left), answererKey(datasetRevision, seed, evalCase.ID, right))
 	})
 	selection := AnswererSelection{AgentID: eligible[0], SourceOverlap: SourceOverlapUnknown}
 	if len(supporting) > 0 {
@@ -134,10 +125,10 @@ func SelectAnswerer(evalCase v2.Case, seed string) AnswererSelection {
 
 // AssignAnswerers binds one paired Answering Agent to every case before the
 // shared runner expands the case across arms.
-func AssignAnswerers(cases []v2.Case, seed string) ([]v2.Case, error) {
+func AssignAnswerers(cases []v2.Case, datasetRevision, seed string) ([]v2.Case, error) {
 	assigned := slices.Clone(cases)
 	for index := range assigned {
-		selection := SelectAnswerer(assigned[index], seed)
+		selection := SelectAnswerer(assigned[index], datasetRevision, seed)
 		assigned[index].AnsweringAgentID = selection.AgentID
 		assigned[index].AnswererSeed = seed
 		assigned[index].StrictCrossAgent = selection.StrictCrossAgent
@@ -156,7 +147,7 @@ func groupMemBenchAgentID(userID string) string {
 	return "groupmembench-" + value
 }
 
-func answererKey(seed, caseID, agentID string) string {
-	digest := sha256.Sum256([]byte(seed + "\x00" + caseID + "\x00" + agentID))
+func answererKey(datasetRevision, seed, caseID, agentID string) string {
+	digest := sha256.Sum256([]byte(datasetRevision + "\x00" + seed + "\x00" + caseID + "\x00" + agentID))
 	return hex.EncodeToString(digest[:])
 }

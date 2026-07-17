@@ -56,12 +56,12 @@ func (s *artifactSuite) TestSummaryPairwiseAndExport() {
 	s.Equal(2, pairs[0].Pairs)
 	s.Equal(1, pairs[0].Wins)
 	s.Equal(1, pairs[0].Losses)
-	s.Equal(3, pairs[0].AccuracyPairs)
+	s.Equal(2, pairs[0].AccuracyPairs)
 	s.Equal(1, pairs[0].AccuracyWins)
 	s.Zero(pairs[0].AccuracyLosses)
-	s.Equal(2, pairs[0].AccuracyTies)
-	s.InDelta(1.0/3.0, pairs[0].CandidateAccuracy, 0.00001)
-	s.InDelta(1.0/3.0, pairs[0].AccuracyDelta, 0.00001)
+	s.Equal(1, pairs[0].AccuracyTies)
+	s.InDelta(0.5, pairs[0].CandidateAccuracy, 0.00001)
+	s.InDelta(0.5, pairs[0].AccuracyDelta, 0.00001)
 	s.InDelta(0.01, pairs[0].BaselineMeanCost, 0.000001)
 	s.InDelta(0.01, pairs[0].CandidateMeanCost, 0.000001)
 	s.Zero(pairs[0].MeanDeltaCost)
@@ -158,14 +158,57 @@ func (s *artifactSuite) TestExportLinksEvalV3FullDomainIngestReceipts() {
 	encoded, err := os.ReadFile(filepath.Join(directory, "artifacts.json"))
 	s.Require().NoError(err)
 	var manifest struct {
-		SchemaVersion string            `json:"schema_version"`
-		Files         map[string]string `json:"files"`
+		SchemaVersion    string            `json:"schema_version"`
+		Files            map[string]string `json:"files"`
+		Mem0Reproduction struct {
+			Level         string         `json:"level"`
+			IngestReceipt map[string]int `json:"ingest_receipt"`
+		} `json:"mem0_reproduction"`
 	}
 	s.Require().NoError(json.Unmarshal(encoded, &manifest))
 	s.Equal(ArtifactSchemaVersionV3, manifest.SchemaVersion)
 	s.Equal(filepath.Join("memory", "team-note-ingest.json"), manifest.Files["team_note_ingest"])
 	s.Equal(filepath.Join("memory", "mem0-ingest.json"), manifest.Files["mem0_ingest"])
 	s.Equal(filepath.Join("memory", "private-sqlite-ingest.json"), manifest.Files["private_sqlite_ingest"])
+	s.Empty(manifest.Mem0Reproduction.Level)
+	s.NotNil(manifest.Mem0Reproduction.IngestReceipt)
+}
+
+func (s *artifactSuite) TestEvalV3ExportsPrivateTeamNoteComparisonAgainstMem0() {
+	directory := s.T().TempDir()
+	s.Require().NoError(os.MkdirAll(filepath.Join(directory, "memory"), 0o755))
+	s.Require().NoError(os.WriteFile(filepath.Join(directory, "memory", "mem0-ingest.json"), []byte("{}\n"), 0o600))
+	results := []TrialResult{
+		trial("case", "temporal", "no_memory_team", "completed", 0.1, false, 1),
+		trial("case", "temporal", "groupmembench_mem0", "completed", 0.5, false, 1),
+		trial("case", "temporal", "private_sqlite_plus_team_note", "completed", 0.8, true, 1),
+	}
+	run := RunRecord{Config: Config{Version: "v3"}}
+
+	s.Require().NoError(ExportArtifacts(directory, run, "no_memory_team", []string{"csv"}, results, nil))
+	encoded, err := os.ReadFile(filepath.Join(directory, "pairwise.csv"))
+	s.Require().NoError(err)
+	s.Contains(string(encoded), "groupmembench_mem0,private_sqlite_plus_team_note")
+}
+
+func (s *artifactSuite) TestSummaryExcludesFailedTrialsFromAccuracyDenominator() {
+	results := []TrialResult{
+		trial("completed", "temporal", "memory", "completed", 1, true, 1),
+		trial("failed", "temporal", "memory", "failed", 0, false, 1),
+	}
+
+	rows := Summarize(results)
+
+	var overall SummaryRow
+	for _, row := range rows {
+		if row.DimensionType == "overall" {
+			overall = row
+		}
+	}
+	s.Equal(2, overall.Trials)
+	s.Equal(1, overall.Failed)
+	s.Equal(1, overall.Judged)
+	s.InDelta(1.0, overall.Accuracy, 0.00001)
 }
 
 func (s *artifactSuite) TestLoadsTrialResultsJSONLines() {

@@ -27,6 +27,26 @@ run_memory_ingest() {
     opencode -action ingest -provider "${provider}" -session-batches-file "/artifact/${batches_file}"
 }
 
+validate_domain_receipts() {
+  manifest="${PAX_EVAL_MANIFEST:?PAX_EVAL_MANIFEST is required}"
+  output_directory="${PAX_EVAL_OUTPUT_DIR:?PAX_EVAL_OUTPUT_DIR is required}"
+  expected="$(jq -r '.full_domain_messages // 0' "${manifest}")"
+  marker_directory="${output_directory}/memory"
+  if [ "${expected}" -le 0 ] 2>/dev/null; then
+    echo "Eval v3 manifest has no full-domain message count" >&2
+    return 1
+  fi
+  jq -e --argjson expected "${expected}" \
+    '.provider == "team_note" and .source_events == $expected and ((.accepted + .duplicate) == $expected)' \
+    "${marker_directory}/team-note-ingest.json" >/dev/null || return 1
+  jq -e --argjson expected "${expected}" \
+    '.provider == "mem0_messages" and .source_events == $expected and .accepted == $expected and ((.created + .updated + .deleted) > 0)' \
+    "${marker_directory}/mem0-ingest.json" >/dev/null || return 1
+  jq -e --argjson expected "${expected}" \
+    '.provider == "private_sqlite" and .source_events == $expected and .accepted == $expected and .created == $expected' \
+    "${marker_directory}/private-sqlite-ingest.json" >/dev/null || return 1
+}
+
 ingest_domain() {
   manifest="${PAX_EVAL_MANIFEST:?PAX_EVAL_MANIFEST is required}"
   output_directory="${PAX_EVAL_OUTPUT_DIR:?PAX_EVAL_OUTPUT_DIR is required}"
@@ -60,6 +80,11 @@ ingest_domain() {
       opencode /opt/team-memory/ingest-private-sqlite.mjs "/artifact/${batches_file}" /private-memory \
       > "${marker_directory}/private-sqlite-ingest.json"
     : > "${marker_directory}/private-sqlite.complete"
+  fi
+
+  if ! validate_domain_receipts; then
+    echo "Eval v3 full-domain ingest receipts are incomplete or contain zero Mem0 writes" >&2
+    exit 1
   fi
 
   scope_id="${run_id}-$(jq -r '.cases[0].scope_id' "${manifest}")"
@@ -163,6 +188,7 @@ ${PAX_EVAL_QUESTION}"
 
 case "${stage}" in
   ingest-domain) ingest_domain ;;
+  validate-receipts) validate_domain_receipts ;;
   preflight) run_preflight ;;
   consumer) run_consumer ;;
   *) echo "unsupported Eval v3 stage: ${stage}" >&2; exit 1 ;;

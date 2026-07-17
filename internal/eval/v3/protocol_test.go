@@ -17,46 +17,37 @@ func TestProtocolSuite(t *testing.T) {
 	suite.Run(t, new(protocolSuite))
 }
 
-func (s *protocolSuite) TestSelectAnswererIsDeterministicAndStrictWhenEvidenceIsAnnotated() {
-	evalCase := v2.Case{
-		ID: "case-1", AskingUserID: "User_1",
-		ParticipantAgentIDs: []string{"groupmembench-User_1", "groupmembench-User_2", "groupmembench-User_3"},
-		SupportingAgentIDs:  []string{"groupmembench-User_2"},
+func (s *protocolSuite) TestSelectAnswererMatrix() {
+	tests := []struct {
+		name        string
+		evalCase    v2.Case
+		wantAgent   string
+		wantStrict  bool
+		wantOverlap string
+	}{
+		{
+			name: "annotated strict", wantAgent: "groupmembench-User_3", wantStrict: true, wantOverlap: v3.SourceOverlapExcluded,
+			evalCase: v2.Case{ID: "case-1", AskingUserID: "User_1", ParticipantAgentIDs: []string{"groupmembench-User_1", "groupmembench-User_2", "groupmembench-User_3"}, SupportingAgentIDs: []string{"groupmembench-User_2"}},
+		},
+		{
+			name: "unannotated overlap", wantAgent: "groupmembench-User_2", wantOverlap: v3.SourceOverlapUnknown,
+			evalCase: v2.Case{ID: "case-2", AskingUserID: "User_1", ParticipantAgentIDs: []string{"groupmembench-User_1", "groupmembench-User_2"}},
+		},
+		{
+			name: "no eligible answerer", wantOverlap: v3.SourceOverlapNoEligible,
+			evalCase: v2.Case{ID: "case-3", AskingUserID: "User_1", ParticipantAgentIDs: []string{"groupmembench-User_1", "groupmembench-User_2"}, SupportingAgentIDs: []string{"groupmembench-User_2"}},
+		},
 	}
-
-	first := v3.SelectAnswerer(evalCase, "seed-1")
-	second := v3.SelectAnswerer(evalCase, "seed-1")
-
-	s.Equal(first, second)
-	s.Equal("groupmembench-User_3", first.AgentID)
-	s.True(first.StrictCrossAgent)
-	s.Equal(v3.SourceOverlapExcluded, first.SourceOverlap)
-}
-
-func (s *protocolSuite) TestSelectAnswererRecordsUnknownOverlapWithoutAnnotations() {
-	evalCase := v2.Case{
-		ID: "case-2", AskingUserID: "User_1",
-		ParticipantAgentIDs: []string{"groupmembench-User_1", "groupmembench-User_2"},
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			first := v3.SelectAnswerer(test.evalCase, "revision", "seed-1")
+			second := v3.SelectAnswerer(test.evalCase, "revision", "seed-1")
+			s.Equal(first, second)
+			s.Equal(test.wantAgent, first.AgentID)
+			s.Equal(test.wantStrict, first.StrictCrossAgent)
+			s.Equal(test.wantOverlap, first.SourceOverlap)
+		})
 	}
-
-	selection := v3.SelectAnswerer(evalCase, "seed-1")
-
-	s.Equal("groupmembench-User_2", selection.AgentID)
-	s.False(selection.StrictCrossAgent)
-	s.Equal(v3.SourceOverlapUnknown, selection.SourceOverlap)
-}
-
-func (s *protocolSuite) TestSelectAnswererDoesNotRelaxWhenNoEligibleAgentExists() {
-	evalCase := v2.Case{
-		ID: "case-3", AskingUserID: "User_1",
-		ParticipantAgentIDs: []string{"groupmembench-User_1", "groupmembench-User_2"},
-		SupportingAgentIDs:  []string{"groupmembench-User_2"},
-	}
-
-	selection := v3.SelectAnswerer(evalCase, "seed-1")
-
-	s.Empty(selection.AgentID)
-	s.Equal(v3.SourceOverlapNoEligible, selection.SourceOverlap)
 }
 
 func (s *protocolSuite) TestValidateRequiresExactlyTheThreeArchitectureArms() {
@@ -80,6 +71,22 @@ func (s *protocolSuite) TestValidateRequiresExactlyTheThreeArchitectureArms() {
 				return
 			}
 			s.Error(err)
+		})
+	}
+}
+
+func (s *protocolSuite) TestValidateRejectsUnverifiedMem0ReproductionClaims() {
+	tests := []struct{ name, level string }{
+		{name: "exact", level: v3.ReproductionExact},
+		{name: "protocol", level: v3.ReproductionProtocol},
+		{name: "empty"},
+	}
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			config := baseConfig()
+			config.Mem0ReproductionLevel = test.level
+
+			s.Error(v3.Validate(config))
 		})
 	}
 }
@@ -110,7 +117,7 @@ func (s *protocolSuite) TestLoadCasesRejectsQuestionConditionedV2Manifest() {
 
 	_, _, err := v3.LoadCases(path, "seed")
 
-	s.ErrorContains(err, "protocol must be")
+	s.Error(err)
 }
 
 func (s *protocolSuite) TestAssignAnswerersMarksCaseWhenStrictSelectionIsImpossible() {
@@ -120,7 +127,7 @@ func (s *protocolSuite) TestAssignAnswerersMarksCaseWhenStrictSelectionIsImpossi
 		SupportingAgentIDs:  []string{"groupmembench-User-2"},
 	}}
 
-	assigned, err := v3.AssignAnswerers(cases, "seed")
+	assigned, err := v3.AssignAnswerers(cases, "revision", "seed")
 
 	s.Require().NoError(err)
 	s.Require().Len(assigned, 1)

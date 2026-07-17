@@ -50,7 +50,7 @@ func LoadCases(path string, answererSeed string) ([]v2.Case, string, error) {
 			return nil, "", fmt.Errorf("load eval v3 case %q: full-domain scope is required", evalCase.ID)
 		}
 	}
-	assigned, err := AssignAnswerers(cases, answererSeed)
+	assigned, err := AssignAnswerers(cases, revision, answererSeed)
 	if err != nil {
 		return nil, "", err
 	}

@@ -129,6 +129,11 @@ func WriteV3Cases(directory, revision, domain, seed string, cases []Case, messag
 		strings.TrimSpace(domain) == "" || len(cases) == 0 || len(messages) == 0 {
 		return fmt.Errorf("write GroupMemBench v3 cases: directory, revision, domain, cases, and messages are required")
 	}
+	chronological, err := chronologicalMessages(messages)
+	if err != nil {
+		return fmt.Errorf("write GroupMemBench v3 cases: %w", err)
+	}
+	messages = chronological
 	domainProducer := filepath.Join(directory, "domain", "producer")
 	if err := os.MkdirAll(domainProducer, 0o755); err != nil {
 		return fmt.Errorf("create GroupMemBench v3 domain workspace: %w", err)
@@ -178,6 +183,32 @@ func WriteV3Cases(directory, revision, domain, seed string, cases []Case, messag
 		return writeJSON(filepath.Join(directory, "manifest.smoke.json"), smoke)
 	}
 	return nil
+}
+
+func chronologicalMessages(messages []Message) ([]Message, error) {
+	type timedMessage struct {
+		message Message
+		time    time.Time
+	}
+	timed := make([]timedMessage, 0, len(messages))
+	for _, message := range messages {
+		occurredAt, err := parseTimestamp(message.Timestamp)
+		if err != nil {
+			return nil, fmt.Errorf("order message %q: %w", message.NodeID, err)
+		}
+		timed = append(timed, timedMessage{message: message, time: occurredAt})
+	}
+	slices.SortStableFunc(timed, func(left, right timedMessage) int {
+		if comparison := left.time.Compare(right.time); comparison != 0 {
+			return comparison
+		}
+		return strings.Compare(left.message.NodeID, right.message.NodeID)
+	})
+	result := make([]Message, 0, len(timed))
+	for _, current := range timed {
+		result = append(result, current.message)
+	}
+	return result, nil
 }
 
 func participantAgentIDs(messages []Message) []string {

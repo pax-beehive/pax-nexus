@@ -43,3 +43,9 @@ flag. `summary.csv` includes a `trial_class=strict_cross_agent` slice when
 annotated strict trials exist. `artifacts.json` links the three full-domain
 ingest receipts under `memory/`, so source construction is auditable separately
 from answer quality.
+
+The artifact manifest also records the shared Mem0 namespace, image, models,
+retrieval limit and score semantics, observed accuracy, published comparison
+targets, and known protocol deviations. The current runner rejects stronger
+reproduction labels until an official Mem0 runner and pinned artifacts are
+available.

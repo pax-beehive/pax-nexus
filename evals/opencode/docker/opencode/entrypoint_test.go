@@ -2,6 +2,7 @@ package opencode_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -102,6 +103,49 @@ func (s *entrypointSuite) TestEvalV3ConsumerKeepsPairedAnswererAndArmTopology() 
 			s.Contains(arguments, "PAXM_PROVIDER_TYPE="+test.providerType)
 			s.Contains(arguments, "PAXM_RECALL_ENABLED="+test.recall)
 			s.Contains(arguments, "PAXM_PROVIDER_AGENT_ID="+test.providerAgent)
+		})
+	}
+}
+
+func (s *entrypointSuite) TestEvalV3ValidatesFullDomainIngestReceipts() {
+	repositoryRoot, err := filepath.Abs(filepath.Join("..", "..", "..", ".."))
+	s.Require().NoError(err)
+	tests := []struct {
+		name       string
+		mem0Writes int
+		wantError  bool
+	}{
+		{name: "complete receipts", mem0Writes: 2},
+		{name: "zero Mem0 writes", wantError: true},
+	}
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			directory := s.T().TempDir()
+			memoryDirectory := filepath.Join(directory, "memory")
+			s.Require().NoError(os.MkdirAll(memoryDirectory, 0o700))
+			manifest := filepath.Join(directory, "manifest.json")
+			s.Require().NoError(os.WriteFile(manifest, []byte(`{"full_domain_messages":2}`), 0o600))
+			receipts := map[string]string{
+				"team-note-ingest.json":      `{"provider":"team_note","accepted":2,"duplicate":0,"source_events":2}`,
+				"mem0-ingest.json":           `{"provider":"mem0_messages","accepted":2,"created":` + fmt.Sprint(test.mem0Writes) + `,"updated":0,"deleted":0,"source_events":2}`,
+				"private-sqlite-ingest.json": `{"provider":"private_sqlite","accepted":2,"created":2,"source_events":2}`,
+			}
+			for name, receipt := range receipts {
+				s.Require().NoError(os.WriteFile(filepath.Join(memoryDirectory, name), []byte(receipt), 0o600))
+			}
+			command := exec.Command("sh", filepath.Join(repositoryRoot, "scripts", "eval-v3-opencode.sh"), "validate-receipts")
+			command.Dir = repositoryRoot
+			command.Env = append(os.Environ(),
+				"PAX_EVAL_RUN_ID=receipt-test",
+				"PAX_EVAL_MANIFEST="+manifest,
+				"PAX_EVAL_OUTPUT_DIR="+directory,
+			)
+			output, runErr := command.CombinedOutput()
+			if test.wantError {
+				s.Error(runErr, string(output))
+				return
+			}
+			s.NoError(runErr, string(output))
 		})
 	}
 }

@@ -136,7 +136,7 @@ func ExportArtifacts(directory string, run RunRecord, baselineArm string, format
 			}
 			files["raw_trials"] = "trials.jsonl"
 		case "csv":
-			if err := exportCSVArtifacts(directory, baselineArm, results); err != nil {
+			if err := exportCSVArtifacts(directory, run.Config.Version, baselineArm, results); err != nil {
 				return err
 			}
 			files["trials"] = "trials.csv"
@@ -175,7 +175,65 @@ func ExportArtifacts(directory string, run RunRecord, baselineArm string, format
 		"files":                   files,
 		"cost_summary":            CostTotals(results),
 	}
+	if run.Config.Version == "v3" {
+		reproduction, err := buildMem0Reproduction(directory, run, results)
+		if err != nil {
+			return err
+		}
+		manifest["mem0_reproduction"] = reproduction
+	}
 	return writeJSON(filepath.Join(directory, "artifacts.json"), manifest)
+}
+
+func buildMem0Reproduction(directory string, run RunRecord, results []TrialResult) (map[string]any, error) {
+	observed := make(map[string]float64)
+	for _, row := range Summarize(results) {
+		if row.Arm != "groupmembench_mem0" {
+			continue
+		}
+		if row.DimensionType == "overall" {
+			observed["aggregate"] = row.Accuracy
+		}
+		if row.DimensionType == "category" {
+			observed[row.DimensionValue] = row.Accuracy
+		}
+	}
+	input, err := os.ReadFile(filepath.Join(directory, "memory", "mem0-ingest.json"))
+	if err != nil {
+		return nil, fmt.Errorf("read eval v3 Mem0 ingest receipt: %w", err)
+	}
+	var parsed struct {
+		Accepted     int `json:"accepted"`
+		Created      int `json:"created"`
+		Updated      int `json:"updated"`
+		Deleted      int `json:"deleted"`
+		SourceEvents int `json:"source_events"`
+	}
+	if err := json.Unmarshal(input, &parsed); err != nil {
+		return nil, fmt.Errorf("decode eval v3 Mem0 ingest receipt: %w", err)
+	}
+	receipt := map[string]int{
+		"accepted": parsed.Accepted, "created": parsed.Created, "updated": parsed.Updated,
+		"deleted": parsed.Deleted, "source_events": parsed.SourceEvents,
+	}
+	return map[string]any{
+		"level": run.Config.Mem0ReproductionLevel, "implementation": "self_hosted_mem0",
+		"groupmembench_revision": run.DatasetRevision, "mem0_image": run.Runtime["MEM0_IMAGE"],
+		"ingestion_unit": "original_message", "author_metadata_preserved": true,
+		"namespace": map[string]string{
+			"user_id": run.Runtime["MEM0_EVAL_USER_ID"], "agent_id": run.Runtime["MEM0_EVAL_AGENT_ID"], "run_scope": "one shared domain run_id",
+		},
+		"retrieval": map[string]any{
+			"max_results": 5, "score_semantics": run.Runtime["MEM0_SCORE_SEMANTICS"], "scope_payload": run.Runtime["MEM0_SEARCH_SCOPE_PAYLOAD"],
+		},
+		"models": map[string]string{
+			"ingestion": run.Runtime["MEM0_DEFAULT_LLM_MODEL"], "embedding": run.Runtime["MEM0_DEFAULT_EMBEDDER_MODEL"],
+			"answer": run.Runtime["OPENCODE_MODEL"], "judge": run.Runtime["EVAL_V2_JUDGE_MODEL"],
+		},
+		"ingest_receipt": receipt, "observed_accuracy": observed,
+		"published_accuracy_targets": map[string]float64{"aggregate": 0.2573, "knowledge_update": 0.0467},
+		"deviations":                 []string{"official Mem0 runner and per-question artifacts are unavailable", "self-hosted models and paxm retrieval profile are used"},
+	}, nil
 }
 
 func linkOptionalArtifacts(directory string, config Config, files map[string]string) error {
@@ -273,14 +331,18 @@ func CostTotals(results []TrialResult) CostSummary {
 	return summary
 }
 
-func exportCSVArtifacts(directory, baselineArm string, results []TrialResult) error {
+func exportCSVArtifacts(directory, version, baselineArm string, results []TrialResult) error {
 	if err := writeTrialsCSV(filepath.Join(directory, "trials.csv"), results); err != nil {
 		return err
 	}
 	if err := writeSummaryCSV(filepath.Join(directory, "summary.csv"), Summarize(results)); err != nil {
 		return err
 	}
-	if err := writePairwiseCSV(filepath.Join(directory, "pairwise.csv"), Pairwise(results, baselineArm)); err != nil {
+	comparisons := Pairwise(results, baselineArm)
+	if version == "v3" {
+		comparisons = append(comparisons, pairwiseForCandidates(results, "groupmembench_mem0", []string{"private_sqlite_plus_team_note"})...)
+	}
+	if err := writePairwiseCSV(filepath.Join(directory, "pairwise.csv"), comparisons); err != nil {
 		return err
 	}
 	return nil
@@ -317,6 +379,10 @@ func Summarize(results []TrialResult) []SummaryRow {
 }
 
 func Pairwise(results []TrialResult, baselineArm string) []PairwiseRow {
+	return pairwiseForCandidates(results, baselineArm, uniqueArms(results, baselineArm))
+}
+
+func pairwiseForCandidates(results []TrialResult, baselineArm string, arms []string) []PairwiseRow {
 	byCase := make(map[string]map[string]TrialResult)
 	categories := make(map[string]struct{})
 	for _, result := range results {
@@ -324,7 +390,6 @@ func Pairwise(results []TrialResult, baselineArm string) []PairwiseRow {
 		byCase[result.CaseID][result.Arm] = result
 		categories[result.Category] = struct{}{}
 	}
-	arms := uniqueArms(results, baselineArm)
 	dimensions := []string{"all"}
 	for category := range categories {
 		dimensions = append(dimensions, category)
@@ -366,10 +431,8 @@ func summarizeGroup(dimensionType, dimensionValue, arm string, results []TrialRe
 		row.MeanCompletedCost /= float64(row.Completed)
 		row.MeanDurationMS /= float64(row.Completed)
 	}
-	if row.Trials > 0 {
-		row.Accuracy = float64(row.Correct) / float64(row.Trials)
-	}
 	if row.Judged > 0 {
+		row.Accuracy = float64(row.Correct) / float64(row.Judged)
 		row.MeanJudgeCost = row.TotalJudgeCost / float64(row.Judged)
 	}
 	return row
@@ -436,7 +499,7 @@ func compareArm(byCase map[string]map[string]TrialResult, category, baselineArm,
 }
 
 func accuracyResultReady(result TrialResult) bool {
-	return result.Status == "failed" || (result.Status == "completed" && result.Judged)
+	return result.Status == "completed" && result.Judged
 }
 
 func uniqueArms(results []TrialResult, baseline string) []string {
