@@ -136,23 +136,23 @@ func (c *Client) IngestBatches(ctx context.Context, provider string, batches []s
 }
 
 func (c *Client) ingestMem0Messages(ctx context.Context, batches []session.SessionBatch) (IngestResult, error) {
-	events := make([]session.SessionEvent, 0)
-	for _, batch := range batches {
-		events = append(events, batch.Events...)
-	}
-	slices.SortStableFunc(events, func(left, right session.SessionEvent) int {
-		if comparison := left.OccurredAt.Compare(right.OccurredAt); comparison != 0 {
+	ordered := slices.Clone(batches)
+	slices.SortStableFunc(ordered, func(left, right session.SessionBatch) int {
+		if comparison := left.Events[0].OccurredAt.Compare(right.Events[0].OccurredAt); comparison != 0 {
 			return comparison
 		}
-		return strings.Compare(left.ID, right.ID)
+		return strings.Compare(left.Events[0].Actor.SessionID, right.Events[0].Actor.SessionID)
 	})
 	result := IngestResult{Provider: ProviderMem0Messages, NoOpKnown: true, NoOp: true}
-	for index, event := range events {
-		added, err := c.addMem0Event(ctx, event)
+	for index, batch := range ordered {
+		added, err := c.addMem0Batch(ctx, batch)
 		if err != nil {
-			return IngestResult{}, fmt.Errorf("ingest Mem0 original message %d %q: %w", index, event.ID, err)
+			return IngestResult{}, fmt.Errorf(
+				"ingest Mem0 session batch %d %q: %w",
+				index, batch.Events[0].Actor.SessionID, err,
+			)
 		}
-		result.Accepted += added.Accepted
+		result.Accepted += len(batch.Events)
 		result.Created += added.Created
 		result.Updated += added.Updated
 		result.Deleted += added.Deleted
@@ -375,22 +375,31 @@ func (c *Client) addMem0(ctx context.Context, text string) (mem0AddResult, error
 	return c.addMem0WithMetadata(ctx, text, metadata)
 }
 
-func (c *Client) addMem0Event(ctx context.Context, event session.SessionEvent) (mem0AddResult, error) {
-	text := fmt.Sprintf(
-		"Message %s from %s (%s) at %s:\n%s",
-		event.ID, event.Actor.UserID, event.Metadata["role"], event.OccurredAt.UTC().Format(time.RFC3339Nano), event.Content,
-	)
-	metadata := map[string]string{
-		"eval_run_id": c.runID, "eval_event_id": event.ID,
-		"source_user_id": event.Actor.UserID, "source_agent_id": event.Actor.AgentID,
-		"source_session_id": event.Actor.SessionID, "source_occurred_at": event.OccurredAt.UTC().Format(time.RFC3339Nano),
-	}
-	for _, key := range []string{"role", "channel", "phase", "topic", "reply_to", "decision_point"} {
-		if value := event.Metadata[key]; value != "" {
-			metadata[key] = value
+func (c *Client) addMem0Batch(ctx context.Context, batch session.SessionBatch) (mem0AddResult, error) {
+	events := slices.Clone(batch.Events)
+	slices.SortStableFunc(events, func(left, right session.SessionEvent) int {
+		if comparison := left.OccurredAt.Compare(right.OccurredAt); comparison != 0 {
+			return comparison
 		}
+		return strings.Compare(left.ID, right.ID)
+	})
+	parts := make([]string, 0, len(events))
+	eventIDs := make([]string, 0, len(events))
+	for _, event := range events {
+		parts = append(parts, fmt.Sprintf(
+			"Message %s from %s (%s) at %s:\n%s",
+			event.ID, event.Actor.UserID, event.Metadata["role"], event.OccurredAt.UTC().Format(time.RFC3339Nano), event.Content,
+		))
+		eventIDs = append(eventIDs, event.ID)
 	}
-	return c.addMem0WithMetadata(ctx, text, metadata)
+	first := events[0]
+	metadata := map[string]string{
+		"eval_run_id": c.runID, "eval_event_ids": strings.Join(eventIDs, ","),
+		"source_user_id": first.Actor.UserID, "source_agent_id": first.Actor.AgentID,
+		"source_session_id":  first.Actor.SessionID,
+		"source_occurred_at": first.OccurredAt.UTC().Format(time.RFC3339Nano),
+	}
+	return c.addMem0WithMetadata(ctx, strings.Join(parts, "\n\n"), metadata)
 }
 
 func (c *Client) addMem0WithMetadata(ctx context.Context, text string, metadata map[string]string) (mem0AddResult, error) {

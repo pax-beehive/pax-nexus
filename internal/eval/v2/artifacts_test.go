@@ -161,8 +161,10 @@ func (s *artifactSuite) TestExportLinksEvalV3FullDomainIngestReceipts() {
 		SchemaVersion    string            `json:"schema_version"`
 		Files            map[string]string `json:"files"`
 		Mem0Reproduction struct {
-			Level         string         `json:"level"`
-			IngestReceipt map[string]int `json:"ingest_receipt"`
+			Level                   string         `json:"level"`
+			IngestionUnit           string         `json:"ingestion_unit"`
+			SourceMessagesPreserved bool           `json:"source_messages_preserved"`
+			IngestReceipt           map[string]int `json:"ingest_receipt"`
 		} `json:"mem0_reproduction"`
 	}
 	s.Require().NoError(json.Unmarshal(encoded, &manifest))
@@ -171,6 +173,8 @@ func (s *artifactSuite) TestExportLinksEvalV3FullDomainIngestReceipts() {
 	s.Equal(filepath.Join("memory", "mem0-ingest.json"), manifest.Files["mem0_ingest"])
 	s.Equal(filepath.Join("memory", "private-sqlite-ingest.json"), manifest.Files["private_sqlite_ingest"])
 	s.Empty(manifest.Mem0Reproduction.Level)
+	s.Equal("native_session_batch", manifest.Mem0Reproduction.IngestionUnit)
+	s.True(manifest.Mem0Reproduction.SourceMessagesPreserved)
 	s.NotNil(manifest.Mem0Reproduction.IngestReceipt)
 }
 

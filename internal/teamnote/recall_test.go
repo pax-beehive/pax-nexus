@@ -152,6 +152,85 @@ func (s *recallSuite) TestPlanRecallTraceRecordsStageRejections() {
 		s.Require().NotNil(strictBudgetReject)
 		s.Equal("note-primary", strictBudgetReject.NoteID)
 	})
+
+	s.Run("current-state query prefers newest related fact", func() {
+		primary := recallCandidate("note-primary", "calculation logic freeze", "late-cycle source changes validation approach", 0.9, nil)
+		old := recallCandidate("note-old", "old freeze policy", "freeze all late changes", 0.8, nil)
+		old.RelatedSubjects = []string{"calculation logic freeze"}
+		current := recallCandidate("note-current", "validation scope expansion", "targeted check on refreshed feed and rerun impacted close cycle", 0.2, nil)
+		current.RelatedSubjects = []string{"calculation logic freeze"}
+		current.SourceOccurredAt = old.SourceOccurredAt.Add(24 * time.Hour)
+		current.UpdatedAt = current.SourceOccurredAt
+		primary.SourceOccurredAt = old.SourceOccurredAt.Add(48 * time.Hour)
+		primary.UpdatedAt = primary.SourceOccurredAt
+		request := teamnote.RecallRequest{
+			Actor:       teamnote.Actor{UserID: "owner", AgentID: "consumer", SessionID: "current-related"},
+			Query:       "What is the current approach for validating late-cycle source changes?",
+			TokenBudget: 500, MaxItems: 2,
+		}
+
+		planned, _ := teamnote.PlanRecall(
+			[]teamnote.RecallCandidate{primary, old, current}, request,
+			teamnote.RecallPolicy{CandidateLimit: 10, SuppressDuplicates: true, DegradeRelated: true},
+		)
+		s.Require().NotEmpty(planned)
+		s.ElementsMatch([]string{"note-primary", "note-current"}, planned[0].SourceNoteIDs)
+		s.Contains(planned[0].Text, "targeted check on refreshed feed")
+		s.NotContains(planned[0].Text, "freeze all late changes")
+	})
+
+	s.Run("requested current status outranks adjacent blocker", func() {
+		status := recallCandidate("note-status", "reporting validation deadline", "Reporting validates before July 18.", 0.7, nil)
+		blocker := recallCandidate("note-blocker", "reporting validation blocker", "Reporting is blocked pending policy alignment until July 19.", 0.9, nil)
+		blocker.Kind = teamnote.KindBlocker
+		request := teamnote.RecallRequest{
+			Actor: teamnote.Actor{UserID: "owner", AgentID: "consumer", SessionID: "status-intent"},
+			Query: "What is the deadline for Reporting validation?", TokenBudget: 500, MaxItems: 1,
+		}
+
+		planned, _ := teamnote.PlanRecall(
+			[]teamnote.RecallCandidate{blocker, status}, request,
+			teamnote.RecallPolicy{CandidateLimit: 10},
+		)
+		s.Require().Len(planned, 1)
+		s.Equal("note-status", planned[0].Note.ID)
+	})
+
+	s.Run("scalar query prefers subject-specific answer", func() {
+		generic := recallCandidate("note-a-generic", "ESG baseline option selection deadline", "Lock the baseline before July 19.", 0.9, nil)
+		answer := recallCandidate("note-z-answer", "Reporting validation deadline", "Reporting validates before July 18.", 0.3, nil)
+		request := teamnote.RecallRequest{
+			Actor:       teamnote.Actor{UserID: "owner", AgentID: "consumer", SessionID: "scalar-subject"},
+			Query:       "What is the deadline for Reporting to validate fit against the enterprise-wide ESG policy standard?",
+			TokenBudget: 500, MaxItems: 1,
+		}
+
+		planned, _ := teamnote.PlanRecall(
+			[]teamnote.RecallCandidate{generic, answer}, request,
+			teamnote.RecallPolicy{CandidateLimit: 10},
+		)
+		s.Require().Len(planned, 1)
+		s.Equal("note-z-answer", planned[0].Note.ID)
+	})
+
+	s.Run("current-state query prefers explicit coverage over unrelated recency", func() {
+		precise := recallCandidate("note-precise", "validation approach", "late-cycle source changes require targeted validation", 0.4, nil)
+		recent := recallCandidate("note-recent", "release risk", "current release risk includes changes", 0.9, nil)
+		recent.SourceOccurredAt = precise.SourceOccurredAt.Add(24 * time.Hour)
+		recent.UpdatedAt = recent.SourceOccurredAt
+		request := teamnote.RecallRequest{
+			Actor:       teamnote.Actor{UserID: "owner", AgentID: "consumer", SessionID: "current-coverage"},
+			Query:       "What is the current approach for validating late-cycle source changes?",
+			TokenBudget: 500, MaxItems: 1,
+		}
+
+		planned, _ := teamnote.PlanRecall(
+			[]teamnote.RecallCandidate{recent, precise}, request,
+			teamnote.RecallPolicy{CandidateLimit: 10},
+		)
+		s.Require().Len(planned, 1)
+		s.Equal("note-precise", planned[0].Note.ID)
+	})
 }
 
 func recallCandidate(id, subject, body string, lexical float64, semantic *float64) teamnote.RecallCandidate {

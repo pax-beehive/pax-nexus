@@ -50,6 +50,7 @@ func (s *replaySuite) TestFixtureRoundTripAndRun() {
 	report, err := recallreplay.Run(loaded, loaded.Policy)
 	s.Require().NoError(err)
 	s.Require().Len(report.Cases, 2)
+	s.NotEmpty(report.Cases[0].PlannedItems)
 	s.Equal(2, report.Summary.Cases)
 	s.Equal(2, report.Summary.RequiredAtoms)
 	s.Equal(1, report.Summary.RecallMatchedAtoms)
@@ -66,6 +67,25 @@ func (s *replaySuite) TestFixtureRoundTripAndRun() {
 func (s *replaySuite) TestRunRejectsInvalidFixture() {
 	_, err := recallreplay.Run(recallreplay.FixtureSet{}, recallreplay.Policy{})
 	s.Require().Error(err)
+}
+
+func (s *replaySuite) TestRunPreservesCapturedMaxItems() {
+	replayCase := syntheticCase("case_max_items", "deploy window friday", []recallreplay.Candidate{
+		syntheticCandidate("note-1", "deploy window", "Deploy window moves to Friday.", 0.9, nil),
+		syntheticCandidate("note-2", "deploy owner", "Deploy owner confirms Friday.", 0.8, nil),
+	})
+	replayCase.Fixture.RequiredAtoms = []stageeval.Atom{{ID: "deploy", Patterns: []string{"(?i)deploy"}}}
+	replayCase.Fixture.RecallContext.MaxItems = 1
+	set := recallreplay.FixtureSet{
+		SchemaVersion: recallreplay.SchemaVersion,
+		Policy:        recallreplay.Policy{CandidateLimit: 16},
+		Cases:         []recallreplay.Case{replayCase},
+	}
+
+	report, err := recallreplay.Run(set, set.Policy)
+	s.Require().NoError(err)
+	s.Equal(1, report.StageTotals.PlannedNotes)
+	s.Equal(1, report.StageTotals.Rejections["max_items"])
 }
 
 func (s *replaySuite) TestLoadRejectsUnknownFields() {

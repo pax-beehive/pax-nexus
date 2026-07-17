@@ -48,12 +48,13 @@ type NoteEnvelope struct {
 // RecalledNote carries per-item identity and origin without changing the
 // context text consumed by existing callers.
 type RecalledNote struct {
-	NoteID    string        `json:"note_id"`
-	Revision  int           `json:"revision"`
-	Text      string        `json:"text"`
-	Origin    Actor         `json:"origin"`
-	Relevance float64       `json:"relevance"`
-	Certainty NoteCertainty `json:"certainty"`
+	NoteID        string        `json:"note_id"`
+	SourceNoteIDs []string      `json:"source_note_ids,omitempty"`
+	Revision      int           `json:"revision"`
+	Text          string        `json:"text"`
+	Origin        Actor         `json:"origin"`
+	Relevance     float64       `json:"relevance"`
+	Certainty     NoteCertainty `json:"certainty"`
 }
 
 // Runtime is the small caller interface shared by HTTP and eval adapters.

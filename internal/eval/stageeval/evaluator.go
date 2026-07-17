@@ -42,6 +42,7 @@ type RecallContext struct {
 	ConsumerSessionID string `json:"consumer_session_id,omitempty"`
 	Query             string `json:"query"`
 	TokenBudget       int    `json:"token_budget"`
+	MaxItems          int    `json:"max_items,omitempty"`
 }
 
 type Atom struct {
@@ -63,6 +64,7 @@ type Observation struct {
 
 type Item struct {
 	ID               string   `json:"id"`
+	SourceItemIDs    []string `json:"source_item_ids,omitempty"`
 	Text             string   `json:"text"`
 	EvidenceEventIDs []string `json:"evidence_event_ids,omitempty"`
 }
@@ -254,6 +256,16 @@ func validateObservation(fixture Fixture, stage Stage, observation Observation) 
 			return fmt.Errorf("validate %s observation: duplicate item id %q", stage, item.ID)
 		}
 		seen[item.ID] = struct{}{}
+		sourceSeen := make(map[string]struct{}, len(item.SourceItemIDs))
+		for _, sourceID := range item.SourceItemIDs {
+			if strings.TrimSpace(sourceID) == "" {
+				return fmt.Errorf("validate %s observation: item %q has an empty source item id", stage, item.ID)
+			}
+			if _, exists := sourceSeen[sourceID]; exists {
+				return fmt.Errorf("validate %s observation: item %q has duplicate source item %q", stage, item.ID, sourceID)
+			}
+			sourceSeen[sourceID] = struct{}{}
+		}
 		evidenceSeen := make(map[string]struct{}, len(item.EvidenceEventIDs))
 		for _, eventID := range item.EvidenceEventIDs {
 			if _, exists := evidenceSeen[eventID]; exists {
@@ -266,7 +278,7 @@ func validateObservation(fixture Fixture, stage Stage, observation Observation) 
 }
 
 func validateRecallContext(context RecallContext) error {
-	if strings.TrimSpace(context.ConsumerUserID) == "" || strings.TrimSpace(context.Query) == "" || context.TokenBudget <= 0 {
+	if strings.TrimSpace(context.ConsumerUserID) == "" || strings.TrimSpace(context.Query) == "" || context.TokenBudget <= 0 || context.MaxItems < 0 {
 		return fmt.Errorf("consumer_user_id, query, and positive token_budget are required")
 	}
 	return nil
@@ -278,8 +290,10 @@ func validateRecallItems(extraction, recall []Item) error {
 		extracted[item.ID] = struct{}{}
 	}
 	for _, item := range recall {
-		if _, exists := extracted[item.ID]; !exists {
-			return fmt.Errorf("validate recall observation: item %q is absent from extraction observation", item.ID)
+		for _, sourceID := range sourceItemIDs(item) {
+			if _, exists := extracted[sourceID]; !exists {
+				return fmt.Errorf("validate recall observation: source item %q is absent from extraction observation", sourceID)
+			}
 		}
 	}
 	return nil
@@ -400,8 +414,7 @@ func matchedPairedAtomIDs(atoms []compiledAtom, extractionMatches map[string][]i
 			extractedIDs[extraction[index].ID] = struct{}{}
 		}
 		for _, item := range recall {
-			_, extracted := extractedIDs[item.ID]
-			if extracted && atomMatches(atom, item.Text) {
+			if sourceItemsIntersect(sourceItemIDs(item), extractedIDs) && atomMatches(atom, item.Text) {
 				result = append(result, atom.ID)
 				break
 			}
@@ -409,6 +422,22 @@ func matchedPairedAtomIDs(atoms []compiledAtom, extractionMatches map[string][]i
 	}
 	sort.Strings(result)
 	return result
+}
+
+func sourceItemIDs(item Item) []string {
+	if len(item.SourceItemIDs) > 0 {
+		return item.SourceItemIDs
+	}
+	return []string{item.ID}
+}
+
+func sourceItemsIntersect(sourceIDs []string, extractedIDs map[string]struct{}) bool {
+	for _, sourceID := range sourceIDs {
+		if _, exists := extractedIDs[sourceID]; exists {
+			return true
+		}
+	}
+	return false
 }
 
 func difference(left, right []string) []string {

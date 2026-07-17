@@ -17,6 +17,13 @@ type runnerSuite struct{ suite.Suite }
 
 func TestRunnerSuite(t *testing.T) { suite.Run(t, new(runnerSuite)) }
 
+func (s *runnerSuite) TestTrialVariablesExposeRunOutputDirectory() {
+	outputDirectory := s.T().TempDir()
+	variables := trialVariables(RunRecord{ID: "run"}, Case{ID: "case"}, "arm", outputDirectory)
+
+	s.Equal(outputDirectory, variables["output_dir"])
+}
+
 func (s *runnerSuite) TestRunCompletesResumableMatrixAndExports() {
 	store := newFakeStore()
 	executor := &fakeExecutor{}

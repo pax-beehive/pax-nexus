@@ -712,7 +712,7 @@ func trialVariables(run RunRecord, evalCase Case, arm, outputDir string) map[str
 		"answerer_seed": evalCase.AnswererSeed, "answerer_source_overlap": evalCase.AnswererSourceOverlap,
 		"strict_cross_agent": fmt.Sprintf("%t", evalCase.StrictCrossAgent),
 		"scope_id":           evalCase.ScopeID, "producer_workspace": evalCase.ProducerWorkspace,
-		"consumer_workspace": evalCase.ConsumerWorkspace, "artifact_dir": artifactDir,
+		"consumer_workspace": evalCase.ConsumerWorkspace, "output_dir": outputDir, "artifact_dir": artifactDir,
 		"shared_artifact_dir":  sharedArtifactDir,
 		"shared_producer_text": filepath.Join(sharedArtifactDir, "producer.txt"),
 		"session_batches_file": filepath.Join(evalCase.ProducerWorkspace, "session-batches.json"),

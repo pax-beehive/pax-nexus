@@ -82,6 +82,23 @@ func (s *EvaluatorSuite) TestEvaluateCreditsAnyPairedNoteMatchingAnAtom() {
 	s.InDelta(1.0, result.Extraction.EvidenceRecall, 0.0001)
 }
 
+func (s *EvaluatorSuite) TestEvaluateCreditsRelationComposedFromExtractedNote() {
+	fixture := validFixture()
+	extraction := testObservation("case", stageeval.StageExtraction, []stageeval.Item{
+		{ID: "anchor", Text: "anchor fact"},
+		{ID: "related", Text: "fact", EvidenceEventIDs: []string{"event-related"}},
+	})
+	recall := testObservation("case", stageeval.StageRecall, []stageeval.Item{
+		{ID: "anchor", SourceItemIDs: []string{"anchor", "related"}, Text: "anchor [related: fact]"},
+	})
+
+	result, err := stageeval.Evaluate(fixture, extraction, recall)
+
+	s.Require().NoError(err)
+	s.InDelta(1.0, result.Recall.GoldRecall, 0.0001)
+	s.InDelta(1.0, result.Recall.ConditionalRecall, 0.0001)
+}
+
 func (s *EvaluatorSuite) TestValidateRejectsInvalidFixturesAndObservations() {
 	tests := []struct {
 		name       string

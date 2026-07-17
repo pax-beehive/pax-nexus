@@ -200,6 +200,41 @@ func (s *extractionV2Suite) TestInteractionObservationsRequireGroundedVocabulary
 	}
 }
 
+func (s *extractionV2Suite) TestProposalCannotBecomeCanonicalStateWithoutCommitment() {
+	decision := `{"decision":"create","identity_ref":"owner/exception-log","evidence_event_ids":["event-1"],"reason_codes":["explicit_new_fact"],"candidate":{"kind":"status","subject":"exception log owner","body":"Compliance owns the exception log."}}`
+	interaction := `{"actor":"producer","target":"Compliance","stance":"neutral","speech_act":"propose","evidence_event_id":"event-1"}`
+	client := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		return response(http.StatusOK, v2BodyWithProducts("", decision, "", interaction)), nil
+	})}
+	adapter := newV2Adapter(s, client)
+
+	result, err := adapter.Extract(
+		teamnote.WithScope(context.Background(), "scope-v2-proposal"), v2Slice(),
+	)
+	s.Require().NoError(err)
+	s.Empty(result.Candidates)
+	s.Require().Len(result.Trace.DecisionRejections, 1)
+	s.Contains(result.Trace.DecisionRejections[0].Reason, "non-committal speech act")
+	s.Require().Len(result.Trace.InteractionObservations, 1)
+}
+
+func (s *extractionV2Suite) TestExplicitApprovalCanBecomeCanonicalState() {
+	decision := `{"decision":"create","identity_ref":"owner/exception-log","evidence_event_ids":["event-1"],"reason_codes":["explicit_new_fact"],"candidate":{"kind":"status","subject":"exception log owner","body":"Compliance owns the exception log."}}`
+	interaction := `{"actor":"producer","target":"Compliance","stance":"support","speech_act":"approve","evidence_event_id":"event-1"}`
+	client := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		return response(http.StatusOK, v2BodyWithProducts("", decision, "", interaction)), nil
+	})}
+	adapter := newV2Adapter(s, client)
+
+	result, err := adapter.Extract(
+		teamnote.WithScope(context.Background(), "scope-v2-approval"), v2Slice(),
+	)
+	s.Require().NoError(err)
+	s.Require().Len(result.Candidates, 1)
+	s.Equal("owner/exception-log", result.Candidates[0].IdentityRef)
+	s.Empty(result.Trace.DecisionRejections)
+}
+
 func (s *extractionV2Suite) TestTraceOnlyDecisionsAndWouldVerifyTriggers() {
 	claims := strings.Join([]string{
 		`{"claim_id":"c1","claim_type":"status","subject":"release","predicate":"is","value":"on track","speaker":"agent-a","evidence_event_ids":["event-1"]}`,

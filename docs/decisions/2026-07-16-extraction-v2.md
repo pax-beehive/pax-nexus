@@ -409,8 +409,9 @@ Consequences for the architecture:
 
 The first shadow result identified deterministic defects and structural cost
 that could be fixed without changing the external extractor, runtime, Note
-Store, or paxm seams. The second v2 protocol revision is implemented as
-`v2-slim-1` with these changes:
+Store, or paxm seams. The second v2 protocol revision was implemented as
+`v2-slim-1`; its deterministic admission follow-up is `v2-slim-2`, with these
+changes:
 
 - ordinary create, update, and resolve decisions cite Session Events directly;
   a separate Claim is emitted only for conflicts, ambiguous corrections,
@@ -428,6 +429,13 @@ Store, or paxm seams. The second v2 protocol revision is implemented as
   validity timestamp;
 - interaction observations are retained only when their stance and speech act
   use the explicit vocabulary and their evidence cites a new source Event;
+- proposal, request, question, acknowledgment, concern, and urgency evidence
+  cannot by themselves create, update, or resolve canonical state; an explicit
+  approval, commitment, rejection, handoff, escalation, or other factual
+  evidence is required, and the rule is enforced after model generation;
+- the production-default v1 path applies a narrower deterministic guard for
+  explicit proposal and assignment-request phrasing, so this safety fix does
+  not depend on adopting the slower v2 response protocol;
 - rolling episodes are reset when the model, operator prompt version, or
   internal response-protocol revision changes, preventing a v2 worker from
   replaying v1 assistant responses;
@@ -441,6 +449,18 @@ shadow must be repeated because prompt-level observation completeness, output
 token reduction, cache behavior, and latency cannot be established by unit
 tests. Until all Acceptance gates pass, `TEAM_MEMORY_EXTRACTION_VERSION`
 continues to default to `v1`.
+
+### Partial micro-canary result
+
+A fresh v2 rolling micro-canary was stopped before completion because the
+profile was already outside the latency and cost envelope. After 16 completed
+model calls it had consumed 1,118,499 input tokens and 97,723 output tokens;
+observed Slice durations ranged from 91.7 to 308.7 seconds. Continuing the run
+would not have established an acceptable v2 profile, so no end-to-end quality
+claim is made from this partial artifact. The deterministic non-committal
+speech-act guard is covered by unit tests, `v2` remains opt-in, and `v1`
+remains the default until a cache- and latency-feasible profile passes the
+paired fixed shadow.
 
 ## Acceptance
 

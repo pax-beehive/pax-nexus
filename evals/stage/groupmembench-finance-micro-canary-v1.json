@@ -1,0 +1,69 @@
+{
+  "schema_version": "pax-stage-eval-v1",
+  "dataset": "GroupMemBench Finance micro canary v1",
+  "cases": [
+    {
+      "case_id": "multi_hop_1",
+      "category": "multi_hop",
+      "source_revision": "a65607cf9396e827c1f237917c7a3061862aa72ba93cdaceab71c65363fdf360",
+      "recall_context": {
+        "consumer_user_id": "User_7",
+        "consumer_agent_id": "groupmembench-User_1",
+        "query": "What is the deadline for Reporting to validate fit against the enterprise-wide ESG policy standard? (YYYY-MM-DD)",
+        "token_budget": 500,
+        "max_items": 5
+      },
+      "required_atoms": [
+        {
+          "id": "reporting_validation_deadline",
+          "patterns": [
+            "(?i)reporting.{0,100}(before|by).{0,30}july 18|july 18.{0,100}reporting"
+          ],
+          "supporting_event_ids": [
+            "Msg_3651"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "knowledge_update_20",
+      "category": "knowledge_update",
+      "source_revision": "a65607cf9396e827c1f237917c7a3061862aa72ba93cdaceab71c65363fdf360",
+      "recall_context": {
+        "consumer_user_id": "User_6",
+        "consumer_agent_id": "groupmembench-User_1",
+        "query": "What is the team’s current approach for validating late-cycle source changes?",
+        "token_budget": 500,
+        "max_items": 5
+      },
+      "required_atoms": [
+        {
+          "id": "refreshed_feed_targeted_check",
+          "patterns": [
+            "(?i)targeted check.{0,100}(refreshed|end-of-period).{0,80}currency conversion feed"
+          ],
+          "supporting_event_ids": [
+            "Msg_3463"
+          ]
+        },
+        {
+          "id": "impacted_close_cycle_rerun",
+          "patterns": [
+            "(?i)(one|additional).{0,40}rerun.{0,80}impacted close cycle|impacted close cycle.{0,80}rerun"
+          ],
+          "supporting_event_ids": [
+            "Msg_3463"
+          ]
+        }
+      ],
+      "forbidden_atoms": [
+        {
+          "id": "stale_freeze_only",
+          "patterns": [
+            "(?i)freeze (the )?calculation logic.{0,120}keep late change out"
+          ]
+        }
+      ]
+    }
+  ]
+}

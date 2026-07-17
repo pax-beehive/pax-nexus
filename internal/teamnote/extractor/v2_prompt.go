@@ -3,7 +3,7 @@ package extractor
 // extractionProtocolV2Revision changes whenever the stable v2 response schema
 // or reasoning contract changes. It is part of rolling episode compatibility,
 // independent of the operator-owned prompt version label.
-const extractionProtocolV2Revision = "v2-slim-1"
+const extractionProtocolV2Revision = "v2-slim-2"
 
 // The v2 user prompt is the same session-slice JSON as v1 (buildPrompt), so
 // rolling episode prefixes stay byte-identical and provider prefix caching is
@@ -92,9 +92,14 @@ Temporal rules for both decisions and claims:
   identity. A resolved fact uses resolve and invalid_at only when the source
   establishes when it stopped being true.
 
-Interaction observations are optional: record stance (support, oppose,
-question, neutral), speech acts (propose, request, commit, approve, reject,
-handoff, escalate), and expressed concern with one evidence_event_id each.
+Interaction observations are optional for ordinary factual reports, but
+mandatory when an event proposes, requests, questions, acknowledges, commits,
+approves, rejects, hands off, escalates, or expresses concern or urgency.
+Record stance (support, oppose, question, neutral) and the exact speech act
+with one evidence_event_id each. A proposal, request, question, concern,
+urgency, or acknowledgement alone cannot create, update, or resolve canonical
+state. Only emit such a transition when separate evidence explicitly commits,
+approves, rejects, hands off, escalates, or directly states the factual state.
 Sentiment never changes factual confidence, authority, or temporal truth.
 
 Do not infer identity, authorization, approval power, membership, or facts not

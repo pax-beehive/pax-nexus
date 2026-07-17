@@ -165,6 +165,7 @@ func (replayCase Case) recallRequest() teamnote.RecallRequest {
 		},
 		Query:       replayCase.Fixture.RecallContext.Query,
 		TokenBudget: replayCase.Fixture.RecallContext.TokenBudget,
+		MaxItems:    replayCase.Fixture.RecallContext.MaxItems,
 	}
 }
 

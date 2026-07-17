@@ -254,21 +254,6 @@ func mapExtractionV2(result *Result, slice sessionlake.Slice) {
 		keptClaims = append(keptClaims, claim)
 	}
 	trace.Claims = keptClaims
-
-	candidates := make([]teamnote.Candidate, 0, len(trace.StateDecisions))
-	keptDecisions := trace.StateDecisions[:0]
-	for _, decision := range trace.StateDecisions {
-		candidate, reason := mapDecision(decision, admittedClaims, allEvents, newEvents)
-		if reason != "" {
-			trace.DecisionRejections = append(trace.DecisionRejections, DecisionRejection{Decision: decision, Reason: reason})
-			continue
-		}
-		keptDecisions = append(keptDecisions, decision)
-		if candidate != nil {
-			candidates = append(candidates, *candidate)
-		}
-	}
-	trace.StateDecisions = keptDecisions
 	keptInteractions := trace.InteractionObservations[:0]
 	for _, observation := range trace.InteractionObservations {
 		if reason := interactionRejectionReason(observation, allEvents, newEvents); reason != "" {
@@ -280,6 +265,22 @@ func mapExtractionV2(result *Result, slice sessionlake.Slice) {
 		keptInteractions = append(keptInteractions, observation)
 	}
 	trace.InteractionObservations = keptInteractions
+	speechActs := speechActsByEvent(keptInteractions)
+
+	candidates := make([]teamnote.Candidate, 0, len(trace.StateDecisions))
+	keptDecisions := trace.StateDecisions[:0]
+	for _, decision := range trace.StateDecisions {
+		candidate, reason := mapDecision(decision, admittedClaims, allEvents, newEvents, speechActs)
+		if reason != "" {
+			trace.DecisionRejections = append(trace.DecisionRejections, DecisionRejection{Decision: decision, Reason: reason})
+			continue
+		}
+		keptDecisions = append(keptDecisions, decision)
+		if candidate != nil {
+			candidates = append(candidates, *candidate)
+		}
+	}
+	trace.StateDecisions = keptDecisions
 	traceCoverage(trace, slice, admittedClaims)
 	trace.WouldVerify = wouldVerifyTriggers(trace)
 	result.Candidates = candidates
@@ -359,6 +360,7 @@ func mapDecision(
 	claims map[string]Claim,
 	allEvents map[string]struct{},
 	newEvents map[string]struct{},
+	speechActs map[string]map[string]struct{},
 ) (*teamnote.Candidate, string) {
 	if !validDecisionAction(decision.Decision) {
 		return nil, fmt.Sprintf("decision %q is not in the decision vocabulary", decision.Decision)
@@ -398,6 +400,9 @@ func mapDecision(
 	if !grounded {
 		return nil, "decision is not grounded in a new event"
 	}
+	if reason := stateDecisionAdmissionReason(decision.Decision, evidence, speechActs); reason != "" {
+		return nil, reason
+	}
 	temporal := decisionTemporal(decision, referencedClaims)
 	if reason := temporalRejectionReason(
 		temporal.expression, temporal.resolution, temporal.validAt, temporal.invalidAt,
@@ -410,13 +415,7 @@ func mapDecision(
 	if decision.Candidate == nil {
 		return nil, "create, update, and resolve decisions require a candidate"
 	}
-	action := teamnote.ActionCreate
-	switch decision.Decision {
-	case DecisionUpdate:
-		action = teamnote.ActionUpdate
-	case DecisionResolve:
-		action = teamnote.ActionResolve
-	}
+	action := candidateAction(decision.Decision)
 	identityRef := strings.TrimSpace(decision.IdentityRef)
 	if identityRef == "" {
 		identityRef = strings.TrimSpace(decision.PriorStateRef)
@@ -432,6 +431,69 @@ func mapDecision(
 		RelatedSubjects: append([]string(nil), decision.Candidate.RelatedSubjects...),
 		ValidAt:         validAt, InvalidAt: invalidAt,
 	}, ""
+}
+
+func decisionChangesState(action DecisionAction) bool {
+	return action == DecisionCreate || action == DecisionUpdate || action == DecisionResolve
+}
+
+func candidateAction(decision DecisionAction) teamnote.CandidateAction {
+	switch decision {
+	case DecisionUpdate:
+		return teamnote.ActionUpdate
+	case DecisionResolve:
+		return teamnote.ActionResolve
+	default:
+		return teamnote.ActionCreate
+	}
+}
+
+func stateDecisionAdmissionReason(
+	action DecisionAction,
+	evidence []string,
+	speechActs map[string]map[string]struct{},
+) string {
+	if decisionChangesState(action) && evidenceIsOnlyNonCommittal(evidence, speechActs) {
+		return "decision evidence contains only a non-committal speech act"
+	}
+	return ""
+}
+
+func speechActsByEvent(observations []InteractionObservation) map[string]map[string]struct{} {
+	result := make(map[string]map[string]struct{})
+	for _, observation := range observations {
+		acts := result[observation.EvidenceEventID]
+		if acts == nil {
+			acts = make(map[string]struct{})
+			result[observation.EvidenceEventID] = acts
+		}
+		acts[observation.SpeechAct] = struct{}{}
+	}
+	return result
+}
+
+func evidenceIsOnlyNonCommittal(evidence []string, speechActs map[string]map[string]struct{}) bool {
+	if len(evidence) == 0 {
+		return false
+	}
+	for _, eventID := range evidence {
+		acts := speechActs[eventID]
+		if len(acts) == 0 || !onlyNonCommittalSpeechActs(acts) {
+			return false
+		}
+	}
+	return true
+}
+
+func onlyNonCommittalSpeechActs(acts map[string]struct{}) bool {
+	for act := range acts {
+		switch act {
+		case "propose", "request", "question", "express_concern", "express_urgency", "acknowledge":
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func invalidReasonCode(reasonCodes []string) string {

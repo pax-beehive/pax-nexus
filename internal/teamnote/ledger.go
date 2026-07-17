@@ -650,12 +650,33 @@ func relevantRelatedNotes(notes []Note, query string, limit int, limited bool) [
 		if !QueryRelated(note, query) {
 			continue
 		}
-		if limited && len(result) >= max(0, limit) {
-			break
-		}
 		result = append(result, note)
 	}
+	if queryRequestsCurrentState(query) {
+		sort.SliceStable(result, func(left, right int) bool {
+			if !result[left].SourceOccurredAt.Equal(result[right].SourceOccurredAt) {
+				return result[left].SourceOccurredAt.After(result[right].SourceOccurredAt)
+			}
+			if QueryScore(result[left], query) != QueryScore(result[right], query) {
+				return QueryScore(result[left], query) > QueryScore(result[right], query)
+			}
+			return result[left].ID < result[right].ID
+		})
+	}
+	if limited && len(result) > max(0, limit) {
+		result = result[:max(0, limit)]
+	}
 	return result
+}
+
+func queryRequestsCurrentState(query string) bool {
+	for term := range searchableTerms(query) {
+		switch term {
+		case "current", "currently", "latest", "now", "present":
+			return true
+		}
+	}
+	return false
 }
 
 func slotCompatible(noteText, query string) bool {

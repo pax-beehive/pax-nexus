@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/pax-beehive/pax-nexus/internal/eval/recallreplay"
@@ -33,6 +34,7 @@ func run(args []string, stdout io.Writer) error {
 	stageFixturePath := flags.String("stage-fixtures", "", "Stage fixture set JSON for export mode")
 	dsn := flags.String("dsn", "", "PostgreSQL DSN for export mode")
 	runID := flags.String("run-id", "", "Eval run identifier used to derive case scopes for export mode")
+	scopeID := flags.String("scope-id", "", "Shared Team Note scope for every exported case")
 	arm := flags.String("arm", "team_note", "Eval arm for export mode (team_note or team_note_hybrid)")
 	embeddingBaseURL := flags.String("embedding-base-url", "", "OpenAI-compatible embedding endpoint for export mode")
 	embeddingModel := flags.String("embedding-model", "Qwen/Qwen3-Embedding-0.6B", "Embedding model name for export mode")
@@ -46,7 +48,7 @@ func run(args []string, stdout io.Writer) error {
 		return fmt.Errorf("parse recall replay flags: %w", err)
 	}
 	if *exportMode {
-		return runExport(*stageFixturePath, *dsn, *runID, *arm, *embeddingBaseURL, *embeddingModel,
+		return runExport(*stageFixturePath, *dsn, *runID, *scopeID, *arm, *embeddingBaseURL, *embeddingModel,
 			*semanticThreshold, *candidateLimit, *outputPath, stdout)
 	}
 	return runReplay(*replayFixturePath, *semanticThreshold, *candidateLimit, *dedup, *degradeRelated, *outputDirectory, stdout)
@@ -92,7 +94,7 @@ func runReplay(fixturePath string, threshold float64, limit int, dedup, degradeR
 }
 
 func runExport(
-	stageFixturePath, dsn, runID, arm, embeddingBaseURL, embeddingModel string,
+	stageFixturePath, dsn, runID, scopeID, arm, embeddingBaseURL, embeddingModel string,
 	threshold float64, limit int, outputPath string, stdout io.Writer,
 ) error {
 	if stageFixturePath == "" || dsn == "" || runID == "" || outputPath == "" {
@@ -122,12 +124,11 @@ func runExport(
 	if err != nil {
 		return err
 	}
+	resolveScope, scopePrefix := exportScopeResolver(runID, scopeID, scopeSuffix)
 	provenance := recallreplay.Provenance{
-		RunID: runID, Arm: arm, ScopePrefix: runID + "-groupmembench-", EmbeddingModel: embeddingModel,
+		RunID: runID, Arm: arm, ScopePrefix: scopePrefix, EmbeddingModel: embeddingModel,
 	}
-	set, err := exporter.Export(ctx, fixtures, provenance, func(caseID string) string {
-		return fmt.Sprintf("%s-groupmembench-%s%s", runID, caseID, scopeSuffix)
-	})
+	set, err := exporter.Export(ctx, fixtures, provenance, resolveScope)
 	if err != nil {
 		return err
 	}
@@ -139,6 +140,16 @@ func runExport(
 		return fmt.Errorf("write recall replay export summary: %w", err)
 	}
 	return nil
+}
+
+func exportScopeResolver(runID, sharedScope, scopeSuffix string) (func(string) string, string) {
+	if strings.TrimSpace(sharedScope) != "" {
+		return func(string) string { return sharedScope }, sharedScope
+	}
+	prefix := runID + "-groupmembench-"
+	return func(caseID string) string {
+		return fmt.Sprintf("%s%s%s", prefix, caseID, scopeSuffix)
+	}, prefix
 }
 
 func armScopeSuffix(arm string) (string, error) {

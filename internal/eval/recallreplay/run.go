@@ -12,9 +12,10 @@ import (
 
 // CaseReport pairs one case's stage evaluation with its recall stage trace.
 type CaseReport struct {
-	CaseID string               `json:"case_id"`
-	Result stageeval.Result     `json:"result"`
-	Trace  teamnote.RecallTrace `json:"trace"`
+	CaseID       string               `json:"case_id"`
+	Result       stageeval.Result     `json:"result"`
+	Trace        teamnote.RecallTrace `json:"trace"`
+	PlannedItems []stageeval.Item     `json:"planned_items"`
 }
 
 // StageTotals aggregates recall stage counters across the cohort.
@@ -44,6 +45,7 @@ func Run(set FixtureSet, policy Policy) (Report, error) {
 	}
 	stageFixtures := stageeval.FixtureSet{SchemaVersion: stageeval.SchemaVersion, Dataset: set.Dataset}
 	traces := make(map[string]teamnote.RecallTrace, len(set.Cases))
+	plannedByCase := make(map[string][]stageeval.Item, len(set.Cases))
 	var observations bytes.Buffer
 	encoder := json.NewEncoder(&observations)
 	for _, replayCase := range set.Cases {
@@ -60,11 +62,12 @@ func Run(set FixtureSet, policy Policy) (Report, error) {
 			SuppressDuplicates: policy.SuppressDuplicates, DegradeRelated: policy.DegradeRelated,
 		})
 		traces[replayCase.Fixture.CaseID] = trace
+		plannedByCase[replayCase.Fixture.CaseID] = plannedItems(planned)
 		recallContext := replayCase.Fixture.RecallContext
 		recall := stageeval.Observation{
 			CaseID: replayCase.Fixture.CaseID, Stage: stageeval.StageRecall,
 			SourceRevision: replayCase.Fixture.SourceRevision, RecallContext: &recallContext,
-			Items: plannedItems(planned),
+			Items: plannedByCase[replayCase.Fixture.CaseID],
 		}
 		if err := encoder.Encode(recall); err != nil {
 			return Report{}, fmt.Errorf("encode replay recall observation: %w", err)
@@ -80,7 +83,10 @@ func Run(set FixtureSet, policy Policy) (Report, error) {
 	}
 	for _, result := range results {
 		trace := traces[result.CaseID]
-		report.Cases = append(report.Cases, CaseReport{CaseID: result.CaseID, Result: result, Trace: trace})
+		report.Cases = append(report.Cases, CaseReport{
+			CaseID: result.CaseID, Result: result, Trace: trace,
+			PlannedItems: plannedByCase[result.CaseID],
+		})
 		report.StageTotals.Candidates += trace.Candidates
 		report.StageTotals.FusionKept += trace.FusionKept
 		report.StageTotals.PlannedNotes += trace.PlannedNotes
@@ -96,7 +102,8 @@ func plannedItems(planned []teamnote.PlannedRecall) []stageeval.Item {
 	items := make([]stageeval.Item, 0, len(planned))
 	for _, delivery := range planned {
 		items = append(items, stageeval.Item{
-			ID: delivery.Note.ID, Text: delivery.Text, EvidenceEventIDs: delivery.Note.EvidenceEventIDs,
+			ID: delivery.Note.ID, SourceItemIDs: delivery.SourceNoteIDs,
+			Text: delivery.Text, EvidenceEventIDs: delivery.Note.EvidenceEventIDs,
 		})
 	}
 	return items

@@ -219,7 +219,7 @@ func buildMem0Reproduction(directory string, run RunRecord, results []TrialResul
 	return map[string]any{
 		"level": run.Config.Mem0ReproductionLevel, "implementation": "self_hosted_mem0",
 		"groupmembench_revision": run.DatasetRevision, "mem0_image": run.Runtime["MEM0_IMAGE"],
-		"ingestion_unit": "original_message", "author_metadata_preserved": true,
+		"ingestion_unit": "native_session_batch", "source_messages_preserved": true, "author_metadata_preserved": true,
 		"namespace": map[string]string{
 			"user_id": run.Runtime["MEM0_EVAL_USER_ID"], "agent_id": run.Runtime["MEM0_EVAL_AGENT_ID"], "run_scope": "one shared domain run_id",
 		},
@@ -232,7 +232,7 @@ func buildMem0Reproduction(directory string, run RunRecord, results []TrialResul
 		},
 		"ingest_receipt": receipt, "observed_accuracy": observed,
 		"published_accuracy_targets": map[string]float64{"aggregate": 0.2573, "knowledge_update": 0.0467},
-		"deviations":                 []string{"official Mem0 runner and per-question artifacts are unavailable", "self-hosted models and paxm retrieval profile are used"},
+		"deviations":                 []string{"official Mem0 runner and per-question artifacts are unavailable", "self-hosted models and paxm retrieval profile are used", "source messages are submitted as one transcript per native session"},
 	}, nil
 }
 

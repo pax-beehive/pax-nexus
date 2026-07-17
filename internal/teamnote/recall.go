@@ -16,6 +16,7 @@ type RecallCandidate struct {
 	SemanticScore *float64
 	fusionScore   float64
 	rerankScore   float64
+	intentScore   float64
 }
 
 // RecallPolicy configures bounded candidate fusion without exposing adapter details.
@@ -36,10 +37,11 @@ const duplicateBodySimilarity = 0.8
 
 // PlannedRecall is one budgeted Delivery decision awaiting an adapter claim.
 type PlannedRecall struct {
-	Note      Note
-	Text      string
-	Tokens    int
-	Relevance float64
+	Note          Note
+	SourceNoteIDs []string
+	Text          string
+	Tokens        int
+	Relevance     float64
 }
 
 // RecallRejectReason identifies the recall stage that rejected one available
@@ -106,6 +108,7 @@ func PlanRecall(candidates []RecallCandidate, request RecallRequest, policy Reca
 		text := FormatForRecallWithRelated(candidate.Note, related)
 		tokens := estimateTokens(text)
 		if policy.DegradeRelated && len(related) > 0 && usedTokens+tokens > request.TokenBudget {
+			related = nil
 			text = FormatForRecall(candidate.Note)
 			tokens = estimateTokens(text)
 		}
@@ -114,7 +117,7 @@ func PlanRecall(candidates []RecallCandidate, request RecallRequest, policy Reca
 			continue
 		}
 		planned = append(planned, PlannedRecall{
-			Note: candidate.Note, Text: text, Tokens: tokens,
+			Note: candidate.Note, SourceNoteIDs: recallSourceNoteIDs(candidate.Note, related), Text: text, Tokens: tokens,
 			Relevance: hybridRelevance(candidate, request.Query),
 		})
 		usedTokens += tokens
@@ -123,6 +126,15 @@ func PlanRecall(candidates []RecallCandidate, request RecallRequest, policy Reca
 	trace.PlannedNotes = len(planned)
 	trace.PlannedTokens = usedTokens
 	return planned, trace
+}
+
+func recallSourceNoteIDs(primary Note, related []Note) []string {
+	result := make([]string, 0, len(related)+1)
+	result = append(result, primary.ID)
+	for _, note := range related {
+		result = append(result, note.ID)
+	}
+	return result
 }
 
 // duplicatesSelected reports whether a candidate restates an already selected
@@ -175,7 +187,8 @@ func AppendPlannedRecall(envelope *NoteEnvelope, planned PlannedRecall) {
 	envelope.Items = append(envelope.Items, planned.Text)
 	envelope.Details = append(envelope.Details, RecalledNote{
 		NoteID: note.ID, Revision: note.Revision, Text: planned.Text, Origin: note.Origin,
-		Relevance: planned.Relevance, Certainty: CertaintyForKind(note.Kind),
+		SourceNoteIDs: planned.SourceNoteIDs,
+		Relevance:     planned.Relevance, Certainty: CertaintyForKind(note.Kind),
 	})
 	envelope.Tokens += planned.Tokens
 	envelope.Revision = fmt.Sprintf("%s:%d", note.ID, note.Revision)
@@ -231,6 +244,7 @@ func rankRecallCandidates(candidates []RecallCandidate, request RecallRequest, p
 		}
 		candidate.fusionScore = score
 		if hybridRelevant(candidate, request.Query, policy.SemanticThreshold) {
+			candidate.intentScore = queryIntentScore(candidate.Note, request.Query)
 			result = append(result, candidate)
 		} else {
 			rejections = append(rejections, RecallRejection{NoteID: candidate.ID, Reason: RejectRelevanceGate})
@@ -241,6 +255,9 @@ func rankRecallCandidates(candidates []RecallCandidate, request RecallRequest, p
 		result[rank].rerankScore = result[rank].fusionScore + reciprocalRank(rank)
 	}
 	sort.SliceStable(result, func(left, right int) bool {
+		if result[left].intentScore != result[right].intentScore {
+			return result[left].intentScore > result[right].intentScore
+		}
 		return result[left].rerankScore > result[right].rerankScore
 	})
 	return result, rejections
@@ -248,11 +265,14 @@ func rankRecallCandidates(candidates []RecallCandidate, request RecallRequest, p
 
 func sortRecallCandidates(candidates []RecallCandidate, request RecallRequest) {
 	sort.SliceStable(candidates, func(left, right int) bool {
+		if candidates[left].intentScore != candidates[right].intentScore {
+			return candidates[left].intentScore > candidates[right].intentScore
+		}
 		if ownSourceRank(candidates[left].Note, request) != ownSourceRank(candidates[right].Note, request) {
 			return ownSourceRank(candidates[left].Note, request) < ownSourceRank(candidates[right].Note, request)
 		}
-		if notePriority(candidates[left].Kind) != notePriority(candidates[right].Kind) {
-			return notePriority(candidates[left].Kind) < notePriority(candidates[right].Kind)
+		if recallKindPriority(candidates[left].Kind, request.Query) != recallKindPriority(candidates[right].Kind, request.Query) {
+			return recallKindPriority(candidates[left].Kind, request.Query) < recallKindPriority(candidates[right].Kind, request.Query)
 		}
 		if !candidates[left].SourceOccurredAt.Equal(candidates[right].SourceOccurredAt) {
 			return candidates[left].SourceOccurredAt.After(candidates[right].SourceOccurredAt)
@@ -262,6 +282,45 @@ func sortRecallCandidates(candidates []RecallCandidate, request RecallRequest) {
 		}
 		return candidates[left].ID < candidates[right].ID
 	})
+}
+
+func queryIntentScore(note Note, query string) float64 {
+	if scalarSlotRequested(query) {
+		subjectTerms := searchableTerms(note.Subject)
+		if len(subjectTerms) == 0 || !slotCompatible(note.Subject+" "+note.Body, query) {
+			return 0
+		}
+		queryTerms := searchableTerms(query)
+		matched := 0
+		for term := range subjectTerms {
+			if _, ok := queryTerms[term]; ok {
+				matched++
+			}
+		}
+		return float64(matched) / float64(len(subjectTerms))
+	}
+	if queryRequestsCurrentState(query) {
+		return QueryRelevance(note, query)
+	}
+	return 0
+}
+
+func recallKindPriority(kind NoteKind, query string) int {
+	if !scalarSlotRequested(query) && !queryRequestsCurrentState(query) {
+		return notePriority(kind)
+	}
+	switch kind {
+	case KindStatus:
+		return 0
+	case KindArtifactReference:
+		return 1
+	case KindBlocker:
+		return 2
+	case KindHandoff:
+		return 3
+	default:
+		return 4
+	}
 }
 
 func reciprocalRank(zeroBasedRank int) float64 {

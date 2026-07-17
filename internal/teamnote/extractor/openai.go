@@ -284,6 +284,12 @@ func normalizeCandidates(result *Result, slice sessionlake.Slice) error {
 			result.Rejections = append(result.Rejections, teamnote.CandidateRejection{Candidate: candidate, Reason: reason})
 			continue
 		}
+		if evidenceIsOnlyNonCommittalProposal(candidate.EvidenceEventIDs, slice.Events) {
+			result.Rejections = append(result.Rejections, teamnote.CandidateRejection{
+				Candidate: candidate, Reason: "extractor candidate is grounded only in a non-committal proposal or request",
+			})
+			continue
+		}
 		taskRef, threadRef, err := evidenceScope(candidate.EvidenceEventIDs, slice.Events)
 		if err != nil {
 			result.Rejections = append(result.Rejections, teamnote.CandidateRejection{
@@ -313,6 +319,40 @@ func normalizeCandidates(result *Result, slice sessionlake.Slice) error {
 	}
 	result.Candidates = kept
 	return nil
+}
+
+func evidenceIsOnlyNonCommittalProposal(evidenceIDs []string, events []teamnote.SessionEvent) bool {
+	eventsByID := make(map[string]teamnote.SessionEvent, len(events))
+	for _, event := range events {
+		eventsByID[event.ID] = event
+	}
+	for _, eventID := range evidenceIDs {
+		event, exists := eventsByID[eventID]
+		if !exists || !isNonCommittalProposal(event.Content) {
+			return false
+		}
+	}
+	return len(evidenceIDs) > 0
+}
+
+func isNonCommittalProposal(content string) bool {
+	normalized := strings.ToLower(strings.Join(strings.Fields(content), " "))
+	for _, marker := range []string{
+		"approved", "agreed", "assigned", "designated", "committed", "confirmed", "decided", "accepted",
+	} {
+		if strings.Contains(normalized, marker) {
+			return false
+		}
+	}
+	for _, prefix := range []string{
+		"i propose ", "we propose ", "i suggest ", "we suggest ", "i recommend ", "we recommend ",
+		"my proposal ", "our proposal ", "please assign ", "can you assign ", "would you assign ",
+	} {
+		if strings.HasPrefix(normalized, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // candidateRejectionReason returns the deterministic reason one candidate can

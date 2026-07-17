@@ -118,3 +118,26 @@ run at threshold 0.65 on the same cases:
 
 The stage-level gain reproduces live; judge accuracy on the full ten-case
 cohort remains the acceptance measure.
+
+## Eval v3 micro-canary addendum (2026-07-17)
+
+The three-case Eval v3 micro-canary exposed two recall-policy defects and one
+evaluation-provenance defect. A frozen two-case replay now tracks the 463
+eligible Team Notes per case, the captured `max_items=5` constraint, exact
+lexical and semantic scores, and the shared Eval v3 Team Note scope.
+
+The policy changes are structural rather than a wider retrieval setting:
+
+- scalar queries rank subject-specific answers ahead of adjacent high-scoring
+  facts;
+- current/latest queries rank explicit query coverage first, then traverse
+  one-hop relations and prefer the newest related fact;
+- a composed delivery records every source Note ID, allowing conditional
+  recall to credit a selected related Note instead of only the outer anchor.
+
+At the unchanged semantic threshold 0.50, candidate limit 16, token budget
+500, and max-items limit 5, the fixed replay moved from 0/3 to 3/3 required
+atoms for both Gold Recall and Conditional Recall. Missed available atoms fell
+from 3 to 0, and superseded-fact leakage in delivered context fell from 1 to
+0. Extraction leakage remains observable separately and is not attributed to
+recall. This replay result does not replace a later paid end-to-end judge run.

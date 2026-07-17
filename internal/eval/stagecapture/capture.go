@@ -170,7 +170,10 @@ ORDER BY observation_id`, target.ScopeID, context.ConsumerUserID, target.Recipie
 				return stageeval.Observation{}, extractionSnapshot{}, evidenceErr
 			}
 			seen[key] = struct{}{}
-			items = append(items, stageeval.Item{ID: detail.NoteID, Text: detail.Text, EvidenceEventIDs: evidence})
+			items = append(items, stageeval.Item{
+				ID: detail.NoteID, SourceItemIDs: detail.SourceNoteIDs,
+				Text: detail.Text, EvidenceEventIDs: evidence,
+			})
 		}
 	}
 	recallContext := target.Fixture.RecallContext

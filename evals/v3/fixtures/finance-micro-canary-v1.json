@@ -1,0 +1,31 @@
+{
+  "id": "finance-micro-canary-v1",
+  "source_scope": "micro_domain_canary",
+  "selection_method": "reviewed_structural_thread_bundle_v1",
+  "benchmark_comparable": false,
+  "cases": [
+    "multi_hop_1",
+    "knowledge_update_20",
+    "abstention_4"
+  ],
+  "threads": [
+    {
+      "channel": "Sustainable Finance Strategy",
+      "phase": "Risk: Inconsistent Sustainability Standards",
+      "topic": "ESG Policy Framework",
+      "purpose": "multi_hop"
+    },
+    {
+      "channel": "Financial Reporting Automation",
+      "phase": "Risk: Calculation Discrepancy",
+      "topic": "Deployment and User Acceptance",
+      "purpose": "knowledge_update"
+    },
+    {
+      "channel": "Sustainable Finance Strategy",
+      "phase": "Risk: ESG Data Provider Reliability",
+      "topic": "Sustainable Investment Screening",
+      "purpose": "abstention_with_near_distractors"
+    }
+  ]
+}

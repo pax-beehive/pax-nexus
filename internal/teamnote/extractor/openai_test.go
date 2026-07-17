@@ -78,6 +78,38 @@ func (s *openAISuite) TestModelCannotAssignAudienceIdentity() {
 	s.Empty(result.Candidates[0].AudienceAgentIDs)
 }
 
+func (s *openAISuite) TestProposalCannotBecomeCanonicalOwnership() {
+	client := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		return response(http.StatusOK, `{"choices":[{"message":{"content":"{\"candidates\":[{\"action\":\"create\",\"kind\":\"status\",\"subject\":\"compliance owner\",\"body\":\"Compliance is designated as owner.\",\"evidence_event_ids\":[\"event-1\"]}]}"}}]}`), nil
+	})}
+	adapter, err := extractor.NewOpenAI(extractor.OpenAIConfig{BaseURL: "http://extractor.test", Model: "model", Client: client})
+	s.Require().NoError(err)
+	slice := extractorSlice()
+	slice.Events[0].Content = "I propose Compliance as the owner for the review."
+
+	result, err := adapter.Extract(context.Background(), slice)
+
+	s.Require().NoError(err)
+	s.Empty(result.Candidates)
+	s.Require().Len(result.Rejections, 1)
+	s.Contains(result.Rejections[0].Reason, "non-committal proposal")
+}
+
+func (s *openAISuite) TestExplicitApprovalCanBecomeCanonicalOwnership() {
+	client := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		return response(http.StatusOK, `{"choices":[{"message":{"content":"{\"candidates\":[{\"action\":\"create\",\"kind\":\"status\",\"subject\":\"compliance owner\",\"body\":\"Compliance is designated as owner.\",\"evidence_event_ids\":[\"event-1\"]}]}"}}]}`), nil
+	})}
+	adapter, err := extractor.NewOpenAI(extractor.OpenAIConfig{BaseURL: "http://extractor.test", Model: "model", Client: client})
+	s.Require().NoError(err)
+	slice := extractorSlice()
+	slice.Events[0].Content = "I propose Compliance as owner; the team approved and assigned Compliance."
+
+	result, err := adapter.Extract(context.Background(), slice)
+
+	s.Require().NoError(err)
+	s.Require().Len(result.Candidates, 1)
+}
+
 func (s *openAISuite) TestRejectsInvalidResponses() {
 	tests := []struct {
 		name   string

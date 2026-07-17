@@ -86,7 +86,7 @@ func (s *clientSuite) TestIngestBatchesPreservesTeamNoteActorsAndRendersTheSameE
 	}
 }
 
-func (s *clientSuite) TestFullDomainMem0IngestUsesOriginalMessageUnits() {
+func (s *clientSuite) TestFullDomainMem0IngestBatchesMessagesByNativeSession() {
 	transport := &recordingTransport{}
 	client, err := memoryprobe.New(memoryprobe.Config{
 		TeamNoteURL: "http://team-note", TeamNoteAPIKey: "key", Mem0URL: "http://mem0",
@@ -95,6 +95,7 @@ func (s *clientSuite) TestFullDomainMem0IngestUsesOriginalMessageUnits() {
 	s.Require().NoError(err)
 	batches := []session.SessionBatch{{Complete: true, Events: []session.SessionEvent{
 		{ID: "Msg_1", Actor: session.Actor{UserID: "User_1", AgentID: "groupmembench-User_1", SessionID: "s1"}, Sequence: 1, Content: "first", OccurredAt: time.Unix(1, 0).UTC(), Metadata: map[string]string{"role": "Lead"}},
+		{ID: "Msg_1b", Actor: session.Actor{UserID: "User_1", AgentID: "groupmembench-User_1", SessionID: "s1"}, Sequence: 2, Content: "follow-up", OccurredAt: time.Unix(3, 0).UTC(), Metadata: map[string]string{"role": "Lead"}},
 	}}, {Complete: true, Events: []session.SessionEvent{
 		{ID: "Msg_2", Actor: session.Actor{UserID: "User_2", AgentID: "groupmembench-User_2", SessionID: "s2"}, Sequence: 1, Content: "second", OccurredAt: time.Unix(2, 0).UTC(), Metadata: map[string]string{"role": "Reviewer"}},
 	}}}
@@ -102,7 +103,7 @@ func (s *clientSuite) TestFullDomainMem0IngestUsesOriginalMessageUnits() {
 	result, err := client.IngestBatches(context.Background(), memoryprobe.ProviderMem0Messages, batches)
 
 	s.Require().NoError(err)
-	s.Equal(2, result.Accepted)
+	s.Equal(3, result.Accepted)
 	calls := transport.snapshot()
 	s.Require().Len(calls, 2)
 	for index, expected := range []string{"Msg_1", "Msg_2"} {
@@ -110,6 +111,9 @@ func (s *clientSuite) TestFullDomainMem0IngestUsesOriginalMessageUnits() {
 		s.Contains(calls[index].body, expected)
 		s.Contains(calls[index].body, `"source_agent_id":"groupmembench-User_`)
 	}
+	s.Contains(calls[0].body, "Msg_1b")
+	s.Contains(calls[0].body, "follow-up")
+	s.Contains(calls[0].body, `"source_session_id":"s1"`)
 }
 
 func (s *clientSuite) TestIngestBatchesValidationMatrix() {
