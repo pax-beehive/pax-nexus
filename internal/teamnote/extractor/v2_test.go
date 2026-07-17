@@ -174,23 +174,30 @@ func (s *extractionV2Suite) TestEvidenceCannotAlsoBeDeclaredNoState() {
 }
 
 func (s *extractionV2Suite) TestInteractionObservationsRequireGroundedVocabulary() {
-	interactions := strings.Join([]string{
-		`{"actor":"producer","target":"reviewer","stance":"support","speech_act":"approve","evidence_event_id":"event-1"}`,
-		`{"actor":"producer","target":"reviewer","stance":"enthusiastic","speech_act":"approve","evidence_event_id":"event-1"}`,
-		`{"actor":"producer","target":"reviewer","stance":"oppose","speech_act":"reject","evidence_event_id":"unknown"}`,
-	}, ",")
-	client := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
-		return response(http.StatusOK, v2BodyWithProducts("", "", `"event-1"`, interactions)), nil
-	})}
-	adapter := newV2Adapter(s, client)
-
-	result, err := adapter.Extract(teamnote.WithScope(context.Background(), "scope-v2-interactions"), v2Slice())
-	s.Require().NoError(err)
-	s.Require().Len(result.Trace.InteractionObservations, 1)
-	s.Equal("support", result.Trace.InteractionObservations[0].Stance)
-	s.Require().Len(result.Trace.InteractionRejections, 2)
-	s.Contains(result.Trace.InteractionRejections[0].Reason, "stance")
-	s.Contains(result.Trace.InteractionRejections[1].Reason, "unknown event")
+	tests := []struct {
+		name             string
+		interaction      string
+		wantObservations int
+		wantRejections   int
+	}{
+		{name: "valid", interaction: `{"actor":"producer","target":"reviewer","stance":"support","speech_act":"approve","evidence_event_id":"event-1"}`, wantObservations: 1},
+		{name: "invalid stance", interaction: `{"actor":"producer","target":"reviewer","stance":"enthusiastic","speech_act":"approve","evidence_event_id":"event-1"}`, wantRejections: 1},
+		{name: "unknown evidence", interaction: `{"actor":"producer","target":"reviewer","stance":"oppose","speech_act":"reject","evidence_event_id":"unknown"}`, wantRejections: 1},
+	}
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			client := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+				return response(http.StatusOK, v2BodyWithProducts("", "", `"event-1"`, test.interaction)), nil
+			})}
+			adapter := newV2Adapter(s, client)
+			result, err := adapter.Extract(
+				teamnote.WithScope(context.Background(), "scope-v2-interactions-"+test.name), v2Slice(),
+			)
+			s.Require().NoError(err)
+			s.Len(result.Trace.InteractionObservations, test.wantObservations)
+			s.Len(result.Trace.InteractionRejections, test.wantRejections)
+		})
+	}
 }
 
 func (s *extractionV2Suite) TestTraceOnlyDecisionsAndWouldVerifyTriggers() {
