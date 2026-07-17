@@ -32,6 +32,10 @@ type Config struct {
 	SharedProducer   *CommandSpec        `json:"shared_producer,omitempty" yaml:"shared_producer,omitempty"`
 	Judge            *CommandSpec        `json:"judge,omitempty" yaml:"judge,omitempty"`
 	AfterRun         *CommandSpec        `json:"after_run,omitempty" yaml:"after_run,omitempty"`
+	// Eval v3 fields are ignored by the v2 protocol and consumed by the v3
+	// compatibility layer that reuses this runner.
+	AnswererSeed          string `json:"answerer_seed,omitempty" yaml:"answerer_seed,omitempty"`
+	Mem0ReproductionLevel string `json:"mem0_reproduction_level,omitempty" yaml:"mem0_reproduction_level,omitempty"`
 }
 
 type RunConfig struct {
@@ -99,14 +103,20 @@ type CommandSpec struct {
 }
 
 type Case struct {
-	ID                string `json:"id"`
-	Category          string `json:"category"`
-	Question          string `json:"question"`
-	Expected          string `json:"expected"`
-	AskingUserID      string `json:"asking_user_id"`
-	ScopeID           string `json:"scope_id"`
-	ProducerWorkspace string `json:"producer_workspace"`
-	ConsumerWorkspace string `json:"consumer_workspace"`
+	ID                    string   `json:"id"`
+	Category              string   `json:"category"`
+	Question              string   `json:"question"`
+	Expected              string   `json:"expected"`
+	AskingUserID          string   `json:"asking_user_id"`
+	ScopeID               string   `json:"scope_id"`
+	ProducerWorkspace     string   `json:"producer_workspace"`
+	ConsumerWorkspace     string   `json:"consumer_workspace"`
+	ParticipantAgentIDs   []string `json:"participant_agent_ids,omitempty"`
+	SupportingAgentIDs    []string `json:"supporting_agent_ids,omitempty"`
+	AnsweringAgentID      string   `json:"answering_agent_id,omitempty"`
+	AnswererSeed          string   `json:"answerer_seed,omitempty"`
+	StrictCrossAgent      bool     `json:"strict_cross_agent,omitempty"`
+	AnswererSourceOverlap string   `json:"answerer_source_overlap,omitempty"`
 }
 
 type TrialKey struct {
@@ -133,6 +143,10 @@ type TrialResult struct {
 	Question              string    `json:"question"`
 	Arm                   string    `json:"arm"`
 	AskingUserID          string    `json:"asking_user_id"`
+	AnsweringAgentID      string    `json:"answering_agent_id,omitempty"`
+	AnswererSeed          string    `json:"answerer_seed,omitempty"`
+	StrictCrossAgent      bool      `json:"strict_cross_agent,omitempty"`
+	AnswererSourceOverlap string    `json:"answerer_source_overlap,omitempty"`
 	Status                string    `json:"status"`
 	MemoryIngestProvider  string    `json:"memory_ingest_provider,omitempty"`
 	MemoryIngestAccepted  int       `json:"memory_ingest_accepted"`
@@ -183,6 +197,12 @@ func (c Config) Validate() error {
 	if c.Version != ConfigVersion {
 		return fmt.Errorf("validate eval config: version must be %q", ConfigVersion)
 	}
+	return c.ValidateBase()
+}
+
+// ValidateBase checks runner invariants shared by Eval v2 and Eval v3.
+// Protocol-specific packages validate their own version and arm contract.
+func (c Config) ValidateBase() error {
 	if strings.TrimSpace(c.Run.ID) == "" || strings.TrimSpace(c.Run.Dataset) == "" || strings.TrimSpace(c.Run.Manifest) == "" || strings.TrimSpace(c.Run.OutputDir) == "" {
 		return fmt.Errorf("validate eval config: run id, dataset, manifest, and output directory are required")
 	}
@@ -387,7 +407,7 @@ func (c Config) ResolveRuntime(getenv func(string) string) (map[string]string, e
 func ScoreResult(run RunRecord, evalCase Case, arm string, producer, consumer harness.AgentOutput, started time.Time, durations [3]time.Duration) TrialResult {
 	score := harness.ScoreExact(arm, evalCase.Expected, consumer)
 	completed := time.Now().UTC()
-	return TrialResult{
+	result := TrialResult{
 		RunID: run.ID, Dataset: run.Dataset, DatasetRevision: run.DatasetRevision,
 		CaseID: evalCase.ID, Category: evalCase.Category, Question: evalCase.Question, Arm: arm, AskingUserID: evalCase.AskingUserID,
 		Status: "completed", Expected: score.Expected, Answer: score.Answer, Exact: score.Exact,
@@ -400,6 +420,11 @@ func ScoreResult(run RunRecord, evalCase Case, arm string, producer, consumer ha
 		ConsumerDurationMS: durations[2].Milliseconds(), TotalDurationMS: completed.Sub(started).Milliseconds(),
 		StartedAt: started, CompletedAt: completed,
 	}
+	result.AnsweringAgentID = evalCase.AnsweringAgentID
+	result.AnswererSeed = evalCase.AnswererSeed
+	result.StrictCrossAgent = evalCase.StrictCrossAgent
+	result.AnswererSourceOverlap = evalCase.AnswererSourceOverlap
+	return result
 }
 
 // RescoreResults applies the current deterministic scorer to stored completed

@@ -42,7 +42,7 @@ func NewRunner(store Store, executor Executor, logger *slog.Logger) (*Runner, er
 }
 
 func JudgeExistingRun(ctx context.Context, executor Executor, logger *slog.Logger, config Config, revision string, results []TrialResult) (RunRecord, []TrialResult, error) {
-	if err := config.Validate(); err != nil {
+	if err := validateRunnerConfig(config); err != nil {
 		return RunRecord{}, nil, fmt.Errorf("judge existing run: %w", err)
 	}
 	if executor == nil || config.Judge == nil {
@@ -73,7 +73,9 @@ func JudgeExistingRun(ctx context.Context, executor Executor, logger *slog.Logge
 					"run_id": run.ID, "dataset": run.Dataset, "dataset_revision": run.DatasetRevision,
 					"case_id": result.CaseID, "category": result.Category, "arm": result.Arm,
 					"question": result.Question, "expected": result.Expected, "answer": result.Answer,
-					"asking_user_id": result.AskingUserID, "output_dir": config.Run.OutputDir, "artifact_dir": artifactDir,
+					"asking_user_id": result.AskingUserID, "answering_agent_id": result.AnsweringAgentID,
+					"answerer_seed": result.AnswererSeed, "answerer_source_overlap": result.AnswererSourceOverlap,
+					"output_dir": config.Run.OutputDir, "artifact_dir": artifactDir,
 				}
 				duration, judgment, judgeErr := (&Runner{executor: executor}).runJudge(ctx, *config.Judge, variables, artifactDir)
 				result.JudgeDurationMS = duration.Milliseconds()
@@ -111,7 +113,7 @@ func JudgeExistingRun(ctx context.Context, executor Executor, logger *slog.Logge
 }
 
 func (r *Runner) Run(ctx context.Context, config Config, cases []Case, revision string) (run RunRecord, results []TrialResult, returnedErr error) {
-	if err := config.Validate(); err != nil {
+	if err := validateRunnerConfig(config); err != nil {
 		return RunRecord{}, nil, err
 	}
 	if len(cases) == 0 {
@@ -162,8 +164,15 @@ func (r *Runner) Run(ctx context.Context, config Config, cases []Case, revision 
 			return run, results, fmt.Errorf("finish eval run: %d completed trials remain unjudged", incomplete)
 		}
 	}
-	r.logger.InfoContext(ctx, "eval v2 completed", "run_id", run.ID, "trials", len(results), "output_dir", config.Run.OutputDir)
+	r.logger.InfoContext(ctx, "eval completed", "protocol", config.Version, "run_id", run.ID, "trials", len(results), "output_dir", config.Run.OutputDir)
 	return run, results, nil
+}
+
+func validateRunnerConfig(config Config) error {
+	if config.Version != ConfigVersion && config.Version != "v3" {
+		return fmt.Errorf("validate eval runner config: unsupported version %q", config.Version)
+	}
+	return config.ValidateBase()
 }
 
 func buildRunRecord(config Config, revision string) (RunRecord, error) {
@@ -252,6 +261,7 @@ func HydrateResults(results []TrialResult, cases []Case) []TrialResult {
 		if hydrated[index].AskingUserID == "" {
 			hydrated[index].AskingUserID = evalCase.AskingUserID
 		}
+		hydrated[index] = withCaseIdentity(hydrated[index], evalCase)
 	}
 	return hydrated
 }
@@ -351,10 +361,13 @@ func (r *Runner) executeTrial(
 	variables := trialVariables(run, evalCase, arm.Name, outputDir)
 	artifactDir := variables["artifact_dir"]
 	durations := [3]time.Duration{}
-	partial := TrialResult{
+	partial := withCaseIdentity(TrialResult{
 		RunID: run.ID, Dataset: run.Dataset, DatasetRevision: run.DatasetRevision,
 		CaseID: evalCase.ID, Category: evalCase.Category, Question: evalCase.Question, Arm: arm.Name, AskingUserID: evalCase.AskingUserID,
 		Expected: evalCase.Expected, Status: "running", CostScope: "opencode_reported", StartedAt: started,
+	}, evalCase)
+	if evalCase.AnsweringAgentID == "" && evalCase.AnswererSourceOverlap == "no_cross_agent_answerer_available" {
+		return partial, fmt.Errorf("select eval answerer: %s", evalCase.AnswererSourceOverlap)
 	}
 	var producerOutput harness.AgentOutput
 	var ingestResult memoryprobe.IngestResult
@@ -695,7 +708,10 @@ func trialVariables(run RunRecord, evalCase Case, arm, outputDir string) map[str
 		"run_id": run.ID, "dataset": run.Dataset, "dataset_revision": run.DatasetRevision,
 		"case_id": evalCase.ID, "category": evalCase.Category, "arm": arm,
 		"question": evalCase.Question, "expected": evalCase.Expected, "user_id": evalCase.AskingUserID,
-		"scope_id": evalCase.ScopeID, "producer_workspace": evalCase.ProducerWorkspace,
+		"asking_user_id": evalCase.AskingUserID, "answering_agent_id": evalCase.AnsweringAgentID,
+		"answerer_seed": evalCase.AnswererSeed, "answerer_source_overlap": evalCase.AnswererSourceOverlap,
+		"strict_cross_agent": fmt.Sprintf("%t", evalCase.StrictCrossAgent),
+		"scope_id":           evalCase.ScopeID, "producer_workspace": evalCase.ProducerWorkspace,
 		"consumer_workspace": evalCase.ConsumerWorkspace, "artifact_dir": artifactDir,
 		"shared_artifact_dir":  sharedArtifactDir,
 		"shared_producer_text": filepath.Join(sharedArtifactDir, "producer.txt"),
@@ -706,15 +722,23 @@ func trialVariables(run RunRecord, evalCase Case, arm, outputDir string) map[str
 func failureResult(partial TrialResult, run RunRecord, evalCase Case, arm string, started time.Time, err error) TrialResult {
 	completed := time.Now().UTC()
 	if partial.RunID == "" {
-		partial = TrialResult{
+		partial = withCaseIdentity(TrialResult{
 			RunID: run.ID, Dataset: run.Dataset, DatasetRevision: run.DatasetRevision,
 			CaseID: evalCase.ID, Category: evalCase.Category, Question: evalCase.Question, Arm: arm, AskingUserID: evalCase.AskingUserID,
 			Expected: evalCase.Expected, CostScope: "opencode_reported", StartedAt: started,
-		}
+		}, evalCase)
 	}
 	partial.Status = "failed"
 	partial.CompletedAt = completed
 	partial.TotalDurationMS = completed.Sub(started).Milliseconds()
 	partial.Error = err.Error()
 	return partial
+}
+
+func withCaseIdentity(result TrialResult, evalCase Case) TrialResult {
+	result.AnsweringAgentID = evalCase.AnsweringAgentID
+	result.AnswererSeed = evalCase.AnswererSeed
+	result.StrictCrossAgent = evalCase.StrictCrossAgent
+	result.AnswererSourceOverlap = evalCase.AnswererSourceOverlap
+	return result
 }

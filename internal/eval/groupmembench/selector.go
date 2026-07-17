@@ -92,6 +92,36 @@ func Select(questions map[string][]Question, messages []Message, config Config) 
 	return result, nil
 }
 
+// SelectQuestions chooses the balanced v3 question cohort without consulting
+// conversation text. Full-domain memory construction happens independently.
+func SelectQuestions(questions map[string][]Question, config Config) ([]Case, error) {
+	if config.PerCategory < 0 || config.TotalCases < 0 {
+		return nil, fmt.Errorf("select GroupMemBench questions: limits cannot be negative")
+	}
+	if config.PerCategory == 0 && config.TotalCases == 0 {
+		config.PerCategory = 2
+	}
+	if config.Seed == "" {
+		config.Seed = "team-memory-v3"
+	}
+	limits := selectionLimits(config)
+	result := make([]Case, 0, totalLimit(limits))
+	for categoryIndex, category := range categories {
+		available := slices.Clone(questions[category])
+		limit := limits[categoryIndex]
+		if len(available) < limit {
+			return nil, fmt.Errorf("select GroupMemBench questions: category %q has %d questions, need %d", category, len(available), limit)
+		}
+		slices.SortFunc(available, func(left, right Question) int {
+			return strings.Compare(selectionKey(config.Seed, category, left.ID), selectionKey(config.Seed, category, right.ID))
+		})
+		for _, question := range available[:limit] {
+			result = append(result, Case{Category: category, Question: question})
+		}
+	}
+	return result, nil
+}
+
 func normalizeConfig(config Config) (Config, error) {
 	if config.PerCategory < 0 || config.TotalCases < 0 || config.TopK < 0 || config.NeighborRadius < 0 || config.MaxContextMessages < 0 {
 		return Config{}, fmt.Errorf("select GroupMemBench cases: limits cannot be negative")

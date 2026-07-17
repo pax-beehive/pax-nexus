@@ -26,6 +26,7 @@ func (s *artifactSuite) TestSummaryPairwiseAndExport() {
 		trial("case-3", "temporal", "control", "failed", 0, false, 10),
 		trial("case-3", "temporal", "memory", "completed", 0.5, false, 100),
 	}
+	results[1].StrictCrossAgent = true
 	summaries := Summarize(results)
 	s.NotEmpty(summaries)
 	var memoryOverall SummaryRow
@@ -40,6 +41,14 @@ func (s *artifactSuite) TestSummaryPairwiseAndExport() {
 	s.InDelta(1.0/3.0, memoryOverall.Accuracy, 0.00001)
 	s.InDelta(0.466666, memoryOverall.MeanTokenF1, 0.00001)
 	s.InDelta(0.03, memoryOverall.TotalCost, 0.000001)
+	var strictMemory SummaryRow
+	for _, row := range summaries {
+		if row.DimensionType == "trial_class" && row.DimensionValue == "strict_cross_agent" && row.Arm == "memory" {
+			strictMemory = row
+		}
+	}
+	s.Equal(1, strictMemory.Trials)
+	s.Equal(1, strictMemory.Correct)
 
 	pairs := Pairwise(results, "control")
 	s.Require().NotEmpty(pairs)
@@ -134,6 +143,29 @@ func (s *artifactSuite) TestExportLinksCompletedStageArtifacts() {
 	}
 	s.Require().NoError(json.Unmarshal(encoded, &manifest))
 	s.Equal(filepath.Join("stage", "artifacts.json"), manifest.Files["stage"])
+}
+
+func (s *artifactSuite) TestExportLinksEvalV3FullDomainIngestReceipts() {
+	directory := s.T().TempDir()
+	s.Require().NoError(os.MkdirAll(filepath.Join(directory, "memory"), 0o755))
+	for _, name := range []string{"team-note-ingest.json", "mem0-ingest.json", "private-sqlite-ingest.json"} {
+		s.Require().NoError(os.WriteFile(filepath.Join(directory, "memory", name), []byte("{}\n"), 0o600))
+	}
+	result := []TrialResult{trial("case", "category", "no_memory_team", "completed", 1, true, 1)}
+	run := RunRecord{Config: Config{Version: "v3"}}
+
+	s.Require().NoError(ExportArtifacts(directory, run, "no_memory_team", []string{"jsonl"}, result, nil))
+	encoded, err := os.ReadFile(filepath.Join(directory, "artifacts.json"))
+	s.Require().NoError(err)
+	var manifest struct {
+		SchemaVersion string            `json:"schema_version"`
+		Files         map[string]string `json:"files"`
+	}
+	s.Require().NoError(json.Unmarshal(encoded, &manifest))
+	s.Equal(ArtifactSchemaVersionV3, manifest.SchemaVersion)
+	s.Equal(filepath.Join("memory", "team-note-ingest.json"), manifest.Files["team_note_ingest"])
+	s.Equal(filepath.Join("memory", "mem0-ingest.json"), manifest.Files["mem0_ingest"])
+	s.Equal(filepath.Join("memory", "private-sqlite-ingest.json"), manifest.Files["private_sqlite_ingest"])
 }
 
 func (s *artifactSuite) TestLoadsTrialResultsJSONLines() {

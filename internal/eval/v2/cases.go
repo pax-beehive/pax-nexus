@@ -14,12 +14,14 @@ type manifest struct {
 }
 
 type manifestCase struct {
-	ID           string `json:"id"`
-	Category     string `json:"category"`
-	Question     string `json:"question"`
-	Answer       string `json:"answer"`
-	AskingUserID string `json:"asking_user_id"`
-	ScopeID      string `json:"scope_id"`
+	ID                  string   `json:"id"`
+	Category            string   `json:"category"`
+	Question            string   `json:"question"`
+	Answer              string   `json:"answer"`
+	AskingUserID        string   `json:"asking_user_id"`
+	ScopeID             string   `json:"scope_id"`
+	ParticipantAgentIDs []string `json:"participant_agent_ids,omitempty"`
+	SupportingAgentIDs  []string `json:"supporting_agent_ids,omitempty"`
 }
 
 func LoadCases(path string) ([]Case, string, error) {
@@ -51,8 +53,10 @@ func LoadCases(path string) ([]Case, string, error) {
 		cases = append(cases, Case{
 			ID: item.ID, Category: item.Category, Question: item.Question, Expected: item.Answer,
 			AskingUserID: item.AskingUserID, ScopeID: item.ScopeID,
-			ProducerWorkspace: filepath.Join(base, "cases", item.ID, "producer"),
-			ConsumerWorkspace: filepath.Join(base, "cases", item.ID, "consumer"),
+			ParticipantAgentIDs: append([]string(nil), item.ParticipantAgentIDs...),
+			SupportingAgentIDs:  append([]string(nil), item.SupportingAgentIDs...),
+			ProducerWorkspace:   filepath.Join(base, "cases", item.ID, "producer"),
+			ConsumerWorkspace:   filepath.Join(base, "cases", item.ID, "consumer"),
 		})
 	}
 	return cases, source.DatasetRevision, nil

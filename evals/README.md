@@ -1,5 +1,10 @@
 # Evaluation runbook
 
+For the three-arm, full-domain multi-agent GroupMemBench protocol, use
+[`v3/README.md`](v3/README.md). Eval v3 assigns one teammate per case across all
+arms and compares no memory, shared Mem0, and private SQLite plus shared Team
+Note. The remainder of this runbook covers Eval v2.
+
 Use Eval v2 for current Team Note quality, latency, and cost comparisons. It
 runs the same deterministic GroupMemBench cases through four arms:
 

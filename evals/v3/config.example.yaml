@@ -1,0 +1,50 @@
+version: v3
+run:
+  id: groupmembench-finance-v3
+  dataset: GroupMemBench
+  manifest: runs/groupmembench-v3-selection/manifest.json
+  output_dir: runs/eval-v3/groupmembench-finance-v3
+  parallelism: 4
+store:
+  dsn_env: EVAL_V2_POSTGRES_DSN
+baseline_arm: no_memory_team
+answerer_seed: pax-eval-v3-answerer-1
+mem0_reproduction_level: comparable_baseline
+retry_failed: false
+trial_timeout: 8m
+runtime_env:
+  - OPENCODE_MODEL
+  - OPENCODE_VERSION
+  - EVAL_V2_JUDGE_MODEL
+  - EVAL_V2_JUDGE_THINKING
+  - TEAM_MEMORY_EXTRACTOR_MODEL
+  - TEAM_MEMORY_PROMPT_VERSION
+  - TEAM_MEMORY_EXTRACTION_CONTEXT_MODE
+  - TEAM_MEMORY_EXTRACTION_VERSION
+  - MEM0_IMAGE
+  - MEM0_DEFAULT_LLM_MODEL
+  - MEM0_DEFAULT_EMBEDDER_MODEL
+  - PAXM_EXPECTED_VERSION
+output:
+  formats: [csv, jsonl, html]
+before_run:
+  program: scripts/eval-v3-opencode.sh
+  args: [ingest-domain, all]
+preflight:
+  program: scripts/eval-v3-opencode.sh
+  args: [preflight, all]
+judge:
+  program: scripts/eval-v2-judge.sh
+arms:
+  - name: no_memory_team
+    consumer:
+      program: scripts/eval-v3-opencode.sh
+      args: [consumer, no_memory_team]
+  - name: groupmembench_mem0
+    consumer:
+      program: scripts/eval-v3-opencode.sh
+      args: [consumer, groupmembench_mem0]
+  - name: private_sqlite_plus_team_note
+    consumer:
+      program: scripts/eval-v3-opencode.sh
+      args: [consumer, private_sqlite_plus_team_note]

@@ -5,6 +5,8 @@ set -eu
 : "${PAXM_PROVIDER_TYPE:=team-memory}"
 : "${TEAM_MEMORY_BASE_URL:=http://team-memory:8080}"
 : "${PAXM_USER_ID:=eval-owner}"
+: "${PAXM_PROVIDER_USER_ID:=${PAXM_USER_ID}}"
+: "${PAXM_PROVIDER_AGENT_ID:=${PAXM_AGENT_ID}}"
 : "${PAXM_RECALL_ENABLED:=1}"
 : "${PAXM_WRITE_ENABLED:=1}"
 : "${TEAM_MEMORY_PROVIDER_TIMEOUT:=90s}"
@@ -38,7 +40,8 @@ cp "${PAXM_PLUGIN_SOURCE}" "${opencode_config}/plugins/paxm.js"
 case "${PAXM_PROVIDER_TYPE}" in
   team-memory)
     : "${TEAM_MEMORY_API_KEY:?TEAM_MEMORY_API_KEY is required for team-memory}"
-    provider_config="type: jsonrpc
+    provider_entries="  memory:
+    type: jsonrpc
     enabled: true
     transport: stdio
     command: /usr/local/bin/paxm-team-memory-provider
@@ -46,22 +49,64 @@ case "${PAXM_PROVIDER_TYPE}" in
     env:
       TEAM_MEMORY_BASE_URL: \"${TEAM_MEMORY_BASE_URL}\"
       TEAM_MEMORY_API_KEY: \"${TEAM_MEMORY_API_KEY}\"
-      PAXM_USER_ID: \"${PAXM_USER_ID}\"
-      PAXM_AGENT_ID: \"${PAXM_AGENT_ID}\"
+      PAXM_USER_ID: \"${PAXM_PROVIDER_USER_ID}\"
+      PAXM_AGENT_ID: \"${PAXM_PROVIDER_AGENT_ID}\"
       TEAM_MEMORY_REQUEST_TIMEOUT: \"${TEAM_MEMORY_REQUEST_TIMEOUT}\""
+    default_provider_entries="      - name: memory
+        required: true"
+    passive_provider_entries="${default_provider_entries}
+        timeout: ${PAXM_PASSIVE_PROVIDER_TIMEOUT}"
+    write_provider_entries="${default_provider_entries}"
     ;;
   mem0)
     : "${MEM0_BASE_URL:=http://mem0:8000}"
     : "${MEM0_RUN_ID:?MEM0_RUN_ID is required for eval isolation}"
-    provider_config="type: mem0
+    provider_entries="  memory:
+    type: mem0
     enabled: true
     base_url: \"${MEM0_BASE_URL}\"
     api_key: \"${MEM0_API_KEY:-}\"
-    user_id: \"${PAXM_USER_ID}\"
-    agent_id: \"${PAXM_AGENT_ID}\"
+    user_id: \"${PAXM_PROVIDER_USER_ID}\"
+    agent_id: \"${PAXM_PROVIDER_AGENT_ID}\"
     run_id: \"${MEM0_RUN_ID}\"
     score_semantics: \"${MEM0_SCORE_SEMANTICS}\"
     search_scope_payload: \"${MEM0_SEARCH_SCOPE_PAYLOAD}\""
+    default_provider_entries="      - name: memory
+        required: true"
+    passive_provider_entries="${default_provider_entries}
+        timeout: ${PAXM_PASSIVE_PROVIDER_TIMEOUT}"
+    write_provider_entries="${default_provider_entries}"
+    ;;
+  team-memory-sqlite)
+    : "${TEAM_MEMORY_API_KEY:?TEAM_MEMORY_API_KEY is required for team-memory-sqlite}"
+    : "${PAXM_PRIVATE_SQLITE_PATH:?PAXM_PRIVATE_SQLITE_PATH is required for team-memory-sqlite}"
+    provider_entries="  private:
+    type: sqlite
+    enabled: true
+    path: \"${PAXM_PRIVATE_SQLITE_PATH}\"
+  team:
+    type: jsonrpc
+    enabled: true
+    transport: stdio
+    command: /usr/local/bin/paxm-team-memory-provider
+    timeout: ${TEAM_MEMORY_PROVIDER_TIMEOUT}
+    env:
+      TEAM_MEMORY_BASE_URL: \"${TEAM_MEMORY_BASE_URL}\"
+      TEAM_MEMORY_API_KEY: \"${TEAM_MEMORY_API_KEY}\"
+      PAXM_USER_ID: \"${PAXM_PROVIDER_USER_ID}\"
+      PAXM_AGENT_ID: \"${PAXM_PROVIDER_AGENT_ID}\"
+      TEAM_MEMORY_REQUEST_TIMEOUT: \"${TEAM_MEMORY_REQUEST_TIMEOUT}\""
+    default_provider_entries="      - name: private
+        required: true
+      - name: team
+        required: true"
+    passive_provider_entries="      - name: private
+        required: true
+        timeout: ${PAXM_PASSIVE_PROVIDER_TIMEOUT}
+      - name: team
+        required: true
+        timeout: ${PAXM_PASSIVE_PROVIDER_TIMEOUT}"
+    write_provider_entries="${default_provider_entries}"
     ;;
   *)
     echo "unsupported PAXM_PROVIDER_TYPE: ${PAXM_PROVIDER_TYPE}" >&2
@@ -72,28 +117,22 @@ esac
 cat > "${paxm_config}" <<EOF
 version: 1
 providers:
-  memory:
-    ${provider_config}
+${provider_entries}
 recall_profiles:
   default:
     providers:
-      - name: memory
-        required: true
+${default_provider_entries}
     max_results: 5
   passive:
     providers:
-      - name: memory
-        required: true
-        timeout: ${PAXM_PASSIVE_PROVIDER_TIMEOUT}
+${passive_provider_entries}
     max_results: 5
     thresholds:
       min_relevance: ${PAXM_PASSIVE_MIN_RELEVANCE}
       min_score: ${PAXM_PASSIVE_MIN_SCORE}
   passive_initial:
     providers:
-      - name: memory
-        required: true
-        timeout: ${PAXM_PASSIVE_PROVIDER_TIMEOUT}
+${passive_provider_entries}
     max_results: 5
     thresholds:
       min_relevance: ${PAXM_PASSIVE_MIN_RELEVANCE}
@@ -102,8 +141,7 @@ write_profiles:
   ltm:
     tier: ltm
     providers:
-      - name: memory
-        required: true
+${write_provider_entries}
 agents:
   opencode:
     enabled: true

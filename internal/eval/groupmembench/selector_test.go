@@ -70,6 +70,18 @@ func (s *selectorSuite) TestSelectsExactBalancedTotalAcrossCategories() {
 	}, counts)
 }
 
+func (s *selectorSuite) TestSelectQuestionsDoesNotUseConversationRetrieval() {
+	selected, err := groupmembench.SelectQuestions(
+		completeQuestions(), groupmembench.Config{TotalCases: 6, Seed: "v3"},
+	)
+
+	s.Require().NoError(err)
+	s.Require().Len(selected, 6)
+	for _, evalCase := range selected {
+		s.Empty(evalCase.Messages)
+	}
+}
+
 func (s *selectorSuite) TestRetrievesMessagesAndConversationContext() {
 	messages := []groupmembench.Message{
 		{NodeID: "Msg_1", Channel: "risk", Content: "The old deadline is July 10.", Timestamp: "2026-07-01T10:00:00"},

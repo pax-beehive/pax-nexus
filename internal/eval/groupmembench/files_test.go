@@ -83,6 +83,29 @@ func (s *filesSuite) TestWriteCasesPartitionsNativeSessionsByAuthorChannelAndPha
 	s.Equal(batches[0].Events[0].Actor.SessionID, batches[0].Events[2].Actor.SessionID)
 }
 
+func (s *filesSuite) TestWriteV3CasesUsesOneFullDomainHistory() {
+	directory := s.T().TempDir()
+	messages := []groupmembench.Message{
+		{NodeID: "Msg_1", Channel: "ops", Author: "User_1", Role: "Lead", Content: "first", Timestamp: "2026-07-01T10:00:00"},
+		{NodeID: "Msg_2", Channel: "ops", Author: "User_2", Role: "Reviewer", Content: "second", Timestamp: "2026-07-01T10:01:00"},
+	}
+	cases := []groupmembench.Case{{
+		Category: "multi_hop",
+		Question: groupmembench.Question{ID: "q1", Question: "question", Answer: "answer", AskingUserID: "User_1"},
+	}}
+
+	s.Require().NoError(groupmembench.WriteV3Cases(directory, "revision", "Finance", "seed", cases, messages))
+
+	manifest := loadManifest(s.T(), filepath.Join(directory, "manifest.json"))
+	s.Equal("multi-agent-groupmembench-v3", manifest.Protocol)
+	s.Equal("domain/producer/session-batches.json", manifest.DomainSessionBatches)
+	s.Equal(2, manifest.FullDomainMessages)
+	s.Require().Len(manifest.Cases, 1)
+	s.ElementsMatch([]string{"groupmembench-User_1", "groupmembench-User_2"}, manifest.Cases[0].ParticipantAgentIDs)
+	_, err := os.Stat(filepath.Join(directory, "domain", "producer", "session-batches.json"))
+	s.NoError(err)
+}
+
 func loadManifest(t *testing.T, path string) groupmembench.Manifest {
 	t.Helper()
 	input, err := os.ReadFile(path)

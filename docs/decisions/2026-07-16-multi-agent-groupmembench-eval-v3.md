@@ -1,8 +1,10 @@
 # Multi-Agent GroupMemBench Eval v3
 
-Status: Proposed
+Status: Accepted and implemented
 
 Date: 2026-07-16
+
+Implementation: 2026-07-17
 
 Related:
 
@@ -60,6 +62,12 @@ question before ingestion.
 
 Stage-local extraction and recall evaluation remains a separate diagnostic
 loop. It does not add end-to-end arms.
+
+The initial implementation is available through `cmd/team-memory-eval-v3`,
+`internal/eval/v3`, `evals/v3`, and the `eval-v3-*` scripts. The shipped Mem0
+template is deliberately labeled `comparable_baseline`; implementation does
+not by itself establish benchmark quality or reproduce the published Mem0
+score.
 
 ## Terminology
 

@@ -26,6 +26,7 @@ func run(args []string, logger *slog.Logger) error {
 	domain := flags.String("domain", "Finance", "GroupMemBench domain")
 	revision := flags.String("revision", "", "GroupMemBench dataset revision")
 	seed := flags.String("seed", "team-memory-v1", "deterministic selection seed")
+	mode := flags.String("mode", "case-context", "selection mode: case-context or full-domain")
 	perCategory := flags.Int("per-category", 2, "questions selected per category")
 	totalCases := flags.Int("total-cases", 0, "exact balanced question count; overrides per-category when positive")
 	topK := flags.Int("top-k", 8, "BM25 messages selected per question")
@@ -42,16 +43,28 @@ func run(args []string, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	cases, err := groupmembench.Select(questions, messages, groupmembench.Config{
+	config := groupmembench.Config{
 		PerCategory: *perCategory, TotalCases: *totalCases, TopK: *topK, NeighborRadius: *neighborRadius,
 		MaxContextMessages: *maxContextMessages, Seed: *seed,
-	})
+	}
+	var cases []groupmembench.Case
+	switch *mode {
+	case "case-context":
+		cases, err = groupmembench.Select(questions, messages, config)
+		if err == nil {
+			err = groupmembench.WriteCases(*outputDirectory, *revision, *domain, *seed, cases)
+		}
+	case "full-domain":
+		cases, err = groupmembench.SelectQuestions(questions, config)
+		if err == nil {
+			err = groupmembench.WriteV3Cases(*outputDirectory, *revision, *domain, *seed, cases, messages)
+		}
+	default:
+		return fmt.Errorf("unsupported GroupMemBench selection mode %q", *mode)
+	}
 	if err != nil {
 		return err
 	}
-	if err := groupmembench.WriteCases(*outputDirectory, *revision, *domain, *seed, cases); err != nil {
-		return err
-	}
-	logger.Info("GroupMemBench cases selected", "cases", len(cases), "domain", *domain, "output", *outputDirectory)
+	logger.Info("GroupMemBench cases selected", "cases", len(cases), "domain", *domain, "mode", *mode, "output", *outputDirectory)
 	return nil
 }

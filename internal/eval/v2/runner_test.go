@@ -26,7 +26,11 @@ func (s *runnerSuite) TestRunCompletesResumableMatrixAndExports() {
 	config := testConfig(s.T().TempDir())
 	config.BeforeRun = &CommandSpec{Program: "setup"}
 	config.AfterRun = &CommandSpec{Program: "teardown"}
-	cases := []Case{{ID: "case-1", Category: "temporal", Question: "question", Expected: "answer", AskingUserID: "same-user", ScopeID: "scope"}}
+	cases := []Case{{
+		ID: "case-1", Category: "temporal", Question: "question", Expected: "answer", AskingUserID: "same-user", ScopeID: "scope",
+		AnsweringAgentID: "groupmembench-User_3", AnswererSeed: "seed-1", StrictCrossAgent: true,
+		AnswererSourceOverlap: "excluded",
+	}}
 
 	run, results, err := runner.Run(context.Background(), config, cases, "revision")
 	s.Require().NoError(err)
@@ -40,6 +44,10 @@ func (s *runnerSuite) TestRunCompletesResumableMatrixAndExports() {
 	s.Equal(2, executor.count("consumer"))
 	for _, result := range store.results {
 		s.Equal("same-user", result.AskingUserID)
+		s.Equal("groupmembench-User_3", result.AnsweringAgentID)
+		s.Equal("seed-1", result.AnswererSeed)
+		s.True(result.StrictCrossAgent)
+		s.Equal("excluded", result.AnswererSourceOverlap)
 		s.True(result.Exact)
 		if result.Arm == "memory" {
 			s.InDelta(0.3, result.Cost, 0.000001)

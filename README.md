@@ -30,14 +30,17 @@ internal/teamnote/transport/httpapi/    Hertz adapter generated from Thrift IDL
 internal/teamnote/paxmprovider/         paxm bridge to Team Note HTTP
 internal/eval/                          Evaluation harness and benchmark adapters
 internal/eval/v2/                       Resumable multi-arm evaluation engine
+internal/eval/v3/                       Three-arm multi-agent GroupMemBench protocol
 internal/llmwiki/                       Reserved durable LLM Wiki module
 internal/platform/                      Shared PostgreSQL and observability adapters
 evals/opencode/                         Two-OpenCode scenarios and Docker orchestration
 evals/v2/                               Team Note versus self-hosted Mem0 configuration
+evals/v3/                               Full-domain multi-agent architecture evaluation
 idl/                                    Thrift source of truth for HTTP interfaces
 cmd/paxm-team-memory-provider paxm provider process used by OpenCode
 cmd/team-memory-eval/        Deterministic OpenCode output scorer
 cmd/team-memory-eval-v2/     Durable configuration-driven evaluation runner
+cmd/team-memory-eval-v3/     Multi-agent GroupMemBench evaluation runner
 ```
 
 Team Note and LLM Wiki are independent product modules. Both consume Session

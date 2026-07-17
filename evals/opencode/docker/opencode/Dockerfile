@@ -29,6 +29,7 @@ COPY --from=team-memory-build /out/paxm-team-memory-provider /usr/local/bin/paxm
 COPY --from=team-memory-build /out/eval-v2-memory /usr/local/bin/eval-v2-memory
 COPY --from=team-memory-build /out/eval-v2-active-recall /usr/local/bin/eval-v2-active-recall
 COPY evals/opencode/docker/opencode/active_recall.ts /opt/team-memory/active_recall.ts
+COPY evals/opencode/docker/opencode/ingest-private-sqlite.mjs /opt/team-memory/ingest-private-sqlite.mjs
 COPY evals/opencode/docker/opencode/entrypoint.sh /usr/local/bin/team-memory-opencode
 RUN chmod 0755 /usr/local/bin/team-memory-opencode
 

@@ -15,6 +15,7 @@ import (
 )
 
 const ArtifactSchemaVersion = "pax-eval-v2.8"
+const ArtifactSchemaVersionV3 = "pax-eval-v3.0"
 
 type SummaryRow struct {
 	DimensionType     string
@@ -157,22 +158,55 @@ func ExportArtifacts(directory string, run RunRecord, baselineArm string, format
 		return err
 	}
 	files["resolved_config"] = "config.resolved.json"
-	if run.Config.StageCapture != nil {
+	if err := linkOptionalArtifacts(directory, run.Config, files); err != nil {
+		return err
+	}
+	schemaVersion := ArtifactSchemaVersion
+	if run.Config.Version == "v3" {
+		schemaVersion = ArtifactSchemaVersionV3
+	}
+	manifest := map[string]any{
+		"schema_version": schemaVersion,
+		"run_id":         run.ID, "dataset": run.Dataset, "dataset_revision": run.DatasetRevision,
+		"config_hash": run.ConfigHash, "generated_at": time.Now().UTC(),
+		"runtime":                 run.Runtime,
+		"answerer_seed":           run.Config.AnswererSeed,
+		"mem0_reproduction_level": run.Config.Mem0ReproductionLevel,
+		"files":                   files,
+		"cost_summary":            CostTotals(results),
+	}
+	return writeJSON(filepath.Join(directory, "artifacts.json"), manifest)
+}
+
+func linkOptionalArtifacts(directory string, config Config, files map[string]string) error {
+	if config.StageCapture != nil {
 		if _, err := os.Stat(filepath.Join(directory, "stage", "artifacts.json")); err == nil {
 			files["stage"] = filepath.Join("stage", "artifacts.json")
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("inspect stage artifact manifest: %w", err)
 		}
 	}
-	manifest := map[string]any{
-		"schema_version": ArtifactSchemaVersion,
-		"run_id":         run.ID, "dataset": run.Dataset, "dataset_revision": run.DatasetRevision,
-		"config_hash": run.ConfigHash, "generated_at": time.Now().UTC(),
-		"runtime":      run.Runtime,
-		"files":        files,
-		"cost_summary": CostTotals(results),
+	if config.Version == "v3" {
+		return linkEvalV3MemoryReceipts(directory, files)
 	}
-	return writeJSON(filepath.Join(directory, "artifacts.json"), manifest)
+	return nil
+}
+
+func linkEvalV3MemoryReceipts(directory string, files map[string]string) error {
+	receipts := map[string]string{
+		"team_note_ingest":      "team-note-ingest.json",
+		"mem0_ingest":           "mem0-ingest.json",
+		"private_sqlite_ingest": "private-sqlite-ingest.json",
+	}
+	for key, name := range receipts {
+		relativePath := filepath.Join("memory", name)
+		if _, err := os.Stat(filepath.Join(directory, relativePath)); err == nil {
+			files[key] = relativePath
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("inspect eval v3 memory receipt %q: %w", name, err)
+		}
+	}
+	return nil
 }
 
 func ExportResolvedConfig(path string, config Config, runtime map[string]string) error {
@@ -258,6 +292,9 @@ func Summarize(results []TrialResult) []SummaryRow {
 	for _, result := range results {
 		groups[key{"overall", "all", result.Arm}] = append(groups[key{"overall", "all", result.Arm}], result)
 		groups[key{"category", result.Category, result.Arm}] = append(groups[key{"category", result.Category, result.Arm}], result)
+		if result.StrictCrossAgent {
+			groups[key{"trial_class", "strict_cross_agent", result.Arm}] = append(groups[key{"trial_class", "strict_cross_agent", result.Arm}], result)
+		}
 	}
 	keys := make([]key, 0, len(groups))
 	for current := range groups {
@@ -452,11 +489,12 @@ func writeJSONLines(path string, results []TrialResult) error {
 }
 
 func writeTrialsCSV(path string, results []TrialResult) error {
-	header := []string{"run_id", "dataset", "dataset_revision", "case_id", "category", "arm", "asking_user_id", "status", "memory_ingest_provider", "memory_ingest_accepted", "memory_ingest_duplicate", "memory_ingest_created", "memory_ingest_updated", "memory_ingest_deleted", "memory_ingest_noop_known", "memory_ingest_noop", "memory_source_events", "memory_source_actors", "memory_source_sessions", "exact", "safe_success", "token_f1", "judged", "correct", "judge_answer", "judge_error", "judge_session_id", "judge_input_tokens", "judge_output_tokens", "judge_cost", "judge_duration_ms", "input_tokens", "output_tokens", "cost", "cost_scope", "producer_input_tokens", "producer_output_tokens", "producer_cost", "consumer_input_tokens", "consumer_output_tokens", "consumer_cost", "producer_duration_ms", "readiness_duration_ms", "consumer_duration_ms", "total_duration_ms", "session_id", "question", "expected", "answer", "error", "started_at", "completed_at"}
+	header := []string{"run_id", "dataset", "dataset_revision", "case_id", "category", "arm", "asking_user_id", "answering_agent_id", "answerer_seed", "strict_cross_agent", "answerer_source_overlap", "status", "memory_ingest_provider", "memory_ingest_accepted", "memory_ingest_duplicate", "memory_ingest_created", "memory_ingest_updated", "memory_ingest_deleted", "memory_ingest_noop_known", "memory_ingest_noop", "memory_source_events", "memory_source_actors", "memory_source_sessions", "exact", "safe_success", "token_f1", "judged", "correct", "judge_answer", "judge_error", "judge_session_id", "judge_input_tokens", "judge_output_tokens", "judge_cost", "judge_duration_ms", "input_tokens", "output_tokens", "cost", "cost_scope", "producer_input_tokens", "producer_output_tokens", "producer_cost", "consumer_input_tokens", "consumer_output_tokens", "consumer_cost", "producer_duration_ms", "readiness_duration_ms", "consumer_duration_ms", "total_duration_ms", "session_id", "question", "expected", "answer", "error", "started_at", "completed_at"}
 	rows := make([][]string, 0, len(results))
 	for _, result := range results {
 		rows = append(rows, []string{
-			result.RunID, result.Dataset, result.DatasetRevision, result.CaseID, result.Category, result.Arm, result.AskingUserID, result.Status,
+			result.RunID, result.Dataset, result.DatasetRevision, result.CaseID, result.Category, result.Arm, result.AskingUserID,
+			result.AnsweringAgentID, result.AnswererSeed, strconv.FormatBool(result.StrictCrossAgent), result.AnswererSourceOverlap, result.Status,
 			result.MemoryIngestProvider, strconv.Itoa(result.MemoryIngestAccepted), strconv.Itoa(result.MemoryIngestDuplicate),
 			strconv.Itoa(result.MemoryIngestCreated), strconv.Itoa(result.MemoryIngestUpdated), strconv.Itoa(result.MemoryIngestDeleted),
 			strconv.FormatBool(result.MemoryIngestNoOpKnown), strconv.FormatBool(result.MemoryIngestNoOp),

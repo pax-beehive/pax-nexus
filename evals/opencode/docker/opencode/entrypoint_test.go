@@ -54,6 +54,58 @@ func (s *entrypointSuite) TestConsumerKeepsAnswerPolicyOutOfRecallPrompt() {
 	s.Contains(arguments, "eval-consumer")
 }
 
+func (s *entrypointSuite) TestEvalV3ConsumerKeepsPairedAnswererAndArmTopology() {
+	repositoryRoot, err := filepath.Abs(filepath.Join("..", "..", "..", ".."))
+	s.Require().NoError(err)
+	tests := []struct {
+		name          string
+		arm           string
+		providerType  string
+		recall        string
+		providerAgent string
+	}{
+		{name: "no memory", arm: "no_memory_team", providerType: "team-memory", recall: "0", providerAgent: "groupmembench-User_3"},
+		{name: "shared mem0", arm: "groupmembench_mem0", providerType: "mem0", recall: "1", providerAgent: "groupmembench-shared-agent"},
+		{name: "private plus team", arm: "private_sqlite_plus_team_note", providerType: "team-memory-sqlite", recall: "1", providerAgent: "groupmembench-User_3"},
+	}
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			directory := s.T().TempDir()
+			binDirectory := filepath.Join(directory, "bin")
+			s.Require().NoError(os.Mkdir(binDirectory, 0o700))
+			capture := filepath.Join(directory, "docker-args")
+			docker := filepath.Join(binDirectory, "docker")
+			s.Require().NoError(os.WriteFile(docker, []byte("#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$DOCKER_CAPTURE\"\n"), 0o700))
+			privateDirectory := filepath.Join(directory, "memory", "private")
+			s.Require().NoError(os.MkdirAll(privateDirectory, 0o700))
+			if test.arm == "private_sqlite_plus_team_note" {
+				s.Require().NoError(os.WriteFile(filepath.Join(privateDirectory, "groupmembench-User_3.sqlite"), nil, 0o600))
+			}
+			command := exec.Command("sh", filepath.Join(repositoryRoot, "scripts", "eval-v3-opencode.sh"), "consumer", test.arm)
+			command.Dir = repositoryRoot
+			command.Env = []string{
+				"PATH=" + binDirectory + string(os.PathListSeparator) + os.Getenv("PATH"),
+				"DOCKER_CAPTURE=" + capture,
+				"PAX_EVAL_RUN_ID=eval-v3-test", "PAX_EVAL_CASE_ID=case-1",
+				"PAX_EVAL_USER_ID=User_1", "PAX_EVAL_ASKING_USER_ID=User_1",
+				"PAX_EVAL_ANSWERING_AGENT_ID=groupmembench-User_3",
+				"PAX_EVAL_CONSUMER_WORKSPACE=" + directory, "PAX_EVAL_OUTPUT_DIR=" + directory,
+				"PAX_EVAL_QUESTION=What changed?", "OPENCODE_MODEL=deepseek/deepseek-v4-flash",
+				"TEAM_MEMORY_API_KEYS={}",
+			}
+			output, err := command.CombinedOutput()
+			s.Require().NoError(err, string(output))
+			input, err := os.ReadFile(capture)
+			s.Require().NoError(err)
+			arguments := strings.Split(strings.TrimSpace(string(input)), "\n")
+			s.Contains(arguments, "PAXM_AGENT_ID=groupmembench-User_3")
+			s.Contains(arguments, "PAXM_PROVIDER_TYPE="+test.providerType)
+			s.Contains(arguments, "PAXM_RECALL_ENABLED="+test.recall)
+			s.Contains(arguments, "PAXM_PROVIDER_AGENT_ID="+test.providerAgent)
+		})
+	}
+}
+
 func (s *entrypointSuite) TestHybridArmEnablesBoundedActiveRecall() {
 	repositoryRoot, err := filepath.Abs(filepath.Join("..", "..", "..", ".."))
 	s.Require().NoError(err)
@@ -550,6 +602,72 @@ func (s *entrypointSuite) TestPassiveRecallProfilesUseConfiguredProviderTimeout(
 			s.Equal("2s", profile.Providers[0].Timeout)
 		})
 	}
+}
+
+func (s *entrypointSuite) TestTeamMemorySQLiteProfileReadsOnlyOwnPrivateDatabaseAndSharedTeamMemory() {
+	directory := s.T().TempDir()
+	plugin := filepath.Join(directory, "paxm.js")
+	s.Require().NoError(os.WriteFile(plugin, []byte("// test plugin"), 0o600))
+	privatePath := filepath.Join(directory, "groupmembench-User_3.sqlite")
+	command := exec.Command("sh", "entrypoint.sh")
+	command.Env = []string{
+		"PATH=" + os.Getenv("PATH"),
+		"PAXM_AGENT_ID=groupmembench-User_3",
+		"PAXM_PROVIDER_TYPE=team-memory-sqlite",
+		"PAXM_PRIVATE_SQLITE_PATH=" + privatePath,
+		"PAXM_USER_ID=User_3",
+		"TEAM_MEMORY_API_KEY=eval-key",
+		"PAXM_CONFIG_ROOT=" + directory,
+		"PAXM_PLUGIN_SOURCE=" + plugin,
+		"PAXM_CONFIG_ONLY=1",
+	}
+	output, err := command.CombinedOutput()
+	s.Require().NoError(err, string(output))
+
+	input, err := os.ReadFile(filepath.Join(directory, "paxm.yaml"))
+	s.Require().NoError(err)
+	var config struct {
+		Providers map[string]struct {
+			Type string `yaml:"type"`
+			Path string `yaml:"path"`
+		} `yaml:"providers"`
+		RecallProfiles map[string]struct {
+			Providers []struct {
+				Name string `yaml:"name"`
+			} `yaml:"providers"`
+		} `yaml:"recall_profiles"`
+	}
+	s.Require().NoError(yaml.Unmarshal(input, &config))
+	s.Equal("sqlite", config.Providers["private"].Type)
+	s.Equal(privatePath, config.Providers["private"].Path)
+	s.Equal("jsonrpc", config.Providers["team"].Type)
+	s.Equal([]string{"private", "team"}, []string{
+		config.RecallProfiles["passive"].Providers[0].Name,
+		config.RecallProfiles["passive"].Providers[1].Name,
+	})
+}
+
+func (s *entrypointSuite) TestPrivateSQLiteIngestCreatesOneDatabasePerSourceAgent() {
+	directory := s.T().TempDir()
+	batches := filepath.Join(directory, "batches.json")
+	privateRoot := filepath.Join(directory, "private")
+	capture := filepath.Join(directory, "paxm-calls")
+	paxm := filepath.Join(directory, "paxm")
+	s.Require().NoError(os.WriteFile(batches, []byte(`[
+  {"complete":true,"events":[{"id":"Msg_1","actor":{"user_id":"User_1","agent_id":"groupmembench-User_1","session_id":"s1"},"sequence":1,"content":"first","occurred_at":"2026-07-01T10:00:00Z"}]},
+  {"complete":true,"events":[{"id":"Msg_2","actor":{"user_id":"User_2","agent_id":"groupmembench-User_2","session_id":"s2"},"sequence":1,"content":"second","occurred_at":"2026-07-01T10:01:00Z"}]}
+]`), 0o600))
+	s.Require().NoError(os.WriteFile(paxm, []byte("#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$PAXM_CAPTURE\"\ncat \"$2\" >> \"$PAXM_CAPTURE\"\n"), 0o700))
+	command := exec.Command("node", "ingest-private-sqlite.mjs", batches, privateRoot)
+	command.Env = append(os.Environ(), "PAXM_BINARY="+paxm, "PAXM_CAPTURE="+capture)
+	output, err := command.CombinedOutput()
+	s.Require().NoError(err, string(output))
+	input, err := os.ReadFile(capture)
+	s.Require().NoError(err)
+	s.Contains(string(input), "groupmembench-User_1.sqlite")
+	s.Contains(string(input), "groupmembench-User_2.sqlite")
+	s.Contains(string(input), "groupmembench:Msg_1")
+	s.Contains(string(input), "groupmembench:Msg_2")
 }
 
 func (s *entrypointSuite) TestRejectsUnexpectedPaxmVersion() {

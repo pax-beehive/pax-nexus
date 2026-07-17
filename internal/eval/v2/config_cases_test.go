@@ -34,13 +34,15 @@ arms:
 	s.Equal("run", config.Run.ID)
 
 	manifestPath := filepath.Join(directory, "manifest.json")
-	manifestJSON := `{"dataset_revision":"abc123","cases":[{"id":"case-1","category":"temporal","question":"when","answer":"tomorrow","asking_user_id":"user","scope_id":"scope"}]}`
+	manifestJSON := `{"dataset_revision":"abc123","cases":[{"id":"case-1","category":"temporal","question":"when","answer":"tomorrow","asking_user_id":"user","scope_id":"scope","participant_agent_ids":["groupmembench-user","groupmembench-peer"],"supporting_agent_ids":["groupmembench-user"]}]}`
 	s.Require().NoError(os.WriteFile(manifestPath, []byte(manifestJSON), 0o644))
 	cases, revision, err := LoadCases(manifestPath)
 	s.Require().NoError(err)
 	s.Equal("abc123", revision)
 	s.Require().Len(cases, 1)
 	s.Equal(filepath.Join(directory, "cases", "case-1", "producer"), cases[0].ProducerWorkspace)
+	s.Equal([]string{"groupmembench-user", "groupmembench-peer"}, cases[0].ParticipantAgentIDs)
+	s.Equal([]string{"groupmembench-user"}, cases[0].SupportingAgentIDs)
 }
 
 func (s *loadingSuite) TestLoadingErrors() {

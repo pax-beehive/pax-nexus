@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -16,24 +17,29 @@ import (
 )
 
 type Manifest struct {
-	Dataset         string         `json:"dataset"`
-	DatasetRevision string         `json:"dataset_revision"`
-	Domain          string         `json:"domain"`
-	Seed            string         `json:"seed"`
-	Cases           []ManifestCase `json:"cases"`
+	Protocol             string         `json:"protocol,omitempty"`
+	Dataset              string         `json:"dataset"`
+	DatasetRevision      string         `json:"dataset_revision"`
+	Domain               string         `json:"domain"`
+	Seed                 string         `json:"seed"`
+	DomainSessionBatches string         `json:"domain_session_batches,omitempty"`
+	FullDomainMessages   int            `json:"full_domain_messages,omitempty"`
+	Cases                []ManifestCase `json:"cases"`
 }
 
 type ManifestCase struct {
-	ID              string `json:"id"`
-	Category        string `json:"category"`
-	Question        string `json:"question"`
-	Answer          string `json:"answer"`
-	AskingUserID    string `json:"asking_user_id"`
-	ScopeID         string `json:"scope_id"`
-	ContextMessages int    `json:"context_messages"`
-	IngestMode      string `json:"ingest_mode"`
-	SessionBatches  int    `json:"session_batches"`
-	Actors          int    `json:"actors"`
+	ID                  string   `json:"id"`
+	Category            string   `json:"category"`
+	Question            string   `json:"question"`
+	Answer              string   `json:"answer"`
+	AskingUserID        string   `json:"asking_user_id"`
+	ScopeID             string   `json:"scope_id"`
+	ContextMessages     int      `json:"context_messages"`
+	IngestMode          string   `json:"ingest_mode"`
+	SessionBatches      int      `json:"session_batches"`
+	Actors              int      `json:"actors"`
+	ParticipantAgentIDs []string `json:"participant_agent_ids,omitempty"`
+	SupportingAgentIDs  []string `json:"supporting_agent_ids,omitempty"`
 }
 
 func LoadConversation(path string) ([]Message, error) {
@@ -113,6 +119,80 @@ func WriteCases(directory, revision, domain, seed string, cases []Case) error {
 		return err
 	}
 	return writeJSON(filepath.Join(directory, "manifest.smoke.json"), smoke)
+}
+
+// WriteV3Cases writes one immutable full-domain history plus question-only
+// cases. Every arm reuses the same domain batches; questions never select
+// source messages before ingestion.
+func WriteV3Cases(directory, revision, domain, seed string, cases []Case, messages []Message) error {
+	if strings.TrimSpace(directory) == "" || strings.TrimSpace(revision) == "" ||
+		strings.TrimSpace(domain) == "" || len(cases) == 0 || len(messages) == 0 {
+		return fmt.Errorf("write GroupMemBench v3 cases: directory, revision, domain, cases, and messages are required")
+	}
+	domainProducer := filepath.Join(directory, "domain", "producer")
+	if err := os.MkdirAll(domainProducer, 0o755); err != nil {
+		return fmt.Errorf("create GroupMemBench v3 domain workspace: %w", err)
+	}
+	if err := writeSource(filepath.Join(domainProducer, "source.md"), messages); err != nil {
+		return err
+	}
+	batches, actorCount, err := nativeSessionBatches("domain-"+safeCaseID(domain), messages)
+	if err != nil {
+		return fmt.Errorf("prepare GroupMemBench v3 domain sessions: %w", err)
+	}
+	if err := writeJSON(filepath.Join(domainProducer, "session-batches.json"), batches); err != nil {
+		return fmt.Errorf("write GroupMemBench v3 domain sessions: %w", err)
+	}
+	participants := participantAgentIDs(messages)
+	manifest := Manifest{
+		Protocol: "multi-agent-groupmembench-v3", Dataset: "GroupMemBench", DatasetRevision: revision,
+		Domain: domain, Seed: seed, DomainSessionBatches: "domain/producer/session-batches.json",
+		FullDomainMessages: len(messages),
+	}
+	for _, evalCase := range cases {
+		caseID := safeCaseID(evalCase.Question.ID)
+		consumerDirectory := filepath.Join(directory, "cases", caseID, "consumer")
+		if err := os.MkdirAll(consumerDirectory, 0o755); err != nil {
+			return fmt.Errorf("create GroupMemBench v3 consumer workspace %q: %w", caseID, err)
+		}
+		consumer := []byte("# Consumer workspace\n\nThis workspace intentionally contains no GroupMemBench source messages.\n")
+		if err := os.WriteFile(filepath.Join(consumerDirectory, "README.md"), consumer, 0o644); err != nil {
+			return fmt.Errorf("write GroupMemBench v3 consumer workspace %q: %w", caseID, err)
+		}
+		manifest.Cases = append(manifest.Cases, ManifestCase{
+			ID: caseID, Category: evalCase.Category, Question: evalCase.Question.Question,
+			Answer: evalCase.Question.Answer, AskingUserID: evalCase.Question.AskingUserID,
+			ScopeID: "groupmembench-" + safeCaseID(domain), IngestMode: "full_domain_native_sessions",
+			ContextMessages: len(messages), SessionBatches: len(batches), Actors: actorCount,
+			ParticipantAgentIDs: append([]string(nil), participants...),
+		})
+	}
+	smoke, err := smokeManifest(manifest)
+	if err != nil && len(cases) >= len(categories) {
+		return err
+	}
+	if err := writeJSON(filepath.Join(directory, "manifest.json"), manifest); err != nil {
+		return err
+	}
+	if err == nil {
+		return writeJSON(filepath.Join(directory, "manifest.smoke.json"), smoke)
+	}
+	return nil
+}
+
+func participantAgentIDs(messages []Message) []string {
+	seen := make(map[string]struct{})
+	result := make([]string, 0)
+	for _, message := range messages {
+		agentID := "groupmembench-" + safeCaseID(message.Author)
+		if _, ok := seen[agentID]; ok {
+			continue
+		}
+		seen[agentID] = struct{}{}
+		result = append(result, agentID)
+	}
+	slices.Sort(result)
+	return result
 }
 
 func nativeSessionBatches(caseID string, messages []Message) ([]session.SessionBatch, int, error) {

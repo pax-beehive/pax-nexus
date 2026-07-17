@@ -86,6 +86,32 @@ func (s *clientSuite) TestIngestBatchesPreservesTeamNoteActorsAndRendersTheSameE
 	}
 }
 
+func (s *clientSuite) TestFullDomainMem0IngestUsesOriginalMessageUnits() {
+	transport := &recordingTransport{}
+	client, err := memoryprobe.New(memoryprobe.Config{
+		TeamNoteURL: "http://team-note", TeamNoteAPIKey: "key", Mem0URL: "http://mem0",
+		UserID: "shared", AgentID: "shared", RunID: "domain", HTTPClient: &http.Client{Transport: transport},
+	})
+	s.Require().NoError(err)
+	batches := []session.SessionBatch{{Complete: true, Events: []session.SessionEvent{
+		{ID: "Msg_1", Actor: session.Actor{UserID: "User_1", AgentID: "groupmembench-User_1", SessionID: "s1"}, Sequence: 1, Content: "first", OccurredAt: time.Unix(1, 0).UTC(), Metadata: map[string]string{"role": "Lead"}},
+	}}, {Complete: true, Events: []session.SessionEvent{
+		{ID: "Msg_2", Actor: session.Actor{UserID: "User_2", AgentID: "groupmembench-User_2", SessionID: "s2"}, Sequence: 1, Content: "second", OccurredAt: time.Unix(2, 0).UTC(), Metadata: map[string]string{"role": "Reviewer"}},
+	}}}
+
+	result, err := client.IngestBatches(context.Background(), memoryprobe.ProviderMem0Messages, batches)
+
+	s.Require().NoError(err)
+	s.Equal(2, result.Accepted)
+	calls := transport.snapshot()
+	s.Require().Len(calls, 2)
+	for index, expected := range []string{"Msg_1", "Msg_2"} {
+		s.Equal("/memories", calls[index].path)
+		s.Contains(calls[index].body, expected)
+		s.Contains(calls[index].body, `"source_agent_id":"groupmembench-User_`)
+	}
+}
+
 func (s *clientSuite) TestIngestBatchesValidationMatrix() {
 	client, err := memoryprobe.New(memoryprobe.Config{
 		TeamNoteURL: "http://team-note", TeamNoteAPIKey: "key", Mem0URL: "http://mem0",

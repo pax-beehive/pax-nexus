@@ -16,7 +16,7 @@ MOCK_VERSION := v0.6.0
 GOLANGCI_LINT_VERSION := v2.11.3
 COVERAGE_MIN := 75
 
-.PHONY: all tools generate-init generate mocks fmt format-check lint test test-unit test-scripts coverage integration-test docker-eval groupmembench-data groupmembench-eval eval-v2-prepare eval-v2-up eval-v2 eval-v2-smoke-up eval-v2-smoke eval-v2-acceptance-up eval-v2-acceptance eval-v2-down eval-v2-reset eval-v2-job-image eval-v2-job up down logs db-up db-down clean
+.PHONY: all tools generate-init generate mocks fmt format-check lint test test-unit test-scripts coverage integration-test docker-eval groupmembench-data groupmembench-eval eval-v2-prepare eval-v2-up eval-v2 eval-v2-smoke-up eval-v2-smoke eval-v2-acceptance-up eval-v2-acceptance eval-v2-down eval-v2-reset eval-v2-job-image eval-v2-job eval-v3-prepare eval-v3-up eval-v3 eval-v3-down eval-v3-reset up down logs db-up db-down clean
 
 all: lint test
 
@@ -139,6 +139,26 @@ eval-v2-down:
 
 eval-v2-reset:
 	./scripts/eval-v2-stack.sh reset
+
+eval-v3-prepare:
+	./scripts/eval-v3-prepare-groupmembench.sh
+
+eval-v3-up:
+	@. ./scripts/load-eval-v3-env.sh; \
+		manifest="$(MANIFEST)"; manifest="$${manifest:-$${EVAL_V3_MANIFEST:-runs/groupmembench-v3-selection/manifest.json}}"; \
+		run_id="$(RUN_ID)"; run_id="$${run_id:-$${EVAL_V3_RUN_ID:-groupmembench-finance-v3}}"; \
+		./scripts/eval-v3-stack.sh up "$$manifest" "$$run_id"
+
+eval-v3:
+	@. ./scripts/load-eval-v3-env.sh; \
+		config="$(CONFIG)"; config="$${config:-$${EVAL_V3_CONFIG:-evals/v3/config.local.yaml}}"; \
+		GOCACHE=$${GOCACHE:-/tmp/team-memory-go-cache} go run ./cmd/team-memory-eval-v3 -config "$$config"
+
+eval-v3-down:
+	./scripts/eval-v3-stack.sh down
+
+eval-v3-reset:
+	./scripts/eval-v3-stack.sh reset
 
 eval-v2-job-image:
 	docker build -f evals/v2/docker/runner/Dockerfile -t team-memory-eval-v2-runner:local .
