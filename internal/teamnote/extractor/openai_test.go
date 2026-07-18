@@ -27,6 +27,7 @@ func TestOpenAISuite(t *testing.T) {
 }
 
 func (s *openAISuite) TestExtractsGroundedCandidates() {
+	var calls []extractor.ProviderCall
 	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		s.Equal("Bearer secret", request.Header.Get("Authorization"))
 		return response(http.StatusOK, `{
@@ -37,6 +38,7 @@ func (s *openAISuite) TestExtractsGroundedCandidates() {
 
 	adapter, err := extractor.NewOpenAI(extractor.OpenAIConfig{
 		BaseURL: "http://extractor.test", APIKey: "secret", Model: "small-model", PromptVersion: "v1", Client: client,
+		ProviderCallObserver: func(call extractor.ProviderCall) { calls = append(calls, call) },
 	})
 	s.Require().NoError(err)
 	result, err := adapter.Extract(context.Background(), extractorSlice())
@@ -46,6 +48,11 @@ func (s *openAISuite) TestExtractsGroundedCandidates() {
 	s.Equal("producer", result.Candidates[0].Origin.AgentID)
 	s.Equal([]string{"event-1"}, result.Candidates[0].EvidenceEventIDs)
 	s.Equal(25, result.Usage.InputTokens)
+	s.Require().Len(calls, 1)
+	s.Equal(extractor.ProviderCallPrimary, calls[0].Type)
+	s.Equal(http.StatusOK, calls[0].HTTPStatus)
+	s.Equal(25, calls[0].Usage.InputTokens)
+	s.Empty(calls[0].Error)
 }
 
 func (s *openAISuite) TestExtractsTemporalMetadataAndSourceTime() {
@@ -103,6 +110,21 @@ func (s *openAISuite) TestExplicitApprovalCanBecomeCanonicalOwnership() {
 	s.Require().NoError(err)
 	slice := extractorSlice()
 	slice.Events[0].Content = "I propose Compliance as owner; the team approved and assigned Compliance."
+
+	result, err := adapter.Extract(context.Background(), slice)
+
+	s.Require().NoError(err)
+	s.Require().Len(result.Candidates, 1)
+}
+
+func (s *openAISuite) TestV1AdmissionIgnoresAdjacentRequestMarker() {
+	client := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		return response(http.StatusOK, `{"choices":[{"message":{"content":"{\"candidates\":[{\"action\":\"create\",\"kind\":\"status\",\"subject\":\"compliance owner\",\"body\":\"Compliance owns the log.\",\"evidence_event_ids\":[\"event-1\"]}]}"}}]}`), nil
+	})}
+	adapter, err := extractor.NewOpenAI(extractor.OpenAIConfig{BaseURL: "http://extractor.test", Model: "model", Client: client})
+	s.Require().NoError(err)
+	slice := extractorSlice()
+	slice.Events[0].Content = "Compliance owns the log and should publish it today."
 
 	result, err := adapter.Extract(context.Background(), slice)
 
@@ -447,6 +469,7 @@ func (s *openAISuite) TestRollingContextDoesNotCompactWhenDisabled() {
 
 func (s *openAISuite) TestRollingSummaryRunsAsynchronouslyAndKeepsRecentTail() {
 	store := newMemoryEpisodeStore()
+	providerCalls := make(chan extractor.ProviderCall, 10)
 	summaryStarted := make(chan struct{})
 	releaseSummary := make(chan struct{})
 	summaryReturned := make(chan struct{})
@@ -480,6 +503,7 @@ func (s *openAISuite) TestRollingSummaryRunsAsynchronouslyAndKeepsRecentTail() {
 		BaseURL: "http://extractor.test", Model: "model", Client: client,
 		ContextMode: extractor.ContextModeRolling, EpisodeStore: store,
 		SummaryEnabled: true, SummaryTriggerTokens: 1, SummaryTailTokens: 1,
+		ProviderCallObserver: func(call extractor.ProviderCall) { providerCalls <- call },
 	})
 	s.Require().NoError(err)
 	ctx := teamnote.WithScope(context.Background(), "scope-summary")
@@ -515,6 +539,47 @@ func (s *openAISuite) TestRollingSummaryRunsAsynchronouslyAndKeepsRecentTail() {
 	s.Equal(1, episode.Checkpoint.SummaryAttempts)
 	s.Zero(episode.Checkpoint.SummaryFailures)
 	s.NotEmpty(episode.Checkpoint.Summary)
+	callTypes := make(map[extractor.ProviderCallType]int)
+	for {
+		select {
+		case call := <-providerCalls:
+			callTypes[call.Type]++
+		default:
+			s.GreaterOrEqual(callTypes[extractor.ProviderCallPrimary], 3)
+			s.GreaterOrEqual(callTypes[extractor.ProviderCallSummary], 1)
+			return
+		}
+	}
+}
+
+func (s *openAISuite) TestWaitForBackgroundPersistsSummaryWithoutAnotherSlice() {
+	store := newMemoryEpisodeStore()
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		body, err := io.ReadAll(request.Body)
+		s.Require().NoError(err)
+		if strings.Contains(string(body), "Update the rolling continuity summary") {
+			content := `{"summary":"Release remains planned."}`
+			return response(http.StatusOK, fmt.Sprintf(`{"choices":[{"message":{"content":%q}}],"usage":{"prompt_tokens":40,"completion_tokens":10}}`, content)), nil
+		}
+		content := `{"candidates":[{"action":"create","kind":"status","subject":"release","body":"Release state.","evidence_event_ids":["event-1"]}]}`
+		return response(http.StatusOK, fmt.Sprintf(`{"choices":[{"message":{"content":%q}}]}`, content)), nil
+	})}
+	adapter, err := extractor.NewOpenAI(extractor.OpenAIConfig{
+		BaseURL: "http://extractor.test", Model: "model", Client: client,
+		ContextMode: extractor.ContextModeRolling, EpisodeStore: store,
+		SummaryEnabled: true, SummaryTriggerTokens: 1, SummaryTailTokens: 1,
+	})
+	s.Require().NoError(err)
+	ctx := teamnote.WithScope(context.Background(), "scope-summary-resume")
+	_, err = adapter.Extract(ctx, extractionEventSlice("event-1", "checksum-1", 1))
+	s.Require().NoError(err)
+	s.Require().NoError(adapter.WaitForBackground(ctx))
+
+	episode, ok, err := store.LoadEpisode(ctx, extractor.EpisodeKey{ScopeID: "scope-summary-resume", TaskRef: "release-42"})
+	s.Require().NoError(err)
+	s.True(ok)
+	s.Equal(1, episode.Checkpoint.SummaryCount)
+	s.Equal("Release remains planned.", episode.Checkpoint.Summary)
 }
 
 func (s *openAISuite) TestRollingSummaryFailureDoesNotBlockExtraction() {

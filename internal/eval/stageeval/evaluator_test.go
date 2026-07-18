@@ -99,6 +99,26 @@ func (s *EvaluatorSuite) TestEvaluateCreditsRelationComposedFromExtractedNote() 
 	s.InDelta(1.0, result.Recall.ConditionalRecall, 0.0001)
 }
 
+func (s *EvaluatorSuite) TestEvaluateSupportsForbiddenOnlyAbstentionCase() {
+	fixture := stageeval.Fixture{
+		CaseID: "abstention", SourceRevision: testSourceRevision, RecallContext: testRecallContext(),
+		ForbiddenAtoms: []stageeval.Atom{{ID: "false_owner", Patterns: []string{"(?i)compliance.*designated.*owner"}}},
+	}
+	extraction := testObservation("abstention", stageeval.StageExtraction, []stageeval.Item{
+		{ID: "false-owner", Text: "Compliance is designated as owner."},
+	})
+	recall := testObservation("abstention", stageeval.StageRecall, []stageeval.Item{
+		{ID: "false-owner", Text: "Compliance is designated as owner."},
+	})
+
+	result, err := stageeval.Evaluate(fixture, extraction, recall)
+
+	s.Require().NoError(err)
+	s.Zero(result.Extraction.RequiredAtoms)
+	s.Equal(1, result.Extraction.LeakageItems)
+	s.Equal(1, result.Recall.LeakageItems)
+}
+
 func (s *EvaluatorSuite) TestValidateRejectsInvalidFixturesAndObservations() {
 	tests := []struct {
 		name       string

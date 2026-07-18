@@ -30,6 +30,7 @@ type OpenAIConfig struct {
 	Client               *http.Client
 	ContextMode          ContextMode
 	ExtractionVersion    string
+	V2Variant            string
 	EpisodeStore         EpisodeStore
 	CompactionEnabled    bool
 	CompactStartTokens   int
@@ -37,6 +38,7 @@ type OpenAIConfig struct {
 	SummaryEnabled       bool
 	SummaryTriggerTokens int
 	SummaryTailTokens    int
+	ProviderCallObserver ProviderCallObserver
 }
 
 type OpenAI struct {
@@ -120,6 +122,12 @@ func normalizeExtractionVersion(config *OpenAIConfig) error {
 	if config.ExtractionVersion == ExtractionVersionV2 && config.ContextMode != ContextModeRolling {
 		return fmt.Errorf("create OpenAI extractor: extraction v2 requires rolling context mode")
 	}
+	if config.V2Variant == "" {
+		config.V2Variant = V2VariantCurrent
+	}
+	if config.V2Variant != V2VariantCurrent && config.V2Variant != V2VariantInteractionSlim {
+		return fmt.Errorf("create OpenAI extractor: unsupported v2 variant %q", config.V2Variant)
+	}
 	return nil
 }
 
@@ -133,11 +141,56 @@ func (e *OpenAI) Extract(ctx context.Context, slice sessionlake.Slice) (Result, 
 	return e.extractSlice(ctx, slice)
 }
 
+// WaitForBackground waits for compaction and periodic-summary provider calls
+// that were already started. Evaluation harnesses use it before closing their
+// call journal so asynchronous usage is not lost.
+func (e *OpenAI) WaitForBackground(ctx context.Context) error {
+	e.flightsMu.Lock()
+	compactions := make([]<-chan struct{}, 0, len(e.flights))
+	for _, flight := range e.flights {
+		compactions = append(compactions, flight.done)
+	}
+	e.flightsMu.Unlock()
+	e.summariesMu.Lock()
+	type pendingSummary struct {
+		key    EpisodeKey
+		flight *summaryFlight
+	}
+	summaries := make([]pendingSummary, 0, len(e.summaries))
+	for key, flight := range e.summaries {
+		summaries = append(summaries, pendingSummary{key: key, flight: flight})
+	}
+	e.summariesMu.Unlock()
+	for _, done := range compactions {
+		select {
+		case <-done:
+		case <-ctx.Done():
+			return fmt.Errorf("wait for extractor background calls: %w", ctx.Err())
+		}
+	}
+	var waitErr error
+	for _, summary := range summaries {
+		select {
+		case <-summary.flight.done:
+			e.deleteSummaryFlight(summary.key, summary.flight)
+			if summary.flight.persistErr != nil {
+				waitErr = errors.Join(waitErr, summary.flight.persistErr)
+			}
+		case <-ctx.Done():
+			return fmt.Errorf("wait for extractor background calls: %w", ctx.Err())
+		}
+	}
+	if waitErr != nil {
+		return fmt.Errorf("wait for extractor background calls: %w", waitErr)
+	}
+	return nil
+}
+
 // systemPrompt returns the stable extraction system prompt for the configured
 // protocol, shared by extraction, compaction, and summary calls.
 func (e *OpenAI) systemPrompt() string {
 	if e.config.ExtractionVersion == ExtractionVersionV2 {
-		return rollingSystemPromptV2
+		return e.v2Protocol().systemPrompt
 	}
 	return rollingSystemPrompt
 }
@@ -182,10 +235,33 @@ func (e *OpenAI) completeWith(ctx context.Context, messages []chatMessage, decod
 }
 
 func (e *OpenAI) call(ctx context.Context, messages []chatMessage) ([]byte, error) {
-	return e.callWithMaxTokens(ctx, messages, 0)
+	return e.callWithType(ctx, messages, 0, ProviderCallPrimary)
 }
 
-func (e *OpenAI) callWithMaxTokens(ctx context.Context, messages []chatMessage, maxTokens int) ([]byte, error) {
+func (e *OpenAI) callWithType(
+	ctx context.Context,
+	messages []chatMessage,
+	maxTokens int,
+	callType ProviderCallType,
+) (responseBody []byte, returnedErr error) {
+	startedAt := time.Now()
+	status := 0
+	defer func() {
+		if e.config.ProviderCallObserver == nil {
+			return
+		}
+		record := ProviderCall{
+			Type: callType, StartedAt: startedAt.UTC(), DurationMS: time.Since(startedAt).Milliseconds(),
+			HTTPStatus: status, Usage: providerUsage(responseBody),
+		}
+		if scopeID, err := teamnote.ScopeFromContext(ctx); err == nil {
+			record.ScopeID = scopeID
+		}
+		if returnedErr != nil {
+			record.Error = returnedErr.Error()
+		}
+		e.config.ProviderCallObserver(record)
+	}()
 	body, err := json.Marshal(chatRequest{
 		Model: e.config.Model, Messages: messages, Temperature: 0,
 		ResponseFormat: responseFormat{Type: "json_object"},
@@ -206,7 +282,8 @@ func (e *OpenAI) callWithMaxTokens(ctx context.Context, messages []chatMessage, 
 	if err != nil {
 		return nil, fmt.Errorf("call extractor model: %w", err)
 	}
-	responseBody, err := io.ReadAll(io.LimitReader(response.Body, 1<<20))
+	status = response.StatusCode
+	responseBody, err = io.ReadAll(io.LimitReader(response.Body, 1<<20))
 	closeErr := response.Body.Close()
 	if err != nil {
 		return nil, fmt.Errorf("read extractor response: %w", err)
@@ -218,6 +295,18 @@ func (e *OpenAI) callWithMaxTokens(ctx context.Context, messages []chatMessage, 
 		return nil, fmt.Errorf("extractor response status %d: %s", response.StatusCode, strings.TrimSpace(string(responseBody)))
 	}
 	return responseBody, nil
+}
+
+func providerUsage(body []byte) Usage {
+	var response chatResponse
+	if len(body) == 0 || json.Unmarshal(body, &response) != nil {
+		return Usage{}
+	}
+	return Usage{
+		InputTokens: response.Usage.PromptTokens, OutputTokens: response.Usage.CompletionTokens,
+		PromptCacheHitTokens:  response.Usage.PromptCacheHitTokens,
+		PromptCacheMissTokens: response.Usage.PromptCacheMissTokens,
+	}
 }
 
 func buildPrompt(slice sessionlake.Slice, promptVersion string) (string, error) {
@@ -353,6 +442,103 @@ func isNonCommittalProposal(content string) bool {
 		}
 	}
 	return false
+}
+
+func evidenceIsOnlyNonCommittalSourceLanguage(
+	evidenceIDs []string,
+	events []teamnote.SessionEvent,
+	candidate *DecisionCandidate,
+) bool {
+	eventsByID := make(map[string]teamnote.SessionEvent, len(events))
+	for _, event := range events {
+		eventsByID[event.ID] = event
+	}
+	for _, eventID := range evidenceIDs {
+		event, exists := eventsByID[eventID]
+		if !exists || !isNonCommittalSourceLanguage(event.Content, candidate) {
+			return false
+		}
+	}
+	return len(evidenceIDs) > 0
+}
+
+func isNonCommittalSourceLanguage(content string, candidate *DecisionCandidate) bool {
+	if isNonCommittalProposal(content) {
+		return true
+	}
+	normalized := strings.ToLower(strings.Join(strings.Fields(content), " "))
+	padded := " " + normalized + " "
+	for _, marker := range []string{
+		" ask ", " asks ", " asking ", " should ", " please ",
+		" i'd have ", " i would have ", " let's ",
+	} {
+		index := strings.Index(padded, marker)
+		if index >= 0 {
+			return !committedClauseSupportsCandidate(padded[:index], candidate)
+		}
+	}
+	if index := strings.Index(padded, " while "); strings.Contains(padded, " can ") && index >= 0 {
+		return !committedClauseSupportsCandidate(padded[:index], candidate)
+	}
+	return false
+}
+
+func committedClauseSupportsCandidate(content string, candidate *DecisionCandidate) bool {
+	if candidate == nil {
+		return false
+	}
+	candidateTokens := significantTokens(candidate.Subject + " " + candidate.Body)
+	clauses := strings.FieldsFunc(content, func(character rune) bool {
+		return character == '.' || character == ';' || character == '!' || character == '?' || character == '\n'
+	})
+	for _, clause := range clauses {
+		paddedClause := " " + strings.TrimSpace(clause) + " "
+		if !containsCommittedPredicate(paddedClause) {
+			continue
+		}
+		clauseTokens := significantTokens(paddedClause)
+		matches := 0
+		for token := range candidateTokens {
+			if _, exists := clauseTokens[token]; exists {
+				matches++
+			}
+		}
+		if matches >= 2 {
+			return true
+		}
+	}
+	return false
+}
+
+func containsCommittedPredicate(content string) bool {
+	for _, marker := range []string{
+		" is ", " are ", " owns ", " has ", " have ", " completed ", " finished ",
+		" approved ", " assigned ", " designated ", " decided ", " confirmed ",
+	} {
+		if strings.Contains(content, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func significantTokens(content string) map[string]struct{} {
+	stopWords := map[string]struct{}{
+		"a": {}, "an": {}, "and": {}, "are": {}, "for": {}, "has": {}, "have": {}, "is": {},
+		"of": {}, "should": {}, "the": {}, "to": {}, "today": {}, "was": {}, "were": {},
+	}
+	tokens := make(map[string]struct{})
+	for _, field := range strings.FieldsFunc(strings.ToLower(content), func(character rune) bool {
+		return character < 'a' || character > 'z'
+	}) {
+		if len(field) < 3 {
+			continue
+		}
+		if _, stop := stopWords[field]; !stop {
+			tokens[field] = struct{}{}
+		}
+	}
+	return tokens
 }
 
 // candidateRejectionReason returns the deterministic reason one candidate can

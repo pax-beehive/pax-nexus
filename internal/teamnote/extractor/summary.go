@@ -12,9 +12,10 @@ import (
 const summaryMaxOutputTokens = 4 * 1024
 
 type summaryFlight struct {
-	done   chan struct{}
-	result summaryResult
-	err    error
+	done       chan struct{}
+	result     summaryResult
+	err        error
+	persistErr error
 }
 
 type summaryResult struct {
@@ -24,26 +25,18 @@ type summaryResult struct {
 	baseDigest       [32]byte
 }
 
-func (e *OpenAI) consumeReadySummary(key EpisodeKey, episode *Episode) Usage {
+func (e *OpenAI) consumeReadySummary(key EpisodeKey) error {
 	flight := e.summaryFlight(key)
 	if flight == nil {
-		return Usage{}
+		return nil
 	}
 	select {
 	case <-flight.done:
 	default:
-		return Usage{}
+		return nil
 	}
 	e.deleteSummaryFlight(key, flight)
-	if flight.err != nil {
-		recordSummaryFailure(&episode.Checkpoint, flight.err)
-		return Usage{}
-	}
-	if err := applyPeriodicSummary(episode, flight.result, e.config.SummaryTailTokens); err != nil {
-		recordSummaryFailure(&episode.Checkpoint, err)
-		return Usage{}
-	}
-	return flight.result.usage
+	return flight.persistErr
 }
 
 func (e *OpenAI) shouldStartSummary(episode Episode) bool {
@@ -67,9 +60,38 @@ func (e *OpenAI) startSummary(ctx context.Context, key EpisodeKey, episode Episo
 		background, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
 		defer cancel()
 		flight.result, flight.err = e.computeSummary(background, episode)
+		flight.persistErr = e.persistSummaryOutcome(background, key, flight.result, flight.err)
 		close(flight.done)
 	}()
 	return flight
+}
+
+func (e *OpenAI) persistSummaryOutcome(
+	ctx context.Context,
+	key EpisodeKey,
+	result summaryResult,
+	resultErr error,
+) error {
+	lock := e.episodeLock(key)
+	lock.Lock()
+	defer lock.Unlock()
+	episode, found, err := e.config.EpisodeStore.LoadEpisode(ctx, key)
+	if err != nil {
+		return fmt.Errorf("load rolling extraction episode for summary: %w", err)
+	}
+	if !found {
+		return fmt.Errorf("persist periodic extraction summary: episode is missing")
+	}
+	expectedVersion := episode.Version
+	if resultErr != nil {
+		recordSummaryFailure(&episode.Checkpoint, resultErr)
+	} else if err := applyPeriodicSummary(&episode, result, e.config.SummaryTailTokens); err != nil {
+		recordSummaryFailure(&episode.Checkpoint, err)
+	}
+	if err := e.config.EpisodeStore.SaveEpisode(ctx, episode, expectedVersion); err != nil {
+		return fmt.Errorf("persist periodic extraction summary: %w", err)
+	}
+	return nil
 }
 
 func (e *OpenAI) summaryFlight(key EpisodeKey) *summaryFlight {
@@ -92,7 +114,7 @@ func (e *OpenAI) computeSummary(ctx context.Context, episode Episode) (summaryRe
 		return summaryResult{}, fmt.Errorf("build periodic summary context: %w", err)
 	}
 	messages = append(messages, chatMessage{Role: "user", Content: periodicSummaryPrompt})
-	body, err := e.callWithMaxTokens(ctx, messages, summaryMaxOutputTokens)
+	body, err := e.callWithType(ctx, messages, summaryMaxOutputTokens, ProviderCallSummary)
 	if err != nil {
 		return summaryResult{}, fmt.Errorf("summarize extraction episode: %w", err)
 	}

@@ -15,6 +15,7 @@ import (
 // SliceRecord captures one extraction call's products and usage for the
 // shadow telemetry.
 type SliceRecord struct {
+	InputChecksum         string             `json:"input_checksum"`
 	SessionID             string             `json:"session_id"`
 	FromSequence          int64              `json:"from_sequence"`
 	ToSequence            int64              `json:"to_sequence"`
@@ -42,15 +43,18 @@ type SliceRecord struct {
 // the pipeline.
 type recordingExtractor struct {
 	delegate extractor.Extractor
+	onSlice  func(SliceRecord) error
 	mu       sync.Mutex
 	slices   []SliceRecord
+	seen     map[string]struct{}
 }
 
 func (r *recordingExtractor) Extract(ctx context.Context, slice sessionlake.Slice) (extractor.Result, error) {
 	startedAt := time.Now()
 	result, err := r.delegate.Extract(ctx, slice)
 	record := SliceRecord{
-		SessionID: slice.Actor.SessionID, FromSequence: slice.FromSequence, ToSequence: slice.ToSequence,
+		InputChecksum: slice.InputChecksum,
+		SessionID:     slice.Actor.SessionID, FromSequence: slice.FromSequence, ToSequence: slice.ToSequence,
 		Events: len(slice.Events), Candidates: len(result.Candidates), Rejections: len(result.Rejections),
 		Usage: result.Usage, DurationMS: time.Since(startedAt).Milliseconds(),
 	}
@@ -71,8 +75,18 @@ func (r *recordingExtractor) Extract(ctx context.Context, slice sessionlake.Slic
 		record.Error = err.Error()
 	}
 	r.mu.Lock()
+	if _, resumed := r.seen[slice.InputChecksum]; resumed {
+		r.mu.Unlock()
+		return result, err
+	}
+	r.seen[slice.InputChecksum] = struct{}{}
 	r.slices = append(r.slices, record)
 	r.mu.Unlock()
+	if r.onSlice != nil {
+		if recordErr := r.onSlice(record); recordErr != nil {
+			return result, fmt.Errorf("record extraction slice: %w", recordErr)
+		}
+	}
 	return result, err
 }
 
@@ -84,25 +98,56 @@ func (r *recordingExtractor) recorded() []SliceRecord {
 
 // CaseRun is the shadow replay outcome for one case.
 type CaseRun struct {
-	CaseID  string
-	ScopeID string
-	Streams int
-	Events  int
-	Notes   []teamnote.Note
-	Slices  []SliceRecord
+	CaseID        string
+	ScopeID       string
+	Streams       int
+	Events        int
+	Notes         []teamnote.Note
+	Slices        []SliceRecord
+	ProviderCalls []extractor.ProviderCall
+}
+
+type RunOptions struct {
+	SliceEventLimit int
+	InitialSlices   []SliceRecord
+	OnSlice         func(SliceRecord) error
 }
 
 // RunCase replays one case's fixed event streams through the real extraction
 // pipeline (session lake, runtime, in-memory episode store, in-memory note
-// ledger) with the given protocol extractor and returns the admitted notes
+// ledger) with the given protocol extractor and returns the admitted Team Notes
 // plus per-slice telemetry.
 func RunCase(ctx context.Context, caseID, scopeID string, streams []StreamEvents, delegate extractor.Extractor) (CaseRun, error) {
+	return RunCaseWithOptions(ctx, caseID, scopeID, streams, delegate, RunOptions{})
+}
+
+func RunCaseWithOptions(
+	ctx context.Context,
+	caseID string,
+	scopeID string,
+	streams []StreamEvents,
+	delegate extractor.Extractor,
+	options RunOptions,
+) (CaseRun, error) {
 	if delegate == nil {
 		return CaseRun{}, fmt.Errorf("run extraction shadow case %q: extractor is required", caseID)
 	}
-	recorder := &recordingExtractor{delegate: delegate}
+	recorder := &recordingExtractor{
+		delegate: delegate, onSlice: options.OnSlice, seen: make(map[string]struct{}, len(options.InitialSlices)),
+		slices: append([]SliceRecord(nil), options.InitialSlices...),
+	}
+	for _, record := range options.InitialSlices {
+		if record.InputChecksum == "" {
+			return CaseRun{}, fmt.Errorf("run extraction shadow case %q: resumed slice is missing input checksum", caseID)
+		}
+		if _, duplicate := recorder.seen[record.InputChecksum]; duplicate {
+			return CaseRun{}, fmt.Errorf("run extraction shadow case %q: duplicate resumed slice %q", caseID, record.InputChecksum)
+		}
+		recorder.seen[record.InputChecksum] = struct{}{}
+	}
 	noteStore := teamnote.NewScopedLedgerStore(teamnote.DefaultTTLPolicy(), teamnote.SystemClock{})
-	app, err := teamruntime.New(sessionlake.New(newMemoryRepository()), recorder, teamruntime.Config{NoteStore: noteStore})
+	runtimeConfig := teamruntime.Config{NoteStore: noteStore, SliceEventLimit: options.SliceEventLimit}
+	app, err := teamruntime.New(sessionlake.New(newMemoryRepository()), recorder, runtimeConfig)
 	if err != nil {
 		return CaseRun{}, fmt.Errorf("run extraction shadow case %q: %w", caseID, err)
 	}

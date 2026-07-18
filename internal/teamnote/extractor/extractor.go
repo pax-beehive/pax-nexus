@@ -3,6 +3,7 @@ package extractor
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/pax-beehive/pax-nexus/internal/sessionlake"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote"
@@ -14,6 +15,35 @@ type Usage struct {
 	PromptCacheHitTokens  int
 	PromptCacheMissTokens int
 }
+
+type ProviderCallType string
+
+const (
+	ProviderCallPrimary    ProviderCallType = "primary"
+	ProviderCallSummary    ProviderCallType = "summary"
+	ProviderCallCompaction ProviderCallType = "compaction"
+	ProviderCallVerifier   ProviderCallType = "verifier"
+)
+
+// ProviderCall records one physical model request. Slice usage may include
+// asynchronously consumed summary or compaction usage, so evaluations use
+// these records when they need an exact provider-call breakdown.
+type ProviderCall struct {
+	Type       ProviderCallType `json:"type"`
+	ScopeID    string           `json:"scope_id,omitempty"`
+	StartedAt  time.Time        `json:"started_at"`
+	DurationMS int64            `json:"duration_ms"`
+	Usage      Usage            `json:"usage"`
+	HTTPStatus int              `json:"http_status,omitempty"`
+	Error      string           `json:"error,omitempty"`
+}
+
+type ProviderCallObserver func(ProviderCall)
+
+const (
+	V2VariantCurrent         = "current"
+	V2VariantInteractionSlim = "interaction-slim"
+)
 
 type Result struct {
 	Candidates    []teamnote.Candidate

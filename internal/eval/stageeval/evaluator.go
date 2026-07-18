@@ -183,8 +183,9 @@ func compileFixture(fixture Fixture) (compiledFixture, error) {
 	if strings.TrimSpace(fixture.CaseID) == "" {
 		return compiledFixture{}, fmt.Errorf("validate stage fixture: case_id is required")
 	}
-	if len(fixture.RequiredAtoms) == 0 {
-		return compiledFixture{}, fmt.Errorf("validate stage fixture %q: required_atoms are required", fixture.CaseID)
+	if len(fixture.RequiredAtoms) == 0 && len(fixture.ForbiddenAtoms) == 0 &&
+		len(fixture.ForbiddenEventIDs) == 0 && len(fixture.SupersededEventIDs) == 0 {
+		return compiledFixture{}, fmt.Errorf("validate stage fixture %q: at least one required or forbidden expectation is required", fixture.CaseID)
 	}
 	if len(fixture.SourceRevision) != 64 {
 		return compiledFixture{}, fmt.Errorf("validate stage fixture %q: source_revision must be a SHA-256 hex digest", fixture.CaseID)

@@ -48,4 +48,5 @@ go.work.sum
 runs/
 tmp/
 .env.eval-v2
+.env.extraction-eval-v1
 evals/v2/config.local.yaml
