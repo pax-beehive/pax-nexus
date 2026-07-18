@@ -245,8 +245,9 @@ compressed into one relevance score.
 
 1. **Exact field lane**: task, thread, identity, artifact, actor, external ID,
    path, date, and canonical entity aliases.
-2. **Lexical lane**: Postgres full-text and observable term/field matches,
-   including the exact matched terms.
+2. **Lexical lane**: Postgres full-text and observable term/field matches.
+   Persisted production traces retain field categories and match counts rather
+   than plaintext query terms.
 3. **Temporal/state lane**: current revision, as-of revision, changed-since,
    superseded-by, resolved, and open-conflict chains.
 4. **Typed relation lane**: bounded traversal over a whitelist, with direction
@@ -316,7 +317,7 @@ The existing trace proves where candidates are dropped, but it does not yet
 explain retrieval as reasoning. Trace v2 should add:
 
 - parsed intent and answer slots;
-- lane membership, matched terms, fields, and aliases;
+- lane membership, query-safe match counts, fields, and alias categories;
 - typed relation paths and hop counts;
 - temporal revision selected and superseded revisions rejected;
 - hard-gate outcomes;

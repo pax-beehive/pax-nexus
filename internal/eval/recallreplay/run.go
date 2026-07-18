@@ -20,15 +20,15 @@ type CaseReport struct {
 
 // StageTotals aggregates recall stage counters across the cohort.
 type StageTotals struct {
-	Candidates    int            `json:"candidates"`
-	FusionKept    int            `json:"fusion_kept"`
-	PlannedNotes  int            `json:"planned_notes"`
-	PlannedTokens int            `json:"planned_tokens"`
-	PlanVersions  map[string]int `json:"plan_versions"`
-	Lanes         map[string]int `json:"lanes"`
-	Dispositions  map[string]int `json:"dispositions"`
-	Rejections    map[string]int `json:"rejections"`
-	BudgetDrops   map[string]int `json:"budget_drops"`
+	Candidates          int            `json:"candidates"`
+	FusionKept          int            `json:"fusion_kept"`
+	PlannedNotes        int            `json:"planned_notes"`
+	PlannedTokens       int            `json:"planned_tokens"`
+	PlanVersions        map[string]int `json:"plan_versions"`
+	LaneCandidateCounts map[string]int `json:"lane_candidate_counts"`
+	Dispositions        map[string]int `json:"dispositions"`
+	Rejections          map[string]int `json:"rejections"`
+	BudgetDrops         map[string]int `json:"budget_drops"`
 }
 
 // Report is one replay run over a fixed cohort.
@@ -84,7 +84,7 @@ func Run(set FixtureSet, policy Policy) (Report, error) {
 	report := Report{
 		SchemaVersion: SchemaVersion, Dataset: set.Dataset, Policy: policy, Summary: summary,
 		StageTotals: StageTotals{
-			PlanVersions: map[string]int{}, Lanes: map[string]int{}, Dispositions: map[string]int{},
+			PlanVersions: map[string]int{}, LaneCandidateCounts: map[string]int{}, Dispositions: map[string]int{},
 			Rejections: map[string]int{}, BudgetDrops: map[string]int{},
 		},
 	}
@@ -102,7 +102,7 @@ func Run(set FixtureSet, policy Policy) (Report, error) {
 		for _, candidate := range trace.CandidateTraces {
 			report.StageTotals.Dispositions[string(candidate.Disposition)]++
 			for _, lane := range candidate.RetrievalLanes {
-				report.StageTotals.Lanes[string(lane)]++
+				report.StageTotals.LaneCandidateCounts[string(lane)]++
 			}
 		}
 		for _, rejection := range trace.Rejections {

@@ -500,6 +500,8 @@ ORDER BY observation_id DESC LIMIT 1`, scopeID, "trace-consumer").Scan(&encoded)
 	s.Require().NoError(err)
 	var trace teamnote.RecallTrace
 	s.Require().NoError(json.Unmarshal(encoded, &trace))
+	s.NotContains(string(encoded), "deploy")
+	s.NotContains(string(encoded), "friday")
 	s.Equal(2, trace.Candidates)
 	s.Equal(1, trace.FusionKept)
 	s.Equal(1, trace.PlannedNotes)

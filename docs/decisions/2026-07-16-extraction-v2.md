@@ -469,8 +469,8 @@ deployment default despite the failed shadow latency, token, and fact-recall
 gates above. This is an operator rollout decision, not a reinterpretation of
 the shadow result and not evidence that the Acceptance gates passed.
 
-The application, root Compose stack, Eval v2 environment loader, Eval v2
-Compose stack, and OpenCode eval stack now default
+The application, checked-in environment templates, root Compose stack, Eval v2
+environment loader, Eval v2 Compose stack, and OpenCode eval stack now default
 `TEAM_MEMORY_EXTRACTION_VERSION` to `v2`. Operators can set
 `TEAM_MEMORY_EXTRACTION_VERSION=v1` for an immediate protocol rollback. A
 protocol change still starts a fresh rolling episode, so v1 and v2 assistant

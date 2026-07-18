@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 )
 
 // RecallCandidate carries adapter-supplied retrieval scores into deterministic
@@ -21,12 +22,15 @@ type RecallCandidate struct {
 	routingFit         int
 	explicitLane       int
 	evidenceConfidence float64
+	hardGateFailure    RecallRejectReason
 }
 
-// RecallPolicy configures bounded candidate fusion without exposing adapter details.
+// RecallPolicy configures bounded retrieval and evidence selection without exposing adapter details.
 type RecallPolicy struct {
 	SemanticThreshold float64
+	EvidenceThreshold float64
 	CandidateLimit    int
+	ObservationTime   time.Time
 	// SuppressDuplicates skips candidates that restate an already selected
 	// note and keeps selected notes out of later related blocks.
 	SuppressDuplicates bool
@@ -53,13 +57,16 @@ type PlannedRecall struct {
 type RecallRejectReason string
 
 const (
-	RejectFusionLimit   RecallRejectReason = "fusion_limit"
-	RejectRelevanceGate RecallRejectReason = "relevance_gate"
-	RejectMaxItems      RecallRejectReason = "max_items"
-	RejectTokenBudget   RecallRejectReason = "token_budget"
-	RejectDeliveryClaim RecallRejectReason = "delivery_claim_lost"
-	RejectDuplicate     RecallRejectReason = "duplicate"
-	RejectTemporalGate  RecallRejectReason = "temporal_gate"
+	RejectFusionLimit    RecallRejectReason = "fusion_limit"
+	RejectRelevanceGate  RecallRejectReason = "relevance_gate"
+	RejectMaxItems       RecallRejectReason = "max_items"
+	RejectTokenBudget    RecallRejectReason = "token_budget"
+	RejectDeliveryClaim  RecallRejectReason = "delivery_claim_lost"
+	RejectDuplicate      RecallRejectReason = "duplicate"
+	RejectTemporalGate   RecallRejectReason = "temporal_gate"
+	RejectProvenanceGate RecallRejectReason = "provenance_gate"
+	RejectUnsafeContent  RecallRejectReason = "unsafe_content"
+	RejectEvidenceGate   RecallRejectReason = "evidence_gate"
 )
 
 // RecallRejection records why one available candidate was not planned for
@@ -73,28 +80,32 @@ type RecallRejection struct {
 // RecallTrace summarizes each recall stage for one PlanRecall invocation so
 // evaluations can attribute losses without re-running retrieval.
 type RecallTrace struct {
-	PlanVersion     string                 `json:"plan_version"`
-	ScoringVersion  string                 `json:"scoring_version"`
-	Intent          RecallIntent           `json:"intent"`
-	LanesExecuted   []RecallLane           `json:"lanes_executed"`
-	CandidateTraces []RecallCandidateTrace `json:"candidate_traces"`
-	SelectedSet     []string               `json:"selected_set,omitempty"`
-	BudgetDrops     []RecallRejection      `json:"budget_drops,omitempty"`
-	DeliveredItems  []string               `json:"delivered_items,omitempty"`
-	Candidates      int                    `json:"candidates"`
-	FusionKept      int                    `json:"fusion_kept"`
-	PlannedNotes    int                    `json:"planned_notes"`
-	PlannedTokens   int                    `json:"planned_tokens"`
-	Rejections      []RecallRejection      `json:"rejections,omitempty"`
+	PlanVersion       string                 `json:"plan_version"`
+	ScoringVersion    string                 `json:"scoring_version"`
+	EvidenceThreshold float64                `json:"evidence_threshold"`
+	Intent            RecallIntent           `json:"intent"`
+	LanesExecuted     []RecallLane           `json:"lanes_executed"`
+	CandidateTraces   []RecallCandidateTrace `json:"candidate_traces"`
+	SelectedSet       []string               `json:"selected_set,omitempty"`
+	BudgetDrops       []RecallRejection      `json:"budget_drops,omitempty"`
+	DeliveredItems    []string               `json:"delivered_items,omitempty"`
+	Candidates        int                    `json:"candidates"`
+	FusionKept        int                    `json:"fusion_kept"`
+	PlannedNotes      int                    `json:"planned_notes"`
+	PlannedTokens     int                    `json:"planned_tokens"`
+	Rejections        []RecallRejection      `json:"rejections,omitempty"`
 }
 
 // PlanRecall applies shared precision, ranking, relation, and budget policy to
 // candidates supplied by any NoteStore adapter.
 func PlanRecall(candidates []RecallCandidate, request RecallRequest, policy RecallPolicy) ([]PlannedRecall, RecallTrace) {
 	intent := compileRecallIntent(request)
-	ranked, rejections := rankRecallCandidates(candidates, request, policy, intent)
-	trace := initializeRecallTrace(candidates, ranked, request, intent, rejections)
-	allNotes := notesFromRecallCandidates(candidates)
+	observationTime := recallObservationTime(candidates, policy.ObservationTime)
+	ranked, rejections, lanes := rankRecallCandidates(candidates, request, policy, intent, observationTime)
+	trace := initializeRecallTrace(
+		candidates, ranked, request, intent, observationTime, evidenceThreshold(policy), lanes, rejections,
+	)
+	allNotes := recallRelationEligibleNotes(candidates, intent, observationTime)
 	planned := make([]PlannedRecall, 0, len(ranked))
 	usedTokens := 0
 	selectedNotes := 0
@@ -120,8 +131,9 @@ func PlanRecall(candidates []RecallCandidate, request RecallRequest, policy Reca
 			relatedNotes(candidate.Note, allNotes), request.Query, remainingRelated, request.MaxItems > 0,
 		)
 		if policy.SuppressDuplicates {
-			related = excludeSelected(related, planned)
+			related = excludeRecallIDs(related, trace.SelectedSet)
 		}
+		recordRecallRelations(&trace, candidate.Note, related)
 		text := FormatForRecallWithRelated(candidate.Note, related)
 		tokens := estimateTokens(text)
 		if policy.DegradeRelated && len(related) > 0 && usedTokens+tokens > request.TokenBudget {
@@ -167,13 +179,13 @@ func duplicatesSelected(note Note, planned []PlannedRecall) bool {
 	return false
 }
 
-func excludeSelected(related []Note, planned []PlannedRecall) []Note {
+func excludeRecallIDs(related []Note, selectedIDs []string) []Note {
 	if len(related) == 0 {
 		return related
 	}
-	selected := make(map[string]struct{}, len(planned))
-	for _, delivery := range planned {
-		selected[delivery.Note.ID] = struct{}{}
+	selected := make(map[string]struct{}, len(selectedIDs))
+	for _, noteID := range selectedIDs {
+		selected[noteID] = struct{}{}
 	}
 	kept := make([]Note, 0, len(related))
 	for _, note := range related {
@@ -218,21 +230,27 @@ func rankRecallCandidates(
 	request RecallRequest,
 	policy RecallPolicy,
 	intent RecallIntent,
-) ([]RecallCandidate, []RecallRejection) {
+	observationTime time.Time,
+) ([]RecallCandidate, []RecallRejection, recallLaneSet) {
 	if strings.TrimSpace(request.Query) == "" {
-		result := evaluatedRecallCandidates(candidates, request, intent)
+		result, rejections := evaluatedRecallCandidates(candidates, request, intent, observationTime)
 		sortRecallCandidates(result, request)
-		return result, nil
+		return result, rejections, recallLaneSet{}
 	}
 	limit := policy.CandidateLimit
 	if limit <= 0 || limit > len(candidates) {
 		limit = len(candidates)
 	}
-	lexicalLane, semanticLane := recallLaneMembership(candidates, policy, limit)
-	result := make([]RecallCandidate, 0, len(lexicalLane)+len(semanticLane))
+	lanes := recallLaneMembership(candidates, request, policy, limit)
+	result := make([]RecallCandidate, 0, lanes.capacity())
 	var rejections []RecallRejection
 	for _, candidate := range candidates {
-		admitted, rejection, keep := admitRecallCandidate(candidate, request, intent, lexicalLane, semanticLane)
+		admitted, rejection, keep, semanticFallback := admitRecallCandidate(
+			candidate, request, intent, observationTime, evidenceThreshold(policy), lanes,
+		)
+		if semanticFallback {
+			lanes.semanticFallback[candidate.ID] = struct{}{}
+		}
 		if keep {
 			result = append(result, admitted)
 			continue
@@ -240,14 +258,26 @@ func rankRecallCandidates(
 		rejections = append(rejections, rejection)
 	}
 	sortRecallCandidates(result, request)
-	return result, rejections
+	return result, rejections, lanes
+}
+
+type recallLaneSet struct {
+	exact            map[string]struct{}
+	lexical          map[string]struct{}
+	semantic         map[string]struct{}
+	semanticFallback map[string]struct{}
+}
+
+func (lanes recallLaneSet) capacity() int {
+	return len(lanes.exact) + len(lanes.lexical) + len(lanes.semantic)
 }
 
 func recallLaneMembership(
 	candidates []RecallCandidate,
+	request RecallRequest,
 	policy RecallPolicy,
 	limit int,
-) (map[string]struct{}, map[string]struct{}) {
+) recallLaneSet {
 	lexical := append([]RecallCandidate(nil), candidates...)
 	sort.SliceStable(lexical, func(left, right int) bool {
 		return lexical[left].LexicalScore > lexical[right].LexicalScore
@@ -264,66 +294,90 @@ func recallLaneMembership(
 		return *leftScore > *rightScore
 	})
 
-	lexicalLane := make(map[string]struct{}, limit)
+	lanes := recallLaneSet{
+		exact: make(map[string]struct{}, limit), lexical: make(map[string]struct{}, limit),
+		semantic: make(map[string]struct{}, limit), semanticFallback: make(map[string]struct{}, limit),
+	}
 	for rank, candidate := range lexical {
 		if rank >= limit || candidate.LexicalScore <= 0 {
 			break
 		}
-		lexicalLane[candidate.ID] = struct{}{}
+		lanes.lexical[candidate.ID] = struct{}{}
 	}
-	semanticLane := make(map[string]struct{}, limit)
+	for _, candidate := range lexical {
+		if len(lanes.exact) >= limit {
+			break
+		}
+		if exactScopeMatch(candidate.Note, request) {
+			lanes.exact[candidate.ID] = struct{}{}
+		}
+	}
 	for rank, candidate := range semantic {
 		if rank >= limit || candidate.SemanticScore == nil || *candidate.SemanticScore < policy.SemanticThreshold {
 			break
 		}
-		semanticLane[candidate.ID] = struct{}{}
+		lanes.semantic[candidate.ID] = struct{}{}
 	}
-	return lexicalLane, semanticLane
+	return lanes
 }
 
 func admitRecallCandidate(
 	candidate RecallCandidate,
 	request RecallRequest,
 	intent RecallIntent,
-	lexicalLane map[string]struct{},
-	semanticLane map[string]struct{},
-) (RecallCandidate, RecallRejection, bool) {
-	candidate = evaluateRecallRanking(candidate, request, intent)
-	if candidate.temporalFit == 0 {
-		return candidate, RecallRejection{NoteID: candidate.ID, Reason: RejectTemporalGate}, false
+	observationTime time.Time,
+	evidenceThreshold float64,
+	lanes recallLaneSet,
+) (RecallCandidate, RecallRejection, bool, bool) {
+	candidate = evaluateRecallRanking(candidate, request, intent, observationTime)
+	if candidate.hardGateFailure != "" {
+		return candidate, RecallRejection{NoteID: candidate.ID, Reason: candidate.hardGateFailure}, false, false
 	}
-	_, lexicalRetrieved := lexicalLane[candidate.ID]
-	_, semanticRetrieved := semanticLane[candidate.ID]
-	if QueryRelevant(candidate.Note, request.Query) && (lexicalRetrieved || candidate.exactMatch > 0) {
+	_, exactRetrieved := lanes.exact[candidate.ID]
+	_, lexicalRetrieved := lanes.lexical[candidate.ID]
+	_, semanticRetrieved := lanes.semantic[candidate.ID]
+	if QueryRelevant(candidate.Note, request.Query) && (lexicalRetrieved || exactRetrieved) {
 		candidate.explicitLane = 1
-		return candidate, RecallRejection{}, true
+		return candidate, RecallRejection{}, true, false
 	}
 	if semanticRetrieved && QuerySemanticallyRelevant(candidate.Note, request.Query) {
-		return candidate, RecallRejection{}, true
+		if semanticEvidenceSupported(candidate, evidenceThreshold) {
+			return candidate, RecallRejection{}, true, true
+		}
+		return candidate, RecallRejection{NoteID: candidate.ID, Reason: RejectEvidenceGate}, false, true
 	}
-	if !lexicalRetrieved && !semanticRetrieved && candidate.exactMatch == 0 {
-		return candidate, RecallRejection{NoteID: candidate.ID, Reason: RejectFusionLimit}, false
+	if !exactRetrieved && !lexicalRetrieved && !semanticRetrieved {
+		return candidate, RecallRejection{NoteID: candidate.ID, Reason: RejectFusionLimit}, false, false
 	}
-	return candidate, RecallRejection{NoteID: candidate.ID, Reason: RejectRelevanceGate}, false
+	return candidate, RecallRejection{NoteID: candidate.ID, Reason: RejectRelevanceGate}, false, semanticRetrieved
 }
 
-func evaluatedRecallCandidates(candidates []RecallCandidate, request RecallRequest, intent RecallIntent) []RecallCandidate {
+func evaluatedRecallCandidates(
+	candidates []RecallCandidate,
+	request RecallRequest,
+	intent RecallIntent,
+	observationTime time.Time,
+) ([]RecallCandidate, []RecallRejection) {
 	result := make([]RecallCandidate, 0, len(candidates))
+	var rejections []RecallRejection
 	for _, candidate := range candidates {
-		candidate = evaluateRecallRanking(candidate, request, intent)
-		if candidate.temporalFit > 0 {
+		candidate = evaluateRecallRanking(candidate, request, intent, observationTime)
+		if candidate.hardGateFailure == "" {
 			candidate.explicitLane = 1
 			result = append(result, candidate)
+			continue
 		}
+		rejections = append(rejections, RecallRejection{NoteID: candidate.ID, Reason: candidate.hardGateFailure})
 	}
-	return result
+	return result, rejections
 }
 
-func evaluateRecallRanking(candidate RecallCandidate, request RecallRequest, intent RecallIntent) RecallCandidate {
-	temporalPassed, _ := temporalGate(candidate, intent)
+func evaluateRecallRanking(candidate RecallCandidate, request RecallRequest, intent RecallIntent, observationTime time.Time) RecallCandidate {
+	temporalPassed, _ := temporalGate(candidate, intent, observationTime)
 	if temporalPassed {
 		candidate.temporalFit = 1
 	}
+	candidate.hardGateFailure = recallHardGateFailure(candidate.Note, intent, observationTime)
 	candidate.intentScore = queryIntentScore(candidate.Note, request.Query)
 	candidate.factCoverage = requiredFactCoverage(candidate.Note, intent)
 	candidate.coordination = coordinationMatch(candidate.Note, intent)
@@ -332,9 +386,23 @@ func evaluateRecallRanking(candidate RecallCandidate, request RecallRequest, int
 	}
 	candidate.lexicalFit = QueryRelevance(candidate.Note, request.Query)
 	candidate.routingFit = recallRoutingAffinity(candidate.Note, request, intent)
-	trace := evaluateRecallCandidate(candidate, request, intent)
+	trace := evaluateRecallCandidate(candidate, request, intent, observationTime)
 	candidate.evidenceConfidence = trace.EvidenceConfidence
 	return candidate
+}
+
+func evidenceThreshold(policy RecallPolicy) float64 {
+	if policy.EvidenceThreshold <= 0 {
+		return 0.4
+	}
+	return policy.EvidenceThreshold
+}
+
+func semanticEvidenceSupported(candidate RecallCandidate, threshold float64) bool {
+	if candidate.evidenceConfidence < threshold {
+		return false
+	}
+	return candidate.coordination > 0 || candidate.routingFit > 0 || candidate.intentScore > 0
 }
 
 func sortRecallCandidates(candidates []RecallCandidate, request RecallRequest) {
@@ -425,10 +493,12 @@ func ownSourceRank(note Note, request RecallRequest) int {
 	return 1
 }
 
-func notesFromRecallCandidates(candidates []RecallCandidate) []Note {
+func recallRelationEligibleNotes(candidates []RecallCandidate, intent RecallIntent, observationTime time.Time) []Note {
 	notes := make([]Note, 0, len(candidates))
 	for _, candidate := range candidates {
-		notes = append(notes, candidate.Note)
+		if recallHardGateFailure(candidate.Note, intent, observationTime) == "" {
+			notes = append(notes, candidate.Note)
+		}
 	}
 	return notes
 }

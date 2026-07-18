@@ -464,7 +464,7 @@ func (s *ledgerSuite) TestQueryPrioritizesRelevantCurrentFact() {
 		ID: "candidate-temporal", Action: teamnote.ActionUpdate, Kind: teamnote.KindStatus,
 		Subject: "release readiness", Body: "The deadline moved to July 18.", Origin: temporalEvidence.Actor,
 		EvidenceEventIDs: []string{temporalEvidence.ID}, SourceOccurredAt: temporalEvidence.OccurredAt,
-		ValidAt: timePointer(time.Date(2026, time.July, 15, 0, 0, 0, 0, time.UTC)),
+		ValidAt: timePointer(time.Date(2026, time.July, 14, 0, 0, 0, 0, time.UTC)),
 	}, []teamnote.SessionEvent{temporalEvidence})
 	s.Require().NoError(err)
 
@@ -473,7 +473,7 @@ func (s *ledgerSuite) TestQueryPrioritizesRelevantCurrentFact() {
 	envelope, err := s.ledger.Recall(context.Background(), request)
 	s.Require().NoError(err)
 	s.Require().Len(envelope.Items, 1)
-	s.Equal("[status certainty=confirmed] The deadline moved to July 18. [valid: 2026-07-15T00:00:00Z to present]", envelope.Items[0])
+	s.Equal("[status certainty=confirmed] The deadline moved to July 18. [valid: 2026-07-14T00:00:00Z to present]", envelope.Items[0])
 	s.Greater(envelope.Details[0].Relevance, 0.0)
 }
 

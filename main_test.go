@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"testing"
 	"time"
 
@@ -83,6 +84,27 @@ func (s *configSuite) TestAllowsExtractionV1Rollback() {
 	config, err := loadConfig()
 	s.Require().NoError(err)
 	s.Equal("v1", config.extractionVersion)
+}
+
+func (s *configSuite) TestCheckedInExtractionDefaultsUseV2() {
+	tests := []struct {
+		path string
+		want string
+	}{
+		{path: ".env.example", want: "TEAM_MEMORY_EXTRACTION_VERSION=v2"},
+		{path: ".env.eval-v2.example", want: "TEAM_MEMORY_EXTRACTION_VERSION=v2"},
+		{path: "compose.yaml", want: "TEAM_MEMORY_EXTRACTION_VERSION: ${TEAM_MEMORY_EXTRACTION_VERSION:-v2}"},
+		{path: "evals/opencode/compose.yaml", want: "TEAM_MEMORY_EXTRACTION_VERSION: ${TEAM_MEMORY_EXTRACTION_VERSION:-v2}"},
+		{path: "evals/v2/compose.yaml", want: "TEAM_MEMORY_EXTRACTION_VERSION: ${TEAM_MEMORY_EXTRACTION_VERSION:-v2}"},
+		{path: "scripts/load-eval-v2-env.sh", want: `: "${TEAM_MEMORY_EXTRACTION_VERSION:=v2}"`},
+	}
+	for _, test := range tests {
+		s.Run(test.path, func() {
+			content, err := os.ReadFile(test.path)
+			s.Require().NoError(err)
+			s.Contains(string(content), test.want)
+		})
+	}
 }
 
 func (s *configSuite) TestRejectsInvalidWorkerConfiguration() {

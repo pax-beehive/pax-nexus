@@ -121,11 +121,14 @@ logs expose prompt cache hit and miss tokens when the provider reports them.
 Passive recall runs General Recall v3 behind the existing `RecallNotes` and
 `PlanRecall` seams. It compiles an explicit intent, records exact, lexical,
 temporal, relation, coordination, and routing lanes, applies temporal and
-adapter-prechecked hard gates, then uses a lexicographic evidence selection and
-shared token budget. Each candidate records matched terms, reason codes,
+adapter-prechecked hard gates plus provenance and stored prompt-injection
+checks, then uses a lexicographic evidence selection and shared token budget.
+Each candidate records query-safe matched-term counts, reason codes,
 scorecard contributions, relation paths, disposition, and rejection reason.
 Qwen3 semantic similarity remains a compatibility fallback when inspectable
-lanes do not supply evidence; it is not a core v3 ranking or confidence signal.
+lanes do not supply evidence; it only generates candidates and cannot assign
+passive evidence without inspectable coordination, routing, or intent support.
+It is not a core v3 ranking or confidence signal.
 The default local model is `Qwen/Qwen3-Embedding-0.6B`; its Matryoshka output is truncated and normalized
 to 384 dimensions. One-hop related facts are composed in either direction, so
 a recalled blocker can carry the action that points back to it. Configure it

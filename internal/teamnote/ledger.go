@@ -302,7 +302,7 @@ func (l *Ledger) Recall(ctx context.Context, request RecallRequest) (NoteEnvelop
 	}
 	envelope := NoteEnvelope{}
 	planned, _ := PlanRecall(candidates, request, RecallPolicy{
-		CandidateLimit: len(candidates), SuppressDuplicates: true, DegradeRelated: true,
+		CandidateLimit: len(candidates), ObservationTime: now, SuppressDuplicates: true, DegradeRelated: true,
 	})
 	for _, item := range planned {
 		AppendPlannedRecall(&envelope, item)

@@ -13,7 +13,7 @@ evaluation without changing recall decisions.
 **Recall Trace**:
 The per-candidate record of how shared recall policy handled every available
 candidate: compiled Recall Intent, retrieval lanes and reasons, hard-gate
-results, temporal resolution, scorecard contributions, relation path, final
+results, temporal resolution, query-safe matched-term counts, scorecard contributions, relation path, final
 disposition, budget drop, and delivery-claim loss. It attributes recall losses
 to a stage without re-running retrieval.
 

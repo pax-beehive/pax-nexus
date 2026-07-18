@@ -135,8 +135,10 @@ responsibility, handoff, waiting-on, audience, and actor identifiers.
 ### Lexical Lane
 
 This lane uses inspectable term retrieval such as BM25, field matches, entity
-aliases, and normalized tokens. The trace stores the matched terms and fields,
-not only a total score.
+aliases, and normalized tokens. Persisted production traces store matched
+field categories and term counts, not plaintext query terms; the recall
+observation retains only the query digest. This preserves stage attribution
+without bypassing query-retention privacy.
 
 ### Temporal Lane
 
@@ -547,30 +549,37 @@ The implemented planner:
 
 - compiles `current`, `as_of`, `changes_since`, `history`, and `discover`
   intents with requested fact types and explicit time boundaries;
-- records exact-scope, lexical, temporal, one-hop relation, coordination, and
-  agent-routing lanes with per-candidate reasons and matched terms;
-- retains semantic retrieval only as a traced compatibility fallback when the
-  inspectable lanes do not admit evidence; semantic similarity contributes no
-  evidence-score points;
+- records bounded exact-scope and lexical lanes plus temporal, one-hop relation,
+  coordination, and agent-routing lanes with per-candidate reasons and
+  query-safe matched-term counts;
+- uses semantic retrieval only for traced candidate generation. A semantic
+  candidate cannot become passive evidence from similarity alone: it must also
+  cross the uncalibrated evidence-score gate and have inspectable coordination,
+  routing, or subject-specific intent support. Semantic similarity contributes
+  no evidence-score points;
 - records adapter-prechecked scope, audience, task/thread, active-state,
-  provenance, and delivery gates plus planner-owned temporal results;
+  and delivery gates plus planner-owned provenance, content-safety, and
+  temporal results. Current and as-of validity checks honor `valid_at`,
+  `invalid_at`, and a deterministic adapter-supplied observation time;
 - applies a lexicographic key over temporal fit, subject-specific intent,
   required-fact coverage, coordination relevance, exact/lexical coverage,
   explicit-lane support, routing affinity, kind, recency, and stable ID;
 - emits an inspectable, monotonic evidence scorecard. Scoring version
   `evidence-scorecard-v1-uncalibrated` is an ordering score, not a calibrated
-  probability or answer-quality claim;
+  probability or answer-quality claim. Explicit exact/lexical evidence remains
+  governed by deterministic relevance; the 0.40 score gate applies to semantic
+  fallback candidates;
 - records final evidence or suppress dispositions, selected source IDs,
   relation paths, budget drops, delivered primary items, and delivery-claim
   losses;
-- aggregates plan versions, lane contributions, dispositions, rejections, and
-  budget drops in deterministic recall replay reports.
+- aggregates plan versions, bounded lane candidate counts, dispositions,
+  rejections, and budget drops in deterministic recall replay reports.
 
 The fixed ten-case replays preserved Conditional Recall at 1.000 with zero
 missed available atoms for both captured arms. Compared with the pre-change
 baseline, the Team Note arm changed from 69 planned notes and 4,075 tokens to
-68 planned notes and 4,017 tokens; the hybrid arm remained at 76 planned notes
-and changed from 4,337 tokens to 4,324 tokens. These are stage-local replay
+67 planned notes and 3,825 tokens; the hybrid arm changed from 76 planned notes
+and 4,337 tokens to 71 planned notes and 3,896 tokens. These are stage-local replay
 results, not end-to-end answer-quality claims.
 
 Known limits remain explicit:
@@ -580,9 +589,15 @@ Known limits remain explicit:
   not yet retrieve retired revision chains from durable storage;
 - the current Team Note schema represents generic related subjects rather than
   the full typed relation whitelist;
+- the content-safety hard gate covers high-precision prompt override and system
+  prompt exfiltration patterns; a broader stored-content safety classifier is
+  deferred and must not weaken the deterministic fail-closed patterns;
 - stance, conflict groups, Capability Evidence, Observed Agent Profiles,
   calibrated Evidence Confidence, Hint Utility, and Hint Recall are not part of
   this implementation and require their own fixtures and acceptance gates.
+- replay aggregation currently reports bounded lane candidate counts, not
+  lane-local atom recall or unique lane contribution; those acceptance metrics
+  remain follow-up evaluation work.
 
 ## Consequences
 

@@ -283,6 +283,7 @@ func (s *NoteStore) RecallNotes(ctx context.Context, scopeID string, request tea
 	planned, trace := teamnote.PlanRecall(eligible, request, teamnote.RecallPolicy{
 		SemanticThreshold:  s.retrieval.SemanticThreshold,
 		CandidateLimit:     s.retrieval.CandidateLimit,
+		ObservationTime:    observationTime,
 		SuppressDuplicates: true,
 		DegradeRelated:     true,
 	})
