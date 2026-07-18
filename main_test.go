@@ -21,7 +21,8 @@ func (s *configSuite) SetupTest() {
 		"TEAM_MEMORY_DATABASE_URL", "TEAM_MEMORY_API_KEYS", "TEAM_MEMORY_LISTEN_ADDRESS",
 		"TEAM_MEMORY_EXTRACTOR_MODE", "TEAM_MEMORY_EXTRACTOR_BASE_URL",
 		"TEAM_MEMORY_EXTRACTOR_API_KEY", "TEAM_MEMORY_EXTRACTOR_MODEL", "TEAM_MEMORY_PROMPT_VERSION",
-		"TEAM_MEMORY_EXTRACTION_CONTEXT_MODE", "TEAM_MEMORY_EXTRACTION_COMPACT_START_TOKENS",
+		"TEAM_MEMORY_EXTRACTION_CONTEXT_MODE", "TEAM_MEMORY_EXTRACTION_VERSION",
+		"TEAM_MEMORY_EXTRACTION_COMPACT_START_TOKENS",
 		"TEAM_MEMORY_EXTRACTION_COMPACT_TOKENS", "TEAM_MEMORY_EXTRACTION_COMPACTION_ENABLED",
 		"TEAM_MEMORY_EXTRACTION_SUMMARY_ENABLED", "TEAM_MEMORY_EXTRACTION_SUMMARY_TRIGGER_TOKENS",
 		"TEAM_MEMORY_EXTRACTION_SUMMARY_TAIL_TOKENS",
@@ -49,6 +50,7 @@ func (s *configSuite) TestLoadsNoopConfiguration() {
 	s.Equal("scope", config.apiKeys["key"])
 	s.Equal("v1", config.promptVersion)
 	s.Equal("rolling", config.extractionContextMode)
+	s.Equal("v2", config.extractionVersion)
 	s.False(config.extractionCompactionEnabled)
 	s.True(config.extractionSummaryEnabled)
 	s.Equal(12*1024, config.extractionCompactStartTokens)
@@ -70,6 +72,17 @@ func (s *configSuite) TestLoadsNoopConfiguration() {
 	adapter, err := buildExtractor(config)
 	s.Require().NoError(err)
 	s.IsType(extractor.Noop{}, adapter)
+}
+
+func (s *configSuite) TestAllowsExtractionV1Rollback() {
+	s.T().Setenv("TEAM_MEMORY_DATABASE_URL", "postgres://database")
+	s.T().Setenv("TEAM_MEMORY_API_KEYS", `{"key":"scope"}`)
+	s.T().Setenv("TEAM_MEMORY_EXTRACTOR_MODE", "noop")
+	s.T().Setenv("TEAM_MEMORY_EXTRACTION_VERSION", "v1")
+
+	config, err := loadConfig()
+	s.Require().NoError(err)
+	s.Equal("v1", config.extractionVersion)
 }
 
 func (s *configSuite) TestRejectsInvalidWorkerConfiguration() {

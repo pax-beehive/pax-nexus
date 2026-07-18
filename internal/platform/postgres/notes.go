@@ -292,9 +292,7 @@ func (s *NoteStore) RecallNotes(ctx context.Context, scopeID string, request tea
 			return teamnote.NoteEnvelope{}, err
 		}
 		if !claimed {
-			trace.Rejections = append(trace.Rejections, teamnote.RecallRejection{
-				NoteID: delivery.Note.ID, Reason: teamnote.RejectDeliveryClaim, Tokens: delivery.Tokens,
-			})
+			teamnote.RecordRecallDeliveryClaimLoss(&trace, delivery.Note.ID, delivery.Tokens)
 			continue
 		}
 		teamnote.AppendPlannedRecall(&envelope, delivery)

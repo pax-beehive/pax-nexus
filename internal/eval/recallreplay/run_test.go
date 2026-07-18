@@ -6,6 +6,7 @@ import (
 
 	"github.com/pax-beehive/pax-nexus/internal/eval/recallreplay"
 	"github.com/pax-beehive/pax-nexus/internal/eval/stageeval"
+	"github.com/pax-beehive/pax-nexus/internal/teamnote"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -53,12 +54,17 @@ func (s *replaySuite) TestFixtureRoundTripAndRun() {
 	s.NotEmpty(report.Cases[0].PlannedItems)
 	s.Equal(2, report.Summary.Cases)
 	s.Equal(2, report.Summary.RequiredAtoms)
-	s.Equal(1, report.Summary.RecallMatchedAtoms)
-	s.Equal(1, report.Summary.RecallMissedAvailableAtoms)
+	s.Equal(2, report.Summary.RecallMatchedAtoms)
+	s.Equal(0, report.Summary.RecallMissedAvailableAtoms)
 	s.Equal(4, report.StageTotals.Candidates)
 	s.Equal(3, report.StageTotals.FusionKept)
 	s.Equal(1, report.StageTotals.Rejections["fusion_limit"])
 	s.Equal(1, report.StageTotals.Rejections["token_budget"])
+	s.Equal(2, report.StageTotals.PlanVersions[teamnote.GeneralRecallV3PlanVersion])
+	s.Positive(report.StageTotals.Lanes[string(teamnote.RecallLaneLexical)])
+	s.Positive(report.StageTotals.Lanes[string(teamnote.RecallLaneTemporal)])
+	s.Positive(report.StageTotals.Dispositions[string(teamnote.RecallDispositionEvidence)])
+	s.Equal(1, report.StageTotals.BudgetDrops["token_budget"])
 	for _, caseReport := range report.Cases {
 		s.NotEmpty(caseReport.Trace.Rejections, caseReport.CaseID)
 	}

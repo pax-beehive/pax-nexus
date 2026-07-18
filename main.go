@@ -208,6 +208,9 @@ func loadConfig() (applicationConfig, error) {
 	if config.extractionContextMode == "" {
 		config.extractionContextMode = string(extractor.ContextModeRolling)
 	}
+	if config.extractionVersion == "" {
+		config.extractionVersion = extractor.ExtractionVersionV2
+	}
 	if config.embeddingModel == "" && strings.TrimSpace(config.embeddingBaseURL) != "" {
 		config.embeddingModel = "Qwen/Qwen3-Embedding-0.6B"
 	}

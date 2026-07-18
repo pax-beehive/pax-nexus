@@ -51,6 +51,11 @@ func (s *recallSuite) TestPlanRecallTraceRecordsStageRejections() {
 		s.Equal("note-semantic", planned[0].Note.ID)
 		s.Equal(1, trace.FusionKept)
 		s.Empty(trace.Rejections)
+		candidateTrace := candidateTraceByID(s, trace.CandidateTraces, "note-semantic")
+		s.Contains(candidateTrace.RetrievalLanes, teamnote.RecallLaneSemanticFallback)
+		for _, contribution := range candidateTrace.ScoreContributions {
+			s.NotEqual("semantic_similarity", contribution.Feature)
+		}
 	})
 
 	s.Run("token budget rejection records tokens", func() {
@@ -231,6 +236,143 @@ func (s *recallSuite) TestPlanRecallTraceRecordsStageRejections() {
 		s.Require().Len(planned, 1)
 		s.Equal("note-precise", planned[0].Note.ID)
 	})
+}
+
+func (s *recallSuite) TestGeneralRecallV3ProducesAuditablePlans() {
+	request := teamnote.RecallRequest{
+		Actor: teamnote.Actor{UserID: "owner", AgentID: "consumer", SessionID: "consumer-session"},
+		Query: "What is the current alpha release status?", TokenBudget: 1000,
+	}
+	policy := teamnote.RecallPolicy{SemanticThreshold: 0.65, CandidateLimit: 10}
+
+	s.Run("records intent lanes scorecard and disposition", func() {
+		candidates := []teamnote.RecallCandidate{
+			recallCandidate("note-relevant", "alpha release status", "alpha release is ready", 0.9, nil),
+			recallCandidate("note-unrelated", "delta plan", "delta plan is ready", 0, nil),
+		}
+
+		planned, trace := teamnote.PlanRecall(candidates, request, policy)
+
+		s.Require().Len(planned, 1)
+		s.Equal(teamnote.GeneralRecallV3PlanVersion, trace.PlanVersion)
+		s.Equal(teamnote.GeneralRecallV3ScoringVersion, trace.ScoringVersion)
+		s.Equal(teamnote.RecallModeCurrent, trace.Intent.Mode)
+		s.Contains(trace.LanesExecuted, teamnote.RecallLaneLexical)
+		s.Contains(trace.LanesExecuted, teamnote.RecallLaneTemporal)
+		s.Equal([]string{"note-relevant"}, trace.SelectedSet)
+		s.Equal([]string{"note-relevant"}, trace.DeliveredItems)
+		s.Require().Len(trace.CandidateTraces, 2)
+
+		selected := candidateTraceByID(s, trace.CandidateTraces, "note-relevant")
+		s.Contains(selected.RetrievalLanes, teamnote.RecallLaneLexical)
+		s.NotEmpty(selected.RetrievalReasons)
+		s.NotEmpty(selected.HardGateResults)
+		s.NotEmpty(selected.ScoreContributions)
+		s.Positive(selected.EvidenceConfidence)
+		s.Equal(teamnote.RecallDispositionEvidence, selected.Disposition)
+
+		suppressed := candidateTraceByID(s, trace.CandidateTraces, "note-unrelated")
+		s.Equal(teamnote.RecallDispositionSuppress, suppressed.Disposition)
+		s.Equal(teamnote.RejectFusionLimit, suppressed.RejectionReason)
+	})
+
+	s.Run("changes since applies a temporal hard gate", func() {
+		old := recallCandidate("note-old", "alpha release status", "alpha release was queued", 0.8, nil)
+		newer := recallCandidate("note-new", "alpha release status", "alpha release is ready", 0.9, nil)
+		old.SourceOccurredAt = time.Date(2026, time.July, 14, 12, 0, 0, 0, time.UTC)
+		old.UpdatedAt = old.SourceOccurredAt
+		newer.SourceOccurredAt = time.Date(2026, time.July, 16, 12, 0, 0, 0, time.UTC)
+		newer.UpdatedAt = newer.SourceOccurredAt
+		temporalRequest := request
+		temporalRequest.Query = "What changed in alpha release status since 2026-07-15?"
+
+		planned, trace := teamnote.PlanRecall([]teamnote.RecallCandidate{old, newer}, temporalRequest, policy)
+
+		s.Require().Len(planned, 1)
+		s.Equal("note-new", planned[0].Note.ID)
+		s.Equal(teamnote.RecallModeChangesSince, trace.Intent.Mode)
+		s.Require().NotNil(trace.Intent.ChangedSince)
+		s.Equal(teamnote.RejectTemporalGate, candidateTraceByID(s, trace.CandidateTraces, "note-old").RejectionReason)
+	})
+
+	s.Run("records one hop relation paths", func() {
+		primary := recallCandidate("note-primary", "alpha release status", "alpha release is ready", 0.9, nil)
+		primary.RelatedSubjects = []string{"release owner"}
+		linked := recallCandidate("note-owner", "release owner", "Taylor owns alpha release", 0.1, nil)
+		relationRequest := request
+		relationRequest.Query = "What is the current alpha release status?"
+		relationRequest.MaxItems = 2
+
+		planned, trace := teamnote.PlanRecall([]teamnote.RecallCandidate{primary, linked}, relationRequest, policy)
+
+		s.Require().NotEmpty(planned)
+		s.Contains(trace.LanesExecuted, teamnote.RecallLaneRelation)
+		relatedTrace := candidateTraceByID(s, trace.CandidateTraces, "note-owner")
+		s.Contains(relatedTrace.RetrievalLanes, teamnote.RecallLaneRelation)
+		s.Equal([]string{"note-primary", "related_subject", "note-owner"}, relatedTrace.RelationPath)
+		s.Equal(teamnote.RecallDispositionEvidence, relatedTrace.Disposition)
+		s.ElementsMatch([]string{"note-primary", "note-owner"}, trace.SelectedSet)
+	})
+}
+
+func (s *recallSuite) TestGeneralRecallV3CompilesTemporalModes() {
+	tests := []struct {
+		name         string
+		query        string
+		mode         teamnote.RecallMode
+		hasValidAt   bool
+		hasChangedAt bool
+	}{
+		{name: "as of", query: "What was alpha status as of 2026-07-15?", mode: teamnote.RecallModeAsOf, hasValidAt: true},
+		{name: "changes since", query: "What changed since 2026-07-15?", mode: teamnote.RecallModeChangesSince, hasChangedAt: true},
+		{name: "history", query: "Show alpha revision history", mode: teamnote.RecallModeHistory},
+		{name: "discover", query: "Discover who can help with alpha", mode: teamnote.RecallModeDiscover},
+	}
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			candidate := recallCandidate("note-alpha", "alpha status", "alpha is ready", 1, nil)
+			request := teamnote.RecallRequest{
+				Actor: teamnote.Actor{UserID: "owner", AgentID: "consumer"},
+				Query: test.query, TokenBudget: 500,
+			}
+
+			_, trace := teamnote.PlanRecall([]teamnote.RecallCandidate{candidate}, request, teamnote.RecallPolicy{CandidateLimit: 10})
+
+			s.Equal(test.mode, trace.Intent.Mode)
+			s.Equal(test.hasValidAt, trace.Intent.ValidAt != nil)
+			s.Equal(test.hasChangedAt, trace.Intent.ChangedSince != nil)
+		})
+	}
+}
+
+func (s *recallSuite) TestGeneralRecallV3RecordsDeliveryClaimLoss() {
+	candidate := recallCandidate("note-alpha", "alpha status", "alpha is ready", 1, nil)
+	request := teamnote.RecallRequest{
+		Actor: teamnote.Actor{UserID: "owner", AgentID: "consumer"},
+		Query: "alpha status", TokenBudget: 500,
+	}
+	planned, trace := teamnote.PlanRecall(
+		[]teamnote.RecallCandidate{candidate}, request, teamnote.RecallPolicy{CandidateLimit: 10},
+	)
+	s.Require().Len(planned, 1)
+
+	teamnote.RecordRecallDeliveryClaimLoss(&trace, candidate.ID, planned[0].Tokens)
+
+	s.Empty(trace.DeliveredItems)
+	s.Require().Len(trace.Rejections, 1)
+	s.Equal(teamnote.RejectDeliveryClaim, trace.Rejections[0].Reason)
+	s.Equal(teamnote.RejectDeliveryClaim, candidateTraceByID(s, trace.CandidateTraces, candidate.ID).RejectionReason)
+}
+
+func candidateTraceByID(s *recallSuite, traces []teamnote.RecallCandidateTrace, noteID string) teamnote.RecallCandidateTrace {
+	s.T().Helper()
+	for _, trace := range traces {
+		if trace.NoteID == noteID {
+			return trace
+		}
+	}
+	s.FailNow("candidate trace not found", noteID)
+	return teamnote.RecallCandidateTrace{}
 }
 
 func recallCandidate(id, subject, body string, lexical float64, semantic *float64) teamnote.RecallCandidate {

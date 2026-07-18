@@ -1,6 +1,6 @@
 # General Recall v3 Optimization
 
-Status: Proposed
+Status: Accepted; Team Note core planner implemented, deferred capabilities listed below
 
 Date: 2026-07-16
 
@@ -503,11 +503,15 @@ total cost. Token F1 remains a diagnostic rather than an answer-quality claim.
 
 ### V3.0: Observe
 
+Status: Implemented on 2026-07-17.
+
 - produce Recall Plans and Recall Traces without changing production results;
 - record lanes, temporal resolution, and rejection reasons;
 - establish a fixed replay baseline.
 
 ### V3.1: Explicit retrieval
+
+Status: Implemented for the current Team Note candidate set on 2026-07-17.
 
 - enable exact, lexical, and temporal lanes;
 - introduce lexicographic selection;
@@ -515,11 +519,17 @@ total cost. Token F1 remains a diagnostic rather than an answer-quality claim.
 
 ### V3.2: Relations and coordination
 
+Status: Implemented for the existing Team Note relation and kind vocabulary on
+2026-07-17; typed stance and conflict groups remain deferred.
+
 - enable one-hop relation expansion;
 - introduce responsibility, handoff, stance, and conflict;
 - retain sentiment only as an auxiliary signal.
 
 ### V3.3: Profile routing and hints
+
+Status: Deferred. Hint Recall v0 remains Proposed; Capability Evidence and
+Observed Agent Profile persistence are not implemented.
 
 - build Capability Evidence and Observed Agent Profiles;
 - evaluate routing in shadow mode;
@@ -527,6 +537,52 @@ total cost. Token F1 remains a diagnostic rather than an answer-quality claim.
 
 Each phase must improve the fixed replay without regressing safety metrics
 before entering the paid end-to-end cohort.
+
+## Implementation result (2026-07-17)
+
+General Recall v3 now runs behind the unchanged `RecallNotes` and `PlanRecall`
+seams for both the in-memory Ledger and PostgreSQL Note Store.
+
+The implemented planner:
+
+- compiles `current`, `as_of`, `changes_since`, `history`, and `discover`
+  intents with requested fact types and explicit time boundaries;
+- records exact-scope, lexical, temporal, one-hop relation, coordination, and
+  agent-routing lanes with per-candidate reasons and matched terms;
+- retains semantic retrieval only as a traced compatibility fallback when the
+  inspectable lanes do not admit evidence; semantic similarity contributes no
+  evidence-score points;
+- records adapter-prechecked scope, audience, task/thread, active-state,
+  provenance, and delivery gates plus planner-owned temporal results;
+- applies a lexicographic key over temporal fit, subject-specific intent,
+  required-fact coverage, coordination relevance, exact/lexical coverage,
+  explicit-lane support, routing affinity, kind, recency, and stable ID;
+- emits an inspectable, monotonic evidence scorecard. Scoring version
+  `evidence-scorecard-v1-uncalibrated` is an ordering score, not a calibrated
+  probability or answer-quality claim;
+- records final evidence or suppress dispositions, selected source IDs,
+  relation paths, budget drops, delivered primary items, and delivery-claim
+  losses;
+- aggregates plan versions, lane contributions, dispositions, rejections, and
+  budget drops in deterministic recall replay reports.
+
+The fixed ten-case replays preserved Conditional Recall at 1.000 with zero
+missed available atoms for both captured arms. Compared with the pre-change
+baseline, the Team Note arm changed from 69 planned notes and 4,075 tokens to
+68 planned notes and 4,017 tokens; the hybrid arm remained at 76 planned notes
+and changed from 4,337 tokens to 4,324 tokens. These are stage-local replay
+results, not end-to-end answer-quality claims.
+
+Known limits remain explicit:
+
+- PostgreSQL currently supplies only the active current revision, so
+  `as_of` and `history` can reason over supplied fixtures or candidates but do
+  not yet retrieve retired revision chains from durable storage;
+- the current Team Note schema represents generic related subjects rather than
+  the full typed relation whitelist;
+- stance, conflict groups, Capability Evidence, Observed Agent Profiles,
+  calibrated Evidence Confidence, Hint Utility, and Hint Recall are not part of
+  this implementation and require their own fixtures and acceptance gates.
 
 ## Consequences
 

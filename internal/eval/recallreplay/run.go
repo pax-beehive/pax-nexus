@@ -24,7 +24,11 @@ type StageTotals struct {
 	FusionKept    int            `json:"fusion_kept"`
 	PlannedNotes  int            `json:"planned_notes"`
 	PlannedTokens int            `json:"planned_tokens"`
+	PlanVersions  map[string]int `json:"plan_versions"`
+	Lanes         map[string]int `json:"lanes"`
+	Dispositions  map[string]int `json:"dispositions"`
 	Rejections    map[string]int `json:"rejections"`
+	BudgetDrops   map[string]int `json:"budget_drops"`
 }
 
 // Report is one replay run over a fixed cohort.
@@ -79,7 +83,10 @@ func Run(set FixtureSet, policy Policy) (Report, error) {
 	}
 	report := Report{
 		SchemaVersion: SchemaVersion, Dataset: set.Dataset, Policy: policy, Summary: summary,
-		StageTotals: StageTotals{Rejections: map[string]int{}},
+		StageTotals: StageTotals{
+			PlanVersions: map[string]int{}, Lanes: map[string]int{}, Dispositions: map[string]int{},
+			Rejections: map[string]int{}, BudgetDrops: map[string]int{},
+		},
 	}
 	for _, result := range results {
 		trace := traces[result.CaseID]
@@ -91,8 +98,18 @@ func Run(set FixtureSet, policy Policy) (Report, error) {
 		report.StageTotals.FusionKept += trace.FusionKept
 		report.StageTotals.PlannedNotes += trace.PlannedNotes
 		report.StageTotals.PlannedTokens += trace.PlannedTokens
+		report.StageTotals.PlanVersions[trace.PlanVersion]++
+		for _, candidate := range trace.CandidateTraces {
+			report.StageTotals.Dispositions[string(candidate.Disposition)]++
+			for _, lane := range candidate.RetrievalLanes {
+				report.StageTotals.Lanes[string(lane)]++
+			}
+		}
 		for _, rejection := range trace.Rejections {
 			report.StageTotals.Rejections[string(rejection.Reason)]++
+		}
+		for _, rejection := range trace.BudgetDrops {
+			report.StageTotals.BudgetDrops[string(rejection.Reason)]++
 		}
 	}
 	return report, nil

@@ -1,6 +1,6 @@
 # Extraction v2
 
-Status: Proposed
+Status: Accepted with rollout exception; production default enabled, quality gates pending
 
 Date: 2026-07-16
 
@@ -462,7 +462,29 @@ speech-act guard is covered by unit tests, `v2` remains opt-in, and `v1`
 remains the default until a cache- and latency-feasible profile passes the
 paired fixed shadow.
 
-## Acceptance
+## Production default decision (2026-07-17)
+
+The product owner explicitly chose to make Extraction v2 the service and
+deployment default despite the failed shadow latency, token, and fact-recall
+gates above. This is an operator rollout decision, not a reinterpretation of
+the shadow result and not evidence that the Acceptance gates passed.
+
+The application, root Compose stack, Eval v2 environment loader, Eval v2
+Compose stack, and OpenCode eval stack now default
+`TEAM_MEMORY_EXTRACTION_VERSION` to `v2`. Operators can set
+`TEAM_MEMORY_EXTRACTION_VERSION=v1` for an immediate protocol rollback. A
+protocol change still starts a fresh rolling episode, so v1 and v2 assistant
+responses are not mixed.
+
+The remaining acceptance debt is explicit:
+
+- repeat the paired fixed shadow for `v2-slim-2`;
+- measure fact recall, leakage, output tokens, cache behavior, latency, and
+  failures under the default configuration;
+- do not describe the default switch as a measured extraction-quality win;
+- roll back to v1 if the production latency or cost envelope is unacceptable.
+
+## Quality acceptance (outstanding)
 
 Extraction v2 may replace the current extractor only when the paired fixed
 cohort satisfies all of the following:

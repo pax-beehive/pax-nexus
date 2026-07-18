@@ -92,13 +92,14 @@ from the compacted prefix. Compaction is disabled by default while its retention
 and schema behavior are evaluated; set
 `TEAM_MEMORY_EXTRACTION_COMPACTION_ENABLED=true` to activate these thresholds.
 
-Extraction v2 is available behind `TEAM_MEMORY_EXTRACTION_VERSION=v2` only in
-rolling mode. It emits atomic, evidence-cited State Decisions, exceptional
-Claims, explicit per-Event coverage, and a diagnostic Extraction Trace in one
-primary model call. The default remains `v1` until the fixed extraction shadow
-passes fact-recall, leakage, output-token, cache, and latency gates; changing
-the extraction protocol starts a fresh rolling episode instead of replaying an
-incompatible response history.
+Extraction v2 is the service and deployment default in `rolling` mode. It emits
+atomic, evidence-cited State Decisions, exceptional Claims, explicit per-Event
+coverage, and a diagnostic Extraction Trace in one primary model call. Set
+`TEAM_MEMORY_EXTRACTION_VERSION=v1` for an explicit rollback. Changing the
+extraction protocol starts a fresh rolling episode instead of replaying an
+incompatible response history. The current v2 default is an operator rollout
+decision; the failed shadow latency and cost gates remain recorded in the ADR
+and must not be presented as a measured quality win.
 
 The default rolling path instead keeps an append-only recent raw tail and runs a
 non-blocking continuity summary. After the raw message history grows beyond the
@@ -117,12 +118,15 @@ slice behavior for evaluation. Configure the rolling soft trigger with
 `TEAM_MEMORY_SLICE_OVERLAP`, and `TEAM_MEMORY_MAX_SLICES_PER_JOB`. Extraction
 logs expose prompt cache hit and miss tokens when the provider reports them.
 
-Passive recall uses two candidate lanes behind the existing `RecallNotes`
-interface: PostgreSQL full-text rank and Qwen3 semantic similarity. The runtime
-embeds Team Notes after admission, fuses the top 16 candidates per lane with
-reciprocal rank fusion, and then applies the existing authorization, scalar-slot,
-kind, recency, budget, and delivery-once rules. The default local model is
-`Qwen/Qwen3-Embedding-0.6B`; its Matryoshka output is truncated and normalized
+Passive recall runs General Recall v3 behind the existing `RecallNotes` and
+`PlanRecall` seams. It compiles an explicit intent, records exact, lexical,
+temporal, relation, coordination, and routing lanes, applies temporal and
+adapter-prechecked hard gates, then uses a lexicographic evidence selection and
+shared token budget. Each candidate records matched terms, reason codes,
+scorecard contributions, relation paths, disposition, and rejection reason.
+Qwen3 semantic similarity remains a compatibility fallback when inspectable
+lanes do not supply evidence; it is not a core v3 ranking or confidence signal.
+The default local model is `Qwen/Qwen3-Embedding-0.6B`; its Matryoshka output is truncated and normalized
 to 384 dimensions. One-hop related facts are composed in either direction, so
 a recalled blocker can carry the action that points back to it. Configure it
 with `TEAM_MEMORY_EMBEDDING_BASE_URL`,

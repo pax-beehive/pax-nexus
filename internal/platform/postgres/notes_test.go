@@ -503,9 +503,19 @@ ORDER BY observation_id DESC LIMIT 1`, scopeID, "trace-consumer").Scan(&encoded)
 	s.Equal(2, trace.Candidates)
 	s.Equal(1, trace.FusionKept)
 	s.Equal(1, trace.PlannedNotes)
+	s.Equal(teamnote.GeneralRecallV3PlanVersion, trace.PlanVersion)
 	s.Require().Len(trace.Rejections, 1)
-	s.Equal(teamnote.RecallRejection{NoteID: offTopicNote.ID, Reason: teamnote.RejectFusionLimit}, trace.Rejections[0])
+	s.Equal(teamnote.RecallRejection{NoteID: offTopicNote.ID, Reason: teamnote.RejectRelevanceGate}, trace.Rejections[0])
 	s.NotEqual(relevantNote.ID, trace.Rejections[0].NoteID)
+	var offTopicTrace *teamnote.RecallCandidateTrace
+	for index := range trace.CandidateTraces {
+		if trace.CandidateTraces[index].NoteID == offTopicNote.ID {
+			offTopicTrace = &trace.CandidateTraces[index]
+		}
+	}
+	s.Require().NotNil(offTopicTrace)
+	s.Contains(offTopicTrace.RetrievalLanes, teamnote.RecallLaneExactScope)
+	s.Equal(teamnote.RecallDispositionSuppress, offTopicTrace.Disposition)
 }
 
 func (s *noteStoreSuite) TestHybridRecallFindsSemanticParaphrase() {
@@ -530,7 +540,8 @@ func (s *noteStoreSuite) TestHybridRecallFindsSemanticParaphrase() {
 	s.Require().NoError(err)
 	s.Require().Len(envelope.Items, 1)
 	s.Contains(envelope.Items[0], "legal approval")
-	s.Greater(envelope.Details[0].Relevance, 0.9)
+	s.Positive(envelope.Details[0].Relevance)
+	s.LessOrEqual(envelope.Details[0].Relevance, 1.0)
 }
 
 func (s *noteStoreSuite) TestHybridRecallFallsBackToLexicalWhenEmbeddingFails() {
