@@ -30,7 +30,8 @@ on `team_note_recall_observations` (migration 013), and stage capture exports
 it in the recall observation provenance. `RecallNotes` is unchanged.
 
 **Deterministic replay fixture.** `cmd/team-memory-recall-replay -export`
-captures a fixed cohort (schema `pax-recall-replay-v1`): all recall-eligible
+captures a fixed cohort (schema `pax-recall-replay-v2`): the matching
+production recall observation time, all recall-eligible
 persisted Team Notes with the exact lexical and semantic scores produced by
 the live retrieval code path, the extraction snapshot, the recall request, and
 the gold atoms. The default mode replays `PlanRecall` with an overridable
@@ -38,6 +39,10 @@ policy and scores deliveries with the unchanged stage evaluator. The tracked
 fixtures cover the ten gold cases in both arms, exported from the
 `team-note-optimization-30-20260716-c20fdd7` store; the r3 rolling-run store
 was not retained, so replay validation pins this cohort instead.
+The tracked legacy v1 fixtures remain readable by inferring observation time
+from their latest captured candidate timestamp, or the Unix epoch for an empty
+candidate set. New exports require the explicit v2 field so current and
+future-validity decisions match production.
 
 **Cohort-validated ranking changes.** Measured on both arms (20 case-arms),
 not one case:

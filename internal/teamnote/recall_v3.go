@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 )
 
 const (
@@ -133,6 +134,7 @@ func requestedRecallFacts(query string) []string {
 		{fact: "owner", terms: []string{"owner", "owns", "responsible", "who"}},
 		{fact: "blocker", terms: []string{"blocker", "blocked", "waiting on", "stopping", "preventing", "held up"}},
 		{fact: "handoff", terms: []string{"handoff", "handed off", "delegate", "assigned"}},
+		{fact: "requirement", terms: []string{"requirement", "required", "criterion", "criteria", "condition"}},
 		{fact: "artifact", terms: []string{"artifact", "document", "report", "pull request", " pr "}},
 		{fact: "schedule", terms: []string{"deadline", "date", "when", "time"}},
 		{fact: "status", terms: []string{"status", "state", "current", "latest", "progress"}},
@@ -190,10 +192,11 @@ func temporalGate(candidate RecallCandidate, intent RecallIntent, observationTim
 		if intent.ValidAt == nil {
 			return true, nil
 		}
-		if candidate.SourceOccurredAt.After(*intent.ValidAt) {
-			return false, intent.ValidAt
+		effectiveStart := candidate.SourceOccurredAt
+		if candidate.ValidAt != nil {
+			effectiveStart = *candidate.ValidAt
 		}
-		if candidate.ValidAt != nil && candidate.ValidAt.After(*intent.ValidAt) {
+		if effectiveStart.After(*intent.ValidAt) {
 			return false, intent.ValidAt
 		}
 		if candidate.InvalidAt != nil && !candidate.InvalidAt.After(*intent.ValidAt) {
@@ -277,7 +280,7 @@ func recallHardGateFailure(note Note, intent RecallIntent, observationTime time.
 }
 
 func unsafeRecallContent(value string) bool {
-	value = strings.ToLower(value)
+	value = normalizeRecallSafetyText(value)
 	return containsAny(value,
 		"ignore previous instructions",
 		"ignore all previous instructions",
@@ -286,6 +289,16 @@ func unsafeRecallContent(value string) bool {
 		"follow these instructions instead",
 		"act as the system message",
 	)
+}
+
+func normalizeRecallSafetyText(value string) string {
+	normalized := strings.Map(func(character rune) rune {
+		if unicode.IsLetter(character) || unicode.IsNumber(character) {
+			return unicode.ToLower(character)
+		}
+		return ' '
+	}, value)
+	return strings.Join(strings.Fields(normalized), " ")
 }
 
 func recallObservationTime(candidates []RecallCandidate, configured time.Time) time.Time {
@@ -306,7 +319,7 @@ func recallObservationTime(candidates []RecallCandidate, configured time.Time) t
 func recallCandidateLanes(candidate RecallCandidate, request RecallRequest, intent RecallIntent) ([]RecallLane, []string) {
 	lanes := []RecallLane{RecallLaneTemporal}
 	reasons := []string{"temporal_mode:" + string(intent.Mode)}
-	if coordinationMatch(candidate.Note, intent) > 0 {
+	if coordinationMatch(candidate.Note, intent, request.Query) > 0 {
 		lanes = append(lanes, RecallLaneCoordination)
 		reasons = append(reasons, "coordination_fact_match")
 	}
@@ -349,7 +362,7 @@ func recallScorecard(note Note, request RecallRequest, intent RecallIntent, matc
 	if len(note.EvidenceEventIDs) > 0 {
 		contributions = append(contributions, RecallScoreContribution{Feature: "source_evidence", Points: 10})
 	}
-	if coordinationMatch(note, intent) > 0 {
+	if coordinationMatch(note, intent, request.Query) > 0 {
 		contributions = append(contributions, RecallScoreContribution{Feature: "coordination_relevance", Points: 15})
 	}
 	return contributions
@@ -359,49 +372,68 @@ func requiredFactCoverage(note Note, intent RecallIntent) int {
 	coverage := 0
 	text := strings.ToLower(note.Subject + " " + note.Body)
 	for _, fact := range intent.RequestedFacts {
-		switch fact {
-		case "status":
-			if note.Kind == KindStatus {
-				coverage++
-			}
-		case "blocker":
-			if note.Kind == KindBlocker {
-				coverage++
-			}
-		case "handoff":
-			if note.Kind == KindHandoff {
-				coverage++
-			}
-		case "artifact":
-			if note.Kind == KindArtifactReference {
-				coverage++
-			}
-		case "owner":
-			if containsAny(text, " owns ", " owner", "responsible", "assigned", "designated") {
-				coverage++
-			}
-		case "schedule":
-			if containsDigit(text) || containsAny(text, "deadline", "today", "tomorrow", "before", "after", " by ") {
-				coverage++
-			}
-		case "decision":
-			if containsAny(text, "decided", "decision", "approved", "rejected") {
-				coverage++
-			}
+		if recallFactMatched(note, text, fact) {
+			coverage++
 		}
 	}
 	return coverage
 }
 
-func coordinationMatch(note Note, intent RecallIntent) int {
-	switch note.Kind {
-	case KindBlocker, KindHandoff:
+func recallFactMatched(note Note, text, fact string) bool {
+	switch fact {
+	case "status":
+		return note.Kind == KindStatus
+	case "blocker":
+		return note.Kind == KindBlocker
+	case "handoff":
+		return note.Kind == KindHandoff
+	case "requirement":
+		return recallRequirementMatch(note)
+	case "artifact":
+		return note.Kind == KindArtifactReference
+	case "owner":
+		return containsAny(text, " owns ", " owner", "responsible", "assigned", "designated")
+	case "schedule":
+		return containsDigit(text) || containsAny(text, "deadline", "today", "tomorrow", "before", "after", " by ")
+	case "decision":
+		return containsAny(text, "decided", "decision", "approved", "rejected")
+	default:
+		return false
+	}
+}
+
+func coordinationMatch(note Note, intent RecallIntent, query string) int {
+	if note.Kind == KindBlocker && intentRequestsFact(intent, "blocker") {
 		return 1
 	}
-	if requiredFactCoverage(note, intent) > 0 && containsAny(strings.ToLower(note.Body), "owns", "assigned", "committed", "approved", "rejected") {
+	if note.Kind == KindHandoff && intentRequestsFact(intent, "handoff") {
+		return 1
+	}
+	if intentRequestsFact(intent, "requirement") && recallRequirementMatch(note) {
+		return 1
+	}
+	if (note.Kind == KindBlocker || note.Kind == KindHandoff) && QueryScore(note, query) > 0 {
+		return 1
+	}
+	if QueryScore(note, query) > 0 && requiredFactCoverage(note, intent) > 0 &&
+		containsAny(strings.ToLower(note.Body), "owns", "assigned", "committed", "approved", "rejected") {
 		return 1
 	}
 	return 0
+}
+
+func recallRequirementMatch(note Note) bool {
+	return containsAny(strings.ToLower(note.Subject+" "+note.Body),
+		"require", "must", "need", "condition", "until", "without", "only after")
+}
+
+func intentRequestsFact(intent RecallIntent, requested string) bool {
+	for _, fact := range intent.RequestedFacts {
+		if fact == requested {
+			return true
+		}
+	}
+	return false
 }
 
 func recallRoutingAffinity(note Note, request RecallRequest, intent RecallIntent) int {
@@ -607,7 +639,7 @@ func finalizeRecallTrace(trace *RecallTrace) {
 
 func isRecallBudgetDrop(reason RecallRejectReason) bool {
 	switch reason {
-	case RejectMaxItems, RejectTokenBudget, RejectDuplicate:
+	case RejectMaxItems, RejectTokenBudget, RejectDuplicate, RejectUncoveredRelationCost:
 		return true
 	default:
 		return false

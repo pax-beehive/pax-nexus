@@ -15,7 +15,10 @@ import (
 	"github.com/pax-beehive/pax-nexus/internal/teamnote"
 )
 
-const SchemaVersion = "pax-recall-replay-v1"
+const (
+	SchemaVersion       = "pax-recall-replay-v2"
+	legacySchemaVersion = "pax-recall-replay-v1"
+)
 
 // FixtureSet pins one exported recall cohort: persisted Team Notes with
 // adapter retrieval scores, per-case recall requests, extraction observations,
@@ -78,6 +81,7 @@ type Case struct {
 	Fixture         stageeval.Fixture `json:"fixture"`
 	ScopeID         string            `json:"scope_id"`
 	Actor           Actor             `json:"actor"`
+	ObservationTime time.Time         `json:"observation_time"`
 	ExtractionItems []stageeval.Item  `json:"extraction_items"`
 	Candidates      []Candidate       `json:"candidates"`
 }
@@ -93,6 +97,9 @@ func LoadFixtureSet(path string) (FixtureSet, error) {
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&set); err != nil {
 		return FixtureSet{}, fmt.Errorf("decode recall replay fixture set: %w", err)
+	}
+	if set.SchemaVersion == legacySchemaVersion {
+		set.migrateLegacyObservationTimes()
 	}
 	if err := set.Validate(); err != nil {
 		return FixtureSet{}, err
@@ -152,7 +159,32 @@ func (replayCase Case) Validate() error {
 	if replayCase.Fixture.RecallContext.TokenBudget <= 0 {
 		return fmt.Errorf("validate recall replay case %q: positive token budget is required", replayCase.Fixture.CaseID)
 	}
+	if replayCase.ObservationTime.IsZero() {
+		return fmt.Errorf("validate recall replay case %q: observation time is required", replayCase.Fixture.CaseID)
+	}
 	return nil
+}
+
+func (set *FixtureSet) migrateLegacyObservationTimes() {
+	for index := range set.Cases {
+		set.Cases[index].ObservationTime = inferredObservationTime(set.Cases[index].Candidates)
+	}
+	set.SchemaVersion = SchemaVersion
+}
+
+func inferredObservationTime(candidates []Candidate) time.Time {
+	var result time.Time
+	for _, candidate := range candidates {
+		for _, value := range []time.Time{candidate.SourceOccurredAt, candidate.UpdatedAt, candidate.CreatedAt} {
+			if value.After(result) {
+				result = value.UTC()
+			}
+		}
+	}
+	if result.IsZero() {
+		return time.Unix(0, 0).UTC()
+	}
+	return result
 }
 
 // recallRequest rebuilds the recall request captured for the case.

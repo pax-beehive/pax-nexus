@@ -55,7 +55,8 @@ records:
 - which retrieval lanes ran;
 - why each candidate was retrieved;
 - which relationships were traversed;
-- which candidates failed authorization, temporal, state, or budget checks;
+- which planner-visible candidates failed temporal, provenance, content-safety,
+  relevance, or budget checks;
 - why final content became evidence, a hint, or a suppressed candidate.
 
 Dense-vector similarity is not a core v3 retrieval or ranking signal.
@@ -73,7 +74,12 @@ The following are hard gates rather than score features:
 - source provenance availability;
 - unsafe or instruction-bearing stored content.
 
-A failed hard gate cannot be offset by any relevance signal.
+A failed hard gate cannot be offset by any relevance signal. The current Team
+Note adapters apply scope, authorization, audience, task/thread, active-state,
+and delivery eligibility before `PlanRecall`; those adapter exclusions are not
+planner-visible candidate traces. The planner records those gates as
+`adapter_prechecked` and owns temporal, provenance, and stored-content safety
+results for the candidates it receives.
 
 ### One score does not represent recall quality
 
@@ -129,16 +135,20 @@ own candidates and reason codes.
 
 ### Exact Scope Lane
 
-This lane matches task, thread, scope, entity, artifact, decision,
-responsibility, handoff, waiting-on, audience, and actor identifiers.
+The General Recall design targets task, thread, scope, entity, artifact,
+decision, responsibility, handoff, waiting-on, audience, and actor
+identifiers. The current Team Note implementation matches explicit task and
+thread references plus normalized full subjects. The remaining structured
+identifier matches are deferred until adapters expose those fields to the
+planner.
 
 ### Lexical Lane
 
 This lane uses inspectable term retrieval such as BM25, field matches, entity
-aliases, and normalized tokens. Persisted production traces store matched
-field categories and term counts, not plaintext query terms; the recall
-observation retains only the query digest. This preserves stage attribution
-without bypassing query-retention privacy.
+aliases, and normalized tokens. Persisted production traces store matched term
+counts, not plaintext query terms; the recall observation retains only the
+query digest. Matched field categories remain deferred. This preserves stage
+attribution without bypassing query-retention privacy.
 
 ### Temporal Lane
 
@@ -381,7 +391,11 @@ candidate recipients. It does not determine evidence delivery.
 The planner assigns a final disposition:
 
 ~~~text
-eligible and E >= evidence threshold
+eligible exact/lexical candidate with deterministic query relevance
+    -> evidence
+
+eligible semantic-fallback candidate with inspectable non-semantic support
+and E >= evidence threshold
     -> evidence
 
 not admitted as evidence and H >= hint threshold
@@ -560,7 +574,8 @@ The implemented planner:
 - records adapter-prechecked scope, audience, task/thread, active-state,
   and delivery gates plus planner-owned provenance, content-safety, and
   temporal results. Current and as-of validity checks honor `valid_at`,
-  `invalid_at`, and a deterministic adapter-supplied observation time;
+  `invalid_at`, the Valid Time/Recorded Time distinction, and a deterministic
+  adapter-supplied observation time;
 - applies a lexicographic key over temporal fit, subject-specific intent,
   required-fact coverage, coordination relevance, exact/lexical coverage,
   explicit-lane support, routing affinity, kind, recency, and stable ID;
@@ -570,25 +585,31 @@ The implemented planner:
   governed by deterministic relevance; the 0.40 score gate applies to semantic
   fallback candidates;
 - records final evidence or suppress dispositions, selected source IDs,
-  relation paths, budget drops, delivered primary items, and delivery-claim
-  losses;
+  relation paths, including uncovered relation costs, budget drops, delivered
+  primary items, and delivery-claim losses;
 - aggregates plan versions, bounded lane candidate counts, dispositions,
   rejections, and budget drops in deterministic recall replay reports.
 
 The fixed ten-case replays preserved Conditional Recall at 1.000 with zero
 missed available atoms for both captured arms. Compared with the pre-change
 baseline, the Team Note arm changed from 69 planned notes and 4,075 tokens to
-67 planned notes and 3,825 tokens; the hybrid arm changed from 76 planned notes
-and 4,337 tokens to 71 planned notes and 3,896 tokens. These are stage-local replay
-results, not end-to-end answer-quality claims.
+67 planned notes and 3,854 tokens; the hybrid arm changed from 76 planned notes
+and 4,337 tokens to 73 planned notes and 4,077 tokens. These are stage-local
+replay results, not end-to-end answer-quality claims.
 
 Known limits remain explicit:
 
 - PostgreSQL currently supplies only the active current revision, so
   `as_of` and `history` can reason over supplied fixtures or candidates but do
-  not yet retrieve retired revision chains from durable storage;
+  not yet retrieve retired revision chains from durable storage. Historical
+  replay excludes notes first recorded after the captured observation, but a
+  note revised after that observation still exposes its current revision until
+  revision snapshots are wired into candidate export;
 - the current Team Note schema represents generic related subjects rather than
   the full typed relation whitelist;
+- exact-scope matching currently covers task/thread references and normalized
+  full subjects, and lexical traces expose term counts rather than matched
+  field categories;
 - the content-safety hard gate covers high-precision prompt override and system
   prompt exfiltration patterns; a broader stored-content safety classifier is
   deferred and must not weaken the deterministic fail-closed patterns;

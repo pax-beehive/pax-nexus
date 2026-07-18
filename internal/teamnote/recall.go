@@ -57,16 +57,17 @@ type PlannedRecall struct {
 type RecallRejectReason string
 
 const (
-	RejectFusionLimit    RecallRejectReason = "fusion_limit"
-	RejectRelevanceGate  RecallRejectReason = "relevance_gate"
-	RejectMaxItems       RecallRejectReason = "max_items"
-	RejectTokenBudget    RecallRejectReason = "token_budget"
-	RejectDeliveryClaim  RecallRejectReason = "delivery_claim_lost"
-	RejectDuplicate      RecallRejectReason = "duplicate"
-	RejectTemporalGate   RecallRejectReason = "temporal_gate"
-	RejectProvenanceGate RecallRejectReason = "provenance_gate"
-	RejectUnsafeContent  RecallRejectReason = "unsafe_content"
-	RejectEvidenceGate   RecallRejectReason = "evidence_gate"
+	RejectFusionLimit           RecallRejectReason = "fusion_limit"
+	RejectRelevanceGate         RecallRejectReason = "relevance_gate"
+	RejectMaxItems              RecallRejectReason = "max_items"
+	RejectTokenBudget           RecallRejectReason = "token_budget"
+	RejectDeliveryClaim         RecallRejectReason = "delivery_claim_lost"
+	RejectDuplicate             RecallRejectReason = "duplicate"
+	RejectTemporalGate          RecallRejectReason = "temporal_gate"
+	RejectProvenanceGate        RecallRejectReason = "provenance_gate"
+	RejectUnsafeContent         RecallRejectReason = "unsafe_content"
+	RejectEvidenceGate          RecallRejectReason = "evidence_gate"
+	RejectUncoveredRelationCost RecallRejectReason = "uncovered_relation_cost"
 )
 
 // RecallRejection records why one available candidate was not planned for
@@ -130,18 +131,18 @@ func PlanRecall(candidates []RecallCandidate, request RecallRequest, policy Reca
 		related := relevantRelatedNotes(
 			relatedNotes(candidate.Note, allNotes), request.Query, remainingRelated, request.MaxItems > 0,
 		)
-		if policy.SuppressDuplicates {
-			related = excludeRecallIDs(related, trace.SelectedSet)
-		}
+		related = excludeRecallIDs(related, trace.SelectedSet)
 		recordRecallRelations(&trace, candidate.Note, related)
 		text := FormatForRecallWithRelated(candidate.Note, related)
 		tokens := estimateTokens(text)
 		if policy.DegradeRelated && len(related) > 0 && usedTokens+tokens > request.TokenBudget {
+			recordRecallRelationCostDrops(&trace, candidate.Note, related)
 			related = nil
 			text = FormatForRecall(candidate.Note)
 			tokens = estimateTokens(text)
 		}
 		if usedTokens+tokens > request.TokenBudget {
+			recordRecallRelationCostDrops(&trace, candidate.Note, related)
 			recordRecallRejection(&trace, RecallRejection{NoteID: candidate.ID, Reason: RejectTokenBudget, Tokens: tokens})
 			continue
 		}
@@ -166,6 +167,21 @@ func recallSourceNoteIDs(primary Note, related []Note) []string {
 		result = append(result, note.ID)
 	}
 	return result
+}
+
+func recallRelationTokenCost(primary, related Note) int {
+	baseTokens := estimateTokens(FormatForRecall(primary))
+	withRelationTokens := estimateTokens(FormatForRecallWithRelated(primary, []Note{related}))
+	return max(1, withRelationTokens-baseTokens)
+}
+
+func recordRecallRelationCostDrops(trace *RecallTrace, primary Note, related []Note) {
+	for _, dropped := range related {
+		recordRecallRejection(trace, RecallRejection{
+			NoteID: dropped.ID, Reason: RejectUncoveredRelationCost,
+			Tokens: recallRelationTokenCost(primary, dropped),
+		})
+	}
 }
 
 // duplicatesSelected reports whether a candidate restates an already selected
@@ -380,7 +396,7 @@ func evaluateRecallRanking(candidate RecallCandidate, request RecallRequest, int
 	candidate.hardGateFailure = recallHardGateFailure(candidate.Note, intent, observationTime)
 	candidate.intentScore = queryIntentScore(candidate.Note, request.Query)
 	candidate.factCoverage = requiredFactCoverage(candidate.Note, intent)
-	candidate.coordination = coordinationMatch(candidate.Note, intent)
+	candidate.coordination = coordinationMatch(candidate.Note, intent, request.Query)
 	if exactScopeMatch(candidate.Note, request) {
 		candidate.exactMatch = 1
 	}

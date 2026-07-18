@@ -429,6 +429,7 @@ FROM team_notes
 WHERE scope_id = $1
   AND state = 'active'
   AND invalid_at IS NULL
+  AND created_at <= $2
   AND soft_expires_at > $2
   AND hard_expires_at > $2
 ORDER BY note_id`, scopeID, at)
@@ -705,6 +706,7 @@ func recallableNotes(ctx context.Context, tx pgx.Tx, scopeID string, request tea
  WHERE scope_id = $1
    AND state = 'active'
    AND invalid_at IS NULL
+   AND created_at <= $2
    AND soft_expires_at > $2
    AND hard_expires_at > $2
    AND (task_ref = '' OR task_ref = $3)

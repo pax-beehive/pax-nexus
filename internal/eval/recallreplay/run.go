@@ -64,6 +64,7 @@ func Run(set FixtureSet, policy Policy) (Report, error) {
 		planned, trace := teamnote.PlanRecall(replayCase.recallCandidates(), replayCase.recallRequest(), teamnote.RecallPolicy{
 			SemanticThreshold: policy.SemanticThreshold, CandidateLimit: policy.CandidateLimit,
 			SuppressDuplicates: policy.SuppressDuplicates, DegradeRelated: policy.DegradeRelated,
+			ObservationTime: replayCase.ObservationTime,
 		})
 		traces[replayCase.Fixture.CaseID] = trace
 		plannedByCase[replayCase.Fixture.CaseID] = plannedItems(planned)

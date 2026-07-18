@@ -66,8 +66,9 @@ fixed cohort for validating retrieval changes before any paid end-to-end run.
 
 Export pins a cohort from a persisted eval store (candidate notes with the
 exact lexical and semantic scores produced by the recall code path, extraction
-snapshot, recall request, and gold atoms), using schema
-`pax-recall-replay-v1`:
+snapshot, recall request, observation time, and gold atoms), using schema
+`pax-recall-replay-v2` (tracked legacy v1 fixtures are migrated in memory,
+using the Unix epoch when a case has no candidates):
 
 ```bash
 go run ./cmd/team-memory-recall-replay -export \

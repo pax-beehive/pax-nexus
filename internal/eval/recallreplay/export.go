@@ -2,6 +2,7 @@ package recallreplay
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"time"
 
@@ -51,7 +52,15 @@ func (e *Exporter) Export(ctx context.Context, fixtures stageeval.FixtureSet, pr
 }
 
 func (e *Exporter) exportCase(ctx context.Context, fixture stageeval.Fixture, scopeID string) (Case, error) {
-	observationTime, err := e.observationTime(ctx, scopeID)
+	actor := Actor{
+		UserID:    fixture.RecallContext.ConsumerUserID,
+		AgentID:   fixture.RecallContext.ConsumerAgentID,
+		SessionID: "recall-replay",
+	}
+	if actor.AgentID == "" {
+		actor.AgentID = "recall-replay"
+	}
+	observationTime, err := e.observationTime(ctx, scopeID, actor, fixture.RecallContext)
 	if err != nil {
 		return Case{}, err
 	}
@@ -61,14 +70,6 @@ func (e *Exporter) exportCase(ctx context.Context, fixture stageeval.Fixture, sc
 	})
 	if err != nil {
 		return Case{}, err
-	}
-	actor := Actor{
-		UserID:    fixture.RecallContext.ConsumerUserID,
-		AgentID:   fixture.RecallContext.ConsumerAgentID,
-		SessionID: "recall-replay",
-	}
-	if actor.AgentID == "" {
-		actor.AgentID = "recall-replay"
 	}
 	request := teamnote.RecallRequest{
 		Actor: teamnote.Actor{UserID: actor.UserID, AgentID: actor.AgentID, SessionID: actor.SessionID},
@@ -84,23 +85,37 @@ func (e *Exporter) exportCase(ctx context.Context, fixture stageeval.Fixture, sc
 	}
 	return Case{
 		Fixture: fixture, ScopeID: scopeID, Actor: actor,
+		ObservationTime: observationTime,
 		ExtractionItems: extractionItems, Candidates: pinCandidates(candidates),
 	}, nil
 }
 
-func (e *Exporter) observationTime(ctx context.Context, scopeID string) (time.Time, error) {
+func (e *Exporter) observationTime(
+	ctx context.Context,
+	scopeID string,
+	actor Actor,
+	recallContext stageeval.RecallContext,
+) (time.Time, error) {
+	queryDigest := sha256.Sum256([]byte(recallContext.Query))
 	var observedAt time.Time
 	err := e.store.Pool().QueryRow(ctx, `
-SELECT COALESCE(max(updated_at), 'epoch')
-FROM team_notes
-WHERE scope_id = $1`, scopeID).Scan(&observedAt)
+SELECT created_at
+FROM team_note_recall_observations
+WHERE scope_id = $1
+  AND recipient_user_id = $2
+  AND recipient_agent_id = $3
+  AND query_digest = $4
+  AND token_budget = $5
+  AND max_items = $6
+ORDER BY observation_id DESC
+LIMIT 1`, scopeID, actor.UserID, actor.AgentID, queryDigest[:], recallContext.TokenBudget, recallContext.MaxItems).Scan(&observedAt)
 	if err != nil {
-		return time.Time{}, fmt.Errorf("query observation time for scope %q: %w", scopeID, err)
+		return time.Time{}, fmt.Errorf("query recall observation time for scope %q: %w", scopeID, err)
 	}
-	if observedAt.IsZero() || observedAt.Year() <= 1970 {
-		return time.Time{}, fmt.Errorf("no persisted Team Notes found for scope %q", scopeID)
+	if observedAt.IsZero() {
+		return time.Time{}, fmt.Errorf("query recall observation time for scope %q: zero timestamp", scopeID)
 	}
-	return observedAt, nil
+	return observedAt.UTC(), nil
 }
 
 // extractionSnapshot mirrors the recall-time snapshot eligibility from the
@@ -118,6 +133,7 @@ FROM team_notes
 WHERE scope_id = $1
   AND state = 'active'
   AND invalid_at IS NULL
+  AND created_at <= $2
   AND soft_expires_at > $2
   AND hard_expires_at > $2
 ORDER BY note_id`, scopeID, at)
