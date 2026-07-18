@@ -34,6 +34,7 @@ var (
 	protocolV1                = extractionProtocol{rollingSystemPrompt, decodeResponse, decodeCandidateContent}
 	protocolV2Current         = extractionProtocol{rollingSystemPromptV2, decodeExtractionResponseV2, decodeExtractionContentV2}
 	protocolV2InteractionSlim = extractionProtocol{rollingSystemPromptV2InteractionSlim, decodeExtractionResponseV2, decodeExtractionContentV2}
+	protocolV2TypedCurrent    = extractionProtocol{rollingSystemPromptV2Typed, decodeExtractionResponseV2Typed, decodeExtractionContentV2Typed}
 )
 
 func (e *OpenAI) extractRolling(ctx context.Context, slice sessionlake.Slice) (Result, error) {
@@ -53,10 +54,14 @@ func (e *OpenAI) extractRollingV2With(ctx context.Context, slice sessionlake.Sli
 }
 
 func (e *OpenAI) v2Protocol() extractionProtocol {
-	if e.config.V2Variant == V2VariantInteractionSlim {
+	switch e.config.V2Variant {
+	case V2VariantInteractionSlim:
 		return protocolV2InteractionSlim
+	case V2VariantTypedCurrent:
+		return protocolV2TypedCurrent
+	default:
+		return protocolV2Current
 	}
-	return protocolV2Current
 }
 
 func (e *OpenAI) extractRollingWith(ctx context.Context, slice sessionlake.Slice, protocol extractionProtocol, mapResult func(*Result, sessionlake.Slice)) (Result, error) {
@@ -260,8 +265,11 @@ func episodeCompatible(episode Episode, config OpenAIConfig) bool {
 	expectedProtocol := ExtractionVersionV1
 	if config.ExtractionVersion == ExtractionVersionV2 {
 		expectedProtocol = extractionProtocolV2RevisionCurrent
-		if config.V2Variant == V2VariantInteractionSlim {
+		switch config.V2Variant {
+		case V2VariantInteractionSlim:
 			expectedProtocol = extractionProtocolV2RevisionInteractionSlim
+		case V2VariantTypedCurrent:
+			expectedProtocol = extractionProtocolV2RevisionTypedCurrent
 		}
 	}
 	return protocolVersion == expectedProtocol &&
@@ -270,10 +278,14 @@ func episodeCompatible(episode Episode, config OpenAIConfig) bool {
 
 func (e *OpenAI) episodeProtocolVersion() string {
 	if e.config.ExtractionVersion == ExtractionVersionV2 {
-		if e.config.V2Variant == V2VariantInteractionSlim {
+		switch e.config.V2Variant {
+		case V2VariantInteractionSlim:
 			return extractionProtocolV2RevisionInteractionSlim
+		case V2VariantTypedCurrent:
+			return extractionProtocolV2RevisionTypedCurrent
+		default:
+			return extractionProtocolV2RevisionCurrent
 		}
-		return extractionProtocolV2RevisionCurrent
 	}
 	return ExtractionVersionV1
 }

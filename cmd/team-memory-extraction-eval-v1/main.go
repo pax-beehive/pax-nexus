@@ -81,7 +81,7 @@ func parseFlags(args []string) (evalConfig, error) {
 	flags.StringVar(&config.promptVersion, "prompt-version", "", "Prompt version tag (defaults to extractor version)")
 	flags.StringVar(&config.outputDir, "output-dir", "", "Artifact directory (defaults to runs/extraction-eval-v1/<run-id>)")
 	flags.StringVar(&config.profilePath, "profile", "", "Optional bounded source-event profile JSON")
-	flags.StringVar(&config.v2Variant, "v2-variant", extractor.V2VariantCurrent, "Extraction v2 prompt variant (current or interaction-slim)")
+	flags.StringVar(&config.v2Variant, "v2-variant", extractor.V2VariantCurrent, "Extraction v2 prompt variant (current, interaction-slim, or typed-2)")
 	flags.BoolVar(&config.resume, "resume", false, "Resume an interrupted run from per-slice artifacts")
 	flags.BoolVar(&config.preflightOnly, "preflight-only", false, "Validate and size source Events without calling a model")
 	flags.IntVar(&config.sliceEventLimit, "slice-event-limit", 25, "Maximum new session events per primary extraction slice")

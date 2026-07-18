@@ -125,7 +125,9 @@ func normalizeExtractionVersion(config *OpenAIConfig) error {
 	if config.V2Variant == "" {
 		config.V2Variant = V2VariantCurrent
 	}
-	if config.V2Variant != V2VariantCurrent && config.V2Variant != V2VariantInteractionSlim {
+	if config.V2Variant != V2VariantCurrent &&
+		config.V2Variant != V2VariantInteractionSlim &&
+		config.V2Variant != V2VariantTypedCurrent {
 		return fmt.Errorf("create OpenAI extractor: unsupported v2 variant %q", config.V2Variant)
 	}
 	return nil

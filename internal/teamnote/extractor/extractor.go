@@ -43,6 +43,7 @@ type ProviderCallObserver func(ProviderCall)
 const (
 	V2VariantCurrent         = "current"
 	V2VariantInteractionSlim = "interaction-slim"
+	V2VariantTypedCurrent    = "typed-2"
 )
 
 type Result struct {
