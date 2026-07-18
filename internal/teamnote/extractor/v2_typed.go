@@ -53,7 +53,10 @@ type extractionOutputV2Typed struct {
 
 func decodeExtractionResponseV2Typed(body []byte) (Result, string, error) {
 	var response chatResponse
-	if err := json.Unmarshal(body, &response); err != nil || len(response.Choices) == 0 {
+	if err := json.Unmarshal(body, &response); err != nil {
+		return Result{}, "", fmt.Errorf("decode extractor typed v2 response: %w", errors.Join(ErrInvalidModelResponse, err))
+	}
+	if len(response.Choices) == 0 {
 		return Result{}, "", fmt.Errorf("decode extractor typed v2 response: %w", ErrInvalidModelResponse)
 	}
 	content := trimCodeFence(response.Choices[0].Message.Content)

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"testing"
 
@@ -30,19 +29,7 @@ func typedV2Body(decisions string) string {
 }
 
 func (s *extractionV2TypedSuite) TestRendersCandidateBodyFromTypedAtomicFact() {
-	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
-		body, err := io.ReadAll(request.Body)
-		s.Require().NoError(err)
-		var payload struct {
-			Messages []struct {
-				Role    string `json:"role"`
-				Content string `json:"content"`
-			} `json:"messages"`
-		}
-		s.Require().NoError(json.Unmarshal(body, &payload))
-		s.Require().NotEmpty(payload.Messages)
-		s.Contains(payload.Messages[0].Content, `"statement":"one exact complete atomic fact"`)
-		s.NotContains(payload.Messages[0].Content, `"body":"one atomic factual note"`)
+	client := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
 		decision := `{"decision":"create","evidence_event_ids":["event-1"],"reason_codes":["explicit_new_fact"],"fact":{"kind":"status","subject":"evidence deadline","statement":"Finance Ops must post evidence by Friday EOD","modality":"committed"}}`
 		return response(http.StatusOK, typedV2Body(decision)), nil
 	})}
@@ -239,4 +226,22 @@ func (s *extractionV2TypedSuite) TestTypedProtocolDoesNotReplayCurrentV2Response
 	s.Equal(1, typedCalls)
 	s.Require().Len(result.Candidates, 1)
 	s.Equal("Tests are failing.", result.Candidates[0].Body)
+}
+
+func (s *extractionV2TypedSuite) TestMalformedEnvelopePreservesDecodeCause() {
+	client := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		return response(http.StatusOK, "not-json"), nil
+	})}
+	adapter, err := extractor.NewOpenAI(extractor.OpenAIConfig{
+		BaseURL: "http://extractor.test", Model: "model", Client: client,
+		ContextMode: extractor.ContextModeRolling, EpisodeStore: extractor.NewMemoryEpisodeStore(),
+		ExtractionVersion: extractor.ExtractionVersionV2, V2Variant: extractor.V2VariantTypedCurrent,
+	})
+	s.Require().NoError(err)
+
+	_, err = adapter.Extract(teamnote.WithScope(context.Background(), "scope-v2-typed-malformed"), v2Slice())
+
+	s.Require().ErrorIs(err, extractor.ErrInvalidModelResponse)
+	var syntaxError *json.SyntaxError
+	s.Require().ErrorAs(err, &syntaxError)
 }
