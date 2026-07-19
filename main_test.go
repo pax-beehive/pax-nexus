@@ -131,6 +131,11 @@ func (s *configSuite) TestCheckedInCandidateStrategyBuildInterface() {
 		{path: "compose.yaml", want: "EXTRACTION_CANDIDATE_STRATEGY: ${TEAM_MEMORY_BUILD_EXTRACTION_CANDIDATE_STRATEGY:-current}"},
 		{path: "evals/v2/compose.yaml", want: "TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY: ${TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY:-}"},
 		{path: "evals/opencode/compose.yaml", want: "TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY: ${TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY:-}"},
+		{path: "evals/v2/config.example.yaml", want: "  - TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY"},
+		{path: "evals/v2/config.smoke.example.yaml", want: "  - TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY"},
+		{path: "evals/v3/config.example.yaml", want: "  - TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY"},
+		{path: "scripts/load-eval-v2-env.sh", want: `: "${TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY:=current}"`},
+		{path: "scripts/load-eval-v2-env.sh", want: "TEAM_MEMORY_EXTRACTION_VERSION TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY"},
 		{path: "Dockerfile", want: "ARG EXTRACTION_CANDIDATE_STRATEGY=current"},
 		{path: "Makefile", want: "EXTRACTION_CANDIDATE_STRATEGY ?= current"},
 	}
