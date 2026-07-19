@@ -22,6 +22,7 @@ type CaseReport struct {
 	PlannedItems      []stageeval.Item     `json:"planned_items"`
 	AtomLosses        []AtomLoss           `json:"atom_losses"`
 	PlannerDurationNS int64                `json:"planner_duration_ns"`
+	HintEval          *HintCaseEval        `json:"hint_eval,omitempty"`
 }
 
 // StageTotals aggregates recall stage counters across the cohort.
@@ -45,6 +46,7 @@ type Report struct {
 	Summary       stageeval.Summary `json:"stage_summary"`
 	StageTotals   StageTotals       `json:"stage_totals"`
 	RecallEval    RecallEvalSummary `json:"recall_eval"`
+	HintEval      HintEvalSummary   `json:"hint_eval"`
 	Cases         []CaseReport      `json:"-"`
 	LossLedger    []AtomLoss        `json:"-"`
 }
@@ -73,7 +75,7 @@ func Run(set FixtureSet, policy Policy) (Report, error) {
 		if err := encoder.Encode(extraction); err != nil {
 			return Report{}, fmt.Errorf("encode replay extraction observation: %w", err)
 		}
-		candidates := replayCase.recallCandidates()
+		candidates := replayCase.plannerRecallCandidates()
 		request := replayCase.recallRequest()
 		recallPolicy := teamnote.RecallPolicy{
 			SemanticThreshold: policy.SemanticThreshold, CandidateLimit: policy.CandidateLimit,
@@ -113,13 +115,22 @@ func Run(set FixtureSet, policy Policy) (Report, error) {
 		if err != nil {
 			return Report{}, fmt.Errorf("evaluate recall stages for %q: %w", result.CaseID, err)
 		}
-		report.Cases = append(report.Cases, CaseReport{
+		hintCaseEval, hintSummary, err := evaluateHintObservation(replayCase, trace, plannedByCase[result.CaseID])
+		if err != nil {
+			return Report{}, fmt.Errorf("evaluate hint opportunity for %q: %w", result.CaseID, err)
+		}
+		caseReport := CaseReport{
 			CaseID: result.CaseID, Result: result, Trace: trace,
 			PlannedItems: plannedByCase[result.CaseID], AtomLosses: caseEval.losses,
 			PlannerDurationNS: plannerDurationByCase[result.CaseID],
-		})
+		}
+		if replayCase.HintObservation != nil {
+			caseReport.HintEval = &hintCaseEval
+		}
+		report.Cases = append(report.Cases, caseReport)
 		report.LossLedger = append(report.LossLedger, caseEval.losses...)
 		mergeRecallEval(&report.RecallEval, caseEval.summary)
+		mergeHintEval(&report.HintEval, hintSummary)
 		report.StageTotals.Candidates += trace.Candidates
 		report.StageTotals.FusionKept += trace.FusionKept
 		report.StageTotals.PlannedNotes += trace.PlannedNotes
@@ -138,7 +149,9 @@ func Run(set FixtureSet, policy Policy) (Report, error) {
 			report.StageTotals.BudgetDrops[string(rejection.Reason)]++
 		}
 	}
+	evaluateHintDedup(set.Cases, &report.HintEval)
 	finalizeRecallEval(&report.RecallEval, len(results))
+	finalizeHintEval(&report.HintEval)
 	setPlannerLatency(&report.RecallEval, plannerDurationByCase)
 	return report, nil
 }
@@ -171,6 +184,8 @@ func replayCaseByID(cases []Case, caseID string) Case {
 
 func mergeRecallEval(target *RecallEvalSummary, current RecallEvalSummary) {
 	target.AvailableAtoms += current.AvailableAtoms
+	target.EligibleAtoms += current.EligibleAtoms
+	target.IneligibleAtoms += current.IneligibleAtoms
 	target.CandidateMatchedAtoms += current.CandidateMatchedAtoms
 	target.RelationMatchedAtoms += current.RelationMatchedAtoms
 	target.SelectedMatchedAtoms += current.SelectedMatchedAtoms
@@ -178,6 +193,32 @@ func mergeRecallEval(target *RecallEvalSummary, current RecallEvalSummary) {
 	target.MeanContextPrecision += current.MeanContextPrecision
 	target.BudgetDroppedAtoms += current.BudgetDroppedAtoms
 	target.SupersededLeakageItems += current.SupersededLeakageItems
+	if target.IdentitySlices == nil {
+		target.IdentitySlices = map[IdentityRelationship]RecallSliceSummary{}
+	}
+	for key, currentSlice := range current.IdentitySlices {
+		targetSlice := target.IdentitySlices[key]
+		mergeRecallSlice(&targetSlice, currentSlice)
+		target.IdentitySlices[key] = targetSlice
+	}
+	if target.TemporalSlices == nil {
+		target.TemporalSlices = map[string]RecallSliceSummary{}
+	}
+	for key, currentSlice := range current.TemporalSlices {
+		targetSlice := target.TemporalSlices[key]
+		mergeRecallSlice(&targetSlice, currentSlice)
+		target.TemporalSlices[key] = targetSlice
+	}
+	mergeRecallSlice(&target.StrictCrossAgent, current.StrictCrossAgent)
+}
+
+func mergeRecallSlice(target *RecallSliceSummary, current RecallSliceSummary) {
+	target.EligibleAtoms += current.EligibleAtoms
+	target.CandidateMatchedAtoms += current.CandidateMatchedAtoms
+	target.RelationMatchedAtoms += current.RelationMatchedAtoms
+	target.SelectedMatchedAtoms += current.SelectedMatchedAtoms
+	target.DeliveredMatchedAtoms += current.DeliveredMatchedAtoms
+	target.BudgetDroppedAtoms += current.BudgetDroppedAtoms
 }
 
 func plannedItems(planned []teamnote.PlannedRecall) []stageeval.Item {

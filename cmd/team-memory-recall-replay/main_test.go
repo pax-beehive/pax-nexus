@@ -51,6 +51,7 @@ func (s *mainSuite) TestRunReplayWritesRecallEvalV1Artifacts() {
 			},
 			ScopeID: "scope", Actor: recallreplay.Actor{UserID: "user", AgentID: "agent", SessionID: "session"},
 			ObservationTime: now,
+			QueryTimezone:   "UTC",
 			ExtractionItems: []stageeval.Item{{ID: "note-1", Text: "Release is ready.", EvidenceEventIDs: []string{"event-1"}}},
 			Candidates: []recallreplay.Candidate{{
 				ID: "note-1", Kind: "status", Subject: "release", Body: "Release is ready.",

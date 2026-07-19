@@ -180,6 +180,7 @@ func syntheticCase(caseID, query string, candidates []recallreplay.Candidate) re
 		ScopeID:         "run-1-groupmembench-" + caseID,
 		Actor:           recallreplay.Actor{UserID: "User_1", AgentID: "consumer", SessionID: "recall-replay"},
 		ObservationTime: observationTime,
+		QueryTimezone:   "UTC",
 		ExtractionItems: extractionItems(candidates),
 		Candidates:      candidates,
 	}

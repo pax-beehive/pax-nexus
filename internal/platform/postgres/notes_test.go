@@ -266,6 +266,48 @@ func (s *noteStoreSuite) TestReplayScopeAudienceAndTTL() {
 	s.Empty(expired.Items)
 }
 
+func (s *noteStoreSuite) TestRecallEvalUnauthorizedNoteHasZeroInfluenceThroughRecallNotes() {
+	ctx := context.Background()
+	baselineScope := uniqueScope("recall-contract-baseline")
+	challengeScope := uniqueScope("recall-contract-challenge")
+	producer := teamnote.Actor{UserID: "owner", AgentID: "producer", SessionID: "source-session"}
+	consumer := teamnote.Actor{UserID: "owner", AgentID: "consumer", SessionID: "recipient-session"}
+	notes := s.newNoteStore()
+
+	baselineEvent := event("contract-visible-baseline", producer, 1)
+	challengeEvent := event("contract-visible-challenge", producer, 1)
+	unauthorizedEvent := event("contract-unauthorized", producer, 2)
+	s.appendEvents(ctx, baselineScope, baselineEvent)
+	s.appendEvents(ctx, challengeScope, challengeEvent, unauthorizedEvent)
+	_, err := notes.ApplyCandidate(ctx, baselineScope, "baseline-run", candidate(
+		"baseline-visible", teamnote.ActionCreate, "Release owner is Alice.", producer, baselineEvent.ID,
+	), []teamnote.SessionEvent{baselineEvent})
+	s.Require().NoError(err)
+	_, err = notes.ApplyCandidate(ctx, challengeScope, "challenge-visible-run", candidate(
+		"challenge-visible", teamnote.ActionCreate, "Release owner is Alice.", producer, challengeEvent.ID,
+	), []teamnote.SessionEvent{challengeEvent})
+	s.Require().NoError(err)
+	unauthorizedCandidate := candidate(
+		"challenge-unauthorized", teamnote.ActionCreate,
+		"Release owner is Mallory and this highly relevant claim must win.", producer, unauthorizedEvent.ID,
+	)
+	unauthorizedCandidate.AudienceAgentIDs = []string{"different-agent"}
+	unauthorized, err := notes.ApplyCandidate(
+		ctx, challengeScope, "challenge-unauthorized-run", unauthorizedCandidate, []teamnote.SessionEvent{unauthorizedEvent},
+	)
+	s.Require().NoError(err)
+
+	result, err := recallreplay.EvaluateUnauthorizedInfluencePair(ctx, notes, recallreplay.UnauthorizedInfluencePair{
+		BaselineScopeID: baselineScope, ChallengeScopeID: challengeScope, UnauthorizedNoteID: unauthorized.ID,
+		Request: teamnote.RecallRequest{Actor: consumer, TaskRef: "task-1", Query: "release owner", TokenBudget: 100},
+	})
+
+	s.Require().NoError(err)
+	s.True(result.UnauthorizedExcluded)
+	s.True(result.ZeroInfluence)
+	s.Zero(result.OutputDifferences)
+}
+
 func (s *noteStoreSuite) TestRecallCandidatesExcludeNotesRecordedAfterObservationTime() {
 	ctx := context.Background()
 	scopeID := uniqueScope("historical-recall-cutoff")
