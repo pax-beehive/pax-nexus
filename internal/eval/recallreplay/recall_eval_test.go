@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/pax-beehive/pax-nexus/internal/eval/recallreplay"
 	"github.com/pax-beehive/pax-nexus/internal/eval/stageeval"
@@ -161,7 +162,7 @@ func (s *recallEvalSuite) TestRunCreditsAtomReachedThroughOneHopRelation() {
 	s.True(report.LossLedger[0].RelationExpanded)
 }
 
-func (s *recallEvalSuite) TestRunAttributesStructurallyReachableAtomLostAtRelationExpansion() {
+func (s *recallEvalSuite) TestRunDoesNotCallQueryIrrelevantRelationReachable() {
 	primary := syntheticCandidate("note-primary", "deployment", "Deployment is ready.", 0.9, nil)
 	primary.RelatedSubjects = []string{"schedule"}
 	related := syntheticCandidate("note-related", "schedule", "Friday is the final deadline.", 0, nil)
@@ -178,10 +179,10 @@ func (s *recallEvalSuite) TestRunAttributesStructurallyReachableAtomLostAtRelati
 	report, err := recallreplay.Run(set, set.Policy)
 	s.Require().NoError(err)
 	s.False(report.LossLedger[0].CandidateKept)
-	s.True(report.LossLedger[0].RelationReachable)
+	s.False(report.LossLedger[0].RelationReachable)
 	s.False(report.LossLedger[0].RelationExpanded)
-	s.Equal(recallreplay.LossStageRelationExpansion, report.LossLedger[0].LostAt)
-	s.Equal("relation_not_expanded", report.LossLedger[0].Reason)
+	s.Equal(recallreplay.LossStageCandidateRetrieval, report.LossLedger[0].LostAt)
+	s.Equal("fusion_limit", report.LossLedger[0].Reason)
 }
 
 func (s *recallEvalSuite) TestRunAttributesSelectedCandidateLostToTokenBudget() {
@@ -202,9 +203,86 @@ func (s *recallEvalSuite) TestRunAttributesSelectedCandidateLostToTokenBudget() 
 	s.Require().NoError(err)
 	s.Equal(1, report.RecallEval.CandidateMatchedAtoms)
 	s.Equal(1, report.RecallEval.RelationMatchedAtoms)
-	s.Zero(report.RecallEval.SelectedMatchedAtoms)
+	s.Equal(1, report.RecallEval.SelectedMatchedAtoms)
 	s.Zero(report.RecallEval.DeliveredMatchedAtoms)
 	s.Equal(1, report.RecallEval.BudgetDroppedAtoms)
+	s.Equal(recallreplay.LossStageBudgetPacking, report.LossLedger[0].LostAt)
+	s.Equal("token_budget", report.LossLedger[0].Reason)
+}
+
+func (s *recallEvalSuite) TestRunAttributesRelationRemovedByBudgetDegradation() {
+	primary := syntheticCandidate("note-primary", "deployment", "Deployment is ready.", 0.9, nil)
+	primary.RelatedSubjects = []string{"schedule"}
+	related := syntheticCandidate(
+		"note-related", "schedule",
+		"Friday deployment detail includes the final validation deadline and evidence package.", 0, nil,
+	)
+	replayCase := syntheticCase("relation-budget", "deployment ready friday", []recallreplay.Candidate{primary, related})
+	replayCase.Fixture.RequiredAtoms = []stageeval.Atom{
+		{ID: "deadline", Patterns: []string{"(?i)friday deployment detail"}},
+	}
+	set := recallreplay.FixtureSet{
+		SchemaVersion: recallreplay.SchemaVersion,
+		Policy: recallreplay.Policy{
+			SemanticThreshold: 0.5, CandidateLimit: 1, DegradeRelated: true,
+		},
+		Cases: []recallreplay.Case{replayCase},
+	}
+	full, err := recallreplay.Run(set, set.Policy)
+	s.Require().NoError(err)
+	s.Require().Positive(full.StageTotals.PlannedTokens)
+	set.Cases[0].Fixture.RecallContext.TokenBudget = full.StageTotals.PlannedTokens - 1
+
+	report, err := recallreplay.Run(set, set.Policy)
+	s.Require().NoError(err)
+	s.True(report.LossLedger[0].RelationReachable)
+	s.True(report.LossLedger[0].RelationExpanded)
+	s.True(report.LossLedger[0].Selected)
+	s.False(report.LossLedger[0].Delivered)
+	s.Equal(recallreplay.LossStageBudgetPacking, report.LossLedger[0].LostAt)
+	s.Equal("uncovered_relation_cost", report.LossLedger[0].Reason)
+}
+
+func (s *recallEvalSuite) TestCandidateRecallIncludesSemanticLaneBeforeHardGate() {
+	semantic := 0.9
+	candidate := syntheticCandidate("note-semantic", "release", "Release is ready.", 0, &semantic)
+	invalidAt := candidate.SourceOccurredAt.Add(-time.Minute)
+	candidate.InvalidAt = &invalidAt
+	replayCase := syntheticCase("semantic-hard-gate", "What is the project status?", []recallreplay.Candidate{candidate})
+	replayCase.Fixture.RequiredAtoms = []stageeval.Atom{
+		{ID: "ready", Patterns: []string{"(?i)release is ready"}},
+	}
+	set := recallreplay.FixtureSet{
+		SchemaVersion: recallreplay.SchemaVersion,
+		Policy:        recallreplay.Policy{SemanticThreshold: 0.5, CandidateLimit: 16},
+		Cases:         []recallreplay.Case{replayCase},
+	}
+
+	report, err := recallreplay.Run(set, set.Policy)
+	s.Require().NoError(err)
+	s.Equal(1, report.RecallEval.CandidateMatchedAtoms)
+	s.Zero(report.RecallEval.DeliveredMatchedAtoms)
+}
+
+func (s *recallEvalSuite) TestRunUsesFarthestSupportingNoteForLossReason() {
+	replayCase := syntheticCase("multi-support", "audit trail deadline", []recallreplay.Candidate{
+		syntheticCandidate("note-fusion", "other", "Audit trail deadline is Friday.", 0, nil),
+		syntheticCandidate("note-budget", "audit trail", "Audit trail deadline is Friday.", 0.9, nil),
+	})
+	replayCase.Fixture.RequiredAtoms = []stageeval.Atom{
+		{ID: "deadline", Patterns: []string{"(?i)audit trail deadline"}},
+	}
+	replayCase.Fixture.RecallContext.TokenBudget = 1
+	set := recallreplay.FixtureSet{
+		SchemaVersion: recallreplay.SchemaVersion,
+		Policy:        recallreplay.Policy{SemanticThreshold: 0.5, CandidateLimit: 1},
+		Cases:         []recallreplay.Case{replayCase},
+	}
+
+	report, err := recallreplay.Run(set, set.Policy)
+	s.Require().NoError(err)
+	s.True(report.LossLedger[0].CandidateKept)
+	s.True(report.LossLedger[0].Selected)
 	s.Equal(recallreplay.LossStageBudgetPacking, report.LossLedger[0].LostAt)
 	s.Equal("token_budget", report.LossLedger[0].Reason)
 }

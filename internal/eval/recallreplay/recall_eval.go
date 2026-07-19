@@ -61,9 +61,9 @@ func evaluateRecallStages(
 ) (caseRecallEval, error) {
 	supports := replayCase.AtomSupports
 	direct := recallLaneIDs(trace, false)
-	reachable := structurallyRelatedIDs(replayCase.Candidates, direct)
+	reachable := stringSet(trace.RelationEligibleSet)
 	expanded := recallLaneIDs(trace, true)
-	selected := stringSet(trace.SelectedSet)
+	selected := stringSet(trace.PreBudgetSelectedSet)
 	delivered := plannedSourceIDs(plannedItems)
 	resultEval := caseRecallEval{
 		summary: RecallEvalSummary{MeanContextPrecision: result.Recall.ContextPrecision},
@@ -146,63 +146,60 @@ func classifyAtomLoss(loss AtomLoss, trace teamnote.RecallTrace) (LossStage, str
 	if loss.Delivered {
 		return "", ""
 	}
-	reason := supportingRejection(loss.SupportingNoteIDs, trace)
-	if !loss.CandidateKept && loss.RelationReachable && !loss.RelationExpanded {
-		return LossStageRelationExpansion, "relation_not_expanded"
+	reason := farthestSupportingRejection(loss.SupportingNoteIDs, trace)
+	if loss.Selected {
+		return LossStageBudgetPacking, fallbackReason(reason, "not_delivered")
 	}
-	if !loss.CandidateKept {
-		return LossStageCandidateRetrieval, reason
-	}
-	if !loss.Selected {
+	if loss.RelationExpanded {
 		if isBudgetReason(reason) {
 			return LossStageBudgetPacking, reason
 		}
 		return LossStageSetSelection, reason
 	}
-	return LossStageBudgetPacking, fallbackReason(reason, "not_delivered")
+	if loss.RelationReachable {
+		return LossStageRelationExpansion, "relation_not_expanded"
+	}
+	if loss.CandidateKept {
+		return LossStageSetSelection, reason
+	}
+	if !loss.CandidateKept {
+		return LossStageCandidateRetrieval, reason
+	}
+	return LossStageCandidateRetrieval, reason
 }
 
-func structurallyRelatedIDs(candidates []Candidate, direct map[string]struct{}) map[string]struct{} {
-	result := make(map[string]struct{})
-	for _, anchor := range candidates {
-		if _, ok := direct[anchor.ID]; !ok {
-			continue
-		}
-		for _, candidate := range candidates {
-			if candidate.ID == anchor.ID {
-				continue
-			}
-			if subjectsRelated(anchor, candidate) {
-				result[candidate.ID] = struct{}{}
-			}
-		}
-	}
-	return result
-}
-
-func subjectsRelated(left, right Candidate) bool {
-	for _, subject := range left.RelatedSubjects {
-		if strings.EqualFold(strings.TrimSpace(subject), strings.TrimSpace(right.Subject)) {
-			return true
-		}
-	}
-	for _, subject := range right.RelatedSubjects {
-		if strings.EqualFold(strings.TrimSpace(subject), strings.TrimSpace(left.Subject)) {
-			return true
-		}
-	}
-	return false
-}
-
-func supportingRejection(noteIDs []string, trace teamnote.RecallTrace) string {
+func farthestSupportingRejection(noteIDs []string, trace teamnote.RecallTrace) string {
+	bestReason := ""
+	bestPriority := -1
 	for _, noteID := range noteIDs {
 		for _, candidate := range trace.CandidateTraces {
 			if candidate.NoteID == noteID && candidate.RejectionReason != "" {
-				return string(candidate.RejectionReason)
+				reason := string(candidate.RejectionReason)
+				priority := rejectionStagePriority(candidate.RejectionReason)
+				if priority > bestPriority {
+					bestReason = reason
+					bestPriority = priority
+				}
 			}
 		}
 	}
-	return ""
+	return bestReason
+}
+
+func rejectionStagePriority(reason teamnote.RecallRejectReason) int {
+	switch reason {
+	case teamnote.RejectDeliveryClaim:
+		return 4
+	case teamnote.RejectMaxItems, teamnote.RejectTokenBudget, teamnote.RejectUncoveredRelationCost:
+		return 3
+	case teamnote.RejectDuplicate:
+		return 2
+	case teamnote.RejectRelevanceGate, teamnote.RejectEvidenceGate, teamnote.RejectTemporalGate,
+		teamnote.RejectProvenanceGate, teamnote.RejectUnsafeContent:
+		return 1
+	default:
+		return 0
+	}
 }
 
 func isBudgetReason(reason string) bool {

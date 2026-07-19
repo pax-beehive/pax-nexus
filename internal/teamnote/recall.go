@@ -81,20 +81,22 @@ type RecallRejection struct {
 // RecallTrace summarizes each recall stage for one PlanRecall invocation so
 // evaluations can attribute losses without re-running retrieval.
 type RecallTrace struct {
-	PlanVersion       string                 `json:"plan_version"`
-	ScoringVersion    string                 `json:"scoring_version"`
-	EvidenceThreshold float64                `json:"evidence_threshold"`
-	Intent            RecallIntent           `json:"intent"`
-	LanesExecuted     []RecallLane           `json:"lanes_executed"`
-	CandidateTraces   []RecallCandidateTrace `json:"candidate_traces"`
-	SelectedSet       []string               `json:"selected_set,omitempty"`
-	BudgetDrops       []RecallRejection      `json:"budget_drops,omitempty"`
-	DeliveredItems    []string               `json:"delivered_items,omitempty"`
-	Candidates        int                    `json:"candidates"`
-	FusionKept        int                    `json:"fusion_kept"`
-	PlannedNotes      int                    `json:"planned_notes"`
-	PlannedTokens     int                    `json:"planned_tokens"`
-	Rejections        []RecallRejection      `json:"rejections,omitempty"`
+	PlanVersion          string                 `json:"plan_version"`
+	ScoringVersion       string                 `json:"scoring_version"`
+	EvidenceThreshold    float64                `json:"evidence_threshold"`
+	Intent               RecallIntent           `json:"intent"`
+	LanesExecuted        []RecallLane           `json:"lanes_executed"`
+	CandidateTraces      []RecallCandidateTrace `json:"candidate_traces"`
+	PreBudgetSelectedSet []string               `json:"pre_budget_selected_set,omitempty"`
+	RelationEligibleSet  []string               `json:"relation_eligible_set,omitempty"`
+	SelectedSet          []string               `json:"selected_set,omitempty"`
+	BudgetDrops          []RecallRejection      `json:"budget_drops,omitempty"`
+	DeliveredItems       []string               `json:"delivered_items,omitempty"`
+	Candidates           int                    `json:"candidates"`
+	FusionKept           int                    `json:"fusion_kept"`
+	PlannedNotes         int                    `json:"planned_notes"`
+	PlannedTokens        int                    `json:"planned_tokens"`
+	Rejections           []RecallRejection      `json:"rejections,omitempty"`
 }
 
 // PlanRecall applies shared precision, ranking, relation, and budget policy to
@@ -116,6 +118,7 @@ func PlanRecall(candidates []RecallCandidate, request RecallRequest, policy Reca
 		}
 		if request.MaxItems > 0 && selectedNotes >= request.MaxItems {
 			for _, remaining := range ranked[index:] {
+				recordPreBudgetSelection(&trace, remaining.ID)
 				recordRecallRejection(&trace, RecallRejection{NoteID: remaining.ID, Reason: RejectMaxItems})
 			}
 			break
@@ -124,15 +127,12 @@ func PlanRecall(candidates []RecallCandidate, request RecallRequest, policy Reca
 			recordRecallRejection(&trace, RecallRejection{NoteID: candidate.ID, Reason: RejectDuplicate})
 			continue
 		}
+		recordPreBudgetSelection(&trace, candidate.ID)
 		remainingRelated := 0
 		if request.MaxItems > 0 {
 			remainingRelated = request.MaxItems - selectedNotes - 1
 		}
-		related := relevantRelatedNotes(
-			relatedNotes(candidate.Note, allNotes), request.Query, remainingRelated, request.MaxItems > 0,
-		)
-		related = excludeRecallIDs(related, trace.SelectedSet)
-		recordRecallRelations(&trace, candidate.Note, related)
+		related := planRecallRelated(&trace, candidate.Note, allNotes, request, remainingRelated)
 		text := FormatForRecallWithRelated(candidate.Note, related)
 		tokens := estimateTokens(text)
 		if policy.DegradeRelated && len(related) > 0 && usedTokens+tokens > request.TokenBudget {
@@ -158,6 +158,43 @@ func PlanRecall(candidates []RecallCandidate, request RecallRequest, policy Reca
 	trace.PlannedTokens = usedTokens
 	finalizeRecallTrace(&trace)
 	return planned, trace
+}
+
+func planRecallRelated(
+	trace *RecallTrace,
+	primary Note,
+	allNotes []Note,
+	request RecallRequest,
+	remaining int,
+) []Note {
+	allRelated := relatedNotes(primary, allNotes)
+	eligible := relevantRelatedNotes(allRelated, request.Query, 0, false)
+	eligible = excludeRecallIDs(eligible, trace.SelectedSet)
+	recordRecallRelations(trace, primary, eligible)
+	for _, note := range eligible {
+		recordPreBudgetSelection(trace, note.ID)
+	}
+	selected := relevantRelatedNotes(allRelated, request.Query, remaining, request.MaxItems > 0)
+	selected = excludeRecallIDs(selected, trace.SelectedSet)
+	if request.MaxItems <= 0 {
+		return selected
+	}
+	selectedIDs := noteIDSet(selected)
+	for _, dropped := range eligible {
+		if _, ok := selectedIDs[dropped.ID]; ok {
+			continue
+		}
+		recordRecallRejection(trace, RecallRejection{NoteID: dropped.ID, Reason: RejectMaxItems})
+	}
+	return selected
+}
+
+func noteIDSet(notes []Note) map[string]struct{} {
+	result := make(map[string]struct{}, len(notes))
+	for _, note := range notes {
+		result[note.ID] = struct{}{}
+	}
+	return result
 }
 
 func recallSourceNoteIDs(primary Note, related []Note) []string {

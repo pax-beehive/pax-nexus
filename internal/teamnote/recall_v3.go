@@ -506,7 +506,7 @@ func applyBoundedRecallLanes(trace *RecallTrace, lanes recallLaneSet) {
 		count := recallMatchedTermCount(trace.CandidateTraces, noteID)
 		addRecallLane(trace, noteID, RecallLaneLexical, fmt.Sprintf("bounded_lexical_candidate:matched_terms=%d", count))
 	}
-	for noteID := range lanes.semanticFallback {
+	for noteID := range lanes.semantic {
 		addRecallLane(trace, noteID, RecallLaneSemanticFallback, "bounded_semantic_candidate_generation")
 	}
 }
@@ -574,6 +574,7 @@ func markRecallEvidence(trace *RecallTrace, primary Note, related []Note) {
 
 func recordRecallRelations(trace *RecallTrace, primary Note, related []Note) {
 	for _, note := range related {
+		trace.RelationEligibleSet = appendRecallID(trace.RelationEligibleSet, note.ID)
 		addRecallLane(trace, note.ID, RecallLaneRelation, "one_hop_related_subject")
 		for index := range trace.CandidateTraces {
 			candidate := &trace.CandidateTraces[index]
@@ -583,6 +584,10 @@ func recordRecallRelations(trace *RecallTrace, primary Note, related []Note) {
 			}
 		}
 	}
+}
+
+func recordPreBudgetSelection(trace *RecallTrace, noteID string) {
+	trace.PreBudgetSelectedSet = appendRecallID(trace.PreBudgetSelectedSet, noteID)
 }
 
 func markRecallCandidateEvidence(trace *RecallTrace, noteID string) {
