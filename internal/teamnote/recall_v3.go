@@ -12,7 +12,7 @@ import (
 
 const (
 	GeneralRecallV3PlanVersion    = "general-recall-v3"
-	GeneralRecallV3ScoringVersion = "evidence-scorecard-v2-rerank-uncalibrated"
+	GeneralRecallV3ScoringVersion = "evidence-scorecard-v3-recency-rerank-uncalibrated"
 )
 
 // RecallMode is the temporal interpretation compiled from a recall query.

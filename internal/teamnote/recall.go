@@ -516,8 +516,8 @@ func sortRecallCandidates(candidates []RecallCandidate, request RecallRequest) {
 		// source provenance. Prefer candidates with stronger observable support
 		// before falling back to lexical fit so ranking does not over-select
 		// merely similar notes.
-		if candidates[left].evidenceConfidence != candidates[right].evidenceConfidence {
-			return candidates[left].evidenceConfidence > candidates[right].evidenceConfidence
+		if evidenceBefore(candidates[left], candidates[right]) {
+			return true
 		}
 		if candidates[left].exactMatch != candidates[right].exactMatch {
 			return candidates[left].exactMatch > candidates[right].exactMatch
@@ -545,6 +545,13 @@ func sortRecallCandidates(candidates []RecallCandidate, request RecallRequest) {
 		}
 		return candidates[left].ID < candidates[right].ID
 	})
+}
+
+func evidenceBefore(left, right RecallCandidate) bool {
+	if left.evidenceConfidence != right.evidenceConfidence {
+		return left.evidenceConfidence > right.evidenceConfidence
+	}
+	return left.SourceOccurredAt.After(right.SourceOccurredAt)
 }
 
 func queryIntentScore(note Note, query string) float64 {

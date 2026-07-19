@@ -111,3 +111,27 @@ does not yet justify adopting evidence confidence as a stronger global ranking
 feature. The next useful experiment is an independent cohort with deliberately
 conflicting lexical similarity, evidence strength, source recency, and
 supersession so the reranker has a measurable decision boundary.
+
+## Strategy trial: evidence-aware recency tie-break — 2026-07-18
+
+The reranker now uses `SourceOccurredAt` as a deterministic tie-break after
+evidence confidence and before lexical fallback. Temporal hard-gates remain
+unchanged, so a newer note cannot bypass an `as_of` or `current` validity rule.
+
+The same 50-replay baseline was rerun:
+
+| Metric | Evidence rerank | Evidence + recency |
+| --- | ---: | ---: |
+| Candidate recall@limit | 1.000 | 1.000 |
+| Delivered eligible recall | 1.000 | 1.000 |
+| Relation-expanded recall | 1.000 | 1.000 |
+| Selected-set recall | 1.000 | 1.000 |
+| Mean context precision | 0.134 | 0.134 |
+| Planner p95 | 2.92 ms | 2.45 ms |
+| Superseded leakage | 0 | 0 |
+| Budget drops | 0 | 0 |
+
+This remains behavior-preserving for quality on the repeated cohort. It is a
+safe tie-break and slightly faster in this run, but should not be treated as a
+quality improvement until an independent cohort contains conflicting source
+recency and lexical/evidence scores.
