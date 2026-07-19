@@ -79,6 +79,7 @@ func Run(set FixtureSet, policy Policy) (Report, error) {
 		request := replayCase.recallRequest()
 		recallPolicy := teamnote.RecallPolicy{
 			SemanticThreshold: policy.SemanticThreshold, CandidateLimit: policy.CandidateLimit,
+			HintThreshold: policy.HintThreshold, EnableHintRecall: policy.EnableHintRecall,
 			SuppressDuplicates: policy.SuppressDuplicates, DegradeRelated: policy.DegradeRelated,
 			DisableRelationMarginalUtility: policy.DisableRelationMarginalUtility,
 			ObservationTime:                replayCase.ObservationTime,

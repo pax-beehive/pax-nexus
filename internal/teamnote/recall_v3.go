@@ -59,6 +59,7 @@ type RecallDisposition string
 
 const (
 	RecallDispositionEvidence RecallDisposition = "evidence"
+	RecallDispositionHint     RecallDisposition = "hint"
 	RecallDispositionSuppress RecallDisposition = "suppress"
 )
 
@@ -95,6 +96,8 @@ type RecallCandidateTrace struct {
 	TemporalResolution RecallTemporalResolution  `json:"temporal_resolution"`
 	ScoreContributions []RecallScoreContribution `json:"score_contributions,omitempty"`
 	EvidenceConfidence float64                   `json:"evidence_confidence"`
+	HintUtility        float64                   `json:"hint_utility,omitempty"`
+	FocusedQuery       string                    `json:"focused_query,omitempty"`
 	RoutingAffinity    int                       `json:"routing_affinity"`
 	Disposition        RecallDisposition         `json:"disposition"`
 	RejectionReason    RecallRejectReason        `json:"rejection_reason,omitempty"`

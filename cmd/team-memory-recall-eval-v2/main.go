@@ -109,7 +109,21 @@ func runReplayGate(config recallv2.Config) error {
 	if err := os.MkdirAll(directory, 0o755); err != nil {
 		return fmt.Errorf("create recall eval v2 replay output: %w", err)
 	}
-	return writeJSON(filepath.Join(directory, "summary.json"), report)
+	if err := writeJSON(filepath.Join(directory, "summary.json"), report); err != nil {
+		return err
+	}
+	hintFixtures, err := recallreplay.LoadFixtureSet(config.Recall.HintReplay)
+	if err != nil {
+		return err
+	}
+	hintReport, err := recallreplay.Run(hintFixtures, hintFixtures.Policy)
+	if err != nil {
+		return err
+	}
+	if err := recallv2.ValidateHintReplayReport(hintReport); err != nil {
+		return err
+	}
+	return writeJSON(filepath.Join(directory, "hint-summary.json"), hintReport)
 }
 
 func writeJSON(path string, value any) error {

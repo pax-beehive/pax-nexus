@@ -50,7 +50,9 @@ type Provenance struct {
 // Policy is the recall policy captured at export time.
 type Policy struct {
 	SemanticThreshold              float64 `json:"semantic_threshold"`
+	HintThreshold                  float64 `json:"hint_threshold,omitempty"`
 	CandidateLimit                 int     `json:"candidate_limit"`
+	EnableHintRecall               bool    `json:"enable_hint_recall,omitempty"`
 	SuppressDuplicates             bool    `json:"suppress_duplicates,omitempty"`
 	DegradeRelated                 bool    `json:"degrade_related,omitempty"`
 	DisableRelationMarginalUtility bool    `json:"disable_relation_marginal_utility,omitempty"`

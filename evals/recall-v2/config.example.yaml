@@ -1,10 +1,10 @@
 version: recall-v2
 run:
-  id: groupmembench-finance-recall-v2
+  id: groupmembench-finance-recall-v2-hint-v0-fixed-r5
   dataset: GroupMemBench
   manifest: runs/groupmembench-v3-selection/manifest.json
-  output_dir: runs/recall-v2/groupmembench-finance-recall-v2
-  parallelism: 4
+  output_dir: runs/recall-v2/groupmembench-finance-recall-v2-hint-v0-fixed-r5
+  parallelism: 2
 store:
   dsn_env: EVAL_V2_POSTGRES_DSN
 baseline_arm: no_memory
@@ -26,6 +26,7 @@ output:
   formats: [csv, jsonl, html]
 recall:
   deterministic_replay: evals/recall-v2/groupmembench-finance-hard34-replay-v1.json
+  hint_replay: evals/recall-v2/groupmembench-finance-hint12-replay-v1.json
   case_annotations: evals/recall-v2/groupmembench-finance-hard30-agent-annotations-v1.json
   min_replay_cases: 30
   min_agent_cases: 30
@@ -33,9 +34,8 @@ recall:
 before_run:
   program: scripts/recall-eval-v2-opencode.sh
   args: [ingest-domain, all]
-preflight:
-  program: scripts/recall-eval-v2-opencode.sh
-  args: [preflight, all]
+  env:
+    PAX_EVAL_CASE_ANNOTATIONS: evals/recall-v2/groupmembench-finance-hard30-agent-annotations-v1.json
 judge:
   program: scripts/eval-v2-judge.sh
 arms:
@@ -43,7 +43,17 @@ arms:
     consumer:
       program: scripts/recall-eval-v2-opencode.sh
       args: [consumer, no_memory]
+      env:
+        PAXM_PASSIVE_PROVIDER_TIMEOUT_OVERRIDE: 10s
   - name: team_note
     consumer:
       program: scripts/recall-eval-v2-opencode.sh
       args: [consumer, team_note]
+      env:
+        PAXM_PASSIVE_PROVIDER_TIMEOUT_OVERRIDE: 10s
+  - name: hint_recall_v0
+    consumer:
+      program: scripts/recall-eval-v2-opencode.sh
+      args: [consumer, hint_recall_v0]
+      env:
+        PAXM_PASSIVE_PROVIDER_TIMEOUT_OVERRIDE: 10s

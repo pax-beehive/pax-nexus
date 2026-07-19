@@ -23,10 +23,13 @@ const (
 )
 
 type RetrievalConfig struct {
-	Embedder          textembedding.Embedder
-	EmbeddingModel    string
-	SemanticThreshold float64
-	CandidateLimit    int
+	Embedder              textembedding.Embedder
+	EmbeddingModel        string
+	SemanticThreshold     float64
+	HintSemanticThreshold float64
+	HintThreshold         float64
+	CandidateLimit        int
+	HintRecallEnabled     bool
 }
 
 type recallSnapshotItem struct {
@@ -63,6 +66,12 @@ func NewNoteStore(store *Store, policy teamnote.TTLPolicy, clock teamnote.Clock,
 	}
 	if retrieval.SemanticThreshold < 0 || retrieval.SemanticThreshold > 1 {
 		return nil, fmt.Errorf("create postgres note store: semantic threshold must be between zero and one")
+	}
+	if retrieval.HintSemanticThreshold == 0 {
+		retrieval.HintSemanticThreshold = retrieval.SemanticThreshold
+	}
+	if retrieval.HintSemanticThreshold < 0 || retrieval.HintSemanticThreshold > 1 {
+		return nil, fmt.Errorf("create postgres note store: hint semantic threshold must be between zero and one")
 	}
 	if retrieval.CandidateLimit == 0 {
 		retrieval.CandidateLimit = defaultCandidateLimit
@@ -281,13 +290,26 @@ func (s *NoteStore) RecallNotes(ctx context.Context, scopeID string, request tea
 		return teamnote.NoteEnvelope{}, err
 	}
 	planned, trace := teamnote.PlanRecall(eligible, request, teamnote.RecallPolicy{
-		SemanticThreshold:  s.retrieval.SemanticThreshold,
-		CandidateLimit:     s.retrieval.CandidateLimit,
-		ObservationTime:    observationTime,
-		SuppressDuplicates: true,
-		DegradeRelated:     true,
+		SemanticThreshold:     s.retrieval.SemanticThreshold,
+		HintSemanticThreshold: s.retrieval.HintSemanticThreshold,
+		HintThreshold:         s.retrieval.HintThreshold,
+		CandidateLimit:        s.retrieval.CandidateLimit,
+		ObservationTime:       observationTime,
+		SuppressDuplicates:    true,
+		DegradeRelated:        true,
+		EnableHintRecall:      s.retrieval.HintRecallEnabled,
 	})
 	for _, delivery := range planned {
+		if !delivery.ClaimNoteDelivery {
+			claimed, err := insertHintDelivery(ctx, tx, scopeID, delivery, request.Actor)
+			if err != nil {
+				return teamnote.NoteEnvelope{}, err
+			}
+			if claimed {
+				teamnote.AppendPlannedHint(&envelope, delivery)
+			}
+			continue
+		}
 		claimed, err := insertDelivery(ctx, tx, scopeID, delivery.Note, request.Actor, delivery.Tokens)
 		if err != nil {
 			return teamnote.NoteEnvelope{}, err
@@ -925,6 +947,19 @@ INSERT INTO note_deliveries (
 ON CONFLICT DO NOTHING`, scopeID, note.ID, note.Revision, actor.UserID, actor.AgentID, actor.SessionID, tokens)
 	if err != nil {
 		return false, fmt.Errorf("save note delivery: %w", err)
+	}
+	return result.RowsAffected() == 1, nil
+}
+
+func insertHintDelivery(ctx context.Context, tx pgx.Tx, scopeID string, planned teamnote.PlannedRecall, actor teamnote.Actor) (bool, error) {
+	result, err := tx.Exec(ctx, `
+INSERT INTO recall_hint_deliveries (
+    scope_id, lead_fingerprint, lead_note_id, recipient_user_id,
+    recipient_agent_id, recipient_session_id, context_tokens
+) VALUES ($1, $2, $3, $4, $5, $6, $7)
+ON CONFLICT DO NOTHING`, scopeID, planned.HintFingerprint, planned.Note.ID, actor.UserID, actor.AgentID, actor.SessionID, planned.Tokens)
+	if err != nil {
+		return false, fmt.Errorf("save recall hint delivery: %w", err)
 	}
 	return result.RowsAffected() == 1, nil
 }

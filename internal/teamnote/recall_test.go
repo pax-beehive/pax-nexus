@@ -59,6 +59,85 @@ func (s *recallSuite) TestPlanRecallTraceRecordsStageRejections() {
 		}
 	})
 
+	s.Run("hint policy exposes a safe active recall lead without candidate claims", func() {
+		semantic := 0.9
+		candidate := recallCandidate(
+			"note-semantic", "delta epsilon", "Internal claim that must never be copied into a hint.", 0, &semantic,
+		)
+		hintPolicy := policy
+		hintPolicy.EnableHintRecall = true
+		hintPolicy.HintThreshold = 0.65
+
+		planned, trace := teamnote.PlanRecall([]teamnote.RecallCandidate{candidate}, request, hintPolicy)
+
+		s.Require().Len(planned, 1)
+		s.Equal(teamnote.RecallDispositionHint, planned[0].Disposition)
+		s.False(planned[0].ClaimNoteDelivery)
+		s.Contains(planned[0].Text, "[Recall hint - not evidence]")
+		s.Contains(planned[0].Text, `active_recall with: "`)
+		s.NotContains(planned[0].Text, candidate.Body)
+		s.Equal(teamnote.RecallDispositionHint, candidateTraceByID(s, trace.CandidateTraces, candidate.ID).Disposition)
+		s.Empty(trace.DeliveredItems)
+		envelope := teamnote.NoteEnvelope{}
+		teamnote.AppendPlannedHint(&envelope, planned[0])
+		s.Empty(envelope.Details)
+		s.Contains(envelope.Revision, "hint:")
+	})
+
+	s.Run("hint candidate lane does not widen evidence retrieval", func() {
+		semantic := 0.30
+		candidate := recallCandidate("note-low-semantic", "delta", "A safe navigation lead.", 0, &semantic)
+		hintPolicy := policy
+		hintPolicy.EnableHintRecall = true
+		hintPolicy.HintSemanticThreshold = 0.20
+		hintPolicy.HintThreshold = 0.55
+
+		planned, trace := teamnote.PlanRecall([]teamnote.RecallCandidate{candidate}, request, hintPolicy)
+
+		s.Require().Len(planned, 1)
+		s.Equal(teamnote.RecallDispositionHint, planned[0].Disposition)
+		s.NotContains(trace.SelectedSet, candidate.ID)
+		s.Empty(trace.DeliveredItems)
+	})
+
+	s.Run("hint is suppressed when the envelope already has evidence", func() {
+		evidenceSemantic := 0.95
+		hintSemantic := 0.30
+		evidence := recallCandidate("note-evidence", "alpha beta gamma", "Confirmed delivery evidence.", 3, &evidenceSemantic)
+		hintLead := recallCandidate("note-hint", "delta epsilon", "A safe navigation lead.", 0, &hintSemantic)
+		hintPolicy := policy
+		hintPolicy.EnableHintRecall = true
+		hintPolicy.HintSemanticThreshold = 0.20
+		hintPolicy.HintThreshold = 0.55
+
+		planned, _ := teamnote.PlanRecall([]teamnote.RecallCandidate{evidence, hintLead}, request, hintPolicy)
+
+		s.Require().Len(planned, 1)
+		s.Equal(teamnote.RecallDispositionEvidence, planned[0].Disposition)
+		s.True(planned[0].ClaimNoteDelivery)
+	})
+
+	s.Run("hint policy never bypasses authorization provenance or temporal gates", func() {
+		semantic := 0.99
+		base := recallCandidate("note-lead", "delta epsilon", "A possible search lead.", 0, &semantic)
+		future := base
+		future.ID = "note-future"
+		validAt := future.SourceOccurredAt.Add(24 * time.Hour)
+		future.ValidAt = &validAt
+		unproven := base
+		unproven.ID = "note-unproven"
+		unproven.EvidenceEventIDs = nil
+		hintPolicy := policy
+		hintPolicy.EnableHintRecall = true
+		hintPolicy.ObservationTime = base.SourceOccurredAt
+
+		planned, trace := teamnote.PlanRecall([]teamnote.RecallCandidate{future, unproven}, request, hintPolicy)
+
+		s.Empty(planned)
+		s.Equal(teamnote.RecallDispositionSuppress, candidateTraceByID(s, trace.CandidateTraces, future.ID).Disposition)
+		s.Equal(teamnote.RecallDispositionSuppress, candidateTraceByID(s, trace.CandidateTraces, unproven.ID).Disposition)
+	})
+
 	s.Run("semantic blocker requires query-specific support", func() {
 		semantic := 0.99
 		candidate := recallCandidate("note-unrelated-blocker", "payroll migration", "Payroll is blocked on vendor access.", 0, &semantic)

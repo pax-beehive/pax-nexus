@@ -43,6 +43,8 @@ func run(args []string, stdout io.Writer) error {
 	dedup := flags.Bool("dedup", false, "Suppress near-duplicate facts during selection")
 	degradeRelated := flags.Bool("degrade-related", false, "Fall back to the note without its related block when over budget")
 	disableRelationUtility := flags.Bool("disable-relation-marginal-utility", false, "Restore legacy packing of every query-relevant relation")
+	enableHintRecall := flags.Bool("enable-hint-recall", false, "Enable evaluation-only Hint Recall v0 planning")
+	hintThreshold := flags.Float64("hint-threshold", 0.65, "Hint utility threshold")
 	outputPath := flags.String("output", "", "Replay fixture output path for export mode")
 	outputDirectory := flags.String("output-dir", "", "Output directory for replay mode")
 	if err := flags.Parse(args); err != nil {
@@ -53,14 +55,15 @@ func run(args []string, stdout io.Writer) error {
 			*semanticThreshold, *candidateLimit, *outputPath, stdout)
 	}
 	return runReplay(*replayFixturePath, *semanticThreshold, *candidateLimit, *dedup, *degradeRelated,
-		*disableRelationUtility, *outputDirectory, stdout)
+		*disableRelationUtility, *enableHintRecall, *hintThreshold, *outputDirectory, stdout)
 }
 
 func runReplay(
 	fixturePath string,
 	threshold float64,
 	limit int,
-	dedup, degradeRelated, disableRelationUtility bool,
+	dedup, degradeRelated, disableRelationUtility, enableHintRecall bool,
+	hintThreshold float64,
 	outputDirectory string,
 	stdout io.Writer,
 ) error {
@@ -75,6 +78,7 @@ func runReplay(
 		SemanticThreshold: threshold, CandidateLimit: limit,
 		SuppressDuplicates: dedup, DegradeRelated: degradeRelated,
 		DisableRelationMarginalUtility: disableRelationUtility,
+		EnableHintRecall:               enableHintRecall, HintThreshold: hintThreshold,
 	})
 	if err != nil {
 		return err

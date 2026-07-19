@@ -23,6 +23,7 @@ const (
 	ConfigVersion = "recall-v2"
 	ArmNoMemory   = "no_memory"
 	ArmTeamNote   = "team_note"
+	ArmHintRecall = "hint_recall_v0"
 )
 
 type Config struct {
@@ -32,6 +33,7 @@ type Config struct {
 
 type ProtocolConfig struct {
 	DeterministicReplay string `json:"deterministic_replay" yaml:"deterministic_replay"`
+	HintReplay          string `json:"hint_replay" yaml:"hint_replay"`
 	CaseAnnotations     string `json:"case_annotations" yaml:"case_annotations"`
 	MinReplayCases      int    `json:"min_replay_cases" yaml:"min_replay_cases"`
 	MinAgentCases       int    `json:"min_agent_cases" yaml:"min_agent_cases"`
@@ -72,13 +74,23 @@ func LoadConfig(path string) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	hintReplayDigest, err := fileDigest(config.Recall.HintReplay)
+	if err != nil {
+		return Config{}, err
+	}
 	annotationDigest, err := fileDigest(config.Recall.CaseAnnotations)
+	if err != nil {
+		return Config{}, err
+	}
+	manifestDigest, err := fileDigest(config.Run.Manifest)
 	if err != nil {
 		return Config{}, err
 	}
 	config.ProtocolMetadata = map[string]string{
 		"protocol": ConfigVersion, "deterministic_replay_sha256": replayDigest,
 		"case_annotations_sha256": annotationDigest,
+		"hint_replay_sha256":      hintReplayDigest,
+		"agent_manifest_sha256":   manifestDigest,
 		"min_replay_cases":        fmt.Sprintf("%d", config.Recall.MinReplayCases),
 		"min_agent_cases":         fmt.Sprintf("%d", config.Recall.MinAgentCases),
 		"max_agent_cases":         fmt.Sprintf("%d", config.Recall.MaxAgentCases),
@@ -288,6 +300,9 @@ func Validate(config Config) error {
 	if strings.TrimSpace(config.Recall.DeterministicReplay) == "" {
 		return fmt.Errorf("validate recall eval v2 config: recall.deterministic_replay is required")
 	}
+	if strings.TrimSpace(config.Recall.HintReplay) == "" {
+		return fmt.Errorf("validate recall eval v2 config: recall.hint_replay is required")
+	}
 	if strings.TrimSpace(config.Recall.CaseAnnotations) == "" {
 		return fmt.Errorf("validate recall eval v2 config: recall.case_annotations is required")
 	}
@@ -302,10 +317,27 @@ func Validate(config Config) error {
 		names = append(names, arm.Name)
 	}
 	slices.Sort(names)
-	want := []string{ArmNoMemory, ArmTeamNote}
+	want := []string{ArmNoMemory, ArmTeamNote, ArmHintRecall}
 	slices.Sort(want)
 	if !slices.Equal(names, want) {
-		return fmt.Errorf("validate recall eval v2 config: arms must be %s and %s", ArmNoMemory, ArmTeamNote)
+		return fmt.Errorf("validate recall eval v2 config: arms must be %s, %s, and %s", ArmNoMemory, ArmTeamNote, ArmHintRecall)
+	}
+	return nil
+}
+
+func ValidateHintReplayReport(report recallreplay.Report) error {
+	hint := report.HintEval
+	if !hint.HintScored || hint.ScoredOpportunities < 12 {
+		return fmt.Errorf("validate Hint Recall replay: require at least 12 scored opportunities")
+	}
+	if hint.HintPrecision < 0.80 || hint.HintRecall < 0.90 {
+		return fmt.Errorf("validate Hint Recall replay: precision %.3f or recall %.3f is below gate", hint.HintPrecision, hint.HintRecall)
+	}
+	if hint.UnauthorizedLeakageItems+hint.UnauthorizedLeadInfluence+hint.WrongTimeLeakageItems+
+		hint.WrongTimeLeadInfluence+hint.FutureLeakageItems+hint.FutureLeadInfluence+
+		hint.ForbiddenLeakageItems+hint.SupersededLeakageItems+hint.ProvenanceErrors+
+		hint.IdentityErrors+hint.TemporalPreservationErrors+hint.DeliveryClaimViolations > 0 {
+		return fmt.Errorf("validate Hint Recall replay: safety, identity, temporal, provenance, or delivery violation")
 	}
 	return nil
 }

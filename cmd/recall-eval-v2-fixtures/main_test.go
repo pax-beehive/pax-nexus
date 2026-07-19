@@ -15,10 +15,10 @@ func TestCommandSuite(t *testing.T) {
 }
 
 func (s *commandSuite) TestRunValidatesInputsAndManifest() {
-	s.Require().ErrorContains(run("", "", "", ""), "manifest, output, replay-output, and relation-fixtures are required")
+	s.Require().ErrorContains(run("", "", "", "", ""), "hint-replay-output")
 	directory := s.T().TempDir()
 	s.Require().ErrorContains(run(
 		filepath.Join(directory, "missing.json"), filepath.Join(directory, "stage.json"),
-		filepath.Join(directory, "replay.json"), filepath.Join(directory, "relations.json"),
+		filepath.Join(directory, "replay.json"), filepath.Join(directory, "hint.json"), filepath.Join(directory, "relations.json"),
 	), "read recall eval v2 source manifest")
 }

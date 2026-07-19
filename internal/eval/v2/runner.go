@@ -538,15 +538,19 @@ func (r *Runner) runConsumer(ctx context.Context, spec CommandSpec, variables ma
 }
 
 type recallDiagnostics struct {
-	Observed      bool
-	Success       bool
-	ProviderCalls int
-	Providers     map[string]int
-	Candidates    int
-	Eligible      int
-	Hits          int
-	Inserted      int
-	DurationMS    int64
+	Observed       bool
+	Success        bool
+	ProviderCalls  int
+	Providers      map[string]int
+	Candidates     int
+	Eligible       int
+	Hits           int
+	Inserted       int
+	DurationMS     int64
+	ActiveObserved bool
+	ActiveSuccess  bool
+	ActiveCalls    int
+	ProviderType   string
 }
 
 type recallDiagnosticEvent struct {
@@ -555,6 +559,8 @@ type recallDiagnosticEvent struct {
 	DurationMS            int64          `json:"duration_ms"`
 	HitCount              int            `json:"hit_count"`
 	InsertedCount         int            `json:"inserted_count"`
+	CallCount             int            `json:"call_count"`
+	ProviderType          string         `json:"provider_type"`
 	ProviderRecalls       map[string]int `json:"provider_recalls"`
 	ProviderHits          map[string]int `json:"provider_hits"`
 	ProviderRecallDetails []struct {
@@ -581,16 +587,30 @@ func loadRecallDiagnostics(path string) (recallDiagnostics, error) {
 		var header struct {
 			Kind string `json:"kind"`
 		}
-		if json.Unmarshal(line, &header) != nil || header.Kind != "hook_recall" {
+		if json.Unmarshal(line, &header) != nil || (header.Kind != "hook_recall" && header.Kind != "hook_active_recall" && header.Kind != "hook_provider_config") {
 			continue
 		}
 		var event recallDiagnosticEvent
 		if err := json.Unmarshal(line, &event); err != nil {
 			return diagnostics, fmt.Errorf("decode consumer recall diagnostics: %w", err)
 		}
+		if event.Kind == "hook_active_recall" {
+			diagnostics.addActive(event)
+			continue
+		}
+		if event.Kind == "hook_provider_config" {
+			diagnostics.ProviderType = event.ProviderType
+			continue
+		}
 		diagnostics.add(event)
 	}
 	return diagnostics, nil
+}
+
+func (diagnostics *recallDiagnostics) addActive(event recallDiagnosticEvent) {
+	diagnostics.ActiveObserved = true
+	diagnostics.ActiveSuccess = diagnostics.ActiveSuccess || event.Success
+	diagnostics.ActiveCalls += event.CallCount
 }
 
 func (diagnostics *recallDiagnostics) add(event recallDiagnosticEvent) {
@@ -628,11 +648,15 @@ func withRecallDiagnostics(result TrialResult, diagnostics recallDiagnostics) Tr
 	result.MemoryRecallSuccess = diagnostics.Success
 	result.MemoryRecallProviderCalls = diagnostics.ProviderCalls
 	result.MemoryRecallProviders = maps.Clone(diagnostics.Providers)
+	result.MemoryRecallProviderType = diagnostics.ProviderType
 	result.MemoryRecallCandidates = diagnostics.Candidates
 	result.MemoryRecallEligible = diagnostics.Eligible
 	result.MemoryRecallHits = diagnostics.Hits
 	result.MemoryContextItems = diagnostics.Inserted
 	result.MemoryRecallDurationMS = diagnostics.DurationMS
+	result.ActiveRecallObserved = diagnostics.ActiveObserved
+	result.ActiveRecallSuccess = diagnostics.ActiveSuccess
+	result.ActiveRecallCalls = diagnostics.ActiveCalls
 	return result
 }
 

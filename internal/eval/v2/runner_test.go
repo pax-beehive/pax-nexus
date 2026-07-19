@@ -229,6 +229,8 @@ func (s *runnerSuite) TestRunPersistsConsumerRecallDiagnostics() {
 	store := newFakeStore()
 	executor := &fakeExecutor{consumerStderr: []byte(`docker noise
 {"kind":"hook_recall","success":true,"duration_ms":274,"hit_count":3,"inserted_count":2,"provider_recalls":{"memory":1},"provider_hits":{"memory":3},"provider_recall_details":[{"provider":"memory","candidate_count":5,"eligible_count":4}]}
+{"kind":"hook_active_recall","success":true,"call_count":1}
+{"kind":"hook_provider_config","provider_type":"team-memory"}
 `)}
 	runner, err := NewRunner(store, executor, nil)
 	s.Require().NoError(err)
@@ -242,11 +244,14 @@ func (s *runnerSuite) TestRunPersistsConsumerRecallDiagnostics() {
 	s.True(result.MemoryRecallSuccess)
 	s.Equal(1, result.MemoryRecallProviderCalls)
 	s.Equal(map[string]int{"memory": 1}, result.MemoryRecallProviders)
+	s.Equal("team-memory", result.MemoryRecallProviderType)
 	s.Equal(5, result.MemoryRecallCandidates)
 	s.Equal(4, result.MemoryRecallEligible)
 	s.Equal(3, result.MemoryRecallHits)
 	s.Equal(2, result.MemoryContextItems)
 	s.Equal(int64(274), result.MemoryRecallDurationMS)
+	s.True(result.ActiveRecallObserved)
+	s.Equal(1, result.ActiveRecallCalls)
 }
 
 func (s *runnerSuite) TestSharedProducerFailureIsReusedAcrossDependentArms() {

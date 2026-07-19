@@ -266,6 +266,48 @@ func (s *noteStoreSuite) TestReplayScopeAudienceAndTTL() {
 	s.Empty(expired.Items)
 }
 
+func (s *noteStoreSuite) TestHintRecallDoesNotClaimLeadAndFocusedRecallReturnsEvidence() {
+	ctx := context.Background()
+	scopeID := uniqueScope("hint-recall")
+	producer := teamnote.Actor{UserID: "owner", AgentID: "producer", SessionID: "producer-session"}
+	consumer := teamnote.Actor{UserID: "owner", AgentID: "consumer", SessionID: "consumer-session"}
+	evidence := event("hint-event", producer, 1)
+	s.appendEvents(ctx, scopeID, evidence)
+	notes, err := postgres.NewNoteStore(s.store, teamnote.DefaultTTLPolicy(), s.clock, postgres.RetrievalConfig{
+		Embedder: allSemanticEmbedder{}, EmbeddingModel: "test-embedding", SemanticThreshold: 0.65,
+		CandidateLimit: 16, HintRecallEnabled: true, HintThreshold: 0.65,
+	})
+	s.Require().NoError(err)
+	lead := candidate("hint-lead", teamnote.ActionCreate, "Internal candidate claim.", producer, evidence.ID)
+	lead.Subject = "delta epsilon"
+	_, err = notes.ApplyCandidate(ctx, scopeID, "hint-run", lead, []teamnote.SessionEvent{evidence})
+	s.Require().NoError(err)
+
+	passive, err := notes.RecallNotes(ctx, scopeID, teamnote.RecallRequest{
+		Actor: consumer, Query: "alpha beta gamma", TaskRef: "task-1", TokenBudget: 200, MaxItems: 2,
+	})
+	s.Require().NoError(err)
+	s.Require().Len(passive.Items, 1)
+	s.Contains(passive.Items[0], "[Recall hint - not evidence]")
+	s.NotContains(passive.Items[0], lead.Body)
+	s.Empty(passive.Details)
+	s.Contains(passive.Revision, "hint:")
+
+	duplicate, err := notes.RecallNotes(ctx, scopeID, teamnote.RecallRequest{
+		Actor: consumer, Query: "alpha beta gamma", TaskRef: "task-1", TokenBudget: 200, MaxItems: 2,
+	})
+	s.Require().NoError(err)
+	s.Empty(duplicate.Items)
+
+	focused, err := notes.RecallNotes(ctx, scopeID, teamnote.RecallRequest{
+		Actor: consumer, Query: "alpha beta gamma related topic delta epsilon", TaskRef: "task-1", TokenBudget: 200, MaxItems: 2,
+	})
+	s.Require().NoError(err)
+	s.Require().Len(focused.Items, 1)
+	s.Contains(focused.Items[0], lead.Body)
+	s.Require().Len(focused.Details, 1)
+}
+
 func (s *noteStoreSuite) TestRecallEvalUnauthorizedNoteHasZeroInfluenceThroughRecallNotes() {
 	ctx := context.Background()
 	baselineScope := uniqueScope("recall-contract-baseline")
@@ -819,6 +861,17 @@ func (semanticEmbedder) Embed(_ context.Context, texts []string) ([][]float32, e
 			vector[1] = 1
 		}
 		result = append(result, vector)
+	}
+	return result, nil
+}
+
+type allSemanticEmbedder struct{}
+
+func (allSemanticEmbedder) Embed(_ context.Context, texts []string) ([][]float32, error) {
+	result := make([][]float32, len(texts))
+	for index := range result {
+		result[index] = make([]float32, postgres.EmbeddingDimensions)
+		result[index][0] = 1
 	}
 	return result, nil
 }

@@ -50,13 +50,15 @@ fewer than 30 unique Cases, or fails its configured policy gate.
 
 ### Gate 2: production recall consumed by a real Agent
 
-The Agent cohort contains 30 to 50 unique questions and uses full-domain memory
-constructed independently of each question. Each paired Trial receives an
-isolated external Agent session. The two initial Arms are:
+The Agent cohort contains 30 to 50 unique questions. Each paired Trial receives
+an isolated external Agent session. The three initial Arms are:
 
 - `no_memory`, which measures what the same Agent can answer without recall;
 - `team_note`, which forces the production `team-memory` provider and passive
   recall path before the Agent answers.
+- `hint_recall_v0`, which uses an isolated Team Memory service with the Hint
+  candidate enabled and permits the same Agent to call the existing bounded
+  `active_recall` tool only after a labelled hint is exposed.
 
 The Team Note Arm is scored only when all of the following evidence exists:
 
@@ -74,6 +76,41 @@ unscored protocol failure. `recall-agent-report.json` records every Trial's
 disposition and reason, Agent execution coverage, judged candidate accuracy,
 and paired wins, losses, and ties. Generic Token F1 remains diagnostic only.
 
+The Hint Arm is unscored when its passive recall or `team` provider evidence is
+missing, or when the Agent container does not emit active-recall
+instrumentation. Zero active calls is a valid measured outcome; a positive
+call count proves the actual Agent used the existing tool rather than the eval
+runner calling recall directly.
+
+The first Hint Recall activation run uses a fixed persisted-note observation
+rather than re-running extraction over the 30,000-message source corpus. A
+replayable seeder writes one non-evidentiary navigation lead and one separately
+retrievable evidence Note per Case through `ApplyExtractionRun`, including the
+source Agent, original user, observation time, and evidence event. Both Team
+Note Arms share that scope; only the planner configuration differs. The normal
+service keeps Hint Recall disabled, while the isolated Hint service uses the
+candidate thresholds under test. The Agent still reaches both services through
+the production HTTP provider and can obtain the evidence only through its real
+bounded `active_recall` tool.
+
+The observation time is pinned to `2026-07-18T00:00:00Z`; Eval-only leases
+keep the resulting Notes recallable without changing production TTL policy.
+Each extraction input checksum covers its candidate, source time, and evidence
+event. The seed receipt records the canonical observation, Agent manifest, and
+annotation SHA-256 digests, and the artifact manifest links that receipt.
+
+This fixed-observation run measures hint exposure, Agent activation, focused
+retrieval, and answer effect. Because the evidence Notes are constructed from
+gold answers, its judge accuracy is not a GroupMemBench benchmark-quality
+claim. A full-domain run remains a separate end-to-end extraction-plus-recall
+gate and must not be used to attribute a recall change without first proving
+that the required atom was extracted.
+
+Hint-candidate generation has its own semantic threshold. Lowering it must not
+admit ordinary evidence below the production evidence semantic threshold; the
+trace must retain those candidates outside `SelectedSet` and `DeliveredItems`
+unless a focused active query independently makes them evidence-eligible.
+
 ### Identity, knowledge source, and time
 
 The original Asking User and a deterministically selected Answering Agent are
@@ -83,8 +120,8 @@ artifact separately reports participant coverage, identity-dependent Cases,
 reviewed Knowledge Source coverage, and strict cross-agent coverage; unknown
 source identity is never presented as strict cross-agent evidence.
 
-Every Agent session receives the same full-domain history and run-scoped Team
-Note namespace, while each Trial has a fresh delivery session. Temporal and
+Every Agent session receives the same run-scoped fixed observation, while each
+Trial has a fresh delivery session. Temporal and
 knowledge-update categories remain visible slices. Deterministic replay pins
 Observation Time and candidate validity; future and invalid candidates are
 expected to be rejected before selection. A later reviewed cohort should add

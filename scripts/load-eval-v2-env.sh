@@ -6,12 +6,25 @@ case "$-" in
 esac
 
 [ ! -f .env ] || . ./.env
-[ ! -f "${EVAL_V2_ENV_FILE:-.env.eval-v2}" ] || . "${EVAL_V2_ENV_FILE:-.env.eval-v2}"
+eval_v2_env_file="${EVAL_V2_ENV_FILE:-.env.eval-v2}"
+case "${eval_v2_env_file}" in
+  /*|./*|../*) ;;
+  *) eval_v2_env_file="./${eval_v2_env_file}" ;;
+esac
+[ ! -f "${eval_v2_env_file}" ] || . "${eval_v2_env_file}"
+
+[ -z "${PAXM_SOURCE_DIR_OVERRIDE:-}" ] || PAXM_SOURCE_DIR="${PAXM_SOURCE_DIR_OVERRIDE}"
+[ -z "${PAXM_EXPECTED_VERSION_OVERRIDE:-}" ] || PAXM_EXPECTED_VERSION="${PAXM_EXPECTED_VERSION_OVERRIDE}"
+[ -z "${EVAL_V2_POSTGRES_PORT_OVERRIDE:-}" ] || EVAL_V2_POSTGRES_PORT="${EVAL_V2_POSTGRES_PORT_OVERRIDE}"
+[ -z "${EVAL_V2_POSTGRES_DSN_OVERRIDE:-}" ] || EVAL_V2_POSTGRES_DSN="${EVAL_V2_POSTGRES_DSN_OVERRIDE}"
+[ -z "${TEAM_MEMORY_EXTRACTOR_MODE_OVERRIDE:-}" ] || TEAM_MEMORY_EXTRACTOR_MODE="${TEAM_MEMORY_EXTRACTOR_MODE_OVERRIDE}"
+[ -z "${PAXM_PASSIVE_PROVIDER_TIMEOUT_OVERRIDE:-}" ] || PAXM_PASSIVE_PROVIDER_TIMEOUT="${PAXM_PASSIVE_PROVIDER_TIMEOUT_OVERRIDE}"
 
 if "${eval_v2_restore_allexport}"; then
   set +a
 fi
 unset eval_v2_restore_allexport
+unset eval_v2_env_file
 
 : "${MEM0_DEEPSEEK_BASE_URL:=https://api.deepseek.com}"
 : "${MEM0_EVAL_USER_ID:=groupmembench-shared-user}"

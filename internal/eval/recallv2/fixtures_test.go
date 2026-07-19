@@ -49,6 +49,20 @@ func (s *fixtureSuite) TestBuildAndValidateThirtyIndependentHardCases() {
 	report, err := recallreplay.Run(replay, replay.Policy)
 	s.Require().NoError(err)
 	s.NoError(recallv2.ValidateReplayReport(report))
+
+	hintReplay, err := recallv2.BuildHintRecallReplay(fixtures)
+	s.Require().NoError(err)
+	s.Len(hintReplay.Cases, 12)
+	hintReport, err := recallreplay.Run(hintReplay, hintReplay.Policy)
+	s.Require().NoError(err)
+	s.Equal(12, hintReport.HintEval.ScoredOpportunities)
+	s.Equal(10, hintReport.HintEval.PositiveOpportunities)
+	s.Equal(12, hintReport.HintEval.ExposedHints)
+	s.Equal(10, hintReport.HintEval.SuccessAtOneCall)
+	s.InDelta(10.0/12.0, hintReport.HintEval.HintPrecision, 0.0001)
+	s.InDelta(1.0, hintReport.HintEval.HintRecall, 0.0001)
+	s.Zero(hintReport.HintEval.UnauthorizedLeakageItems)
+	s.Zero(hintReport.HintEval.TemporalPreservationErrors)
 }
 
 func (s *fixtureSuite) TestLoadCasesRejectsCohortDefects() {
@@ -77,9 +91,13 @@ func (s *fixtureSuite) TestLoadConfigRoundTrip() {
 	config := validConfig()
 	directory := s.T().TempDir()
 	config.Recall.DeterministicReplay = filepath.Join(directory, "replay.json")
+	config.Recall.HintReplay = filepath.Join(directory, "hint.json")
 	config.Recall.CaseAnnotations = filepath.Join(directory, "annotations.json")
+	config.Run.Manifest = filepath.Join(directory, "manifest.json")
 	s.Require().NoError(os.WriteFile(config.Recall.DeterministicReplay, []byte("replay"), 0o600))
+	s.Require().NoError(os.WriteFile(config.Recall.HintReplay, []byte("hint"), 0o600))
 	s.Require().NoError(os.WriteFile(config.Recall.CaseAnnotations, []byte("annotations"), 0o600))
+	s.Require().NoError(os.WriteFile(config.Run.Manifest, []byte("manifest"), 0o600))
 	encoded, err := yaml.Marshal(config)
 	s.Require().NoError(err)
 	path := filepath.Join(directory, "config.yaml")
@@ -89,6 +107,8 @@ func (s *fixtureSuite) TestLoadConfigRoundTrip() {
 	s.Require().NoError(err)
 	s.Equal(recallv2.ConfigVersion, loaded.Version)
 	s.Len(loaded.ProtocolMetadata["deterministic_replay_sha256"], 64)
+	s.Len(loaded.ProtocolMetadata["hint_replay_sha256"], 64)
+	s.Len(loaded.ProtocolMetadata["agent_manifest_sha256"], 64)
 }
 
 func (s *fixtureSuite) TestReplayAcceptanceMatrix() {

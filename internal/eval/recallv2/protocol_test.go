@@ -24,6 +24,7 @@ func (s *protocolSuite) TestValidateConfigMatrix() {
 		{name: "valid"},
 		{name: "judge required", mutate: func(config *recallv2.Config) { config.Judge = nil }, wantErr: "judge"},
 		{name: "replay required", mutate: func(config *recallv2.Config) { config.Recall.DeterministicReplay = "" }, wantErr: "deterministic_replay"},
+		{name: "hint replay required", mutate: func(config *recallv2.Config) { config.Recall.HintReplay = "" }, wantErr: "hint_replay"},
 		{name: "annotations required", mutate: func(config *recallv2.Config) { config.Recall.CaseAnnotations = "" }, wantErr: "case_annotations"},
 		{name: "baseline fixed", mutate: func(config *recallv2.Config) { config.BaselineArm = recallv2.ArmTeamNote }, wantErr: "baseline_arm"},
 		{name: "production arm required", mutate: func(config *recallv2.Config) { config.Arms[1].Name = "memory_mock" }, wantErr: "arms"},
@@ -48,30 +49,43 @@ func (s *protocolSuite) TestAuditRequiresRealAgentRecallAndJudgeEvidence() {
 	results := []v2.TrialResult{
 		completed("case-1", recallv2.ArmNoMemory),
 		completed("case-1", recallv2.ArmTeamNote),
+		completed("case-1", recallv2.ArmHintRecall),
 		completed("case-2", recallv2.ArmNoMemory),
 		completed("case-2", recallv2.ArmTeamNote),
+		completed("case-2", recallv2.ArmHintRecall),
 	}
 	results[0].Correct = false
 	results[1].Correct = true
+	results[2].Correct = true
 	for index := range results {
 		results[index].Category = "temporal"
 		results[index].TemporalMode = "temporal_question"
 		results[index].KnowledgeSourceStatus = "reviewed"
 		results[index].StrictCrossAgent = true
 	}
-	results[3].MemoryRecallObserved = false
+	results[4].MemoryRecallObserved = false
 
 	report := recallv2.Audit(results, 2)
 
-	s.Equal(4, report.ExpectedTrials)
-	s.Equal(3, report.ScoredTrials)
+	s.Equal(6, report.ExpectedTrials)
+	s.Equal(5, report.ScoredTrials)
 	s.Equal(1, report.UnscoredTrials)
 	s.Equal(1, report.UnscoredReasons[recallv2.ReasonRecallNotObserved])
 	s.Equal(1, report.PairedCases)
 	s.Equal(1, report.CandidateWins)
 	s.InDelta(1.0, report.CandidateAccuracy, 0.0001)
+	s.InDelta(0.0, report.ActiveRecallRate, 0.0001)
 	s.InDelta(1.0, report.CategorySlices["temporal"].AccuracyDelta, 0.0001)
 	s.Empty(report.Regressions)
+}
+
+func (s *protocolSuite) TestAuditRequiresActiveRecallInstrumentationForHintArm() {
+	result := completed("case", recallv2.ArmHintRecall)
+	result.ActiveRecallObserved = false
+
+	report := recallv2.Audit([]v2.TrialResult{result}, 1)
+
+	s.Equal(1, report.UnscoredReasons[recallv2.ReasonActiveRecallMissing])
 }
 
 func (s *protocolSuite) TestAuditNamesSliceRegression() {
@@ -99,7 +113,7 @@ func (s *protocolSuite) TestAuditRejectsMissingSessionProviderCallAndJudgeSessio
 	}{
 		{name: "session", mutate: func(result *v2.TrialResult) { result.SessionID = "" }, reason: recallv2.ReasonAgentSessionMissing},
 		{name: "provider call", mutate: func(result *v2.TrialResult) { result.MemoryRecallProviderCalls = 0 }, reason: recallv2.ReasonProviderCallMissing},
-		{name: "team provider", mutate: func(result *v2.TrialResult) { result.MemoryRecallProviders = map[string]int{"private": 1} }, reason: recallv2.ReasonTeamProviderMissing},
+		{name: "team provider", mutate: func(result *v2.TrialResult) { result.MemoryRecallProviderType = "mem0" }, reason: recallv2.ReasonTeamProviderMissing},
 		{name: "judge", mutate: func(result *v2.TrialResult) { result.Judged = false }, reason: recallv2.ReasonJudgeMissing},
 		{name: "judge session", mutate: func(result *v2.TrialResult) { result.JudgeSessionID = "" }, reason: recallv2.ReasonJudgeSessionMissing},
 	}
@@ -137,19 +151,29 @@ func validConfig() recallv2.Config {
 			Arms: []v2.ArmConfig{
 				{Name: recallv2.ArmNoMemory, Consumer: v2.CommandSpec{Program: "consumer"}},
 				{Name: recallv2.ArmTeamNote, Consumer: v2.CommandSpec{Program: "consumer"}},
+				{Name: recallv2.ArmHintRecall, Consumer: v2.CommandSpec{Program: "consumer"}},
 			},
 		},
-		Recall: recallv2.ProtocolConfig{DeterministicReplay: "replay.json", CaseAnnotations: "annotations.json", MinReplayCases: 30, MinAgentCases: 30, MaxAgentCases: 50},
+		Recall: recallv2.ProtocolConfig{DeterministicReplay: "replay.json", HintReplay: "hint.json", CaseAnnotations: "annotations.json", MinReplayCases: 30, MinAgentCases: 30, MaxAgentCases: 50},
 	}
 }
 
 func completed(caseID, arm string) v2.TrialResult {
 	return v2.TrialResult{
 		CaseID: caseID, Arm: arm, Status: "completed", SessionID: "agent-session-" + caseID + "-" + arm,
-		Judged: true, JudgeSessionID: "judge-session-" + caseID + "-" + arm, MemoryRecallObserved: arm == recallv2.ArmTeamNote,
-		MemoryRecallSuccess: arm == recallv2.ArmTeamNote, MemoryRecallProviderCalls: boolInt(arm == recallv2.ArmTeamNote),
+		Judged: true, JudgeSessionID: "judge-session-" + caseID + "-" + arm,
+		MemoryRecallObserved:      arm == recallv2.ArmTeamNote || arm == recallv2.ArmHintRecall,
+		MemoryRecallSuccess:       arm == recallv2.ArmTeamNote || arm == recallv2.ArmHintRecall,
+		MemoryRecallProviderCalls: boolInt(arm == recallv2.ArmTeamNote || arm == recallv2.ArmHintRecall),
+		MemoryRecallProviderType: func() string {
+			if arm == recallv2.ArmTeamNote || arm == recallv2.ArmHintRecall {
+				return "team-memory"
+			}
+			return ""
+		}(),
+		ActiveRecallObserved: arm == recallv2.ArmHintRecall, ActiveRecallSuccess: arm == recallv2.ArmHintRecall,
 		MemoryRecallProviders: func() map[string]int {
-			if arm == recallv2.ArmTeamNote {
+			if arm == recallv2.ArmTeamNote || arm == recallv2.ArmHintRecall {
 				return map[string]int{"team": 1}
 			}
 			return nil

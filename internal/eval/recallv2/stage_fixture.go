@@ -14,12 +14,140 @@ import (
 
 	"github.com/pax-beehive/pax-nexus/internal/eval/recallreplay"
 	"github.com/pax-beehive/pax-nexus/internal/eval/stageeval"
+	"github.com/pax-beehive/pax-nexus/internal/teamnote"
 )
 
 type sourceManifest struct {
 	DatasetRevision string               `json:"dataset_revision"`
 	Cases           []sourceManifestCase `json:"cases"`
 }
+
+// BuildHintRecallReplay creates two distinct opportunities per benchmark
+// category. Positive cases require focused active recall; abstention cases are
+// negative controls that expose an unnecessary-call cost.
+func BuildHintRecallReplay(fixtures stageeval.FixtureSet) (recallreplay.FixtureSet, error) {
+	observationTime := time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)
+	set := recallreplay.FixtureSet{
+		SchemaVersion: recallreplay.SchemaVersion,
+		Dataset:       fixtures.Dataset + " curated Hint Recall v0 interventions",
+		ExportedFrom:  recallreplay.Provenance{RunID: "synthetic-hint-v0", Arm: ArmHintRecall, ScopePrefix: "hint-"},
+		Policy: recallreplay.Policy{
+			SemanticThreshold: 0.65, HintThreshold: 0.65, CandidateLimit: 4, EnableHintRecall: true,
+		},
+	}
+	categoryCounts := make(map[string]int)
+	for _, fixture := range fixtures.Cases {
+		if categoryCounts[fixture.Category] >= 2 {
+			continue
+		}
+		categoryCounts[fixture.Category]++
+		replayCase, err := buildHintRecallCase(fixture, observationTime, set.Policy)
+		if err != nil {
+			return recallreplay.FixtureSet{}, err
+		}
+		set.Cases = append(set.Cases, replayCase)
+	}
+	if len(categoryCounts) != 6 || len(set.Cases) != 12 {
+		return recallreplay.FixtureSet{}, fmt.Errorf("build Hint Recall replay: require two cases from each of six categories")
+	}
+	return set, nil
+}
+
+func buildHintRecallCase(fixture stageeval.Fixture, observationTime time.Time, policy recallreplay.Policy) (recallreplay.Case, error) {
+	actor := recallreplay.Actor{
+		UserID: fixture.RecallContext.ConsumerUserID, AgentID: fixture.RecallContext.ConsumerAgentID,
+		SessionID: "hint-consumer-" + fixture.CaseID,
+	}
+	semantic := 0.90
+	lead := recallreplay.Candidate{
+		ID: fixture.CaseID + "-lead", Kind: "status", Subject: "memory navigation topic",
+		Body:             "A safe navigation lead indicates that related Team Memory may be useful.",
+		Origin:           recallreplay.Actor{UserID: "source-user", AgentID: "source-agent", SessionID: "source-" + fixture.CaseID},
+		EvidenceEventIDs: []string{"event-" + fixture.CaseID + "-lead"}, Revision: 1,
+		CreatedAt: observationTime.Add(-2 * time.Hour), UpdatedAt: observationTime.Add(-2 * time.Hour),
+		SourceOccurredAt: observationTime.Add(-2 * time.Hour), SemanticScore: &semantic,
+	}
+	replayCase := recallreplay.Case{
+		Fixture: fixture, ScopeID: "hint-" + fixture.CaseID, Actor: actor,
+		ObservationTime: observationTime, QueryTimezone: "UTC", Candidates: []recallreplay.Candidate{lead},
+		ExtractionItems: []stageeval.Item{{ID: lead.ID, Text: lead.Body, EvidenceEventIDs: slices.Clone(lead.EvidenceEventIDs)}},
+	}
+	if len(fixture.RequiredAtoms) > 0 {
+		answer := strings.TrimPrefix(fixture.RequiredAtoms[0].Patterns[0], "(?i)")
+		answer = strings.ReplaceAll(answer, `\`, "")
+		activeCandidate := recallreplay.Candidate{
+			ID: fixture.CaseID + "-active-evidence", Kind: "status", Subject: "focused evidence record",
+			Body: answer, Origin: lead.Origin, EvidenceEventIDs: []string{"event-" + fixture.CaseID + "-active"}, Revision: 1,
+			CreatedAt: observationTime.Add(-time.Hour), UpdatedAt: observationTime.Add(-time.Hour),
+			SourceOccurredAt: observationTime.Add(-time.Hour),
+		}
+		replayCase.Candidates = append(replayCase.Candidates, activeCandidate)
+		replayCase.ExtractionItems = append(replayCase.ExtractionItems, stageeval.Item{
+			ID: activeCandidate.ID, Text: answer, EvidenceEventIDs: slices.Clone(activeCandidate.EvidenceEventIDs),
+		})
+	}
+	planned, trace := teamnote.PlanRecall([]teamnote.RecallCandidate{{
+		Note: teamnote.Note{
+			ID: lead.ID, Kind: teamnote.KindStatus, Subject: lead.Subject, Body: lead.Body,
+			Origin: teamnote.Actor(lead.Origin), EvidenceEventIDs: slices.Clone(lead.EvidenceEventIDs), Revision: lead.Revision,
+			CreatedAt: lead.CreatedAt, UpdatedAt: lead.UpdatedAt, SourceOccurredAt: lead.SourceOccurredAt,
+		},
+		SemanticScore: lead.SemanticScore,
+	}}, teamnote.RecallRequest{
+		Actor: teamnote.Actor(actor), Query: fixture.RecallContext.Query,
+		TokenBudget: fixture.RecallContext.TokenBudget, MaxItems: fixture.RecallContext.MaxItems,
+	}, teamnote.RecallPolicy{
+		SemanticThreshold: policy.SemanticThreshold, HintThreshold: policy.HintThreshold,
+		CandidateLimit: policy.CandidateLimit, EnableHintRecall: true, ObservationTime: observationTime,
+	})
+	if len(planned) != 1 || planned[0].Disposition != teamnote.RecallDispositionHint {
+		return recallreplay.Case{}, fmt.Errorf("build Hint Recall replay case %q: planner did not expose one hint", fixture.CaseID)
+	}
+	queryTime := hintQueryTime(trace.Intent, observationTime)
+	observation := recallreplay.HintObservation{
+		Exposed: true, Score: floatPointer(planned[0].Relevance), FocusedQuery: focusedQueryForLead(trace, lead.ID),
+		Consumer: actor, ObservationTime: observationTime, TemporalMode: string(trace.Intent.Mode),
+		QueryTimezone: "UTC", QueryTime: queryTime, LeadNoteIDs: []string{lead.ID},
+		LeadFingerprint: planned[0].HintFingerprint,
+		EvidenceScores:  []recallreplay.EvidenceScoreObservation{{ItemID: lead.ID, Score: 0.30}},
+	}
+	if len(fixture.RequiredAtoms) == 0 {
+		observation.Calls = []recallreplay.HintRecallCall{{}, {}}
+	} else {
+		active := replayCase.ExtractionItems[1]
+		active.SourceItemIDs = []string{active.ID}
+		observation.Calls = []recallreplay.HintRecallCall{{
+			Items:              []stageeval.Item{active},
+			OriginAttributions: []recallreplay.HintOriginAttribution{{ItemID: active.ID, Origins: []recallreplay.Actor{lead.Origin}}},
+		}}
+	}
+	replayCase.HintObservation = &observation
+	return replayCase, nil
+}
+
+func focusedQueryForLead(trace teamnote.RecallTrace, noteID string) string {
+	for _, candidate := range trace.CandidateTraces {
+		if candidate.NoteID == noteID {
+			return candidate.FocusedQuery
+		}
+	}
+	return ""
+}
+
+func hintQueryTime(intent teamnote.RecallIntent, observationTime time.Time) *time.Time {
+	switch intent.Mode {
+	case teamnote.RecallModeAsOf:
+		return intent.ValidAt
+	case teamnote.RecallModeChangesSince:
+		return intent.ChangedSince
+	case teamnote.RecallModeCurrent:
+		return &observationTime
+	default:
+		return nil
+	}
+}
+
+func floatPointer(value float64) *float64 { return &value }
 
 type sourceManifestCase struct {
 	ID           string `json:"id"`

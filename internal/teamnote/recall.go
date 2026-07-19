@@ -27,10 +27,15 @@ type RecallCandidate struct {
 
 // RecallPolicy configures bounded retrieval and evidence selection without exposing adapter details.
 type RecallPolicy struct {
-	SemanticThreshold float64
-	EvidenceThreshold float64
-	CandidateLimit    int
-	ObservationTime   time.Time
+	SemanticThreshold     float64
+	EvidenceThreshold     float64
+	HintSemanticThreshold float64
+	HintThreshold         float64
+	CandidateLimit        int
+	ObservationTime       time.Time
+	// EnableHintRecall admits at most one non-evidentiary active-recall lead
+	// after evidence planning. The zero value preserves passive recall.
+	EnableHintRecall bool
 	// SuppressDuplicates skips candidates that restate an already selected
 	// note and keeps selected notes out of later related blocks.
 	SuppressDuplicates bool
@@ -49,11 +54,14 @@ const duplicateBodySimilarity = 0.8
 
 // PlannedRecall is one budgeted Delivery decision awaiting an adapter claim.
 type PlannedRecall struct {
-	Note          Note
-	SourceNoteIDs []string
-	Text          string
-	Tokens        int
-	Relevance     float64
+	Note              Note
+	SourceNoteIDs     []string
+	Text              string
+	Tokens            int
+	Relevance         float64
+	Disposition       RecallDisposition
+	ClaimNoteDelivery bool
+	HintFingerprint   string
 }
 
 // RecallRejectReason identifies the recall stage that rejected one available
@@ -167,11 +175,15 @@ func PlanRecall(candidates []RecallCandidate, request RecallRequest, policy Reca
 		}
 		planned = append(planned, PlannedRecall{
 			Note: candidate.Note, SourceNoteIDs: recallSourceNoteIDs(candidate.Note, related), Text: text, Tokens: tokens,
-			Relevance: candidate.evidenceConfidence,
+			Relevance: candidate.evidenceConfidence, Disposition: RecallDispositionEvidence, ClaimNoteDelivery: true,
 		})
 		markRecallEvidence(&trace, candidate.Note, related)
 		usedTokens += tokens
 		selectedNotes += 1 + len(related)
+	}
+	if hint, ok := planRecallHint(candidates, request, policy, &trace, planned, usedTokens, selectedNotes); ok {
+		planned = append(planned, hint)
+		usedTokens += hint.Tokens
 	}
 	trace.PlannedNotes = len(planned)
 	trace.PlannedTokens = usedTokens
@@ -522,6 +534,14 @@ func AppendPlannedRecall(envelope *NoteEnvelope, planned PlannedRecall) {
 	})
 	envelope.Tokens += planned.Tokens
 	envelope.Revision = fmt.Sprintf("%s:%d", note.ID, note.Revision)
+}
+
+// AppendPlannedHint adds navigation text without representing its lead as a
+// recalled Note. The fingerprint identifies the intervention, not evidence.
+func AppendPlannedHint(envelope *NoteEnvelope, planned PlannedRecall) {
+	envelope.Items = append(envelope.Items, planned.Text)
+	envelope.Tokens += planned.Tokens
+	envelope.Revision = "hint:" + planned.HintFingerprint
 }
 
 func rankRecallCandidates(

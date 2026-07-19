@@ -109,13 +109,15 @@ type Clock interface {
 }
 
 type Ledger struct {
-	mu         sync.Mutex
-	policy     TTLPolicy
-	clock      Clock
-	notes      map[string]Note
-	candidates map[string]string
-	deliveries map[string]struct{}
-	runs       map[string]storedExtractionRun
+	mu             sync.Mutex
+	policy         TTLPolicy
+	clock          Clock
+	notes          map[string]Note
+	candidates     map[string]string
+	deliveries     map[string]struct{}
+	hintDeliveries map[string]struct{}
+	recallPolicy   RecallPolicy
+	runs           map[string]storedExtractionRun
 }
 
 type extractionRunIdentity struct {
@@ -138,10 +140,16 @@ type storedExtractionRun struct {
 }
 
 func NewLedger(policy TTLPolicy, clock Clock) *Ledger {
+	return NewLedgerWithRecallPolicy(policy, clock, RecallPolicy{})
+}
+
+// NewLedgerWithRecallPolicy configures the same planner candidate used by the
+// PostgreSQL adapter while preserving the default production-off behavior.
+func NewLedgerWithRecallPolicy(policy TTLPolicy, clock Clock, recallPolicy RecallPolicy) *Ledger {
 	return &Ledger{
 		policy: policy, clock: clock, notes: make(map[string]Note),
-		candidates: make(map[string]string), deliveries: make(map[string]struct{}),
-		runs: make(map[string]storedExtractionRun),
+		candidates: make(map[string]string), deliveries: make(map[string]struct{}), hintDeliveries: make(map[string]struct{}),
+		runs: make(map[string]storedExtractionRun), recallPolicy: recallPolicy,
 	}
 }
 
@@ -301,10 +309,21 @@ func (l *Ledger) Recall(ctx context.Context, request RecallRequest) (NoteEnvelop
 		candidates = append(candidates, RecallCandidate{Note: note, LexicalScore: float64(QueryScore(note, request.Query))})
 	}
 	envelope := NoteEnvelope{}
-	planned, _ := PlanRecall(candidates, request, RecallPolicy{
-		CandidateLimit: len(candidates), ObservationTime: now, SuppressDuplicates: true, DegradeRelated: true,
-	})
+	recallPolicy := l.recallPolicy
+	recallPolicy.CandidateLimit = len(candidates)
+	recallPolicy.ObservationTime = now
+	recallPolicy.SuppressDuplicates = true
+	recallPolicy.DegradeRelated = true
+	planned, _ := PlanRecall(candidates, request, recallPolicy)
 	for _, item := range planned {
+		if !item.ClaimNoteDelivery {
+			if _, delivered := l.hintDeliveries[item.HintFingerprint]; delivered {
+				continue
+			}
+			AppendPlannedHint(&envelope, item)
+			l.hintDeliveries[item.HintFingerprint] = struct{}{}
+			continue
+		}
 		AppendPlannedRecall(&envelope, item)
 		l.deliveries[deliveryKey(item.Note, request.Actor)] = struct{}{}
 	}

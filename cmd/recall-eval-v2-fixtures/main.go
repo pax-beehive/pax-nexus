@@ -15,9 +15,10 @@ func main() {
 	manifest := flag.String("manifest", "", "GroupMemBench case-context manifest")
 	output := flag.String("output", "", "Stage fixture output path")
 	replayOutput := flag.String("replay-output", "", "Synthetic hard replay output path")
+	hintReplayOutput := flag.String("hint-replay-output", "", "Curated Hint Recall replay output path")
 	relationFixtures := flag.String("relation-fixtures", "", "Reviewed relation-utility replay fixture to append")
 	flag.Parse()
-	if err := run(*manifest, *output, *replayOutput, *relationFixtures); err != nil {
+	if err := run(*manifest, *output, *replayOutput, *hintReplayOutput, *relationFixtures); err != nil {
 		if _, writeErr := fmt.Fprintf(os.Stderr, "recall eval v2 fixture generation failed: %v\n", err); writeErr != nil {
 			os.Exit(2)
 		}
@@ -25,9 +26,9 @@ func main() {
 	}
 }
 
-func run(manifest, output, replayOutput, relationFixtures string) error {
-	if manifest == "" || output == "" || replayOutput == "" || relationFixtures == "" {
-		return fmt.Errorf("manifest, output, replay-output, and relation-fixtures are required")
+func run(manifest, output, replayOutput, hintReplayOutput, relationFixtures string) error {
+	if manifest == "" || output == "" || replayOutput == "" || hintReplayOutput == "" || relationFixtures == "" {
+		return fmt.Errorf("manifest, output, replay-output, hint-replay-output, and relation-fixtures are required")
 	}
 	fixtures, err := recallv2.BuildAnswerAtomFixtures(manifest)
 	if err != nil {
@@ -56,5 +57,9 @@ func run(manifest, output, replayOutput, relationFixtures string) error {
 	if err := recallreplay.WriteFixtureSet(replayOutput, replay); err != nil {
 		return err
 	}
-	return nil
+	hintReplay, err := recallv2.BuildHintRecallReplay(fixtures)
+	if err != nil {
+		return err
+	}
+	return recallreplay.WriteFixtureSet(hintReplayOutput, hintReplay)
 }

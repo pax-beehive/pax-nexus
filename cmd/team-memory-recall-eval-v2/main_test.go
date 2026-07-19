@@ -36,6 +36,9 @@ func (s *commandSuite) TestWriteJSONAndReplayGate() {
 	config := recallv2.Config{}
 	config.Run.OutputDir = directory
 	config.Recall.DeterministicReplay = filepath.Join("..", "..", "evals", "recall-v2", "groupmembench-finance-hard34-replay-v1.json")
+	config.Recall.HintReplay = filepath.Join("..", "..", "evals", "recall-v2", "groupmembench-finance-hint12-replay-v1.json")
 	config.Recall.MinReplayCases = 30
-	s.NoError(runReplayGate(config))
+	s.Require().NoError(runReplayGate(config))
+	_, err = os.Stat(filepath.Join(directory, "deterministic-replay", "hint-summary.json"))
+	s.Require().NoError(err)
 }

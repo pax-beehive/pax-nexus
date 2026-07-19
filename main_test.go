@@ -35,7 +35,7 @@ func (s *configSuite) SetupTest() {
 		"TEAM_MEMORY_SLICE_OVERLAP", "TEAM_MEMORY_MAX_SLICES_PER_JOB",
 		"TEAM_MEMORY_EMBEDDING_BASE_URL", "TEAM_MEMORY_EMBEDDING_MODEL",
 		"TEAM_MEMORY_EMBEDDING_TIMEOUT", "TEAM_MEMORY_SEMANTIC_THRESHOLD",
-		"TEAM_MEMORY_RETRIEVAL_CANDIDATE_LIMIT",
+		"TEAM_MEMORY_RETRIEVAL_CANDIDATE_LIMIT", "TEAM_MEMORY_HINT_RECALL_ENABLED", "TEAM_MEMORY_HINT_SEMANTIC_THRESHOLD", "TEAM_MEMORY_HINT_THRESHOLD",
 	} {
 		s.T().Setenv(name, "")
 	}
@@ -71,7 +71,10 @@ func (s *configSuite) TestLoadsNoopConfiguration() {
 	s.Equal(4, config.maxSlicesPerJob)
 	s.Equal(10*time.Second, config.embeddingTimeout)
 	s.InDelta(0.50, config.semanticThreshold, 0.0001)
+	s.InDelta(0.50, config.hintSemanticThreshold, 0.0001)
 	s.Equal(16, config.retrievalCandidateLimit)
+	s.False(config.hintRecallEnabled)
+	s.InDelta(0.65, config.hintThreshold, 0.0001)
 	adapter, err := buildExtractor(config)
 	s.Require().NoError(err)
 	s.IsType(extractor.Noop{}, adapter)
@@ -174,6 +177,9 @@ func (s *configSuite) TestRejectsInvalidWorkerConfiguration() {
 		{name: "TEAM_MEMORY_EMBEDDING_TIMEOUT", value: "0s"},
 		{name: "TEAM_MEMORY_SEMANTIC_THRESHOLD", value: "high"},
 		{name: "TEAM_MEMORY_RETRIEVAL_CANDIDATE_LIMIT", value: "0"},
+		{name: "TEAM_MEMORY_HINT_RECALL_ENABLED", value: "sometimes"},
+		{name: "TEAM_MEMORY_HINT_SEMANTIC_THRESHOLD", value: "low"},
+		{name: "TEAM_MEMORY_HINT_THRESHOLD", value: "high"},
 	}
 	for _, test := range tests {
 		s.Run(test.name, func() {

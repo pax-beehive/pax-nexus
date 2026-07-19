@@ -103,7 +103,8 @@ func (s *artifactSuite) TestSummaryPairwiseAndExport() {
 	trialsCSV, err := os.ReadFile(filepath.Join(directory, "trials.csv"))
 	s.Require().NoError(err)
 	s.Contains(string(trialsCSV), "memory_ingest_provider,memory_ingest_accepted,memory_ingest_duplicate,memory_ingest_created,memory_ingest_updated,memory_ingest_deleted,memory_ingest_noop_known,memory_ingest_noop,memory_source_events,memory_source_actors,memory_source_sessions")
-	s.Contains(string(trialsCSV), "memory_recall_observed,memory_recall_success,memory_recall_provider_calls,memory_recall_candidates,memory_recall_eligible,memory_recall_hits,memory_context_items,memory_recall_duration_ms")
+	s.Contains(string(trialsCSV), "memory_recall_observed,memory_recall_success,memory_recall_provider_calls,memory_recall_provider_type,memory_recall_candidates,memory_recall_eligible,memory_recall_hits,memory_context_items,memory_recall_duration_ms")
+	s.Contains(string(trialsCSV), "active_recall_observed,active_recall_success,active_recall_calls")
 	trialsJSONL, err := os.ReadFile(filepath.Join(directory, "trials.jsonl"))
 	s.Require().NoError(err)
 	s.Contains(string(trialsJSONL), `"memory_ingest_created":0`)
@@ -149,7 +150,13 @@ func (s *artifactSuite) TestExportLinksCompletedStageArtifacts() {
 func (s *artifactSuite) TestExportLinksRecallEvalV2ProtocolArtifacts() {
 	directory := s.T().TempDir()
 	s.Require().NoError(os.MkdirAll(filepath.Join(directory, "deterministic-replay"), 0o755))
-	for _, name := range []string{"recall-agent-report.json", "cohort.json", filepath.Join("deterministic-replay", "summary.json")} {
+	for _, name := range []string{
+		"recall-agent-report.json",
+		"cohort.json",
+		"before-run.log",
+		filepath.Join("deterministic-replay", "summary.json"),
+		filepath.Join("deterministic-replay", "hint-summary.json"),
+	} {
 		s.Require().NoError(os.WriteFile(filepath.Join(directory, name), []byte("{}\n"), 0o600))
 	}
 	run := RunRecord{Config: Config{Version: "recall-v2"}}
@@ -165,7 +172,9 @@ func (s *artifactSuite) TestExportLinksRecallEvalV2ProtocolArtifacts() {
 	s.Require().NoError(json.Unmarshal(encoded, &manifest))
 	s.Equal(ArtifactSchemaVersionRecallV2, manifest.SchemaVersion)
 	s.Equal("recall-agent-report.json", manifest.Files["recall_agent_report"])
+	s.Equal("before-run.log", manifest.Files["recall_seed_receipt"])
 	s.Equal(filepath.Join("deterministic-replay", "summary.json"), manifest.Files["deterministic_replay"])
+	s.Equal(filepath.Join("deterministic-replay", "hint-summary.json"), manifest.Files["hint_replay"])
 }
 
 func (s *artifactSuite) TestExportLinksEvalV3FullDomainIngestReceipts() {

@@ -57,6 +57,8 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	noteStore, err := postgres.NewNoteStore(store, teamnote.DefaultTTLPolicy(), teamnote.SystemClock{}, postgres.RetrievalConfig{
 		Embedder: embedder, EmbeddingModel: config.embeddingModel,
 		SemanticThreshold: config.semanticThreshold, CandidateLimit: config.retrievalCandidateLimit,
+		HintSemanticThreshold: config.hintSemanticThreshold,
+		HintRecallEnabled:     config.hintRecallEnabled, HintThreshold: config.hintThreshold,
 	})
 	if err != nil {
 		return fmt.Errorf("initialize note store: %w", err)
@@ -159,7 +161,10 @@ type applicationConfig struct {
 	embeddingModel                 string
 	embeddingTimeout               time.Duration
 	semanticThreshold              float64
+	hintSemanticThreshold          float64
 	retrievalCandidateLimit        int
+	hintRecallEnabled              bool
+	hintThreshold                  float64
 }
 
 func loadConfig() (applicationConfig, error) {
@@ -293,6 +298,15 @@ func loadRetrievalConfig(config *applicationConfig) error {
 		return err
 	}
 	if config.semanticThreshold, err = floatEnvironment("TEAM_MEMORY_SEMANTIC_THRESHOLD", 0.50); err != nil {
+		return err
+	}
+	if config.hintSemanticThreshold, err = floatEnvironment("TEAM_MEMORY_HINT_SEMANTIC_THRESHOLD", config.semanticThreshold); err != nil {
+		return err
+	}
+	if config.hintRecallEnabled, err = boolEnvironment("TEAM_MEMORY_HINT_RECALL_ENABLED", false); err != nil {
+		return err
+	}
+	if config.hintThreshold, err = floatEnvironment("TEAM_MEMORY_HINT_THRESHOLD", 0.65); err != nil {
 		return err
 	}
 	return nil

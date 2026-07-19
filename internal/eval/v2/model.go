@@ -168,11 +168,15 @@ type TrialResult struct {
 	MemoryRecallSuccess       bool           `json:"memory_recall_success"`
 	MemoryRecallProviderCalls int            `json:"memory_recall_provider_calls"`
 	MemoryRecallProviders     map[string]int `json:"memory_recall_providers,omitempty"`
+	MemoryRecallProviderType  string         `json:"memory_recall_provider_type,omitempty"`
 	MemoryRecallCandidates    int            `json:"memory_recall_candidates"`
 	MemoryRecallEligible      int            `json:"memory_recall_eligible"`
 	MemoryRecallHits          int            `json:"memory_recall_hits"`
 	MemoryContextItems        int            `json:"memory_context_items"`
 	MemoryRecallDurationMS    int64          `json:"memory_recall_duration_ms"`
+	ActiveRecallObserved      bool           `json:"active_recall_observed"`
+	ActiveRecallSuccess       bool           `json:"active_recall_success"`
+	ActiveRecallCalls         int            `json:"active_recall_calls"`
 	Expected                  string         `json:"expected"`
 	Answer                    string         `json:"answer"`
 	Exact                     bool           `json:"exact"`
