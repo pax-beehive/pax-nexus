@@ -586,6 +586,25 @@ func recordRecallRelations(trace *RecallTrace, primary Note, related []Note) {
 	}
 }
 
+func recordRecallReachable(trace *RecallTrace, related []Note) {
+	for _, note := range related {
+		trace.RelationReachableSet = appendRecallID(trace.RelationReachableSet, note.ID)
+	}
+}
+
+func recordRelationRelevanceDrops(trace *RecallTrace) {
+	eligible := make(map[string]struct{}, len(trace.RelationEligibleSet))
+	for _, noteID := range trace.RelationEligibleSet {
+		eligible[noteID] = struct{}{}
+	}
+	for _, noteID := range trace.RelationReachableSet {
+		if _, ok := eligible[noteID]; ok {
+			continue
+		}
+		recordRecallRejection(trace, RecallRejection{NoteID: noteID, Reason: RejectRelationRelevanceGate})
+	}
+}
+
 func recordPreBudgetSelection(trace *RecallTrace, noteID string) {
 	trace.PreBudgetSelectedSet = appendRecallID(trace.PreBudgetSelectedSet, noteID)
 }

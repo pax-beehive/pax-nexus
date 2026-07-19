@@ -67,6 +67,7 @@ const (
 	RejectProvenanceGate        RecallRejectReason = "provenance_gate"
 	RejectUnsafeContent         RecallRejectReason = "unsafe_content"
 	RejectEvidenceGate          RecallRejectReason = "evidence_gate"
+	RejectRelationRelevanceGate RecallRejectReason = "relation_relevance_gate"
 	RejectUncoveredRelationCost RecallRejectReason = "uncovered_relation_cost"
 )
 
@@ -88,6 +89,7 @@ type RecallTrace struct {
 	LanesExecuted        []RecallLane           `json:"lanes_executed"`
 	CandidateTraces      []RecallCandidateTrace `json:"candidate_traces"`
 	PreBudgetSelectedSet []string               `json:"pre_budget_selected_set,omitempty"`
+	RelationReachableSet []string               `json:"relation_reachable_set,omitempty"`
 	RelationEligibleSet  []string               `json:"relation_eligible_set,omitempty"`
 	SelectedSet          []string               `json:"selected_set,omitempty"`
 	BudgetDrops          []RecallRejection      `json:"budget_drops,omitempty"`
@@ -109,6 +111,7 @@ func PlanRecall(candidates []RecallCandidate, request RecallRequest, policy Reca
 		candidates, ranked, request, intent, observationTime, evidenceThreshold(policy), lanes, rejections,
 	)
 	allNotes := recallRelationEligibleNotes(candidates, intent, observationTime)
+	relationPlans := traceRecallRelations(&trace, ranked, allNotes, request)
 	planned := make([]PlannedRecall, 0, len(ranked))
 	usedTokens := 0
 	selectedNotes := 0
@@ -117,10 +120,7 @@ func PlanRecall(candidates []RecallCandidate, request RecallRequest, policy Reca
 			continue
 		}
 		if request.MaxItems > 0 && selectedNotes >= request.MaxItems {
-			for _, remaining := range ranked[index:] {
-				recordPreBudgetSelection(&trace, remaining.ID)
-				recordRecallRejection(&trace, RecallRejection{NoteID: remaining.ID, Reason: RejectMaxItems})
-			}
+			recordMaxItemsDrops(&trace, ranked[index:], relationPlans)
 			break
 		}
 		if policy.SuppressDuplicates && duplicatesSelected(candidate.Note, planned) {
@@ -132,7 +132,7 @@ func PlanRecall(candidates []RecallCandidate, request RecallRequest, policy Reca
 		if request.MaxItems > 0 {
 			remainingRelated = request.MaxItems - selectedNotes - 1
 		}
-		related := planRecallRelated(&trace, candidate.Note, allNotes, request, remainingRelated)
+		related := planRecallRelated(&trace, relationPlans[candidate.ID], request, remainingRelated)
 		text := FormatForRecallWithRelated(candidate.Note, related)
 		tokens := estimateTokens(text)
 		if policy.DegradeRelated && len(related) > 0 && usedTokens+tokens > request.TokenBudget {
@@ -162,20 +162,18 @@ func PlanRecall(candidates []RecallCandidate, request RecallRequest, policy Reca
 
 func planRecallRelated(
 	trace *RecallTrace,
-	primary Note,
-	allNotes []Note,
+	eligible []Note,
 	request RecallRequest,
 	remaining int,
 ) []Note {
-	allRelated := relatedNotes(primary, allNotes)
-	eligible := relevantRelatedNotes(allRelated, request.Query, 0, false)
 	eligible = excludeRecallIDs(eligible, trace.SelectedSet)
-	recordRecallRelations(trace, primary, eligible)
 	for _, note := range eligible {
 		recordPreBudgetSelection(trace, note.ID)
 	}
-	selected := relevantRelatedNotes(allRelated, request.Query, remaining, request.MaxItems > 0)
-	selected = excludeRecallIDs(selected, trace.SelectedSet)
+	selected := eligible
+	if request.MaxItems > 0 && len(selected) > max(0, remaining) {
+		selected = selected[:max(0, remaining)]
+	}
 	if request.MaxItems <= 0 {
 		return selected
 	}
@@ -187,6 +185,47 @@ func planRecallRelated(
 		recordRecallRejection(trace, RecallRejection{NoteID: dropped.ID, Reason: RejectMaxItems})
 	}
 	return selected
+}
+
+func traceRecallRelations(
+	trace *RecallTrace,
+	ranked []RecallCandidate,
+	allNotes []Note,
+	request RecallRequest,
+) map[string][]Note {
+	plans := make(map[string][]Note, len(ranked))
+	for _, primary := range ranked {
+		reachable := relatedNotes(primary.Note, allNotes)
+		recordRecallReachable(trace, reachable)
+		eligible := relevantRelatedNotes(reachable, request.Query, 0, false)
+		recordRecallRelations(trace, primary.Note, eligible)
+		plans[primary.ID] = eligible
+	}
+	recordRelationRelevanceDrops(trace)
+	return plans
+}
+
+func recordMaxItemsDrops(
+	trace *RecallTrace,
+	remaining []RecallCandidate,
+	relationPlans map[string][]Note,
+) {
+	dropped := make(map[string]struct{})
+	for _, candidate := range remaining {
+		recordMaxItemsDrop(trace, candidate.ID, dropped)
+		for _, related := range excludeRecallIDs(relationPlans[candidate.ID], trace.SelectedSet) {
+			recordMaxItemsDrop(trace, related.ID, dropped)
+		}
+	}
+}
+
+func recordMaxItemsDrop(trace *RecallTrace, noteID string, dropped map[string]struct{}) {
+	if _, exists := dropped[noteID]; exists {
+		return
+	}
+	dropped[noteID] = struct{}{}
+	recordPreBudgetSelection(trace, noteID)
+	recordRecallRejection(trace, RecallRejection{NoteID: noteID, Reason: RejectMaxItems})
 }
 
 func noteIDSet(notes []Note) map[string]struct{} {

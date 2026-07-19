@@ -96,7 +96,8 @@ The runner implements the `pax-recall-eval-v1` report contract. It writes:
 - `replay-results.jsonl`: per-case stage results, Recall Trace, and atom losses;
 - `replay-summary.json`: candidate, relation-expanded, selected-set, and
   delivered recall plus context precision, budget loss, leakage, and aggregate
-  stage counters;
+  stage counters. It also reports `PlanRecall` call count, mean duration, and
+  nearest-rank P95 duration in nanoseconds;
 - `recall-loss-ledger.jsonl`: one deterministic stage outcome per required
   atom.
 

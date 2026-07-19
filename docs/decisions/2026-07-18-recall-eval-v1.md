@@ -26,6 +26,11 @@ available atom -> bounded candidate lanes -> one-hop relation expansion
                -> selected set -> token-budget packing -> delivered context
 ```
 
+Relation reachability means a structurally connected, authorization- and
+temporal-eligible one-hop note. Relation expansion additionally requires query
+relevance. Both are traced for every ranked primary before shared item and
+token budgets are packed, so an unvisited primary cannot hide a budget loss.
+
 The external `RecallNotes` interface remains unchanged. The Evaluation context
 deepens the existing recall replay module instead of creating a second recall
 implementation. A replay fixture records each required atom's supporting Team
@@ -43,6 +48,10 @@ Every run emits:
 - available atoms lost to item or token budget;
 - superseded-fact leakage; and
 - a Recall Loss Ledger naming the first stage and reason that lost each atom.
+
+The runner times only `PlanRecall`, records nanoseconds per case, and reports
+the cohort mean and nearest-rank P95. Stage scoring and artifact I/O are outside
+that latency measurement.
 
 Gold Recall remains an outer diagnostic. Token F1 is not an acceptance metric.
 Extraction output, embedding scores, query, actor, observation time, candidate

@@ -89,10 +89,10 @@ func runReplay(fixturePath string, threshold float64, limit int, dedup, degradeR
 	}
 	summary := report.Summary
 	_, err = fmt.Fprintf(stdout,
-		"recall eval v1: %d cases, gold recall %.3f, conditional recall %.3f, candidate recall@limit %.3f, relation recall %.3f, missed available %d, stage totals %+v\n",
+		"recall eval v1: %d cases, gold recall %.3f, conditional recall %.3f, candidate recall@limit %.3f, relation recall %.3f, missed available %d, planner p95 %dns, stage totals %+v\n",
 		summary.Cases, summary.RecallGoldRecall, summary.RecallConditionalRecall,
 		report.RecallEval.CandidateRecallAtLimit, report.RecallEval.RelationExpandedRecall,
-		summary.RecallMissedAvailableAtoms, report.StageTotals)
+		summary.RecallMissedAvailableAtoms, report.RecallEval.PlannerP95DurationNS, report.StageTotals)
 	if err != nil {
 		return fmt.Errorf("write recall replay summary: %w", err)
 	}

@@ -162,7 +162,7 @@ func (s *recallEvalSuite) TestRunCreditsAtomReachedThroughOneHopRelation() {
 	s.True(report.LossLedger[0].RelationExpanded)
 }
 
-func (s *recallEvalSuite) TestRunDoesNotCallQueryIrrelevantRelationReachable() {
+func (s *recallEvalSuite) TestRunAttributesQueryIrrelevantRelationToExpansion() {
 	primary := syntheticCandidate("note-primary", "deployment", "Deployment is ready.", 0.9, nil)
 	primary.RelatedSubjects = []string{"schedule"}
 	related := syntheticCandidate("note-related", "schedule", "Friday is the final deadline.", 0, nil)
@@ -179,10 +179,39 @@ func (s *recallEvalSuite) TestRunDoesNotCallQueryIrrelevantRelationReachable() {
 	report, err := recallreplay.Run(set, set.Policy)
 	s.Require().NoError(err)
 	s.False(report.LossLedger[0].CandidateKept)
-	s.False(report.LossLedger[0].RelationReachable)
+	s.True(report.LossLedger[0].RelationReachable)
 	s.False(report.LossLedger[0].RelationExpanded)
-	s.Equal(recallreplay.LossStageCandidateRetrieval, report.LossLedger[0].LostAt)
-	s.Equal("fusion_limit", report.LossLedger[0].Reason)
+	s.Equal(recallreplay.LossStageRelationExpansion, report.LossLedger[0].LostAt)
+	s.Equal("relation_relevance_gate", report.LossLedger[0].Reason)
+}
+
+func (s *recallEvalSuite) TestRunAttributesUnvisitedPrimaryRelationToItemBudget() {
+	first := syntheticCandidate("note-first", "deployment plan", "Deployment review happens Friday.", 0.9, nil)
+	second := syntheticCandidate("note-second", "deployment schedule", "Deployment schedule review happens Friday.", 0.8, nil)
+	second.RelatedSubjects = []string{"schedule detail"}
+	related := syntheticCandidate("note-related", "schedule detail", "Deployment deadline is Friday.", 0, nil)
+	replayCase := syntheticCase(
+		"unvisited-relation", "deployment friday",
+		[]recallreplay.Candidate{first, second, related},
+	)
+	replayCase.Fixture.RequiredAtoms = []stageeval.Atom{
+		{ID: "deadline", Patterns: []string{"(?i)deployment deadline is friday"}},
+	}
+	replayCase.Fixture.RecallContext.MaxItems = 1
+	set := recallreplay.FixtureSet{
+		SchemaVersion: recallreplay.SchemaVersion,
+		Policy:        recallreplay.Policy{SemanticThreshold: 0.5, CandidateLimit: 2},
+		Cases:         []recallreplay.Case{replayCase},
+	}
+
+	report, err := recallreplay.Run(set, set.Policy)
+	s.Require().NoError(err)
+	s.True(report.LossLedger[0].RelationReachable)
+	s.True(report.LossLedger[0].RelationExpanded)
+	s.True(report.LossLedger[0].Selected)
+	s.False(report.LossLedger[0].Delivered)
+	s.Equal(recallreplay.LossStageBudgetPacking, report.LossLedger[0].LostAt)
+	s.Equal("max_items", report.LossLedger[0].Reason)
 }
 
 func (s *recallEvalSuite) TestRunAttributesSelectedCandidateLostToTokenBudget() {
@@ -264,7 +293,48 @@ func (s *recallEvalSuite) TestCandidateRecallIncludesSemanticLaneBeforeHardGate(
 	s.Zero(report.RecallEval.DeliveredMatchedAtoms)
 }
 
-func (s *recallEvalSuite) TestRunUsesFarthestSupportingNoteForLossReason() {
+func (s *recallEvalSuite) TestRunUsesFarthestRejectionReason() {
+	tests := []struct {
+		name   string
+		set    recallreplay.FixtureSet
+		reason string
+	}{
+		{name: "multiple supporting notes", set: multiSupportBudgetSet(), reason: "token_budget"},
+		{name: "later rejection does not overwrite relation budget", set: overwrittenRelationBudgetSet(), reason: "uncovered_relation_cost"},
+	}
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			report, err := recallreplay.Run(test.set, test.set.Policy)
+			s.Require().NoError(err)
+			s.Equal(recallreplay.LossStageBudgetPacking, report.LossLedger[0].LostAt)
+			s.Equal(test.reason, report.LossLedger[0].Reason)
+		})
+	}
+}
+
+func (s *recallEvalSuite) TestRunReportsPlannerLatency() {
+	replayCase := syntheticCase("planner-latency", "release status", []recallreplay.Candidate{
+		syntheticCandidate("note-status", "release status", "Release status is ready.", 0.9, nil),
+	})
+	replayCase.Fixture.RequiredAtoms = []stageeval.Atom{
+		{ID: "status", Patterns: []string{"(?i)release status is ready"}},
+	}
+	set := recallreplay.FixtureSet{
+		SchemaVersion: recallreplay.SchemaVersion,
+		Policy:        recallreplay.Policy{SemanticThreshold: 0.5, CandidateLimit: 16},
+		Cases:         []recallreplay.Case{replayCase},
+	}
+
+	report, err := recallreplay.Run(set, set.Policy)
+	s.Require().NoError(err)
+	s.Equal(1, report.RecallEval.PlannerCalls)
+	s.Positive(report.RecallEval.PlannerMeanDurationNS)
+	s.Positive(report.RecallEval.PlannerP95DurationNS)
+	s.Require().Len(report.Cases, 1)
+	s.Positive(report.Cases[0].PlannerDurationNS)
+}
+
+func multiSupportBudgetSet() recallreplay.FixtureSet {
 	replayCase := syntheticCase("multi-support", "audit trail deadline", []recallreplay.Candidate{
 		syntheticCandidate("note-fusion", "other", "Audit trail deadline is Friday.", 0, nil),
 		syntheticCandidate("note-budget", "audit trail", "Audit trail deadline is Friday.", 0.9, nil),
@@ -273,18 +343,41 @@ func (s *recallEvalSuite) TestRunUsesFarthestSupportingNoteForLossReason() {
 		{ID: "deadline", Patterns: []string{"(?i)audit trail deadline"}},
 	}
 	replayCase.Fixture.RecallContext.TokenBudget = 1
-	set := recallreplay.FixtureSet{
+	return recallreplay.FixtureSet{
 		SchemaVersion: recallreplay.SchemaVersion,
 		Policy:        recallreplay.Policy{SemanticThreshold: 0.5, CandidateLimit: 1},
 		Cases:         []recallreplay.Case{replayCase},
 	}
+}
 
-	report, err := recallreplay.Run(set, set.Policy)
-	s.Require().NoError(err)
-	s.True(report.LossLedger[0].CandidateKept)
-	s.True(report.LossLedger[0].Selected)
-	s.Equal(recallreplay.LossStageBudgetPacking, report.LossLedger[0].LostAt)
-	s.Equal("token_budget", report.LossLedger[0].Reason)
+func overwrittenRelationBudgetSet() recallreplay.FixtureSet {
+	shared := "shared alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi rho sigma tau"
+	primary := syntheticCandidate(
+		"note-primary", "audit deadline",
+		shared+" primary marker", 0.9, nil,
+	)
+	primary.RelatedSubjects = []string{"audit evidence"}
+	related := syntheticCandidate(
+		"note-related", "audit evidence",
+		shared+" target marker", 0.8, nil,
+	)
+	replayCase := syntheticCase("overwritten-rejection", "shared alpha beta", []recallreplay.Candidate{primary, related})
+	replayCase.Fixture.RequiredAtoms = []stageeval.Atom{
+		{ID: "target", Patterns: []string{"(?i)target marker"}},
+	}
+	fullSet := recallreplay.FixtureSet{
+		SchemaVersion: recallreplay.SchemaVersion,
+		Policy: recallreplay.Policy{
+			SemanticThreshold: 0.5, CandidateLimit: 2, SuppressDuplicates: true, DegradeRelated: true,
+		},
+		Cases: []recallreplay.Case{replayCase},
+	}
+	full, err := recallreplay.Run(fullSet, fullSet.Policy)
+	if err != nil || full.StageTotals.PlannedTokens < 2 {
+		panic("build overwritten relation budget fixture")
+	}
+	fullSet.Cases[0].Fixture.RecallContext.TokenBudget = full.StageTotals.PlannedTokens - 1
+	return fullSet
 }
 
 func (s *recallEvalSuite) TestRunCountsDeliveredSupersededEventLeakage() {

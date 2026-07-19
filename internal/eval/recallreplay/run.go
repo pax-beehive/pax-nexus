@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"sort"
+	"time"
 
 	"github.com/pax-beehive/pax-nexus/internal/eval/stageeval"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote"
@@ -14,11 +16,12 @@ const ReportSchemaVersion = "pax-recall-eval-v1"
 
 // CaseReport pairs one case's stage evaluation with its recall stage trace.
 type CaseReport struct {
-	CaseID       string               `json:"case_id"`
-	Result       stageeval.Result     `json:"result"`
-	Trace        teamnote.RecallTrace `json:"trace"`
-	PlannedItems []stageeval.Item     `json:"planned_items"`
-	AtomLosses   []AtomLoss           `json:"atom_losses"`
+	CaseID            string               `json:"case_id"`
+	Result            stageeval.Result     `json:"result"`
+	Trace             teamnote.RecallTrace `json:"trace"`
+	PlannedItems      []stageeval.Item     `json:"planned_items"`
+	AtomLosses        []AtomLoss           `json:"atom_losses"`
+	PlannerDurationNS int64                `json:"planner_duration_ns"`
 }
 
 // StageTotals aggregates recall stage counters across the cohort.
@@ -58,6 +61,7 @@ func Run(set FixtureSet, policy Policy) (Report, error) {
 	stageFixtures := stageeval.FixtureSet{SchemaVersion: stageeval.SchemaVersion, Dataset: set.Dataset}
 	traces := make(map[string]teamnote.RecallTrace, len(set.Cases))
 	plannedByCase := make(map[string][]stageeval.Item, len(set.Cases))
+	plannerDurationByCase := make(map[string]int64, len(set.Cases))
 	var observations bytes.Buffer
 	encoder := json.NewEncoder(&observations)
 	for _, replayCase := range set.Cases {
@@ -69,11 +73,13 @@ func Run(set FixtureSet, policy Policy) (Report, error) {
 		if err := encoder.Encode(extraction); err != nil {
 			return Report{}, fmt.Errorf("encode replay extraction observation: %w", err)
 		}
+		plannerStarted := time.Now()
 		planned, trace := teamnote.PlanRecall(replayCase.recallCandidates(), replayCase.recallRequest(), teamnote.RecallPolicy{
 			SemanticThreshold: policy.SemanticThreshold, CandidateLimit: policy.CandidateLimit,
 			SuppressDuplicates: policy.SuppressDuplicates, DegradeRelated: policy.DegradeRelated,
 			ObservationTime: replayCase.ObservationTime,
 		})
+		plannerDurationByCase[replayCase.Fixture.CaseID] = time.Since(plannerStarted).Nanoseconds()
 		traces[replayCase.Fixture.CaseID] = trace
 		plannedByCase[replayCase.Fixture.CaseID] = plannedItems(planned)
 		recallContext := replayCase.Fixture.RecallContext
@@ -107,6 +113,7 @@ func Run(set FixtureSet, policy Policy) (Report, error) {
 		report.Cases = append(report.Cases, CaseReport{
 			CaseID: result.CaseID, Result: result, Trace: trace,
 			PlannedItems: plannedByCase[result.CaseID], AtomLosses: caseEval.losses,
+			PlannerDurationNS: plannerDurationByCase[result.CaseID],
 		})
 		report.LossLedger = append(report.LossLedger, caseEval.losses...)
 		mergeRecallEval(&report.RecallEval, caseEval.summary)
@@ -129,7 +136,25 @@ func Run(set FixtureSet, policy Policy) (Report, error) {
 		}
 	}
 	finalizeRecallEval(&report.RecallEval, len(results))
+	setPlannerLatency(&report.RecallEval, plannerDurationByCase)
 	return report, nil
+}
+
+func setPlannerLatency(summary *RecallEvalSummary, durationsByCase map[string]int64) {
+	durations := make([]int64, 0, len(durationsByCase))
+	var total int64
+	for _, duration := range durationsByCase {
+		durations = append(durations, duration)
+		total += duration
+	}
+	if len(durations) == 0 {
+		return
+	}
+	sort.Slice(durations, func(left, right int) bool { return durations[left] < durations[right] })
+	summary.PlannerCalls = len(durations)
+	summary.PlannerMeanDurationNS = float64(total) / float64(len(durations))
+	nearestRank := (len(durations)*95 + 99) / 100
+	summary.PlannerP95DurationNS = durations[nearestRank-1]
 }
 
 func replayCaseByID(cases []Case, caseID string) Case {

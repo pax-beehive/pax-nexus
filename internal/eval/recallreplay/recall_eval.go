@@ -31,6 +31,9 @@ type RecallEvalSummary struct {
 	MeanContextPrecision       float64 `json:"mean_context_precision"`
 	BudgetDroppedAtoms         int     `json:"budget_dropped_atoms"`
 	SupersededLeakageItems     int     `json:"superseded_leakage_items"`
+	PlannerCalls               int     `json:"planner_calls"`
+	PlannerMeanDurationNS      float64 `json:"planner_mean_duration_ns"`
+	PlannerP95DurationNS       int64   `json:"planner_p95_duration_ns"`
 }
 
 // AtomLoss records the recall stage outcome for one required atom.
@@ -61,7 +64,7 @@ func evaluateRecallStages(
 ) (caseRecallEval, error) {
 	supports := replayCase.AtomSupports
 	direct := recallLaneIDs(trace, false)
-	reachable := stringSet(trace.RelationEligibleSet)
+	reachable := stringSet(trace.RelationReachableSet)
 	expanded := recallLaneIDs(trace, true)
 	selected := stringSet(trace.PreBudgetSelectedSet)
 	delivered := plannedSourceIDs(plannedItems)
@@ -157,7 +160,7 @@ func classifyAtomLoss(loss AtomLoss, trace teamnote.RecallTrace) (LossStage, str
 		return LossStageSetSelection, reason
 	}
 	if loss.RelationReachable {
-		return LossStageRelationExpansion, "relation_not_expanded"
+		return LossStageRelationExpansion, relationLossReason(loss.SupportingNoteIDs, trace)
 	}
 	if loss.CandidateKept {
 		return LossStageSetSelection, reason
@@ -171,19 +174,28 @@ func classifyAtomLoss(loss AtomLoss, trace teamnote.RecallTrace) (LossStage, str
 func farthestSupportingRejection(noteIDs []string, trace teamnote.RecallTrace) string {
 	bestReason := ""
 	bestPriority := -1
-	for _, noteID := range noteIDs {
-		for _, candidate := range trace.CandidateTraces {
-			if candidate.NoteID == noteID && candidate.RejectionReason != "" {
-				reason := string(candidate.RejectionReason)
-				priority := rejectionStagePriority(candidate.RejectionReason)
-				if priority > bestPriority {
-					bestReason = reason
-					bestPriority = priority
-				}
-			}
+	supporting := stringSet(noteIDs)
+	for _, rejection := range trace.Rejections {
+		if _, ok := supporting[rejection.NoteID]; !ok {
+			continue
+		}
+		priority := rejectionStagePriority(rejection.Reason)
+		if priority > bestPriority {
+			bestReason = string(rejection.Reason)
+			bestPriority = priority
 		}
 	}
 	return bestReason
+}
+
+func relationLossReason(noteIDs []string, trace teamnote.RecallTrace) string {
+	supporting := stringSet(noteIDs)
+	for _, rejection := range trace.Rejections {
+		if _, ok := supporting[rejection.NoteID]; ok && rejection.Reason == teamnote.RejectRelationRelevanceGate {
+			return string(rejection.Reason)
+		}
+	}
+	return "relation_not_expanded"
 }
 
 func rejectionStagePriority(reason teamnote.RecallRejectReason) int {
@@ -193,6 +205,8 @@ func rejectionStagePriority(reason teamnote.RecallRejectReason) int {
 	case teamnote.RejectMaxItems, teamnote.RejectTokenBudget, teamnote.RejectUncoveredRelationCost:
 		return 3
 	case teamnote.RejectDuplicate:
+		return 2
+	case teamnote.RejectRelationRelevanceGate:
 		return 2
 	case teamnote.RejectRelevanceGate, teamnote.RejectEvidenceGate, teamnote.RejectTemporalGate,
 		teamnote.RejectProvenanceGate, teamnote.RejectUnsafeContent:
