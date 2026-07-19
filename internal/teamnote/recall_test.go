@@ -310,7 +310,7 @@ func (s *recallSuite) TestGeneralRecallV3ProducesAuditablePlans() {
 		planned, trace := teamnote.PlanRecall(candidates, request, policy)
 
 		s.Require().Len(planned, 1)
-		s.Equal(teamnote.GeneralRecallV3PlanVersion, trace.PlanVersion)
+		s.Equal(teamnote.GeneralRecallV3RelationUtilityPlanVersion, trace.PlanVersion)
 		s.Equal(teamnote.GeneralRecallV3ScoringVersion, trace.ScoringVersion)
 		s.Equal(teamnote.RecallModeCurrent, trace.Intent.Mode)
 		s.Contains(trace.LanesExecuted, teamnote.RecallLaneLexical)
@@ -377,7 +377,9 @@ func (s *recallSuite) TestGeneralRecallV3ProducesAuditablePlans() {
 	})
 
 	s.Run("relation expansion keeps only notes with marginal query utility", func() {
-		primary := recallCandidate("note-primary", "alpha release status", "Alpha release payments status is ready.", 0.9, nil)
+		primary := recallCandidate(
+			"note-primary", "payments alpha release status", "Alpha release payments status is ready.", 0.9, nil,
+		)
 		primary.Kind = teamnote.KindStatus
 		primary.RelatedSubjects = []string{"billing validation", "payments status commentary"}
 		billing := recallCandidate("note-billing", "billing validation", "Billing validation is green.", 0, nil)
@@ -568,6 +570,58 @@ func (s *recallSuite) TestGeneralRecallV3BoundsLanesAndRelations() {
 		s.NotContains(trace.SelectedSet, backfill.ID)
 		s.Contains(trace.PreBudgetSelectedSet, backfill.ID)
 	})
+}
+
+func (s *recallSuite) TestRelationMarginalUtilityPolicyMatrix() {
+	tests := []struct {
+		name         string
+		disable      bool
+		subject      string
+		body         string
+		wantSelected bool
+		wantReason   teamnote.RecallRejectReason
+	}{
+		{
+			name: "keeps uncovered billing relation", subject: "billing validation",
+			body: "Billing validation is green.", wantSelected: true,
+		},
+		{
+			name: "drops repetitive payments relation", subject: "payments commentary",
+			body: "Payments status remains ready.", wantReason: teamnote.RejectRelationMarginalUtility,
+		},
+		{
+			name: "legacy arm keeps repetitive relation", disable: true, subject: "payments commentary",
+			body: "Payments status remains ready.", wantSelected: true,
+		},
+	}
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			primary := recallCandidate(
+				"note-primary", "payments release status", "Payments status is ready; billing work is tracked.", 0.9, nil,
+			)
+			primary.Kind = teamnote.KindStatus
+			primary.RelatedSubjects = []string{test.subject}
+			related := recallCandidate("note-related", test.subject, test.body, 0, nil)
+			related.Kind = teamnote.KindStatus
+			request := teamnote.RecallRequest{
+				Actor: teamnote.Actor{UserID: "owner", AgentID: "consumer"},
+				Query: "What is the current release status for payments and billing?", TokenBudget: 500, MaxItems: 2,
+			}
+			policy := teamnote.RecallPolicy{CandidateLimit: 10, DisableRelationMarginalUtility: test.disable}
+
+			_, trace := teamnote.PlanRecall([]teamnote.RecallCandidate{primary, related}, request, policy)
+
+			if test.wantSelected {
+				s.Contains(trace.SelectedSet, related.ID)
+				return
+			}
+			s.NotContains(trace.SelectedSet, related.ID)
+			s.Equal(test.wantReason, candidateTraceByID(s, trace.CandidateTraces, related.ID).RejectionReason)
+			s.Require().Len(trace.RelationRejections, 1)
+			s.Equal(primary.ID, trace.RelationRejections[0].PrimaryNoteID)
+			s.Equal(related.ID, trace.RelationRejections[0].RelatedNoteID)
+		})
+	}
 }
 
 func (s *recallSuite) TestGeneralRecallV3CompilesTemporalModes() {

@@ -2,6 +2,7 @@ package recallreplay_test
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -61,7 +62,7 @@ func (s *replaySuite) TestFixtureRoundTripAndRun() {
 	s.Equal(3, report.StageTotals.FusionKept)
 	s.Equal(1, report.StageTotals.Rejections["fusion_limit"])
 	s.Equal(1, report.StageTotals.Rejections["token_budget"])
-	s.Equal(2, report.StageTotals.PlanVersions[teamnote.GeneralRecallV3PlanVersion])
+	s.Equal(2, report.StageTotals.PlanVersions[teamnote.GeneralRecallV3RelationUtilityPlanVersion])
 	s.Positive(report.StageTotals.LaneCandidateCounts[string(teamnote.RecallLaneLexical)])
 	s.Positive(report.StageTotals.LaneCandidateCounts[string(teamnote.RecallLaneTemporal)])
 	s.Positive(report.StageTotals.Dispositions[string(teamnote.RecallDispositionEvidence)])
@@ -69,6 +70,49 @@ func (s *replaySuite) TestFixtureRoundTripAndRun() {
 	for _, caseReport := range report.Cases {
 		s.NotEmpty(caseReport.Trace.Rejections, caseReport.CaseID)
 	}
+}
+
+func (s *replaySuite) TestCuratedRelationUtilityFixtureSelectsUsefulAndRejectsNoiseEdges() {
+	set, err := recallreplay.LoadFixtureSet(filepath.Join(
+		"..", "..", "..", "evals", "stage", "replay", "relation-marginal-utility-v1.json",
+	))
+	s.Require().NoError(err)
+
+	report, err := recallreplay.Run(set, recallreplay.Policy{
+		SemanticThreshold: 0.5, CandidateLimit: 16, SuppressDuplicates: true, DegradeRelated: true,
+	})
+	s.Require().NoError(err)
+
+	tests := []struct {
+		caseID   string
+		usefulID string
+		noiseID  string
+	}{
+		{caseID: "status_payments_billing", usefulID: "status-useful", noiseID: "status-noise"},
+		{caseID: "deadline_america_europe", usefulID: "deadline-useful", noiseID: "deadline-noise"},
+		{caseID: "decision_backend_frontend", usefulID: "decision-useful", noiseID: "decision-noise"},
+		{caseID: "blocker_data_reporting", usefulID: "blocker-useful", noiseID: "blocker-noise"},
+	}
+	for _, test := range tests {
+		s.Run(test.caseID, func() {
+			caseReport := replayReportCase(s, report.Cases, test.caseID)
+			s.Contains(caseReport.Trace.SelectedSet, test.usefulID)
+			s.NotContains(caseReport.Trace.SelectedSet, test.noiseID)
+			s.Require().Len(caseReport.Trace.RelationRejections, 1)
+			s.Equal(test.noiseID, caseReport.Trace.RelationRejections[0].RelatedNoteID)
+			s.Equal(teamnote.RejectRelationMarginalUtility, caseReport.Trace.RelationRejections[0].Reason)
+		})
+	}
+}
+
+func replayReportCase(s *replaySuite, cases []recallreplay.CaseReport, caseID string) recallreplay.CaseReport {
+	for _, caseReport := range cases {
+		if caseReport.CaseID == caseID {
+			return caseReport
+		}
+	}
+	s.FailNow("missing replay case", caseID)
+	return recallreplay.CaseReport{}
 }
 
 func (s *replaySuite) TestRunRejectsInvalidFixture() {

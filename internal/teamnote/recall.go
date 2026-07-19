@@ -84,26 +84,36 @@ type RecallRejection struct {
 	Tokens int                `json:"tokens,omitempty"`
 }
 
+// RecallRelationRejection records one rejected relation edge without
+// collapsing distinct primary-to-related decisions onto the related Note ID.
+type RecallRelationRejection struct {
+	PrimaryNoteID string             `json:"primary_note_id"`
+	RelatedNoteID string             `json:"related_note_id"`
+	Reason        RecallRejectReason `json:"reason"`
+	Tokens        int                `json:"tokens,omitempty"`
+}
+
 // RecallTrace summarizes each recall stage for one PlanRecall invocation so
 // evaluations can attribute losses without re-running retrieval.
 type RecallTrace struct {
-	PlanVersion          string                 `json:"plan_version"`
-	ScoringVersion       string                 `json:"scoring_version"`
-	EvidenceThreshold    float64                `json:"evidence_threshold"`
-	Intent               RecallIntent           `json:"intent"`
-	LanesExecuted        []RecallLane           `json:"lanes_executed"`
-	CandidateTraces      []RecallCandidateTrace `json:"candidate_traces"`
-	PreBudgetSelectedSet []string               `json:"pre_budget_selected_set,omitempty"`
-	RelationReachableSet []string               `json:"relation_reachable_set,omitempty"`
-	RelationEligibleSet  []string               `json:"relation_eligible_set,omitempty"`
-	SelectedSet          []string               `json:"selected_set,omitempty"`
-	BudgetDrops          []RecallRejection      `json:"budget_drops,omitempty"`
-	DeliveredItems       []string               `json:"delivered_items,omitempty"`
-	Candidates           int                    `json:"candidates"`
-	FusionKept           int                    `json:"fusion_kept"`
-	PlannedNotes         int                    `json:"planned_notes"`
-	PlannedTokens        int                    `json:"planned_tokens"`
-	Rejections           []RecallRejection      `json:"rejections,omitempty"`
+	PlanVersion          string                    `json:"plan_version"`
+	ScoringVersion       string                    `json:"scoring_version"`
+	EvidenceThreshold    float64                   `json:"evidence_threshold"`
+	Intent               RecallIntent              `json:"intent"`
+	LanesExecuted        []RecallLane              `json:"lanes_executed"`
+	CandidateTraces      []RecallCandidateTrace    `json:"candidate_traces"`
+	PreBudgetSelectedSet []string                  `json:"pre_budget_selected_set,omitempty"`
+	RelationReachableSet []string                  `json:"relation_reachable_set,omitempty"`
+	RelationEligibleSet  []string                  `json:"relation_eligible_set,omitempty"`
+	SelectedSet          []string                  `json:"selected_set,omitempty"`
+	BudgetDrops          []RecallRejection         `json:"budget_drops,omitempty"`
+	DeliveredItems       []string                  `json:"delivered_items,omitempty"`
+	Candidates           int                       `json:"candidates"`
+	FusionKept           int                       `json:"fusion_kept"`
+	PlannedNotes         int                       `json:"planned_notes"`
+	PlannedTokens        int                       `json:"planned_tokens"`
+	Rejections           []RecallRejection         `json:"rejections,omitempty"`
+	RelationRejections   []RecallRelationRejection `json:"relation_rejections,omitempty"`
 }
 
 // PlanRecall applies shared precision, ranking, relation, and budget policy to
@@ -115,6 +125,10 @@ func PlanRecall(candidates []RecallCandidate, request RecallRequest, policy Reca
 	trace := initializeRecallTrace(
 		candidates, ranked, request, intent, observationTime, evidenceThreshold(policy), lanes, rejections,
 	)
+	trace.PlanVersion = GeneralRecallV3RelationUtilityPlanVersion
+	if policy.DisableRelationMarginalUtility {
+		trace.PlanVersion = GeneralRecallV3LegacyRelationPlanVersion
+	}
 	allNotes := recallRelationEligibleNotes(candidates, intent, observationTime)
 	relationPlans := traceRecallRelations(&trace, ranked, allNotes, request, policy)
 	planned := make([]PlannedRecall, 0, len(ranked))
@@ -210,9 +224,10 @@ func traceRecallRelations(
 			eligible, lowUtility = marginallyUsefulRelatedNotes(primary.Note, relevant, request)
 		}
 		recordRecallRelations(trace, primary.Note, eligible)
-		recordRelationMarginalUtilityDrops(trace, lowUtility)
+		recordRelationMarginalUtilityDrops(trace, primary.ID, lowUtility)
 		plans[primary.ID] = eligible
 	}
+	recordMarginalUtilityCandidateDrops(trace)
 	recordRelationRelevanceDrops(trace)
 	return plans
 }
@@ -230,22 +245,107 @@ func marginallyUsefulRelatedNotes(
 	}
 	primaryTerms := searchableTerms(primary.Subject + " " + primary.Body)
 	queryTerms := searchableTerms(request.Query)
+	queryEntities := relationQueryEntities(queryTerms)
+	coveredSlots := coveredEntityFactSlots(primary, queryEntities, explicitFacts)
 	kept := make([]Note, 0, len(related))
 	dropped := make([]RecallRejection, 0, len(related))
-	for _, note := range related {
-		gain := relationFactGain(primary, note, explicitFacts)*4 +
-			uncoveredQueryTermGain(primaryTerms, queryTerms, note)
-		tokens := recallRelationTokenCost(primary, note)
-		if gain > 0 && float64(gain)/float64(tokens) >= minimumRelationUtilityPerToken {
-			kept = append(kept, note)
-			continue
+	remaining := append([]Note(nil), related...)
+	for len(remaining) > 0 {
+		bestIndex, bestUtility := -1, 0.0
+		for index, note := range remaining {
+			gain := uncoveredEntityFactGain(note, queryEntities, explicitFacts, coveredSlots)*4 +
+				uncoveredQueryTermGain(primaryTerms, queryTerms, note)
+			utility := float64(gain) / float64(recallRelationTokenCost(primary, note))
+			if gain > 0 && utility > bestUtility {
+				bestIndex, bestUtility = index, utility
+			}
 		}
-		dropped = append(dropped, RecallRejection{
-			NoteID: note.ID, Reason: RejectRelationMarginalUtility, Tokens: tokens,
-		})
+		if bestIndex < 0 || bestUtility < minimumRelationUtilityPerToken {
+			for _, note := range remaining {
+				dropped = append(dropped, RecallRejection{
+					NoteID: note.ID, Reason: RejectRelationMarginalUtility,
+					Tokens: recallRelationTokenCost(primary, note),
+				})
+			}
+			break
+		}
+		selected := remaining[bestIndex]
+		kept = append(kept, selected)
+		addTerms(primaryTerms, searchableTerms(selected.Subject+" "+selected.Body))
+		addCoveredEntityFactSlots(coveredSlots, selected, queryEntities, explicitFacts)
+		remaining = append(remaining[:bestIndex], remaining[bestIndex+1:]...)
 	}
 	return kept, dropped
 }
+
+func addTerms(target, values map[string]struct{}) {
+	for value := range values {
+		target[value] = struct{}{}
+	}
+}
+
+func relationQueryEntities(queryTerms map[string]struct{}) []string {
+	triggers := map[string]struct{}{
+		"who": {}, "own": {}, "owner": {}, "owns": {}, "responsible": {},
+		"block": {}, "blocker": {}, "blocked": {}, "blocks": {}, "preventing": {},
+		"handoff": {}, "delegate": {}, "assigned": {}, "requirement": {}, "required": {},
+		"criterion": {}, "condition": {}, "artifact": {}, "document": {}, "report": {},
+		"deadline": {}, "date": {}, "when": {}, "status": {}, "state": {}, "progress": {},
+		"decision": {}, "decided": {}, "approved": {}, "approval": {}, "current": {}, "latest": {},
+	}
+	result := make([]string, 0, len(queryTerms))
+	for term := range queryTerms {
+		if _, trigger := triggers[term]; !trigger {
+			result = append(result, term)
+		}
+	}
+	return result
+}
+
+func coveredEntityFactSlots(note Note, entities, requestedFacts []string) map[string]struct{} {
+	result := make(map[string]struct{}, len(entities)*len(requestedFacts))
+	addCoveredEntityFactSlots(result, note, entities, requestedFacts)
+	return result
+}
+
+func addCoveredEntityFactSlots(covered map[string]struct{}, note Note, entities, requestedFacts []string) {
+	text := strings.ToLower(note.Subject + " " + note.Body)
+	subjectTerms := searchableTerms(note.Subject)
+	for _, entity := range entities {
+		if _, mentioned := subjectTerms[entity]; !mentioned {
+			continue
+		}
+		for _, fact := range requestedFacts {
+			if recallFactMatched(note, text, fact) {
+				covered[entityFactSlot(entity, fact)] = struct{}{}
+			}
+		}
+	}
+}
+
+func uncoveredEntityFactGain(
+	related Note,
+	entities, requestedFacts []string,
+	covered map[string]struct{},
+) int {
+	text := strings.ToLower(related.Subject + " " + related.Body)
+	terms := searchableTerms(text)
+	gain := 0
+	for _, entity := range entities {
+		if _, mentioned := terms[entity]; !mentioned {
+			continue
+		}
+		for _, fact := range requestedFacts {
+			key := entityFactSlot(entity, fact)
+			if _, exists := covered[key]; !exists && recallFactMatched(related, text, fact) {
+				gain++
+			}
+		}
+	}
+	return gain
+}
+
+func entityFactSlot(entity, fact string) string { return entity + "\x00" + fact }
 
 func uncoveredQueryTermGain(primaryTerms, queryTerms map[string]struct{}, related Note) int {
 	relatedTerms := searchableTerms(related.Subject + " " + related.Body)
@@ -284,20 +384,31 @@ func appendRelationFact(result []string, terms map[string]struct{}, fact string,
 	return result
 }
 
-func relationFactGain(primary, related Note, requestedFacts []string) int {
-	gain := 0
-	for _, fact := range requestedFacts {
-		if !recallFactMatched(primary, strings.ToLower(primary.Subject+" "+primary.Body), fact) &&
-			recallFactMatched(related, strings.ToLower(related.Subject+" "+related.Body), fact) {
-			gain++
-		}
+func recordRelationMarginalUtilityDrops(trace *RecallTrace, primaryNoteID string, drops []RecallRejection) {
+	for _, drop := range drops {
+		trace.RelationRejections = append(trace.RelationRejections, RecallRelationRejection{
+			PrimaryNoteID: primaryNoteID, RelatedNoteID: drop.NoteID, Reason: drop.Reason, Tokens: drop.Tokens,
+		})
 	}
-	return gain
 }
 
-func recordRelationMarginalUtilityDrops(trace *RecallTrace, drops []RecallRejection) {
-	for _, drop := range drops {
-		recordRecallRejection(trace, drop)
+func recordMarginalUtilityCandidateDrops(trace *RecallTrace) {
+	eligible := make(map[string]struct{}, len(trace.RelationEligibleSet))
+	for _, noteID := range trace.RelationEligibleSet {
+		eligible[noteID] = struct{}{}
+	}
+	recorded := make(map[string]struct{})
+	for _, rejection := range trace.RelationRejections {
+		if _, kept := eligible[rejection.RelatedNoteID]; kept {
+			continue
+		}
+		if _, duplicate := recorded[rejection.RelatedNoteID]; duplicate {
+			continue
+		}
+		recorded[rejection.RelatedNoteID] = struct{}{}
+		recordRecallRejection(trace, RecallRejection{
+			NoteID: rejection.RelatedNoteID, Reason: rejection.Reason, Tokens: rejection.Tokens,
+		})
 	}
 }
 

@@ -22,7 +22,7 @@
         {"id": "status-noise", "text": "Payments status remains ready for routine review.", "evidence_event_ids": ["event-status-noise"]}
       ],
       "candidates": [
-        {"id": "status-primary", "kind": "status", "subject": "release status", "body": "Payments status is ready.", "origin": {"user_id": "User_2", "agent_id": "producer", "session_id": "status"}, "related_subjects": ["billing validation", "payments commentary"], "evidence_event_ids": ["event-status-primary"], "revision": 1, "created_at": "2026-07-18T12:00:00Z", "updated_at": "2026-07-18T12:00:00Z", "source_occurred_at": "2026-07-18T12:00:00Z", "lexical_score": 0.9},
+        {"id": "status-primary", "kind": "status", "subject": "payments release status", "body": "Payments status is ready.", "origin": {"user_id": "User_2", "agent_id": "producer", "session_id": "status"}, "related_subjects": ["billing validation", "payments commentary"], "evidence_event_ids": ["event-status-primary"], "revision": 1, "created_at": "2026-07-18T12:00:00Z", "updated_at": "2026-07-18T12:00:00Z", "source_occurred_at": "2026-07-18T12:00:00Z", "lexical_score": 0.9},
         {"id": "status-useful", "kind": "status", "subject": "billing validation", "body": "Billing validation is green.", "origin": {"user_id": "User_2", "agent_id": "producer", "session_id": "status"}, "evidence_event_ids": ["event-status-useful"], "revision": 1, "created_at": "2026-07-18T12:01:00Z", "updated_at": "2026-07-18T12:01:00Z", "source_occurred_at": "2026-07-18T12:01:00Z", "lexical_score": 0},
         {"id": "status-noise", "kind": "status", "subject": "payments commentary", "body": "Payments status remains ready for routine review.", "origin": {"user_id": "User_2", "agent_id": "producer", "session_id": "status"}, "evidence_event_ids": ["event-status-noise"], "revision": 1, "created_at": "2026-07-18T12:02:00Z", "updated_at": "2026-07-18T12:02:00Z", "source_occurred_at": "2026-07-18T12:02:00Z", "lexical_score": 0}
       ]
@@ -43,36 +43,36 @@
       "extraction_items": [
         {"id": "deadline-primary", "text": "America filing deadline is July 25.", "evidence_event_ids": ["event-deadline-primary"]},
         {"id": "deadline-useful", "text": "Europe filing deadline is July 28.", "evidence_event_ids": ["event-deadline-useful"]},
-        {"id": "deadline-noise", "text": "America filing preparation remains on schedule.", "evidence_event_ids": ["event-deadline-noise"]}
+        {"id": "deadline-noise", "text": "America filing deadline remains July 25 after routine review.", "evidence_event_ids": ["event-deadline-noise"]}
       ],
       "candidates": [
         {"id": "deadline-primary", "kind": "status", "subject": "America filing deadline", "body": "America filing deadline is July 25.", "origin": {"user_id": "User_3", "agent_id": "producer", "session_id": "deadline"}, "related_subjects": ["Europe filing deadline", "America filing preparation"], "evidence_event_ids": ["event-deadline-primary"], "revision": 1, "created_at": "2026-07-18T13:00:00Z", "updated_at": "2026-07-18T13:00:00Z", "source_occurred_at": "2026-07-18T13:00:00Z", "lexical_score": 0.9},
         {"id": "deadline-useful", "kind": "status", "subject": "Europe filing deadline", "body": "Europe filing deadline is July 28.", "origin": {"user_id": "User_3", "agent_id": "producer", "session_id": "deadline"}, "evidence_event_ids": ["event-deadline-useful"], "revision": 1, "created_at": "2026-07-18T13:01:00Z", "updated_at": "2026-07-18T13:01:00Z", "source_occurred_at": "2026-07-18T13:01:00Z", "lexical_score": 0},
-        {"id": "deadline-noise", "kind": "status", "subject": "America filing preparation", "body": "America filing preparation remains on schedule.", "origin": {"user_id": "User_3", "agent_id": "producer", "session_id": "deadline"}, "evidence_event_ids": ["event-deadline-noise"], "revision": 1, "created_at": "2026-07-18T13:02:00Z", "updated_at": "2026-07-18T13:02:00Z", "source_occurred_at": "2026-07-18T13:02:00Z", "lexical_score": 0}
+        {"id": "deadline-noise", "kind": "status", "subject": "America filing preparation", "body": "America filing deadline remains July 25 after routine review.", "origin": {"user_id": "User_3", "agent_id": "producer", "session_id": "deadline"}, "evidence_event_ids": ["event-deadline-noise"], "revision": 1, "created_at": "2026-07-18T13:02:00Z", "updated_at": "2026-07-18T13:02:00Z", "source_occurred_at": "2026-07-18T13:02:00Z", "lexical_score": 0}
       ]
     },
     {
       "fixture": {
-        "case_id": "owner_backend_frontend",
+        "case_id": "decision_backend_frontend",
         "category": "relation_marginal_utility",
         "source_revision": "3333333333333333333333333333333333333333333333333333333333333333",
-        "recall_context": {"consumer_user_id": "User_1", "consumer_agent_id": "consumer", "query": "Who owns backend and frontend rollout?", "token_budget": 256, "max_items": 3},
+        "recall_context": {"consumer_user_id": "User_1", "consumer_agent_id": "consumer", "query": "What rollout decision was approved for backend and frontend?", "token_budget": 256, "max_items": 3},
         "required_atoms": [
-          {"id": "backend_owner", "patterns": ["(?i)Alice owns backend rollout"]},
-          {"id": "frontend_owner", "patterns": ["(?i)Bob owns frontend rollout"]}
+          {"id": "backend_decision", "patterns": ["(?i)Backend rollout decision was approved"]},
+          {"id": "frontend_decision", "patterns": ["(?i)Frontend rollout decision was approved"]}
         ]
       },
       "scope_id": "relation-utility-owner",
       "actor": {"user_id": "User_1", "agent_id": "consumer", "session_id": "recall-replay"},
       "extraction_items": [
-        {"id": "owner-primary", "text": "Alice owns backend rollout.", "evidence_event_ids": ["event-owner-primary"]},
-        {"id": "owner-useful", "text": "Bob owns frontend rollout.", "evidence_event_ids": ["event-owner-useful"]},
-        {"id": "owner-noise", "text": "Alice owns backend rollout coordination. The recurring coordination note repeats meeting logistics, review reminders, attendance expectations, dashboard links, channel naming, agenda preparation, weekly reporting cadence, routine follow-up steps, and previously recorded backend ownership without adding any frontend ownership fact.", "evidence_event_ids": ["event-owner-noise"]}
+        {"id": "decision-primary", "text": "Backend rollout decision was approved.", "evidence_event_ids": ["event-decision-primary"]},
+        {"id": "decision-useful", "text": "Frontend rollout decision was approved.", "evidence_event_ids": ["event-decision-useful"]},
+        {"id": "decision-noise", "text": "Backend rollout decision remains approved after routine review.", "evidence_event_ids": ["event-decision-noise"]}
       ],
       "candidates": [
-        {"id": "owner-primary", "kind": "handoff", "subject": "backend rollout owner", "body": "Alice owns backend rollout.", "origin": {"user_id": "User_4", "agent_id": "producer", "session_id": "owner"}, "related_subjects": ["frontend rollout owner", "backend rollout coordination"], "evidence_event_ids": ["event-owner-primary"], "revision": 1, "created_at": "2026-07-18T14:00:00Z", "updated_at": "2026-07-18T14:00:00Z", "source_occurred_at": "2026-07-18T14:00:00Z", "lexical_score": 0.9},
-        {"id": "owner-useful", "kind": "handoff", "subject": "frontend rollout owner", "body": "Bob owns frontend rollout.", "origin": {"user_id": "User_4", "agent_id": "producer", "session_id": "owner"}, "evidence_event_ids": ["event-owner-useful"], "revision": 1, "created_at": "2026-07-18T14:01:00Z", "updated_at": "2026-07-18T14:01:00Z", "source_occurred_at": "2026-07-18T14:01:00Z", "lexical_score": 0},
-        {"id": "owner-noise", "kind": "handoff", "subject": "backend rollout coordination", "body": "Alice owns backend rollout coordination. The recurring coordination note repeats meeting logistics, review reminders, attendance expectations, dashboard links, channel naming, agenda preparation, weekly reporting cadence, routine follow-up steps, and previously recorded backend ownership without adding any frontend ownership fact.", "origin": {"user_id": "User_4", "agent_id": "producer", "session_id": "owner"}, "evidence_event_ids": ["event-owner-noise"], "revision": 1, "created_at": "2026-07-18T14:02:00Z", "updated_at": "2026-07-18T14:02:00Z", "source_occurred_at": "2026-07-18T14:02:00Z", "lexical_score": 0}
+        {"id": "decision-primary", "kind": "status", "subject": "backend rollout decision", "body": "Backend rollout decision was approved.", "origin": {"user_id": "User_4", "agent_id": "producer", "session_id": "decision"}, "related_subjects": ["frontend rollout decision", "backend decision review"], "evidence_event_ids": ["event-decision-primary"], "revision": 1, "created_at": "2026-07-18T14:00:00Z", "updated_at": "2026-07-18T14:00:00Z", "source_occurred_at": "2026-07-18T14:00:00Z", "lexical_score": 0.9},
+        {"id": "decision-useful", "kind": "status", "subject": "frontend rollout decision", "body": "Frontend rollout decision was approved.", "origin": {"user_id": "User_4", "agent_id": "producer", "session_id": "decision"}, "evidence_event_ids": ["event-decision-useful"], "revision": 1, "created_at": "2026-07-18T14:01:00Z", "updated_at": "2026-07-18T14:01:00Z", "source_occurred_at": "2026-07-18T14:01:00Z", "lexical_score": 0},
+        {"id": "decision-noise", "kind": "status", "subject": "backend decision review", "body": "Backend rollout decision remains approved after routine review.", "origin": {"user_id": "User_4", "agent_id": "producer", "session_id": "decision"}, "evidence_event_ids": ["event-decision-noise"], "revision": 1, "created_at": "2026-07-18T14:02:00Z", "updated_at": "2026-07-18T14:02:00Z", "source_occurred_at": "2026-07-18T14:02:00Z", "lexical_score": 0}
       ]
     },
     {

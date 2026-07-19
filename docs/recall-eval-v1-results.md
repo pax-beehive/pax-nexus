@@ -140,27 +140,40 @@ recency and lexical/evidence scores.
 
 Fixture: `evals/stage/replay/relation-marginal-utility-v1.json`. This is a
 curated four-case contrast cohort, not repeated cases. It covers status across
-services, filing schedules across regions, ownership across components, and
+services, filing schedules across regions, decisions across components, and
 blockers across workstreams. Every case contains one relation that adds an
 uncovered query term or fact and one adjacent/repetitive relation.
 
-The policy retains query-relevant one-hop relations only when their uncovered
-fact/query gain per token is at least `0.02`. Authorization, temporal,
+The policy incrementally retains query-relevant one-hop relations only when
+their still-uncovered fact/query/entity-slot gain per token is at least `0.02`.
+Coverage is updated after every retained relation, so later relations cannot
+claim the same gain. Authorization, temporal,
 provenance, and content-safety gates remain mandatory. Queries without an
 explicit fact slot keep the legacy exploratory relation behavior.
 
 | Metric | Legacy relation packing | Marginal utility |
 | --- | ---: | ---: |
 | Independent cases | 4 | 4 |
+| Candidate lane limit | 16 | 16 |
 | Candidate recall@limit | 0.500 | 0.500 |
 | Relation-expanded recall | 1.000 | 1.000 |
+| Delivered conditional recall | 1.000 | 1.000 |
 | Delivered eligible recall | 1.000 | 1.000 |
 | Mean context precision | 1.000 | 1.000 |
-| Planned tokens | 301 | 251 |
-| Marginal-utility drops | 0 | 2 |
+| Planned tokens | 269 | 162 |
+| Marginal-utility drops | 0 | 4 |
 | Superseded leakage | 0 | 0 |
 | Budget drops | 0 | 0 |
+| End-to-end judge accuracy | N/A | N/A |
 
 The strategy preserved all eight Eligible Atoms while reducing planned tokens
-by 16.6%. This cohort validates the intended relation decision boundary; the
-tracked ten-case replay remains the broader regression cohort.
+by 39.8%. Every curated case kept its useful relation and rejected its
+repetitive relation. End-to-end judge accuracy is not scored by deterministic
+replay and requires the paid consumer-Agent cohort. The tracked ten-case
+regression also retained candidate, relation-expanded, and delivered
+conditional recall at `1.000`, with zero missed Available Atoms.
+
+Per-case decisions were exact: `status-useful`, `deadline-useful`,
+`decision-useful`, and `blocker-useful` were selected; their corresponding
+`*-noise` relations were rejected with `relation_marginal_utility`. The trace
+records each rejection by both primary and related Note ID.
