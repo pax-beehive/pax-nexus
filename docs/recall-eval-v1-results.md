@@ -84,3 +84,30 @@ should therefore be precision and ranking quality, not wider retrieval.
 
 The next recommended implementation is evidence-aware reranking, evaluated on
 an expanded independent cohort with the same identity and temporal controls.
+
+## Strategy trial: evidence-aware reranking — 2026-07-18
+
+Implementation: `general-recall-v3` scoring version
+`evidence-scorecard-v2-rerank-uncalibrated`. Candidates with stronger
+observable evidence confidence are now preferred before lexical-fit tie-breaks;
+hard gates, candidate limits, relation expansion, and budget packing are
+unchanged.
+
+The same 50-replay baseline was rerun. No quality metric changed:
+
+| Metric | Baseline | Evidence rerank |
+| --- | ---: | ---: |
+| Candidate recall@limit | 1.000 | 1.000 |
+| Delivered eligible recall | 1.000 | 1.000 |
+| Relation-expanded recall | 1.000 | 1.000 |
+| Selected-set recall | 1.000 | 1.000 |
+| Mean context precision | 0.134 | 0.134 |
+| Planner p95 | 2.56 ms | 2.92 ms |
+| Superseded leakage | 0 | 0 |
+| Budget drops | 0 | 0 |
+
+Interpretation: the change is behavior-preserving on this repeated cohort and
+does not yet justify adopting evidence confidence as a stronger global ranking
+feature. The next useful experiment is an independent cohort with deliberately
+conflicting lexical similarity, evidence strength, source recency, and
+supersession so the reranker has a measurable decision boundary.

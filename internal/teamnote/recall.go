@@ -512,6 +512,13 @@ func sortRecallCandidates(candidates []RecallCandidate, request RecallRequest) {
 		if candidates[left].coordination != candidates[right].coordination {
 			return candidates[left].coordination > candidates[right].coordination
 		}
+		// Evidence confidence combines query coverage, temporal validity, and
+		// source provenance. Prefer candidates with stronger observable support
+		// before falling back to lexical fit so ranking does not over-select
+		// merely similar notes.
+		if candidates[left].evidenceConfidence != candidates[right].evidenceConfidence {
+			return candidates[left].evidenceConfidence > candidates[right].evidenceConfidence
+		}
 		if candidates[left].exactMatch != candidates[right].exactMatch {
 			return candidates[left].exactMatch > candidates[right].exactMatch
 		}
