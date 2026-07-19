@@ -512,6 +512,31 @@ func (s *recallSuite) TestGeneralRecallV3BoundsLanesAndRelations() {
 		s.Equal(1, occurrences)
 		s.ElementsMatch([]string{"note-first", "note-second", "note-shared"}, trace.SelectedSet)
 	})
+
+	s.Run("relation item limit does not backfill after selected relation", func() {
+		request := teamnote.RecallRequest{
+			Actor: teamnote.Actor{UserID: "owner", AgentID: "consumer"},
+			Query: "alpha release", TokenBudget: 1000, MaxItems: 4,
+		}
+		first := recallCandidate("note-first", "alpha status", "alpha release is ready", 1, nil)
+		second := recallCandidate("note-second", "release status", "alpha release is queued", 0.9, nil)
+		shared := recallCandidate("note-shared", "ownership detail", "alpha owner detail", 0, nil)
+		backfill := recallCandidate("note-backfill", "deadline detail", "release deadline detail", 0, nil)
+		first.RelatedSubjects = []string{shared.Subject}
+		second.RelatedSubjects = []string{shared.Subject, backfill.Subject}
+
+		planned, trace := teamnote.PlanRecall(
+			[]teamnote.RecallCandidate{first, second, shared, backfill}, request,
+			teamnote.RecallPolicy{CandidateLimit: 2},
+		)
+
+		s.Require().Len(planned, 2)
+		for _, delivery := range planned {
+			s.NotContains(delivery.SourceNoteIDs, backfill.ID)
+		}
+		s.NotContains(trace.SelectedSet, backfill.ID)
+		s.Contains(trace.PreBudgetSelectedSet, backfill.ID)
+	})
 }
 
 func (s *recallSuite) TestGeneralRecallV3CompilesTemporalModes() {

@@ -73,12 +73,15 @@ func Run(set FixtureSet, policy Policy) (Report, error) {
 		if err := encoder.Encode(extraction); err != nil {
 			return Report{}, fmt.Errorf("encode replay extraction observation: %w", err)
 		}
-		plannerStarted := time.Now()
-		planned, trace := teamnote.PlanRecall(replayCase.recallCandidates(), replayCase.recallRequest(), teamnote.RecallPolicy{
+		candidates := replayCase.recallCandidates()
+		request := replayCase.recallRequest()
+		recallPolicy := teamnote.RecallPolicy{
 			SemanticThreshold: policy.SemanticThreshold, CandidateLimit: policy.CandidateLimit,
 			SuppressDuplicates: policy.SuppressDuplicates, DegradeRelated: policy.DegradeRelated,
 			ObservationTime: replayCase.ObservationTime,
-		})
+		}
+		plannerStarted := time.Now()
+		planned, trace := teamnote.PlanRecall(candidates, request, recallPolicy)
 		plannerDurationByCase[replayCase.Fixture.CaseID] = time.Since(plannerStarted).Nanoseconds()
 		traces[replayCase.Fixture.CaseID] = trace
 		plannedByCase[replayCase.Fixture.CaseID] = plannedItems(planned)

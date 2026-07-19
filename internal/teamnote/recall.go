@@ -166,19 +166,20 @@ func planRecallRelated(
 	request RecallRequest,
 	remaining int,
 ) []Note {
-	eligible = excludeRecallIDs(eligible, trace.SelectedSet)
-	for _, note := range eligible {
+	available := excludeRecallIDs(eligible, trace.SelectedSet)
+	for _, note := range available {
 		recordPreBudgetSelection(trace, note.ID)
 	}
 	selected := eligible
 	if request.MaxItems > 0 && len(selected) > max(0, remaining) {
 		selected = selected[:max(0, remaining)]
 	}
+	selected = excludeRecallIDs(selected, trace.SelectedSet)
 	if request.MaxItems <= 0 {
 		return selected
 	}
 	selectedIDs := noteIDSet(selected)
-	for _, dropped := range eligible {
+	for _, dropped := range available {
 		if _, ok := selectedIDs[dropped.ID]; ok {
 			continue
 		}
