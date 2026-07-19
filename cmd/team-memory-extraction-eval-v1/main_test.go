@@ -27,6 +27,18 @@ func (s *commandSuite) TestParseFlagsUsesIndependentDefaultOutput() {
 	s.Require().NoError(err)
 	s.Equal(filepath.Join("runs", "extraction-eval-v1", "eval-run"), config.outputDir)
 	s.Equal("v2", config.promptVersion)
+	s.Equal(extractor.DefaultCandidateStrategy(), config.v2Variant)
+}
+
+func (s *commandSuite) TestParseFlagsAcceptsCandidateStrategy() {
+	config, err := parseFlags([]string{
+		"-dsn", "postgres://example", "-manifest", "manifest.json", "-fixtures", "fixtures.json",
+		"-source-run-id", "source-run", "-run-id", "eval-run", "-extractor-base-url", "https://example.test",
+		"-extractor-model", "model", "-candidate-strategy", extractor.CandidateStrategyTyped2,
+	})
+
+	s.Require().NoError(err)
+	s.Equal(extractor.CandidateStrategyTyped2, config.v2Variant)
 }
 
 func (s *commandSuite) TestParseFlagsRequiresSourceIdentity() {

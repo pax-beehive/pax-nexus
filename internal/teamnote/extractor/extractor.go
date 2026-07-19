@@ -41,9 +41,13 @@ type ProviderCall struct {
 type ProviderCallObserver func(ProviderCall)
 
 const (
-	V2VariantCurrent         = "current"
-	V2VariantInteractionSlim = "interaction-slim"
-	V2VariantTypedCurrent    = "typed-2"
+	CandidateStrategyCurrent         = "current"
+	CandidateStrategyInteractionSlim = "interaction-slim"
+	CandidateStrategyTyped2          = "typed-2"
+
+	V2VariantCurrent         = CandidateStrategyCurrent
+	V2VariantInteractionSlim = CandidateStrategyInteractionSlim
+	V2VariantTypedCurrent    = CandidateStrategyTyped2
 )
 
 type Result struct {

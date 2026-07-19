@@ -20,22 +20,7 @@ type eventScope struct {
 	threadRef string
 }
 
-// extractionProtocol captures the version-specific parts of one rolling
-// extraction call: the stable system prompt and the response decoders for
-// fresh and saved responses. Episode, compaction, and summary mechanics are
-// shared across protocols.
-type extractionProtocol struct {
-	systemPrompt string
-	decodeFresh  func(body []byte) (Result, string, error)
-	decodeSaved  func(content string) (Result, error)
-}
-
-var (
-	protocolV1                = extractionProtocol{rollingSystemPrompt, decodeResponse, decodeCandidateContent}
-	protocolV2Current         = extractionProtocol{rollingSystemPromptV2, decodeExtractionResponseV2, decodeExtractionContentV2}
-	protocolV2InteractionSlim = extractionProtocol{rollingSystemPromptV2InteractionSlim, decodeExtractionResponseV2, decodeExtractionContentV2}
-	protocolV2TypedCurrent    = extractionProtocol{rollingSystemPromptV2Typed, decodeExtractionResponseV2Typed, decodeExtractionContentV2Typed}
-)
+var protocolV1 = extractionProtocol{rollingSystemPrompt, decodeResponse, decodeCandidateContent}
 
 func (e *OpenAI) extractRolling(ctx context.Context, slice sessionlake.Slice) (Result, error) {
 	return e.extractRollingWith(ctx, slice, protocolV1, nil)
@@ -48,20 +33,9 @@ func (e *OpenAI) extractRollingV2(ctx context.Context, slice sessionlake.Slice) 
 // extractRollingV2With maps validated v2 products onto candidates after each
 // episode group, keeping the trace merged across groups.
 func (e *OpenAI) extractRollingV2With(ctx context.Context, slice sessionlake.Slice) (Result, error) {
-	return e.extractRollingWith(ctx, slice, e.v2Protocol(), func(groupResult *Result, groupSlice sessionlake.Slice) {
+	return e.extractRollingWith(ctx, slice, e.candidateStrategy.protocol, func(groupResult *Result, groupSlice sessionlake.Slice) {
 		mapExtractionV2(groupResult, groupSlice)
 	})
-}
-
-func (e *OpenAI) v2Protocol() extractionProtocol {
-	switch e.config.V2Variant {
-	case V2VariantInteractionSlim:
-		return protocolV2InteractionSlim
-	case V2VariantTypedCurrent:
-		return protocolV2TypedCurrent
-	default:
-		return protocolV2Current
-	}
 }
 
 func (e *OpenAI) extractRollingWith(ctx context.Context, slice sessionlake.Slice, protocol extractionProtocol, mapResult func(*Result, sessionlake.Slice)) (Result, error) {
@@ -180,7 +154,7 @@ func (e *OpenAI) advanceEpisode(ctx context.Context, key EpisodeKey, slice sessi
 		return Result{}, fmt.Errorf("load rolling extraction episode: %w", err)
 	}
 	expectedVersion := episode.Version
-	if found && !episodeCompatible(episode, e.config) {
+	if found && !e.episodeCompatible(episode) {
 		// A rolling transcript contains protocol-specific assistant responses.
 		// Replaying it under a different model, prompt, or response protocol can
 		// either fail decoding or silently carry stale state forward. Preserve
@@ -255,7 +229,7 @@ func (e *OpenAI) advanceEpisode(ctx context.Context, key EpisodeKey, slice sessi
 	return result, nil
 }
 
-func episodeCompatible(episode Episode, config OpenAIConfig) bool {
+func (e *OpenAI) episodeCompatible(episode Episode) bool {
 	protocolVersion := episode.ProtocolVersion
 	if protocolVersion == "" {
 		// Episodes written before protocol versioning used the v1 response
@@ -263,29 +237,16 @@ func episodeCompatible(episode Episode, config OpenAIConfig) bool {
 		protocolVersion = ExtractionVersionV1
 	}
 	expectedProtocol := ExtractionVersionV1
-	if config.ExtractionVersion == ExtractionVersionV2 {
-		expectedProtocol = extractionProtocolV2RevisionCurrent
-		switch config.V2Variant {
-		case V2VariantInteractionSlim:
-			expectedProtocol = extractionProtocolV2RevisionInteractionSlim
-		case V2VariantTypedCurrent:
-			expectedProtocol = extractionProtocolV2RevisionTypedCurrent
-		}
+	if e.config.ExtractionVersion == ExtractionVersionV2 {
+		expectedProtocol = e.candidateStrategy.protocolVersion
 	}
 	return protocolVersion == expectedProtocol &&
-		episode.Model == config.Model && episode.PromptVersion == config.PromptVersion
+		episode.Model == e.config.Model && episode.PromptVersion == e.config.PromptVersion
 }
 
 func (e *OpenAI) episodeProtocolVersion() string {
 	if e.config.ExtractionVersion == ExtractionVersionV2 {
-		switch e.config.V2Variant {
-		case V2VariantInteractionSlim:
-			return extractionProtocolV2RevisionInteractionSlim
-		case V2VariantTypedCurrent:
-			return extractionProtocolV2RevisionTypedCurrent
-		default:
-			return extractionProtocolV2RevisionCurrent
-		}
+		return e.candidateStrategy.protocolVersion
 	}
 	return ExtractionVersionV1
 }

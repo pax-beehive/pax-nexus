@@ -23,6 +23,7 @@ func (s *configSuite) SetupTest() {
 		"TEAM_MEMORY_EXTRACTOR_MODE", "TEAM_MEMORY_EXTRACTOR_BASE_URL",
 		"TEAM_MEMORY_EXTRACTOR_API_KEY", "TEAM_MEMORY_EXTRACTOR_MODEL", "TEAM_MEMORY_PROMPT_VERSION",
 		"TEAM_MEMORY_EXTRACTION_CONTEXT_MODE", "TEAM_MEMORY_EXTRACTION_VERSION",
+		"TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY",
 		"TEAM_MEMORY_EXTRACTION_COMPACT_START_TOKENS",
 		"TEAM_MEMORY_EXTRACTION_COMPACT_TOKENS", "TEAM_MEMORY_EXTRACTION_COMPACTION_ENABLED",
 		"TEAM_MEMORY_EXTRACTION_SUMMARY_ENABLED", "TEAM_MEMORY_EXTRACTION_SUMMARY_TRIGGER_TOKENS",
@@ -52,6 +53,7 @@ func (s *configSuite) TestLoadsNoopConfiguration() {
 	s.Equal("v1", config.promptVersion)
 	s.Equal("rolling", config.extractionContextMode)
 	s.Equal("v2", config.extractionVersion)
+	s.Equal(extractor.DefaultCandidateStrategy(), config.extractionCandidateStrategy)
 	s.False(config.extractionCompactionEnabled)
 	s.True(config.extractionSummaryEnabled)
 	s.Equal(12*1024, config.extractionCompactStartTokens)
@@ -73,6 +75,18 @@ func (s *configSuite) TestLoadsNoopConfiguration() {
 	adapter, err := buildExtractor(config)
 	s.Require().NoError(err)
 	s.IsType(extractor.Noop{}, adapter)
+}
+
+func (s *configSuite) TestRuntimeCandidateStrategyOverridesBuildDefault() {
+	s.T().Setenv("TEAM_MEMORY_DATABASE_URL", "postgres://database")
+	s.T().Setenv("TEAM_MEMORY_API_KEYS", `{"key":"scope"}`)
+	s.T().Setenv("TEAM_MEMORY_EXTRACTOR_MODE", "noop")
+	s.T().Setenv("TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY", extractor.CandidateStrategyTyped2)
+
+	config, err := loadConfig()
+
+	s.Require().NoError(err)
+	s.Equal(extractor.CandidateStrategyTyped2, config.extractionCandidateStrategy)
 }
 
 func (s *configSuite) TestAllowsExtractionV1Rollback() {
@@ -97,6 +111,26 @@ func (s *configSuite) TestCheckedInExtractionDefaultsUseV2() {
 		{path: "evals/opencode/compose.yaml", want: "TEAM_MEMORY_EXTRACTION_VERSION: ${TEAM_MEMORY_EXTRACTION_VERSION:-v2}"},
 		{path: "evals/v2/compose.yaml", want: "TEAM_MEMORY_EXTRACTION_VERSION: ${TEAM_MEMORY_EXTRACTION_VERSION:-v2}"},
 		{path: "scripts/load-eval-v2-env.sh", want: `: "${TEAM_MEMORY_EXTRACTION_VERSION:=v2}"`},
+	}
+	for _, test := range tests {
+		s.Run(test.path, func() {
+			content, err := os.ReadFile(test.path)
+			s.Require().NoError(err)
+			s.Contains(string(content), test.want)
+		})
+	}
+}
+
+func (s *configSuite) TestCheckedInCandidateStrategyBuildInterface() {
+	tests := []struct {
+		path string
+		want string
+	}{
+		{path: ".env.example", want: "TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY="},
+		{path: ".env.eval-v2.example", want: "TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY=current"},
+		{path: "compose.yaml", want: "EXTRACTION_CANDIDATE_STRATEGY: ${TEAM_MEMORY_BUILD_EXTRACTION_CANDIDATE_STRATEGY:-current}"},
+		{path: "Dockerfile", want: "ARG EXTRACTION_CANDIDATE_STRATEGY=current"},
+		{path: "Makefile", want: "EXTRACTION_CANDIDATE_STRATEGY ?= current"},
 	}
 	for _, test := range tests {
 		s.Run(test.path, func() {

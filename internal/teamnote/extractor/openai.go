@@ -42,13 +42,14 @@ type OpenAIConfig struct {
 }
 
 type OpenAI struct {
-	config      OpenAIConfig
-	locksMu     sync.Mutex
-	locks       map[EpisodeKey]*sync.Mutex
-	flightsMu   sync.Mutex
-	flights     map[EpisodeKey]*compactionFlight
-	summariesMu sync.Mutex
-	summaries   map[EpisodeKey]*summaryFlight
+	config            OpenAIConfig
+	candidateStrategy candidateStrategy
+	locksMu           sync.Mutex
+	locks             map[EpisodeKey]*sync.Mutex
+	flightsMu         sync.Mutex
+	flights           map[EpisodeKey]*compactionFlight
+	summariesMu       sync.Mutex
+	summaries         map[EpisodeKey]*summaryFlight
 }
 
 func NewOpenAI(config OpenAIConfig) (*OpenAI, error) {
@@ -65,8 +66,12 @@ func NewOpenAI(config OpenAIConfig) (*OpenAI, error) {
 	if err := normalizeOpenAIConfig(&config); err != nil {
 		return nil, err
 	}
+	strategy, err := resolveCandidateStrategy(config.V2Variant)
+	if err != nil {
+		return nil, fmt.Errorf("create OpenAI extractor: %w", err)
+	}
 	return &OpenAI{
-		config: config, locks: make(map[EpisodeKey]*sync.Mutex),
+		config: config, candidateStrategy: strategy, locks: make(map[EpisodeKey]*sync.Mutex),
 		flights:   make(map[EpisodeKey]*compactionFlight),
 		summaries: make(map[EpisodeKey]*summaryFlight),
 	}, nil
@@ -122,14 +127,11 @@ func normalizeExtractionVersion(config *OpenAIConfig) error {
 	if config.ExtractionVersion == ExtractionVersionV2 && config.ContextMode != ContextModeRolling {
 		return fmt.Errorf("create OpenAI extractor: extraction v2 requires rolling context mode")
 	}
-	if config.V2Variant == "" {
-		config.V2Variant = V2VariantCurrent
+	strategy, err := resolveCandidateStrategy(config.V2Variant)
+	if err != nil {
+		return fmt.Errorf("create OpenAI extractor: %w", err)
 	}
-	if config.V2Variant != V2VariantCurrent &&
-		config.V2Variant != V2VariantInteractionSlim &&
-		config.V2Variant != V2VariantTypedCurrent {
-		return fmt.Errorf("create OpenAI extractor: unsupported v2 variant %q", config.V2Variant)
-	}
+	config.V2Variant = strategy.name
 	return nil
 }
 
@@ -192,7 +194,7 @@ func (e *OpenAI) WaitForBackground(ctx context.Context) error {
 // protocol, shared by extraction, compaction, and summary calls.
 func (e *OpenAI) systemPrompt() string {
 	if e.config.ExtractionVersion == ExtractionVersionV2 {
-		return e.v2Protocol().systemPrompt
+		return e.candidateStrategy.protocol.systemPrompt
 	}
 	return rollingSystemPrompt
 }

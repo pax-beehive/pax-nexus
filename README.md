@@ -101,6 +101,16 @@ incompatible response history. The current v2 default is an operator rollout
 decision; the failed shadow latency and cost gates remain recorded in the ADR
 and must not be presented as a measured quality win.
 
+V2 extraction candidate strategies are packaged behind the same `Extractor`
+interface. `current`, `interaction-slim`, and `typed-2` each bind their prompt,
+response decoder, and rolling episode protocol revision in one registry. Build
+a distribution with a selected default using
+`make build EXTRACTION_CANDIDATE_STRATEGY=typed-2`, or pass the same build
+argument to Docker as `EXTRACTION_CANDIDATE_STRATEGY`. At runtime,
+`TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY` overrides the embedded default;
+an empty value uses the build default. The extractor model remains independent,
+so a Pro arm also sets `TEAM_MEMORY_EXTRACTOR_MODEL=deepseek-v4-pro`.
+
 The default rolling path instead keeps an append-only recent raw tail and runs a
 non-blocking continuity summary. After the raw message history grows beyond the
 16,384-token tail by another 8,192 tokens, one asynchronous summary updates the

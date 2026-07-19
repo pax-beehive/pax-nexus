@@ -1,6 +1,8 @@
 #!/bin/bash
-RUN_NAME=hertz_service
+set -euo pipefail
+
 mkdir -p output/bin
 cp script/* output 2>/dev/null
 chmod +x output/bootstrap.sh
-go build -o output/bin/${RUN_NAME}
+make build OUTPUT_BIN_DIR=output/bin \
+  EXTRACTION_CANDIDATE_STRATEGY="${EXTRACTION_CANDIDATE_STRATEGY:-current}"
