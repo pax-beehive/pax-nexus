@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"os"
 	"path/filepath"
 	"sync"
@@ -169,7 +170,7 @@ func (r *Runner) Run(ctx context.Context, config Config, cases []Case, revision 
 }
 
 func validateRunnerConfig(config Config) error {
-	if config.Version != ConfigVersion && config.Version != "v3" {
+	if config.Version != ConfigVersion && config.Version != "v3" && config.Version != "recall-v2" {
 		return fmt.Errorf("validate eval runner config: unsupported version %q", config.Version)
 	}
 	return config.ValidateBase()
@@ -400,14 +401,19 @@ func (r *Runner) executeTrial(
 		partial.ReadinessDurationMS = durations[1].Milliseconds()
 	}
 	var output harness.AgentOutput
+	var recallDiagnostics recallDiagnostics
 	var executeErr error
-	durations[2], output, executeErr = r.runConsumer(ctx, arm.Consumer, variables, artifactDir)
+	durations[2], output, recallDiagnostics, executeErr = r.runConsumer(ctx, arm.Consumer, variables, artifactDir)
 	partial = withConsumerUsage(partial, output)
+	partial = withRecallDiagnostics(partial, recallDiagnostics)
 	partial.ConsumerDurationMS = durations[2].Milliseconds()
 	if executeErr != nil {
 		return partial, executeErr
 	}
-	scored := withMemoryIngest(ScoreResult(run, evalCase, arm.Name, producerOutput, output, started, durations), ingestResult)
+	scored := withRecallDiagnostics(
+		withMemoryIngest(ScoreResult(run, evalCase, arm.Name, producerOutput, output, started, durations), ingestResult),
+		recallDiagnostics,
+	)
 	if judgeSpec == nil {
 		return scored, nil
 	}
@@ -514,16 +520,120 @@ func (r *Runner) waitForMemory(ctx context.Context, spec CommandSpec, variables 
 	return result.Duration, nil
 }
 
-func (r *Runner) runConsumer(ctx context.Context, spec CommandSpec, variables map[string]string, artifactDir string) (time.Duration, harness.AgentOutput, error) {
-	result, executeErr := r.executor.Execute(ctx, spec, variables, filepath.Join(artifactDir, "consumer.jsonl"), filepath.Join(artifactDir, "consumer.stderr.log"))
+func (r *Runner) runConsumer(ctx context.Context, spec CommandSpec, variables map[string]string, artifactDir string) (time.Duration, harness.AgentOutput, recallDiagnostics, error) {
+	stderrPath := filepath.Join(artifactDir, "consumer.stderr.log")
+	result, executeErr := r.executor.Execute(ctx, spec, variables, filepath.Join(artifactDir, "consumer.jsonl"), stderrPath)
 	output, parseErr := parseAgentOutput(result, "consumer")
+	diagnostics, diagnosticsErr := loadRecallDiagnostics(stderrPath)
 	if executeErr != nil {
-		return result.Duration, output, fmt.Errorf("run consumer: %w", executeErr)
+		return result.Duration, output, diagnostics, fmt.Errorf("run consumer: %w", executeErr)
 	}
 	if parseErr != nil {
-		return result.Duration, output, parseErr
+		return result.Duration, output, diagnostics, parseErr
 	}
-	return result.Duration, output, nil
+	if diagnosticsErr != nil {
+		return result.Duration, output, diagnostics, diagnosticsErr
+	}
+	return result.Duration, output, diagnostics, nil
+}
+
+type recallDiagnostics struct {
+	Observed      bool
+	Success       bool
+	ProviderCalls int
+	Providers     map[string]int
+	Candidates    int
+	Eligible      int
+	Hits          int
+	Inserted      int
+	DurationMS    int64
+}
+
+type recallDiagnosticEvent struct {
+	Kind                  string         `json:"kind"`
+	Success               bool           `json:"success"`
+	DurationMS            int64          `json:"duration_ms"`
+	HitCount              int            `json:"hit_count"`
+	InsertedCount         int            `json:"inserted_count"`
+	ProviderRecalls       map[string]int `json:"provider_recalls"`
+	ProviderHits          map[string]int `json:"provider_hits"`
+	ProviderRecallDetails []struct {
+		CandidateCount int `json:"candidate_count"`
+		EligibleCount  int `json:"eligible_count"`
+	} `json:"provider_recall_details"`
+}
+
+func loadRecallDiagnostics(path string) (recallDiagnostics, error) {
+	input, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return recallDiagnostics{}, nil
+	}
+	if err != nil {
+		return recallDiagnostics{}, fmt.Errorf("read consumer recall diagnostics: %w", err)
+	}
+
+	diagnostics := recallDiagnostics{Success: true}
+	for line := range bytes.SplitSeq(input, []byte{'\n'}) {
+		line = bytes.TrimSpace(line)
+		if len(line) == 0 || line[0] != '{' {
+			continue
+		}
+		var header struct {
+			Kind string `json:"kind"`
+		}
+		if json.Unmarshal(line, &header) != nil || header.Kind != "hook_recall" {
+			continue
+		}
+		var event recallDiagnosticEvent
+		if err := json.Unmarshal(line, &event); err != nil {
+			return diagnostics, fmt.Errorf("decode consumer recall diagnostics: %w", err)
+		}
+		diagnostics.add(event)
+	}
+	return diagnostics, nil
+}
+
+func (diagnostics *recallDiagnostics) add(event recallDiagnosticEvent) {
+	diagnostics.Observed = true
+	diagnostics.Success = diagnostics.Success && event.Success
+	diagnostics.DurationMS += event.DurationMS
+	diagnostics.ProviderCalls += sumDiagnosticCounts(event.ProviderRecalls)
+	if diagnostics.Providers == nil {
+		diagnostics.Providers = make(map[string]int)
+	}
+	for provider, count := range event.ProviderRecalls {
+		diagnostics.Providers[provider] += count
+	}
+	diagnostics.Hits += event.HitCount
+	if event.HitCount == 0 {
+		diagnostics.Hits += sumDiagnosticCounts(event.ProviderHits)
+	}
+	diagnostics.Inserted += event.InsertedCount
+	for _, detail := range event.ProviderRecallDetails {
+		diagnostics.Candidates += detail.CandidateCount
+		diagnostics.Eligible += detail.EligibleCount
+	}
+}
+
+func sumDiagnosticCounts(counts map[string]int) int {
+	total := 0
+	for _, count := range counts {
+		total += count
+	}
+	return total
+}
+
+func withRecallDiagnostics(result TrialResult, diagnostics recallDiagnostics) TrialResult {
+	result.MemoryRecallObserved = diagnostics.Observed
+	result.MemoryRecallSuccess = diagnostics.Success
+	result.MemoryRecallProviderCalls = diagnostics.ProviderCalls
+	result.MemoryRecallProviders = maps.Clone(diagnostics.Providers)
+	result.MemoryRecallCandidates = diagnostics.Candidates
+	result.MemoryRecallEligible = diagnostics.Eligible
+	result.MemoryRecallHits = diagnostics.Hits
+	result.MemoryContextItems = diagnostics.Inserted
+	result.MemoryRecallDurationMS = diagnostics.DurationMS
+	return result
 }
 
 func (r *Runner) runJudge(ctx context.Context, spec CommandSpec, variables map[string]string, artifactDir string) (time.Duration, harness.GroupMemBenchJudgment, error) {
@@ -710,6 +820,7 @@ func trialVariables(run RunRecord, evalCase Case, arm, outputDir string) map[str
 		"question": evalCase.Question, "expected": evalCase.Expected, "user_id": evalCase.AskingUserID,
 		"asking_user_id": evalCase.AskingUserID, "answering_agent_id": evalCase.AnsweringAgentID,
 		"answerer_seed": evalCase.AnswererSeed, "answerer_source_overlap": evalCase.AnswererSourceOverlap,
+		"knowledge_source_status": evalCase.KnowledgeSourceStatus, "temporal_mode": evalCase.TemporalMode,
 		"strict_cross_agent": fmt.Sprintf("%t", evalCase.StrictCrossAgent),
 		"scope_id":           evalCase.ScopeID, "producer_workspace": evalCase.ProducerWorkspace,
 		"consumer_workspace": evalCase.ConsumerWorkspace, "output_dir": outputDir, "artifact_dir": artifactDir,
@@ -740,5 +851,7 @@ func withCaseIdentity(result TrialResult, evalCase Case) TrialResult {
 	result.AnswererSeed = evalCase.AnswererSeed
 	result.StrictCrossAgent = evalCase.StrictCrossAgent
 	result.AnswererSourceOverlap = evalCase.AnswererSourceOverlap
+	result.KnowledgeSourceStatus = evalCase.KnowledgeSourceStatus
+	result.TemporalMode = evalCase.TemporalMode
 	return result
 }

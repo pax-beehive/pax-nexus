@@ -10,24 +10,26 @@ import (
 )
 
 type Summary struct {
-	SchemaVersion               string  `json:"schema_version"`
-	Dataset                     string  `json:"dataset,omitempty"`
-	Cases                       int     `json:"cases"`
-	RequiredAtoms               int     `json:"required_atoms"`
-	ExtractionScoredAtoms       int     `json:"extraction_scored_atoms"`
-	ExtractionMatchedAtoms      int     `json:"extraction_matched_atoms"`
-	ExtractionFactRecall        float64 `json:"extraction_fact_recall"`
-	ExtractionErrors            int     `json:"extraction_errors"`
-	RecallScoredAtoms           int     `json:"recall_scored_atoms"`
-	RecallMatchedAtoms          int     `json:"recall_matched_atoms"`
-	RecallGoldRecall            float64 `json:"recall_gold_recall"`
-	RecallErrors                int     `json:"recall_errors"`
-	RecallMatchedAvailableAtoms int     `json:"recall_matched_available_atoms"`
-	RecallConditionalRecall     float64 `json:"recall_conditional_recall"`
-	UpstreamMissedAtoms         int     `json:"upstream_missed_atoms"`
-	RecallMissedAvailableAtoms  int     `json:"recall_missed_available_atoms"`
-	ExtractionLeakageItems      int     `json:"extraction_leakage_items"`
-	RecallLeakageItems          int     `json:"recall_leakage_items"`
+	SchemaVersion                    string  `json:"schema_version"`
+	Dataset                          string  `json:"dataset,omitempty"`
+	Cases                            int     `json:"cases"`
+	RequiredAtoms                    int     `json:"required_atoms"`
+	ExtractionScoredAtoms            int     `json:"extraction_scored_atoms"`
+	ExtractionMatchedAtoms           int     `json:"extraction_matched_atoms"`
+	ExtractionFactRecall             float64 `json:"extraction_fact_recall"`
+	ExtractionErrors                 int     `json:"extraction_errors"`
+	RecallScoredAtoms                int     `json:"recall_scored_atoms"`
+	RecallMatchedAtoms               int     `json:"recall_matched_atoms"`
+	RecallGoldRecall                 float64 `json:"recall_gold_recall"`
+	RecallErrors                     int     `json:"recall_errors"`
+	RecallMatchedAvailableAtoms      int     `json:"recall_matched_available_atoms"`
+	RecallConditionalRecall          float64 `json:"recall_conditional_recall"`
+	UpstreamMissedAtoms              int     `json:"upstream_missed_atoms"`
+	RecallMissedAvailableAtoms       int     `json:"recall_missed_available_atoms"`
+	ExtractionLeakageItems           int     `json:"extraction_leakage_items"`
+	RecallLeakageItems               int     `json:"recall_leakage_items"`
+	ExtractionSuppressedLeakageItems int     `json:"extraction_suppressed_leakage_items"`
+	RecallSuppressedLeakageItems     int     `json:"recall_suppressed_leakage_items"`
 }
 
 type observationPair struct {
@@ -131,6 +133,7 @@ func summarize(fixtures FixtureSet, results []Result) Summary {
 			summary.ExtractionMatchedAtoms += result.Extraction.MatchedAtoms
 			summary.UpstreamMissedAtoms += len(result.Extraction.MissingAtomIDs)
 			summary.ExtractionLeakageItems += result.Extraction.LeakageItems
+			summary.ExtractionSuppressedLeakageItems += result.Extraction.SuppressedLeakageItems
 		} else {
 			summary.ExtractionErrors++
 		}
@@ -138,6 +141,7 @@ func summarize(fixtures FixtureSet, results []Result) Summary {
 			summary.RecallScoredAtoms += result.Recall.RequiredAtoms
 			summary.RecallMatchedAtoms += result.Recall.MatchedAtoms
 			summary.RecallLeakageItems += result.Recall.LeakageItems
+			summary.RecallSuppressedLeakageItems += result.Recall.SuppressedLeakageItems
 		} else {
 			summary.RecallErrors++
 		}

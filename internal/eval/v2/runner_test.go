@@ -225,6 +225,30 @@ func (s *runnerSuite) TestRunPersistsMemoryIngestNoOpReceipt() {
 	s.Zero(result.MemoryIngestCreated)
 }
 
+func (s *runnerSuite) TestRunPersistsConsumerRecallDiagnostics() {
+	store := newFakeStore()
+	executor := &fakeExecutor{consumerStderr: []byte(`docker noise
+{"kind":"hook_recall","success":true,"duration_ms":274,"hit_count":3,"inserted_count":2,"provider_recalls":{"memory":1},"provider_hits":{"memory":3},"provider_recall_details":[{"provider":"memory","candidate_count":5,"eligible_count":4}]}
+`)}
+	runner, err := NewRunner(store, executor, nil)
+	s.Require().NoError(err)
+	config := testConfig(s.T().TempDir())
+
+	_, _, err = runner.Run(context.Background(), config, []Case{{ID: "case", Question: "q", Expected: "answer", AskingUserID: "user"}}, "revision")
+
+	s.Require().NoError(err)
+	result := findResult(store.results, "memory")
+	s.True(result.MemoryRecallObserved)
+	s.True(result.MemoryRecallSuccess)
+	s.Equal(1, result.MemoryRecallProviderCalls)
+	s.Equal(map[string]int{"memory": 1}, result.MemoryRecallProviders)
+	s.Equal(5, result.MemoryRecallCandidates)
+	s.Equal(4, result.MemoryRecallEligible)
+	s.Equal(3, result.MemoryRecallHits)
+	s.Equal(2, result.MemoryContextItems)
+	s.Equal(int64(274), result.MemoryRecallDurationMS)
+}
+
 func (s *runnerSuite) TestSharedProducerFailureIsReusedAcrossDependentArms() {
 	store := newFakeStore()
 	executor := &fakeExecutor{failProgram: "producer"}
@@ -489,13 +513,14 @@ func (s *fakeStore) Results(context.Context, string) ([]TrialResult, error) {
 func (s *fakeStore) Finish(context.Context, string) error { s.finished = true; return nil }
 
 type fakeExecutor struct {
-	mu           sync.Mutex
-	programs     []string
-	failProgram  string
-	ingestOutput []byte
+	mu             sync.Mutex
+	programs       []string
+	failProgram    string
+	ingestOutput   []byte
+	consumerStderr []byte
 }
 
-func (e *fakeExecutor) Execute(_ context.Context, spec CommandSpec, _ map[string]string, stdoutPath, _ string) (CommandResult, error) {
+func (e *fakeExecutor) Execute(_ context.Context, spec CommandSpec, _ map[string]string, stdoutPath, stderrPath string) (CommandResult, error) {
 	e.mu.Lock()
 	e.programs = append(e.programs, spec.Program)
 	e.mu.Unlock()
@@ -524,6 +549,14 @@ func (e *fakeExecutor) Execute(_ context.Context, spec CommandSpec, _ map[string
 			return CommandResult{}, err
 		}
 		if err := os.WriteFile(stdoutPath, result.Output, 0o644); err != nil {
+			return CommandResult{}, err
+		}
+	}
+	if spec.Program == "consumer" && len(e.consumerStderr) > 0 {
+		if err := os.MkdirAll(filepath.Dir(stderrPath), 0o755); err != nil {
+			return CommandResult{}, err
+		}
+		if err := os.WriteFile(stderrPath, e.consumerStderr, 0o644); err != nil {
 			return CommandResult{}, err
 		}
 	}

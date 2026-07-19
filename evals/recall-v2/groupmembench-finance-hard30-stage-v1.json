@@ -1,0 +1,611 @@
+{
+  "schema_version": "pax-stage-eval-v1",
+  "dataset": "Recall Eval v2 hard cohort from e2682e01ff490acfe4fac2940159dce60307dfc9",
+  "cases": [
+    {
+      "case_id": "multi_hop_13",
+      "category": "multi_hop",
+      "source_revision": "6c79b2531a762ed4fa50dd359ed3e363f63c3c4c640a5151a4174577d9dbc596",
+      "recall_context": {
+        "consumer_user_id": "User_3",
+        "consumer_agent_id": "groupmembench-User_3",
+        "query": "Who is expected to own the rollback evidence pack if the July 26 milestone slips?",
+        "token_budget": 500,
+        "max_items": 5
+      },
+      "required_atoms": [
+        {
+          "id": "gold_answer",
+          "patterns": [
+            "(?i)Ops Lead"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "multi_hop_15",
+      "category": "multi_hop",
+      "source_revision": "314726aa30a36c25b79137ef0649825a6800c6919e7832c3ac47dd303b0c2cc2",
+      "recall_context": {
+        "consumer_user_id": "User_2",
+        "consumer_agent_id": "groupmembench-User_2",
+        "query": "What additional requirements were identified to avoid audit replay issues during the integration testing cycle revision?",
+        "token_budget": 500,
+        "max_items": 5
+      },
+      "required_atoms": [
+        {
+          "id": "gold_answer",
+          "patterns": [
+            "(?i)rerun slot and timestamped evidence linkage"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "multi_hop_39",
+      "category": "multi_hop",
+      "source_revision": "061b0c7f7aa8ce7d484786a54f823e15731d0a913289a32e7419e5f26b1d4bc5",
+      "recall_context": {
+        "consumer_user_id": "User_1",
+        "consumer_agent_id": "groupmembench-User_1",
+        "query": "What are the two remaining blockers for marking the ESG Policy Requirements baseline as completed?",
+        "token_budget": 500,
+        "max_items": 5
+      },
+      "required_atoms": [
+        {
+          "id": "gold_answer",
+          "patterns": [
+            "(?i)Control ownership and reporting timing"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "multi_hop_20",
+      "category": "multi_hop",
+      "source_revision": "90e653149be3f3044c844951387d70d4d83338c62943518f070c3d6a0bed82f8",
+      "recall_context": {
+        "consumer_user_id": "User_9",
+        "consumer_agent_id": "groupmembench-User_9",
+        "query": "What are the three key controls identified in FRA for stabilizing reconciliation?",
+        "token_budget": 500,
+        "max_items": 5
+      },
+      "required_atoms": [
+        {
+          "id": "gold_answer",
+          "patterns": [
+            "(?i)endpoint, cadence, IP allowlist"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "multi_hop_45",
+      "category": "multi_hop",
+      "source_revision": "a0d9b5a16184d7424a65e3f699499e94096589427aa06246585f0f7868b78b66",
+      "recall_context": {
+        "consumer_user_id": "User_6",
+        "consumer_agent_id": "groupmembench-User_6",
+        "query": "By what date does the data engineering team need to confirm any unstable fields for the Model Feature Engineering phase?",
+        "token_budget": 500,
+        "max_items": 5
+      },
+      "required_atoms": [
+        {
+          "id": "gold_answer",
+          "patterns": [
+            "(?i)2025-07-18"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "knowledge_update_23",
+      "category": "knowledge_update",
+      "source_revision": "1c97ba9efb275fd0e4793664b0252cc71a2507e2fe2d6472652171f4588eb2a7",
+      "recall_context": {
+        "consumer_user_id": "User_11",
+        "consumer_agent_id": "groupmembench-User_11",
+        "query": "What is the current approach for handling the consent timestamp and audit-trail fields in the requirements?",
+        "token_budget": 500,
+        "max_items": 5
+      },
+      "required_atoms": [
+        {
+          "id": "gold_answer",
+          "patterns": [
+            "(?i)Instead of keeping interpretation open, update the baseline now to include the consent timestamp and audit-trail fields, and treat the Legal redline as a scope change that must be reflected in requirements before build sequencing is locked\\."
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "knowledge_update_8",
+      "category": "knowledge_update",
+      "source_revision": "899c0bff61f439d9236c09830dd0d0879fc52fa2a7d3818fc239a4ef81b27625",
+      "recall_context": {
+        "consumer_user_id": "User_2",
+        "consumer_agent_id": "groupmembench-User_2",
+        "query": "What approach is the team using to address high verification drop-off in the pilot launch?",
+        "token_budget": 500,
+        "max_items": 5
+      },
+      "required_atoms": [
+        {
+          "id": "gold_answer",
+          "patterns": [
+            "(?i)Instead of starting with prompt-level isolation, the team should first instrument the full upload-to-review funnel with step timestamps and retry timing, then branch by device/request type to identify whether the drop-off is coming from validation, upload friction, or queue delay\\."
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "knowledge_update_5",
+      "category": "knowledge_update",
+      "source_revision": "d15c4a86401acce638cb78c81a0d4d68e09a44ac1afec542ec06fa007b498f1e",
+      "recall_context": {
+        "consumer_user_id": "User_13",
+        "consumer_agent_id": "groupmembench-User_13",
+        "query": "What is the team currently doing for the flagged bucket in the SAR reporting process?",
+        "token_budget": 500,
+        "max_items": 5
+      },
+      "required_atoms": [
+        {
+          "id": "gold_answer",
+          "patterns": [
+            "(?i)Instead of keeping the split as-is, pause scenario creation for that bucket and have Legal and Ops jointly freeze the trigger-impacting fields and audit-trail rules before any further review\\."
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "knowledge_update_27",
+      "category": "knowledge_update",
+      "source_revision": "7cfaaa610467ac01f3973fa3bceee8905581fc260cb7f8f9d47230a980d5ab68",
+      "recall_context": {
+        "consumer_user_id": "User_6",
+        "consumer_agent_id": "groupmembench-User_6",
+        "query": "What is the team’s current approach for reviewing channel inconsistencies in the customer journey?",
+        "token_budget": 500,
+        "max_items": 5
+      },
+      "required_atoms": [
+        {
+          "id": "gold_answer",
+          "patterns": [
+            "(?i)Instead of keeping assisted as a follow-up, include assisted in the first pass so all four channels are checked together for owner drift and handoff inconsistencies\\."
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "knowledge_update_24",
+      "category": "knowledge_update",
+      "source_revision": "ff4dc7b79d04e333cecf593f9c96e43ca5c5a42db0d7b98a3fb9e5fced6d7dae",
+      "recall_context": {
+        "consumer_user_id": "User_12",
+        "consumer_agent_id": "groupmembench-User_12",
+        "query": "What approach is the team using for regulatory requirements assessment?",
+        "token_budget": 500,
+        "max_items": 5
+      },
+      "required_atoms": [
+        {
+          "id": "gold_answer",
+          "patterns": [
+            "(?i)Use a two-track intake model: Legal signs a minimal disposition first so drafting can start, while Ops maintains jurisdiction-specific retention and reporting fields as separate locked metadata in the evidence pack\\."
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "temporal_33",
+      "category": "temporal",
+      "source_revision": "72b121ecc20b22acf7a0e6d4a532addedfe3493dd153aa7d512df65dc76144cb",
+      "recall_context": {
+        "consumer_user_id": "User_3",
+        "consumer_agent_id": "groupmembench-User_3",
+        "query": "On what date (YYYY-MM-DD) did the product owner request leadership review to address the high verification drop-off in the pilot?",
+        "token_budget": 500,
+        "max_items": 5
+      },
+      "required_atoms": [
+        {
+          "id": "gold_answer",
+          "patterns": [
+            "(?i)2025-07-24"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "temporal_26",
+      "category": "temporal",
+      "source_revision": "877ad625d15442dd98478e5bc7a518ecd0d7f41f6823dca6f6570cf68fd5d321",
+      "recall_context": {
+        "consumer_user_id": "User_3",
+        "consumer_agent_id": "groupmembench-User_3",
+        "query": "By what date (YYYY-MM-DD) were decisions on the open items in the spec requested to be sent?",
+        "token_budget": 500,
+        "max_items": 5
+      },
+      "required_atoms": [
+        {
+          "id": "gold_answer",
+          "patterns": [
+            "(?i)2025-07-28"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "temporal_24",
+      "category": "temporal",
+      "source_revision": "9060ccfde7711ea60fabadd5754aa0de475bb08d232aed6f076fdfa50f04b3fd",
+      "recall_context": {
+        "consumer_user_id": "User_2",
+        "consumer_agent_id": "groupmembench-User_2",
+        "query": "On what date (YYYY-MM-DD) should Product/Design lock the source-of-truth journey?",
+        "token_budget": 500,
+        "max_items": 5
+      },
+      "required_atoms": [
+        {
+          "id": "gold_answer",
+          "patterns": [
+            "(?i)2025-07-27"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "temporal_19",
+      "category": "temporal",
+      "source_revision": "fa3d2d4dd09eb14c50e3f35152b30edb1bfd103fa692dbe6f4ed0e5b7203c7c6",
+      "recall_context": {
+        "consumer_user_id": "User_2",
+        "consumer_agent_id": "groupmembench-User_2",
+        "query": "On what date (YYYY-MM-DD) will the locked edge-row pack be treated as the final proof point?",
+        "token_budget": 500,
+        "max_items": 5
+      },
+      "required_atoms": [
+        {
+          "id": "gold_answer",
+          "patterns": [
+            "(?i)2025-07-28"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "temporal_10",
+      "category": "temporal",
+      "source_revision": "7f9042c6bfb245bdd8f36ed3de611f3e4d80afb6b9eb05424d8c3792778ba885",
+      "recall_context": {
+        "consumer_user_id": "User_12",
+        "consumer_agent_id": "groupmembench-User_12",
+        "query": "What is the date (YYYY-MM-DD) that remains clean after the last audit gap is closed?",
+        "token_budget": 500,
+        "max_items": 5
+      },
+      "required_atoms": [
+        {
+          "id": "gold_answer",
+          "patterns": [
+            "(?i)2025-07-18"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "user_implicit_11",
+      "category": "user_implicit",
+      "source_revision": "3a0def6d5a550ffa95266a0881d6ca23fee7d7fbe8ac1b554ce844cac6b0e38c",
+      "recall_context": {
+        "consumer_user_id": "User_13",
+        "consumer_agent_id": "groupmembench-User_13",
+        "query": "What do I need to confirm about metrics ownership and evidence standards for the Risk: Incomplete Impact Data phase?",
+        "token_budget": 500,
+        "max_items": 5
+      },
+      "required_atoms": [
+        {
+          "id": "gold_answer",
+          "patterns": [
+            "(?i)which metrics are still pending, who owns them, and what evidence can be defended if fields remain partially populated"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "user_implicit_1",
+      "category": "user_implicit",
+      "source_revision": "60201a5bc1c4269ac6e7f952a6f0cc90cf78bef804a282f569a629fe7f7c5767",
+      "recall_context": {
+        "consumer_user_id": "User_3",
+        "consumer_agent_id": "groupmembench-User_3",
+        "query": "Which teams am I asking to pressure-test the current assumptions for the decision criteria in the Risk: Misalignment with Sustainability Targets phase?",
+        "token_budget": 500,
+        "max_items": 5
+      },
+      "required_atoms": [
+        {
+          "id": "gold_answer",
+          "patterns": [
+            "(?i)Finance, ESG, Ops, and Analytics are being asked to pressure-test the current assumptions against the spec\\."
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "user_implicit_2",
+      "category": "user_implicit",
+      "source_revision": "c9d0d12b6d1e7def49d8415aa02ac26acff09e9a9c778e4ce2cc29c394dce5c5",
+      "recall_context": {
+        "consumer_user_id": "User_3",
+        "consumer_agent_id": "groupmembench-User_3",
+        "query": "What is the blocker I flagged for the Integration Testing Cycle?",
+        "token_budget": 500,
+        "max_items": 5
+      },
+      "required_atoms": [
+        {
+          "id": "gold_answer",
+          "patterns": [
+            "(?i)payment approval workflow changes and bank statement timing assumptions"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "user_implicit_15",
+      "category": "user_implicit",
+      "source_revision": "e466b59ed0e21e5c3255fa289ef7a7fe73a5fce33c841fc2959a97fd2c9874fc",
+      "recall_context": {
+        "consumer_user_id": "User_1",
+        "consumer_agent_id": "groupmembench-User_1",
+        "query": "Should I be concerned that the wording change in the Training Rollout phase could affect the comms pack and regional launch notes?",
+        "token_budget": 500,
+        "max_items": 5
+      },
+      "required_atoms": [
+        {
+          "id": "gold_answer",
+          "patterns": [
+            "(?i)true"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "user_implicit_13",
+      "category": "user_implicit",
+      "source_revision": "7dbde200756c1cb589569979c6ab09da30e2e2bba0f63c8370664fe24e46f962",
+      "recall_context": {
+        "consumer_user_id": "User_1",
+        "consumer_agent_id": "groupmembench-User_1",
+        "query": "Am I keeping Reporting blocked until the sweep is clean in the Risk: Inconsistent Sustainability Standards phase?",
+        "token_budget": 500,
+        "max_items": 5
+      },
+      "required_atoms": [
+        {
+          "id": "gold_answer",
+          "patterns": [
+            "(?i)true"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "term_ambiguity_37",
+      "category": "term_ambiguity",
+      "source_revision": "ae16eb831b2b0b6c6aa9febeb2507ae0a0d77fa38f184391a96eba2ec936ffdd",
+      "recall_context": {
+        "consumer_user_id": "User_7",
+        "consumer_agent_id": "groupmembench-User_7",
+        "query": "What is the deadline for operational finance to confirm the bank statement format and exception owner during the Cash Management Module Build?",
+        "token_budget": 500,
+        "max_items": 5
+      },
+      "required_atoms": [
+        {
+          "id": "gold_answer",
+          "patterns": [
+            "(?i)2025-07-18"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "term_ambiguity_1",
+      "category": "term_ambiguity",
+      "source_revision": "e6308f4b9812694bf26075455bf4031892e80982d3d9688d8f2e26d314eb9602",
+      "recall_context": {
+        "consumer_user_id": "User_1",
+        "consumer_agent_id": "groupmembench-User_1",
+        "query": "What is the freeze status of finance workflows approval in the Design Automated Report Templates phase?",
+        "token_budget": 500,
+        "max_items": 5
+      },
+      "required_atoms": [
+        {
+          "id": "gold_answer",
+          "patterns": [
+            "(?i)frozen"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "term_ambiguity_6",
+      "category": "term_ambiguity",
+      "source_revision": "b0769be19c49ede1fc908f92b6e5e1f4d78dadc7d7ad5bfb7c420e3c954b79f8",
+      "recall_context": {
+        "consumer_user_id": "User_1",
+        "consumer_agent_id": "groupmembench-User_1",
+        "query": "What is the deadline for finance workflows to approve exception changes during the Implement Report Generation Engine phase?",
+        "token_budget": 500,
+        "max_items": 5
+      },
+      "required_atoms": [
+        {
+          "id": "gold_answer",
+          "patterns": [
+            "(?i)2025-07-18"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "term_ambiguity_21",
+      "category": "term_ambiguity",
+      "source_revision": "ce97bfe01b24eb9fdbcb935390ab547555494cd08820d86c7e89578a48f2e3d1",
+      "recall_context": {
+        "consumer_user_id": "User_7",
+        "consumer_agent_id": "groupmembench-User_7",
+        "query": "What action is operational finance expected to take regarding the locked values, evidence owner, and timestamp during the Production Deployment Readiness phase?",
+        "token_budget": 500,
+        "max_items": 5
+      },
+      "required_atoms": [
+        {
+          "id": "gold_answer",
+          "patterns": [
+            "(?i)stamp the locked values, evidence owner, and timestamp in the spec together"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "term_ambiguity_12",
+      "category": "term_ambiguity",
+      "source_revision": "3166c4a0b992dd0a78cdb7206541089cf31f8c3206561b8bf096cfe5de76d9f1",
+      "recall_context": {
+        "consumer_user_id": "User_3",
+        "consumer_agent_id": "groupmembench-User_3",
+        "query": "What aspect of responsibility does financial operations own under the Financial Data Validation Rules?",
+        "token_budget": 500,
+        "max_items": 5
+      },
+      "required_atoms": [
+        {
+          "id": "gold_answer",
+          "patterns": [
+            "(?i)approval"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "abstention_42",
+      "category": "abstention",
+      "source_revision": "0319cfc38cd41fe34c7b4deb847290205993ce9150ea3ea7d041ed1794fea9ec",
+      "recall_context": {
+        "consumer_user_id": "User_10",
+        "consumer_agent_id": "groupmembench-User_10",
+        "query": "What is the exact target date mentioned for the cutover readiness in the Treasury Management System implementation?",
+        "token_budget": 500,
+        "max_items": 5
+      },
+      "required_atoms": null,
+      "forbidden_atoms": [
+        {
+          "id": "unsupported_answer",
+          "patterns": [
+            "(?i)unsupported designated answer"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "abstention_2",
+      "category": "abstention",
+      "source_revision": "3ec8ebaf31c5360347a3d8cb1f5176e24891e0a4f4ec19a772ac7ff99556d130",
+      "recall_context": {
+        "consumer_user_id": "User_4",
+        "consumer_agent_id": "groupmembench-User_4",
+        "query": "What is the name of the primary approver for the ESG Policy Framework in the Define ESG Policy Requirements phase?",
+        "token_budget": 500,
+        "max_items": 5
+      },
+      "required_atoms": null,
+      "forbidden_atoms": [
+        {
+          "id": "unsupported_answer",
+          "patterns": [
+            "(?i)unsupported designated answer"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "abstention_41",
+      "category": "abstention",
+      "source_revision": "043833de599ee709c2a5f8a5925646d13d242af6ed967ff61e800f51c155b322",
+      "recall_context": {
+        "consumer_user_id": "User_3",
+        "consumer_agent_id": "groupmembench-User_3",
+        "query": "Who is the designated owner for the regional exception clauses mentioned in the ESG Policy Framework?",
+        "token_budget": 500,
+        "max_items": 5
+      },
+      "required_atoms": null,
+      "forbidden_atoms": [
+        {
+          "id": "unsupported_answer",
+          "patterns": [
+            "(?i)unsupported designated answer"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "abstention_32",
+      "category": "abstention",
+      "source_revision": "df5b4f046a95f10806c22839edf67ff3edfe8adfaa081e698ab6d58bed8f0327",
+      "recall_context": {
+        "consumer_user_id": "User_11",
+        "consumer_agent_id": "groupmembench-User_11",
+        "query": "What is the exact version number of the 'Helix' system mentioned in the context of first-login failures?",
+        "token_budget": 500,
+        "max_items": 5
+      },
+      "required_atoms": null,
+      "forbidden_atoms": [
+        {
+          "id": "unsupported_answer",
+          "patterns": [
+            "(?i)unsupported designated answer"
+          ]
+        }
+      ]
+    },
+    {
+      "case_id": "abstention_18",
+      "category": "abstention",
+      "source_revision": "8c0fbecb9af20b45d5cc76d0efdca3bceee17431a750987e3430441b6eb5be72",
+      "recall_context": {
+        "consumer_user_id": "User_13",
+        "consumer_agent_id": "groupmembench-User_13",
+        "query": "What is the exact matched pair count specified for the Horizon pack defect analysis?",
+        "token_budget": 500,
+        "max_items": 5
+      },
+      "required_atoms": null,
+      "forbidden_atoms": [
+        {
+          "id": "unsupported_answer",
+          "patterns": [
+            "(?i)unsupported designated answer"
+          ]
+        }
+      ]
+    }
+  ]
+}

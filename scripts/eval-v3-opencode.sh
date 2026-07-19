@@ -10,6 +10,23 @@ project_name="${EVAL_V3_COMPOSE_PROJECT}"
 run_id="${PAX_EVAL_RUN_ID:?PAX_EVAL_RUN_ID is required}"
 domain_api_key="eval-${run_id}-domain"
 domain_mem0_run_id="${run_id}-domain"
+manifest="${PAX_EVAL_MANIFEST:-}"
+case "${stage}" in
+  ingest-domain|preflight|consumer)
+    if [ -n "${manifest}" ]; then
+      domain_scope="$(jq -r '.cases[0].scope_id // empty' "${manifest}")"
+    else
+      domain_scope="${PAX_EVAL_SCOPE_ID:-}"
+    fi
+    if [ -z "${domain_scope}" ]; then
+      echo "Eval v3 manifest has no domain scope" >&2
+      exit 1
+    fi
+    TEAM_MEMORY_API_KEYS="$(jq -cn --arg run_id "${run_id}" --arg domain_scope "${domain_scope}" '{("eval-" + $run_id + "-preflight"): ($run_id + "-preflight"), ("eval-" + $run_id + "-domain"): ($run_id + "-" + $domain_scope)}')"
+    export TEAM_MEMORY_API_KEYS
+    ;;
+  *) ;;
+esac
 
 run_memory_ingest() {
   provider="$1"
@@ -133,6 +150,9 @@ run_consumer() {
     no_memory_team)
       recall_enabled=0
       ;;
+    team_note)
+      provider_type=team-memory
+      ;;
     groupmembench_mem0)
       provider_type=mem0
       provider_user_id="${MEM0_EVAL_USER_ID}"
@@ -156,6 +176,8 @@ run_consumer() {
 
   prompt="Answering teammate: ${answering_agent}
 Original asking user: ${asking_user}
+Evaluation temporal mode: ${PAX_EVAL_TEMPORAL_MODE:-current}
+Knowledge source annotation: ${PAX_EVAL_KNOWLEDGE_SOURCE_STATUS:-unknown}
 
 Answer the following question on behalf of the original asking user. Preserve the question's first-person semantics.
 

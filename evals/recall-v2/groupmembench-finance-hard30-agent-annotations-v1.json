@@ -1,0 +1,13 @@
+{
+  "schema_version": "pax-recall-eval-v2-annotations-v1",
+  "cases": {
+    "multi_hop_1": {
+      "knowledge_source_status": "reviewed",
+      "supporting_agent_ids": ["groupmembench-User_3"]
+    },
+    "knowledge_update_20": {
+      "knowledge_source_status": "reviewed",
+      "supporting_agent_ids": ["groupmembench-User_13"]
+    }
+  }
+}

@@ -1,0 +1,3697 @@
+{
+  "schema_version": "pax-recall-replay-v4",
+  "dataset": "Recall Eval v2 hard cohort from e2682e01ff490acfe4fac2940159dce60307dfc9 synthetic planner contrasts plus reviewed relation marginal utility cases",
+  "exported_from": {
+    "run_id": "synthetic-hard30-v1",
+    "arm": "team_note",
+    "scope_prefix": "synthetic-"
+  },
+  "policy": {
+    "semantic_threshold": 0.65,
+    "candidate_limit": 2,
+    "suppress_duplicates": true,
+    "degrade_related": true
+  },
+  "cases": [
+    {
+      "fixture": {
+        "case_id": "multi_hop_13",
+        "category": "multi_hop",
+        "source_revision": "6c79b2531a762ed4fa50dd359ed3e363f63c3c4c640a5151a4174577d9dbc596",
+        "recall_context": {
+          "consumer_user_id": "User_3",
+          "consumer_agent_id": "groupmembench-User_3",
+          "query": "Who is expected to own the rollback evidence pack if the July 26 milestone slips?",
+          "token_budget": 500,
+          "max_items": 5
+        },
+        "required_atoms": [
+          {
+            "id": "gold_answer",
+            "patterns": [
+              "(?i)Ops Lead"
+            ]
+          }
+        ]
+      },
+      "scope_id": "synthetic-multi_hop_13",
+      "actor": {
+        "user_id": "User_3",
+        "agent_id": "groupmembench-User_3",
+        "session_id": "consumer-multi_hop_13"
+      },
+      "observation_time": "2026-07-18T12:00:00Z",
+      "query_timezone": "UTC",
+      "extraction_items": [
+        {
+          "id": "multi_hop_13-noise",
+          "text": "This is a lexical distractor for Who is expected to own the rollback evidence pack if the July 26 milestone slips?",
+          "evidence_event_ids": [
+            "event-multi_hop_13-noise"
+          ]
+        },
+        {
+          "id": "multi_hop_13-primary",
+          "text": "Primary coordination record requiring its linked supporting answer.",
+          "evidence_event_ids": [
+            "event-multi_hop_13-primary"
+          ]
+        },
+        {
+          "id": "multi_hop_13-gold",
+          "text": "Ops Lead",
+          "evidence_event_ids": [
+            "event-multi_hop_13-gold"
+          ]
+        }
+      ],
+      "candidates": [
+        {
+          "id": "multi_hop_13-noise",
+          "kind": "status",
+          "subject": "Who is expected to own the rollback evidence pack if the July 26 milestone slips? archived copy",
+          "body": "This is a lexical distractor for Who is expected to own the rollback evidence pack if the July 26 milestone slips?",
+          "origin": {
+            "user_id": "other-user",
+            "agent_id": "other-agent",
+            "session_id": "noise-multi_hop_13"
+          },
+          "evidence_event_ids": [
+            "event-multi_hop_13-noise"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-17T12:00:00Z",
+          "updated_at": "2026-07-17T12:00:00Z",
+          "source_occurred_at": "2026-07-17T12:00:00Z",
+          "lexical_score": 0.95
+        },
+        {
+          "id": "multi_hop_13-primary",
+          "kind": "status",
+          "subject": "Who is expected to own the rollback evidence pack if the July 26 milestone slips?",
+          "body": "Primary coordination record requiring its linked supporting answer.",
+          "origin": {
+            "user_id": "source-user",
+            "agent_id": "source-agent",
+            "session_id": "primary-multi_hop_13"
+          },
+          "related_subjects": [
+            "supporting answer multi_hop_13"
+          ],
+          "evidence_event_ids": [
+            "event-multi_hop_13-primary"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-18T09:00:00Z",
+          "updated_at": "2026-07-18T09:00:00Z",
+          "source_occurred_at": "2026-07-18T09:00:00Z",
+          "lexical_score": 0.98
+        },
+        {
+          "id": "multi_hop_13-gold",
+          "kind": "decision",
+          "subject": "supporting answer multi_hop_13",
+          "body": "Supporting answer for Who is expected to own the rollback evidence pack if the July 26 milestone slips?: Ops Lead",
+          "origin": {
+            "user_id": "source-user",
+            "agent_id": "source-agent",
+            "session_id": "source-multi_hop_13"
+          },
+          "evidence_event_ids": [
+            "event-multi_hop_13-gold"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-18T10:00:00Z",
+          "updated_at": "2026-07-18T10:00:00Z",
+          "source_occurred_at": "2026-07-18T10:00:00Z",
+          "lexical_score": 0.1
+        }
+      ],
+      "atom_supports": [
+        {
+          "atom_id": "gold_answer",
+          "item_ids": [
+            "multi_hop_13-gold"
+          ]
+        }
+      ],
+      "eligibility_decisions": [
+        {
+          "item_id": "multi_hop_13-noise",
+          "eligible": true,
+          "reason": "eligible"
+        },
+        {
+          "item_id": "multi_hop_13-primary",
+          "eligible": true,
+          "reason": "eligible"
+        },
+        {
+          "item_id": "multi_hop_13-gold",
+          "eligible": true,
+          "reason": "eligible"
+        }
+      ],
+      "candidate_snapshot_sha256": "0d55ad2dbcb6353f03b7c29731f0906a67d6fe09792b9cd5840cb69431f52ebb"
+    },
+    {
+      "fixture": {
+        "case_id": "multi_hop_15",
+        "category": "multi_hop",
+        "source_revision": "314726aa30a36c25b79137ef0649825a6800c6919e7832c3ac47dd303b0c2cc2",
+        "recall_context": {
+          "consumer_user_id": "User_2",
+          "consumer_agent_id": "groupmembench-User_2",
+          "query": "What additional requirements were identified to avoid audit replay issues during the integration testing cycle revision?",
+          "token_budget": 500,
+          "max_items": 5
+        },
+        "required_atoms": [
+          {
+            "id": "gold_answer",
+            "patterns": [
+              "(?i)rerun slot and timestamped evidence linkage"
+            ]
+          }
+        ]
+      },
+      "scope_id": "synthetic-multi_hop_15",
+      "actor": {
+        "user_id": "User_2",
+        "agent_id": "groupmembench-User_2",
+        "session_id": "consumer-multi_hop_15"
+      },
+      "observation_time": "2026-07-18T12:00:00Z",
+      "query_timezone": "UTC",
+      "extraction_items": [
+        {
+          "id": "multi_hop_15-noise",
+          "text": "This is a lexical distractor for What additional requirements were identified to avoid audit replay issues during the integration testing cycle revision?",
+          "evidence_event_ids": [
+            "event-multi_hop_15-noise"
+          ]
+        },
+        {
+          "id": "multi_hop_15-gold",
+          "text": "rerun slot and timestamped evidence linkage",
+          "evidence_event_ids": [
+            "event-multi_hop_15-gold"
+          ]
+        }
+      ],
+      "candidates": [
+        {
+          "id": "multi_hop_15-noise",
+          "kind": "status",
+          "subject": "What additional requirements were identified to avoid audit replay issues during the integration testing cycle revision? archived copy",
+          "body": "This is a lexical distractor for What additional requirements were identified to avoid audit replay issues during the integration testing cycle revision?",
+          "origin": {
+            "user_id": "other-user",
+            "agent_id": "other-agent",
+            "session_id": "noise-multi_hop_15"
+          },
+          "evidence_event_ids": [
+            "event-multi_hop_15-noise"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-17T12:00:00Z",
+          "updated_at": "2026-07-17T12:00:00Z",
+          "source_occurred_at": "2026-07-17T12:00:00Z",
+          "lexical_score": 0.95
+        },
+        {
+          "id": "multi_hop_15-gold",
+          "kind": "decision",
+          "subject": "What additional requirements were identified to avoid audit replay issues during the integration testing cycle revision?",
+          "body": "rerun slot and timestamped evidence linkage",
+          "origin": {
+            "user_id": "source-user",
+            "agent_id": "source-agent",
+            "session_id": "source-multi_hop_15"
+          },
+          "evidence_event_ids": [
+            "event-multi_hop_15-gold"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-18T10:00:00Z",
+          "updated_at": "2026-07-18T10:00:00Z",
+          "source_occurred_at": "2026-07-18T10:00:00Z",
+          "lexical_score": 0.82
+        }
+      ],
+      "atom_supports": [
+        {
+          "atom_id": "gold_answer",
+          "item_ids": [
+            "multi_hop_15-gold"
+          ]
+        }
+      ],
+      "eligibility_decisions": [
+        {
+          "item_id": "multi_hop_15-noise",
+          "eligible": true,
+          "reason": "eligible"
+        },
+        {
+          "item_id": "multi_hop_15-gold",
+          "eligible": true,
+          "reason": "eligible"
+        }
+      ],
+      "candidate_snapshot_sha256": "0f618bbf1f3d2171a2af54bd6ed198e7eb4f06bdfe7d08f5c041db79f9efe0bc"
+    },
+    {
+      "fixture": {
+        "case_id": "multi_hop_39",
+        "category": "multi_hop",
+        "source_revision": "061b0c7f7aa8ce7d484786a54f823e15731d0a913289a32e7419e5f26b1d4bc5",
+        "recall_context": {
+          "consumer_user_id": "User_1",
+          "consumer_agent_id": "groupmembench-User_1",
+          "query": "What are the two remaining blockers for marking the ESG Policy Requirements baseline as completed?",
+          "token_budget": 500,
+          "max_items": 5
+        },
+        "required_atoms": [
+          {
+            "id": "gold_answer",
+            "patterns": [
+              "(?i)Control ownership and reporting timing"
+            ]
+          }
+        ]
+      },
+      "scope_id": "synthetic-multi_hop_39",
+      "actor": {
+        "user_id": "User_1",
+        "agent_id": "groupmembench-User_1",
+        "session_id": "consumer-multi_hop_39"
+      },
+      "observation_time": "2026-07-18T12:00:00Z",
+      "query_timezone": "UTC",
+      "extraction_items": [
+        {
+          "id": "multi_hop_39-noise",
+          "text": "This is a lexical distractor for What are the two remaining blockers for marking the ESG Policy Requirements baseline as completed?",
+          "evidence_event_ids": [
+            "event-multi_hop_39-noise"
+          ]
+        },
+        {
+          "id": "multi_hop_39-gold",
+          "text": "Control ownership and reporting timing",
+          "evidence_event_ids": [
+            "event-multi_hop_39-gold"
+          ]
+        }
+      ],
+      "candidates": [
+        {
+          "id": "multi_hop_39-noise",
+          "kind": "status",
+          "subject": "What are the two remaining blockers for marking the ESG Policy Requirements baseline as completed? archived copy",
+          "body": "This is a lexical distractor for What are the two remaining blockers for marking the ESG Policy Requirements baseline as completed?",
+          "origin": {
+            "user_id": "other-user",
+            "agent_id": "other-agent",
+            "session_id": "noise-multi_hop_39"
+          },
+          "evidence_event_ids": [
+            "event-multi_hop_39-noise"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-17T12:00:00Z",
+          "updated_at": "2026-07-17T12:00:00Z",
+          "source_occurred_at": "2026-07-17T12:00:00Z",
+          "lexical_score": 0.95
+        },
+        {
+          "id": "multi_hop_39-gold",
+          "kind": "decision",
+          "subject": "What are the two remaining blockers for marking the ESG Policy Requirements baseline as completed?",
+          "body": "Control ownership and reporting timing",
+          "origin": {
+            "user_id": "source-user",
+            "agent_id": "source-agent",
+            "session_id": "source-multi_hop_39"
+          },
+          "evidence_event_ids": [
+            "event-multi_hop_39-gold"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-18T10:00:00Z",
+          "updated_at": "2026-07-18T10:00:00Z",
+          "source_occurred_at": "2026-07-18T10:00:00Z",
+          "lexical_score": 0.82
+        }
+      ],
+      "atom_supports": [
+        {
+          "atom_id": "gold_answer",
+          "item_ids": [
+            "multi_hop_39-gold"
+          ]
+        }
+      ],
+      "eligibility_decisions": [
+        {
+          "item_id": "multi_hop_39-noise",
+          "eligible": true,
+          "reason": "eligible"
+        },
+        {
+          "item_id": "multi_hop_39-gold",
+          "eligible": true,
+          "reason": "eligible"
+        }
+      ],
+      "candidate_snapshot_sha256": "fd1b0d82f26eb39997ab96f7877475fa38371a58e33f8332fccd8dbd7c3cbe2e"
+    },
+    {
+      "fixture": {
+        "case_id": "multi_hop_20",
+        "category": "multi_hop",
+        "source_revision": "90e653149be3f3044c844951387d70d4d83338c62943518f070c3d6a0bed82f8",
+        "recall_context": {
+          "consumer_user_id": "User_9",
+          "consumer_agent_id": "groupmembench-User_9",
+          "query": "What are the three key controls identified in FRA for stabilizing reconciliation?",
+          "token_budget": 500,
+          "max_items": 5
+        },
+        "required_atoms": [
+          {
+            "id": "gold_answer",
+            "patterns": [
+              "(?i)endpoint, cadence, IP allowlist"
+            ]
+          }
+        ]
+      },
+      "scope_id": "synthetic-multi_hop_20",
+      "actor": {
+        "user_id": "User_9",
+        "agent_id": "groupmembench-User_9",
+        "session_id": "consumer-multi_hop_20"
+      },
+      "observation_time": "2026-07-18T12:00:00Z",
+      "query_timezone": "UTC",
+      "extraction_items": [
+        {
+          "id": "multi_hop_20-noise",
+          "text": "This is a lexical distractor for What are the three key controls identified in FRA for stabilizing reconciliation?",
+          "evidence_event_ids": [
+            "event-multi_hop_20-noise"
+          ]
+        },
+        {
+          "id": "multi_hop_20-gold",
+          "text": "endpoint, cadence, IP allowlist",
+          "evidence_event_ids": [
+            "event-multi_hop_20-gold"
+          ]
+        }
+      ],
+      "candidates": [
+        {
+          "id": "multi_hop_20-noise",
+          "kind": "status",
+          "subject": "What are the three key controls identified in FRA for stabilizing reconciliation? archived copy",
+          "body": "This is a lexical distractor for What are the three key controls identified in FRA for stabilizing reconciliation?",
+          "origin": {
+            "user_id": "other-user",
+            "agent_id": "other-agent",
+            "session_id": "noise-multi_hop_20"
+          },
+          "evidence_event_ids": [
+            "event-multi_hop_20-noise"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-17T12:00:00Z",
+          "updated_at": "2026-07-17T12:00:00Z",
+          "source_occurred_at": "2026-07-17T12:00:00Z",
+          "lexical_score": 0.95
+        },
+        {
+          "id": "multi_hop_20-gold",
+          "kind": "decision",
+          "subject": "What are the three key controls identified in FRA for stabilizing reconciliation?",
+          "body": "endpoint, cadence, IP allowlist",
+          "origin": {
+            "user_id": "source-user",
+            "agent_id": "source-agent",
+            "session_id": "source-multi_hop_20"
+          },
+          "evidence_event_ids": [
+            "event-multi_hop_20-gold"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-18T10:00:00Z",
+          "updated_at": "2026-07-18T10:00:00Z",
+          "source_occurred_at": "2026-07-18T10:00:00Z",
+          "lexical_score": 0.82
+        }
+      ],
+      "atom_supports": [
+        {
+          "atom_id": "gold_answer",
+          "item_ids": [
+            "multi_hop_20-gold"
+          ]
+        }
+      ],
+      "eligibility_decisions": [
+        {
+          "item_id": "multi_hop_20-noise",
+          "eligible": true,
+          "reason": "eligible"
+        },
+        {
+          "item_id": "multi_hop_20-gold",
+          "eligible": true,
+          "reason": "eligible"
+        }
+      ],
+      "candidate_snapshot_sha256": "44cea811687279dc9084add916ed32519fd0d35c598e7e2e364fabbc8d1dc15d"
+    },
+    {
+      "fixture": {
+        "case_id": "multi_hop_45",
+        "category": "multi_hop",
+        "source_revision": "a0d9b5a16184d7424a65e3f699499e94096589427aa06246585f0f7868b78b66",
+        "recall_context": {
+          "consumer_user_id": "User_6",
+          "consumer_agent_id": "groupmembench-User_6",
+          "query": "By what date does the data engineering team need to confirm any unstable fields for the Model Feature Engineering phase?",
+          "token_budget": 500,
+          "max_items": 5
+        },
+        "required_atoms": [
+          {
+            "id": "gold_answer",
+            "patterns": [
+              "(?i)2025-07-18"
+            ]
+          }
+        ]
+      },
+      "scope_id": "synthetic-multi_hop_45",
+      "actor": {
+        "user_id": "User_6",
+        "agent_id": "groupmembench-User_6",
+        "session_id": "consumer-multi_hop_45"
+      },
+      "observation_time": "2026-07-18T12:00:00Z",
+      "query_timezone": "UTC",
+      "extraction_items": [
+        {
+          "id": "multi_hop_45-noise",
+          "text": "This is a lexical distractor for By what date does the data engineering team need to confirm any unstable fields for the Model Feature Engineering phase?",
+          "evidence_event_ids": [
+            "event-multi_hop_45-noise"
+          ]
+        },
+        {
+          "id": "multi_hop_45-gold",
+          "text": "2025-07-18",
+          "evidence_event_ids": [
+            "event-multi_hop_45-gold"
+          ]
+        }
+      ],
+      "candidates": [
+        {
+          "id": "multi_hop_45-noise",
+          "kind": "status",
+          "subject": "By what date does the data engineering team need to confirm any unstable fields for the Model Feature Engineering phase? archived copy",
+          "body": "This is a lexical distractor for By what date does the data engineering team need to confirm any unstable fields for the Model Feature Engineering phase?",
+          "origin": {
+            "user_id": "other-user",
+            "agent_id": "other-agent",
+            "session_id": "noise-multi_hop_45"
+          },
+          "evidence_event_ids": [
+            "event-multi_hop_45-noise"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-17T12:00:00Z",
+          "updated_at": "2026-07-17T12:00:00Z",
+          "source_occurred_at": "2026-07-17T12:00:00Z",
+          "lexical_score": 0.95
+        },
+        {
+          "id": "multi_hop_45-gold",
+          "kind": "decision",
+          "subject": "By what date does the data engineering team need to confirm any unstable fields for the Model Feature Engineering phase?",
+          "body": "2025-07-18",
+          "origin": {
+            "user_id": "source-user",
+            "agent_id": "source-agent",
+            "session_id": "source-multi_hop_45"
+          },
+          "evidence_event_ids": [
+            "event-multi_hop_45-gold"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-18T10:00:00Z",
+          "updated_at": "2026-07-18T10:00:00Z",
+          "source_occurred_at": "2026-07-18T10:00:00Z",
+          "lexical_score": 0.82
+        }
+      ],
+      "atom_supports": [
+        {
+          "atom_id": "gold_answer",
+          "item_ids": [
+            "multi_hop_45-gold"
+          ]
+        }
+      ],
+      "eligibility_decisions": [
+        {
+          "item_id": "multi_hop_45-noise",
+          "eligible": true,
+          "reason": "eligible"
+        },
+        {
+          "item_id": "multi_hop_45-gold",
+          "eligible": true,
+          "reason": "eligible"
+        }
+      ],
+      "candidate_snapshot_sha256": "da19325a04688cf28edc5c7fb67844cb84ca2e804978e0d5248f63f54fc66958"
+    },
+    {
+      "fixture": {
+        "case_id": "knowledge_update_23",
+        "category": "knowledge_update",
+        "source_revision": "1c97ba9efb275fd0e4793664b0252cc71a2507e2fe2d6472652171f4588eb2a7",
+        "recall_context": {
+          "consumer_user_id": "User_11",
+          "consumer_agent_id": "groupmembench-User_11",
+          "query": "What is the current approach for handling the consent timestamp and audit-trail fields in the requirements?",
+          "token_budget": 1,
+          "max_items": 5
+        },
+        "required_atoms": [
+          {
+            "id": "gold_answer",
+            "patterns": [
+              "(?i)Instead of keeping interpretation open, update the baseline now to include the consent timestamp and audit-trail fields, and treat the Legal redline as a scope change that must be reflected in requirements before build sequencing is locked\\."
+            ]
+          }
+        ]
+      },
+      "scope_id": "synthetic-knowledge_update_23",
+      "actor": {
+        "user_id": "User_11",
+        "agent_id": "groupmembench-User_11",
+        "session_id": "consumer-knowledge_update_23"
+      },
+      "observation_time": "2026-07-18T12:00:00Z",
+      "query_timezone": "UTC",
+      "extraction_items": [
+        {
+          "id": "knowledge_update_23-noise",
+          "text": "This is a lexical distractor for What is the current approach for handling the consent timestamp and audit-trail fields in the requirements?",
+          "evidence_event_ids": [
+            "event-knowledge_update_23-noise"
+          ]
+        },
+        {
+          "id": "knowledge_update_23-gold",
+          "text": "Instead of keeping interpretation open, update the baseline now to include the consent timestamp and audit-trail fields, and treat the Legal redline as a scope change that must be reflected in requirements before build sequencing is locked.",
+          "evidence_event_ids": [
+            "event-knowledge_update_23-gold"
+          ]
+        }
+      ],
+      "candidates": [
+        {
+          "id": "knowledge_update_23-noise",
+          "kind": "status",
+          "subject": "What is the current approach for handling the consent timestamp and audit-trail fields in the requirements? archived copy",
+          "body": "This is a lexical distractor for What is the current approach for handling the consent timestamp and audit-trail fields in the requirements?",
+          "origin": {
+            "user_id": "other-user",
+            "agent_id": "other-agent",
+            "session_id": "noise-knowledge_update_23"
+          },
+          "evidence_event_ids": [
+            "event-knowledge_update_23-noise"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-17T12:00:00Z",
+          "updated_at": "2026-07-17T12:00:00Z",
+          "invalid_at": "2026-07-18T11:00:00Z",
+          "source_occurred_at": "2026-07-17T12:00:00Z",
+          "lexical_score": 0.95
+        },
+        {
+          "id": "knowledge_update_23-gold",
+          "kind": "decision",
+          "subject": "What is the current approach for handling the consent timestamp and audit-trail fields in the requirements?",
+          "body": "Instead of keeping interpretation open, update the baseline now to include the consent timestamp and audit-trail fields, and treat the Legal redline as a scope change that must be reflected in requirements before build sequencing is locked.",
+          "origin": {
+            "user_id": "source-user",
+            "agent_id": "source-agent",
+            "session_id": "source-knowledge_update_23"
+          },
+          "evidence_event_ids": [
+            "event-knowledge_update_23-gold"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-18T10:00:00Z",
+          "updated_at": "2026-07-18T10:00:00Z",
+          "source_occurred_at": "2026-07-18T10:00:00Z",
+          "lexical_score": 0.82
+        }
+      ],
+      "atom_supports": [
+        {
+          "atom_id": "gold_answer",
+          "item_ids": [
+            "knowledge_update_23-gold"
+          ]
+        }
+      ],
+      "eligibility_decisions": [
+        {
+          "item_id": "knowledge_update_23-noise",
+          "eligible": false,
+          "reason": "temporal"
+        },
+        {
+          "item_id": "knowledge_update_23-gold",
+          "eligible": true,
+          "reason": "eligible"
+        }
+      ],
+      "candidate_snapshot_sha256": "8e0d8b66eefa9d6ebe2bca067e0bcf56793678a6d657077468641b3292e51cd9"
+    },
+    {
+      "fixture": {
+        "case_id": "knowledge_update_8",
+        "category": "knowledge_update",
+        "source_revision": "899c0bff61f439d9236c09830dd0d0879fc52fa2a7d3818fc239a4ef81b27625",
+        "recall_context": {
+          "consumer_user_id": "User_2",
+          "consumer_agent_id": "groupmembench-User_2",
+          "query": "What approach is the team using to address high verification drop-off in the pilot launch?",
+          "token_budget": 500,
+          "max_items": 5
+        },
+        "required_atoms": [
+          {
+            "id": "gold_answer",
+            "patterns": [
+              "(?i)Instead of starting with prompt-level isolation, the team should first instrument the full upload-to-review funnel with step timestamps and retry timing, then branch by device/request type to identify whether the drop-off is coming from validation, upload friction, or queue delay\\."
+            ]
+          }
+        ]
+      },
+      "scope_id": "synthetic-knowledge_update_8",
+      "actor": {
+        "user_id": "User_2",
+        "agent_id": "groupmembench-User_2",
+        "session_id": "consumer-knowledge_update_8"
+      },
+      "observation_time": "2026-07-18T12:00:00Z",
+      "query_timezone": "UTC",
+      "extraction_items": [
+        {
+          "id": "knowledge_update_8-noise",
+          "text": "This is a lexical distractor for What approach is the team using to address high verification drop-off in the pilot launch?",
+          "evidence_event_ids": [
+            "event-knowledge_update_8-noise"
+          ]
+        },
+        {
+          "id": "knowledge_update_8-gold",
+          "text": "Instead of starting with prompt-level isolation, the team should first instrument the full upload-to-review funnel with step timestamps and retry timing, then branch by device/request type to identify whether the drop-off is coming from validation, upload friction, or queue delay.",
+          "evidence_event_ids": [
+            "event-knowledge_update_8-gold"
+          ]
+        }
+      ],
+      "candidates": [
+        {
+          "id": "knowledge_update_8-noise",
+          "kind": "status",
+          "subject": "What approach is the team using to address high verification drop-off in the pilot launch? archived copy",
+          "body": "This is a lexical distractor for What approach is the team using to address high verification drop-off in the pilot launch?",
+          "origin": {
+            "user_id": "other-user",
+            "agent_id": "other-agent",
+            "session_id": "noise-knowledge_update_8"
+          },
+          "evidence_event_ids": [
+            "event-knowledge_update_8-noise"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-17T12:00:00Z",
+          "updated_at": "2026-07-17T12:00:00Z",
+          "invalid_at": "2026-07-18T11:00:00Z",
+          "source_occurred_at": "2026-07-17T12:00:00Z",
+          "lexical_score": 0.95
+        },
+        {
+          "id": "knowledge_update_8-gold",
+          "kind": "decision",
+          "subject": "What approach is the team using to address high verification drop-off in the pilot launch?",
+          "body": "Instead of starting with prompt-level isolation, the team should first instrument the full upload-to-review funnel with step timestamps and retry timing, then branch by device/request type to identify whether the drop-off is coming from validation, upload friction, or queue delay.",
+          "origin": {
+            "user_id": "source-user",
+            "agent_id": "source-agent",
+            "session_id": "source-knowledge_update_8"
+          },
+          "evidence_event_ids": [
+            "event-knowledge_update_8-gold"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-18T10:00:00Z",
+          "updated_at": "2026-07-18T10:00:00Z",
+          "source_occurred_at": "2026-07-18T10:00:00Z",
+          "lexical_score": 0.82
+        }
+      ],
+      "atom_supports": [
+        {
+          "atom_id": "gold_answer",
+          "item_ids": [
+            "knowledge_update_8-gold"
+          ]
+        }
+      ],
+      "eligibility_decisions": [
+        {
+          "item_id": "knowledge_update_8-noise",
+          "eligible": false,
+          "reason": "temporal"
+        },
+        {
+          "item_id": "knowledge_update_8-gold",
+          "eligible": true,
+          "reason": "eligible"
+        }
+      ],
+      "candidate_snapshot_sha256": "d4c6d1250438be247689ff3909fcf63dc6d89f43bc2f5692be941eea2a73b1eb"
+    },
+    {
+      "fixture": {
+        "case_id": "knowledge_update_5",
+        "category": "knowledge_update",
+        "source_revision": "d15c4a86401acce638cb78c81a0d4d68e09a44ac1afec542ec06fa007b498f1e",
+        "recall_context": {
+          "consumer_user_id": "User_13",
+          "consumer_agent_id": "groupmembench-User_13",
+          "query": "What is the team currently doing for the flagged bucket in the SAR reporting process?",
+          "token_budget": 500,
+          "max_items": 5
+        },
+        "required_atoms": [
+          {
+            "id": "gold_answer",
+            "patterns": [
+              "(?i)Instead of keeping the split as-is, pause scenario creation for that bucket and have Legal and Ops jointly freeze the trigger-impacting fields and audit-trail rules before any further review\\."
+            ]
+          }
+        ]
+      },
+      "scope_id": "synthetic-knowledge_update_5",
+      "actor": {
+        "user_id": "User_13",
+        "agent_id": "groupmembench-User_13",
+        "session_id": "consumer-knowledge_update_5"
+      },
+      "observation_time": "2026-07-18T12:00:00Z",
+      "query_timezone": "UTC",
+      "extraction_items": [
+        {
+          "id": "knowledge_update_5-noise",
+          "text": "This is a lexical distractor for What is the team currently doing for the flagged bucket in the SAR reporting process?",
+          "evidence_event_ids": [
+            "event-knowledge_update_5-noise"
+          ]
+        },
+        {
+          "id": "knowledge_update_5-gold",
+          "text": "Instead of keeping the split as-is, pause scenario creation for that bucket and have Legal and Ops jointly freeze the trigger-impacting fields and audit-trail rules before any further review.",
+          "evidence_event_ids": [
+            "event-knowledge_update_5-gold"
+          ]
+        }
+      ],
+      "candidates": [
+        {
+          "id": "knowledge_update_5-noise",
+          "kind": "status",
+          "subject": "What is the team currently doing for the flagged bucket in the SAR reporting process? archived copy",
+          "body": "This is a lexical distractor for What is the team currently doing for the flagged bucket in the SAR reporting process?",
+          "origin": {
+            "user_id": "other-user",
+            "agent_id": "other-agent",
+            "session_id": "noise-knowledge_update_5"
+          },
+          "evidence_event_ids": [
+            "event-knowledge_update_5-noise"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-17T12:00:00Z",
+          "updated_at": "2026-07-17T12:00:00Z",
+          "invalid_at": "2026-07-18T11:00:00Z",
+          "source_occurred_at": "2026-07-17T12:00:00Z",
+          "lexical_score": 0.95
+        },
+        {
+          "id": "knowledge_update_5-gold",
+          "kind": "decision",
+          "subject": "What is the team currently doing for the flagged bucket in the SAR reporting process?",
+          "body": "Instead of keeping the split as-is, pause scenario creation for that bucket and have Legal and Ops jointly freeze the trigger-impacting fields and audit-trail rules before any further review.",
+          "origin": {
+            "user_id": "source-user",
+            "agent_id": "source-agent",
+            "session_id": "source-knowledge_update_5"
+          },
+          "evidence_event_ids": [
+            "event-knowledge_update_5-gold"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-18T10:00:00Z",
+          "updated_at": "2026-07-18T10:00:00Z",
+          "source_occurred_at": "2026-07-18T10:00:00Z",
+          "lexical_score": 0.82
+        }
+      ],
+      "atom_supports": [
+        {
+          "atom_id": "gold_answer",
+          "item_ids": [
+            "knowledge_update_5-gold"
+          ]
+        }
+      ],
+      "eligibility_decisions": [
+        {
+          "item_id": "knowledge_update_5-noise",
+          "eligible": false,
+          "reason": "temporal"
+        },
+        {
+          "item_id": "knowledge_update_5-gold",
+          "eligible": true,
+          "reason": "eligible"
+        }
+      ],
+      "candidate_snapshot_sha256": "4b4c0e8268709de78c1abbf9c662c208553465c7f27082fb4f5f2103d22f0c86"
+    },
+    {
+      "fixture": {
+        "case_id": "knowledge_update_27",
+        "category": "knowledge_update",
+        "source_revision": "7cfaaa610467ac01f3973fa3bceee8905581fc260cb7f8f9d47230a980d5ab68",
+        "recall_context": {
+          "consumer_user_id": "User_6",
+          "consumer_agent_id": "groupmembench-User_6",
+          "query": "What is the team’s current approach for reviewing channel inconsistencies in the customer journey?",
+          "token_budget": 500,
+          "max_items": 5
+        },
+        "required_atoms": [
+          {
+            "id": "gold_answer",
+            "patterns": [
+              "(?i)Instead of keeping assisted as a follow-up, include assisted in the first pass so all four channels are checked together for owner drift and handoff inconsistencies\\."
+            ]
+          }
+        ]
+      },
+      "scope_id": "synthetic-knowledge_update_27",
+      "actor": {
+        "user_id": "User_6",
+        "agent_id": "groupmembench-User_6",
+        "session_id": "consumer-knowledge_update_27"
+      },
+      "observation_time": "2026-07-18T12:00:00Z",
+      "query_timezone": "UTC",
+      "extraction_items": [
+        {
+          "id": "knowledge_update_27-noise",
+          "text": "This is a lexical distractor for What is the team’s current approach for reviewing channel inconsistencies in the customer journey?",
+          "evidence_event_ids": [
+            "event-knowledge_update_27-noise"
+          ]
+        },
+        {
+          "id": "knowledge_update_27-gold",
+          "text": "Instead of keeping assisted as a follow-up, include assisted in the first pass so all four channels are checked together for owner drift and handoff inconsistencies.",
+          "evidence_event_ids": [
+            "event-knowledge_update_27-gold"
+          ]
+        }
+      ],
+      "candidates": [
+        {
+          "id": "knowledge_update_27-noise",
+          "kind": "status",
+          "subject": "What is the team’s current approach for reviewing channel inconsistencies in the customer journey? archived copy",
+          "body": "This is a lexical distractor for What is the team’s current approach for reviewing channel inconsistencies in the customer journey?",
+          "origin": {
+            "user_id": "other-user",
+            "agent_id": "other-agent",
+            "session_id": "noise-knowledge_update_27"
+          },
+          "evidence_event_ids": [
+            "event-knowledge_update_27-noise"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-17T12:00:00Z",
+          "updated_at": "2026-07-17T12:00:00Z",
+          "invalid_at": "2026-07-18T11:00:00Z",
+          "source_occurred_at": "2026-07-17T12:00:00Z",
+          "lexical_score": 0.95
+        },
+        {
+          "id": "knowledge_update_27-gold",
+          "kind": "decision",
+          "subject": "What is the team’s current approach for reviewing channel inconsistencies in the customer journey?",
+          "body": "Instead of keeping assisted as a follow-up, include assisted in the first pass so all four channels are checked together for owner drift and handoff inconsistencies.",
+          "origin": {
+            "user_id": "source-user",
+            "agent_id": "source-agent",
+            "session_id": "source-knowledge_update_27"
+          },
+          "evidence_event_ids": [
+            "event-knowledge_update_27-gold"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-18T10:00:00Z",
+          "updated_at": "2026-07-18T10:00:00Z",
+          "source_occurred_at": "2026-07-18T10:00:00Z",
+          "lexical_score": 0.82
+        }
+      ],
+      "atom_supports": [
+        {
+          "atom_id": "gold_answer",
+          "item_ids": [
+            "knowledge_update_27-gold"
+          ]
+        }
+      ],
+      "eligibility_decisions": [
+        {
+          "item_id": "knowledge_update_27-noise",
+          "eligible": false,
+          "reason": "temporal"
+        },
+        {
+          "item_id": "knowledge_update_27-gold",
+          "eligible": true,
+          "reason": "eligible"
+        }
+      ],
+      "candidate_snapshot_sha256": "4372b08189a3faaf7ef7df9441183de88ec6b1f036c4f20da99672f00267e07b"
+    },
+    {
+      "fixture": {
+        "case_id": "knowledge_update_24",
+        "category": "knowledge_update",
+        "source_revision": "ff4dc7b79d04e333cecf593f9c96e43ca5c5a42db0d7b98a3fb9e5fced6d7dae",
+        "recall_context": {
+          "consumer_user_id": "User_12",
+          "consumer_agent_id": "groupmembench-User_12",
+          "query": "What approach is the team using for regulatory requirements assessment?",
+          "token_budget": 500,
+          "max_items": 5
+        },
+        "required_atoms": [
+          {
+            "id": "gold_answer",
+            "patterns": [
+              "(?i)Use a two-track intake model: Legal signs a minimal disposition first so drafting can start, while Ops maintains jurisdiction-specific retention and reporting fields as separate locked metadata in the evidence pack\\."
+            ]
+          }
+        ]
+      },
+      "scope_id": "synthetic-knowledge_update_24",
+      "actor": {
+        "user_id": "User_12",
+        "agent_id": "groupmembench-User_12",
+        "session_id": "consumer-knowledge_update_24"
+      },
+      "observation_time": "2026-07-18T12:00:00Z",
+      "query_timezone": "UTC",
+      "extraction_items": [
+        {
+          "id": "knowledge_update_24-noise",
+          "text": "This is a lexical distractor for What approach is the team using for regulatory requirements assessment?",
+          "evidence_event_ids": [
+            "event-knowledge_update_24-noise"
+          ]
+        },
+        {
+          "id": "knowledge_update_24-gold",
+          "text": "Use a two-track intake model: Legal signs a minimal disposition first so drafting can start, while Ops maintains jurisdiction-specific retention and reporting fields as separate locked metadata in the evidence pack.",
+          "evidence_event_ids": [
+            "event-knowledge_update_24-gold"
+          ]
+        }
+      ],
+      "candidates": [
+        {
+          "id": "knowledge_update_24-noise",
+          "kind": "status",
+          "subject": "What approach is the team using for regulatory requirements assessment? archived copy",
+          "body": "This is a lexical distractor for What approach is the team using for regulatory requirements assessment?",
+          "origin": {
+            "user_id": "other-user",
+            "agent_id": "other-agent",
+            "session_id": "noise-knowledge_update_24"
+          },
+          "evidence_event_ids": [
+            "event-knowledge_update_24-noise"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-17T12:00:00Z",
+          "updated_at": "2026-07-17T12:00:00Z",
+          "invalid_at": "2026-07-18T11:00:00Z",
+          "source_occurred_at": "2026-07-17T12:00:00Z",
+          "lexical_score": 0.95
+        },
+        {
+          "id": "knowledge_update_24-gold",
+          "kind": "decision",
+          "subject": "What approach is the team using for regulatory requirements assessment?",
+          "body": "Use a two-track intake model: Legal signs a minimal disposition first so drafting can start, while Ops maintains jurisdiction-specific retention and reporting fields as separate locked metadata in the evidence pack.",
+          "origin": {
+            "user_id": "source-user",
+            "agent_id": "source-agent",
+            "session_id": "source-knowledge_update_24"
+          },
+          "evidence_event_ids": [
+            "event-knowledge_update_24-gold"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-18T10:00:00Z",
+          "updated_at": "2026-07-18T10:00:00Z",
+          "source_occurred_at": "2026-07-18T10:00:00Z",
+          "lexical_score": 0.82
+        }
+      ],
+      "atom_supports": [
+        {
+          "atom_id": "gold_answer",
+          "item_ids": [
+            "knowledge_update_24-gold"
+          ]
+        }
+      ],
+      "eligibility_decisions": [
+        {
+          "item_id": "knowledge_update_24-noise",
+          "eligible": false,
+          "reason": "temporal"
+        },
+        {
+          "item_id": "knowledge_update_24-gold",
+          "eligible": true,
+          "reason": "eligible"
+        }
+      ],
+      "candidate_snapshot_sha256": "36469f97e67c90eb215cc309109214c492e492a95d0306e89dc887d4f807c23f"
+    },
+    {
+      "fixture": {
+        "case_id": "temporal_33",
+        "category": "temporal",
+        "source_revision": "72b121ecc20b22acf7a0e6d4a532addedfe3493dd153aa7d512df65dc76144cb",
+        "recall_context": {
+          "consumer_user_id": "User_3",
+          "consumer_agent_id": "groupmembench-User_3",
+          "query": "On what date (YYYY-MM-DD) did the product owner request leadership review to address the high verification drop-off in the pilot?",
+          "token_budget": 500,
+          "max_items": 5
+        },
+        "required_atoms": [
+          {
+            "id": "gold_answer",
+            "patterns": [
+              "(?i)2025-07-24"
+            ]
+          }
+        ]
+      },
+      "scope_id": "synthetic-temporal_33",
+      "actor": {
+        "user_id": "User_3",
+        "agent_id": "groupmembench-User_3",
+        "session_id": "consumer-temporal_33"
+      },
+      "observation_time": "2026-07-18T12:00:00Z",
+      "query_timezone": "UTC",
+      "extraction_items": [
+        {
+          "id": "temporal_33-noise",
+          "text": "This is a lexical distractor for On what date (YYYY-MM-DD) did the product owner request leadership review to address the high verification drop-off in the pilot?",
+          "evidence_event_ids": [
+            "event-temporal_33-noise"
+          ]
+        },
+        {
+          "id": "temporal_33-gold",
+          "text": "2025-07-24",
+          "evidence_event_ids": [
+            "event-temporal_33-gold"
+          ]
+        }
+      ],
+      "candidates": [
+        {
+          "id": "temporal_33-noise",
+          "kind": "status",
+          "subject": "On what date (YYYY-MM-DD) did the product owner request leadership review to address the high verification drop-off in the pilot? archived copy",
+          "body": "This is a lexical distractor for On what date (YYYY-MM-DD) did the product owner request leadership review to address the high verification drop-off in the pilot?",
+          "origin": {
+            "user_id": "other-user",
+            "agent_id": "other-agent",
+            "session_id": "noise-temporal_33"
+          },
+          "evidence_event_ids": [
+            "event-temporal_33-noise"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-17T12:00:00Z",
+          "updated_at": "2026-07-17T12:00:00Z",
+          "valid_at": "2026-07-18T13:00:00Z",
+          "source_occurred_at": "2026-07-17T12:00:00Z",
+          "lexical_score": 0.95
+        },
+        {
+          "id": "temporal_33-gold",
+          "kind": "decision",
+          "subject": "On what date (YYYY-MM-DD) did the product owner request leadership review to address the high verification drop-off in the pilot?",
+          "body": "2025-07-24",
+          "origin": {
+            "user_id": "source-user",
+            "agent_id": "source-agent",
+            "session_id": "source-temporal_33"
+          },
+          "evidence_event_ids": [
+            "event-temporal_33-gold"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-18T10:00:00Z",
+          "updated_at": "2026-07-18T10:00:00Z",
+          "source_occurred_at": "2026-07-18T10:00:00Z",
+          "lexical_score": 0.82
+        }
+      ],
+      "atom_supports": [
+        {
+          "atom_id": "gold_answer",
+          "item_ids": [
+            "temporal_33-gold"
+          ]
+        }
+      ],
+      "eligibility_decisions": [
+        {
+          "item_id": "temporal_33-noise",
+          "eligible": false,
+          "reason": "future"
+        },
+        {
+          "item_id": "temporal_33-gold",
+          "eligible": true,
+          "reason": "eligible"
+        }
+      ],
+      "candidate_snapshot_sha256": "16b7bdb147dd6793a9a7b3a90f895583263a3c198274d18b2a1db1b9ead8bf7b"
+    },
+    {
+      "fixture": {
+        "case_id": "temporal_26",
+        "category": "temporal",
+        "source_revision": "877ad625d15442dd98478e5bc7a518ecd0d7f41f6823dca6f6570cf68fd5d321",
+        "recall_context": {
+          "consumer_user_id": "User_3",
+          "consumer_agent_id": "groupmembench-User_3",
+          "query": "By what date (YYYY-MM-DD) were decisions on the open items in the spec requested to be sent?",
+          "token_budget": 500,
+          "max_items": 5
+        },
+        "required_atoms": [
+          {
+            "id": "gold_answer",
+            "patterns": [
+              "(?i)2025-07-28"
+            ]
+          }
+        ]
+      },
+      "scope_id": "synthetic-temporal_26",
+      "actor": {
+        "user_id": "User_3",
+        "agent_id": "groupmembench-User_3",
+        "session_id": "consumer-temporal_26"
+      },
+      "observation_time": "2026-07-18T12:00:00Z",
+      "query_timezone": "UTC",
+      "extraction_items": [
+        {
+          "id": "temporal_26-noise",
+          "text": "This is a lexical distractor for By what date (YYYY-MM-DD) were decisions on the open items in the spec requested to be sent?",
+          "evidence_event_ids": [
+            "event-temporal_26-noise"
+          ]
+        },
+        {
+          "id": "temporal_26-gold",
+          "text": "2025-07-28",
+          "evidence_event_ids": [
+            "event-temporal_26-gold"
+          ]
+        }
+      ],
+      "candidates": [
+        {
+          "id": "temporal_26-noise",
+          "kind": "status",
+          "subject": "By what date (YYYY-MM-DD) were decisions on the open items in the spec requested to be sent? archived copy",
+          "body": "This is a lexical distractor for By what date (YYYY-MM-DD) were decisions on the open items in the spec requested to be sent?",
+          "origin": {
+            "user_id": "other-user",
+            "agent_id": "other-agent",
+            "session_id": "noise-temporal_26"
+          },
+          "evidence_event_ids": [
+            "event-temporal_26-noise"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-17T12:00:00Z",
+          "updated_at": "2026-07-17T12:00:00Z",
+          "valid_at": "2026-07-18T13:00:00Z",
+          "source_occurred_at": "2026-07-17T12:00:00Z",
+          "lexical_score": 0.95
+        },
+        {
+          "id": "temporal_26-gold",
+          "kind": "decision",
+          "subject": "By what date (YYYY-MM-DD) were decisions on the open items in the spec requested to be sent?",
+          "body": "2025-07-28",
+          "origin": {
+            "user_id": "source-user",
+            "agent_id": "source-agent",
+            "session_id": "source-temporal_26"
+          },
+          "evidence_event_ids": [
+            "event-temporal_26-gold"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-18T10:00:00Z",
+          "updated_at": "2026-07-18T10:00:00Z",
+          "source_occurred_at": "2026-07-18T10:00:00Z",
+          "lexical_score": 0.82
+        }
+      ],
+      "atom_supports": [
+        {
+          "atom_id": "gold_answer",
+          "item_ids": [
+            "temporal_26-gold"
+          ]
+        }
+      ],
+      "eligibility_decisions": [
+        {
+          "item_id": "temporal_26-noise",
+          "eligible": false,
+          "reason": "future"
+        },
+        {
+          "item_id": "temporal_26-gold",
+          "eligible": true,
+          "reason": "eligible"
+        }
+      ],
+      "candidate_snapshot_sha256": "0846ecaef12079c0c8f996ba6589b16dd28ca6e6cd565851ecdf1dcaa81b6e8e"
+    },
+    {
+      "fixture": {
+        "case_id": "temporal_24",
+        "category": "temporal",
+        "source_revision": "9060ccfde7711ea60fabadd5754aa0de475bb08d232aed6f076fdfa50f04b3fd",
+        "recall_context": {
+          "consumer_user_id": "User_2",
+          "consumer_agent_id": "groupmembench-User_2",
+          "query": "On what date (YYYY-MM-DD) should Product/Design lock the source-of-truth journey?",
+          "token_budget": 500,
+          "max_items": 5
+        },
+        "required_atoms": [
+          {
+            "id": "gold_answer",
+            "patterns": [
+              "(?i)2025-07-27"
+            ]
+          }
+        ]
+      },
+      "scope_id": "synthetic-temporal_24",
+      "actor": {
+        "user_id": "User_2",
+        "agent_id": "groupmembench-User_2",
+        "session_id": "consumer-temporal_24"
+      },
+      "observation_time": "2026-07-18T12:00:00Z",
+      "query_timezone": "UTC",
+      "extraction_items": [
+        {
+          "id": "temporal_24-noise",
+          "text": "This is a lexical distractor for On what date (YYYY-MM-DD) should Product/Design lock the source-of-truth journey?",
+          "evidence_event_ids": [
+            "event-temporal_24-noise"
+          ]
+        },
+        {
+          "id": "temporal_24-gold",
+          "text": "2025-07-27",
+          "evidence_event_ids": [
+            "event-temporal_24-gold"
+          ]
+        }
+      ],
+      "candidates": [
+        {
+          "id": "temporal_24-noise",
+          "kind": "status",
+          "subject": "On what date (YYYY-MM-DD) should Product/Design lock the source-of-truth journey? archived copy",
+          "body": "This is a lexical distractor for On what date (YYYY-MM-DD) should Product/Design lock the source-of-truth journey?",
+          "origin": {
+            "user_id": "other-user",
+            "agent_id": "other-agent",
+            "session_id": "noise-temporal_24"
+          },
+          "evidence_event_ids": [
+            "event-temporal_24-noise"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-17T12:00:00Z",
+          "updated_at": "2026-07-17T12:00:00Z",
+          "valid_at": "2026-07-18T13:00:00Z",
+          "source_occurred_at": "2026-07-17T12:00:00Z",
+          "lexical_score": 0.95
+        },
+        {
+          "id": "temporal_24-gold",
+          "kind": "decision",
+          "subject": "On what date (YYYY-MM-DD) should Product/Design lock the source-of-truth journey?",
+          "body": "2025-07-27",
+          "origin": {
+            "user_id": "source-user",
+            "agent_id": "source-agent",
+            "session_id": "source-temporal_24"
+          },
+          "evidence_event_ids": [
+            "event-temporal_24-gold"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-18T10:00:00Z",
+          "updated_at": "2026-07-18T10:00:00Z",
+          "source_occurred_at": "2026-07-18T10:00:00Z",
+          "lexical_score": 0.82
+        }
+      ],
+      "atom_supports": [
+        {
+          "atom_id": "gold_answer",
+          "item_ids": [
+            "temporal_24-gold"
+          ]
+        }
+      ],
+      "eligibility_decisions": [
+        {
+          "item_id": "temporal_24-noise",
+          "eligible": false,
+          "reason": "future"
+        },
+        {
+          "item_id": "temporal_24-gold",
+          "eligible": true,
+          "reason": "eligible"
+        }
+      ],
+      "candidate_snapshot_sha256": "28afffb4842ddf2eb41949573bf01ef95291b29c9ed0923b80a08262fc2f1af0"
+    },
+    {
+      "fixture": {
+        "case_id": "temporal_19",
+        "category": "temporal",
+        "source_revision": "fa3d2d4dd09eb14c50e3f35152b30edb1bfd103fa692dbe6f4ed0e5b7203c7c6",
+        "recall_context": {
+          "consumer_user_id": "User_2",
+          "consumer_agent_id": "groupmembench-User_2",
+          "query": "On what date (YYYY-MM-DD) will the locked edge-row pack be treated as the final proof point?",
+          "token_budget": 500,
+          "max_items": 5
+        },
+        "required_atoms": [
+          {
+            "id": "gold_answer",
+            "patterns": [
+              "(?i)2025-07-28"
+            ]
+          }
+        ]
+      },
+      "scope_id": "synthetic-temporal_19",
+      "actor": {
+        "user_id": "User_2",
+        "agent_id": "groupmembench-User_2",
+        "session_id": "consumer-temporal_19"
+      },
+      "observation_time": "2026-07-18T12:00:00Z",
+      "query_timezone": "UTC",
+      "extraction_items": [
+        {
+          "id": "temporal_19-noise",
+          "text": "This is a lexical distractor for On what date (YYYY-MM-DD) will the locked edge-row pack be treated as the final proof point?",
+          "evidence_event_ids": [
+            "event-temporal_19-noise"
+          ]
+        },
+        {
+          "id": "temporal_19-gold",
+          "text": "2025-07-28",
+          "evidence_event_ids": [
+            "event-temporal_19-gold"
+          ]
+        }
+      ],
+      "candidates": [
+        {
+          "id": "temporal_19-noise",
+          "kind": "status",
+          "subject": "On what date (YYYY-MM-DD) will the locked edge-row pack be treated as the final proof point? archived copy",
+          "body": "This is a lexical distractor for On what date (YYYY-MM-DD) will the locked edge-row pack be treated as the final proof point?",
+          "origin": {
+            "user_id": "other-user",
+            "agent_id": "other-agent",
+            "session_id": "noise-temporal_19"
+          },
+          "evidence_event_ids": [
+            "event-temporal_19-noise"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-17T12:00:00Z",
+          "updated_at": "2026-07-17T12:00:00Z",
+          "valid_at": "2026-07-18T13:00:00Z",
+          "source_occurred_at": "2026-07-17T12:00:00Z",
+          "lexical_score": 0.95
+        },
+        {
+          "id": "temporal_19-gold",
+          "kind": "decision",
+          "subject": "On what date (YYYY-MM-DD) will the locked edge-row pack be treated as the final proof point?",
+          "body": "2025-07-28",
+          "origin": {
+            "user_id": "source-user",
+            "agent_id": "source-agent",
+            "session_id": "source-temporal_19"
+          },
+          "evidence_event_ids": [
+            "event-temporal_19-gold"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-18T10:00:00Z",
+          "updated_at": "2026-07-18T10:00:00Z",
+          "source_occurred_at": "2026-07-18T10:00:00Z",
+          "lexical_score": 0.82
+        }
+      ],
+      "atom_supports": [
+        {
+          "atom_id": "gold_answer",
+          "item_ids": [
+            "temporal_19-gold"
+          ]
+        }
+      ],
+      "eligibility_decisions": [
+        {
+          "item_id": "temporal_19-noise",
+          "eligible": false,
+          "reason": "future"
+        },
+        {
+          "item_id": "temporal_19-gold",
+          "eligible": true,
+          "reason": "eligible"
+        }
+      ],
+      "candidate_snapshot_sha256": "eac32e84e80c0dfd42f19063e68a0ace4170d85f76424d1865eb38e654786d46"
+    },
+    {
+      "fixture": {
+        "case_id": "temporal_10",
+        "category": "temporal",
+        "source_revision": "7f9042c6bfb245bdd8f36ed3de611f3e4d80afb6b9eb05424d8c3792778ba885",
+        "recall_context": {
+          "consumer_user_id": "User_12",
+          "consumer_agent_id": "groupmembench-User_12",
+          "query": "What is the date (YYYY-MM-DD) that remains clean after the last audit gap is closed?",
+          "token_budget": 500,
+          "max_items": 5
+        },
+        "required_atoms": [
+          {
+            "id": "gold_answer",
+            "patterns": [
+              "(?i)2025-07-18"
+            ]
+          }
+        ]
+      },
+      "scope_id": "synthetic-temporal_10",
+      "actor": {
+        "user_id": "User_12",
+        "agent_id": "groupmembench-User_12",
+        "session_id": "consumer-temporal_10"
+      },
+      "observation_time": "2026-07-18T12:00:00Z",
+      "query_timezone": "UTC",
+      "extraction_items": [
+        {
+          "id": "temporal_10-noise",
+          "text": "This is a lexical distractor for What is the date (YYYY-MM-DD) that remains clean after the last audit gap is closed?",
+          "evidence_event_ids": [
+            "event-temporal_10-noise"
+          ]
+        },
+        {
+          "id": "temporal_10-gold",
+          "text": "2025-07-18",
+          "evidence_event_ids": [
+            "event-temporal_10-gold"
+          ]
+        }
+      ],
+      "candidates": [
+        {
+          "id": "temporal_10-noise",
+          "kind": "status",
+          "subject": "What is the date (YYYY-MM-DD) that remains clean after the last audit gap is closed? archived copy",
+          "body": "This is a lexical distractor for What is the date (YYYY-MM-DD) that remains clean after the last audit gap is closed?",
+          "origin": {
+            "user_id": "other-user",
+            "agent_id": "other-agent",
+            "session_id": "noise-temporal_10"
+          },
+          "evidence_event_ids": [
+            "event-temporal_10-noise"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-17T12:00:00Z",
+          "updated_at": "2026-07-17T12:00:00Z",
+          "valid_at": "2026-07-18T13:00:00Z",
+          "source_occurred_at": "2026-07-17T12:00:00Z",
+          "lexical_score": 0.95
+        },
+        {
+          "id": "temporal_10-gold",
+          "kind": "decision",
+          "subject": "What is the date (YYYY-MM-DD) that remains clean after the last audit gap is closed?",
+          "body": "2025-07-18",
+          "origin": {
+            "user_id": "source-user",
+            "agent_id": "source-agent",
+            "session_id": "source-temporal_10"
+          },
+          "evidence_event_ids": [
+            "event-temporal_10-gold"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-18T10:00:00Z",
+          "updated_at": "2026-07-18T10:00:00Z",
+          "source_occurred_at": "2026-07-18T10:00:00Z",
+          "lexical_score": 0.82
+        }
+      ],
+      "atom_supports": [
+        {
+          "atom_id": "gold_answer",
+          "item_ids": [
+            "temporal_10-gold"
+          ]
+        }
+      ],
+      "eligibility_decisions": [
+        {
+          "item_id": "temporal_10-noise",
+          "eligible": false,
+          "reason": "future"
+        },
+        {
+          "item_id": "temporal_10-gold",
+          "eligible": true,
+          "reason": "eligible"
+        }
+      ],
+      "candidate_snapshot_sha256": "df659e7b8f994dca238a0c0f2a5205c73281411e4302ceab16713b0d089fbad0"
+    },
+    {
+      "fixture": {
+        "case_id": "user_implicit_11",
+        "category": "user_implicit",
+        "source_revision": "3a0def6d5a550ffa95266a0881d6ca23fee7d7fbe8ac1b554ce844cac6b0e38c",
+        "recall_context": {
+          "consumer_user_id": "User_13",
+          "consumer_agent_id": "groupmembench-User_13",
+          "query": "What do I need to confirm about metrics ownership and evidence standards for the Risk: Incomplete Impact Data phase?",
+          "token_budget": 500,
+          "max_items": 5
+        },
+        "required_atoms": [
+          {
+            "id": "gold_answer",
+            "patterns": [
+              "(?i)which metrics are still pending, who owns them, and what evidence can be defended if fields remain partially populated"
+            ]
+          }
+        ]
+      },
+      "scope_id": "synthetic-user_implicit_11",
+      "actor": {
+        "user_id": "User_13",
+        "agent_id": "groupmembench-User_13",
+        "session_id": "consumer-user_implicit_11"
+      },
+      "observation_time": "2026-07-18T12:00:00Z",
+      "query_timezone": "UTC",
+      "extraction_items": [
+        {
+          "id": "user_implicit_11-noise",
+          "text": "This is a lexical distractor for What do I need to confirm about metrics ownership and evidence standards for the Risk: Incomplete Impact Data phase?",
+          "evidence_event_ids": [
+            "event-user_implicit_11-noise"
+          ]
+        },
+        {
+          "id": "user_implicit_11-gold",
+          "text": "which metrics are still pending, who owns them, and what evidence can be defended if fields remain partially populated",
+          "evidence_event_ids": [
+            "event-user_implicit_11-gold"
+          ]
+        }
+      ],
+      "candidates": [
+        {
+          "id": "user_implicit_11-noise",
+          "kind": "status",
+          "subject": "What do I need to confirm about metrics ownership and evidence standards for the Risk: Incomplete Impact Data phase? archived copy",
+          "body": "This is a lexical distractor for What do I need to confirm about metrics ownership and evidence standards for the Risk: Incomplete Impact Data phase?",
+          "origin": {
+            "user_id": "other-user",
+            "agent_id": "other-agent",
+            "session_id": "noise-user_implicit_11"
+          },
+          "evidence_event_ids": [
+            "event-user_implicit_11-noise"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-17T12:00:00Z",
+          "updated_at": "2026-07-17T12:00:00Z",
+          "source_occurred_at": "2026-07-17T12:00:00Z",
+          "lexical_score": 0.95
+        },
+        {
+          "id": "user_implicit_11-gold",
+          "kind": "decision",
+          "subject": "What do I need to confirm about metrics ownership and evidence standards for the Risk: Incomplete Impact Data phase?",
+          "body": "which metrics are still pending, who owns them, and what evidence can be defended if fields remain partially populated",
+          "origin": {
+            "user_id": "source-user",
+            "agent_id": "source-agent",
+            "session_id": "source-user_implicit_11"
+          },
+          "evidence_event_ids": [
+            "event-user_implicit_11-gold"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-18T10:00:00Z",
+          "updated_at": "2026-07-18T10:00:00Z",
+          "source_occurred_at": "2026-07-18T10:00:00Z",
+          "lexical_score": 0.82
+        }
+      ],
+      "atom_supports": [
+        {
+          "atom_id": "gold_answer",
+          "item_ids": [
+            "user_implicit_11-gold"
+          ]
+        }
+      ],
+      "eligibility_decisions": [
+        {
+          "item_id": "user_implicit_11-noise",
+          "eligible": true,
+          "reason": "eligible"
+        },
+        {
+          "item_id": "user_implicit_11-gold",
+          "eligible": true,
+          "reason": "eligible"
+        }
+      ],
+      "candidate_snapshot_sha256": "77c574ea474fd9af9c4fcfa9a83415e3ee3048436aad4e920b9aba1712c35da3"
+    },
+    {
+      "fixture": {
+        "case_id": "user_implicit_1",
+        "category": "user_implicit",
+        "source_revision": "60201a5bc1c4269ac6e7f952a6f0cc90cf78bef804a282f569a629fe7f7c5767",
+        "recall_context": {
+          "consumer_user_id": "User_3",
+          "consumer_agent_id": "groupmembench-User_3",
+          "query": "Which teams am I asking to pressure-test the current assumptions for the decision criteria in the Risk: Misalignment with Sustainability Targets phase?",
+          "token_budget": 500,
+          "max_items": 5
+        },
+        "required_atoms": [
+          {
+            "id": "gold_answer",
+            "patterns": [
+              "(?i)Finance, ESG, Ops, and Analytics are being asked to pressure-test the current assumptions against the spec\\."
+            ]
+          }
+        ]
+      },
+      "scope_id": "synthetic-user_implicit_1",
+      "actor": {
+        "user_id": "User_3",
+        "agent_id": "groupmembench-User_3",
+        "session_id": "consumer-user_implicit_1"
+      },
+      "observation_time": "2026-07-18T12:00:00Z",
+      "query_timezone": "UTC",
+      "extraction_items": [
+        {
+          "id": "user_implicit_1-noise",
+          "text": "This is a lexical distractor for Which teams am I asking to pressure-test the current assumptions for the decision criteria in the Risk: Misalignment with Sustainability Targets phase?",
+          "evidence_event_ids": [
+            "event-user_implicit_1-noise"
+          ]
+        },
+        {
+          "id": "user_implicit_1-gold",
+          "text": "Finance, ESG, Ops, and Analytics are being asked to pressure-test the current assumptions against the spec.",
+          "evidence_event_ids": [
+            "event-user_implicit_1-gold"
+          ]
+        }
+      ],
+      "candidates": [
+        {
+          "id": "user_implicit_1-noise",
+          "kind": "status",
+          "subject": "Which teams am I asking to pressure-test the current assumptions for the decision criteria in the Risk: Misalignment with Sustainability Targets phase? archived copy",
+          "body": "This is a lexical distractor for Which teams am I asking to pressure-test the current assumptions for the decision criteria in the Risk: Misalignment with Sustainability Targets phase?",
+          "origin": {
+            "user_id": "other-user",
+            "agent_id": "other-agent",
+            "session_id": "noise-user_implicit_1"
+          },
+          "evidence_event_ids": [
+            "event-user_implicit_1-noise"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-17T12:00:00Z",
+          "updated_at": "2026-07-17T12:00:00Z",
+          "source_occurred_at": "2026-07-17T12:00:00Z",
+          "lexical_score": 0.95
+        },
+        {
+          "id": "user_implicit_1-gold",
+          "kind": "decision",
+          "subject": "Which teams am I asking to pressure-test the current assumptions for the decision criteria in the Risk: Misalignment with Sustainability Targets phase?",
+          "body": "Finance, ESG, Ops, and Analytics are being asked to pressure-test the current assumptions against the spec.",
+          "origin": {
+            "user_id": "source-user",
+            "agent_id": "source-agent",
+            "session_id": "source-user_implicit_1"
+          },
+          "evidence_event_ids": [
+            "event-user_implicit_1-gold"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-18T10:00:00Z",
+          "updated_at": "2026-07-18T10:00:00Z",
+          "source_occurred_at": "2026-07-18T10:00:00Z",
+          "lexical_score": 0.82
+        }
+      ],
+      "atom_supports": [
+        {
+          "atom_id": "gold_answer",
+          "item_ids": [
+            "user_implicit_1-gold"
+          ]
+        }
+      ],
+      "eligibility_decisions": [
+        {
+          "item_id": "user_implicit_1-noise",
+          "eligible": true,
+          "reason": "eligible"
+        },
+        {
+          "item_id": "user_implicit_1-gold",
+          "eligible": true,
+          "reason": "eligible"
+        }
+      ],
+      "candidate_snapshot_sha256": "1f910fba2247b4cde6af441c330d387085e156f2f5ede65c1e882aea3369f631"
+    },
+    {
+      "fixture": {
+        "case_id": "user_implicit_2",
+        "category": "user_implicit",
+        "source_revision": "c9d0d12b6d1e7def49d8415aa02ac26acff09e9a9c778e4ce2cc29c394dce5c5",
+        "recall_context": {
+          "consumer_user_id": "User_3",
+          "consumer_agent_id": "groupmembench-User_3",
+          "query": "What is the blocker I flagged for the Integration Testing Cycle?",
+          "token_budget": 500,
+          "max_items": 5
+        },
+        "required_atoms": [
+          {
+            "id": "gold_answer",
+            "patterns": [
+              "(?i)payment approval workflow changes and bank statement timing assumptions"
+            ]
+          }
+        ]
+      },
+      "scope_id": "synthetic-user_implicit_2",
+      "actor": {
+        "user_id": "User_3",
+        "agent_id": "groupmembench-User_3",
+        "session_id": "consumer-user_implicit_2"
+      },
+      "observation_time": "2026-07-18T12:00:00Z",
+      "query_timezone": "UTC",
+      "extraction_items": [
+        {
+          "id": "user_implicit_2-noise",
+          "text": "This is a lexical distractor for What is the blocker I flagged for the Integration Testing Cycle?",
+          "evidence_event_ids": [
+            "event-user_implicit_2-noise"
+          ]
+        },
+        {
+          "id": "user_implicit_2-gold",
+          "text": "payment approval workflow changes and bank statement timing assumptions",
+          "evidence_event_ids": [
+            "event-user_implicit_2-gold"
+          ]
+        }
+      ],
+      "candidates": [
+        {
+          "id": "user_implicit_2-noise",
+          "kind": "status",
+          "subject": "What is the blocker I flagged for the Integration Testing Cycle? archived copy",
+          "body": "This is a lexical distractor for What is the blocker I flagged for the Integration Testing Cycle?",
+          "origin": {
+            "user_id": "other-user",
+            "agent_id": "other-agent",
+            "session_id": "noise-user_implicit_2"
+          },
+          "evidence_event_ids": [
+            "event-user_implicit_2-noise"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-17T12:00:00Z",
+          "updated_at": "2026-07-17T12:00:00Z",
+          "source_occurred_at": "2026-07-17T12:00:00Z",
+          "lexical_score": 0.95
+        },
+        {
+          "id": "user_implicit_2-gold",
+          "kind": "decision",
+          "subject": "What is the blocker I flagged for the Integration Testing Cycle?",
+          "body": "payment approval workflow changes and bank statement timing assumptions",
+          "origin": {
+            "user_id": "source-user",
+            "agent_id": "source-agent",
+            "session_id": "source-user_implicit_2"
+          },
+          "evidence_event_ids": [
+            "event-user_implicit_2-gold"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-18T10:00:00Z",
+          "updated_at": "2026-07-18T10:00:00Z",
+          "source_occurred_at": "2026-07-18T10:00:00Z",
+          "lexical_score": 0.82
+        }
+      ],
+      "atom_supports": [
+        {
+          "atom_id": "gold_answer",
+          "item_ids": [
+            "user_implicit_2-gold"
+          ]
+        }
+      ],
+      "eligibility_decisions": [
+        {
+          "item_id": "user_implicit_2-noise",
+          "eligible": true,
+          "reason": "eligible"
+        },
+        {
+          "item_id": "user_implicit_2-gold",
+          "eligible": true,
+          "reason": "eligible"
+        }
+      ],
+      "candidate_snapshot_sha256": "4790ee497e56d18e2a697111921f34656bc85409d19c3b92fac921467bff7e27"
+    },
+    {
+      "fixture": {
+        "case_id": "user_implicit_15",
+        "category": "user_implicit",
+        "source_revision": "e466b59ed0e21e5c3255fa289ef7a7fe73a5fce33c841fc2959a97fd2c9874fc",
+        "recall_context": {
+          "consumer_user_id": "User_1",
+          "consumer_agent_id": "groupmembench-User_1",
+          "query": "Should I be concerned that the wording change in the Training Rollout phase could affect the comms pack and regional launch notes?",
+          "token_budget": 500,
+          "max_items": 5
+        },
+        "required_atoms": [
+          {
+            "id": "gold_answer",
+            "patterns": [
+              "(?i)true"
+            ]
+          }
+        ]
+      },
+      "scope_id": "synthetic-user_implicit_15",
+      "actor": {
+        "user_id": "User_1",
+        "agent_id": "groupmembench-User_1",
+        "session_id": "consumer-user_implicit_15"
+      },
+      "observation_time": "2026-07-18T12:00:00Z",
+      "query_timezone": "UTC",
+      "extraction_items": [
+        {
+          "id": "user_implicit_15-noise",
+          "text": "This is a lexical distractor for Should I be concerned that the wording change in the Training Rollout phase could affect the comms pack and regional launch notes?",
+          "evidence_event_ids": [
+            "event-user_implicit_15-noise"
+          ]
+        },
+        {
+          "id": "user_implicit_15-gold",
+          "text": "true",
+          "evidence_event_ids": [
+            "event-user_implicit_15-gold"
+          ]
+        }
+      ],
+      "candidates": [
+        {
+          "id": "user_implicit_15-noise",
+          "kind": "status",
+          "subject": "Should I be concerned that the wording change in the Training Rollout phase could affect the comms pack and regional launch notes? archived copy",
+          "body": "This is a lexical distractor for Should I be concerned that the wording change in the Training Rollout phase could affect the comms pack and regional launch notes?",
+          "origin": {
+            "user_id": "other-user",
+            "agent_id": "other-agent",
+            "session_id": "noise-user_implicit_15"
+          },
+          "evidence_event_ids": [
+            "event-user_implicit_15-noise"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-17T12:00:00Z",
+          "updated_at": "2026-07-17T12:00:00Z",
+          "source_occurred_at": "2026-07-17T12:00:00Z",
+          "lexical_score": 0.95
+        },
+        {
+          "id": "user_implicit_15-gold",
+          "kind": "decision",
+          "subject": "Should I be concerned that the wording change in the Training Rollout phase could affect the comms pack and regional launch notes?",
+          "body": "true",
+          "origin": {
+            "user_id": "source-user",
+            "agent_id": "source-agent",
+            "session_id": "source-user_implicit_15"
+          },
+          "evidence_event_ids": [
+            "event-user_implicit_15-gold"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-18T10:00:00Z",
+          "updated_at": "2026-07-18T10:00:00Z",
+          "source_occurred_at": "2026-07-18T10:00:00Z",
+          "lexical_score": 0.82
+        }
+      ],
+      "atom_supports": [
+        {
+          "atom_id": "gold_answer",
+          "item_ids": [
+            "user_implicit_15-gold"
+          ]
+        }
+      ],
+      "eligibility_decisions": [
+        {
+          "item_id": "user_implicit_15-noise",
+          "eligible": true,
+          "reason": "eligible"
+        },
+        {
+          "item_id": "user_implicit_15-gold",
+          "eligible": true,
+          "reason": "eligible"
+        }
+      ],
+      "candidate_snapshot_sha256": "aeb386a755a41cdb6d8810d71939fc799fbea2bb7f058241c03666cf709b2e17"
+    },
+    {
+      "fixture": {
+        "case_id": "user_implicit_13",
+        "category": "user_implicit",
+        "source_revision": "7dbde200756c1cb589569979c6ab09da30e2e2bba0f63c8370664fe24e46f962",
+        "recall_context": {
+          "consumer_user_id": "User_1",
+          "consumer_agent_id": "groupmembench-User_1",
+          "query": "Am I keeping Reporting blocked until the sweep is clean in the Risk: Inconsistent Sustainability Standards phase?",
+          "token_budget": 500,
+          "max_items": 5
+        },
+        "required_atoms": [
+          {
+            "id": "gold_answer",
+            "patterns": [
+              "(?i)true"
+            ]
+          }
+        ]
+      },
+      "scope_id": "synthetic-user_implicit_13",
+      "actor": {
+        "user_id": "User_1",
+        "agent_id": "groupmembench-User_1",
+        "session_id": "consumer-user_implicit_13"
+      },
+      "observation_time": "2026-07-18T12:00:00Z",
+      "query_timezone": "UTC",
+      "extraction_items": [
+        {
+          "id": "user_implicit_13-noise",
+          "text": "This is a lexical distractor for Am I keeping Reporting blocked until the sweep is clean in the Risk: Inconsistent Sustainability Standards phase?",
+          "evidence_event_ids": [
+            "event-user_implicit_13-noise"
+          ]
+        },
+        {
+          "id": "user_implicit_13-gold",
+          "text": "true",
+          "evidence_event_ids": [
+            "event-user_implicit_13-gold"
+          ]
+        }
+      ],
+      "candidates": [
+        {
+          "id": "user_implicit_13-noise",
+          "kind": "status",
+          "subject": "Am I keeping Reporting blocked until the sweep is clean in the Risk: Inconsistent Sustainability Standards phase? archived copy",
+          "body": "This is a lexical distractor for Am I keeping Reporting blocked until the sweep is clean in the Risk: Inconsistent Sustainability Standards phase?",
+          "origin": {
+            "user_id": "other-user",
+            "agent_id": "other-agent",
+            "session_id": "noise-user_implicit_13"
+          },
+          "evidence_event_ids": [
+            "event-user_implicit_13-noise"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-17T12:00:00Z",
+          "updated_at": "2026-07-17T12:00:00Z",
+          "source_occurred_at": "2026-07-17T12:00:00Z",
+          "lexical_score": 0.95
+        },
+        {
+          "id": "user_implicit_13-gold",
+          "kind": "decision",
+          "subject": "Am I keeping Reporting blocked until the sweep is clean in the Risk: Inconsistent Sustainability Standards phase?",
+          "body": "true",
+          "origin": {
+            "user_id": "source-user",
+            "agent_id": "source-agent",
+            "session_id": "source-user_implicit_13"
+          },
+          "evidence_event_ids": [
+            "event-user_implicit_13-gold"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-18T10:00:00Z",
+          "updated_at": "2026-07-18T10:00:00Z",
+          "source_occurred_at": "2026-07-18T10:00:00Z",
+          "lexical_score": 0.82
+        }
+      ],
+      "atom_supports": [
+        {
+          "atom_id": "gold_answer",
+          "item_ids": [
+            "user_implicit_13-gold"
+          ]
+        }
+      ],
+      "eligibility_decisions": [
+        {
+          "item_id": "user_implicit_13-noise",
+          "eligible": true,
+          "reason": "eligible"
+        },
+        {
+          "item_id": "user_implicit_13-gold",
+          "eligible": true,
+          "reason": "eligible"
+        }
+      ],
+      "candidate_snapshot_sha256": "3366301bb7db50c9709081fd1fa09c9d95e0c91c7c5f20d134faf84c988f17b1"
+    },
+    {
+      "fixture": {
+        "case_id": "term_ambiguity_37",
+        "category": "term_ambiguity",
+        "source_revision": "ae16eb831b2b0b6c6aa9febeb2507ae0a0d77fa38f184391a96eba2ec936ffdd",
+        "recall_context": {
+          "consumer_user_id": "User_7",
+          "consumer_agent_id": "groupmembench-User_7",
+          "query": "What is the deadline for operational finance to confirm the bank statement format and exception owner during the Cash Management Module Build?",
+          "token_budget": 500,
+          "max_items": 5
+        },
+        "required_atoms": [
+          {
+            "id": "gold_answer",
+            "patterns": [
+              "(?i)2025-07-18"
+            ]
+          }
+        ]
+      },
+      "scope_id": "synthetic-term_ambiguity_37",
+      "actor": {
+        "user_id": "User_7",
+        "agent_id": "groupmembench-User_7",
+        "session_id": "consumer-term_ambiguity_37"
+      },
+      "observation_time": "2026-07-18T12:00:00Z",
+      "query_timezone": "UTC",
+      "extraction_items": [
+        {
+          "id": "term_ambiguity_37-noise",
+          "text": "This is a lexical distractor for What is the deadline for operational finance to confirm the bank statement format and exception owner during the Cash Management Module Build?",
+          "evidence_event_ids": [
+            "event-term_ambiguity_37-noise"
+          ]
+        },
+        {
+          "id": "term_ambiguity_37-gold",
+          "text": "2025-07-18",
+          "evidence_event_ids": [
+            "event-term_ambiguity_37-gold"
+          ]
+        }
+      ],
+      "candidates": [
+        {
+          "id": "term_ambiguity_37-noise",
+          "kind": "status",
+          "subject": "What is the deadline for operational finance to confirm the bank statement format and exception owner during the Cash Management Module Build? archived copy",
+          "body": "This is a lexical distractor for What is the deadline for operational finance to confirm the bank statement format and exception owner during the Cash Management Module Build?",
+          "origin": {
+            "user_id": "other-user",
+            "agent_id": "other-agent",
+            "session_id": "noise-term_ambiguity_37"
+          },
+          "evidence_event_ids": [
+            "event-term_ambiguity_37-noise"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-17T12:00:00Z",
+          "updated_at": "2026-07-17T12:00:00Z",
+          "source_occurred_at": "2026-07-17T12:00:00Z",
+          "lexical_score": 0.95
+        },
+        {
+          "id": "term_ambiguity_37-gold",
+          "kind": "decision",
+          "subject": "What is the deadline for operational finance to confirm the bank statement format and exception owner during the Cash Management Module Build?",
+          "body": "2025-07-18",
+          "origin": {
+            "user_id": "source-user",
+            "agent_id": "source-agent",
+            "session_id": "source-term_ambiguity_37"
+          },
+          "evidence_event_ids": [
+            "event-term_ambiguity_37-gold"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-18T10:00:00Z",
+          "updated_at": "2026-07-18T10:00:00Z",
+          "source_occurred_at": "2026-07-18T10:00:00Z",
+          "lexical_score": 0.82
+        }
+      ],
+      "atom_supports": [
+        {
+          "atom_id": "gold_answer",
+          "item_ids": [
+            "term_ambiguity_37-gold"
+          ]
+        }
+      ],
+      "eligibility_decisions": [
+        {
+          "item_id": "term_ambiguity_37-noise",
+          "eligible": true,
+          "reason": "eligible"
+        },
+        {
+          "item_id": "term_ambiguity_37-gold",
+          "eligible": true,
+          "reason": "eligible"
+        }
+      ],
+      "candidate_snapshot_sha256": "f3e60cc802e6ed0a54c9c63d106fb1bbd433856f62fc5ca7b2081afca0f1b27b"
+    },
+    {
+      "fixture": {
+        "case_id": "term_ambiguity_1",
+        "category": "term_ambiguity",
+        "source_revision": "e6308f4b9812694bf26075455bf4031892e80982d3d9688d8f2e26d314eb9602",
+        "recall_context": {
+          "consumer_user_id": "User_1",
+          "consumer_agent_id": "groupmembench-User_1",
+          "query": "What is the freeze status of finance workflows approval in the Design Automated Report Templates phase?",
+          "token_budget": 500,
+          "max_items": 5
+        },
+        "required_atoms": [
+          {
+            "id": "gold_answer",
+            "patterns": [
+              "(?i)frozen"
+            ]
+          }
+        ]
+      },
+      "scope_id": "synthetic-term_ambiguity_1",
+      "actor": {
+        "user_id": "User_1",
+        "agent_id": "groupmembench-User_1",
+        "session_id": "consumer-term_ambiguity_1"
+      },
+      "observation_time": "2026-07-18T12:00:00Z",
+      "query_timezone": "UTC",
+      "extraction_items": [
+        {
+          "id": "term_ambiguity_1-noise",
+          "text": "This is a lexical distractor for What is the freeze status of finance workflows approval in the Design Automated Report Templates phase?",
+          "evidence_event_ids": [
+            "event-term_ambiguity_1-noise"
+          ]
+        },
+        {
+          "id": "term_ambiguity_1-gold",
+          "text": "frozen",
+          "evidence_event_ids": [
+            "event-term_ambiguity_1-gold"
+          ]
+        }
+      ],
+      "candidates": [
+        {
+          "id": "term_ambiguity_1-noise",
+          "kind": "status",
+          "subject": "What is the freeze status of finance workflows approval in the Design Automated Report Templates phase? archived copy",
+          "body": "This is a lexical distractor for What is the freeze status of finance workflows approval in the Design Automated Report Templates phase?",
+          "origin": {
+            "user_id": "other-user",
+            "agent_id": "other-agent",
+            "session_id": "noise-term_ambiguity_1"
+          },
+          "evidence_event_ids": [
+            "event-term_ambiguity_1-noise"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-17T12:00:00Z",
+          "updated_at": "2026-07-17T12:00:00Z",
+          "source_occurred_at": "2026-07-17T12:00:00Z",
+          "lexical_score": 0.95
+        },
+        {
+          "id": "term_ambiguity_1-gold",
+          "kind": "decision",
+          "subject": "What is the freeze status of finance workflows approval in the Design Automated Report Templates phase?",
+          "body": "frozen",
+          "origin": {
+            "user_id": "source-user",
+            "agent_id": "source-agent",
+            "session_id": "source-term_ambiguity_1"
+          },
+          "evidence_event_ids": [
+            "event-term_ambiguity_1-gold"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-18T10:00:00Z",
+          "updated_at": "2026-07-18T10:00:00Z",
+          "source_occurred_at": "2026-07-18T10:00:00Z",
+          "lexical_score": 0.82
+        }
+      ],
+      "atom_supports": [
+        {
+          "atom_id": "gold_answer",
+          "item_ids": [
+            "term_ambiguity_1-gold"
+          ]
+        }
+      ],
+      "eligibility_decisions": [
+        {
+          "item_id": "term_ambiguity_1-noise",
+          "eligible": true,
+          "reason": "eligible"
+        },
+        {
+          "item_id": "term_ambiguity_1-gold",
+          "eligible": true,
+          "reason": "eligible"
+        }
+      ],
+      "candidate_snapshot_sha256": "30720693ef843b66152e8c6754bbeffd7b6b6c883aea4cee3b5fb8d6548b3ce6"
+    },
+    {
+      "fixture": {
+        "case_id": "term_ambiguity_6",
+        "category": "term_ambiguity",
+        "source_revision": "b0769be19c49ede1fc908f92b6e5e1f4d78dadc7d7ad5bfb7c420e3c954b79f8",
+        "recall_context": {
+          "consumer_user_id": "User_1",
+          "consumer_agent_id": "groupmembench-User_1",
+          "query": "What is the deadline for finance workflows to approve exception changes during the Implement Report Generation Engine phase?",
+          "token_budget": 500,
+          "max_items": 5
+        },
+        "required_atoms": [
+          {
+            "id": "gold_answer",
+            "patterns": [
+              "(?i)2025-07-18"
+            ]
+          }
+        ]
+      },
+      "scope_id": "synthetic-term_ambiguity_6",
+      "actor": {
+        "user_id": "User_1",
+        "agent_id": "groupmembench-User_1",
+        "session_id": "consumer-term_ambiguity_6"
+      },
+      "observation_time": "2026-07-18T12:00:00Z",
+      "query_timezone": "UTC",
+      "extraction_items": [
+        {
+          "id": "term_ambiguity_6-noise",
+          "text": "This is a lexical distractor for What is the deadline for finance workflows to approve exception changes during the Implement Report Generation Engine phase?",
+          "evidence_event_ids": [
+            "event-term_ambiguity_6-noise"
+          ]
+        },
+        {
+          "id": "term_ambiguity_6-gold",
+          "text": "2025-07-18",
+          "evidence_event_ids": [
+            "event-term_ambiguity_6-gold"
+          ]
+        }
+      ],
+      "candidates": [
+        {
+          "id": "term_ambiguity_6-noise",
+          "kind": "status",
+          "subject": "What is the deadline for finance workflows to approve exception changes during the Implement Report Generation Engine phase? archived copy",
+          "body": "This is a lexical distractor for What is the deadline for finance workflows to approve exception changes during the Implement Report Generation Engine phase?",
+          "origin": {
+            "user_id": "other-user",
+            "agent_id": "other-agent",
+            "session_id": "noise-term_ambiguity_6"
+          },
+          "evidence_event_ids": [
+            "event-term_ambiguity_6-noise"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-17T12:00:00Z",
+          "updated_at": "2026-07-17T12:00:00Z",
+          "source_occurred_at": "2026-07-17T12:00:00Z",
+          "lexical_score": 0.95
+        },
+        {
+          "id": "term_ambiguity_6-gold",
+          "kind": "decision",
+          "subject": "What is the deadline for finance workflows to approve exception changes during the Implement Report Generation Engine phase?",
+          "body": "2025-07-18",
+          "origin": {
+            "user_id": "source-user",
+            "agent_id": "source-agent",
+            "session_id": "source-term_ambiguity_6"
+          },
+          "evidence_event_ids": [
+            "event-term_ambiguity_6-gold"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-18T10:00:00Z",
+          "updated_at": "2026-07-18T10:00:00Z",
+          "source_occurred_at": "2026-07-18T10:00:00Z",
+          "lexical_score": 0.82
+        }
+      ],
+      "atom_supports": [
+        {
+          "atom_id": "gold_answer",
+          "item_ids": [
+            "term_ambiguity_6-gold"
+          ]
+        }
+      ],
+      "eligibility_decisions": [
+        {
+          "item_id": "term_ambiguity_6-noise",
+          "eligible": true,
+          "reason": "eligible"
+        },
+        {
+          "item_id": "term_ambiguity_6-gold",
+          "eligible": true,
+          "reason": "eligible"
+        }
+      ],
+      "candidate_snapshot_sha256": "3b18f0ce5f723b00a60a7e1028b504a7561ec7439a1a5552743e013b0a5a3c58"
+    },
+    {
+      "fixture": {
+        "case_id": "term_ambiguity_21",
+        "category": "term_ambiguity",
+        "source_revision": "ce97bfe01b24eb9fdbcb935390ab547555494cd08820d86c7e89578a48f2e3d1",
+        "recall_context": {
+          "consumer_user_id": "User_7",
+          "consumer_agent_id": "groupmembench-User_7",
+          "query": "What action is operational finance expected to take regarding the locked values, evidence owner, and timestamp during the Production Deployment Readiness phase?",
+          "token_budget": 500,
+          "max_items": 5
+        },
+        "required_atoms": [
+          {
+            "id": "gold_answer",
+            "patterns": [
+              "(?i)stamp the locked values, evidence owner, and timestamp in the spec together"
+            ]
+          }
+        ]
+      },
+      "scope_id": "synthetic-term_ambiguity_21",
+      "actor": {
+        "user_id": "User_7",
+        "agent_id": "groupmembench-User_7",
+        "session_id": "consumer-term_ambiguity_21"
+      },
+      "observation_time": "2026-07-18T12:00:00Z",
+      "query_timezone": "UTC",
+      "extraction_items": [
+        {
+          "id": "term_ambiguity_21-noise",
+          "text": "This is a lexical distractor for What action is operational finance expected to take regarding the locked values, evidence owner, and timestamp during the Production Deployment Readiness phase?",
+          "evidence_event_ids": [
+            "event-term_ambiguity_21-noise"
+          ]
+        },
+        {
+          "id": "term_ambiguity_21-gold",
+          "text": "stamp the locked values, evidence owner, and timestamp in the spec together",
+          "evidence_event_ids": [
+            "event-term_ambiguity_21-gold"
+          ]
+        }
+      ],
+      "candidates": [
+        {
+          "id": "term_ambiguity_21-noise",
+          "kind": "status",
+          "subject": "What action is operational finance expected to take regarding the locked values, evidence owner, and timestamp during the Production Deployment Readiness phase? archived copy",
+          "body": "This is a lexical distractor for What action is operational finance expected to take regarding the locked values, evidence owner, and timestamp during the Production Deployment Readiness phase?",
+          "origin": {
+            "user_id": "other-user",
+            "agent_id": "other-agent",
+            "session_id": "noise-term_ambiguity_21"
+          },
+          "evidence_event_ids": [
+            "event-term_ambiguity_21-noise"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-17T12:00:00Z",
+          "updated_at": "2026-07-17T12:00:00Z",
+          "source_occurred_at": "2026-07-17T12:00:00Z",
+          "lexical_score": 0.95
+        },
+        {
+          "id": "term_ambiguity_21-gold",
+          "kind": "decision",
+          "subject": "What action is operational finance expected to take regarding the locked values, evidence owner, and timestamp during the Production Deployment Readiness phase?",
+          "body": "stamp the locked values, evidence owner, and timestamp in the spec together",
+          "origin": {
+            "user_id": "source-user",
+            "agent_id": "source-agent",
+            "session_id": "source-term_ambiguity_21"
+          },
+          "evidence_event_ids": [
+            "event-term_ambiguity_21-gold"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-18T10:00:00Z",
+          "updated_at": "2026-07-18T10:00:00Z",
+          "source_occurred_at": "2026-07-18T10:00:00Z",
+          "lexical_score": 0.82
+        }
+      ],
+      "atom_supports": [
+        {
+          "atom_id": "gold_answer",
+          "item_ids": [
+            "term_ambiguity_21-gold"
+          ]
+        }
+      ],
+      "eligibility_decisions": [
+        {
+          "item_id": "term_ambiguity_21-noise",
+          "eligible": true,
+          "reason": "eligible"
+        },
+        {
+          "item_id": "term_ambiguity_21-gold",
+          "eligible": true,
+          "reason": "eligible"
+        }
+      ],
+      "candidate_snapshot_sha256": "5b7c17712cac06a68580eb8d565d1accf974f67645258e092437092cedc04056"
+    },
+    {
+      "fixture": {
+        "case_id": "term_ambiguity_12",
+        "category": "term_ambiguity",
+        "source_revision": "3166c4a0b992dd0a78cdb7206541089cf31f8c3206561b8bf096cfe5de76d9f1",
+        "recall_context": {
+          "consumer_user_id": "User_3",
+          "consumer_agent_id": "groupmembench-User_3",
+          "query": "What aspect of responsibility does financial operations own under the Financial Data Validation Rules?",
+          "token_budget": 500,
+          "max_items": 5
+        },
+        "required_atoms": [
+          {
+            "id": "gold_answer",
+            "patterns": [
+              "(?i)approval"
+            ]
+          }
+        ]
+      },
+      "scope_id": "synthetic-term_ambiguity_12",
+      "actor": {
+        "user_id": "User_3",
+        "agent_id": "groupmembench-User_3",
+        "session_id": "consumer-term_ambiguity_12"
+      },
+      "observation_time": "2026-07-18T12:00:00Z",
+      "query_timezone": "UTC",
+      "extraction_items": [
+        {
+          "id": "term_ambiguity_12-noise",
+          "text": "This is a lexical distractor for What aspect of responsibility does financial operations own under the Financial Data Validation Rules?",
+          "evidence_event_ids": [
+            "event-term_ambiguity_12-noise"
+          ]
+        },
+        {
+          "id": "term_ambiguity_12-gold",
+          "text": "approval",
+          "evidence_event_ids": [
+            "event-term_ambiguity_12-gold"
+          ]
+        }
+      ],
+      "candidates": [
+        {
+          "id": "term_ambiguity_12-noise",
+          "kind": "status",
+          "subject": "What aspect of responsibility does financial operations own under the Financial Data Validation Rules? archived copy",
+          "body": "This is a lexical distractor for What aspect of responsibility does financial operations own under the Financial Data Validation Rules?",
+          "origin": {
+            "user_id": "other-user",
+            "agent_id": "other-agent",
+            "session_id": "noise-term_ambiguity_12"
+          },
+          "evidence_event_ids": [
+            "event-term_ambiguity_12-noise"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-17T12:00:00Z",
+          "updated_at": "2026-07-17T12:00:00Z",
+          "source_occurred_at": "2026-07-17T12:00:00Z",
+          "lexical_score": 0.95
+        },
+        {
+          "id": "term_ambiguity_12-gold",
+          "kind": "decision",
+          "subject": "What aspect of responsibility does financial operations own under the Financial Data Validation Rules?",
+          "body": "approval",
+          "origin": {
+            "user_id": "source-user",
+            "agent_id": "source-agent",
+            "session_id": "source-term_ambiguity_12"
+          },
+          "evidence_event_ids": [
+            "event-term_ambiguity_12-gold"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-18T10:00:00Z",
+          "updated_at": "2026-07-18T10:00:00Z",
+          "source_occurred_at": "2026-07-18T10:00:00Z",
+          "lexical_score": 0.82
+        }
+      ],
+      "atom_supports": [
+        {
+          "atom_id": "gold_answer",
+          "item_ids": [
+            "term_ambiguity_12-gold"
+          ]
+        }
+      ],
+      "eligibility_decisions": [
+        {
+          "item_id": "term_ambiguity_12-noise",
+          "eligible": true,
+          "reason": "eligible"
+        },
+        {
+          "item_id": "term_ambiguity_12-gold",
+          "eligible": true,
+          "reason": "eligible"
+        }
+      ],
+      "candidate_snapshot_sha256": "719870f14718ffcc9060a2d254103229787e33b75c8e831712cd958862476b39"
+    },
+    {
+      "fixture": {
+        "case_id": "abstention_42",
+        "category": "abstention",
+        "source_revision": "0319cfc38cd41fe34c7b4deb847290205993ce9150ea3ea7d041ed1794fea9ec",
+        "recall_context": {
+          "consumer_user_id": "User_10",
+          "consumer_agent_id": "groupmembench-User_10",
+          "query": "What is the exact target date mentioned for the cutover readiness in the Treasury Management System implementation?",
+          "token_budget": 500,
+          "max_items": 5
+        },
+        "required_atoms": null,
+        "forbidden_atoms": [
+          {
+            "id": "unsupported_answer",
+            "patterns": [
+              "(?i)unsupported designated answer"
+            ]
+          }
+        ]
+      },
+      "scope_id": "synthetic-abstention_42",
+      "actor": {
+        "user_id": "User_10",
+        "agent_id": "groupmembench-User_10",
+        "session_id": "consumer-abstention_42"
+      },
+      "observation_time": "2026-07-18T12:00:00Z",
+      "query_timezone": "UTC",
+      "extraction_items": [
+        {
+          "id": "abstention_42-noise",
+          "text": "Unsupported designated answer for What is the exact target date mentioned for the cutover readiness in the Treasury Management System implementation?",
+          "evidence_event_ids": [
+            "event-abstention_42-noise"
+          ]
+        }
+      ],
+      "candidates": [
+        {
+          "id": "abstention_42-noise",
+          "kind": "status",
+          "subject": "What is the exact target date mentioned for the cutover readiness in the Treasury Management System implementation? archived copy",
+          "body": "Unsupported designated answer for What is the exact target date mentioned for the cutover readiness in the Treasury Management System implementation?",
+          "origin": {
+            "user_id": "other-user",
+            "agent_id": "other-agent",
+            "session_id": "noise-abstention_42"
+          },
+          "evidence_event_ids": [
+            "event-abstention_42-noise"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-17T12:00:00Z",
+          "updated_at": "2026-07-17T12:00:00Z",
+          "source_occurred_at": "2026-07-17T12:00:00Z",
+          "lexical_score": 0.95
+        }
+      ],
+      "eligibility_decisions": [
+        {
+          "item_id": "abstention_42-noise",
+          "eligible": true,
+          "reason": "eligible"
+        }
+      ],
+      "candidate_snapshot_sha256": "b7f67ac52dd5d32deb34f92bb7766d86baa977601cd999a072dfca568971e1ea"
+    },
+    {
+      "fixture": {
+        "case_id": "abstention_2",
+        "category": "abstention",
+        "source_revision": "3ec8ebaf31c5360347a3d8cb1f5176e24891e0a4f4ec19a772ac7ff99556d130",
+        "recall_context": {
+          "consumer_user_id": "User_4",
+          "consumer_agent_id": "groupmembench-User_4",
+          "query": "What is the name of the primary approver for the ESG Policy Framework in the Define ESG Policy Requirements phase?",
+          "token_budget": 500,
+          "max_items": 5
+        },
+        "required_atoms": null,
+        "forbidden_atoms": [
+          {
+            "id": "unsupported_answer",
+            "patterns": [
+              "(?i)unsupported designated answer"
+            ]
+          }
+        ]
+      },
+      "scope_id": "synthetic-abstention_2",
+      "actor": {
+        "user_id": "User_4",
+        "agent_id": "groupmembench-User_4",
+        "session_id": "consumer-abstention_2"
+      },
+      "observation_time": "2026-07-18T12:00:00Z",
+      "query_timezone": "UTC",
+      "extraction_items": [
+        {
+          "id": "abstention_2-noise",
+          "text": "Unsupported designated answer for What is the name of the primary approver for the ESG Policy Framework in the Define ESG Policy Requirements phase?",
+          "evidence_event_ids": [
+            "event-abstention_2-noise"
+          ]
+        }
+      ],
+      "candidates": [
+        {
+          "id": "abstention_2-noise",
+          "kind": "status",
+          "subject": "What is the name of the primary approver for the ESG Policy Framework in the Define ESG Policy Requirements phase? archived copy",
+          "body": "Unsupported designated answer for What is the name of the primary approver for the ESG Policy Framework in the Define ESG Policy Requirements phase?",
+          "origin": {
+            "user_id": "other-user",
+            "agent_id": "other-agent",
+            "session_id": "noise-abstention_2"
+          },
+          "evidence_event_ids": [
+            "event-abstention_2-noise"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-17T12:00:00Z",
+          "updated_at": "2026-07-17T12:00:00Z",
+          "source_occurred_at": "2026-07-17T12:00:00Z",
+          "lexical_score": 0.95
+        }
+      ],
+      "eligibility_decisions": [
+        {
+          "item_id": "abstention_2-noise",
+          "eligible": true,
+          "reason": "eligible"
+        }
+      ],
+      "candidate_snapshot_sha256": "d71ab0b1489b8d3fc6c05dc87b4fde47cc84b4457b97c0a8d3ae574cc5026808"
+    },
+    {
+      "fixture": {
+        "case_id": "abstention_41",
+        "category": "abstention",
+        "source_revision": "043833de599ee709c2a5f8a5925646d13d242af6ed967ff61e800f51c155b322",
+        "recall_context": {
+          "consumer_user_id": "User_3",
+          "consumer_agent_id": "groupmembench-User_3",
+          "query": "Who is the designated owner for the regional exception clauses mentioned in the ESG Policy Framework?",
+          "token_budget": 500,
+          "max_items": 5
+        },
+        "required_atoms": null,
+        "forbidden_atoms": [
+          {
+            "id": "unsupported_answer",
+            "patterns": [
+              "(?i)unsupported designated answer"
+            ]
+          }
+        ]
+      },
+      "scope_id": "synthetic-abstention_41",
+      "actor": {
+        "user_id": "User_3",
+        "agent_id": "groupmembench-User_3",
+        "session_id": "consumer-abstention_41"
+      },
+      "observation_time": "2026-07-18T12:00:00Z",
+      "query_timezone": "UTC",
+      "extraction_items": [
+        {
+          "id": "abstention_41-noise",
+          "text": "Unsupported designated answer for Who is the designated owner for the regional exception clauses mentioned in the ESG Policy Framework?",
+          "evidence_event_ids": [
+            "event-abstention_41-noise"
+          ]
+        }
+      ],
+      "candidates": [
+        {
+          "id": "abstention_41-noise",
+          "kind": "status",
+          "subject": "Who is the designated owner for the regional exception clauses mentioned in the ESG Policy Framework? archived copy",
+          "body": "Unsupported designated answer for Who is the designated owner for the regional exception clauses mentioned in the ESG Policy Framework?",
+          "origin": {
+            "user_id": "other-user",
+            "agent_id": "other-agent",
+            "session_id": "noise-abstention_41"
+          },
+          "evidence_event_ids": [
+            "event-abstention_41-noise"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-17T12:00:00Z",
+          "updated_at": "2026-07-17T12:00:00Z",
+          "source_occurred_at": "2026-07-17T12:00:00Z",
+          "lexical_score": 0.95
+        }
+      ],
+      "eligibility_decisions": [
+        {
+          "item_id": "abstention_41-noise",
+          "eligible": true,
+          "reason": "eligible"
+        }
+      ],
+      "candidate_snapshot_sha256": "12585b47f25a66735430c2b057c2b1bbf23f2952713e76f45ac6c8a65bc3a59b"
+    },
+    {
+      "fixture": {
+        "case_id": "abstention_32",
+        "category": "abstention",
+        "source_revision": "df5b4f046a95f10806c22839edf67ff3edfe8adfaa081e698ab6d58bed8f0327",
+        "recall_context": {
+          "consumer_user_id": "User_11",
+          "consumer_agent_id": "groupmembench-User_11",
+          "query": "What is the exact version number of the 'Helix' system mentioned in the context of first-login failures?",
+          "token_budget": 500,
+          "max_items": 5
+        },
+        "required_atoms": null,
+        "forbidden_atoms": [
+          {
+            "id": "unsupported_answer",
+            "patterns": [
+              "(?i)unsupported designated answer"
+            ]
+          }
+        ]
+      },
+      "scope_id": "synthetic-abstention_32",
+      "actor": {
+        "user_id": "User_11",
+        "agent_id": "groupmembench-User_11",
+        "session_id": "consumer-abstention_32"
+      },
+      "observation_time": "2026-07-18T12:00:00Z",
+      "query_timezone": "UTC",
+      "extraction_items": [
+        {
+          "id": "abstention_32-noise",
+          "text": "Unsupported designated answer for What is the exact version number of the 'Helix' system mentioned in the context of first-login failures?",
+          "evidence_event_ids": [
+            "event-abstention_32-noise"
+          ]
+        }
+      ],
+      "candidates": [
+        {
+          "id": "abstention_32-noise",
+          "kind": "status",
+          "subject": "What is the exact version number of the 'Helix' system mentioned in the context of first-login failures? archived copy",
+          "body": "Unsupported designated answer for What is the exact version number of the 'Helix' system mentioned in the context of first-login failures?",
+          "origin": {
+            "user_id": "other-user",
+            "agent_id": "other-agent",
+            "session_id": "noise-abstention_32"
+          },
+          "evidence_event_ids": [
+            "event-abstention_32-noise"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-17T12:00:00Z",
+          "updated_at": "2026-07-17T12:00:00Z",
+          "source_occurred_at": "2026-07-17T12:00:00Z",
+          "lexical_score": 0.95
+        }
+      ],
+      "eligibility_decisions": [
+        {
+          "item_id": "abstention_32-noise",
+          "eligible": true,
+          "reason": "eligible"
+        }
+      ],
+      "candidate_snapshot_sha256": "ea323baa30bab672b09b65443aaca63c54ce23abf47164c55618f0d7fc7fd0bb"
+    },
+    {
+      "fixture": {
+        "case_id": "abstention_18",
+        "category": "abstention",
+        "source_revision": "8c0fbecb9af20b45d5cc76d0efdca3bceee17431a750987e3430441b6eb5be72",
+        "recall_context": {
+          "consumer_user_id": "User_13",
+          "consumer_agent_id": "groupmembench-User_13",
+          "query": "What is the exact matched pair count specified for the Horizon pack defect analysis?",
+          "token_budget": 500,
+          "max_items": 5
+        },
+        "required_atoms": null,
+        "forbidden_atoms": [
+          {
+            "id": "unsupported_answer",
+            "patterns": [
+              "(?i)unsupported designated answer"
+            ]
+          }
+        ]
+      },
+      "scope_id": "synthetic-abstention_18",
+      "actor": {
+        "user_id": "User_13",
+        "agent_id": "groupmembench-User_13",
+        "session_id": "consumer-abstention_18"
+      },
+      "observation_time": "2026-07-18T12:00:00Z",
+      "query_timezone": "UTC",
+      "extraction_items": [
+        {
+          "id": "abstention_18-noise",
+          "text": "Unsupported designated answer for What is the exact matched pair count specified for the Horizon pack defect analysis?",
+          "evidence_event_ids": [
+            "event-abstention_18-noise"
+          ]
+        }
+      ],
+      "candidates": [
+        {
+          "id": "abstention_18-noise",
+          "kind": "status",
+          "subject": "What is the exact matched pair count specified for the Horizon pack defect analysis? archived copy",
+          "body": "Unsupported designated answer for What is the exact matched pair count specified for the Horizon pack defect analysis?",
+          "origin": {
+            "user_id": "other-user",
+            "agent_id": "other-agent",
+            "session_id": "noise-abstention_18"
+          },
+          "evidence_event_ids": [
+            "event-abstention_18-noise"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-17T12:00:00Z",
+          "updated_at": "2026-07-17T12:00:00Z",
+          "source_occurred_at": "2026-07-17T12:00:00Z",
+          "lexical_score": 0.95
+        }
+      ],
+      "eligibility_decisions": [
+        {
+          "item_id": "abstention_18-noise",
+          "eligible": true,
+          "reason": "eligible"
+        }
+      ],
+      "candidate_snapshot_sha256": "0ebb855f11869dc7158b56f2ff2a9bcd5f44fe56712d26e3be2fb204f3dbe079"
+    },
+    {
+      "fixture": {
+        "case_id": "status_payments_billing",
+        "category": "relation_marginal_utility",
+        "source_revision": "1111111111111111111111111111111111111111111111111111111111111111",
+        "recall_context": {
+          "consumer_user_id": "User_1",
+          "consumer_agent_id": "consumer",
+          "query": "What is the current release status for payments and billing?",
+          "token_budget": 256,
+          "max_items": 3
+        },
+        "required_atoms": [
+          {
+            "id": "payments_status",
+            "patterns": [
+              "(?i)payments status is ready"
+            ]
+          },
+          {
+            "id": "billing_status",
+            "patterns": [
+              "(?i)billing validation is green"
+            ]
+          }
+        ]
+      },
+      "scope_id": "relation-utility-status",
+      "actor": {
+        "user_id": "User_1",
+        "agent_id": "consumer",
+        "session_id": "recall-replay"
+      },
+      "observation_time": "2026-07-18T12:02:00Z",
+      "query_timezone": "UTC",
+      "extraction_items": [
+        {
+          "id": "status-primary",
+          "text": "Payments status is ready.",
+          "evidence_event_ids": [
+            "event-status-primary"
+          ]
+        },
+        {
+          "id": "status-useful",
+          "text": "Billing validation is green.",
+          "evidence_event_ids": [
+            "event-status-useful"
+          ]
+        },
+        {
+          "id": "status-noise",
+          "text": "Payments status remains ready for routine review.",
+          "evidence_event_ids": [
+            "event-status-noise"
+          ]
+        }
+      ],
+      "candidates": [
+        {
+          "id": "status-primary",
+          "kind": "status",
+          "subject": "payments release status",
+          "body": "Payments status is ready.",
+          "origin": {
+            "user_id": "User_2",
+            "agent_id": "producer",
+            "session_id": "status"
+          },
+          "related_subjects": [
+            "billing validation",
+            "payments commentary"
+          ],
+          "evidence_event_ids": [
+            "event-status-primary"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-18T12:00:00Z",
+          "updated_at": "2026-07-18T12:00:00Z",
+          "source_occurred_at": "2026-07-18T12:00:00Z",
+          "lexical_score": 0.9
+        },
+        {
+          "id": "status-useful",
+          "kind": "status",
+          "subject": "billing validation",
+          "body": "Billing validation is green.",
+          "origin": {
+            "user_id": "User_2",
+            "agent_id": "producer",
+            "session_id": "status"
+          },
+          "evidence_event_ids": [
+            "event-status-useful"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-18T12:01:00Z",
+          "updated_at": "2026-07-18T12:01:00Z",
+          "source_occurred_at": "2026-07-18T12:01:00Z",
+          "lexical_score": 0
+        },
+        {
+          "id": "status-noise",
+          "kind": "status",
+          "subject": "payments commentary",
+          "body": "Payments status remains ready for routine review.",
+          "origin": {
+            "user_id": "User_2",
+            "agent_id": "producer",
+            "session_id": "status"
+          },
+          "evidence_event_ids": [
+            "event-status-noise"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-18T12:02:00Z",
+          "updated_at": "2026-07-18T12:02:00Z",
+          "source_occurred_at": "2026-07-18T12:02:00Z",
+          "lexical_score": 0
+        }
+      ],
+      "atom_supports": [
+        {
+          "atom_id": "payments_status",
+          "item_ids": [
+            "status-primary"
+          ]
+        },
+        {
+          "atom_id": "billing_status",
+          "item_ids": [
+            "status-useful"
+          ]
+        }
+      ],
+      "eligibility_decisions": [
+        {
+          "item_id": "status-primary",
+          "eligible": true,
+          "reason": "eligible"
+        },
+        {
+          "item_id": "status-useful",
+          "eligible": true,
+          "reason": "eligible"
+        },
+        {
+          "item_id": "status-noise",
+          "eligible": true,
+          "reason": "eligible"
+        }
+      ],
+      "candidate_snapshot_sha256": "c26c91c90ffa68415c179698c59ce8606ad14c5873bc377d2bc5ed9a80346dcb"
+    },
+    {
+      "fixture": {
+        "case_id": "deadline_america_europe",
+        "category": "relation_marginal_utility",
+        "source_revision": "2222222222222222222222222222222222222222222222222222222222222222",
+        "recall_context": {
+          "consumer_user_id": "User_1",
+          "consumer_agent_id": "consumer",
+          "query": "What is the filing deadline for America and Europe?",
+          "token_budget": 256,
+          "max_items": 3
+        },
+        "required_atoms": [
+          {
+            "id": "america_deadline",
+            "patterns": [
+              "(?i)America filing deadline is July 25"
+            ]
+          },
+          {
+            "id": "europe_deadline",
+            "patterns": [
+              "(?i)Europe filing deadline is July 28"
+            ]
+          }
+        ]
+      },
+      "scope_id": "relation-utility-deadline",
+      "actor": {
+        "user_id": "User_1",
+        "agent_id": "consumer",
+        "session_id": "recall-replay"
+      },
+      "observation_time": "2026-07-18T13:02:00Z",
+      "query_timezone": "UTC",
+      "extraction_items": [
+        {
+          "id": "deadline-primary",
+          "text": "America filing deadline is July 25.",
+          "evidence_event_ids": [
+            "event-deadline-primary"
+          ]
+        },
+        {
+          "id": "deadline-useful",
+          "text": "Europe filing deadline is July 28.",
+          "evidence_event_ids": [
+            "event-deadline-useful"
+          ]
+        },
+        {
+          "id": "deadline-noise",
+          "text": "America filing deadline remains July 25 after routine review.",
+          "evidence_event_ids": [
+            "event-deadline-noise"
+          ]
+        }
+      ],
+      "candidates": [
+        {
+          "id": "deadline-primary",
+          "kind": "status",
+          "subject": "America filing deadline",
+          "body": "America filing deadline is July 25.",
+          "origin": {
+            "user_id": "User_3",
+            "agent_id": "producer",
+            "session_id": "deadline"
+          },
+          "related_subjects": [
+            "Europe filing deadline",
+            "America filing preparation"
+          ],
+          "evidence_event_ids": [
+            "event-deadline-primary"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-18T13:00:00Z",
+          "updated_at": "2026-07-18T13:00:00Z",
+          "source_occurred_at": "2026-07-18T13:00:00Z",
+          "lexical_score": 0.9
+        },
+        {
+          "id": "deadline-useful",
+          "kind": "status",
+          "subject": "Europe filing deadline",
+          "body": "Europe filing deadline is July 28.",
+          "origin": {
+            "user_id": "User_3",
+            "agent_id": "producer",
+            "session_id": "deadline"
+          },
+          "evidence_event_ids": [
+            "event-deadline-useful"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-18T13:01:00Z",
+          "updated_at": "2026-07-18T13:01:00Z",
+          "source_occurred_at": "2026-07-18T13:01:00Z",
+          "lexical_score": 0
+        },
+        {
+          "id": "deadline-noise",
+          "kind": "status",
+          "subject": "America filing preparation",
+          "body": "America filing deadline remains July 25 after routine review.",
+          "origin": {
+            "user_id": "User_3",
+            "agent_id": "producer",
+            "session_id": "deadline"
+          },
+          "evidence_event_ids": [
+            "event-deadline-noise"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-18T13:02:00Z",
+          "updated_at": "2026-07-18T13:02:00Z",
+          "source_occurred_at": "2026-07-18T13:02:00Z",
+          "lexical_score": 0
+        }
+      ],
+      "atom_supports": [
+        {
+          "atom_id": "america_deadline",
+          "item_ids": [
+            "deadline-primary"
+          ]
+        },
+        {
+          "atom_id": "europe_deadline",
+          "item_ids": [
+            "deadline-useful"
+          ]
+        }
+      ],
+      "eligibility_decisions": [
+        {
+          "item_id": "deadline-primary",
+          "eligible": true,
+          "reason": "eligible"
+        },
+        {
+          "item_id": "deadline-useful",
+          "eligible": true,
+          "reason": "eligible"
+        },
+        {
+          "item_id": "deadline-noise",
+          "eligible": true,
+          "reason": "eligible"
+        }
+      ],
+      "candidate_snapshot_sha256": "d95e2013c17958cf432a27a4d284557af695c7e20dd9aaa633b8ea9de9b05b01"
+    },
+    {
+      "fixture": {
+        "case_id": "decision_backend_frontend",
+        "category": "relation_marginal_utility",
+        "source_revision": "3333333333333333333333333333333333333333333333333333333333333333",
+        "recall_context": {
+          "consumer_user_id": "User_1",
+          "consumer_agent_id": "consumer",
+          "query": "What rollout decision was approved for backend and frontend?",
+          "token_budget": 256,
+          "max_items": 3
+        },
+        "required_atoms": [
+          {
+            "id": "backend_decision",
+            "patterns": [
+              "(?i)Backend rollout decision was approved"
+            ]
+          },
+          {
+            "id": "frontend_decision",
+            "patterns": [
+              "(?i)Frontend rollout decision was approved"
+            ]
+          }
+        ]
+      },
+      "scope_id": "relation-utility-owner",
+      "actor": {
+        "user_id": "User_1",
+        "agent_id": "consumer",
+        "session_id": "recall-replay"
+      },
+      "observation_time": "2026-07-18T14:02:00Z",
+      "query_timezone": "UTC",
+      "extraction_items": [
+        {
+          "id": "decision-primary",
+          "text": "Backend rollout decision was approved.",
+          "evidence_event_ids": [
+            "event-decision-primary"
+          ]
+        },
+        {
+          "id": "decision-useful",
+          "text": "Frontend rollout decision was approved.",
+          "evidence_event_ids": [
+            "event-decision-useful"
+          ]
+        },
+        {
+          "id": "decision-noise",
+          "text": "Backend rollout decision remains approved after routine review.",
+          "evidence_event_ids": [
+            "event-decision-noise"
+          ]
+        }
+      ],
+      "candidates": [
+        {
+          "id": "decision-primary",
+          "kind": "status",
+          "subject": "backend rollout decision",
+          "body": "Backend rollout decision was approved.",
+          "origin": {
+            "user_id": "User_4",
+            "agent_id": "producer",
+            "session_id": "decision"
+          },
+          "related_subjects": [
+            "frontend rollout decision",
+            "backend decision review"
+          ],
+          "evidence_event_ids": [
+            "event-decision-primary"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-18T14:00:00Z",
+          "updated_at": "2026-07-18T14:00:00Z",
+          "source_occurred_at": "2026-07-18T14:00:00Z",
+          "lexical_score": 0.9
+        },
+        {
+          "id": "decision-useful",
+          "kind": "status",
+          "subject": "frontend rollout decision",
+          "body": "Frontend rollout decision was approved.",
+          "origin": {
+            "user_id": "User_4",
+            "agent_id": "producer",
+            "session_id": "decision"
+          },
+          "evidence_event_ids": [
+            "event-decision-useful"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-18T14:01:00Z",
+          "updated_at": "2026-07-18T14:01:00Z",
+          "source_occurred_at": "2026-07-18T14:01:00Z",
+          "lexical_score": 0
+        },
+        {
+          "id": "decision-noise",
+          "kind": "status",
+          "subject": "backend decision review",
+          "body": "Backend rollout decision remains approved after routine review.",
+          "origin": {
+            "user_id": "User_4",
+            "agent_id": "producer",
+            "session_id": "decision"
+          },
+          "evidence_event_ids": [
+            "event-decision-noise"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-18T14:02:00Z",
+          "updated_at": "2026-07-18T14:02:00Z",
+          "source_occurred_at": "2026-07-18T14:02:00Z",
+          "lexical_score": 0
+        }
+      ],
+      "atom_supports": [
+        {
+          "atom_id": "backend_decision",
+          "item_ids": [
+            "decision-primary"
+          ]
+        },
+        {
+          "atom_id": "frontend_decision",
+          "item_ids": [
+            "decision-useful"
+          ]
+        }
+      ],
+      "eligibility_decisions": [
+        {
+          "item_id": "decision-primary",
+          "eligible": true,
+          "reason": "eligible"
+        },
+        {
+          "item_id": "decision-useful",
+          "eligible": true,
+          "reason": "eligible"
+        },
+        {
+          "item_id": "decision-noise",
+          "eligible": true,
+          "reason": "eligible"
+        }
+      ],
+      "candidate_snapshot_sha256": "7ecc6a9f9621a5c40fd72a544570560a6df9b0d3df9e68fb29a3fbc4cedc3875"
+    },
+    {
+      "fixture": {
+        "case_id": "blocker_data_reporting",
+        "category": "relation_marginal_utility",
+        "source_revision": "4444444444444444444444444444444444444444444444444444444444444444",
+        "recall_context": {
+          "consumer_user_id": "User_1",
+          "consumer_agent_id": "consumer",
+          "query": "What blocks data and reporting delivery?",
+          "token_budget": 256,
+          "max_items": 3
+        },
+        "required_atoms": [
+          {
+            "id": "data_blocker",
+            "patterns": [
+              "(?i)Data delivery is blocked by schema approval"
+            ]
+          },
+          {
+            "id": "reporting_blocker",
+            "patterns": [
+              "(?i)Reporting delivery is blocked by policy review"
+            ]
+          }
+        ]
+      },
+      "scope_id": "relation-utility-blocker",
+      "actor": {
+        "user_id": "User_1",
+        "agent_id": "consumer",
+        "session_id": "recall-replay"
+      },
+      "observation_time": "2026-07-18T15:02:00Z",
+      "query_timezone": "UTC",
+      "extraction_items": [
+        {
+          "id": "blocker-primary",
+          "text": "Data delivery is blocked by schema approval.",
+          "evidence_event_ids": [
+            "event-blocker-primary"
+          ]
+        },
+        {
+          "id": "blocker-useful",
+          "text": "Reporting delivery is blocked by policy review.",
+          "evidence_event_ids": [
+            "event-blocker-useful"
+          ]
+        },
+        {
+          "id": "blocker-noise",
+          "text": "Data delivery remains blocked while approval is pending.",
+          "evidence_event_ids": [
+            "event-blocker-noise"
+          ]
+        }
+      ],
+      "candidates": [
+        {
+          "id": "blocker-primary",
+          "kind": "blocker",
+          "subject": "data delivery blocker",
+          "body": "Data delivery is blocked by schema approval.",
+          "origin": {
+            "user_id": "User_5",
+            "agent_id": "producer",
+            "session_id": "blocker"
+          },
+          "related_subjects": [
+            "reporting delivery blocker",
+            "data blocker commentary"
+          ],
+          "evidence_event_ids": [
+            "event-blocker-primary"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-18T15:00:00Z",
+          "updated_at": "2026-07-18T15:00:00Z",
+          "source_occurred_at": "2026-07-18T15:00:00Z",
+          "lexical_score": 0.9
+        },
+        {
+          "id": "blocker-useful",
+          "kind": "blocker",
+          "subject": "reporting delivery blocker",
+          "body": "Reporting delivery is blocked by policy review.",
+          "origin": {
+            "user_id": "User_5",
+            "agent_id": "producer",
+            "session_id": "blocker"
+          },
+          "evidence_event_ids": [
+            "event-blocker-useful"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-18T15:01:00Z",
+          "updated_at": "2026-07-18T15:01:00Z",
+          "source_occurred_at": "2026-07-18T15:01:00Z",
+          "lexical_score": 0
+        },
+        {
+          "id": "blocker-noise",
+          "kind": "blocker",
+          "subject": "data blocker commentary",
+          "body": "Data delivery remains blocked while approval is pending.",
+          "origin": {
+            "user_id": "User_5",
+            "agent_id": "producer",
+            "session_id": "blocker"
+          },
+          "evidence_event_ids": [
+            "event-blocker-noise"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-18T15:02:00Z",
+          "updated_at": "2026-07-18T15:02:00Z",
+          "source_occurred_at": "2026-07-18T15:02:00Z",
+          "lexical_score": 0
+        }
+      ],
+      "atom_supports": [
+        {
+          "atom_id": "data_blocker",
+          "item_ids": [
+            "blocker-primary"
+          ]
+        },
+        {
+          "atom_id": "reporting_blocker",
+          "item_ids": [
+            "blocker-useful"
+          ]
+        }
+      ],
+      "eligibility_decisions": [
+        {
+          "item_id": "blocker-primary",
+          "eligible": true,
+          "reason": "eligible"
+        },
+        {
+          "item_id": "blocker-useful",
+          "eligible": true,
+          "reason": "eligible"
+        },
+        {
+          "item_id": "blocker-noise",
+          "eligible": true,
+          "reason": "eligible"
+        }
+      ],
+      "candidate_snapshot_sha256": "c4178403d4d0548e061a3a0fda5addbebdf6e8fbca554ffa453b00edf9fab717"
+    }
+  ]
+}

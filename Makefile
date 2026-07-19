@@ -24,7 +24,7 @@ RECALL_EVAL_OUTPUT ?= runs/recall-eval-v1/current
 RECALL_EVAL_SEMANTIC_THRESHOLD ?= 0.50
 RECALL_EVAL_CANDIDATE_LIMIT ?= 16
 
-.PHONY: all build validate-extraction-candidate-strategy tools generate-init generate mocks fmt format-check lint test test-unit test-scripts coverage integration-test recall-eval-v1 docker-eval groupmembench-data groupmembench-eval eval-v2-prepare eval-v2-up eval-v2 eval-v2-smoke-up eval-v2-smoke eval-v2-acceptance-up eval-v2-acceptance eval-v2-down eval-v2-reset eval-v2-job-image eval-v2-job eval-v3-prepare eval-v3-up eval-v3 eval-v3-down eval-v3-reset up down logs db-up db-down clean
+.PHONY: all build validate-extraction-candidate-strategy tools generate-init generate mocks fmt format-check lint test test-unit test-scripts coverage integration-test recall-eval-v1 recall-eval-v2 recall-eval-v2-up recall-eval-v2-down docker-eval groupmembench-data groupmembench-eval eval-v2-prepare eval-v2-up eval-v2 eval-v2-smoke-up eval-v2-smoke eval-v2-acceptance-up eval-v2-acceptance eval-v2-down eval-v2-reset eval-v2-job-image eval-v2-job eval-v3-prepare eval-v3-up eval-v3 eval-v3-down eval-v3-reset up down logs db-up db-down clean
 
 all: lint test
 
@@ -185,6 +185,19 @@ eval-v3-down:
 
 eval-v3-reset:
 	./scripts/eval-v3-stack.sh reset
+
+recall-eval-v2-up:
+	@manifest="$${MANIFEST:-runs/groupmembench-v3-selection/manifest.json}"; \
+		run_id="$${RUN_ID:-groupmembench-finance-recall-v2}"; \
+		./scripts/eval-v3-stack.sh up "$$manifest" "$$run_id"
+
+recall-eval-v2:
+	@. ./scripts/load-eval-v3-env.sh; \
+		config="$${CONFIG:-evals/recall-v2/config.local.yaml}"; \
+		GOCACHE=$${GOCACHE:-/tmp/team-memory-go-cache} go run ./cmd/team-memory-recall-eval-v2 -config "$$config"
+
+recall-eval-v2-down:
+	./scripts/eval-v3-stack.sh down
 
 eval-v2-job-image:
 	docker build -f evals/v2/docker/runner/Dockerfile -t team-memory-eval-v2-runner:local .

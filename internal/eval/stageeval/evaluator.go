@@ -77,33 +77,49 @@ type Result struct {
 }
 
 type ExtractionResult struct {
-	Scored            bool     `json:"scored"`
-	RequiredAtoms     int      `json:"required_atoms"`
-	MatchedAtoms      int      `json:"matched_atoms"`
-	FactRecall        float64  `json:"fact_recall"`
-	EvidencePrecision float64  `json:"evidence_precision"`
-	EvidenceRecall    float64  `json:"evidence_recall"`
-	LeakageItems      int      `json:"leakage_items"`
-	MissingAtomIDs    []string `json:"missing_atom_ids,omitempty"`
-	DurationMS        int64    `json:"duration_ms,omitempty"`
-	Error             string   `json:"error,omitempty"`
+	Scored                 bool            `json:"scored"`
+	RequiredAtoms          int             `json:"required_atoms"`
+	MatchedAtoms           int             `json:"matched_atoms"`
+	FactRecall             float64         `json:"fact_recall"`
+	EvidencePrecision      float64         `json:"evidence_precision"`
+	EvidenceRecall         float64         `json:"evidence_recall"`
+	LeakageItems           int             `json:"leakage_items"`
+	SuppressedLeakageItems int             `json:"suppressed_leakage_items"`
+	LeakageDetails         []LeakageDetail `json:"leakage_details,omitempty"`
+	MissingAtomIDs         []string        `json:"missing_atom_ids,omitempty"`
+	DurationMS             int64           `json:"duration_ms,omitempty"`
+	Error                  string          `json:"error,omitempty"`
 }
 
 type RecallResult struct {
-	Scored                 bool     `json:"scored"`
-	ConditionalScored      bool     `json:"conditional_scored"`
-	RequiredAtoms          int      `json:"required_atoms"`
-	AvailableAtoms         int      `json:"available_atoms"`
-	MatchedAtoms           int      `json:"matched_atoms"`
-	MatchedAvailableAtoms  int      `json:"matched_available_atoms"`
-	GoldRecall             float64  `json:"gold_recall"`
-	ConditionalRecall      float64  `json:"conditional_recall"`
-	ContextPrecision       float64  `json:"context_precision"`
-	LeakageItems           int      `json:"leakage_items"`
-	MissingAtomIDs         []string `json:"missing_atom_ids,omitempty"`
-	MissedAvailableAtomIDs []string `json:"missed_available_atom_ids,omitempty"`
-	DurationMS             int64    `json:"duration_ms,omitempty"`
-	Error                  string   `json:"error,omitempty"`
+	Scored                 bool            `json:"scored"`
+	ConditionalScored      bool            `json:"conditional_scored"`
+	RequiredAtoms          int             `json:"required_atoms"`
+	AvailableAtoms         int             `json:"available_atoms"`
+	MatchedAtoms           int             `json:"matched_atoms"`
+	MatchedAvailableAtoms  int             `json:"matched_available_atoms"`
+	GoldRecall             float64         `json:"gold_recall"`
+	ConditionalRecall      float64         `json:"conditional_recall"`
+	ContextPrecision       float64         `json:"context_precision"`
+	LeakageItems           int             `json:"leakage_items"`
+	SuppressedLeakageItems int             `json:"suppressed_leakage_items"`
+	LeakageDetails         []LeakageDetail `json:"leakage_details,omitempty"`
+	MissingAtomIDs         []string        `json:"missing_atom_ids,omitempty"`
+	MissedAvailableAtomIDs []string        `json:"missed_available_atom_ids,omitempty"`
+	DurationMS             int64           `json:"duration_ms,omitempty"`
+	Error                  string          `json:"error,omitempty"`
+}
+
+// LeakageDetail audits one forbidden trigger on a delivered item: either a
+// forbidden-atom regex match or a forbidden event citation. Suppressed marks
+// an atom match neutralized by a conservative negation cue; event citations
+// are never suppressed.
+type LeakageDetail struct {
+	ItemID         string `json:"item_id"`
+	AtomID         string `json:"atom_id,omitempty"`
+	EventID        string `json:"event_id,omitempty"`
+	Suppressed     bool   `json:"suppressed"`
+	SuppressionCue string `json:"suppression_cue,omitempty"`
 }
 
 func Evaluate(fixture Fixture, extraction, recall Observation) (Result, error) {
@@ -147,6 +163,8 @@ func Evaluate(fixture Fixture, extraction, recall Observation) (Result, error) {
 	missedAvailable := difference(available, matchedAvailable)
 
 	evidenceValid, evidenceCited, evidenceGold := evidenceCounts(compiled.required, extractionItems, extractionMatches)
+	extractionLeakage, extractionSuppressed, extractionLeakageDetails := evaluateLeakage(compiled, extractionItems)
+	recallLeakage, recallSuppressed, recallLeakageDetails := evaluateLeakage(compiled, recallItems)
 	return Result{
 		CaseID: fixture.CaseID, Category: fixture.Category,
 		Extraction: ExtractionResult{
@@ -154,7 +172,8 @@ func Evaluate(fixture Fixture, extraction, recall Observation) (Result, error) {
 			RequiredAtoms: len(compiled.required), MatchedAtoms: len(extractionMatches),
 			FactRecall:        ratio(len(extractionMatches), len(compiled.required)),
 			EvidencePrecision: ratio(evidenceValid, evidenceCited), EvidenceRecall: ratio(evidenceValid, evidenceGold),
-			LeakageItems: leakageCount(compiled, extractionItems), MissingAtomIDs: extractionMissing,
+			LeakageItems: extractionLeakage, SuppressedLeakageItems: extractionSuppressed,
+			LeakageDetails: extractionLeakageDetails, MissingAtomIDs: extractionMissing,
 			DurationMS: extraction.DurationMS, Error: extraction.Error,
 		},
 		Recall: RecallResult{
@@ -162,7 +181,8 @@ func Evaluate(fixture Fixture, extraction, recall Observation) (Result, error) {
 			RequiredAtoms: len(compiled.required), AvailableAtoms: len(available), MatchedAtoms: len(recallMatches),
 			MatchedAvailableAtoms: len(matchedAvailable), GoldRecall: ratio(len(recallMatches), len(compiled.required)),
 			ConditionalRecall: ratio(len(matchedAvailable), len(available)), ContextPrecision: contextPrecision(compiled, recallItems),
-			LeakageItems: leakageCount(compiled, recallItems), MissingAtomIDs: recallMissing,
+			LeakageItems: recallLeakage, SuppressedLeakageItems: recallSuppressed,
+			LeakageDetails: recallLeakageDetails, MissingAtomIDs: recallMissing,
 			MissedAvailableAtomIDs: missedAvailable, DurationMS: recall.DurationMS, Error: recall.Error,
 		},
 	}, nil
@@ -352,22 +372,105 @@ func evidenceCounts(atoms []compiledAtom, items []Item, matches map[string][]int
 	return len(validEvents), len(citedEvents), len(goldEvents)
 }
 
-func leakageCount(fixture compiledFixture, items []Item) int {
-	count := 0
+// negationCuePattern lists conservative negation cues. Word boundaries keep
+// false friends such as "noted" from matching "not"; "n't" anchors only on
+// the right so contractions like "isn't" still match.
+var negationCuePattern = regexp.MustCompile(`(?i)\bnot\b|n't\b|\bnever\b|\bno longer\b|\bneither\b|\bnor\b`)
+
+// sentenceDelimiters bound the clause scope inspected for negation cues.
+const sentenceDelimiters = ".;!?\n"
+
+// evaluateLeakage scores forbidden triggers over delivered items. The raw
+// count stays identical to the pre-negation-aware metric so earlier run
+// records remain comparable; the suppressed count covers items whose every
+// trigger is a negation-suppressed atom match.
+func evaluateLeakage(fixture compiledFixture, items []Item) (raw, suppressed int, details []LeakageDetail) {
 	for _, item := range items {
-		leaked := false
-		for _, atom := range fixture.forbidden {
-			leaked = leaked || atomMatches(atom, item.Text)
+		leaked, unsuppressed, itemDetails := itemLeakage(fixture, item)
+		if !leaked {
+			continue
 		}
-		for _, eventID := range item.EvidenceEventIDs {
-			_, forbidden := fixture.forbiddenEvents[eventID]
-			leaked = leaked || forbidden
+		raw++
+		if !unsuppressed {
+			suppressed++
 		}
-		if leaked {
-			count++
+		details = append(details, itemDetails...)
+	}
+	return raw, suppressed, details
+}
+
+// itemLeakage classifies every forbidden trigger on one item. It reports
+// whether the item leaked at all and whether any trigger survives negation
+// suppression. Event citations are never suppressed.
+func itemLeakage(fixture compiledFixture, item Item) (leaked, unsuppressed bool, details []LeakageDetail) {
+	for _, atom := range fixture.forbidden {
+		matched, atomSuppressed, cue := classifyAtomMatch(atom, item.Text)
+		if !matched {
+			continue
+		}
+		leaked = true
+		if !atomSuppressed {
+			unsuppressed = true
+		}
+		details = append(details, LeakageDetail{
+			ItemID: item.ID, AtomID: atom.ID, Suppressed: atomSuppressed, SuppressionCue: cue,
+		})
+	}
+	for _, eventID := range item.EvidenceEventIDs {
+		if _, forbidden := fixture.forbiddenEvents[eventID]; !forbidden {
+			continue
+		}
+		leaked = true
+		unsuppressed = true
+		details = append(details, LeakageDetail{ItemID: item.ID, EventID: eventID})
+	}
+	return leaked, unsuppressed, details
+}
+
+// classifyAtomMatch reports whether the atom matches the text and whether
+// every match occurrence is negation-suppressed. A single unsuppressed
+// occurrence keeps the match counted as genuine leakage.
+func classifyAtomMatch(atom compiledAtom, text string) (matched, suppressed bool, cue string) {
+	for _, pattern := range atom.patterns {
+		for _, span := range pattern.FindAllStringIndex(text, -1) {
+			matched = true
+			occurrenceSuppressed, occurrenceCue := occurrenceSuppressed(text, span[0], span[1])
+			if !occurrenceSuppressed {
+				return true, false, ""
+			}
+			if cue == "" {
+				cue = occurrenceCue
+			}
 		}
 	}
-	return count
+	return matched, matched, cue
+}
+
+// occurrenceSuppressed reports whether a conservative negation cue appears
+// inside the matched span or its enclosing sentence. The cue is matched
+// case-insensitively and reported lowercased.
+func occurrenceSuppressed(text string, start, end int) (bool, string) {
+	if cue := negationCueIn(text[start:end]); cue != "" {
+		return true, cue
+	}
+	lo, hi := sentenceBounds(text, start, end)
+	cue := negationCueIn(text[lo:hi])
+	return cue != "", cue
+}
+
+// sentenceBounds returns the bounds of the sentence enclosing the span,
+// splitting on '.', ';', '!', '?', and newlines.
+func sentenceBounds(text string, start, end int) (int, int) {
+	lo := strings.LastIndexAny(text[:start], sentenceDelimiters) + 1
+	hi := len(text)
+	if offset := strings.IndexAny(text[end:], sentenceDelimiters); offset >= 0 {
+		hi = end + offset
+	}
+	return lo, hi
+}
+
+func negationCueIn(text string) string {
+	return strings.ToLower(negationCuePattern.FindString(text))
 }
 
 func contextPrecision(fixture compiledFixture, items []Item) float64 {
