@@ -129,6 +129,8 @@ func (s *configSuite) TestCheckedInCandidateStrategyBuildInterface() {
 		{path: ".env.example", want: "TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY="},
 		{path: ".env.eval-v2.example", want: "TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY=current"},
 		{path: "compose.yaml", want: "EXTRACTION_CANDIDATE_STRATEGY: ${TEAM_MEMORY_BUILD_EXTRACTION_CANDIDATE_STRATEGY:-current}"},
+		{path: "evals/v2/compose.yaml", want: "TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY: ${TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY:-}"},
+		{path: "evals/opencode/compose.yaml", want: "TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY: ${TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY:-}"},
 		{path: "Dockerfile", want: "ARG EXTRACTION_CANDIDATE_STRATEGY=current"},
 		{path: "Makefile", want: "EXTRACTION_CANDIDATE_STRATEGY ?= current"},
 	}
