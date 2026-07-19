@@ -30,6 +30,14 @@ evidence links, duration, and error state.
 Recall measured only over required atoms present in the paired extraction
 Observation. It separates delivery loss from upstream extraction loss.
 
+**Available Atom**:
+A required atom present in the fixed extraction Observation for a recall
+evaluation Case. It is the denominator for Conditional Recall.
+
+**Recall Loss Ledger**:
+The per-Available-Atom record of the first recall stage that lost the atom and
+the observable rejection or budget reason.
+
 ## Relationships
 
 - A **Run** contains many **Cases**.

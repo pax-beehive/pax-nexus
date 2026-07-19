@@ -77,6 +77,11 @@ func runReplay(fixturePath string, threshold float64, limit int, dedup, degradeR
 	}); err != nil {
 		return err
 	}
+	if err := writeFile(filepath.Join(outputDirectory, "recall-loss-ledger.jsonl"), func(writer io.Writer) error {
+		return recallreplay.WriteLossLedgerJSONL(writer, report)
+	}); err != nil {
+		return err
+	}
 	if err := writeFile(filepath.Join(outputDirectory, "replay-summary.json"), func(writer io.Writer) error {
 		return recallreplay.WriteSummaryJSON(writer, report)
 	}); err != nil {
@@ -84,8 +89,9 @@ func runReplay(fixturePath string, threshold float64, limit int, dedup, degradeR
 	}
 	summary := report.Summary
 	_, err = fmt.Fprintf(stdout,
-		"recall replay: %d cases, gold recall %.3f, conditional recall %.3f, missed available %d, stage totals %+v\n",
+		"recall eval v1: %d cases, gold recall %.3f, conditional recall %.3f, candidate recall@limit %.3f, relation recall %.3f, missed available %d, stage totals %+v\n",
 		summary.Cases, summary.RecallGoldRecall, summary.RecallConditionalRecall,
+		report.RecallEval.CandidateRecallAtLimit, report.RecallEval.RelationExpandedRecall,
 		summary.RecallMissedAvailableAtoms, report.StageTotals)
 	if err != nil {
 		return fmt.Errorf("write recall replay summary: %w", err)

@@ -19,8 +19,12 @@ OUTPUT_BIN_DIR ?= output/bin
 EXTRACTION_CANDIDATE_STRATEGY ?= current
 EXTRACTION_CANDIDATE_STRATEGIES := current interaction-slim typed-2
 EXTRACTION_CANDIDATE_LDFLAG := -X $(MODULE)/internal/teamnote/extractor.buildDefaultCandidateStrategy=$(EXTRACTION_CANDIDATE_STRATEGY)
+RECALL_EVAL_FIXTURE ?= evals/stage/replay/team-note-optimization-30-c20fdd7-team_note.json
+RECALL_EVAL_OUTPUT ?= runs/recall-eval-v1/current
+RECALL_EVAL_SEMANTIC_THRESHOLD ?= 0.50
+RECALL_EVAL_CANDIDATE_LIMIT ?= 16
 
-.PHONY: all build validate-extraction-candidate-strategy tools generate-init generate mocks fmt format-check lint test test-unit test-scripts coverage integration-test docker-eval groupmembench-data groupmembench-eval eval-v2-prepare eval-v2-up eval-v2 eval-v2-smoke-up eval-v2-smoke eval-v2-acceptance-up eval-v2-acceptance eval-v2-down eval-v2-reset eval-v2-job-image eval-v2-job eval-v3-prepare eval-v3-up eval-v3 eval-v3-down eval-v3-reset up down logs db-up db-down clean
+.PHONY: all build validate-extraction-candidate-strategy tools generate-init generate mocks fmt format-check lint test test-unit test-scripts coverage integration-test recall-eval-v1 docker-eval groupmembench-data groupmembench-eval eval-v2-prepare eval-v2-up eval-v2 eval-v2-smoke-up eval-v2-smoke eval-v2-acceptance-up eval-v2-acceptance eval-v2-down eval-v2-reset eval-v2-job-image eval-v2-job eval-v3-prepare eval-v3-up eval-v3 eval-v3-down eval-v3-reset up down logs db-up db-down clean
 
 all: lint test
 
@@ -91,6 +95,13 @@ test-scripts:
 integration-test: db-up
 	TEAM_MEMORY_TEST_POSTGRES_DSN=postgres://team_memory:team_memory@127.0.0.1:$${TEAM_MEMORY_POSTGRES_PORT:-55432}/team_memory?sslmode=disable \
 		GOCACHE=$${GOCACHE:-/tmp/team-memory-go-cache} go test -p 1 ./internal/platform/postgres ./internal/teamnote/extractionqueue ./internal/eval/stagecapture ./internal/eval/v2/postgresstore -count=1
+
+recall-eval-v1:
+	GOCACHE=$${GOCACHE:-/tmp/team-memory-go-cache} go run ./cmd/team-memory-recall-replay \
+		-fixtures $(RECALL_EVAL_FIXTURE) \
+		-semantic-threshold $(RECALL_EVAL_SEMANTIC_THRESHOLD) \
+		-candidate-limit $(RECALL_EVAL_CANDIDATE_LIMIT) \
+		-dedup -degrade-related -output-dir $(RECALL_EVAL_OUTPUT)
 
 up:
 	./scripts/start-local-embedding.sh

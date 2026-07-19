@@ -67,8 +67,9 @@ fixed cohort for validating retrieval changes before any paid end-to-end run.
 Export pins a cohort from a persisted eval store (candidate notes with the
 exact lexical and semantic scores produced by the recall code path, extraction
 snapshot, recall request, observation time, and gold atoms), using schema
-`pax-recall-replay-v2` (tracked legacy v1 fixtures are migrated in memory,
-using the Unix epoch when a case has no candidates):
+`pax-recall-replay-v3`. V3 adds required-atom-to-Team-Note support metadata and
+a candidate snapshot SHA-256. Tracked legacy v1/v2 fixtures are migrated in
+memory, using the Unix epoch when a case has no candidates:
 
 ```bash
 go run ./cmd/team-memory-recall-replay -export \
@@ -90,10 +91,25 @@ go run ./cmd/team-memory-recall-replay \
   -output-dir runs/recall-replay/<label>
 ```
 
-The runner writes `replay-results.jsonl` (per-case stage results plus the
-Recall Trace) and `replay-summary.json` (stage summary plus aggregated stage
-counters: candidates, fusion kept, and rejections by reason). The tracked
-fixtures under `evals/stage/replay/` were exported from the
+The runner implements the `pax-recall-eval-v1` report contract. It writes:
+
+- `replay-results.jsonl`: per-case stage results, Recall Trace, and atom losses;
+- `replay-summary.json`: candidate, relation-expanded, selected-set, and
+  delivered recall plus context precision, budget loss, leakage, and aggregate
+  stage counters;
+- `recall-loss-ledger.jsonl`: one deterministic stage outcome per required
+  atom.
+
+The default zero-cost baseline is also available through:
+
+```bash
+make recall-eval-v1
+```
+
+Override `RECALL_EVAL_FIXTURE`, `RECALL_EVAL_OUTPUT`,
+`RECALL_EVAL_SEMANTIC_THRESHOLD`, or `RECALL_EVAL_CANDIDATE_LIMIT` to compare a
+fixed fixture under another recall policy. The tracked fixtures under
+`evals/stage/replay/` were exported from the
 `team-note-optimization-30-20260716-c20fdd7` store for both arms.
 
 ## Live Eval v2 capture

@@ -5,10 +5,12 @@ package recallreplay
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"time"
 
 	"github.com/pax-beehive/pax-nexus/internal/eval/stageeval"
@@ -16,8 +18,9 @@ import (
 )
 
 const (
-	SchemaVersion       = "pax-recall-replay-v2"
-	legacySchemaVersion = "pax-recall-replay-v1"
+	SchemaVersion         = "pax-recall-replay-v3"
+	legacySchemaVersionV2 = "pax-recall-replay-v2"
+	legacySchemaVersionV1 = "pax-recall-replay-v1"
 )
 
 // FixtureSet pins one exported recall cohort: persisted Team Notes with
@@ -78,12 +81,14 @@ type Candidate struct {
 
 // Case pins one recall request against its persisted candidate set.
 type Case struct {
-	Fixture         stageeval.Fixture `json:"fixture"`
-	ScopeID         string            `json:"scope_id"`
-	Actor           Actor             `json:"actor"`
-	ObservationTime time.Time         `json:"observation_time"`
-	ExtractionItems []stageeval.Item  `json:"extraction_items"`
-	Candidates      []Candidate       `json:"candidates"`
+	Fixture                 stageeval.Fixture       `json:"fixture"`
+	ScopeID                 string                  `json:"scope_id"`
+	Actor                   Actor                   `json:"actor"`
+	ObservationTime         time.Time               `json:"observation_time"`
+	ExtractionItems         []stageeval.Item        `json:"extraction_items"`
+	Candidates              []Candidate             `json:"candidates"`
+	AtomSupports            []stageeval.AtomSupport `json:"atom_supports,omitempty"`
+	CandidateSnapshotSHA256 string                  `json:"candidate_snapshot_sha256"`
 }
 
 // LoadFixtureSet reads a replay fixture set from disk.
@@ -98,8 +103,18 @@ func LoadFixtureSet(path string) (FixtureSet, error) {
 	if err := decoder.Decode(&set); err != nil {
 		return FixtureSet{}, fmt.Errorf("decode recall replay fixture set: %w", err)
 	}
-	if set.SchemaVersion == legacySchemaVersion {
+	switch set.SchemaVersion {
+	case legacySchemaVersionV1:
 		set.migrateLegacyObservationTimes()
+		set.SchemaVersion = SchemaVersion
+	case legacySchemaVersionV2:
+		set.SchemaVersion = SchemaVersion
+	case SchemaVersion:
+	default:
+		return FixtureSet{}, fmt.Errorf("validate recall replay fixture set: schema_version must be %q", SchemaVersion)
+	}
+	if err := normalizeFixtureSet(&set); err != nil {
+		return FixtureSet{}, err
 	}
 	if err := set.Validate(); err != nil {
 		return FixtureSet{}, err
@@ -109,6 +124,9 @@ func LoadFixtureSet(path string) (FixtureSet, error) {
 
 // WriteFixtureSet persists a replay fixture set.
 func WriteFixtureSet(path string, set FixtureSet) error {
+	if err := normalizeFixtureSet(&set); err != nil {
+		return err
+	}
 	if err := set.Validate(); err != nil {
 		return err
 	}
@@ -162,6 +180,28 @@ func (replayCase Case) Validate() error {
 	if replayCase.ObservationTime.IsZero() {
 		return fmt.Errorf("validate recall replay case %q: observation time is required", replayCase.Fixture.CaseID)
 	}
+	if len(replayCase.CandidateSnapshotSHA256) != sha256.Size*2 {
+		return fmt.Errorf("validate recall replay case %q: candidate snapshot SHA-256 is required", replayCase.Fixture.CaseID)
+	}
+	expectedDigest, err := candidateSnapshotSHA256(replayCase.Candidates)
+	if err != nil {
+		return fmt.Errorf("validate recall replay case %q candidate snapshot: %w", replayCase.Fixture.CaseID, err)
+	}
+	if replayCase.CandidateSnapshotSHA256 != expectedDigest {
+		return fmt.Errorf("validate recall replay case %q: candidate snapshot SHA-256 does not match", replayCase.Fixture.CaseID)
+	}
+	if len(replayCase.AtomSupports) != len(replayCase.Fixture.RequiredAtoms) {
+		return fmt.Errorf("validate recall replay case %q: every required atom needs support metadata", replayCase.Fixture.CaseID)
+	}
+	if len(replayCase.Fixture.RequiredAtoms) > 0 {
+		expectedSupports, err := stageeval.RequiredAtomSupports(replayCase.Fixture, replayCase.ExtractionItems)
+		if err != nil {
+			return fmt.Errorf("validate recall replay case %q atom support metadata: %w", replayCase.Fixture.CaseID, err)
+		}
+		if !reflect.DeepEqual(replayCase.AtomSupports, expectedSupports) {
+			return fmt.Errorf("validate recall replay case %q: atom support metadata does not match extraction snapshot", replayCase.Fixture.CaseID)
+		}
+	}
 	return nil
 }
 
@@ -169,7 +209,36 @@ func (set *FixtureSet) migrateLegacyObservationTimes() {
 	for index := range set.Cases {
 		set.Cases[index].ObservationTime = inferredObservationTime(set.Cases[index].Candidates)
 	}
-	set.SchemaVersion = SchemaVersion
+}
+
+func normalizeFixtureSet(set *FixtureSet) error {
+	for index := range set.Cases {
+		replayCase := &set.Cases[index]
+		if replayCase.CandidateSnapshotSHA256 == "" {
+			digest, err := candidateSnapshotSHA256(replayCase.Candidates)
+			if err != nil {
+				return fmt.Errorf("digest recall replay candidate snapshot for %q: %w", replayCase.Fixture.CaseID, err)
+			}
+			replayCase.CandidateSnapshotSHA256 = digest
+		}
+		if len(replayCase.AtomSupports) == 0 && len(replayCase.Fixture.RequiredAtoms) > 0 {
+			supports, err := stageeval.RequiredAtomSupports(replayCase.Fixture, replayCase.ExtractionItems)
+			if err != nil {
+				return fmt.Errorf("derive recall replay atom support for %q: %w", replayCase.Fixture.CaseID, err)
+			}
+			replayCase.AtomSupports = supports
+		}
+	}
+	return nil
+}
+
+func candidateSnapshotSHA256(candidates []Candidate) (string, error) {
+	encoded, err := json.Marshal(candidates)
+	if err != nil {
+		return "", fmt.Errorf("encode candidates: %w", err)
+	}
+	digest := sha256.Sum256(encoded)
+	return fmt.Sprintf("%x", digest[:]), nil
 }
 
 func inferredObservationTime(candidates []Candidate) time.Time {

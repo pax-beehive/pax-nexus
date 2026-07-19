@@ -10,12 +10,15 @@ import (
 	"github.com/pax-beehive/pax-nexus/internal/teamnote"
 )
 
+const ReportSchemaVersion = "pax-recall-eval-v1"
+
 // CaseReport pairs one case's stage evaluation with its recall stage trace.
 type CaseReport struct {
 	CaseID       string               `json:"case_id"`
 	Result       stageeval.Result     `json:"result"`
 	Trace        teamnote.RecallTrace `json:"trace"`
 	PlannedItems []stageeval.Item     `json:"planned_items"`
+	AtomLosses   []AtomLoss           `json:"atom_losses"`
 }
 
 // StageTotals aggregates recall stage counters across the cohort.
@@ -38,12 +41,17 @@ type Report struct {
 	Policy        Policy            `json:"policy"`
 	Summary       stageeval.Summary `json:"stage_summary"`
 	StageTotals   StageTotals       `json:"stage_totals"`
+	RecallEval    RecallEvalSummary `json:"recall_eval"`
 	Cases         []CaseReport      `json:"-"`
+	LossLedger    []AtomLoss        `json:"-"`
 }
 
 // Run replays every case through PlanRecall with the given policy and scores
 // the planned deliveries with the shared stage evaluator.
 func Run(set FixtureSet, policy Policy) (Report, error) {
+	if err := normalizeFixtureSet(&set); err != nil {
+		return Report{}, err
+	}
 	if err := set.Validate(); err != nil {
 		return Report{}, err
 	}
@@ -83,7 +91,7 @@ func Run(set FixtureSet, policy Policy) (Report, error) {
 		return Report{}, err
 	}
 	report := Report{
-		SchemaVersion: SchemaVersion, Dataset: set.Dataset, Policy: policy, Summary: summary,
+		SchemaVersion: ReportSchemaVersion, Dataset: set.Dataset, Policy: policy, Summary: summary,
 		StageTotals: StageTotals{
 			PlanVersions: map[string]int{}, LaneCandidateCounts: map[string]int{}, Dispositions: map[string]int{},
 			Rejections: map[string]int{}, BudgetDrops: map[string]int{},
@@ -91,10 +99,17 @@ func Run(set FixtureSet, policy Policy) (Report, error) {
 	}
 	for _, result := range results {
 		trace := traces[result.CaseID]
+		replayCase := replayCaseByID(set.Cases, result.CaseID)
+		caseEval, err := evaluateRecallStages(replayCase, result, trace, plannedByCase[result.CaseID])
+		if err != nil {
+			return Report{}, fmt.Errorf("evaluate recall stages for %q: %w", result.CaseID, err)
+		}
 		report.Cases = append(report.Cases, CaseReport{
 			CaseID: result.CaseID, Result: result, Trace: trace,
-			PlannedItems: plannedByCase[result.CaseID],
+			PlannedItems: plannedByCase[result.CaseID], AtomLosses: caseEval.losses,
 		})
+		report.LossLedger = append(report.LossLedger, caseEval.losses...)
+		mergeRecallEval(&report.RecallEval, caseEval.summary)
 		report.StageTotals.Candidates += trace.Candidates
 		report.StageTotals.FusionKept += trace.FusionKept
 		report.StageTotals.PlannedNotes += trace.PlannedNotes
@@ -113,7 +128,28 @@ func Run(set FixtureSet, policy Policy) (Report, error) {
 			report.StageTotals.BudgetDrops[string(rejection.Reason)]++
 		}
 	}
+	finalizeRecallEval(&report.RecallEval, len(results))
 	return report, nil
+}
+
+func replayCaseByID(cases []Case, caseID string) Case {
+	for _, replayCase := range cases {
+		if replayCase.Fixture.CaseID == caseID {
+			return replayCase
+		}
+	}
+	return Case{}
+}
+
+func mergeRecallEval(target *RecallEvalSummary, current RecallEvalSummary) {
+	target.AvailableAtoms += current.AvailableAtoms
+	target.CandidateMatchedAtoms += current.CandidateMatchedAtoms
+	target.RelationMatchedAtoms += current.RelationMatchedAtoms
+	target.SelectedMatchedAtoms += current.SelectedMatchedAtoms
+	target.DeliveredMatchedAtoms += current.DeliveredMatchedAtoms
+	target.MeanContextPrecision += current.MeanContextPrecision
+	target.BudgetDroppedAtoms += current.BudgetDroppedAtoms
+	target.SupersededLeakageItems += current.SupersededLeakageItems
 }
 
 func plannedItems(planned []teamnote.PlannedRecall) []stageeval.Item {
@@ -133,6 +169,17 @@ func WriteResultsJSONL(writer io.Writer, report Report) error {
 	for _, caseReport := range report.Cases {
 		if err := encoder.Encode(caseReport); err != nil {
 			return fmt.Errorf("encode recall replay result: %w", err)
+		}
+	}
+	return nil
+}
+
+// WriteLossLedgerJSONL writes one required atom's recall stage outcome per line.
+func WriteLossLedgerJSONL(writer io.Writer, report Report) error {
+	encoder := json.NewEncoder(writer)
+	for _, loss := range report.LossLedger {
+		if err := encoder.Encode(loss); err != nil {
+			return fmt.Errorf("encode recall loss ledger: %w", err)
 		}
 	}
 	return nil
