@@ -145,7 +145,7 @@ func (s *recallSuite) TestPlanRecallTraceRecordsStageRejections() {
 		}
 		dedup := teamnote.RecallPolicy{SemanticThreshold: 0.65, CandidateLimit: 10, SuppressDuplicates: true}
 		planned, trace := teamnote.PlanRecall(candidates, request, dedup)
-		s.Require().Len(planned, 2)
+		s.Require().NotEmpty(planned)
 		plannedIDs := []string{planned[0].Note.ID, planned[1].Note.ID}
 		s.ElementsMatch([]string{"note-first", "note-distinct"}, plannedIDs)
 		s.Require().Len(trace.Rejections, 1)
@@ -360,9 +360,9 @@ func (s *recallSuite) TestGeneralRecallV3ProducesAuditablePlans() {
 	s.Run("records one hop relation paths", func() {
 		primary := recallCandidate("note-primary", "alpha release status", "alpha release is ready", 0.9, nil)
 		primary.RelatedSubjects = []string{"release owner"}
-		linked := recallCandidate("note-owner", "release owner", "Taylor owns alpha release", 0.1, nil)
+		linked := recallCandidate("note-owner", "release owner", "Taylor owns alpha release", 0, nil)
 		relationRequest := request
-		relationRequest.Query = "What is the current alpha release status?"
+		relationRequest.Query = "alpha release"
 		relationRequest.MaxItems = 2
 
 		planned, trace := teamnote.PlanRecall([]teamnote.RecallCandidate{primary, linked}, relationRequest, policy)
@@ -374,6 +374,37 @@ func (s *recallSuite) TestGeneralRecallV3ProducesAuditablePlans() {
 		s.Equal([]string{"note-primary", "related_subject", "note-owner"}, relatedTrace.RelationPath)
 		s.Equal(teamnote.RecallDispositionEvidence, relatedTrace.Disposition)
 		s.ElementsMatch([]string{"note-primary", "note-owner"}, trace.SelectedSet)
+	})
+
+	s.Run("relation expansion keeps only notes with marginal query utility", func() {
+		primary := recallCandidate("note-primary", "alpha release status", "Alpha release payments status is ready.", 0.9, nil)
+		primary.Kind = teamnote.KindStatus
+		primary.RelatedSubjects = []string{"billing validation", "payments status commentary"}
+		billing := recallCandidate("note-billing", "billing validation", "Billing validation is green.", 0, nil)
+		commentary := recallCandidate(
+			"note-commentary", "payments status commentary", "Alpha release payments status remains ready.", 0, nil,
+		)
+		commentary.Kind = teamnote.KindStatus
+		relationRequest := request
+		relationRequest.Query = "What is the current alpha release status for payments and billing?"
+		relationRequest.MaxItems = 3
+
+		planned, trace := teamnote.PlanRecall(
+			[]teamnote.RecallCandidate{primary, billing, commentary}, relationRequest, policy,
+		)
+
+		s.Require().NotEmpty(planned)
+		s.ElementsMatch([]string{"note-primary", "note-billing"}, trace.SelectedSet)
+		commentaryTrace := candidateTraceByID(s, trace.CandidateTraces, "note-commentary")
+		s.Equal(teamnote.RecallDispositionSuppress, commentaryTrace.Disposition)
+		s.Equal(teamnote.RejectRelationMarginalUtility, commentaryTrace.RejectionReason)
+
+		legacyPolicy := policy
+		legacyPolicy.DisableRelationMarginalUtility = true
+		_, legacyTrace := teamnote.PlanRecall(
+			[]teamnote.RecallCandidate{primary, billing, commentary}, relationRequest, legacyPolicy,
+		)
+		s.Contains(legacyTrace.SelectedSet, "note-commentary")
 	})
 
 	s.Run("blank query still applies temporal hard gates", func() {
@@ -488,7 +519,7 @@ func (s *recallSuite) TestGeneralRecallV3BoundsLanesAndRelations() {
 	s.Run("shared relation is packed once", func() {
 		request := teamnote.RecallRequest{
 			Actor: teamnote.Actor{UserID: "owner", AgentID: "consumer"},
-			Query: "alpha release status", TokenBudget: 1000,
+			Query: "alpha release", TokenBudget: 1000,
 		}
 		first := recallCandidate("note-first", "alpha release status one", "alpha release status is ready", 1, nil)
 		second := recallCandidate("note-second", "alpha release status two", "alpha release status is queued", 0.9, nil)

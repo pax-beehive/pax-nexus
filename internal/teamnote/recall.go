@@ -37,6 +37,10 @@ type RecallPolicy struct {
 	// DegradeRelated falls back to the note without its related block when
 	// the composed text would exceed the remaining token budget.
 	DegradeRelated bool
+	// DisableRelationMarginalUtility restores the legacy behavior that packs
+	// every query-relevant one-hop relation. It exists for fixed-cohort eval
+	// comparison; production zero-value policy keeps marginal utility enabled.
+	DisableRelationMarginalUtility bool
 }
 
 // duplicateBodySimilarity is the term-set Jaccard overlap above which two
@@ -57,18 +61,19 @@ type PlannedRecall struct {
 type RecallRejectReason string
 
 const (
-	RejectFusionLimit           RecallRejectReason = "fusion_limit"
-	RejectRelevanceGate         RecallRejectReason = "relevance_gate"
-	RejectMaxItems              RecallRejectReason = "max_items"
-	RejectTokenBudget           RecallRejectReason = "token_budget"
-	RejectDeliveryClaim         RecallRejectReason = "delivery_claim_lost"
-	RejectDuplicate             RecallRejectReason = "duplicate"
-	RejectTemporalGate          RecallRejectReason = "temporal_gate"
-	RejectProvenanceGate        RecallRejectReason = "provenance_gate"
-	RejectUnsafeContent         RecallRejectReason = "unsafe_content"
-	RejectEvidenceGate          RecallRejectReason = "evidence_gate"
-	RejectRelationRelevanceGate RecallRejectReason = "relation_relevance_gate"
-	RejectUncoveredRelationCost RecallRejectReason = "uncovered_relation_cost"
+	RejectFusionLimit             RecallRejectReason = "fusion_limit"
+	RejectRelevanceGate           RecallRejectReason = "relevance_gate"
+	RejectMaxItems                RecallRejectReason = "max_items"
+	RejectTokenBudget             RecallRejectReason = "token_budget"
+	RejectDeliveryClaim           RecallRejectReason = "delivery_claim_lost"
+	RejectDuplicate               RecallRejectReason = "duplicate"
+	RejectTemporalGate            RecallRejectReason = "temporal_gate"
+	RejectProvenanceGate          RecallRejectReason = "provenance_gate"
+	RejectUnsafeContent           RecallRejectReason = "unsafe_content"
+	RejectEvidenceGate            RecallRejectReason = "evidence_gate"
+	RejectRelationRelevanceGate   RecallRejectReason = "relation_relevance_gate"
+	RejectRelationMarginalUtility RecallRejectReason = "relation_marginal_utility"
+	RejectUncoveredRelationCost   RecallRejectReason = "uncovered_relation_cost"
 )
 
 // RecallRejection records why one available candidate was not planned for
@@ -111,7 +116,7 @@ func PlanRecall(candidates []RecallCandidate, request RecallRequest, policy Reca
 		candidates, ranked, request, intent, observationTime, evidenceThreshold(policy), lanes, rejections,
 	)
 	allNotes := recallRelationEligibleNotes(candidates, intent, observationTime)
-	relationPlans := traceRecallRelations(&trace, ranked, allNotes, request)
+	relationPlans := traceRecallRelations(&trace, ranked, allNotes, request, policy)
 	planned := make([]PlannedRecall, 0, len(ranked))
 	usedTokens := 0
 	selectedNotes := 0
@@ -193,17 +198,107 @@ func traceRecallRelations(
 	ranked []RecallCandidate,
 	allNotes []Note,
 	request RecallRequest,
+	policy RecallPolicy,
 ) map[string][]Note {
 	plans := make(map[string][]Note, len(ranked))
 	for _, primary := range ranked {
 		reachable := relatedNotes(primary.Note, allNotes)
 		recordRecallReachable(trace, reachable)
-		eligible := relevantRelatedNotes(reachable, request.Query, 0, false)
+		relevant := relevantRelatedNotes(reachable, request.Query, 0, false)
+		eligible, lowUtility := relevant, []RecallRejection(nil)
+		if !policy.DisableRelationMarginalUtility {
+			eligible, lowUtility = marginallyUsefulRelatedNotes(primary.Note, relevant, request)
+		}
 		recordRecallRelations(trace, primary.Note, eligible)
+		recordRelationMarginalUtilityDrops(trace, lowUtility)
 		plans[primary.ID] = eligible
 	}
 	recordRelationRelevanceDrops(trace)
 	return plans
+}
+
+const minimumRelationUtilityPerToken = 0.02
+
+func marginallyUsefulRelatedNotes(
+	primary Note,
+	related []Note,
+	request RecallRequest,
+) ([]Note, []RecallRejection) {
+	explicitFacts := relationRequestedFacts(strings.ToLower(request.Query))
+	if len(explicitFacts) == 0 {
+		return related, nil
+	}
+	primaryTerms := searchableTerms(primary.Subject + " " + primary.Body)
+	queryTerms := searchableTerms(request.Query)
+	kept := make([]Note, 0, len(related))
+	dropped := make([]RecallRejection, 0, len(related))
+	for _, note := range related {
+		gain := relationFactGain(primary, note, explicitFacts)*4 +
+			uncoveredQueryTermGain(primaryTerms, queryTerms, note)
+		tokens := recallRelationTokenCost(primary, note)
+		if gain > 0 && float64(gain)/float64(tokens) >= minimumRelationUtilityPerToken {
+			kept = append(kept, note)
+			continue
+		}
+		dropped = append(dropped, RecallRejection{
+			NoteID: note.ID, Reason: RejectRelationMarginalUtility, Tokens: tokens,
+		})
+	}
+	return kept, dropped
+}
+
+func uncoveredQueryTermGain(primaryTerms, queryTerms map[string]struct{}, related Note) int {
+	relatedTerms := searchableTerms(related.Subject + " " + related.Body)
+	gain := 0
+	for term := range queryTerms {
+		if _, covered := primaryTerms[term]; covered {
+			continue
+		}
+		if _, matched := relatedTerms[term]; matched {
+			gain++
+		}
+	}
+	return gain
+}
+
+func relationRequestedFacts(query string) []string {
+	terms := searchableTerms(query)
+	result := make([]string, 0, 4)
+	result = appendRelationFact(result, terms, "owner", "who", "own", "owner", "owns", "responsible")
+	result = appendRelationFact(result, terms, "blocker", "block", "blocker", "blocked", "blocks", "preventing")
+	result = appendRelationFact(result, terms, "handoff", "handoff", "delegate", "assigned")
+	result = appendRelationFact(result, terms, "requirement", "requirement", "required", "criterion", "condition")
+	result = appendRelationFact(result, terms, "artifact", "artifact", "document", "report")
+	result = appendRelationFact(result, terms, "schedule", "deadline", "date", "when")
+	result = appendRelationFact(result, terms, "status", "status", "state", "progress")
+	result = appendRelationFact(result, terms, "decision", "decision", "decided", "approved", "approval")
+	return result
+}
+
+func appendRelationFact(result []string, terms map[string]struct{}, fact string, triggers ...string) []string {
+	for _, trigger := range triggers {
+		if _, ok := terms[trigger]; ok {
+			return append(result, fact)
+		}
+	}
+	return result
+}
+
+func relationFactGain(primary, related Note, requestedFacts []string) int {
+	gain := 0
+	for _, fact := range requestedFacts {
+		if !recallFactMatched(primary, strings.ToLower(primary.Subject+" "+primary.Body), fact) &&
+			recallFactMatched(related, strings.ToLower(related.Subject+" "+related.Body), fact) {
+			gain++
+		}
+	}
+	return gain
+}
+
+func recordRelationMarginalUtilityDrops(trace *RecallTrace, drops []RecallRejection) {
+	for _, drop := range drops {
+		recordRecallRejection(trace, drop)
+	}
 }
 
 func recordMaxItemsDrops(

@@ -80,7 +80,8 @@ func Run(set FixtureSet, policy Policy) (Report, error) {
 		recallPolicy := teamnote.RecallPolicy{
 			SemanticThreshold: policy.SemanticThreshold, CandidateLimit: policy.CandidateLimit,
 			SuppressDuplicates: policy.SuppressDuplicates, DegradeRelated: policy.DegradeRelated,
-			ObservationTime: replayCase.ObservationTime,
+			DisableRelationMarginalUtility: policy.DisableRelationMarginalUtility,
+			ObservationTime:                replayCase.ObservationTime,
 		}
 		plannerStarted := time.Now()
 		planned, trace := teamnote.PlanRecall(candidates, request, recallPolicy)

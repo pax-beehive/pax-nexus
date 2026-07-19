@@ -125,6 +125,14 @@ func compileRecallIntent(request RecallRequest) RecallIntent {
 }
 
 func requestedRecallFacts(query string) []string {
+	result := explicitRequestedRecallFacts(query)
+	if len(result) == 0 {
+		result = append(result, "status")
+	}
+	return result
+}
+
+func explicitRequestedRecallFacts(query string) []string {
 	type factRule struct {
 		fact  string
 		terms []string
@@ -144,9 +152,6 @@ func requestedRecallFacts(query string) []string {
 		if containsAny(query, rule.terms...) {
 			result = append(result, rule.fact)
 		}
-	}
-	if len(result) == 0 {
-		result = append(result, "status")
 	}
 	return result
 }
@@ -601,8 +606,20 @@ func recordRelationRelevanceDrops(trace *RecallTrace) {
 		if _, ok := eligible[noteID]; ok {
 			continue
 		}
+		if recallRejectedFor(trace.Rejections, noteID, RejectRelationMarginalUtility) {
+			continue
+		}
 		recordRecallRejection(trace, RecallRejection{NoteID: noteID, Reason: RejectRelationRelevanceGate})
 	}
+}
+
+func recallRejectedFor(rejections []RecallRejection, noteID string, reason RecallRejectReason) bool {
+	for _, rejection := range rejections {
+		if rejection.NoteID == noteID && rejection.Reason == reason {
+			return true
+		}
+	}
+	return false
 }
 
 func recordPreBudgetSelection(trace *RecallTrace, noteID string) {

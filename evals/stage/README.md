@@ -135,6 +135,13 @@ fixed fixture under another recall policy. The tracked fixtures under
 `evals/stage/replay/` were exported from the
 `team-note-optimization-30-20260716-c20fdd7` store for both arms.
 
+`evals/stage/replay/relation-marginal-utility-v1.json` is a four-case curated
+contrast cohort covering status, schedule, ownership, and blocker relations.
+Each case has one relation that adds an uncovered query fact and one relation
+that is merely adjacent or repetitive. Use
+`-disable-relation-marginal-utility` for the legacy comparison arm; production
+zero-value policy enables marginal-utility filtering.
+
 ## Live Eval v2 capture
 
 The acceptance config enables `stage_capture` for `team_note` and

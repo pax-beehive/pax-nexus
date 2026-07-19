@@ -1,0 +1,103 @@
+{
+  "schema_version": "pax-recall-replay-v1",
+  "dataset": "Relation marginal utility curated contrast v1",
+  "policy": {"semantic_threshold": 0.5, "candidate_limit": 16},
+  "cases": [
+    {
+      "fixture": {
+        "case_id": "status_payments_billing",
+        "category": "relation_marginal_utility",
+        "source_revision": "1111111111111111111111111111111111111111111111111111111111111111",
+        "recall_context": {"consumer_user_id": "User_1", "consumer_agent_id": "consumer", "query": "What is the current release status for payments and billing?", "token_budget": 256, "max_items": 3},
+        "required_atoms": [
+          {"id": "payments_status", "patterns": ["(?i)payments status is ready"]},
+          {"id": "billing_status", "patterns": ["(?i)billing validation is green"]}
+        ]
+      },
+      "scope_id": "relation-utility-status",
+      "actor": {"user_id": "User_1", "agent_id": "consumer", "session_id": "recall-replay"},
+      "extraction_items": [
+        {"id": "status-primary", "text": "Payments status is ready.", "evidence_event_ids": ["event-status-primary"]},
+        {"id": "status-useful", "text": "Billing validation is green.", "evidence_event_ids": ["event-status-useful"]},
+        {"id": "status-noise", "text": "Payments status remains ready for routine review.", "evidence_event_ids": ["event-status-noise"]}
+      ],
+      "candidates": [
+        {"id": "status-primary", "kind": "status", "subject": "release status", "body": "Payments status is ready.", "origin": {"user_id": "User_2", "agent_id": "producer", "session_id": "status"}, "related_subjects": ["billing validation", "payments commentary"], "evidence_event_ids": ["event-status-primary"], "revision": 1, "created_at": "2026-07-18T12:00:00Z", "updated_at": "2026-07-18T12:00:00Z", "source_occurred_at": "2026-07-18T12:00:00Z", "lexical_score": 0.9},
+        {"id": "status-useful", "kind": "status", "subject": "billing validation", "body": "Billing validation is green.", "origin": {"user_id": "User_2", "agent_id": "producer", "session_id": "status"}, "evidence_event_ids": ["event-status-useful"], "revision": 1, "created_at": "2026-07-18T12:01:00Z", "updated_at": "2026-07-18T12:01:00Z", "source_occurred_at": "2026-07-18T12:01:00Z", "lexical_score": 0},
+        {"id": "status-noise", "kind": "status", "subject": "payments commentary", "body": "Payments status remains ready for routine review.", "origin": {"user_id": "User_2", "agent_id": "producer", "session_id": "status"}, "evidence_event_ids": ["event-status-noise"], "revision": 1, "created_at": "2026-07-18T12:02:00Z", "updated_at": "2026-07-18T12:02:00Z", "source_occurred_at": "2026-07-18T12:02:00Z", "lexical_score": 0}
+      ]
+    },
+    {
+      "fixture": {
+        "case_id": "deadline_america_europe",
+        "category": "relation_marginal_utility",
+        "source_revision": "2222222222222222222222222222222222222222222222222222222222222222",
+        "recall_context": {"consumer_user_id": "User_1", "consumer_agent_id": "consumer", "query": "What is the filing deadline for America and Europe?", "token_budget": 256, "max_items": 3},
+        "required_atoms": [
+          {"id": "america_deadline", "patterns": ["(?i)America filing deadline is July 25"]},
+          {"id": "europe_deadline", "patterns": ["(?i)Europe filing deadline is July 28"]}
+        ]
+      },
+      "scope_id": "relation-utility-deadline",
+      "actor": {"user_id": "User_1", "agent_id": "consumer", "session_id": "recall-replay"},
+      "extraction_items": [
+        {"id": "deadline-primary", "text": "America filing deadline is July 25.", "evidence_event_ids": ["event-deadline-primary"]},
+        {"id": "deadline-useful", "text": "Europe filing deadline is July 28.", "evidence_event_ids": ["event-deadline-useful"]},
+        {"id": "deadline-noise", "text": "America filing preparation remains on schedule.", "evidence_event_ids": ["event-deadline-noise"]}
+      ],
+      "candidates": [
+        {"id": "deadline-primary", "kind": "status", "subject": "America filing deadline", "body": "America filing deadline is July 25.", "origin": {"user_id": "User_3", "agent_id": "producer", "session_id": "deadline"}, "related_subjects": ["Europe filing deadline", "America filing preparation"], "evidence_event_ids": ["event-deadline-primary"], "revision": 1, "created_at": "2026-07-18T13:00:00Z", "updated_at": "2026-07-18T13:00:00Z", "source_occurred_at": "2026-07-18T13:00:00Z", "lexical_score": 0.9},
+        {"id": "deadline-useful", "kind": "status", "subject": "Europe filing deadline", "body": "Europe filing deadline is July 28.", "origin": {"user_id": "User_3", "agent_id": "producer", "session_id": "deadline"}, "evidence_event_ids": ["event-deadline-useful"], "revision": 1, "created_at": "2026-07-18T13:01:00Z", "updated_at": "2026-07-18T13:01:00Z", "source_occurred_at": "2026-07-18T13:01:00Z", "lexical_score": 0},
+        {"id": "deadline-noise", "kind": "status", "subject": "America filing preparation", "body": "America filing preparation remains on schedule.", "origin": {"user_id": "User_3", "agent_id": "producer", "session_id": "deadline"}, "evidence_event_ids": ["event-deadline-noise"], "revision": 1, "created_at": "2026-07-18T13:02:00Z", "updated_at": "2026-07-18T13:02:00Z", "source_occurred_at": "2026-07-18T13:02:00Z", "lexical_score": 0}
+      ]
+    },
+    {
+      "fixture": {
+        "case_id": "owner_backend_frontend",
+        "category": "relation_marginal_utility",
+        "source_revision": "3333333333333333333333333333333333333333333333333333333333333333",
+        "recall_context": {"consumer_user_id": "User_1", "consumer_agent_id": "consumer", "query": "Who owns backend and frontend rollout?", "token_budget": 256, "max_items": 3},
+        "required_atoms": [
+          {"id": "backend_owner", "patterns": ["(?i)Alice owns backend rollout"]},
+          {"id": "frontend_owner", "patterns": ["(?i)Bob owns frontend rollout"]}
+        ]
+      },
+      "scope_id": "relation-utility-owner",
+      "actor": {"user_id": "User_1", "agent_id": "consumer", "session_id": "recall-replay"},
+      "extraction_items": [
+        {"id": "owner-primary", "text": "Alice owns backend rollout.", "evidence_event_ids": ["event-owner-primary"]},
+        {"id": "owner-useful", "text": "Bob owns frontend rollout.", "evidence_event_ids": ["event-owner-useful"]},
+        {"id": "owner-noise", "text": "Alice owns backend rollout coordination. The recurring coordination note repeats meeting logistics, review reminders, attendance expectations, dashboard links, channel naming, agenda preparation, weekly reporting cadence, routine follow-up steps, and previously recorded backend ownership without adding any frontend ownership fact.", "evidence_event_ids": ["event-owner-noise"]}
+      ],
+      "candidates": [
+        {"id": "owner-primary", "kind": "handoff", "subject": "backend rollout owner", "body": "Alice owns backend rollout.", "origin": {"user_id": "User_4", "agent_id": "producer", "session_id": "owner"}, "related_subjects": ["frontend rollout owner", "backend rollout coordination"], "evidence_event_ids": ["event-owner-primary"], "revision": 1, "created_at": "2026-07-18T14:00:00Z", "updated_at": "2026-07-18T14:00:00Z", "source_occurred_at": "2026-07-18T14:00:00Z", "lexical_score": 0.9},
+        {"id": "owner-useful", "kind": "handoff", "subject": "frontend rollout owner", "body": "Bob owns frontend rollout.", "origin": {"user_id": "User_4", "agent_id": "producer", "session_id": "owner"}, "evidence_event_ids": ["event-owner-useful"], "revision": 1, "created_at": "2026-07-18T14:01:00Z", "updated_at": "2026-07-18T14:01:00Z", "source_occurred_at": "2026-07-18T14:01:00Z", "lexical_score": 0},
+        {"id": "owner-noise", "kind": "handoff", "subject": "backend rollout coordination", "body": "Alice owns backend rollout coordination. The recurring coordination note repeats meeting logistics, review reminders, attendance expectations, dashboard links, channel naming, agenda preparation, weekly reporting cadence, routine follow-up steps, and previously recorded backend ownership without adding any frontend ownership fact.", "origin": {"user_id": "User_4", "agent_id": "producer", "session_id": "owner"}, "evidence_event_ids": ["event-owner-noise"], "revision": 1, "created_at": "2026-07-18T14:02:00Z", "updated_at": "2026-07-18T14:02:00Z", "source_occurred_at": "2026-07-18T14:02:00Z", "lexical_score": 0}
+      ]
+    },
+    {
+      "fixture": {
+        "case_id": "blocker_data_reporting",
+        "category": "relation_marginal_utility",
+        "source_revision": "4444444444444444444444444444444444444444444444444444444444444444",
+        "recall_context": {"consumer_user_id": "User_1", "consumer_agent_id": "consumer", "query": "What blocks data and reporting delivery?", "token_budget": 256, "max_items": 3},
+        "required_atoms": [
+          {"id": "data_blocker", "patterns": ["(?i)Data delivery is blocked by schema approval"]},
+          {"id": "reporting_blocker", "patterns": ["(?i)Reporting delivery is blocked by policy review"]}
+        ]
+      },
+      "scope_id": "relation-utility-blocker",
+      "actor": {"user_id": "User_1", "agent_id": "consumer", "session_id": "recall-replay"},
+      "extraction_items": [
+        {"id": "blocker-primary", "text": "Data delivery is blocked by schema approval.", "evidence_event_ids": ["event-blocker-primary"]},
+        {"id": "blocker-useful", "text": "Reporting delivery is blocked by policy review.", "evidence_event_ids": ["event-blocker-useful"]},
+        {"id": "blocker-noise", "text": "Data delivery remains blocked while approval is pending.", "evidence_event_ids": ["event-blocker-noise"]}
+      ],
+      "candidates": [
+        {"id": "blocker-primary", "kind": "blocker", "subject": "data delivery blocker", "body": "Data delivery is blocked by schema approval.", "origin": {"user_id": "User_5", "agent_id": "producer", "session_id": "blocker"}, "related_subjects": ["reporting delivery blocker", "data blocker commentary"], "evidence_event_ids": ["event-blocker-primary"], "revision": 1, "created_at": "2026-07-18T15:00:00Z", "updated_at": "2026-07-18T15:00:00Z", "source_occurred_at": "2026-07-18T15:00:00Z", "lexical_score": 0.9},
+        {"id": "blocker-useful", "kind": "blocker", "subject": "reporting delivery blocker", "body": "Reporting delivery is blocked by policy review.", "origin": {"user_id": "User_5", "agent_id": "producer", "session_id": "blocker"}, "evidence_event_ids": ["event-blocker-useful"], "revision": 1, "created_at": "2026-07-18T15:01:00Z", "updated_at": "2026-07-18T15:01:00Z", "source_occurred_at": "2026-07-18T15:01:00Z", "lexical_score": 0},
+        {"id": "blocker-noise", "kind": "blocker", "subject": "data blocker commentary", "body": "Data delivery remains blocked while approval is pending.", "origin": {"user_id": "User_5", "agent_id": "producer", "session_id": "blocker"}, "evidence_event_ids": ["event-blocker-noise"], "revision": 1, "created_at": "2026-07-18T15:02:00Z", "updated_at": "2026-07-18T15:02:00Z", "source_occurred_at": "2026-07-18T15:02:00Z", "lexical_score": 0}
+      ]
+    }
+  ]
+}

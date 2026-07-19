@@ -135,3 +135,32 @@ This remains behavior-preserving for quality on the repeated cohort. It is a
 safe tie-break and slightly faster in this run, but should not be treated as a
 quality improvement until an independent cohort contains conflicting source
 recency and lexical/evidence scores.
+
+## Strategy trial: relation expansion marginal utility — 2026-07-18
+
+Fixture: `evals/stage/replay/relation-marginal-utility-v1.json`. This is a
+curated four-case contrast cohort, not repeated cases. It covers status across
+services, filing schedules across regions, ownership across components, and
+blockers across workstreams. Every case contains one relation that adds an
+uncovered query term or fact and one adjacent/repetitive relation.
+
+The policy retains query-relevant one-hop relations only when their uncovered
+fact/query gain per token is at least `0.02`. Authorization, temporal,
+provenance, and content-safety gates remain mandatory. Queries without an
+explicit fact slot keep the legacy exploratory relation behavior.
+
+| Metric | Legacy relation packing | Marginal utility |
+| --- | ---: | ---: |
+| Independent cases | 4 | 4 |
+| Candidate recall@limit | 0.500 | 0.500 |
+| Relation-expanded recall | 1.000 | 1.000 |
+| Delivered eligible recall | 1.000 | 1.000 |
+| Mean context precision | 1.000 | 1.000 |
+| Planned tokens | 301 | 251 |
+| Marginal-utility drops | 0 | 2 |
+| Superseded leakage | 0 | 0 |
+| Budget drops | 0 | 0 |
+
+The strategy preserved all eight Eligible Atoms while reducing planned tokens
+by 16.6%. This cohort validates the intended relation decision boundary; the
+tracked ten-case replay remains the broader regression cohort.

@@ -42,6 +42,7 @@ func run(args []string, stdout io.Writer) error {
 	candidateLimit := flags.Int("candidate-limit", 16, "Fusion candidate lane limit")
 	dedup := flags.Bool("dedup", false, "Suppress near-duplicate facts during selection")
 	degradeRelated := flags.Bool("degrade-related", false, "Fall back to the note without its related block when over budget")
+	disableRelationUtility := flags.Bool("disable-relation-marginal-utility", false, "Restore legacy packing of every query-relevant relation")
 	outputPath := flags.String("output", "", "Replay fixture output path for export mode")
 	outputDirectory := flags.String("output-dir", "", "Output directory for replay mode")
 	if err := flags.Parse(args); err != nil {
@@ -51,10 +52,18 @@ func run(args []string, stdout io.Writer) error {
 		return runExport(*stageFixturePath, *dsn, *runID, *scopeID, *arm, *embeddingBaseURL, *embeddingModel,
 			*semanticThreshold, *candidateLimit, *outputPath, stdout)
 	}
-	return runReplay(*replayFixturePath, *semanticThreshold, *candidateLimit, *dedup, *degradeRelated, *outputDirectory, stdout)
+	return runReplay(*replayFixturePath, *semanticThreshold, *candidateLimit, *dedup, *degradeRelated,
+		*disableRelationUtility, *outputDirectory, stdout)
 }
 
-func runReplay(fixturePath string, threshold float64, limit int, dedup, degradeRelated bool, outputDirectory string, stdout io.Writer) error {
+func runReplay(
+	fixturePath string,
+	threshold float64,
+	limit int,
+	dedup, degradeRelated, disableRelationUtility bool,
+	outputDirectory string,
+	stdout io.Writer,
+) error {
 	if fixturePath == "" || outputDirectory == "" {
 		return fmt.Errorf("parse recall replay flags: fixtures and output-dir are required")
 	}
@@ -65,6 +74,7 @@ func runReplay(fixturePath string, threshold float64, limit int, dedup, degradeR
 	report, err := recallreplay.Run(set, recallreplay.Policy{
 		SemanticThreshold: threshold, CandidateLimit: limit,
 		SuppressDuplicates: dedup, DegradeRelated: degradeRelated,
+		DisableRelationMarginalUtility: disableRelationUtility,
 	})
 	if err != nil {
 		return err
