@@ -613,10 +613,13 @@ inside that clause only. The Session Event remains the evidence authority and
 the external Candidate schema remains unchanged. This rejects broad Event-level
 evidence laundering without adding another persisted note rendering.
 The validator enforces only structural boundaries it can prove without a
-parser: sentence punctuation and comma-coordinated clauses such as `, and` or
-`, but`. It does not guess clause independence from capitalization or word
-count; the extraction prompt remains responsible for semantic minimality where
-the source has no explicit structural boundary.
+parser: exact Event offsets and sentence punctuation, with special handling so
+decimals, URLs, and abbreviations are not split. It does not infer clause
+independence from conjunctions, capitalization, or word count because those
+rules confuse compound objects and lists with independent clauses. Semantic
+minimality within one sentence is therefore a generation requirement; exact
+grounding, sentence atomicity, and modality remain deterministic admission
+requirements.
 
 Provider execution is a separate internal Module behind `Extractor.Extract`.
 It owns per-attempt deadlines, bounded retries for transient transport and

@@ -101,7 +101,7 @@ func sourceClauseIsNonCommittal(quote string) bool {
 }
 
 func isAtomicSourceClause(content, quote string) bool {
-	if hasInternalSourceClauseBoundary(quote) || hasInternalIndependentConjunction(quote) {
+	if hasInternalSourceClauseBoundary(quote) {
 		return false
 	}
 	searchFrom := 0
@@ -187,28 +187,6 @@ func sourceClauseBoundaryAfter(content string, index int) bool {
 
 func isInlineSourceClauseDelimiter(character rune) bool {
 	return character == ',' || character == ':' || character == '，' || character == '：'
-}
-
-func hasInternalIndependentConjunction(quote string) bool {
-	trimmed := strings.TrimSpace(quote)
-	lower := strings.ToLower(trimmed)
-	for _, conjunction := range []string{" and ", " but ", " while ", " however "} {
-		searchFrom := 0
-		for searchFrom < len(lower) {
-			relative := strings.Index(lower[searchFrom:], conjunction)
-			if relative < 0 {
-				break
-			}
-			index := searchFrom + relative
-			rightStart := index + len(conjunction)
-			left := strings.TrimSpace(trimmed[:index])
-			if strings.HasSuffix(left, ",") && !sourceClauseIsNonCommittal(strings.TrimSuffix(left, ",")) {
-				return true
-			}
-			searchFrom = rightStart
-		}
-	}
-	return false
 }
 
 func endsWithSourceConjunction(value string) bool {

@@ -74,16 +74,12 @@ func (s *admissionSuite) TestSourceClauseAdmissionValidatesExactAtomicEvidence()
 			clause: "Compliance owns the exceptions log", wantNotes: 1,
 		},
 		{
-			name: "broad compound clause", content: "Compliance owns the exceptions log, and Reporting owns the audit log.",
-			clause: "Compliance owns the exceptions log, and Reporting owns the audit log.", wantCause: "atomic clause",
-		},
-		{
-			name: "lowercase broad compound clause", content: "Compliance owns the exceptions log, and reporting owns the audit log.",
-			clause: "Compliance owns the exceptions log, and reporting owns the audit log.", wantCause: "atomic clause",
-		},
-		{
 			name: "compound object remains atomic", content: "Compliance owns Finance and Risk controls.",
 			clause: "Compliance owns Finance and Risk controls.", wantNotes: 1,
+		},
+		{
+			name: "oxford comma list remains atomic", content: "Compliance owns Finance, Risk, and Audit controls.",
+			clause: "Compliance owns Finance, Risk, and Audit controls.", wantNotes: 1,
 		},
 		{
 			name: "exact value with decimal", content: "The alert threshold is 1.5%.",
