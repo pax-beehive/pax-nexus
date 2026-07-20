@@ -1,8 +1,6 @@
 package extractionshadow
 
 import (
-	"strings"
-
 	"github.com/pax-beehive/pax-nexus/internal/eval/stageeval"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote/extractor"
 )
@@ -23,8 +21,13 @@ func attributeExtractionLosses(
 			SupportingEventIDs: append([]string(nil), atom.SupportingEventIDs...),
 			Matched:            matched[atom.ID],
 		}
-		loss.SourceCovered = anySliceEvent(run.Slices, atom.SupportingEventIDs)
-		loss.Reviewed = anyReviewedEvent(run.Slices, atom.SupportingEventIDs)
+		loss.SupportingEvents = extractionEventStatuses(run.Slices, atom.SupportingEventIDs)
+		loss.SourceCovered = allEventStatuses(loss.SupportingEvents, func(status ExtractionEventStatus) bool {
+			return status.SourceCovered
+		})
+		loss.Reviewed = allEventStatuses(loss.SupportingEvents, func(status ExtractionEventStatus) bool {
+			return status.Reviewed
+		})
 		if !loss.Matched {
 			loss.LostAt, loss.Reason = firstExtractionLoss(run.Slices, atom.SupportingEventIDs, loss.SourceCovered)
 		}
@@ -53,26 +56,29 @@ func matchedAtomIDs(fixture stageeval.Fixture, extraction stageeval.Observation)
 	return matched, nil
 }
 
-func anySliceEvent(slices []SliceRecord, eventIDs []string) bool {
-	return anyEventID(eventIDs, func(eventID string) bool {
+func extractionEventStatuses(slices []SliceRecord, eventIDs []string) []ExtractionEventStatus {
+	statuses := make([]ExtractionEventStatus, 0, len(eventIDs))
+	for _, eventID := range eventIDs {
+		status := ExtractionEventStatus{EventID: eventID}
 		for _, slice := range slices {
-			if containsString(slice.NewEventIDs, eventID) {
-				return true
-			}
+			status.SourceCovered = status.SourceCovered || containsString(slice.NewEventIDs, eventID)
+			status.Reviewed = status.Reviewed || traceReviewsEvent(slice.Trace, eventID)
 		}
-		return false
-	})
+		statuses = append(statuses, status)
+	}
+	return statuses
 }
 
-func anyReviewedEvent(slices []SliceRecord, eventIDs []string) bool {
-	return anyEventID(eventIDs, func(eventID string) bool {
-		for _, slice := range slices {
-			if traceReviewsEvent(slice.Trace, eventID) {
-				return true
-			}
-		}
+func allEventStatuses(statuses []ExtractionEventStatus, predicate func(ExtractionEventStatus) bool) bool {
+	if len(statuses) == 0 {
 		return false
-	})
+	}
+	for _, status := range statuses {
+		if !predicate(status) {
+			return false
+		}
+	}
+	return true
 }
 
 func firstExtractionLoss(slices []SliceRecord, eventIDs []string, sourceCovered bool) (ExtractionLossStage, string) {
@@ -155,15 +161,6 @@ func decisionSupports(decision extractor.StateDecision, claims []extractor.Claim
 	}
 	for _, claim := range claims {
 		if _, ok := claimIDs[claim.ClaimID]; ok && intersects(claim.EvidenceEventIDs, eventIDs) {
-			return true
-		}
-	}
-	return false
-}
-
-func anyEventID(eventIDs []string, predicate func(string) bool) bool {
-	for _, eventID := range eventIDs {
-		if predicate(strings.TrimSpace(eventID)) {
 			return true
 		}
 	}

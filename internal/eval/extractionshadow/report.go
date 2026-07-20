@@ -37,14 +37,21 @@ const (
 // one fixed required Atom. An empty LostAt means the atom reached an admitted
 // Team Note with supporting evidence.
 type ExtractionAtomLoss struct {
-	CaseID             string              `json:"case_id"`
-	AtomID             string              `json:"atom_id"`
-	SupportingEventIDs []string            `json:"supporting_event_ids,omitempty"`
-	SourceCovered      bool                `json:"source_covered"`
-	Reviewed           bool                `json:"reviewed"`
-	Matched            bool                `json:"matched"`
-	LostAt             ExtractionLossStage `json:"lost_at,omitempty"`
-	Reason             string              `json:"reason,omitempty"`
+	CaseID             string                  `json:"case_id"`
+	AtomID             string                  `json:"atom_id"`
+	SupportingEventIDs []string                `json:"supporting_event_ids,omitempty"`
+	SupportingEvents   []ExtractionEventStatus `json:"supporting_events,omitempty"`
+	SourceCovered      bool                    `json:"source_covered"`
+	Reviewed           bool                    `json:"reviewed"`
+	Matched            bool                    `json:"matched"`
+	LostAt             ExtractionLossStage     `json:"lost_at,omitempty"`
+	Reason             string                  `json:"reason,omitempty"`
+}
+
+type ExtractionEventStatus struct {
+	EventID       string `json:"event_id"`
+	SourceCovered bool   `json:"source_covered"`
+	Reviewed      bool   `json:"reviewed"`
 }
 
 // Telemetry aggregates extraction usage and v2 products across the cohort.

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/pax-beehive/pax-nexus/internal/sessionlake"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote"
@@ -98,7 +100,7 @@ func sourceClauseIsNonCommittal(quote string) bool {
 func isAtomicSourceClause(content, quote string) bool {
 	start := 0
 	for index, character := range content {
-		if character != '.' && character != ';' && character != '!' && character != '?' && character != '\n' {
+		if !isSourceClauseBoundary(content, index, character) {
 			continue
 		}
 		end := index + len(string(character))
@@ -108,6 +110,37 @@ func isAtomicSourceClause(content, quote string) bool {
 		start = end
 	}
 	return strings.TrimSpace(content[start:]) == quote
+}
+
+func isSourceClauseBoundary(content string, index int, character rune) bool {
+	if character == ';' || character == '!' || character == '?' || character == '\n' || character == '。' || character == '！' || character == '？' {
+		return true
+	}
+	if character != '.' {
+		return false
+	}
+	nextIndex := index + utf8.RuneLen(character)
+	if nextIndex < len(content) {
+		next, _ := utf8.DecodeRuneInString(content[nextIndex:])
+		if !unicode.IsSpace(next) {
+			return false
+		}
+	}
+	return !isSourceAbbreviation(content[:index])
+}
+
+func isSourceAbbreviation(prefix string) bool {
+	fields := strings.Fields(prefix)
+	if len(fields) == 0 {
+		return false
+	}
+	token := strings.ToLower(strings.Trim(fields[len(fields)-1], "()[]{}\"'"))
+	switch token {
+	case "mr", "mrs", "ms", "dr", "prof", "sr", "jr", "st", "vs", "e.g", "i.e":
+		return true
+	default:
+		return false
+	}
 }
 
 func containsAny(value string, markers []string) bool {

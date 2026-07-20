@@ -53,6 +53,18 @@ func (s *admissionSuite) TestSourceClauseAdmissionValidatesExactAtomicEvidence()
 			name: "factual predicate does not neutralize proposal", content: "I propose Compliance owns the exceptions log.",
 			clause: "I propose Compliance owns the exceptions log.", wantCause: "non-committal",
 		},
+		{
+			name: "exact value with decimal", content: "The alert threshold is 1.5%.",
+			clause: "The alert threshold is 1.5%.", wantNotes: 1,
+		},
+		{
+			name: "abbreviation does not split clause", content: "Dr. Smith owns the exceptions log.",
+			clause: "Dr. Smith owns the exceptions log.", wantNotes: 1,
+		},
+		{
+			name: "url does not split clause", content: "The runbook is https://ops.example.com/runbook.",
+			clause: "The runbook is https://ops.example.com/runbook.", wantNotes: 1,
+		},
 	}
 
 	for _, test := range tests {
