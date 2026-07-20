@@ -201,27 +201,14 @@ func hasInternalIndependentConjunction(quote string) bool {
 			}
 			index := searchFrom + relative
 			rightStart := index + len(conjunction)
-			if !sourceClauseIsNonCommittal(trimmed[:index]) && beginsIndependentClause(trimmed[rightStart:]) {
+			left := strings.TrimSpace(trimmed[:index])
+			if strings.HasSuffix(left, ",") && !sourceClauseIsNonCommittal(strings.TrimSuffix(left, ",")) {
 				return true
 			}
 			searchFrom = rightStart
 		}
 	}
 	return false
-}
-
-func beginsIndependentClause(value string) bool {
-	value = strings.TrimLeftFunc(value, func(character rune) bool {
-		return unicode.IsSpace(character) || character == ','
-	})
-	if value == "" {
-		return false
-	}
-	first, _ := utf8.DecodeRuneInString(value)
-	if !unicode.IsUpper(first) {
-		return false
-	}
-	return len(strings.Fields(value)) >= 2
 }
 
 func endsWithSourceConjunction(value string) bool {

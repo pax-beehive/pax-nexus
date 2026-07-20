@@ -612,6 +612,11 @@ against the cited Event and evaluates proposal, request, and question language
 inside that clause only. The Session Event remains the evidence authority and
 the external Candidate schema remains unchanged. This rejects broad Event-level
 evidence laundering without adding another persisted note rendering.
+The validator enforces only structural boundaries it can prove without a
+parser: sentence punctuation and comma-coordinated clauses such as `, and` or
+`, but`. It does not guess clause independence from capitalization or word
+count; the extraction prompt remains responsible for semantic minimality where
+the source has no explicit structural boundary.
 
 Provider execution is a separate internal Module behind `Extractor.Extract`.
 It owns per-attempt deadlines, bounded retries for transient transport and
