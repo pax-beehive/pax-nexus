@@ -39,6 +39,14 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	if err != nil {
 		return fmt.Errorf("load service config: %w", err)
 	}
+	config.providerCallObserver = func(call extractor.ProviderCall) {
+		logger.Info("extraction provider attempt",
+			"type", call.Type, "scope_id", call.ScopeID, "attempt", call.Attempt,
+			"max_attempts", call.MaxAttempts, "duration_ms", call.DurationMS,
+			"http_status", call.HTTPStatus, "failure_class", call.FailureClass,
+			"retryable", call.Retryable, "input_tokens", call.Usage.InputTokens,
+			"output_tokens", call.Usage.OutputTokens)
+	}
 	store, err := postgres.Open(ctx, config.databaseURL)
 	if err != nil {
 		return fmt.Errorf("initialize storage: %w", err)
@@ -172,6 +180,8 @@ type applicationConfig struct {
 	extractionSummaryEnabled       bool
 	extractionSummaryTriggerTokens int
 	extractionSummaryTailTokens    int
+	extractionExecutionPolicy      extractor.ExecutionPolicy
+	providerCallObserver           extractor.ProviderCallObserver
 	workerShards                   int
 	workerMaxAttempts              int
 	workerDebounce                 time.Duration
@@ -295,6 +305,31 @@ func loadExtractionConfig(config *applicationConfig) error {
 		return err
 	}
 	config.extractionSummaryTailTokens, err = intEnvironment("TEAM_MEMORY_EXTRACTION_SUMMARY_TAIL_TOKENS", 16*1024)
+	if err != nil {
+		return err
+	}
+	policy := &config.extractionExecutionPolicy
+	if policy.AttemptTimeout, err = durationEnvironment("TEAM_MEMORY_EXTRACTION_PROVIDER_TIMEOUT", 90*time.Second); err != nil {
+		return err
+	}
+	if policy.MaxAttempts, err = intEnvironment("TEAM_MEMORY_EXTRACTION_PROVIDER_MAX_ATTEMPTS", 1); err != nil {
+		return err
+	}
+	if policy.RetryBackoff, err = durationEnvironment("TEAM_MEMORY_EXTRACTION_PROVIDER_RETRY_BACKOFF", 250*time.Millisecond); err != nil {
+		return err
+	}
+	maxResponseBytes, err := intEnvironment("TEAM_MEMORY_EXTRACTION_PROVIDER_MAX_RESPONSE_BYTES", 1<<20)
+	if err != nil {
+		return err
+	}
+	policy.MaxResponseBytes = int64(maxResponseBytes)
+	if policy.PrimaryMaxOutputTokens, err = intEnvironment("TEAM_MEMORY_EXTRACTION_PRIMARY_MAX_OUTPUT_TOKENS", 16*1024); err != nil {
+		return err
+	}
+	if policy.SummaryMaxOutputTokens, err = intEnvironment("TEAM_MEMORY_EXTRACTION_SUMMARY_MAX_OUTPUT_TOKENS", 4*1024); err != nil {
+		return err
+	}
+	policy.CompactionMaxOutputTokens, err = intEnvironment("TEAM_MEMORY_EXTRACTION_COMPACTION_MAX_OUTPUT_TOKENS", 4*1024)
 	return err
 }
 
@@ -407,6 +442,8 @@ func buildExtractor(config applicationConfig, stores ...extractor.EpisodeStore) 
 			SummaryEnabled:       config.extractionSummaryEnabled,
 			SummaryTriggerTokens: config.extractionSummaryTriggerTokens,
 			SummaryTailTokens:    config.extractionSummaryTailTokens,
+			ExecutionPolicy:      config.extractionExecutionPolicy,
+			ProviderCallObserver: config.providerCallObserver,
 		})
 	default:
 		return nil, fmt.Errorf("unsupported extractor mode %q", config.extractorMode)

@@ -31,8 +31,9 @@ they do not each require a new ADR.
 
 | Plan or candidate | Governing ADR | Current status and reason |
 | --- | --- | --- |
-| Extraction Evidence Fidelity | [Extraction v2](./decisions/2026-07-16-extraction-v2.md) | In progress; `evidence-fidelity-v1` is not retained because recall stayed 2/3 while leakage, rejections, and unreviewed Events increased. |
-| Extraction Execution Reliability | [Extraction v2](./decisions/2026-07-16-extraction-v2.md) | Planned; quality acceptance remains blocked by deadline retries and latency evidence. |
+| Extraction Evidence Fidelity | [Extraction v2](./decisions/2026-07-16-extraction-v2.md) | Implemented for evaluation as `source-clause-v1`; promotion is blocked until the fixed Finance source can be rerun. |
+| Extraction Execution Reliability | [Extraction v2](./decisions/2026-07-16-extraction-v2.md) | Implemented; checksum resume is retained and provider deadlines, retry classification, budgets, and attempt telemetry are consolidated. |
+| Atom-Level Extraction Loss Attribution | [Extraction v2](./decisions/2026-07-16-extraction-v2.md) | Implemented; extraction eval exports one first-loss entry per required Atom. |
 | Eval Validity and Attempt Ledger | [Multi-Agent GroupMemBench Eval v3](./decisions/2026-07-16-multi-agent-groupmembench-eval-v3.md) | Implemented; append-only Attempts and the comparative Validity Report now reject incomplete or unobservable runs. |
 | Budget-Aware Final-State Selection | [General Recall v3](./decisions/2026-07-16-general-recall-v3-optimization.md) | Planned; BM25 improved candidate availability without improving delivered recall. |
 | Durable Historical Recall | [General Recall v3](./decisions/2026-07-16-general-recall-v3-optimization.md) | Planned; PostgreSQL does not yet export retired revision chains to `as_of` or `history`. |
@@ -42,7 +43,7 @@ they do not each require a new ADR.
 
 ## Tranche 1: Extraction Evidence Fidelity
 
-Status: In progress
+Status: Implemented for evaluation; promotion blocked
 
 Deepen the existing extractor Module behind the unchanged `Extractor` seam.
 Use the existing semantic Candidate schema and deterministic admission. Do not
@@ -64,9 +65,16 @@ Gate:
 - require a repeatable coverage improvement without additional leakage before
   an end-to-end cohort.
 
-The next independent fidelity slice, if the canary supports it, will examine
-whether whole-body update replacement supersedes away previously retained
-answer-bearing qualifiers.
+The successor slice is `source-clause-v1`. Every state-changing decision must
+copy the shortest exact contiguous supporting clause from a cited Event.
+Deterministic admission validates that citation and evaluates modality inside
+that clause, without changing the external Candidate schema. Temporal
+admission uses the maximum source time of new Events as the immutable
+Extraction Observation Time; wall-clock replay is forbidden.
+
+After source-clause and temporal gates pass, the next independent fidelity
+slice may examine whether whole-body update replacement supersedes away
+previously retained answer-bearing qualifiers.
 
 First canary result: `evidence-fidelity-v1` matched the `interaction-slim`
 baseline at 2/3 atoms but increased leakage from one item to two, decision
@@ -78,15 +86,27 @@ Events cannot launder proposal-only ownership into canonical state. See the
 
 ## Tranche 2: Extraction Execution Reliability
 
-Status: Planned
+Status: Implemented
 
-Concentrate provider deadlines, error classification, bounded retries, resume,
+Concentrate provider deadlines, error classification, bounded retries,
 response budgets, and provider-call telemetry in the Extraction Execution
-Module. Do not add concurrency until retry and deadline evidence is available.
+Module. Retain the existing checksum-based durable Episode resume path. Do not
+add concurrency or a second durable attempt store until retry and deadline
+evidence is available.
 
 Gate: fixed-fixture fact coverage must not regress; P95 provider duration,
 retry rate, invalid-response rate, output tokens, calls per window, and cache
 rate must satisfy the outstanding Extraction v2 acceptance criteria.
+
+## Tranche 2a: Atom-Level Extraction Loss Attribution
+
+Status: Implemented
+
+Export one ledger entry per required Atom from the extraction eval. The entry
+must retain supporting Event IDs, whether those Events reached the fixed input,
+whether they were reviewed, and the first observable loss stage and reason.
+The ledger is diagnostic evidence, not a new quality score, and must not infer
+an extraction cause from recall or judge output.
 
 ## Tranche 3: Eval Validity and Attempt Ledger
 

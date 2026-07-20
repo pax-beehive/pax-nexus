@@ -411,16 +411,21 @@ func (e *OpenAI) computeCompaction(ctx context.Context, episode Episode) (compac
 		return compactionResult{}, fmt.Errorf("build compaction context: %w", err)
 	}
 	messages = append(messages, chatMessage{Role: "user", Content: compactionPrompt})
-	body, err := e.callWithType(ctx, messages, 0, ProviderCallCompaction)
+	var checkpoint Checkpoint
+	var usage Usage
+	_, err = e.executeProvider(ctx, messages, 0, ProviderCallCompaction, func(body []byte) error {
+		decodedCheckpoint, decodedUsage, decodeErr := decodeCheckpoint(body)
+		if decodeErr != nil {
+			return decodeErr
+		}
+		if validateErr := validateCheckpoint(decodedCheckpoint, episode); validateErr != nil {
+			return errors.Join(ErrInvalidModelResponse, validateErr)
+		}
+		checkpoint, usage = decodedCheckpoint, decodedUsage
+		return nil
+	})
 	if err != nil {
 		return compactionResult{}, fmt.Errorf("compact extraction episode: %w", err)
-	}
-	checkpoint, usage, err := decodeCheckpoint(body)
-	if err != nil {
-		return compactionResult{}, err
-	}
-	if err := validateCheckpoint(checkpoint, episode); err != nil {
-		return compactionResult{}, err
 	}
 	return compactionResult{
 		checkpoint: checkpoint, usage: usage,

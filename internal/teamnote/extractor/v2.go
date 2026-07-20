@@ -121,12 +121,21 @@ type DecisionCandidate struct {
 	RelatedSubjects []string `json:"related_subjects,omitempty"`
 }
 
+// EvidenceClause identifies the exact Event text that authorizes one State
+// Decision. It is extraction provenance and never changes the Candidate
+// storage schema.
+type EvidenceClause struct {
+	EventID string `json:"event_id"`
+	Quote   string `json:"quote"`
+}
+
 // StateDecision proposes one canonical state transition backed by claims.
 type StateDecision struct {
 	Decision           DecisionAction     `json:"decision"`
 	IdentityRef        string             `json:"identity_ref,omitempty"`
 	ClaimIDs           []string           `json:"claim_ids,omitempty"`
 	EvidenceEventIDs   []string           `json:"evidence_event_ids,omitempty"`
+	EvidenceClauses    []EvidenceClause   `json:"evidence_clauses,omitempty"`
 	PriorStateRef      string             `json:"prior_state_ref,omitempty"`
 	TemporalExpression string             `json:"temporal_expression,omitempty"`
 	ValidAt            string             `json:"valid_at,omitempty"`
@@ -316,9 +325,9 @@ func mapStandardDecision(
 	allEvents map[string]struct{},
 	newEvents map[string]struct{},
 	events []teamnote.SessionEvent,
-	_ sessionlake.Slice,
+	slice sessionlake.Slice,
 ) (*teamnote.Candidate, string) {
-	return mapDecision(decision, claims, allEvents, newEvents, events)
+	return mapDecision(decision, claims, allEvents, newEvents, events, extractionObservationTime(slice))
 }
 
 func interactionRejectionReason(
@@ -395,6 +404,7 @@ func mapDecision(
 	allEvents map[string]struct{},
 	newEvents map[string]struct{},
 	events []teamnote.SessionEvent,
+	observationTime time.Time,
 ) (*teamnote.Candidate, string) {
 	if !validDecisionAction(decision.Decision) {
 		return nil, fmt.Sprintf("decision %q is not in the decision vocabulary", decision.Decision)
@@ -456,7 +466,7 @@ func mapDecision(
 	if identityRef == "" {
 		identityRef = strings.TrimSpace(decision.PriorStateRef)
 	}
-	validAt, invalidAt, reason := candidateTemporalWindow(decision.Decision, temporal)
+	validAt, invalidAt, reason := candidateTemporalWindow(decision.Decision, temporal, observationTime)
 	if reason != "" {
 		return nil, reason
 	}
@@ -477,7 +487,7 @@ func mapClaimCardDecision(
 	events []teamnote.SessionEvent,
 	slice sessionlake.Slice,
 ) (*teamnote.Candidate, string) {
-	candidate, reason := mapDecision(decision, claims, allEvents, newEvents, events)
+	candidate, reason := mapDecision(decision, claims, allEvents, newEvents, events, extractionObservationTime(slice))
 	if reason != "" || candidate == nil {
 		return candidate, reason
 	}
@@ -716,12 +726,16 @@ func temporalRejectionReason(
 func candidateTemporalWindow(
 	action DecisionAction,
 	temporal temporalFields,
+	observationTime time.Time,
 ) (*time.Time, *time.Time, string) {
 	validAt, invalidAt, err := parseTemporalWindow(temporal.validAt, temporal.invalidAt)
 	if err != nil {
 		return nil, nil, "decision temporal window is invalid"
 	}
-	if action == DecisionCreate && invalidAt != nil && !invalidAt.After(time.Now()) {
+	if action == DecisionCreate && invalidAt != nil && observationTime.IsZero() {
+		return nil, nil, "decision temporal admission requires an extraction observation time"
+	}
+	if action == DecisionCreate && invalidAt != nil && !invalidAt.After(observationTime) {
 		invalidAt = nil
 	}
 	return validAt, invalidAt, ""

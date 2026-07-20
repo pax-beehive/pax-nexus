@@ -25,17 +25,49 @@ const (
 	ProviderCallVerifier   ProviderCallType = "verifier"
 )
 
+type ProviderFailureClass string
+
+const (
+	ProviderFailureNone             ProviderFailureClass = ""
+	ProviderFailureCanceled         ProviderFailureClass = "canceled"
+	ProviderFailureDeadline         ProviderFailureClass = "deadline"
+	ProviderFailureTransport        ProviderFailureClass = "transport"
+	ProviderFailureRateLimited      ProviderFailureClass = "rate_limited"
+	ProviderFailureServer           ProviderFailureClass = "provider_5xx"
+	ProviderFailureClient           ProviderFailureClass = "provider_4xx"
+	ProviderFailureInvalidResponse  ProviderFailureClass = "invalid_response"
+	ProviderFailureResponseTooLarge ProviderFailureClass = "response_too_large"
+)
+
+// ExecutionPolicy bounds physical provider attempts behind one logical
+// extraction call. MaxAttempts defaults to one until fixed-cohort evidence
+// supports enabling retries.
+type ExecutionPolicy struct {
+	AttemptTimeout            time.Duration
+	MaxAttempts               int
+	RetryBackoff              time.Duration
+	MaxResponseBytes          int64
+	PrimaryMaxOutputTokens    int
+	SummaryMaxOutputTokens    int
+	CompactionMaxOutputTokens int
+}
+
 // ProviderCall records one physical model request. Slice usage may include
 // asynchronously consumed summary or compaction usage, so evaluations use
 // these records when they need an exact provider-call breakdown.
 type ProviderCall struct {
-	Type       ProviderCallType `json:"type"`
-	ScopeID    string           `json:"scope_id,omitempty"`
-	StartedAt  time.Time        `json:"started_at"`
-	DurationMS int64            `json:"duration_ms"`
-	Usage      Usage            `json:"usage"`
-	HTTPStatus int              `json:"http_status,omitempty"`
-	Error      string           `json:"error,omitempty"`
+	Type            ProviderCallType     `json:"type"`
+	Attempt         int                  `json:"attempt"`
+	MaxAttempts     int                  `json:"max_attempts"`
+	ScopeID         string               `json:"scope_id,omitempty"`
+	StartedAt       time.Time            `json:"started_at"`
+	DurationMS      int64                `json:"duration_ms"`
+	Usage           Usage                `json:"usage"`
+	HTTPStatus      int                  `json:"http_status,omitempty"`
+	MaxOutputTokens int                  `json:"max_output_tokens,omitempty"`
+	FailureClass    ProviderFailureClass `json:"failure_class,omitempty"`
+	Retryable       bool                 `json:"retryable,omitempty"`
+	Error           string               `json:"error,omitempty"`
 }
 
 type ProviderCallObserver func(ProviderCall)
@@ -44,6 +76,7 @@ const (
 	CandidateStrategyCurrent          = "current"
 	CandidateStrategyInteractionSlim  = "interaction-slim"
 	CandidateStrategyEvidenceFidelity = "evidence-fidelity-v1"
+	CandidateStrategySourceClause     = "source-clause-v1"
 	CandidateStrategyTyped2           = "typed-2"
 	CandidateStrategySourceSpanV1     = "source-span-v1"
 	CandidateStrategySourceSpanV2     = "source-span-v2"
@@ -53,6 +86,7 @@ const (
 	V2VariantCurrent          = CandidateStrategyCurrent
 	V2VariantInteractionSlim  = CandidateStrategyInteractionSlim
 	V2VariantEvidenceFidelity = CandidateStrategyEvidenceFidelity
+	V2VariantSourceClause     = CandidateStrategySourceClause
 	V2VariantTypedCurrent     = CandidateStrategyTyped2
 	V2VariantSourceSpanV1     = CandidateStrategySourceSpanV1
 	V2VariantSourceSpanV2     = CandidateStrategySourceSpanV2

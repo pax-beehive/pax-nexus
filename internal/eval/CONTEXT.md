@@ -79,6 +79,12 @@ passive evidence set within the configured call and token budgets.
 The per-Available-Atom record of the first recall stage that lost the atom and
 the observable rejection or budget reason.
 
+**Extraction Loss Ledger**:
+The per-required-atom record of the first extraction stage that lost the atom:
+source coverage, Event review, claim validation, State Decision admission, or
+admitted Team Note materialization. It is derived from fixed fixtures and
+Extraction Traces rather than inferred from recall or answer judging.
+
 ## Relationships
 
 - A **Run** contains many **Cases**.
@@ -89,6 +95,8 @@ the observable rejection or budget reason.
 - Eval v3 produces one **Validity Report** after all Trial Attempts finish and
   before comparative artifacts are accepted.
 - A **Stage Fixture** may produce paired extraction and recall **Observations**.
+- An **Extraction Loss Ledger** entry links one required Atom to its supporting
+  Events and the first observable extraction-stage loss.
 - A **Case** pins one **Recall Consumer**, **Observation Time**, and **Query
   Time** interpretation.
 - An **Eligible Atom** is an **Available Atom** filtered by consumer access and

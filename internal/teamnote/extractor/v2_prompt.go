@@ -7,6 +7,7 @@ const (
 	extractionProtocolV2RevisionCurrent          = "v2-slim-4"
 	extractionProtocolV2RevisionInteractionSlim  = "v2-slim-3-interaction-slim"
 	extractionProtocolV2RevisionEvidenceFidelity = "v2-slim-6-evidence-fidelity-v1"
+	extractionProtocolV2RevisionSourceClause     = "v2-slim-7-source-clause-v1"
 )
 
 // The v2 user prompt is the same session-slice JSON as v1 (buildPrompt), so
@@ -46,6 +47,13 @@ different agent reports the update. Prefer update or resolve over creating a
 parallel fact. A checkpoint is a lossy handoff context, not new evidence;
 every emitted decision or claim must still cite at least one event from the
 current new_event_ids.`
+
+const rollingSystemPromptV2SourceClause = systemPromptV2BeforeInteractions + interactionPromptV2Slim + sourceClausePromptV2 + systemPromptV2Closing + `
+You are maintaining one cumulative knowledge state for a task or thread across
+multiple agents and sessions. Previous assistant responses are your own prior
+state decisions and exceptional claims. Reuse the same identity_ref for the
+same real-world fact. Every emitted decision or claim must still cite at least
+one event from the current new_event_ids.`
 
 // rollingSystemPromptClaimCardV1 keeps the v2 reasoning products, but makes
 // claims the only model-written source for persisted candidate content.
@@ -196,6 +204,21 @@ const evidenceFidelityPromptV2 = `Evidence fidelity pass before returning:
 - This pass does not relax modality. A proposal, desired owner, request, or
   question still cannot become committed state without separate source
   evidence that establishes the transition.
+
+`
+
+const sourceClausePromptV2 = `Source-clause admission rules:
+- Every create, update, and resolve decision MUST include evidence_clauses.
+- Each evidence clause has exactly this shape: {"event_id":"event-id","quote":"exact source text"}.
+- quote MUST be the shortest exact contiguous text copied from that Event that
+  establishes the candidate state. Do not paraphrase, normalize whitespace,
+  join text across Events, or cite an adjacent sentence.
+- A proposal, request, question, conditional preference, or desired owner is
+  not committed state. Cite a separate exact clause that explicitly states,
+  commits, assigns, approves, or resolves the candidate, or do not emit a
+  state-changing decision.
+- evidence_event_ids remains the Event-level provenance list. Source clauses
+  narrow admission authority and do not replace Event evidence.
 
 `
 

@@ -9,8 +9,6 @@ import (
 	"time"
 )
 
-const summaryMaxOutputTokens = 4 * 1024
-
 type summaryFlight struct {
 	done       chan struct{}
 	result     summaryResult
@@ -115,13 +113,18 @@ func (e *OpenAI) computeSummary(ctx context.Context, episode Episode) (summaryRe
 		return summaryResult{}, fmt.Errorf("build periodic summary context: %w", err)
 	}
 	messages = append(messages, chatMessage{Role: "user", Content: periodicSummaryPrompt})
-	body, err := e.callWithType(ctx, messages, summaryMaxOutputTokens, ProviderCallSummary)
+	var summary string
+	var usage Usage
+	_, err = e.executeProvider(ctx, messages, 0, ProviderCallSummary, func(body []byte) error {
+		decodedSummary, decodedUsage, decodeErr := decodeSummary(body)
+		if decodeErr != nil {
+			return decodeErr
+		}
+		summary, usage = decodedSummary, decodedUsage
+		return nil
+	})
 	if err != nil {
 		return summaryResult{}, fmt.Errorf("summarize extraction episode: %w", err)
-	}
-	summary, usage, err := decodeSummary(body)
-	if err != nil {
-		return summaryResult{}, err
 	}
 	return summaryResult{
 		summary: summary, usage: usage,

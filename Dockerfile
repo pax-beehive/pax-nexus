@@ -7,7 +7,7 @@ COPY . .
 ARG EXTRACTION_CANDIDATE_STRATEGY=current
 ARG RECALL_CANDIDATE_STRATEGY=passive-v1
 RUN case "${EXTRACTION_CANDIDATE_STRATEGY}" in \
-      current|interaction-slim|evidence-fidelity-v1|typed-2|source-span-v1|source-span-v2|claim-card-v1|claim-card-v2) ;; \
+      current|interaction-slim|evidence-fidelity-v1|source-clause-v1|typed-2|source-span-v1|source-span-v2|claim-card-v1|claim-card-v2) ;; \
       *) echo "unsupported EXTRACTION_CANDIDATE_STRATEGY=${EXTRACTION_CANDIDATE_STRATEGY}" >&2; exit 2 ;; \
     esac && \
     case "${RECALL_CANDIDATE_STRATEGY}" in \

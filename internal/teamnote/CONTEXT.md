@@ -65,6 +65,16 @@ rejections, and would-verify triggers. It attributes extraction losses to
 observation coverage, claim detection, identity resolution, state transition,
 temporal validation, or admission. It never enters passive agent context.
 
+**Source Clause Citation**:
+The shortest exact, contiguous Event text that supports one State Decision.
+It narrows evidence authority inside an Event without becoming a new memory
+rendering or replacing the Event as factual evidence.
+
+**Extraction Observation Time**:
+The latest source time among the new Events in one extraction slice. It is the
+fixed instant used by deterministic temporal admission and remains unchanged
+when a saved extraction response is replayed.
+
 **Candidate Rejection**:
 A Candidate dropped before admission with a deterministic grounding or policy
 reason, recorded so extraction evaluation can attribute lost facts without
@@ -106,6 +116,8 @@ A recorded insertion of one Team Note revision into an agent session.
 ## Relationships
 
 - A **Candidate** cites one or more Session Events.
+- A **State Decision** cites both its supporting Events and, when it changes
+  state, the exact **Source Clause Citation** that authorizes that change.
 - An **Extraction Episode** consumes Session Events from multiple sessions.
 - When compaction is enabled, an **Extraction Checkpoint** resumes one
   **Extraction Episode** after compaction. Rolling extraction does not require a

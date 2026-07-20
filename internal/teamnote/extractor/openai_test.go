@@ -157,6 +157,76 @@ func (s *openAISuite) TestRejectsInvalidResponses() {
 	}
 }
 
+func (s *openAISuite) TestProviderExecutionRetriesTransientFailureAndRecordsAttempts() {
+	var attempts atomic.Int32
+	var calls []extractor.ProviderCall
+	client := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		if attempts.Add(1) == 1 {
+			return response(http.StatusServiceUnavailable, "busy"), nil
+		}
+		return response(http.StatusOK, `{"choices":[{"message":{"content":"{\"candidates\":[]}"}}]}`), nil
+	})}
+	adapter, err := extractor.NewOpenAI(extractor.OpenAIConfig{
+		BaseURL: "http://extractor.test", Model: "model", Client: client,
+		ExecutionPolicy:      extractor.ExecutionPolicy{MaxAttempts: 2, RetryBackoff: time.Millisecond},
+		ProviderCallObserver: func(call extractor.ProviderCall) { calls = append(calls, call) },
+	})
+	s.Require().NoError(err)
+
+	_, err = adapter.Extract(context.Background(), extractorSlice())
+
+	s.Require().NoError(err)
+	s.Require().Len(calls, 2)
+	s.Equal(1, calls[0].Attempt)
+	s.Equal(extractor.ProviderFailureServer, calls[0].FailureClass)
+	s.True(calls[0].Retryable)
+	s.Equal(2, calls[1].Attempt)
+	s.Empty(calls[1].FailureClass)
+}
+
+func (s *openAISuite) TestProviderExecutionRecordsInvalidResponseWithoutRetry() {
+	var calls []extractor.ProviderCall
+	client := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		return response(http.StatusOK, `{"choices":[{"message":{"content":"not-json"}}]}`), nil
+	})}
+	adapter, err := extractor.NewOpenAI(extractor.OpenAIConfig{
+		BaseURL: "http://extractor.test", Model: "model", Client: client,
+		ExecutionPolicy:      extractor.ExecutionPolicy{MaxAttempts: 2, RetryBackoff: time.Millisecond},
+		ProviderCallObserver: func(call extractor.ProviderCall) { calls = append(calls, call) },
+	})
+	s.Require().NoError(err)
+
+	_, err = adapter.Extract(context.Background(), extractorSlice())
+
+	s.Require().Error(err)
+	s.Require().Len(calls, 1)
+	s.Equal(extractor.ProviderFailureInvalidResponse, calls[0].FailureClass)
+	s.False(calls[0].Retryable)
+}
+
+func (s *openAISuite) TestProviderExecutionAppliesDeadlineAndOutputBudget() {
+	var call extractor.ProviderCall
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		var payload map[string]any
+		s.Require().NoError(json.NewDecoder(request.Body).Decode(&payload))
+		s.InDelta(321, payload["max_tokens"], 0)
+		<-request.Context().Done()
+		return nil, request.Context().Err()
+	})}
+	adapter, err := extractor.NewOpenAI(extractor.OpenAIConfig{
+		BaseURL: "http://extractor.test", Model: "model", Client: client,
+		ExecutionPolicy:      extractor.ExecutionPolicy{AttemptTimeout: 5 * time.Millisecond, PrimaryMaxOutputTokens: 321},
+		ProviderCallObserver: func(record extractor.ProviderCall) { call = record },
+	})
+	s.Require().NoError(err)
+
+	_, err = adapter.Extract(context.Background(), extractorSlice())
+
+	s.Require().Error(err)
+	s.Equal(extractor.ProviderFailureDeadline, call.FailureClass)
+	s.Equal(321, call.MaxOutputTokens)
+}
+
 func (s *openAISuite) TestDropsInadmissibleCandidatesWithRejections() {
 	tooMany := make([]string, 11)
 	for index := range tooMany {

@@ -63,6 +63,11 @@ func (s *configSuite) TestLoadsNoopConfiguration() {
 	s.Equal(16*1024, config.extractionCompactTokens)
 	s.Equal(8*1024, config.extractionSummaryTriggerTokens)
 	s.Equal(16*1024, config.extractionSummaryTailTokens)
+	s.Equal(90*time.Second, config.extractionExecutionPolicy.AttemptTimeout)
+	s.Equal(1, config.extractionExecutionPolicy.MaxAttempts)
+	s.Equal(250*time.Millisecond, config.extractionExecutionPolicy.RetryBackoff)
+	s.Equal(int64(1<<20), config.extractionExecutionPolicy.MaxResponseBytes)
+	s.Equal(16*1024, config.extractionExecutionPolicy.PrimaryMaxOutputTokens)
 	s.Equal(16, config.workerShards)
 	s.Equal(5, config.workerMaxAttempts)
 	s.Equal(750*time.Millisecond, config.workerDebounce)
@@ -130,7 +135,7 @@ func (s *configSuite) TestCheckedInCandidateStrategyBuildInterface() {
 		path string
 		want string
 	}{
-		{path: ".env.example", want: "evidence-fidelity-v1, typed-2, source-span-v1, source-span-v2, claim-card-v1"},
+		{path: ".env.example", want: "evidence-fidelity-v1, source-clause-v1, typed-2, source-span-v1"},
 		{path: ".env.example", want: "TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY="},
 		{path: ".env.eval-v2.example", want: "TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY=current"},
 		{path: "compose.yaml", want: "EXTRACTION_CANDIDATE_STRATEGY: ${TEAM_MEMORY_BUILD_EXTRACTION_CANDIDATE_STRATEGY:-current}"},

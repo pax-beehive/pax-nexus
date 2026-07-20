@@ -39,6 +39,7 @@ type OpenAIConfig struct {
 	SummaryTriggerTokens int
 	SummaryTailTokens    int
 	ProviderCallObserver ProviderCallObserver
+	ExecutionPolicy      ExecutionPolicy
 }
 
 type OpenAI struct {
@@ -115,6 +116,9 @@ func normalizeOpenAIConfig(config *OpenAIConfig) error {
 	}
 	if config.CompactionEnabled && config.SummaryEnabled {
 		return fmt.Errorf("create OpenAI extractor: compaction and periodic summary cannot both be enabled")
+	}
+	if err := normalizeExecutionPolicy(&config.ExecutionPolicy); err != nil {
+		return fmt.Errorf("create OpenAI extractor: %w", err)
 	}
 	return nil
 }
@@ -213,56 +217,35 @@ func (e *OpenAI) complete(ctx context.Context, messages []chatMessage) (Result, 
 // completeWith decodes one chat response with the protocol-specific decoder
 // so v1 and v2 share the transport path.
 func (e *OpenAI) completeWith(ctx context.Context, messages []chatMessage, decode func([]byte) (Result, string, error)) (Result, string, error) {
-	responseBody, err := e.call(ctx, messages)
-	if err != nil {
-		return Result{}, "", err
-	}
-	result, content, err := decode(responseBody)
-	if err != nil {
-		return Result{}, "", err
-	}
-	return result, content, nil
+	var result Result
+	var content string
+	_, err := e.executeProvider(ctx, messages, 0, ProviderCallPrimary, func(responseBody []byte) error {
+		decoded, raw, decodeErr := decode(responseBody)
+		if decodeErr != nil {
+			return decodeErr
+		}
+		result, content = decoded, raw
+		return nil
+	})
+	return result, content, err
 }
 
-func (e *OpenAI) call(ctx context.Context, messages []chatMessage) ([]byte, error) {
-	return e.callWithType(ctx, messages, 0, ProviderCallPrimary)
-}
-
-func (e *OpenAI) callWithType(
+func (e *OpenAI) providerRequest(
 	ctx context.Context,
 	messages []chatMessage,
 	maxTokens int,
-	callType ProviderCallType,
-) (responseBody []byte, returnedErr error) {
-	startedAt := time.Now()
-	status := 0
-	defer func() {
-		if e.config.ProviderCallObserver == nil {
-			return
-		}
-		record := ProviderCall{
-			Type: callType, StartedAt: startedAt.UTC(), DurationMS: time.Since(startedAt).Milliseconds(),
-			HTTPStatus: status, Usage: providerUsage(responseBody),
-		}
-		if scopeID, err := teamnote.ScopeFromContext(ctx); err == nil {
-			record.ScopeID = scopeID
-		}
-		if returnedErr != nil {
-			record.Error = returnedErr.Error()
-		}
-		e.config.ProviderCallObserver(record)
-	}()
+) ([]byte, int, error) {
 	body, err := json.Marshal(chatRequest{
 		Model: e.config.Model, Messages: messages, Temperature: 0,
 		ResponseFormat: responseFormat{Type: "json_object"},
 		MaxTokens:      maxTokens,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("encode extractor request: %w", err)
+		return nil, 0, fmt.Errorf("encode extractor request: %w", err)
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(e.config.BaseURL, "/")+"/v1/chat/completions", bytes.NewReader(body))
 	if err != nil {
-		return nil, fmt.Errorf("create extractor request: %w", err)
+		return nil, 0, fmt.Errorf("create extractor request: %w", err)
 	}
 	request.Header.Set("Content-Type", "application/json")
 	if e.config.APIKey != "" {
@@ -270,21 +253,24 @@ func (e *OpenAI) callWithType(
 	}
 	response, err := e.config.Client.Do(request)
 	if err != nil {
-		return nil, fmt.Errorf("call extractor model: %w", err)
+		return nil, 0, fmt.Errorf("call extractor model: %w", err)
 	}
-	status = response.StatusCode
-	responseBody, err = io.ReadAll(io.LimitReader(response.Body, 1<<20))
+	limit := e.config.ExecutionPolicy.MaxResponseBytes
+	responseBody, err := io.ReadAll(io.LimitReader(response.Body, limit+1))
 	closeErr := response.Body.Close()
 	if err != nil {
-		return nil, fmt.Errorf("read extractor response: %w", err)
+		return nil, response.StatusCode, fmt.Errorf("read extractor response: %w", err)
 	}
 	if closeErr != nil {
-		return nil, fmt.Errorf("close extractor response: %w", closeErr)
+		return nil, response.StatusCode, fmt.Errorf("close extractor response: %w", closeErr)
+	}
+	if int64(len(responseBody)) > limit {
+		return nil, response.StatusCode, fmt.Errorf("extractor response exceeds %d bytes: %w", limit, ErrProviderResponseTooLarge)
 	}
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		return nil, fmt.Errorf("extractor response status %d: %s", response.StatusCode, strings.TrimSpace(string(responseBody)))
+		return nil, response.StatusCode, &providerStatusError{status: response.StatusCode, body: strings.TrimSpace(string(responseBody))}
 	}
-	return responseBody, nil
+	return responseBody, response.StatusCode, nil
 }
 
 func providerUsage(body []byte) Usage {

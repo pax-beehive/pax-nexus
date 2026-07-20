@@ -1,6 +1,6 @@
 # Extraction v2
 
-Status: Accepted with rollout exception; production default enabled; quality gates blocked; `evidence-fidelity-v1` not retained
+Status: Accepted with rollout exception; production default enabled; `source-clause-v1` implemented for evaluation; quality gates blocked
 
 Date: 2026-07-16
 
@@ -589,6 +589,51 @@ a broad set of adjacent Events. The candidate is not retained, and unchanged
 additional seeds are not authorized. A successor must first make Candidate
 evidence source-clause atomic without adding a new rendering schema. See the
 [evidence-fidelity result](../../evals/extraction-v1/results/2026-07-19-evidence-fidelity-v1-micro3-r1.md).
+
+## Temporal admission and replay determinism addendum (2026-07-19)
+
+Deterministic temporal admission must never read the current wall clock. The
+Extraction Observation Time for a slice is the maximum `occurred_at` among its
+new Events; overlap Events do not move it. Every State Decision in that slice
+is admitted against the same instant. A temporal decision that needs an
+Observation Time is rejected when the new Events do not provide one rather
+than silently falling back to processing or replay time.
+
+This choice keeps the same saved provider response replayable across machines
+and dates. Source Time and Extraction Observation Time are intentionally equal
+for this passive, event-driven extraction boundary; storage mutation time
+remains distinct. A future workflow that needs a later observation instant
+must add that instant to the immutable Slice contract and its checksum instead
+of injecting a runtime clock.
+
+State-changing decisions also cite the shortest exact contiguous source clause
+that authorizes the change. Deterministic admission verifies the citation
+against the cited Event and evaluates proposal, request, and question language
+inside that clause only. The Session Event remains the evidence authority and
+the external Candidate schema remains unchanged. This rejects broad Event-level
+evidence laundering without adding another persisted note rendering.
+
+Provider execution is a separate internal Module behind `Extractor.Extract`.
+It owns per-attempt deadlines, bounded retries for transient transport and
+provider failures, response-size and output-token budgets, stable failure
+classification, and attempt telemetry. Invalid structured responses and
+deterministic Candidate rejections are not retried by default. Durable Episode
+replay remains the resume mechanism; exactly-once charging between an HTTP
+success and Episode persistence is not claimed.
+
+Rejected alternatives were wall-clock admission, because replay outcomes
+drift; whole-Event modality checks, because unrelated clauses can authorize a
+proposal; and mandatory verifier calls, because they violate the single-call
+latency and cost envelope.
+
+Implementation update: `source-clause-v1` now uses a protocol-specific exact
+clause citation while retaining the semantic Candidate schema. Temporal
+admission derives one Observation Time from immutable new Events. The provider
+Execution Module records classified physical attempts and enforces deadlines,
+retry limits, and response budgets. Extraction Eval v1 exports an Atom-level
+first-loss ledger. Deterministic tests pass, but promotion remains blocked
+until the fixed Finance source is available for a paired canary; the current
+local eval database no longer contains that source scope.
 
 ## Consequences
 
