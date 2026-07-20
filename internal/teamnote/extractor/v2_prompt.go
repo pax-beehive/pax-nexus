@@ -7,8 +7,8 @@ const (
 	extractionProtocolV2RevisionCurrent          = "v2-slim-5-temporal-deterministic"
 	extractionProtocolV2RevisionInteractionSlim  = "v2-slim-4-interaction-slim-temporal-deterministic"
 	extractionProtocolV2RevisionEvidenceFidelity = "v2-slim-7-evidence-fidelity-v1-temporal-deterministic"
-	extractionProtocolV2RevisionSourceClause     = "v2-slim-7-source-clause-v1"
-	extractionProtocolV2RevisionImplicitState    = "v2-slim-8-source-clause-implicit-state-v1"
+	extractionProtocolV2RevisionSourceClause     = "v2-slim-8-source-clause-v1"
+	extractionProtocolV2RevisionImplicitState    = "v2-slim-9-source-clause-implicit-state-v1"
 )
 
 // The v2 user prompt is the same session-slice JSON as v1 (buildPrompt), so
