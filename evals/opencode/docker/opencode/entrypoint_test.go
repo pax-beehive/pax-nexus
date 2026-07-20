@@ -281,6 +281,40 @@ func (s *entrypointSuite) TestZepNativeArmSuppliesProcessedNativeContextWithoutP
 	artifact, err := os.ReadFile(filepath.Join(artifactDirectory, "zep-native.json"))
 	s.Require().NoError(err)
 	s.JSONEq(`{"context":"Zep processed evidence.","episodes":1,"processed":1}`, string(artifact))
+	summary, err := os.ReadFile(filepath.Join(artifactDirectory, "zep-native-summary.json"))
+	s.Require().NoError(err)
+	s.JSONEq(`{"provider":null,"episodes":1,"processed":1,"context_characters":23}`, string(summary))
+}
+
+func (s *entrypointSuite) TestZepNativeSearchFailureWritesDiagnosticArtifact() {
+	repositoryRoot, err := filepath.Abs(filepath.Join("..", "..", "..", ".."))
+	s.Require().NoError(err)
+	directory := s.T().TempDir()
+	artifactDirectory := filepath.Join(directory, "artifacts")
+	binDirectory := filepath.Join(directory, "bin")
+	s.Require().NoError(os.Mkdir(binDirectory, 0o700))
+	goCommand := filepath.Join(binDirectory, "go")
+	goScript := "#!/bin/sh\necho 'simulated Zep TLS failure' >&2\nexit 7\n"
+	s.Require().NoError(os.WriteFile(goCommand, []byte(goScript), 0o700))
+
+	command := exec.Command("sh", filepath.Join(repositoryRoot, "scripts", "eval-v2-opencode.sh"), "consumer", "zep_native")
+	command.Dir = repositoryRoot
+	command.Env = []string{
+		"PATH=" + binDirectory + string(os.PathListSeparator) + os.Getenv("PATH"),
+		"ZEP_API_KEY=test-zep-key",
+		"PAX_EVAL_RUN_ID=zep-native-failure-test",
+		"PAX_EVAL_CASE_ID=case-1",
+		"PAX_EVAL_SCOPE_ID=scope-1",
+		"PAX_EVAL_USER_ID=User_3",
+		"PAX_EVAL_ARTIFACT_DIR=" + artifactDirectory,
+		"PAX_EVAL_QUESTION=Who owns the rollback evidence?",
+		"TEAM_MEMORY_API_KEYS={}",
+	}
+	output, err := command.CombinedOutput()
+	s.Require().Error(err, string(output))
+	artifact, err := os.ReadFile(filepath.Join(artifactDirectory, "zep-native.json"))
+	s.Require().NoError(err)
+	s.JSONEq(`{"status":"failed","action":"search","exit_code":7,"stdout":"","stderr":"simulated Zep TLS failure\n"}`, string(artifact))
 }
 
 func (s *entrypointSuite) TestZepNativeReadinessRequiresAllIngestedEpisodes() {
@@ -319,6 +353,42 @@ func (s *entrypointSuite) TestZepNativeReadinessRequiresAllIngestedEpisodes() {
 	s.Contains(string(goArguments), "-action")
 	s.Contains(string(goArguments), "ready")
 	s.Contains(string(goArguments), "zep-eval-zep-ready-test-case-1")
+	artifact, err := os.ReadFile(filepath.Join(artifactDirectory, "zep-readiness.json"))
+	s.Require().NoError(err)
+	s.JSONEq(`{"episodes":2,"processed":2,"accepted":2,"attempts":1}`, string(artifact))
+}
+
+func (s *entrypointSuite) TestZepNativeReadinessAcceptsCompleteEpisodesWithoutProcessingField() {
+	repositoryRoot, err := filepath.Abs(filepath.Join("..", "..", "..", ".."))
+	s.Require().NoError(err)
+	directory := s.T().TempDir()
+	artifactDirectory := filepath.Join(directory, "artifacts")
+	s.Require().NoError(os.MkdirAll(artifactDirectory, 0o700))
+	s.Require().NoError(os.WriteFile(filepath.Join(artifactDirectory, "ingest.log"), []byte(`{"accepted":2}`), 0o600))
+	binDirectory := filepath.Join(directory, "bin")
+	s.Require().NoError(os.Mkdir(binDirectory, 0o700))
+	goCommand := filepath.Join(binDirectory, "go")
+	goScript := "#!/bin/sh\nprintf '%s\\n' '{\"episodes\":2,\"episode_ids\":[\"episode-1\",\"episode-2\"]}'\n"
+	s.Require().NoError(os.WriteFile(goCommand, []byte(goScript), 0o700))
+
+	command := exec.Command("sh", filepath.Join(repositoryRoot, "scripts", "eval-v2-opencode.sh"), "ready", "zep_native")
+	command.Dir = repositoryRoot
+	command.Env = []string{
+		"PATH=" + binDirectory + string(os.PathListSeparator) + os.Getenv("PATH"),
+		"ZEP_API_KEY=test-zep-key",
+		"PAX_EVAL_RUN_ID=zep-ready-unreported-test",
+		"PAX_EVAL_CASE_ID=case-1",
+		"PAX_EVAL_SCOPE_ID=scope-1",
+		"PAX_EVAL_USER_ID=User_3",
+		"PAX_EVAL_ARTIFACT_DIR=" + artifactDirectory,
+		"PAX_EVAL_ZEP_READINESS_ATTEMPTS=1",
+		"TEAM_MEMORY_API_KEYS={}",
+	}
+	output, err := command.CombinedOutput()
+	s.Require().NoError(err, string(output))
+	artifact, err := os.ReadFile(filepath.Join(artifactDirectory, "zep-readiness.json"))
+	s.Require().NoError(err)
+	s.JSONEq(`{"episodes":2,"episode_ids":["episode-1","episode-2"],"accepted":2,"attempts":1,"processing_status":"unreported"}`, string(artifact))
 }
 
 func (s *entrypointSuite) TestMem0UsesSharedIdentityAcrossAskingUsers() {
@@ -457,6 +527,7 @@ func (s *entrypointSuite) TestEvalStackProvisionsIsolatedHybridScope() {
 		"PATH=" + binDirectory + string(os.PathListSeparator) + os.Getenv("PATH"),
 		"DOCKER_CAPTURE=" + capture,
 		"EVAL_V2_ENV_FILE=" + filepath.Join(directory, "missing.env"),
+		"MEM0_OPENAI_API_KEY=test-mem0-key",
 	}
 	output, err := command.CombinedOutput()
 	s.Require().NoError(err, string(output))

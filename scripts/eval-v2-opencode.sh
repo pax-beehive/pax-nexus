@@ -125,6 +125,50 @@ run_zep() {
     go run ./cmd/eval-v2-zep "$@"
 }
 
+write_zep_artifact() {
+  artifact_name="$1"
+  artifact_payload="$2"
+  mkdir -p "${PAX_EVAL_ARTIFACT_DIR}"
+  printf '%s\n' "${artifact_payload}" > "${PAX_EVAL_ARTIFACT_DIR}/${artifact_name}"
+}
+
+write_zep_failure_artifact() {
+  artifact_name="$1"
+  action="$2"
+  exit_code="$3"
+  stdout_payload="$4"
+  stderr_file="$5"
+  mkdir -p "${PAX_EVAL_ARTIFACT_DIR}"
+  jq -n \
+    --arg action "${action}" \
+    --argjson exit_code "${exit_code}" \
+    --arg stdout "${stdout_payload}" \
+    --rawfile stderr "${stderr_file}" \
+    '{status:"failed",action:$action,exit_code:$exit_code,stdout:$stdout,stderr:$stderr}' \
+    > "${PAX_EVAL_ARTIFACT_DIR}/${artifact_name}"
+}
+
+run_zep_with_artifact() {
+  artifact_name="$1"
+  action="$2"
+  shift 2
+  if [ -z "${PAX_EVAL_ARTIFACT_DIR:-}" ]; then
+    run_zep "$@"
+    return
+  fi
+  mkdir -p "${PAX_EVAL_ARTIFACT_DIR}"
+  stderr_file="${PAX_EVAL_ARTIFACT_DIR}/${artifact_name%.json}.stderr.log"
+  if zep_result="$(run_zep "$@" 2>"${stderr_file}")"; then
+    write_zep_artifact "${artifact_name}" "${zep_result}"
+    printf '%s\n' "${zep_result}"
+    return
+  fi
+  exit_code=$?
+  write_zep_failure_artifact "${artifact_name}" "${action}" "${exit_code}" "${zep_result:-}" "${stderr_file}"
+  echo "Zep ${action} request failed; artifact=${PAX_EVAL_ARTIFACT_DIR}/${artifact_name}" >&2
+  return "${exit_code}"
+}
+
 case "${stage}" in
   producer)
     producer_write_enabled=1
@@ -150,13 +194,18 @@ case "${stage}" in
     fi
     if [ "${arm}" = "zep_native" ]; then
       zep_user_id="zep-eval-${PAX_EVAL_RUN_ID}-${case_id}"
-      run_zep -action ingest -user-id "${zep_user_id}" -session-batches-file "${batches_absolute}/${batches_file}"
-      exit 0
+      run_zep_with_artifact zep-ingest.json ingest -action ingest -user-id "${zep_user_id}" -session-batches-file "${batches_absolute}/${batches_file}"
+      exit $?
     fi
     run_memory_ingest "${ingest_provider}" "${api_key}" "${ingest_user_id}" "${ingest_agent_id}" "${mem0_run_id}" \
       "${batches_absolute}" "/artifact/${batches_file}"
     ;;
   preflight)
+    if [ "${arm}" = "zep_native" ]; then
+      zep_user_id="zep-eval-${PAX_EVAL_RUN_ID}-preflight"
+      run_zep_with_artifact zep-preflight.json preflight -action preflight -user-id "${zep_user_id}"
+      exit $?
+    fi
     preflight_key="eval-${PAX_EVAL_RUN_ID}-preflight"
     preflight_run_id="${PAX_EVAL_RUN_ID}-preflight"
     run_memory_preflight "${preflight_key}" "${preflight_run_id}" "PAX-EVAL-PREFLIGHT-${PAX_EVAL_RUN_ID}"
@@ -186,17 +235,49 @@ case "${stage}" in
         exit 1
       fi
       accepted="$(jq -er '.accepted' "${ingest_result_file}")"
+      if [ "${accepted}" -le 0 ]; then
+        echo "Zep ingest accepted no episodes: artifact=${ingest_result_file}" >&2
+        exit 1
+      fi
+      readiness_artifact="${PAX_EVAL_ARTIFACT_DIR}/zep-readiness.json"
       while [ "${attempts}" -lt "${readiness_attempts}" ]; do
-        readiness_result="$(run_zep -action ready -user-id "${zep_user_id}")"
-        episodes="$(printf '%s' "${readiness_result}" | jq -er '.episodes')"
-        processed="$(printf '%s' "${readiness_result}" | jq -er '.processed')"
-        if [ "${episodes}" -ge "${accepted}" ] && [ "${episodes}" -eq "${processed}" ]; then
-          exit 0
+        stderr_file="${PAX_EVAL_ARTIFACT_DIR}/zep-readiness.stderr.log"
+        if readiness_result="$(run_zep -action ready -user-id "${zep_user_id}" 2>"${stderr_file}")"; then
+          :
+        else
+          exit_code=$?
+          jq -n --arg user_id "${zep_user_id}" --argjson accepted "${accepted}" --argjson attempts "${attempts}" \
+            --argjson exit_code "${exit_code}" --rawfile stderr "${stderr_file}" \
+            '{status:"failed",action:"ready",user_id:$user_id,accepted:$accepted,attempts:$attempts,exit_code:$exit_code,stderr:$stderr}' > "${readiness_artifact}"
+          echo "Zep readiness request failed: user_id=${zep_user_id} attempts=${attempts} accepted=${accepted} artifact=${readiness_artifact}" >&2
+          exit 1
+        fi
+        if ! episodes="$(printf '%s' "${readiness_result}" | jq -er '.episodes')"; then
+          jq -n --arg response "${readiness_result}" --argjson accepted "${accepted}" --argjson attempts "${attempts}" \
+            '{status:"failed",action:"ready",accepted:$accepted,attempts:$attempts,response:$response}' > "${readiness_artifact}"
+          echo "Zep readiness response lacks episodes: artifact=${readiness_artifact}" >&2
+          exit 1
+        fi
+        if processed="$(printf '%s' "${readiness_result}" | jq -er '.processed')"; then
+          processing_reported=1
+        else
+          processed=0
+          processing_reported=0
         fi
         attempts=$((attempts + 1))
+        if [ "${processing_reported}" -eq 1 ]; then
+          printf '%s' "${readiness_result}" | jq --argjson accepted "${accepted}" --argjson attempts "${attempts}" \
+            '. + {accepted: $accepted, attempts: $attempts}' > "${readiness_artifact}"
+        else
+          printf '%s' "${readiness_result}" | jq --argjson accepted "${accepted}" --argjson attempts "${attempts}" \
+            '. + {accepted: $accepted, attempts: $attempts, processing_status: "unreported"}' > "${readiness_artifact}"
+        fi
+        if [ "${episodes}" -ge "${accepted}" ] && { [ "${processing_reported}" -eq 0 ] || [ "${episodes}" -eq "${processed}" ]; }; then
+          exit 0
+        fi
         sleep 1
       done
-      echo "timed out waiting for Zep graph processing after ${readiness_attempts} attempts" >&2
+      echo "timed out waiting for Zep graph processing: accepted=${accepted} episodes=${episodes} processed=${processed} attempts=${attempts} artifact=${readiness_artifact}" >&2
       exit 1
     fi
     ;;
@@ -221,10 +302,19 @@ case "${stage}" in
       consumer_recall_enabled=0
       consumer_recall_mode=direct
       zep_user_id="zep-eval-${PAX_EVAL_RUN_ID}-${case_id}"
-      zep_result="$(run_zep -action search -user-id "${zep_user_id}" -query "${PAX_EVAL_QUESTION}" -max-characters "${PAX_EVAL_ZEP_MAX_CHARACTERS:-2000}")"
       mkdir -p "${PAX_EVAL_ARTIFACT_DIR}"
-      printf '%s\n' "${zep_result}" > "${PAX_EVAL_ARTIFACT_DIR}/zep-native.json"
+      if zep_result="$(run_zep -action search -user-id "${zep_user_id}" -query "${PAX_EVAL_QUESTION}" -max-characters "${PAX_EVAL_ZEP_MAX_CHARACTERS:-2000}" 2>"${PAX_EVAL_ARTIFACT_DIR}/zep-native.stderr.log")"; then
+        :
+      else
+        exit_code=$?
+        write_zep_failure_artifact zep-native.json search "${exit_code}" "${zep_result:-}" "${PAX_EVAL_ARTIFACT_DIR}/zep-native.stderr.log"
+        echo "Zep search request failed; artifact=${PAX_EVAL_ARTIFACT_DIR}/zep-native.json" >&2
+        exit "${exit_code}"
+      fi
+      write_zep_artifact zep-native.json "${zep_result}"
       zep_context="$(printf '%s' "${zep_result}" | jq -er '.context')"
+      printf '%s' "${zep_result}" | jq '{provider, episodes, context_characters: (.context | length)} + if has("processed") then {processed} else {} end' \
+        > "${PAX_EVAL_ARTIFACT_DIR}/zep-native-summary.json"
       consumer_prompt="$(printf 'Asking user: %s\n\nQuestion:\n%s\n\nRetrieved conversation passages:\n%s' "${eval_user_id}" "${PAX_EVAL_QUESTION}" "${zep_context}")"
     fi
     if [ "${arm}" = "team_note_hybrid" ]; then

@@ -44,6 +44,32 @@ escape_html() {
   printf '%s' "$1" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g'
 }
 
+resolve_job_postgres_dsn() {
+  if [ -n "${EVAL_V2_JOB_POSTGRES_DSN:-}" ]; then
+    EVAL_V2_POSTGRES_DSN="${EVAL_V2_JOB_POSTGRES_DSN}"
+    export EVAL_V2_POSTGRES_DSN
+    return
+  fi
+  mapping="$(docker compose -p "${project_name}" -f "${EVAL_V2_COMPOSE_FILE:-evals/v2/compose.yaml}" port postgres 5432)"
+  port="${mapping##*:}"
+  case "${port}" in
+    *[!0-9]*|'') echo "eval job could not resolve PostgreSQL host port: ${mapping}" >&2; return 1 ;;
+  esac
+  EVAL_V2_POSTGRES_DSN="postgres://team_memory:team_memory@host.docker.internal:${port}/team_memory?sslmode=disable"
+  export EVAL_V2_POSTGRES_DSN
+}
+
+run_acceptance_program() {
+  if [ -z "${EVAL_V2_ACCEPTANCE_PROGRAM:-}" ]; then
+    return
+  fi
+  if [ ! -x "${EVAL_V2_ACCEPTANCE_PROGRAM}" ]; then
+    echo "eval acceptance program is not executable: ${EVAL_V2_ACCEPTANCE_PROGRAM}" >&2
+    return 1
+  fi
+  "${EVAL_V2_ACCEPTANCE_PROGRAM}" "${run_directory}"
+}
+
 cleanup() {
   if [ "${stack_started}" -eq 1 ]; then
     EVAL_V2_COMPOSE_PROJECT="${project_name}" ./scripts/eval-v2-stack.sh reset >/dev/null 2>&1 || true
@@ -76,6 +102,12 @@ trap cleanup EXIT HUP INT TERM
 
 if [ -n "${EVAL_V2_PREPARED_SELECTION:-}" ]; then
   cp -R "${EVAL_V2_PREPARED_SELECTION}/." "${selection_directory}/"
+  if [ -n "${EVAL_V2_PREPARED_MANIFEST:-}" ]; then
+    case "${EVAL_V2_PREPARED_MANIFEST}" in
+      */*|.|..) echo "eval job prepared manifest must be a file name: ${EVAL_V2_PREPARED_MANIFEST}" >&2; exit 1 ;;
+    esac
+    manifest="${selection_directory}/${EVAL_V2_PREPARED_MANIFEST}"
+  fi
 else
   GROUPMEMBENCH_SEED="${seed}" \
   GROUPMEMBENCH_TOTAL_CASES="${EVAL_V2_TOTAL_CASES:-120}" \
@@ -83,6 +115,10 @@ else
     ./scripts/eval-v2-prepare-groupmembench.sh "${selection_directory}"
 fi
 
+if [ ! -f "${manifest}" ]; then
+  echo "eval job selection manifest is missing: ${manifest}" >&2
+  exit 1
+fi
 manifest_sha256="$(sha256sum "${manifest}" | awk '{print $1}')"
 cp "${base_config}" "${run_directory}/config.source.yaml"
 export CANDIDATE_GIT_SHA="${candidate_sha}"
@@ -92,7 +128,6 @@ export EVAL_SELECTION_SEED="${seed}"
 export EVAL_SELECTION_ALGORITHM="${selection_algorithm}"
 export EVAL_MANIFEST_SHA256="${manifest_sha256}"
 export EVAL_V2_COMPOSE_PROJECT="${project_name}"
-export EVAL_V2_POSTGRES_DSN="${EVAL_V2_JOB_POSTGRES_DSN:-postgres://team_memory:team_memory@host.docker.internal:${EVAL_V2_POSTGRES_PORT:-55433}/team_memory?sslmode=disable}"
 
 write_run_record() {
   current_status="$1"
@@ -122,6 +157,8 @@ fi
 
 stack_started=1
 ./scripts/eval-v2-stack.sh up "${manifest}" "${run_id}"
+resolve_job_postgres_dsn
+printf '%s\n' "eval job PostgreSQL DSN: ${EVAL_V2_POSTGRES_DSN%%@*}@..."
 image_digests="runner=$(docker inspect --format '{{.Image}}' "$(hostname)" 2>/dev/null || printf unknown)"
 for service in postgres team-memory qwen-embedding mem0-postgres mem0 mem0-configure opencode; do
   image_id="$(docker compose -p "${project_name}" -f "${EVAL_V2_COMPOSE_FILE:-evals/v2/compose.yaml}" images -q "${service}" | head -n 1)"
@@ -137,6 +174,7 @@ if team-memory-eval-v2 \
   -output-dir "${run_directory}" \
   -resolved-config-output "${run_directory}/config.resolved.json" \
   -automation-provenance; then
+  run_acceptance_program
   status=completed
   write_run_record "${status}"
   ln -sfn "${run_id}" "${output_root}/latest"

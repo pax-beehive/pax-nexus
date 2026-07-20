@@ -38,7 +38,7 @@ func main() {
 
 func run(args []string, stdout io.Writer, client *http.Client) error {
 	flags := flag.NewFlagSet("eval-v2-zep", flag.ContinueOnError)
-	action := flags.String("action", "", "ingest, search, or ready")
+	action := flags.String("action", "", "ingest, search, ready, or preflight")
 	input := flags.String("session-batches-file", "", "native session batches JSON")
 	userID := flags.String("user-id", "", "isolated Zep user graph identifier")
 	query := flags.String("query", "", "retrieval query")
@@ -64,8 +64,10 @@ func run(args []string, stdout io.Writer, client *http.Client) error {
 		result, err = search(zep, *userID, *query, *budget)
 	case "ready":
 		result, err = readiness(zep, *userID)
+	case "preflight":
+		result, err = preflight(zep, *userID)
 	default:
-		err = fmt.Errorf("action must be ingest, search, or ready")
+		err = fmt.Errorf("action must be ingest, search, ready, or preflight")
 	}
 	if err != nil {
 		return err
@@ -74,6 +76,16 @@ func run(args []string, stdout io.Writer, client *http.Client) error {
 		return fmt.Errorf("encode Zep result: %w", err)
 	}
 	return nil
+}
+
+func preflight(z zepClient, userID string) (output, error) {
+	if strings.TrimSpace(userID) == "" {
+		return output{}, fmt.Errorf("user-id is required")
+	}
+	if err := z.call(http.MethodPost, "/users", map[string]string{"user_id": userID}, nil, http.StatusCreated, http.StatusConflict); err != nil {
+		return output{}, err
+	}
+	return output{Provider: "zep"}, nil
 }
 
 type zepClient struct {

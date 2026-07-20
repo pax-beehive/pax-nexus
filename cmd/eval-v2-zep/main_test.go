@@ -88,6 +88,20 @@ func (s *commandSuite) TestReadyCountsProcessedEpisodes() {
 	s.Contains(stdout.String(), `"processed":1`)
 }
 
+func (s *commandSuite) TestPreflightVerifiesCredentialAndUserEndpoint() {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		s.Equal(http.MethodPost, request.Method)
+		s.Equal("/users", request.URL.Path)
+		writer.WriteHeader(http.StatusConflict)
+	}))
+	defer server.Close()
+	s.T().Setenv("ZEP_API_KEY", "test-key")
+	var stdout bytes.Buffer
+	err := run([]string{"-action", "preflight", "-user-id", "zep-eval-preflight", "-base-url", server.URL}, &stdout, server.Client())
+	s.Require().NoError(err)
+	s.Contains(stdout.String(), `"provider":"zep"`)
+}
+
 func (s *commandSuite) TestRequiresCredentialAndAction() {
 	s.T().Setenv("ZEP_API_KEY", "")
 	err := run([]string{"-action", "search", "-user-id", "zep-eval-case-1", "-query", "Who owns rollback?"}, io.Discard, http.DefaultClient)

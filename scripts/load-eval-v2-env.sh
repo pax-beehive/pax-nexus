@@ -5,7 +5,12 @@ case "$-" in
   *) eval_v2_restore_allexport=true; set -a ;;
 esac
 
-[ ! -f .env ] || . ./.env
+eval_v2_base_env_file="${EVAL_V2_BASE_ENV_FILE:-.env}"
+case "${eval_v2_base_env_file}" in
+  /*|./*|../*) ;;
+  *) eval_v2_base_env_file="./${eval_v2_base_env_file}" ;;
+esac
+[ ! -f "${eval_v2_base_env_file}" ] || . "${eval_v2_base_env_file}"
 eval_v2_env_file="${EVAL_V2_ENV_FILE:-.env.eval-v2}"
 case "${eval_v2_env_file}" in
   /*|./*|../*) ;;
@@ -25,6 +30,7 @@ if "${eval_v2_restore_allexport}"; then
 fi
 unset eval_v2_restore_allexport
 unset eval_v2_env_file
+unset eval_v2_base_env_file
 
 : "${MEM0_DEEPSEEK_BASE_URL:=https://api.deepseek.com}"
 : "${MEM0_EVAL_USER_ID:=groupmembench-shared-user}"

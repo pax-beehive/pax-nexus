@@ -21,6 +21,9 @@ output:
   formats: [csv, jsonl, html]
 judge:
   program: scripts/eval-v2-judge.sh
+preflight:
+  program: scripts/eval-v2-opencode.sh
+  args: [preflight, zep_native]
 arms:
   - name: control
     consumer:

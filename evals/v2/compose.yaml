@@ -6,7 +6,7 @@ services:
       POSTGRES_USER: team_memory
       POSTGRES_PASSWORD: team_memory
     ports:
-      - "${EVAL_V2_POSTGRES_PORT:-55433}:5432"
+      - "0:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U team_memory -d team_memory"]
       interval: 1s
@@ -122,7 +122,7 @@ services:
       args:
         MEM0_BASE_IMAGE: ${MEM0_IMAGE:-mem0/mem0-api-server@sha256:2fcf4bb713cfc584d454bf06993cc7e2fe51540695995bd3aa9c7008b7065c75}
     environment:
-      OPENAI_API_KEY: ${MEM0_OPENAI_API_KEY:?MEM0_OPENAI_API_KEY is required}
+      OPENAI_API_KEY: ${MEM0_OPENAI_API_KEY:-}
       POSTGRES_HOST: mem0-postgres
       POSTGRES_PORT: 5432
       POSTGRES_DB: postgres
@@ -154,7 +154,7 @@ services:
     environment:
       MEM0_CONFIGURE_URL: http://mem0:8000/configure
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:?DEEPSEEK_API_KEY is required}
-      MEM0_OPENAI_API_KEY: ${MEM0_OPENAI_API_KEY:?MEM0_OPENAI_API_KEY is required}
+      MEM0_OPENAI_API_KEY: ${MEM0_OPENAI_API_KEY:-}
       MEM0_DEFAULT_LLM_MODEL: ${MEM0_DEFAULT_LLM_MODEL:-deepseek-v4-flash}
       MEM0_DEEPSEEK_BASE_URL: ${MEM0_DEEPSEEK_BASE_URL:-https://api.deepseek.com}
       MEM0_DEFAULT_EMBEDDER_MODEL: ${MEM0_DEFAULT_EMBEDDER_MODEL:-text-embedding-3-small}

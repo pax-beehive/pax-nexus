@@ -11,7 +11,7 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/groupmembench-sele
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/eval-v2-zep ./cmd/eval-v2-zep
 
 FROM ${DOCKER_CLI_IMAGE}
-RUN apk add --no-cache curl git jq util-linux
+RUN apk add --no-cache ca-certificates curl git jq util-linux && update-ca-certificates
 COPY --from=build /out/team-memory-eval-v2 /usr/local/bin/team-memory-eval-v2
 COPY --from=build /out/groupmembench-select /usr/local/bin/groupmembench-select
 COPY --from=build /out/eval-v2-zep /usr/local/bin/eval-v2-zep

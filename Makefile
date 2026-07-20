@@ -24,7 +24,7 @@ RECALL_EVAL_OUTPUT ?= runs/recall-eval-v1/current
 RECALL_EVAL_SEMANTIC_THRESHOLD ?= 0.50
 RECALL_EVAL_CANDIDATE_LIMIT ?= 16
 
-.PHONY: all build validate-extraction-candidate-strategy tools generate-init generate mocks fmt format-check lint test test-unit test-scripts coverage integration-test recall-eval-v1 recall-eval-v2 recall-eval-v2-up recall-eval-v2-down docker-eval groupmembench-data groupmembench-eval eval-v2-prepare eval-v2-up eval-v2 eval-v2-smoke-up eval-v2-smoke eval-v2-acceptance-up eval-v2-acceptance eval-v2-down eval-v2-reset eval-v2-job-image eval-v2-job eval-v3-prepare eval-v3-up eval-v3 eval-v3-down eval-v3-reset up down logs db-up db-down clean
+.PHONY: all build validate-extraction-candidate-strategy tools generate-init generate mocks fmt format-check lint test test-unit test-scripts coverage integration-test recall-eval-v1 recall-eval-v2 recall-eval-v2-up recall-eval-v2-down docker-eval groupmembench-data groupmembench-eval eval-v2-prepare eval-v2-up eval-v2 eval-v2-smoke-up eval-v2-smoke eval-v2-acceptance-up eval-v2-acceptance eval-v2-down eval-v2-reset eval-v2-job-image eval-v2-job eval-v2-zep-canary eval-v3-prepare eval-v3-up eval-v3 eval-v3-down eval-v3-reset up down logs db-up db-down clean
 
 all: lint test
 
@@ -91,6 +91,7 @@ test-unit:
 test-scripts:
 	./scripts/test-eval-v2-job.sh
 	./scripts/test-extraction-candidate-builds.sh
+	./scripts/test-zep-native-acceptance.sh
 
 integration-test: db-up
 	TEAM_MEMORY_TEST_POSTGRES_DSN=postgres://team_memory:team_memory@127.0.0.1:$${TEAM_MEMORY_POSTGRES_PORT:-55432}/team_memory?sslmode=disable \
@@ -210,20 +211,43 @@ eval-v2-job: eval-v2-job-image
 			zep_api_key="$$(awk 'BEGIN { in_zep=0 } /^[[:space:]]{2}zep:/ { in_zep=1; next } in_zep && /^[[:space:]]{2}[A-Za-z0-9_-]+:/ { exit } in_zep && /^[[:space:]]{4}api_key:/ { sub(/^[[:space:]]*api_key:[[:space:]]*/, ""); print; exit }' "$$zep_config_path")"; \
 		fi; \
 		extra_mount=""; \
-		if [ -n "$${PAXM_SOURCE_DIR:-}" ]; then extra_mount="-v $${PAXM_SOURCE_DIR}:$${PAXM_SOURCE_DIR}:ro"; fi; \
+		paxm_source_dir="$${PAXM_SOURCE_DIR:-}"; \
+		git_common_dir="$$(git rev-parse --git-common-dir)"; \
+		prepared_selection_mount=""; \
+		eval_env_mount=""; \
+		base_env_mount=""; \
+		if [ -n "$${EVAL_V2_PREPARED_SELECTION:-}" ]; then prepared_selection_mount="-v $${EVAL_V2_PREPARED_SELECTION}:$${EVAL_V2_PREPARED_SELECTION}:ro"; fi; \
+		base_env_path="$${EVAL_V2_BASE_ENV_FILE:-}"; \
+		if [ -n "$${EVAL_V2_ENV_FILE:-}" ] && [ -f "$${EVAL_V2_ENV_FILE}" ]; then eval_env_mount="-v $${EVAL_V2_ENV_FILE}:$${EVAL_V2_ENV_FILE}:ro"; if [ -z "$$base_env_path" ]; then base_env_path="$$(dirname "$${EVAL_V2_ENV_FILE}")/.env"; fi; fi; \
+		if [ -n "$$base_env_path" ] && [ -f "$$base_env_path" ]; then base_env_mount="-v $$base_env_path:$$base_env_path:ro"; fi; \
+		if [ -z "$$paxm_source_dir" ] && [ -n "$$base_env_path" ] && [ -f "$$base_env_path" ]; then paxm_source_dir="$$(awk -F= '$$1 == "PAXM_SOURCE_DIR" {print $$2; exit}' "$$base_env_path")"; fi; \
+		if [ -n "$$paxm_source_dir" ]; then extra_mount="-v $$paxm_source_dir:$$paxm_source_dir:ro"; fi; \
 		docker run --rm \
 			--add-host host.docker.internal:host-gateway \
 			-v /var/run/docker.sock:/var/run/docker.sock \
 			-v "$(CURDIR):$(CURDIR)" \
+			-v "$$git_common_dir:$$git_common_dir:ro" \
 			$$extra_mount \
+			$$prepared_selection_mount \
+			$$eval_env_mount \
+			$$base_env_mount \
 			-w "$(CURDIR)" \
-			-e EVAL_V2_ENV_FILE \
+			-e EVAL_V2_ENV_FILE -e EVAL_V2_BASE_ENV_FILE="$$base_env_path" \
 			-e EVAL_V2_JOB_RUN_ID -e EVAL_V2_SEED -e EVAL_V2_TOTAL_CASES -e EVAL_V2_PER_CATEGORY \
 			-e EVAL_V2_OUTPUT_ROOT -e EVAL_V2_BASE_CONFIG -e EVAL_V2_JOB_TIMEOUT -e EVAL_V2_JOB_POSTGRES_DSN \
-			-e EVAL_FRAMEWORK_VERSION -e EVAL_SELECTION_ALGORITHM -e EVAL_V2_COMPOSE_FILE -e EVAL_V2_POSTGRES_PORT \
-			-e EVAL_V2_JOB_DRY_RUN -e EVAL_V2_PREPARED_SELECTION -e EVAL_V2_ALLOW_DIRTY \
+			-e EVAL_FRAMEWORK_VERSION -e EVAL_SELECTION_ALGORITHM -e EVAL_V2_COMPOSE_FILE -e EVAL_V2_STACK_MODE \
+			-e EVAL_V2_JOB_DRY_RUN -e EVAL_V2_PREPARED_SELECTION -e EVAL_V2_PREPARED_MANIFEST -e EVAL_V2_ALLOW_DIRTY \
+			-e EVAL_V2_ACCEPTANCE_PROGRAM \
 			-e EVAL_V2_ZEP_BINARY=/usr/local/bin/eval-v2-zep -e ZEP_API_KEY="$$zep_api_key" \
 			team-memory-eval-v2-runner:local -c 'mkdir -p .build; exec flock -n .build/eval-v2-job.lock timeout "$${EVAL_V2_JOB_TIMEOUT:-24h}" ./scripts/eval-v2-job.sh'
+
+eval-v2-zep-canary:
+	EVAL_V2_TOTAL_CASES=1 EVAL_V2_PER_CATEGORY=1 \
+	EVAL_V2_BASE_CONFIG=evals/v2/config.interaction-slim-passive10-zep-native.local.yaml \
+	EVAL_V2_OUTPUT_ROOT=runs/eval-v2/automated-zep \
+	EVAL_V2_STACK_MODE=zep-native \
+	EVAL_V2_ACCEPTANCE_PROGRAM=./scripts/verify-zep-native-acceptance.sh \
+	$(MAKE) eval-v2-job
 
 clean:
 	rm -rf .build
