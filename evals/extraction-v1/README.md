@@ -106,6 +106,8 @@ command can use `-resume`.
 
 ## Recorded runs
 
+- [2026-07-20 Source Clause v1 baseline](./results/2026-07-20-source-clause-v1-baseline.md):
+  selected extraction evaluation baseline on the fixed six-case quick cohort.
 - [2026-07-17 Finance micro6 v2 r1](./results/2026-07-17-finance-micro6-v2-r1.md):
   first full-domain baseline, including the source-cohort validity limitation
   and the deterministic defects found from its trace.

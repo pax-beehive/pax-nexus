@@ -10,6 +10,11 @@ A fixed input, question, expected answer, and identity scope used in an evaluati
 **Arm**:
 One product strategy or control executed for the same Case.
 
+**Evaluation Baseline**:
+A named Arm, fixed configuration, and completed artifact set selected as the
+control for future comparisons. Selecting an Evaluation Baseline does not by
+itself change a production default or prove statistical superiority.
+
 **Run**:
 A versioned collection of Cases, Arms, configuration, and artifacts.
 
@@ -89,6 +94,8 @@ Extraction Traces rather than inferred from recall or answer judging.
 
 - A **Run** contains many **Cases**.
 - Each **Case** executes one or more **Arms**.
+- Future candidate Arms compare against the selected **Evaluation Baseline**
+  on the same fixed input and scoring contract.
 - A **Run** persists the full Case-by-Arm Trial matrix before execution.
 - A **Trial** contains one or more ordered **Trial Attempts**; retries append an
   Attempt and never replace prior execution evidence.

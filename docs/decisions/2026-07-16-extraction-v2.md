@@ -1,6 +1,6 @@
 # Extraction v2
 
-Status: Accepted with rollout exception; production default enabled; `source-clause-v1` implemented for evaluation; quality gates blocked
+Status: Accepted with rollout exception; production default enabled; `source-clause-v1` selected as the extraction evaluation baseline
 
 Date: 2026-07-16
 
@@ -639,9 +639,31 @@ clause citation while retaining the semantic Candidate schema. Temporal
 admission derives one Observation Time from immutable new Events. The provider
 Execution Module records classified physical attempts and enforces deadlines,
 retry limits, and response budgets. Extraction Eval v1 exports an Atom-level
-first-loss ledger. Deterministic tests pass, but promotion remains blocked
-until the fixed Finance source is available for a paired canary; the current
-local eval database no longer contains that source scope.
+first-loss ledger.
+
+### Evaluation baseline decision (2026-07-20)
+
+The fixed Finance source was restored from the tracked GroupMemBench selection
+artifact and passed zero-cost preflight with 2,595 source Events reduced to the
+fixed `finance-micro6-quick` input of 104 Events, seven streams, and eight
+primary Slices. The completed `source-clause-v1` Run matched four of six
+required Atoms for fact recall 0.667, produced zero leakage, and completed all
+eight primary calls plus one summary call without error, timeout, or retry.
+
+This is the best observed valid single Run on this extraction cohort. The
+project explicitly selects `source-clause-v1` and that completed artifact as
+the new Extraction Evaluation Baseline. Future extraction candidates must use
+the same fixed source/profile/scorer and compare atom recall, leakage,
+first-loss stage, provider calls, tokens, cache rate, and latency against it.
+The two remaining misses were both classified `no_state` at Event review, so
+future extraction work should target implicit-state review rather than widen
+source coverage or relax deterministic admission.
+
+Baseline selection is not a claim of statistical superiority and does not
+change the production candidate-strategy default. The earlier three-paired-seed
+gate remains necessary for a production rollout claim, but it is no longer a
+prerequisite for using this artifact as the engineering control. See the
+[baseline result](../../evals/extraction-v1/results/2026-07-20-source-clause-v1-baseline.md).
 
 ## Consequences
 

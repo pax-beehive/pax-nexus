@@ -26,3 +26,7 @@ contains no persisted Events in that database. This is a missing test fixture,
 not a provider or extraction failure. No paid provider call was made and no
 quality comparison is claimed. Promotion remains blocked until the fixed
 source is restored or regenerated and paired against `interaction-slim`.
+
+Superseded on 2026-07-20: the fixed source was restored and the first valid
+`source-clause-v1` run was selected as the Extraction Evaluation Baseline. See
+the [baseline decision](./2026-07-20-source-clause-v1-baseline.md).
