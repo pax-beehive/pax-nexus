@@ -116,6 +116,11 @@ func (s *storeSuite) TestRejectsRunIDConfigCollisionAndInvalidTransition() {
 	run.ConfigHash = "second"
 	s.Require().Error(s.store.Initialize(ctx, run, []v2.TrialKey{key}))
 	s.Require().Error(s.store.Complete(ctx, v2.TrialAttemptHandle{RunID: runID, CaseID: "case", Arm: "control", Number: 1}, result(runID, "control", "completed")))
+	handle, claimed, err := s.store.Claim(ctx, key, false, 1)
+	s.Require().NoError(err)
+	s.True(claimed)
+	mismatched := result(runID, "other-arm", "completed")
+	s.Require().ErrorContains(s.store.Complete(ctx, handle, mismatched), "identity do not match")
 	s.Require().Error(s.store.Finish(ctx, runID))
 }
 

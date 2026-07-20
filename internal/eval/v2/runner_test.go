@@ -109,6 +109,12 @@ func (s *runnerSuite) TestJudgeFailurePreservesCompletedConsumerResultAndFailsRu
 		s.Equal("completed", result.Status)
 		s.False(result.Judged)
 		s.Contains(result.JudgeError, "run judge")
+		s.Equal(TrialStageJudge, result.FailureStage)
+	}
+	for _, attempt := range store.trialAttempts {
+		s.Equal("failed", attempt.Status)
+		s.Equal(TrialStageJudge, attempt.Stage)
+		s.Contains(attempt.Error, "run judge")
 	}
 }
 
@@ -345,6 +351,25 @@ func (s *runnerSuite) TestFailureClassification() {
 		s.Run(test.name, func() {
 			s.Equal(test.want, classifyFailure(stageError(TrialStageConsumer, test.err)))
 		})
+	}
+}
+
+func (s *runnerSuite) TestProcessTimeoutIsClassifiedAsDeadline() {
+	store := newFakeStore()
+	runner, err := NewRunner(store, ProcessExecutor{}, nil)
+	s.Require().NoError(err)
+	config := testConfig(s.T().TempDir())
+	timeoutConsumer := CommandSpec{Program: "sh", Args: []string{"-c", "sleep 1"}}
+	config.Arms = []ArmConfig{{Name: "control", Consumer: timeoutConsumer}, {Name: "memory", Consumer: timeoutConsumer}}
+	config.TrialTimeout = "20ms"
+
+	_, results, err := runner.Run(context.Background(), config, []Case{{ID: "case", Question: "q", Expected: "answer", AskingUserID: "user"}}, "revision")
+	s.Require().NoError(err)
+	s.Require().Len(results, 2)
+	for _, result := range results {
+		s.Equal("failed", result.Status)
+		s.Equal(TrialStageConsumer, result.FailureStage)
+		s.Equal(FailureClassDeadline, result.FailureClass)
 	}
 }
 
@@ -596,13 +621,17 @@ func (s *fakeStore) recordAttempt(handle TrialAttemptHandle, result TrialResult)
 		attempt := &s.trialAttempts[index]
 		if attempt.TrialAttemptHandle == handle {
 			attempt.Status = result.Status
-			if result.Status == "completed" {
+			if result.Status == "completed" && result.FailureStage == "" {
 				attempt.Stage = TrialStageCompleted
 			} else {
+				attempt.Status = "failed"
 				attempt.Stage = result.FailureStage
 			}
 			attempt.FailureClass = result.FailureClass
 			attempt.Error = result.Error
+			if attempt.Error == "" && result.FailureStage != "" {
+				attempt.Error = result.JudgeError
+			}
 			completed := result.CompletedAt
 			attempt.CompletedAt = &completed
 		}

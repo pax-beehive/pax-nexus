@@ -329,6 +329,9 @@ WHERE run_id = $1`, runID)
 }
 
 func (s *Store) storeResult(ctx context.Context, handle v2.TrialAttemptHandle, result v2.TrialResult, status string) (returnedErr error) {
+	if handle.RunID != result.RunID || handle.CaseID != result.CaseID || handle.Arm != result.Arm {
+		return fmt.Errorf("store eval result: attempt handle and result identity do not match")
+	}
 	encoded, err := json.Marshal(result)
 	if err != nil {
 		return fmt.Errorf("marshal eval result: %w", err)
@@ -355,9 +358,16 @@ WHERE run_id = $1 AND case_id = $2 AND arm = $3 AND status = 'running'`, handle.
 	}
 	stage := result.FailureStage
 	failureClass := result.FailureClass
-	if status == "completed" {
+	attemptStatus := status
+	attemptError := result.Error
+	if status == "completed" && stage == "" {
 		stage = v2.TrialStageCompleted
 		failureClass = ""
+	} else if status == "completed" {
+		attemptStatus = "failed"
+		if attemptError == "" {
+			attemptError = result.JudgeError
+		}
 	}
 	if stage == "" {
 		stage = v2.TrialStageClaimed
@@ -369,7 +379,7 @@ WHERE run_id = $1 AND case_id = $2 AND arm = $3 AND status = 'running'`, handle.
 UPDATE eval_v2_trial_attempts
 SET status = $5, stage = $6, failure_class = $7, error = $8, completed_at = NOW()
 WHERE run_id = $1 AND case_id = $2 AND arm = $3 AND attempt = $4 AND status = 'running'`,
-		handle.RunID, handle.CaseID, handle.Arm, handle.Number, status, stage, failureClass, result.Error)
+		handle.RunID, handle.CaseID, handle.Arm, handle.Number, attemptStatus, stage, failureClass, attemptError)
 	if err != nil {
 		return fmt.Errorf("store eval attempt result: %w", err)
 	}

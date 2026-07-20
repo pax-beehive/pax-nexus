@@ -160,15 +160,15 @@ func (r *Runner) Run(ctx context.Context, config Config, cases []Case, revision 
 		return RunRecord{}, nil, fmt.Errorf("load eval results: %w", err)
 	}
 	results = HydrateResults(results, cases)
-	if err := r.store.Finish(ctx, run.ID); err != nil {
-		return RunRecord{}, nil, fmt.Errorf("finish eval run: %w", err)
-	}
 	attempts, err := r.store.Attempts(ctx, run.ID)
 	if err != nil {
 		return RunRecord{}, nil, fmt.Errorf("load eval trial attempts: %w", err)
 	}
 	if err := ExportTrialAttempts(config.Run.OutputDir, attempts); err != nil {
 		return RunRecord{}, nil, err
+	}
+	if err := r.store.Finish(ctx, run.ID); err != nil {
+		return RunRecord{}, nil, fmt.Errorf("finish eval run: %w", err)
 	}
 	if config.Judge != nil {
 		if incomplete := countIncompleteJudgments(results); incomplete > 0 {
@@ -349,6 +349,9 @@ func (r *Runner) runTrial(ctx context.Context, run RunRecord, evalCase Case, arm
 	result, runErr := r.executeTrial(trialCtx, run, evalCase, arm, config.SharedProducer, config.Judge, shared, config.Run.OutputDir, artifactDir, started, func(stage TrialStage) error {
 		return r.store.UpdateAttempt(ctx, attempt, stage, nil)
 	})
+	if runErr != nil && trialCtx.Err() != nil {
+		runErr = errors.Join(runErr, trialCtx.Err())
+	}
 	if runErr == nil {
 		if err := r.store.Complete(ctx, attempt, result); err != nil {
 			return fmt.Errorf("complete eval trial %s/%s: %w", evalCase.ID, arm.Name, err)
@@ -454,6 +457,8 @@ func (r *Runner) executeTrial(
 	scored.JudgeDurationMS = judgeDuration.Milliseconds()
 	if judgeErr != nil {
 		scored.JudgeError = judgeErr.Error()
+		scored.FailureStage = TrialStageJudge
+		scored.FailureClass = classifyFailure(judgeErr)
 		return scored, nil //nolint:nilerr // Judge infrastructure failures preserve the completed consumer result and fail the run through the completeness gate.
 	}
 	completed := time.Now().UTC()

@@ -417,8 +417,8 @@ Product-use acceptance remains blocked. Completed Mem0 attempts did not provide
 a valid paired comparison because most source-bearing cases produced no memory
 mutation or failed before a recall observation. Later chunk attempts also had
 trial failures and cannot replace that comparison. The evaluator records an
-operation-context error on the final Trial result, but retry attempts overwrite
-the prior result rather than preserving an append-only stage history.
+operation-context error on the final Trial result, but retry attempts previously
+overwrote the prior result rather than preserving an append-only stage history.
 
 The Eval Validity and Attempt Ledger tranche implements this accepted ADR's
 visibility requirements; it is not a separate architectural decision. The

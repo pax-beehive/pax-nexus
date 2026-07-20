@@ -78,7 +78,7 @@ Events cannot launder proposal-only ownership into canonical state. See the
 
 ## Tranche 2: Extraction Execution Reliability
 
-Status: In progress; Attempt ledger implemented
+Status: Planned
 
 Concentrate provider deadlines, error classification, bounded retries, resume,
 response budgets, and provider-call telemetry in the Extraction Execution
@@ -90,7 +90,7 @@ rate must satisfy the outstanding Extraction v2 acceptance criteria.
 
 ## Tranche 3: Eval Validity and Attempt Ledger
 
-Status: Planned
+Status: In progress; Attempt ledger implemented
 
 Add an append-only Trial Attempt ledger behind the Eval Store seam. Preserve
 each retry's stage, timing, exit classification, and artifact references rather
