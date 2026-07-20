@@ -107,10 +107,12 @@ The comparative validity gate is now implemented as
 `pax-eval-v3-validity-v1`. It requires the complete judged Trial matrix,
 full-domain coverage in all three ingest receipts, observable mutations in
 Team Note, Mem0, and private SQLite, successful recall observations for both
-memory arms, no recall activity in the no-memory arm, complete latest-Attempt
+memory arms with the correct provider identity and call evidence, no provider
+activity in the no-memory arm, completed canonical latest-Attempt
 consumer/judge artifacts, and a resolved configuration hash matching the
-durable Run. Invalid runs export `validity.json` and all available evidence,
-but the Eval v3 command returns an acceptance error.
+durable Run. Invalid runs export `validity.json` plus raw evidence, remove
+stale comparison reports, and return an acceptance error. Judge-only recovery
+is recorded as a new immutable Attempt.
 
 ## Tranche 4: Budget-Aware Final-State Selection
 

@@ -63,6 +63,69 @@ func (s *validitySuite) TestAttemptFromAnotherRunInvalidatesComparison() {
 	})
 }
 
+func (s *validitySuite) TestRecallProviderEvidenceMustMatchTheArm() {
+	tests := []struct {
+		name      string
+		configure func([]v2.TrialResult)
+	}{
+		{name: "memory provider was not called", configure: func(results []v2.TrialResult) {
+			results[1].MemoryRecallProviderCalls = 0
+		}},
+		{name: "memory provider type is wrong", configure: func(results []v2.TrialResult) {
+			results[2].MemoryRecallProviderType = "mem0"
+		}},
+		{name: "no-memory arm reports a provider type", configure: func(results []v2.TrialResult) {
+			results[0].MemoryRecallProviderType = "mem0"
+		}},
+		{name: "no-memory arm reports provider counts", configure: func(results []v2.TrialResult) {
+			results[0].MemoryRecallProviders = map[string]int{"memory": 1}
+		}},
+	}
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			directory, run, cases, results := s.validRunFixture()
+			test.configure(results)
+
+			report, err := v3.EvaluateValidity(directory, run, cases, results)
+
+			s.Require().NoError(err)
+			s.False(report.Valid)
+			s.True(hasFailureCheck(report, "recall_observation"), "failures: %#v", report.Failures)
+		})
+	}
+}
+
+func (s *validitySuite) TestAttemptMustBeCompletedInItsCanonicalDirectory() {
+	tests := []struct {
+		name      string
+		configure func(*v2.TrialAttempt)
+	}{
+		{name: "stage is not completed", configure: func(attempt *v2.TrialAttempt) {
+			attempt.Stage = v2.TrialStageJudge
+		}},
+		{name: "completion timestamp is missing", configure: func(attempt *v2.TrialAttempt) {
+			attempt.CompletedAt = nil
+		}},
+		{name: "artifact belongs to another attempt", configure: func(attempt *v2.TrialAttempt) {
+			attempt.ArtifactRefs["artifact_dir"] = filepath.Join("trials", "case", attempt.Arm, "attempts", "002")
+		}},
+	}
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			directory, run, cases, results := s.validRunFixture()
+			attempts := s.loadAttempts(filepath.Join(directory, "attempts.jsonl"))
+			test.configure(&attempts[0])
+			s.Require().NoError(v2.ExportTrialAttempts(directory, attempts))
+
+			report, err := v3.EvaluateValidity(directory, run, cases, results)
+
+			s.Require().NoError(err)
+			s.False(report.Valid)
+			s.True(hasFailureCheck(report, "attempt_artifacts"), "failures: %#v", report.Failures)
+		})
+	}
+}
+
 func (s *validitySuite) TestInvalidReportIsExportedAndRejected() {
 	directory, run, cases, results := s.validRunFixture()
 	results[1].MemoryRecallObserved = false
@@ -75,6 +138,30 @@ func (s *validitySuite) TestInvalidReportIsExportedAndRejected() {
 	s.Require().NoError(err)
 	s.Contains(string(input), `"status": "invalid"`)
 	s.Contains(string(input), `"check": "recall_observation"`)
+}
+
+func (s *validitySuite) TestRejudgeEvidenceCreatesANewCanonicalAttempt() {
+	directory, run, _, results := s.validRunFixture()
+	before := append([]v2.TrialResult(nil), results...)
+	before[1].Judged = false
+	results[1].JudgeAnswer = "correct"
+	legacyDirectory := filepath.Join(directory, "trials", "case", v3.ArmGroupMemBenchMem0)
+	s.Require().NoError(os.WriteFile(filepath.Join(legacyDirectory, "judge.jsonl"), []byte("{}\n"), 0o600))
+
+	err := v3.RecordRejudgeEvidence(directory, run.ID, before, results)
+
+	s.Require().NoError(err)
+	attempts := s.loadAttempts(filepath.Join(directory, "attempts.jsonl"))
+	s.Require().Len(attempts, 4)
+	rejudge := attempts[3]
+	s.Equal(2, rejudge.Number)
+	s.Equal(v2.TrialStageCompleted, rejudge.Stage)
+	s.Equal("completed", rejudge.Status)
+	s.NotNil(rejudge.CompletedAt)
+	for _, name := range []string{"consumer.jsonl", "judge.jsonl"} {
+		_, statErr := os.Stat(filepath.Join(directory, rejudge.ArtifactRefs["artifact_dir"], name))
+		s.Require().NoError(statErr)
+	}
 }
 
 func (s *validitySuite) TestManifestWithoutSourceCountFailsSourceCoverage() {
@@ -193,6 +280,12 @@ func (s *validitySuite) validRunFixture() (string, v2.RunRecord, []v2.Case, []v2
 		if arm != v3.ArmNoMemoryTeam {
 			result.MemoryRecallObserved = true
 			result.MemoryRecallSuccess = true
+			result.MemoryRecallProviderCalls = 1
+			result.MemoryRecallProviders = map[string]int{"memory": 1}
+			result.MemoryRecallProviderType = "mem0"
+			if arm == v3.ArmPrivateSQLiteTeamNote {
+				result.MemoryRecallProviderType = "team-memory-sqlite"
+			}
 		}
 		results = append(results, result)
 		completed := time.Now().UTC()

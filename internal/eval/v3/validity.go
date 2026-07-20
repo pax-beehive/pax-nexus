@@ -268,18 +268,34 @@ func evaluateRecallObservations(collector *validityCollector, results []v2.Trial
 	start := len(collector.failures)
 	for _, result := range results {
 		if result.Arm == ArmNoMemoryTeam {
-			if result.MemoryRecallObserved || result.MemoryRecallProviderCalls > 0 {
+			if result.MemoryRecallObserved || result.MemoryRecallProviderCalls > 0 ||
+				len(result.MemoryRecallProviders) > 0 || strings.TrimSpace(result.MemoryRecallProviderType) != "" {
 				collector.fail("recall_observation", result.CaseID, result.Arm, "no-memory Trial observed a recall provider")
 			}
 			continue
 		}
+		expectedProvider := expectedRecallProvider(result.Arm)
 		if !result.MemoryRecallObserved {
 			collector.fail("recall_observation", result.CaseID, result.Arm, "memory Trial has no recall observation")
 		} else if !result.MemoryRecallSuccess {
 			collector.fail("recall_observation", result.CaseID, result.Arm, "memory recall observation was unsuccessful")
+		} else if result.MemoryRecallProviderCalls <= 0 || len(result.MemoryRecallProviders) == 0 {
+			collector.fail("recall_observation", result.CaseID, result.Arm, "memory Trial has no recall provider call evidence")
+		} else if result.MemoryRecallProviderType != expectedProvider {
+			collector.fail("recall_observation", result.CaseID, result.Arm, "memory recall provider does not match the Arm")
 		}
 	}
 	collector.finishCheck("recall_observation", start)
+}
+
+func expectedRecallProvider(arm string) string {
+	if arm == ArmGroupMemBenchMem0 {
+		return "mem0"
+	}
+	if arm == ArmPrivateSQLiteTeamNote {
+		return "team-memory-sqlite"
+	}
+	return ""
 }
 
 func evaluateAttemptArtifacts(collector *validityCollector, directory, runID string, requireJudge bool, results []v2.TrialResult) {
@@ -298,33 +314,54 @@ func evaluateAttemptArtifacts(collector *validityCollector, directory, runID str
 		}
 	}
 	for _, result := range results {
-		attempt, exists := latest[result.CaseID+"\x00"+result.Arm]
-		if !exists {
-			collector.fail("attempt_artifacts", result.CaseID, result.Arm, "final Trial has no Attempt")
-			continue
-		}
-		if attempt.RunID != runID {
-			collector.fail("attempt_artifacts", result.CaseID, result.Arm, "Attempt run_id does not match Run")
-		}
-		if attempt.Status != "completed" {
-			collector.fail("attempt_artifacts", result.CaseID, result.Arm, "final Attempt is not completed")
-		}
-		reference := attempt.ArtifactRefs["artifact_dir"]
-		if !safeArtifactReference(reference) {
-			collector.fail("attempt_artifacts", result.CaseID, result.Arm, "Attempt artifact reference is missing or unsafe")
-			continue
-		}
-		required := []string{"consumer.jsonl"}
-		if requireJudge {
-			required = append(required, "judge.jsonl")
-		}
-		for _, name := range required {
-			if !nonEmptyFile(filepath.Join(directory, reference, name)) {
-				collector.fail("attempt_artifacts", result.CaseID, result.Arm, name+" is missing or empty")
-			}
-		}
+		evaluateAttemptArtifact(collector, directory, runID, requireJudge, result, latest)
 	}
 	collector.finishCheck("attempt_artifacts", start)
+}
+
+func evaluateAttemptArtifact(
+	collector *validityCollector,
+	directory, runID string,
+	requireJudge bool,
+	result v2.TrialResult,
+	latest map[string]v2.TrialAttempt,
+) {
+	attempt, exists := latest[result.CaseID+"\x00"+result.Arm]
+	if !exists {
+		collector.fail("attempt_artifacts", result.CaseID, result.Arm, "final Trial has no Attempt")
+		return
+	}
+	if attempt.RunID != runID {
+		collector.fail("attempt_artifacts", result.CaseID, result.Arm, "Attempt run_id does not match Run")
+	}
+	if attempt.Status != "completed" {
+		collector.fail("attempt_artifacts", result.CaseID, result.Arm, "final Attempt is not completed")
+	}
+	if attempt.Stage != v2.TrialStageCompleted {
+		collector.fail("attempt_artifacts", result.CaseID, result.Arm, "final Attempt did not reach the completed stage")
+	}
+	if attempt.CompletedAt == nil {
+		collector.fail("attempt_artifacts", result.CaseID, result.Arm, "final Attempt has no completion timestamp")
+	}
+	reference := attempt.ArtifactRefs["artifact_dir"]
+	if !safeArtifactReference(reference) {
+		collector.fail("attempt_artifacts", result.CaseID, result.Arm, "Attempt artifact reference is missing or unsafe")
+		return
+	}
+	expectedReference := filepath.Join("trials", result.CaseID, result.Arm, "attempts", fmt.Sprintf("%03d", attempt.Number))
+	if filepath.Clean(reference) != expectedReference {
+		collector.fail("attempt_artifacts", result.CaseID, result.Arm, "Attempt artifact reference is not canonical for the Trial Attempt")
+		return
+	}
+	required := []string{"consumer.jsonl"}
+	if requireJudge {
+		required = append(required, "judge.jsonl")
+	}
+	for _, name := range required {
+		if !nonEmptyFile(filepath.Join(directory, reference, name)) {
+			collector.fail("attempt_artifacts", result.CaseID, result.Arm, name+" is missing or empty")
+		}
+	}
 }
 
 func evaluateResolvedConfig(collector *validityCollector, directory string, run v2.RunRecord) {

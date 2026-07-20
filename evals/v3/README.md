@@ -64,14 +64,16 @@ decision for comparative scoring. A valid report requires:
 - the complete, successfully judged three-arm Trial matrix;
 - full-domain source coverage in all three ingest receipts;
 - non-zero Team Note and Mem0 mutation plus complete private-SQLite materialization;
-- successful recall observations for both memory arms and no recall activity
-  in the no-memory arm;
-- non-empty consumer and judge artifacts for every latest Attempt;
+- successful calls to the arm-specific recall provider for both memory arms
+  and no provider type, count, or observation in the no-memory arm;
+- completed latest Attempts with canonical, non-empty consumer and judge
+  artifacts;
 - a resolved configuration whose hash matches the durable Run.
 
-The artifact manifest links and embeds this report. An invalid run still
-exports available evidence, but `team-memory-eval-v3` exits non-zero and its
-accuracy or pairwise rows must not be presented as benchmark-quality.
+The artifact manifest links and embeds this report. An invalid run exports raw
+JSONL and available provenance, removes stale CSV/HTML comparisons, and exits
+non-zero. Judge-only recovery appends a new Attempt and copies the original
+consumer plus new judge evidence into its canonical artifact directory.
 
 Eval v3 is the outer architecture comparison, not the recall-policy tuning
 loop. Before using it to validate a recall change, first improve the fixed

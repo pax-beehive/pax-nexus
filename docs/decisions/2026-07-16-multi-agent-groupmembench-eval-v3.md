@@ -426,10 +426,14 @@ append-only ledger preserves every attempt's stage, timing, classified failure,
 and artifact directory. The `pax-eval-v3-validity-v1` report now rejects
 comparative scoring when the Trial matrix, source coverage, memory mutation,
 recall observation, latest-Attempt artifacts, or resolved configuration
-provenance is incomplete. Invalid runs retain `validity.json` and available raw
-artifacts, while the command returns a non-zero acceptance error. A fresh
-three-arm cohort must pass this gate before any Mem0 or PAX result is described
-as benchmark-quality.
+provenance is incomplete. Recall evidence must identify and call the provider
+required by its Arm; the no-memory Arm must expose no provider evidence. The
+latest Attempt must be completed and own its canonical raw artifacts.
+Invalid runs retain `validity.json` and available raw JSONL/provenance, remove
+stale CSV/HTML comparisons, and return a non-zero acceptance error. Judge-only
+recovery appends a new immutable Attempt containing the original consumer and
+new judge evidence. A fresh three-arm cohort must pass this gate before any
+Mem0 or PAX result is described as benchmark-quality.
 
 ## Consequences
 
