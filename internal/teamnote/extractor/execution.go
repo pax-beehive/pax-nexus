@@ -14,15 +14,22 @@ import (
 var ErrProviderResponseTooLarge = errors.New("provider response too large")
 
 const (
-	defaultProviderAttemptTimeout = 90 * time.Second
+	defaultProviderAttemptTimeout = 120 * time.Second
 	defaultProviderMaxResponse    = 1 << 20
 	defaultPrimaryMaxOutputTokens = 16 * 1024
 	defaultAuxiliaryOutputTokens  = 4 * 1024
+	providerOutcomeSaveMargin     = 10 * time.Second
 )
 
 type providerStatusError struct {
 	status int
 	body   string
+}
+
+func backgroundProviderTimeout(policy ExecutionPolicy) time.Duration {
+	timeout := time.Duration(policy.MaxAttempts) * policy.AttemptTimeout
+	timeout += time.Duration(policy.MaxAttempts-1) * policy.RetryBackoff
+	return timeout + providerOutcomeSaveMargin
 }
 
 func (e *providerStatusError) Error() string {

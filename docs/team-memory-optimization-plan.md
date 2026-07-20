@@ -36,7 +36,8 @@ they do not each require a new ADR.
 | Plan or candidate | Governing ADR | Current status and reason |
 | --- | --- | --- |
 | Extraction Evidence Fidelity | [Extraction v2](./decisions/2026-07-16-extraction-v2.md) | `source-clause-v1` adopted as both the production default and Extraction Evaluation Baseline after a valid 4/6, zero-leakage fixed-cohort Run. |
-| Extraction Execution Reliability | [Extraction v2](./decisions/2026-07-16-extraction-v2.md) | Implemented; checksum resume is retained and provider deadlines, retry classification, budgets, and attempt telemetry are consolidated. |
+| Extraction Execution Reliability | [Extraction v2](./decisions/2026-07-16-extraction-v2.md) | Implemented; a 120-second provider attempt fits inside a three-minute one-Slice worker job, invalid aggregate budgets fail at startup, and checksum resume remains the durable retry boundary. |
+| Implicit State Review v1 | [Extraction v2](./decisions/2026-07-16-extraction-v2.md) | Rejected for promotion; it recovered one implicit-state Atom but regressed two baseline Atoms and increased admitted Notes from 12 to 19. |
 | Atom-Level Extraction Loss Attribution | [Extraction v2](./decisions/2026-07-16-extraction-v2.md) | Implemented; extraction eval exports one first-loss entry per required Atom. |
 | Eval Validity and Attempt Ledger | [Multi-Agent GroupMemBench Eval v3](./decisions/2026-07-16-multi-agent-groupmembench-eval-v3.md) | Implemented; append-only Attempts and the comparative Validity Report now reject incomplete or unobservable runs. |
 | Budget-Aware Final-State Selection | [General Recall v3](./decisions/2026-07-16-general-recall-v3-optimization.md) | Planned; BM25 improved candidate availability without improving delivered recall. |
@@ -108,6 +109,21 @@ Gate: fixed-fixture fact coverage must not regress; P95 provider duration,
 retry rate, invalid-response rate, output tokens, calls per window, and cache
 rate must satisfy the outstanding Extraction v2 acceptance criteria.
 
+Budget hardening on 2026-07-20 made the normal serial envelope explicit: one
+Slice per durable worker job, a 120-second provider attempt deadline, one
+provider attempt by default, and a three-minute job deadline. Startup rejects
+configuration where the maximum serial provider budget, including retry
+backoff, reaches or exceeds the worker deadline. Additional Slices are claimed
+as later durable jobs instead of sharing one deadline. The fixed implicit-state
+Run completed all ten physical calls under the 120-second deadline with zero
+errors, retries, or timeouts.
+
+When synchronous compaction is enabled, validation reserves the initial
+compaction call, one possible hard-limit fallback call, and the primary call
+for every Slice. Background summary and compaction deadlines are derived from
+the configured provider attempt and retry budget with an additional outcome
+persistence margin; they no longer duplicate a fixed two-minute timeout.
+
 ## Tranche 2a: Atom-Level Extraction Loss Attribution
 
 Status: Implemented
@@ -117,6 +133,22 @@ must retain supporting Event IDs, whether those Events reached the fixed input,
 whether they were reviewed, and the first observable loss stage and reason.
 The ledger is diagnostic evidence, not a new quality score, and must not infer
 an extraction cause from recall or judge output.
+
+## Tranche 2b: Implicit State Review
+
+Status: Rejected for promotion; retained for reproducibility
+
+The `source-clause-implicit-state-v1` candidate asks the primary call to review
+observable incomplete state and deadline-bound role capability before emitting
+`no_state`, while preserving modality and excluding requests or suggestions.
+Deterministic admission and the Candidate schema remain unchanged.
+
+On the fixed `finance-micro6-quick` cohort it recovered `user_implicit_7`, but
+still missed `multi_hop_1` and made the previously matched `temporal_7` and
+`term_ambiguity_11` supporting Events unreviewed. Recall fell from 4/6 to 3/6,
+leakage stayed zero, and admitted Notes rose from 12 to 19. The candidate is a
+no-go and `source-clause-v1` remains the production default. See the
+[result](../evals/extraction-v1/results/2026-07-20-implicit-state-review-v1-no-go.md).
 
 ## Tranche 3: Eval Validity and Attempt Ledger
 

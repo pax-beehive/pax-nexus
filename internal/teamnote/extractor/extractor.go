@@ -77,6 +77,7 @@ const (
 	CandidateStrategyInteractionSlim  = "interaction-slim"
 	CandidateStrategyEvidenceFidelity = "evidence-fidelity-v1"
 	CandidateStrategySourceClause     = "source-clause-v1"
+	CandidateStrategyImplicitState    = "source-clause-implicit-state-v1"
 	CandidateStrategyTyped2           = "typed-2"
 	CandidateStrategySourceSpanV1     = "source-span-v1"
 	CandidateStrategySourceSpanV2     = "source-span-v2"
@@ -87,6 +88,7 @@ const (
 	V2VariantInteractionSlim  = CandidateStrategyInteractionSlim
 	V2VariantEvidenceFidelity = CandidateStrategyEvidenceFidelity
 	V2VariantSourceClause     = CandidateStrategySourceClause
+	V2VariantImplicitState    = CandidateStrategyImplicitState
 	V2VariantTypedCurrent     = CandidateStrategyTyped2
 	V2VariantSourceSpanV1     = CandidateStrategySourceSpanV1
 	V2VariantSourceSpanV2     = CandidateStrategySourceSpanV2

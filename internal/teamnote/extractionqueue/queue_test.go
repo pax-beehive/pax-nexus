@@ -29,7 +29,7 @@ func (s *queueSuite) TestDefaultsAndValidation() {
 	s.Equal(5, defaults.MaxAttempts)
 	s.Equal(750*time.Millisecond, defaults.Debounce)
 	s.Equal(30*time.Second, defaults.BatchTimeout)
-	s.Equal(2*time.Minute, defaults.JobTimeout)
+	s.Equal(3*time.Minute, defaults.JobTimeout)
 
 	tests := []Config{
 		{QueuePrefix: "bad prefix", Shards: 1, MaxAttempts: 1},

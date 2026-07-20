@@ -3,6 +3,7 @@ package extractor_test
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"testing"
 	"time"
@@ -72,6 +73,18 @@ func (s *admissionSuite) TestSourceClauseAdmissionValidatesExactAtomicEvidence()
 		{
 			name: "conditional state is committed", content: "If the July 26 milestone slips, Ops Lead owns the rollback evidence pack.",
 			clause: "If the July 26 milestone slips, Ops Lead owns the rollback evidence pack.", wantNotes: 1,
+		},
+		{
+			name: "observable incomplete state", content: "The control-mapping revision is still moving, so I can't lock the regulatory formatting yet.",
+			clause: "The control-mapping revision is still moving, so I can't lock the regulatory formatting yet.", wantNotes: 1,
+		},
+		{
+			name: "deadline-bound role capability", content: "I'm leaning toward one definition. Reporting can validate fit against the same standard before July 18.",
+			clause: "Reporting can validate fit against the same standard before July 18.", wantNotes: 1,
+		},
+		{
+			name: "capability request remains non-committal", content: "Can you validate fit against the same standard before July 18?",
+			clause: "Can you validate fit against the same standard before July 18?", wantCause: "non-committal",
 		},
 		{
 			name: "shortest compound clause", content: "Compliance owns the exceptions log, and Reporting owns the audit log.",
@@ -166,6 +179,48 @@ func (s *admissionSuite) TestTemporalAdmissionUsesNewEventObservationTime() {
 	s.Require().Len(result.Candidates, 1)
 	s.Require().NotNil(result.Candidates[0].InvalidAt)
 	s.Equal(time.Date(2025, time.January, 1, 0, 0, 0, 0, time.UTC), *result.Candidates[0].InvalidAt)
+}
+
+func (s *admissionSuite) TestImplicitStatePromptReviewsDurableStateBeforeNoState() {
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		body, err := io.ReadAll(request.Body)
+		s.Require().NoError(err)
+		prompt := string(body)
+		s.Contains(prompt, "Observable incomplete state is durable")
+		s.Contains(prompt, "Declarative role capability tied to a concrete action and deadline")
+		s.Contains(prompt, "Preserve can, cannot, and not-yet modality")
+		s.Contains(prompt, "can you")
+		return response(http.StatusOK, v2BodyWithNoStateEvents("", "", `"event-1"`)), nil
+	})}
+	adapter, err := extractor.NewOpenAI(extractor.OpenAIConfig{
+		BaseURL: "http://extractor.test", Model: "model", Client: client,
+		ContextMode: extractor.ContextModeRolling, EpisodeStore: extractor.NewMemoryEpisodeStore(),
+		ExtractionVersion: extractor.ExtractionVersionV2, V2Variant: extractor.V2VariantImplicitState,
+	})
+	s.Require().NoError(err)
+
+	_, err = adapter.Extract(teamnote.WithScope(context.Background(), "implicit-state-review-prompt"), v2Slice())
+
+	s.Require().NoError(err)
+}
+
+func (s *admissionSuite) TestSourceClausePromptExcludesImplicitStateExperiment() {
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		body, err := io.ReadAll(request.Body)
+		s.Require().NoError(err)
+		s.NotContains(string(body), "Implicit durable-state review before no_state")
+		return response(http.StatusOK, v2BodyWithNoStateEvents("", "", `"event-1"`)), nil
+	})}
+	adapter, err := extractor.NewOpenAI(extractor.OpenAIConfig{
+		BaseURL: "http://extractor.test", Model: "model", Client: client,
+		ContextMode: extractor.ContextModeRolling, EpisodeStore: extractor.NewMemoryEpisodeStore(),
+		ExtractionVersion: extractor.ExtractionVersionV2, V2Variant: extractor.V2VariantSourceClause,
+	})
+	s.Require().NoError(err)
+
+	_, err = adapter.Extract(teamnote.WithScope(context.Background(), "source-clause-prompt-isolation"), v2Slice())
+
+	s.Require().NoError(err)
 }
 
 func quoteJSON(value string) string {

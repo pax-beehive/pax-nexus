@@ -197,7 +197,7 @@ func withDefaults(config Config) Config {
 		config.BatchTimeout = 30 * time.Second
 	}
 	if config.JobTimeout == 0 {
-		config.JobTimeout = 2 * time.Minute
+		config.JobTimeout = 3 * time.Minute
 	}
 	if config.SoftStopTimeout == 0 {
 		config.SoftStopTimeout = 30 * time.Second

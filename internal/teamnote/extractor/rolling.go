@@ -9,7 +9,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/pax-beehive/pax-nexus/internal/sessionlake"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote"
@@ -364,7 +363,7 @@ func (e *OpenAI) startCompaction(ctx context.Context, key EpisodeKey, episode Ep
 	e.flightsMu.Unlock()
 
 	go func() {
-		background, cancel := context.WithTimeout(owned, 2*time.Minute)
+		background, cancel := context.WithTimeout(owned, backgroundProviderTimeout(e.config.ExecutionPolicy))
 		defer cancel()
 		flight.result, flight.err = e.computeCompaction(background, episode)
 		close(flight.done)

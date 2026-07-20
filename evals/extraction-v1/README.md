@@ -106,6 +106,9 @@ command can use `-resume`.
 
 ## Recorded runs
 
+- [2026-07-20 Implicit State Review v1 no-go](./results/2026-07-20-implicit-state-review-v1-no-go.md):
+  recovered the implicit-state Atom but regressed two baseline Atoms, so the
+  prompt remains a reproducibility-only candidate.
 - [2026-07-20 Source Clause v1 baseline](./results/2026-07-20-source-clause-v1-baseline.md):
   selected extraction evaluation baseline on the fixed six-case quick cohort.
 - [2026-07-17 Finance micro6 v2 r1](./results/2026-07-17-finance-micro6-v2-r1.md):

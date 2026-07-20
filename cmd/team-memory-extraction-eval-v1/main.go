@@ -95,7 +95,7 @@ func parseFlags(args []string) (evalConfig, error) {
 	flags.BoolVar(&config.resume, "resume", false, "Resume an interrupted run from per-slice artifacts")
 	flags.BoolVar(&config.preflightOnly, "preflight-only", false, "Validate and size source Events without calling a model")
 	flags.IntVar(&config.sliceEventLimit, "slice-event-limit", 25, "Maximum new session events per primary extraction slice")
-	flags.DurationVar(&config.executionPolicy.AttemptTimeout, "provider-timeout", 90*time.Second, "Deadline for one physical provider attempt")
+	flags.DurationVar(&config.executionPolicy.AttemptTimeout, "provider-timeout", 120*time.Second, "Deadline for one physical provider attempt")
 	flags.IntVar(&config.executionPolicy.MaxAttempts, "provider-max-attempts", 1, "Maximum physical provider attempts per logical call")
 	flags.DurationVar(&config.executionPolicy.RetryBackoff, "provider-retry-backoff", 250*time.Millisecond, "Delay between retryable provider attempts")
 	flags.Int64Var(&config.executionPolicy.MaxResponseBytes, "provider-max-response-bytes", 1<<20, "Maximum provider response body size")

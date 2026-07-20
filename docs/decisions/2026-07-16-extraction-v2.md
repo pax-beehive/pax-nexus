@@ -667,6 +667,31 @@ single-run evidence while retaining the earlier three-paired-seed gate for any
 claim of repeatable superiority. See the
 [baseline result](../../evals/extraction-v1/results/2026-07-20-source-clause-v1-baseline.md).
 
+### Execution-budget and implicit-state update (2026-07-20)
+
+The production execution envelope now defaults to one Slice per durable worker
+job, one 120-second provider attempt, and a three-minute worker deadline.
+Startup rejects any configuration whose maximum serial provider-attempt budget,
+including retry backoff and all Slices in the job, reaches or exceeds the
+worker deadline. This makes the provider deadline subordinate to the worker
+deadline and leaves durable queue reclaim, rather than nested provider retries,
+as the default recovery boundary.
+
+Synchronous compaction reserves three serial calls per Slice: the initial
+compaction call, one possible hard-limit fallback, and the primary extraction
+call. Background summary and compaction deadlines derive from the same provider
+attempt and retry budget plus an outcome-persistence margin instead of using an
+independent two-minute constant.
+
+The first implicit-state follow-up is rejected for promotion. Its fixed-cohort
+Run recovered `user_implicit_7`, but overall fact recall regressed from 4/6 to
+3/6 because the previously matched temporal and term-ambiguity Events became
+unreviewed; admitted Notes also increased from 12 to 19. The exact prompt is
+registered as the reproducibility-only
+`source-clause-implicit-state-v1` candidate. `source-clause-v1` remains the
+production and evaluation default. See the
+[no-go result](../../evals/extraction-v1/results/2026-07-20-implicit-state-review-v1-no-go.md).
+
 ## Consequences
 
 Extraction failures become attributable to source-claim detection, identity

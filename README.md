@@ -76,6 +76,10 @@ session on one serial shard while allowing different sessions to be extracted
 in parallel. Configure the pool with `TEAM_MEMORY_WORKER_SHARDS`, retry count
 with `TEAM_MEMORY_WORKER_MAX_ATTEMPTS`, and lifecycle timeouts with
 `TEAM_MEMORY_WORKER_JOB_TIMEOUT` and `TEAM_MEMORY_WORKER_STOP_TIMEOUT`.
+The production defaults allow one Slice per three-minute worker job and one
+120-second provider attempt. Startup rejects a configured serial provider
+budget that reaches the worker deadline; synchronous compaction includes its
+initial call, one possible fallback call, and the primary call.
 
 Incomplete session batches are sealed after 30 seconds of inactivity by
 default. Every new batch for the same session resets the effective timeout;
@@ -107,11 +111,13 @@ decision; the failed shadow latency and cost gates remain recorded in the ADR
 and must not be presented as a measured quality win.
 
 V2 extraction candidate strategies are packaged behind the same `Extractor`
-interface. `current`, `interaction-slim`, `evidence-fidelity-v1`, and `typed-2`
-each bind their prompt, response decoder, and rolling episode protocol revision
-in one registry. `evidence-fidelity-v1` is an evaluation candidate that keeps
-the semantic Candidate schema and adds a source-fidelity pass; it is not a
-production default. Build
+interface. `current`, `interaction-slim`, `evidence-fidelity-v1`,
+`source-clause-v1`, `source-clause-implicit-state-v1`, `typed-2`,
+`source-span-v1`, `source-span-v2`, `claim-card-v1`, and `claim-card-v2` each
+bind their prompt, response decoder, and rolling episode protocol revision in
+one registry. `source-clause-v1` is the production default. The implicit-state,
+Evidence Fidelity, Source Span, and Claim Card candidates are retained only for
+evaluation reproducibility. Build
 a distribution with a selected default using
 `make build EXTRACTION_CANDIDATE_STRATEGY=typed-2`, or pass the same build
 argument to Docker as `EXTRACTION_CANDIDATE_STRATEGY`. At runtime,
@@ -134,6 +140,8 @@ slice behavior for evaluation. Configure the rolling soft trigger with
 `TEAM_MEMORY_EXTRACTION_COMPACT_TOKENS`; configure queue slice bounds with
 `TEAM_MEMORY_SLICE_EVENT_LIMIT`, `TEAM_MEMORY_SLICE_TOKEN_LIMIT`,
 `TEAM_MEMORY_SLICE_OVERLAP`, and `TEAM_MEMORY_MAX_SLICES_PER_JOB`. Extraction
+defaults to one Slice per job. Provider execution defaults to one 120-second
+attempt, and the worker job deadline defaults to three minutes. Extraction
 logs expose prompt cache hit and miss tokens when the provider reports them.
 
 Passive recall runs General Recall v3 behind the existing `RecallNotes` and

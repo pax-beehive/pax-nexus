@@ -31,6 +31,10 @@ func (s *configSuite) SetupTest() {
 		"TEAM_MEMORY_EXTRACTION_COMPACT_TOKENS", "TEAM_MEMORY_EXTRACTION_COMPACTION_ENABLED",
 		"TEAM_MEMORY_EXTRACTION_SUMMARY_ENABLED", "TEAM_MEMORY_EXTRACTION_SUMMARY_TRIGGER_TOKENS",
 		"TEAM_MEMORY_EXTRACTION_SUMMARY_TAIL_TOKENS",
+		"TEAM_MEMORY_EXTRACTION_PROVIDER_TIMEOUT", "TEAM_MEMORY_EXTRACTION_PROVIDER_MAX_ATTEMPTS",
+		"TEAM_MEMORY_EXTRACTION_PROVIDER_RETRY_BACKOFF", "TEAM_MEMORY_EXTRACTION_PROVIDER_MAX_RESPONSE_BYTES",
+		"TEAM_MEMORY_EXTRACTION_PRIMARY_MAX_OUTPUT_TOKENS", "TEAM_MEMORY_EXTRACTION_SUMMARY_MAX_OUTPUT_TOKENS",
+		"TEAM_MEMORY_EXTRACTION_COMPACTION_MAX_OUTPUT_TOKENS",
 		"TEAM_MEMORY_WORKER_SHARDS", "TEAM_MEMORY_WORKER_MAX_ATTEMPTS",
 		"TEAM_MEMORY_WORKER_DEBOUNCE", "TEAM_MEMORY_BATCH_TIMEOUT",
 		"TEAM_MEMORY_WORKER_JOB_TIMEOUT", "TEAM_MEMORY_WORKER_STOP_TIMEOUT",
@@ -63,7 +67,7 @@ func (s *configSuite) TestLoadsNoopConfiguration() {
 	s.Equal(16*1024, config.extractionCompactTokens)
 	s.Equal(8*1024, config.extractionSummaryTriggerTokens)
 	s.Equal(16*1024, config.extractionSummaryTailTokens)
-	s.Equal(90*time.Second, config.extractionExecutionPolicy.AttemptTimeout)
+	s.Equal(120*time.Second, config.extractionExecutionPolicy.AttemptTimeout)
 	s.Equal(1, config.extractionExecutionPolicy.MaxAttempts)
 	s.Equal(250*time.Millisecond, config.extractionExecutionPolicy.RetryBackoff)
 	s.Equal(int64(1<<20), config.extractionExecutionPolicy.MaxResponseBytes)
@@ -72,11 +76,11 @@ func (s *configSuite) TestLoadsNoopConfiguration() {
 	s.Equal(5, config.workerMaxAttempts)
 	s.Equal(750*time.Millisecond, config.workerDebounce)
 	s.Equal(30*time.Second, config.batchTimeout)
-	s.Equal(2*time.Minute, config.workerJobTimeout)
+	s.Equal(3*time.Minute, config.workerJobTimeout)
 	s.Equal(25, config.sliceEventLimit)
 	s.Equal(8192, config.sliceTokenLimit)
 	s.Equal(3, config.sliceOverlap)
-	s.Equal(4, config.maxSlicesPerJob)
+	s.Equal(1, config.maxSlicesPerJob)
 	s.Equal(10*time.Second, config.embeddingTimeout)
 	strategy, err := teamnote.ResolveRecallCandidateStrategy("")
 	s.Require().NoError(err)
@@ -84,6 +88,37 @@ func (s *configSuite) TestLoadsNoopConfiguration() {
 	adapter, err := buildExtractor(config)
 	s.Require().NoError(err)
 	s.IsType(extractor.Noop{}, adapter)
+}
+
+func (s *configSuite) TestRejectsExtractionExecutionBudgetThatExceedsJobDeadline() {
+	tests := []struct {
+		name       string
+		maxSlices  string
+		compaction bool
+	}{
+		{name: "multiple primary calls", maxSlices: "2"},
+		{name: "compaction fallback calls", maxSlices: "1", compaction: true},
+	}
+
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			s.T().Setenv("TEAM_MEMORY_DATABASE_URL", "postgres://database")
+			s.T().Setenv("TEAM_MEMORY_API_KEYS", `{"key":"scope"}`)
+			s.T().Setenv("TEAM_MEMORY_EXTRACTOR_MODE", "noop")
+			s.T().Setenv("TEAM_MEMORY_EXTRACTION_PROVIDER_TIMEOUT", "2m")
+			s.T().Setenv("TEAM_MEMORY_MAX_SLICES_PER_JOB", test.maxSlices)
+			s.T().Setenv("TEAM_MEMORY_WORKER_JOB_TIMEOUT", "3m")
+			if test.compaction {
+				s.T().Setenv("TEAM_MEMORY_EXTRACTION_SUMMARY_ENABLED", "false")
+				s.T().Setenv("TEAM_MEMORY_EXTRACTION_COMPACTION_ENABLED", "true")
+			}
+
+			_, err := loadConfig()
+
+			s.Require().Error(err)
+			s.ErrorContains(err, "extraction execution budget")
+		})
+	}
 }
 
 func (s *configSuite) TestRuntimeCandidateStrategyOverridesBuildDefault() {
@@ -135,7 +170,7 @@ func (s *configSuite) TestCheckedInCandidateStrategyBuildInterface() {
 		path string
 		want string
 	}{
-		{path: ".env.example", want: "evidence-fidelity-v1, source-clause-v1, typed-2, source-span-v1"},
+		{path: ".env.example", want: "evidence-fidelity-v1, source-clause-v1, source-clause-implicit-state-v1, typed-2"},
 		{path: ".env.example", want: "TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY="},
 		{path: ".env.eval-v2.example", want: "TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY=source-clause-v1"},
 		{path: "compose.yaml", want: "EXTRACTION_CANDIDATE_STRATEGY: ${TEAM_MEMORY_BUILD_EXTRACTION_CANDIDATE_STRATEGY:-source-clause-v1}"},

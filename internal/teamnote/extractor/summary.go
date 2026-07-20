@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 )
 
 type summaryFlight struct {
@@ -56,7 +55,7 @@ func (e *OpenAI) startSummary(ctx context.Context, key EpisodeKey, episode Episo
 	e.summariesMu.Unlock()
 
 	go func() {
-		background, cancel := context.WithTimeout(owned, 2*time.Minute)
+		background, cancel := context.WithTimeout(owned, backgroundProviderTimeout(e.config.ExecutionPolicy))
 		defer cancel()
 		flight.result, flight.err = e.computeSummary(background, episode)
 		flight.persistErr = e.persistSummaryOutcome(background, key, flight.result, flight.err)

@@ -23,6 +23,7 @@ func (s *candidateStrategySuite) TestRegistryExposesStableDistributionNames() {
 		extractor.CandidateStrategyInteractionSlim,
 		extractor.CandidateStrategyEvidenceFidelity,
 		extractor.CandidateStrategySourceClause,
+		extractor.CandidateStrategyImplicitState,
 		extractor.CandidateStrategyTyped2,
 		extractor.CandidateStrategySourceSpanV1,
 		extractor.CandidateStrategySourceSpanV2,

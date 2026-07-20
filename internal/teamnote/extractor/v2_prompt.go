@@ -8,6 +8,7 @@ const (
 	extractionProtocolV2RevisionInteractionSlim  = "v2-slim-4-interaction-slim-temporal-deterministic"
 	extractionProtocolV2RevisionEvidenceFidelity = "v2-slim-7-evidence-fidelity-v1-temporal-deterministic"
 	extractionProtocolV2RevisionSourceClause     = "v2-slim-7-source-clause-v1"
+	extractionProtocolV2RevisionImplicitState    = "v2-slim-8-source-clause-implicit-state-v1"
 )
 
 // The v2 user prompt is the same session-slice JSON as v1 (buildPrompt), so
@@ -49,6 +50,13 @@ every emitted decision or claim must still cite at least one event from the
 current new_event_ids.`
 
 const rollingSystemPromptV2SourceClause = systemPromptV2BeforeInteractions + interactionPromptV2Slim + sourceClausePromptV2 + systemPromptV2Closing + `
+You are maintaining one cumulative knowledge state for a task or thread across
+multiple agents and sessions. Previous assistant responses are your own prior
+state decisions and exceptional claims. Reuse the same identity_ref for the
+same real-world fact. Every emitted decision or claim must still cite at least
+one event from the current new_event_ids.`
+
+const rollingSystemPromptV2ImplicitState = systemPromptV2BeforeInteractions + interactionPromptV2Slim + implicitStateReviewPromptV2 + sourceClausePromptV2 + systemPromptV2Closing + `
 You are maintaining one cumulative knowledge state for a task or thread across
 multiple agents and sessions. Previous assistant responses are your own prior
 state decisions and exceptional claims. Reuse the same identity_ref for the
@@ -204,6 +212,21 @@ const evidenceFidelityPromptV2 = `Evidence fidelity pass before returning:
 - This pass does not relax modality. A proposal, desired owner, request, or
   question still cannot become committed state without separate source
   evidence that establishes the transition.
+
+`
+
+const implicitStateReviewPromptV2 = `Implicit durable-state review before no_state:
+- Observable incomplete state is durable when the Event directly says work,
+  wording, criteria, or a dependency is still moving, unresolved, blocked, not
+  locked, or cannot yet be finalized. Emit the narrow blocker or status instead
+  of classifying the whole Event as no_state.
+- Declarative role capability tied to a concrete action and deadline is a
+  qualified status even when the source uses can rather than promises will.
+  Preserve can, cannot, and not-yet modality exactly in the Candidate body; do
+  not upgrade capability, inability, or incomplete state into a commitment.
+- This rule does not apply to can you requests, should/could/would suggestions,
+  preferences, hypotheticals, or proposals. Those remain non-committal unless a
+  separate exact source clause establishes durable state.
 
 `
 

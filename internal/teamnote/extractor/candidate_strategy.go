@@ -48,6 +48,12 @@ var candidateStrategies = []candidateStrategy{
 		mapResult: mapExtractionSourceClauseV1,
 	},
 	{
+		name: CandidateStrategyImplicitState, protocolVersion: extractionProtocolV2RevisionImplicitState,
+		protocol: extractionProtocol{rollingSystemPromptV2ImplicitState, decodeExtractionResponseV2,
+			decodeExtractionContentV2},
+		mapResult: mapExtractionSourceClauseV1,
+	},
+	{
 		name: CandidateStrategyTyped2, protocolVersion: extractionProtocolV2RevisionTypedCurrent,
 		protocol:  extractionProtocol{rollingSystemPromptV2Typed, decodeExtractionResponseV2Typed, decodeExtractionContentV2Typed},
 		mapResult: mapExtractionV2,

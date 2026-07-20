@@ -17,7 +17,7 @@ GOLANGCI_LINT_VERSION := v2.11.3
 COVERAGE_MIN := 75
 OUTPUT_BIN_DIR ?= output/bin
 EXTRACTION_CANDIDATE_STRATEGY ?= source-clause-v1
-EXTRACTION_CANDIDATE_STRATEGIES := current interaction-slim evidence-fidelity-v1 source-clause-v1 typed-2 source-span-v1 source-span-v2 claim-card-v1 claim-card-v2
+EXTRACTION_CANDIDATE_STRATEGIES := current interaction-slim evidence-fidelity-v1 source-clause-v1 source-clause-implicit-state-v1 typed-2 source-span-v1 source-span-v2 claim-card-v1 claim-card-v2
 EXTRACTION_CANDIDATE_LDFLAG := -X $(MODULE)/internal/teamnote/extractor.buildDefaultCandidateStrategy=$(EXTRACTION_CANDIDATE_STRATEGY)
 RECALL_CANDIDATE_STRATEGY ?= passive-v1
 RECALL_CANDIDATE_STRATEGIES := passive-v1 hint-v1-selective
@@ -32,7 +32,7 @@ RECALL_EVAL_CANDIDATE_LIMIT ?= 16
 all: lint test
 
 validate-extraction-candidate-strategy:
-	@case "$(EXTRACTION_CANDIDATE_STRATEGY)" in current|interaction-slim|evidence-fidelity-v1|source-clause-v1|typed-2|source-span-v1|source-span-v2|claim-card-v1|claim-card-v2) ;; \
+	@case "$(EXTRACTION_CANDIDATE_STRATEGY)" in current|interaction-slim|evidence-fidelity-v1|source-clause-v1|source-clause-implicit-state-v1|typed-2|source-span-v1|source-span-v2|claim-card-v1|claim-card-v2) ;; \
 		*) echo "unsupported EXTRACTION_CANDIDATE_STRATEGY=$(EXTRACTION_CANDIDATE_STRATEGY); expected one of: $(EXTRACTION_CANDIDATE_STRATEGIES)" >&2; exit 2 ;; \
 	esac
 

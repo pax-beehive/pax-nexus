@@ -48,7 +48,7 @@ func New(lake *sessionlake.Lake, candidateExtractor extractor.Extractor, config 
 		config.SliceOverlap = 3
 	}
 	if config.MaxSlicesPerJob <= 0 {
-		config.MaxSlicesPerJob = 4
+		config.MaxSlicesPerJob = 1
 	}
 	if config.TTLPolicy == nil {
 		config.TTLPolicy = teamnote.DefaultTTLPolicy()
