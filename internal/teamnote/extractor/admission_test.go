@@ -42,6 +42,10 @@ func (s *admissionSuite) TestSourceClauseAdmissionValidatesExactAtomicEvidence()
 			clause: "Compliance owns the audit log.", wantCause: "exact text",
 		},
 		{
+			name: "surrounding whitespace is not exact", content: "Compliance owns the exceptions log.",
+			clause: "  Compliance owns the exceptions log.  ", wantCause: "surrounding whitespace",
+		},
+		{
 			name: "question clause", content: "Should Compliance own the exceptions log?",
 			clause: "Should Compliance own the exceptions log?", wantCause: "non-committal",
 		},

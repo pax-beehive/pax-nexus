@@ -47,10 +47,13 @@ func sourceClauseRejectionReason(
 	decisionEvidence := stringSet(decision.EvidenceEventIDs)
 	groundedInNewEvent := false
 	for _, clause := range decision.EvidenceClauses {
-		eventID := strings.TrimSpace(clause.EventID)
-		quote := strings.TrimSpace(clause.Quote)
+		eventID := clause.EventID
+		quote := clause.Quote
 		if eventID == "" || quote == "" {
 			return "source clause citation is missing event_id or quote"
+		}
+		if eventID != strings.TrimSpace(eventID) || quote != strings.TrimSpace(quote) {
+			return "source clause citation contains surrounding whitespace"
 		}
 		if _, cited := decisionEvidence[eventID]; !cited {
 			return fmt.Sprintf("source clause event %q is not cited by the decision", eventID)
