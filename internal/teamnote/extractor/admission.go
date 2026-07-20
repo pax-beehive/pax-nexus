@@ -60,6 +60,9 @@ func sourceClauseRejectionReason(
 		if !strings.Contains(event.Content, quote) {
 			return fmt.Sprintf("source clause quote is not exact text from event %q", eventID)
 		}
+		if !isAtomicSourceClause(event.Content, quote) {
+			return fmt.Sprintf("source clause quote is not one atomic clause from event %q", eventID)
+		}
 		if sourceClauseIsNonCommittal(quote) {
 			return fmt.Sprintf("source clause from event %q contains only non-committal language", eventID)
 		}
@@ -88,9 +91,23 @@ func sourceClauseIsNonCommittal(quote string) bool {
 	}
 	return !containsAny(normalized, []string{
 		" approved ", " accepted ", " assigned ", " designated ", " committed ",
-		" confirmed ", " decided ", " owns ", " responsible for ", " must ",
-		" will ", " completed ", " finished ",
+		" confirmed ", " decided ",
 	})
+}
+
+func isAtomicSourceClause(content, quote string) bool {
+	start := 0
+	for index, character := range content {
+		if character != '.' && character != ';' && character != '!' && character != '?' && character != '\n' {
+			continue
+		}
+		end := index + len(string(character))
+		if strings.TrimSpace(content[start:end]) == quote {
+			return true
+		}
+		start = end
+	}
+	return strings.TrimSpace(content[start:]) == quote
 }
 
 func containsAny(value string, markers []string) bool {

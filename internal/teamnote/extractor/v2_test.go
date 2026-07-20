@@ -704,13 +704,6 @@ func (s *extractionV2Suite) TestTemporalWindowNormalization() {
 			fields: `,"temporal_expression":"Friday EOD","valid_at":"2025-07-18T17:00:00Z","temporal_resolution":"unresolved"`,
 		},
 		{
-			name:        "past invalid_at on create is dropped",
-			action:      "create",
-			fields:      `,"temporal_expression":"today","valid_at":"2025-07-17T00:00:00Z","invalid_at":"` + past + `","temporal_resolution":"anchored"`,
-			wantValidAt: true,
-			wantInvalid: false,
-		},
-		{
 			name:        "future invalid_at on create is preserved",
 			action:      "create",
 			fields:      `,"temporal_expression":"until the freeze lifts","invalid_at":"` + future + `","temporal_resolution":"explicit"`,
@@ -749,6 +742,25 @@ func (s *extractionV2Suite) TestTemporalWindowNormalization() {
 			s.Equal(test.wantInvalid, result.Candidates[0].InvalidAt != nil)
 		})
 	}
+}
+
+func (s *extractionV2Suite) TestRejectsCreateThatExpiredBeforeObservationTime() {
+	decision := `{"decision":"create","identity_ref":"schedule/reporting-validation","evidence_event_ids":["event-1"],` +
+		`"temporal_expression":"until July 17","invalid_at":"2025-07-17T23:59:59Z","temporal_resolution":"explicit",` +
+		`"reason_codes":["explicit_new_fact"],"candidate":{"kind":"status","subject":"reporting validation","body":"Reporting validation was active."}}`
+	client := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		return response(http.StatusOK, v2Body("", decision)), nil
+	})}
+	adapter := newV2Adapter(s, client)
+	slice := v2Slice()
+	slice.Events[0].OccurredAt = time.Date(2026, time.July, 19, 0, 0, 0, 0, time.UTC)
+
+	result, err := adapter.Extract(teamnote.WithScope(context.Background(), "scope-v2-expired-create"), slice)
+
+	s.Require().NoError(err)
+	s.Empty(result.Candidates)
+	s.Require().Len(result.Trace.DecisionRejections, 1)
+	s.Contains(result.Trace.DecisionRejections[0].Reason, "not current")
 }
 
 func (s *extractionV2Suite) TestDanglingClaimReferenceDoesNotVoidDirectEvidence() {

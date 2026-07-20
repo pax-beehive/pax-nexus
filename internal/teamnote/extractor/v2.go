@@ -721,8 +721,7 @@ func temporalRejectionReason(
 
 // candidateTemporalWindow parses the decision's temporal window. A create
 // asserts current state, so an already-past invalid_at contradicts the
-// assertion; drop the expiry and keep the fact with its deadline in the body
-// rather than admitting a stillborn note.
+// assertion and cannot be admitted as a timeless current fact.
 func candidateTemporalWindow(
 	action DecisionAction,
 	temporal temporalFields,
@@ -736,7 +735,7 @@ func candidateTemporalWindow(
 		return nil, nil, "decision temporal admission requires an extraction observation time"
 	}
 	if action == DecisionCreate && invalidAt != nil && !invalidAt.After(observationTime) {
-		invalidAt = nil
+		return nil, nil, "create decision is not current at the extraction observation time"
 	}
 	return validAt, invalidAt, ""
 }

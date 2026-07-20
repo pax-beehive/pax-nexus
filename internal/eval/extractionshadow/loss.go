@@ -11,8 +11,11 @@ func attributeExtractionLosses(
 	fixture stageeval.Fixture,
 	run CaseRun,
 	extraction stageeval.Observation,
-) []ExtractionAtomLoss {
-	matched := matchedAtomIDs(fixture, extraction)
+) ([]ExtractionAtomLoss, error) {
+	matched, err := matchedAtomIDs(fixture, extraction)
+	if err != nil {
+		return nil, err
+	}
 	losses := make([]ExtractionAtomLoss, 0, len(fixture.RequiredAtoms))
 	for _, atom := range fixture.RequiredAtoms {
 		loss := ExtractionAtomLoss{
@@ -27,17 +30,17 @@ func attributeExtractionLosses(
 		}
 		losses = append(losses, loss)
 	}
-	return losses
+	return losses, nil
 }
 
-func matchedAtomIDs(fixture stageeval.Fixture, extraction stageeval.Observation) map[string]bool {
+func matchedAtomIDs(fixture stageeval.Fixture, extraction stageeval.Observation) (map[string]bool, error) {
 	matched := make(map[string]bool, len(fixture.RequiredAtoms))
 	result, err := stageeval.Evaluate(fixture, extraction, stageeval.Observation{
 		CaseID: fixture.CaseID, Stage: stageeval.StageRecall,
 		SourceRevision: fixture.SourceRevision, RecallContext: &fixture.RecallContext,
 	})
 	if err != nil {
-		return matched
+		return nil, err
 	}
 	missing := make(map[string]struct{}, len(result.Extraction.MissingAtomIDs))
 	for _, atomID := range result.Extraction.MissingAtomIDs {
@@ -47,7 +50,7 @@ func matchedAtomIDs(fixture stageeval.Fixture, extraction stageeval.Observation)
 		_, isMissing := missing[atom.ID]
 		matched[atom.ID] = !isMissing
 	}
-	return matched
+	return matched, nil
 }
 
 func anySliceEvent(slices []SliceRecord, eventIDs []string) bool {
@@ -116,8 +119,7 @@ func traceReviewsEvent(trace *extractor.TraceV2, eventID string) bool {
 	if trace == nil {
 		return false
 	}
-	if containsString(trace.NoStateEventIDs, eventID) || containsString(trace.UnreviewedEventIDs, eventID) ||
-		containsString(trace.InvalidNoStateEventIDs, eventID) {
+	if containsString(trace.NoStateEventIDs, eventID) {
 		return true
 	}
 	for _, claim := range trace.Claims {

@@ -325,6 +325,7 @@ func (s *shadowSuite) TestBuildReportAttributesFirstExtractionLossPerAtom() {
 	s.Empty(report.LossLedger[0].LostAt)
 	s.Equal(extractionshadow.ExtractionLossEventReview, report.LossLedger[1].LostAt)
 	s.Equal("supporting_event_unreviewed", report.LossLedger[1].Reason)
+	s.False(report.LossLedger[1].Reviewed)
 }
 
 func (s *shadowSuite) TestLoadManifestCases() {

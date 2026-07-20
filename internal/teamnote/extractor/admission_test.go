@@ -45,6 +45,14 @@ func (s *admissionSuite) TestSourceClauseAdmissionValidatesExactAtomicEvidence()
 			name: "question clause", content: "Should Compliance own the exceptions log?",
 			clause: "Should Compliance own the exceptions log?", wantCause: "non-committal",
 		},
+		{
+			name: "broad quote cannot launder proposal", content: "I propose Compliance owns the exceptions log. Reporting is the approved owner.",
+			clause: "I propose Compliance owns the exceptions log. Reporting is the approved owner.", wantCause: "atomic clause",
+		},
+		{
+			name: "factual predicate does not neutralize proposal", content: "I propose Compliance owns the exceptions log.",
+			clause: "I propose Compliance owns the exceptions log.", wantCause: "non-committal",
+		},
 	}
 
 	for _, test := range tests {

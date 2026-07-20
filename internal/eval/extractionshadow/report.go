@@ -156,7 +156,10 @@ func BuildReport(runID, arm, extractorVersion string, fixtures stageeval.Fixture
 		if err := encoder.Encode(recall); err != nil {
 			return Report{}, fmt.Errorf("encode shadow recall observation: %w", err)
 		}
-		atomLosses := attributeExtractionLosses(fixture, run, extraction)
+		atomLosses, err := attributeExtractionLosses(fixture, run, extraction)
+		if err != nil {
+			return Report{}, fmt.Errorf("attribute extraction losses for case %q: %w", fixture.CaseID, err)
+		}
 		report.Cases = append(report.Cases, CaseReport{
 			CaseID: run.CaseID, Streams: run.Streams, Events: run.Events, Notes: len(run.Notes), Slices: len(run.Slices),
 			AtomLosses: atomLosses,

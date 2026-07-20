@@ -91,10 +91,10 @@ func (e *OpenAI) executeProvider(
 			return responseBody, nil
 		}
 		if !retryable || attempt == policy.MaxAttempts {
-			return nil, err
+			return nil, fmt.Errorf("execute %s provider attempt %d: %w", callType, attempt, err)
 		}
 		if err := waitProviderRetry(ctx, policy.RetryBackoff); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("execute %s provider after attempt %d: %w", callType, attempt, err)
 		}
 	}
 	return nil, fmt.Errorf("execute extractor provider: exhausted attempts")
