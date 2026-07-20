@@ -62,6 +62,14 @@ func (s *admissionSuite) TestSourceClauseAdmissionValidatesExactAtomicEvidence()
 			clause: "The proposal was approved.", wantNotes: 1,
 		},
 		{
+			name: "approved request is committed", content: "The request was approved.",
+			clause: "The request was approved.", wantNotes: 1,
+		},
+		{
+			name: "conditional state is committed", content: "If the July 26 milestone slips, Ops Lead owns the rollback evidence pack.",
+			clause: "If the July 26 milestone slips, Ops Lead owns the rollback evidence pack.", wantNotes: 1,
+		},
+		{
 			name: "exact value with decimal", content: "The alert threshold is 1.5%.",
 			clause: "The alert threshold is 1.5%.", wantNotes: 1,
 		},
