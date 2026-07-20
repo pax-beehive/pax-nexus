@@ -7,6 +7,7 @@ import (
 
 	"github.com/pax-beehive/pax-nexus/internal/sessionlake"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote"
+	"github.com/pax-beehive/pax-nexus/internal/teamnote/extractionbudget"
 )
 
 type Usage struct {
@@ -39,18 +40,9 @@ const (
 	ProviderFailureResponseTooLarge ProviderFailureClass = "response_too_large"
 )
 
-// ExecutionPolicy bounds physical provider attempts behind one logical
-// extraction call. MaxAttempts defaults to one until fixed-cohort evidence
-// supports enabling retries.
-type ExecutionPolicy struct {
-	AttemptTimeout            time.Duration
-	MaxAttempts               int
-	RetryBackoff              time.Duration
-	MaxResponseBytes          int64
-	PrimaryMaxOutputTokens    int
-	SummaryMaxOutputTokens    int
-	CompactionMaxOutputTokens int
-}
+// ExecutionPolicy is the provider portion of the shared extraction execution
+// envelope. The alias preserves the extractor-facing configuration surface.
+type ExecutionPolicy = extractionbudget.ProviderPolicy
 
 // ProviderCall records one physical model request. Slice usage may include
 // asynchronously consumed summary or compaction usage, so evaluations use

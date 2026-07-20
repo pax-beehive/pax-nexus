@@ -11,13 +11,13 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pax-beehive/pax-nexus/internal/eval/extractioneval"
 	"github.com/pax-beehive/pax-nexus/internal/eval/extractionshadow"
 	"github.com/pax-beehive/pax-nexus/internal/eval/stageeval"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote"
+	"github.com/pax-beehive/pax-nexus/internal/teamnote/extractionbudget"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote/extractor"
 )
 
@@ -95,13 +95,14 @@ func parseFlags(args []string) (evalConfig, error) {
 	flags.BoolVar(&config.resume, "resume", false, "Resume an interrupted run from per-slice artifacts")
 	flags.BoolVar(&config.preflightOnly, "preflight-only", false, "Validate and size source Events without calling a model")
 	flags.IntVar(&config.sliceEventLimit, "slice-event-limit", 25, "Maximum new session events per primary extraction slice")
-	flags.DurationVar(&config.executionPolicy.AttemptTimeout, "provider-timeout", 120*time.Second, "Deadline for one physical provider attempt")
-	flags.IntVar(&config.executionPolicy.MaxAttempts, "provider-max-attempts", 1, "Maximum physical provider attempts per logical call")
-	flags.DurationVar(&config.executionPolicy.RetryBackoff, "provider-retry-backoff", 250*time.Millisecond, "Delay between retryable provider attempts")
-	flags.Int64Var(&config.executionPolicy.MaxResponseBytes, "provider-max-response-bytes", 1<<20, "Maximum provider response body size")
-	flags.IntVar(&config.executionPolicy.PrimaryMaxOutputTokens, "primary-max-output-tokens", 16*1024, "Primary extraction response token budget")
-	config.executionPolicy.SummaryMaxOutputTokens = 4 * 1024
-	config.executionPolicy.CompactionMaxOutputTokens = 4 * 1024
+	providerDefaults := extractionbudget.DefaultProviderPolicy()
+	flags.DurationVar(&config.executionPolicy.AttemptTimeout, "provider-timeout", providerDefaults.AttemptTimeout, "Deadline for one physical provider attempt")
+	flags.IntVar(&config.executionPolicy.MaxAttempts, "provider-max-attempts", providerDefaults.MaxAttempts, "Maximum physical provider attempts per logical call")
+	flags.DurationVar(&config.executionPolicy.RetryBackoff, "provider-retry-backoff", providerDefaults.RetryBackoff, "Delay between retryable provider attempts")
+	flags.Int64Var(&config.executionPolicy.MaxResponseBytes, "provider-max-response-bytes", providerDefaults.MaxResponseBytes, "Maximum provider response body size")
+	flags.IntVar(&config.executionPolicy.PrimaryMaxOutputTokens, "primary-max-output-tokens", providerDefaults.PrimaryMaxOutputTokens, "Primary extraction response token budget")
+	config.executionPolicy.SummaryMaxOutputTokens = providerDefaults.SummaryMaxOutputTokens
+	config.executionPolicy.CompactionMaxOutputTokens = providerDefaults.CompactionMaxOutputTokens
 	if err := flags.Parse(args); err != nil {
 		return evalConfig{}, fmt.Errorf("parse extraction-eval-v1 flags: %w", err)
 	}
@@ -114,10 +115,8 @@ func parseFlags(args []string) (evalConfig, error) {
 	if config.sliceEventLimit < 1 {
 		return evalConfig{}, fmt.Errorf("parse extraction-eval-v1 flags: slice-event-limit must be positive")
 	}
-	if config.executionPolicy.AttemptTimeout <= 0 || config.executionPolicy.MaxAttempts < 1 ||
-		config.executionPolicy.MaxAttempts > 3 || config.executionPolicy.RetryBackoff < 0 ||
-		config.executionPolicy.MaxResponseBytes < 1 || config.executionPolicy.PrimaryMaxOutputTokens < 1 {
-		return evalConfig{}, fmt.Errorf("parse extraction-eval-v1 flags: provider execution policy is invalid")
+	if err := config.executionPolicy.Validate(); err != nil {
+		return evalConfig{}, fmt.Errorf("parse extraction-eval-v1 flags: %w", err)
 	}
 	if config.promptVersion == "" {
 		config.promptVersion = config.extractorVersion
@@ -236,14 +235,16 @@ func runPaidEval(
 	backgroundDrained := false
 	defer func() {
 		if !backgroundDrained {
-			returnedErr = errors.Join(returnedErr, waitForBackgroundCalls(context.WithoutCancel(ctx), protocol))
+			returnedErr = errors.Join(returnedErr, waitForBackgroundCalls(
+				context.WithoutCancel(ctx), protocol, config.executionPolicy,
+			))
 		}
 	}()
 	domainRuns, err := replayDomains(ctx, protocol, prepared, journal, config.sliceEventLimit, stdout)
 	if err != nil {
 		return err
 	}
-	if err := waitForBackgroundCalls(context.WithoutCancel(ctx), protocol); err != nil {
+	if err := waitForBackgroundCalls(context.WithoutCancel(ctx), protocol, config.executionPolicy); err != nil {
 		backgroundDrained = true
 		return err
 	}
@@ -400,8 +401,12 @@ func buildExtractor(
 	})
 }
 
-func waitForBackgroundCalls(ctx context.Context, protocol interface{ WaitForBackground(context.Context) error }) error {
-	waitCtx, cancel := context.WithTimeout(ctx, 3*time.Minute)
+func waitForBackgroundCalls(
+	ctx context.Context,
+	protocol interface{ WaitForBackground(context.Context) error },
+	policy extractor.ExecutionPolicy,
+) error {
+	waitCtx, cancel := context.WithTimeout(ctx, policy.BackgroundCallTimeout())
 	defer cancel()
 	return protocol.WaitForBackground(waitCtx)
 }

@@ -9,17 +9,10 @@ import (
 	"time"
 
 	"github.com/pax-beehive/pax-nexus/internal/teamnote"
+	"github.com/pax-beehive/pax-nexus/internal/teamnote/extractionbudget"
 )
 
 var ErrProviderResponseTooLarge = errors.New("provider response too large")
-
-const (
-	defaultProviderAttemptTimeout = 120 * time.Second
-	defaultProviderMaxResponse    = 1 << 20
-	defaultPrimaryMaxOutputTokens = 16 * 1024
-	defaultAuxiliaryOutputTokens  = 4 * 1024
-	providerOutcomeSaveMargin     = 10 * time.Second
-)
 
 type providerStatusError struct {
 	status int
@@ -27,9 +20,7 @@ type providerStatusError struct {
 }
 
 func backgroundProviderTimeout(policy ExecutionPolicy) time.Duration {
-	timeout := time.Duration(policy.MaxAttempts) * policy.AttemptTimeout
-	timeout += time.Duration(policy.MaxAttempts-1) * policy.RetryBackoff
-	return timeout + providerOutcomeSaveMargin
+	return policy.BackgroundCallTimeout()
 }
 
 func (e *providerStatusError) Error() string {
@@ -37,33 +28,11 @@ func (e *providerStatusError) Error() string {
 }
 
 func normalizeExecutionPolicy(policy *ExecutionPolicy) error {
-	if policy.AttemptTimeout == 0 {
-		policy.AttemptTimeout = defaultProviderAttemptTimeout
+	normalized, err := extractionbudget.NormalizeProviderPolicy(*policy)
+	if err != nil {
+		return err
 	}
-	if policy.MaxAttempts == 0 {
-		policy.MaxAttempts = 1
-	}
-	if policy.RetryBackoff == 0 {
-		policy.RetryBackoff = 250 * time.Millisecond
-	}
-	if policy.MaxResponseBytes == 0 {
-		policy.MaxResponseBytes = defaultProviderMaxResponse
-	}
-	if policy.PrimaryMaxOutputTokens == 0 {
-		policy.PrimaryMaxOutputTokens = defaultPrimaryMaxOutputTokens
-	}
-	if policy.SummaryMaxOutputTokens == 0 {
-		policy.SummaryMaxOutputTokens = defaultAuxiliaryOutputTokens
-	}
-	if policy.CompactionMaxOutputTokens == 0 {
-		policy.CompactionMaxOutputTokens = defaultAuxiliaryOutputTokens
-	}
-	if policy.AttemptTimeout < 0 || policy.MaxAttempts < 1 || policy.MaxAttempts > 3 ||
-		policy.RetryBackoff < 0 || policy.MaxResponseBytes < 1 ||
-		policy.PrimaryMaxOutputTokens < 1 || policy.SummaryMaxOutputTokens < 1 ||
-		policy.CompactionMaxOutputTokens < 1 {
-		return fmt.Errorf("provider execution policy has invalid deadline, attempts, backoff, response, or output budget")
-	}
+	*policy = normalized
 	return nil
 }
 

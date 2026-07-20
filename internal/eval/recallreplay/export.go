@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/pax-beehive/pax-nexus/internal/eval/stageeval"
 	"github.com/pax-beehive/pax-nexus/internal/platform/postgres"
 	"github.com/pax-beehive/pax-nexus/internal/platform/textembedding"
@@ -79,7 +80,7 @@ func (e *Exporter) exportCase(ctx context.Context, fixture stageeval.Fixture, sc
 	if err != nil {
 		return Case{}, fmt.Errorf("export recall candidates for %q: %w", fixture.CaseID, err)
 	}
-	extractionItems, err := e.extractionSnapshot(ctx, scopeID, observationTime)
+	extractionItems, err := e.extractionItems(ctx, scopeID, observationTime, teamnote.CompileRecallIntent(request))
 	if err != nil {
 		return Case{}, fmt.Errorf("export extraction snapshot for %q: %w", fixture.CaseID, err)
 	}
@@ -88,6 +89,20 @@ func (e *Exporter) exportCase(ctx context.Context, fixture stageeval.Fixture, sc
 		ObservationTime: observationTime,
 		ExtractionItems: extractionItems, Candidates: pinCandidates(candidates),
 	}, nil
+}
+
+func (e *Exporter) extractionItems(
+	ctx context.Context,
+	scopeID string,
+	at time.Time,
+	intent teamnote.RecallIntent,
+) ([]stageeval.Item, error) {
+	switch intent.Mode {
+	case teamnote.RecallModeAsOf, teamnote.RecallModeHistory, teamnote.RecallModeChangesSince:
+		return e.historicalExtractionSnapshot(ctx, scopeID, at)
+	default:
+		return e.extractionSnapshot(ctx, scopeID, at)
+	}
 }
 
 func (e *Exporter) observationTime(
@@ -118,6 +133,29 @@ LIMIT 1`, scopeID, actor.UserID, actor.AgentID, queryDigest[:], recallContext.To
 	return observedAt.UTC(), nil
 }
 
+// historicalExtractionSnapshot exports the revision ledger independently of
+// retrieval gates so extraction availability and recall loss remain separate.
+func (e *Exporter) historicalExtractionSnapshot(ctx context.Context, scopeID string, at time.Time) ([]stageeval.Item, error) {
+	rows, err := e.store.Pool().Query(ctx, `
+SELECT revision.note_id || ':' || revision.revision::text,
+       revision.body,
+       COALESCE((
+           SELECT array_agg(event_id ORDER BY event_id)
+           FROM note_evidence
+           WHERE scope_id = revision.scope_id
+             AND note_id = revision.note_id
+             AND note_evidence.revision = revision.revision
+       ), '{}')
+FROM note_revisions revision
+WHERE revision.scope_id = $1
+  AND revision.created_at <= $2
+ORDER BY revision.note_id, revision.revision`, scopeID, at)
+	if err != nil {
+		return nil, fmt.Errorf("query historical extraction snapshot: %w", err)
+	}
+	return collectExtractionItems(rows, "historical extraction snapshot")
+}
+
 // extractionSnapshot mirrors the recall-time snapshot eligibility from the
 // note store: active, valid, and unexpired notes with current evidence.
 func (e *Exporter) extractionSnapshot(ctx context.Context, scopeID string, at time.Time) ([]stageeval.Item, error) {
@@ -140,17 +178,21 @@ ORDER BY note_id`, scopeID, at)
 	if err != nil {
 		return nil, fmt.Errorf("query extraction snapshot: %w", err)
 	}
+	return collectExtractionItems(rows, "extraction snapshot")
+}
+
+func collectExtractionItems(rows pgx.Rows, operation string) ([]stageeval.Item, error) {
 	items := make([]stageeval.Item, 0)
 	for rows.Next() {
 		var item stageeval.Item
 		if err := rows.Scan(&item.ID, &item.Text, &item.EvidenceEventIDs); err != nil {
 			rows.Close()
-			return nil, fmt.Errorf("scan extraction snapshot: %w", err)
+			return nil, fmt.Errorf("scan %s: %w", operation, err)
 		}
 		items = append(items, item)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("read extraction snapshot: %w", err)
+		return nil, fmt.Errorf("read %s: %w", operation, err)
 	}
 	rows.Close()
 	return items, nil
@@ -160,7 +202,8 @@ func pinCandidates(candidates []teamnote.RecallCandidate) []Candidate {
 	pinned := make([]Candidate, 0, len(candidates))
 	for _, candidate := range candidates {
 		pinned = append(pinned, Candidate{
-			ID: candidate.ID, Kind: string(candidate.Kind), Subject: candidate.Subject, Body: candidate.Body,
+			ID: candidate.ID, CanonicalNoteID: candidate.CanonicalNoteID,
+			Kind: string(candidate.Kind), Subject: candidate.Subject, Body: candidate.Body,
 			TaskRef: candidate.TaskRef, ThreadRef: candidate.ThreadRef,
 			Origin: Actor{
 				UserID: candidate.Origin.UserID, AgentID: candidate.Origin.AgentID, SessionID: candidate.Origin.SessionID,

@@ -18,6 +18,7 @@ import (
 	"github.com/pax-beehive/pax-nexus/internal/platform/textembedding"
 	"github.com/pax-beehive/pax-nexus/internal/sessionlake"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote"
+	"github.com/pax-beehive/pax-nexus/internal/teamnote/extractionbudget"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote/extractionqueue"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote/extractor"
 	teamruntime "github.com/pax-beehive/pax-nexus/internal/teamnote/runtime"
@@ -223,7 +224,9 @@ func loadConfig() (applicationConfig, error) {
 	if config.batchTimeout, err = durationEnvironment("TEAM_MEMORY_BATCH_TIMEOUT", 30*time.Second); err != nil {
 		return applicationConfig{}, err
 	}
-	if config.workerJobTimeout, err = durationEnvironment("TEAM_MEMORY_WORKER_JOB_TIMEOUT", 3*time.Minute); err != nil {
+	if config.workerJobTimeout, err = durationEnvironment(
+		"TEAM_MEMORY_WORKER_JOB_TIMEOUT", extractionbudget.DefaultWorkerJobTimeout,
+	); err != nil {
 		return applicationConfig{}, err
 	}
 	if config.workerStopTimeout, err = durationEnvironment("TEAM_MEMORY_WORKER_STOP_TIMEOUT", 30*time.Second); err != nil {
@@ -272,7 +275,10 @@ func loadAndValidateExtractionConfig(config *applicationConfig) error {
 	if err := loadExtractionConfig(config); err != nil {
 		return err
 	}
-	return validateExtractionExecutionBudget(*config)
+	return (extractionbudget.Envelope{
+		Provider: config.extractionExecutionPolicy, MaxSlicesPerJob: config.maxSlicesPerJob,
+		WorkerJobTimeout: config.workerJobTimeout, CompactionEnabled: config.extractionCompactionEnabled,
+	}).Validate()
 }
 
 func loadExtractionConfig(config *applicationConfig) error {
@@ -295,7 +301,9 @@ func loadExtractionConfig(config *applicationConfig) error {
 	if config.sliceOverlap, err = intEnvironment("TEAM_MEMORY_SLICE_OVERLAP", 3); err != nil {
 		return err
 	}
-	if config.maxSlicesPerJob, err = intEnvironment("TEAM_MEMORY_MAX_SLICES_PER_JOB", 1); err != nil {
+	if config.maxSlicesPerJob, err = intEnvironment(
+		"TEAM_MEMORY_MAX_SLICES_PER_JOB", extractionbudget.DefaultMaxSlicesPerJob,
+	); err != nil {
 		return err
 	}
 	if config.extractionCompactStartTokens, err = intEnvironment("TEAM_MEMORY_EXTRACTION_COMPACT_START_TOKENS", 12*1024); err != nil {
@@ -316,50 +324,43 @@ func loadExtractionConfig(config *applicationConfig) error {
 		return err
 	}
 	policy := &config.extractionExecutionPolicy
-	if policy.AttemptTimeout, err = durationEnvironment("TEAM_MEMORY_EXTRACTION_PROVIDER_TIMEOUT", 120*time.Second); err != nil {
+	providerDefaults := extractionbudget.DefaultProviderPolicy()
+	if policy.AttemptTimeout, err = durationEnvironment(
+		"TEAM_MEMORY_EXTRACTION_PROVIDER_TIMEOUT", providerDefaults.AttemptTimeout,
+	); err != nil {
 		return err
 	}
-	if policy.MaxAttempts, err = intEnvironment("TEAM_MEMORY_EXTRACTION_PROVIDER_MAX_ATTEMPTS", 1); err != nil {
+	if policy.MaxAttempts, err = intEnvironment(
+		"TEAM_MEMORY_EXTRACTION_PROVIDER_MAX_ATTEMPTS", providerDefaults.MaxAttempts,
+	); err != nil {
 		return err
 	}
-	if policy.RetryBackoff, err = durationEnvironment("TEAM_MEMORY_EXTRACTION_PROVIDER_RETRY_BACKOFF", 250*time.Millisecond); err != nil {
+	if policy.RetryBackoff, err = durationEnvironment(
+		"TEAM_MEMORY_EXTRACTION_PROVIDER_RETRY_BACKOFF", providerDefaults.RetryBackoff,
+	); err != nil {
 		return err
 	}
-	maxResponseBytes, err := intEnvironment("TEAM_MEMORY_EXTRACTION_PROVIDER_MAX_RESPONSE_BYTES", 1<<20)
+	maxResponseBytes, err := intEnvironment(
+		"TEAM_MEMORY_EXTRACTION_PROVIDER_MAX_RESPONSE_BYTES", int(providerDefaults.MaxResponseBytes),
+	)
 	if err != nil {
 		return err
 	}
 	policy.MaxResponseBytes = int64(maxResponseBytes)
-	if policy.PrimaryMaxOutputTokens, err = intEnvironment("TEAM_MEMORY_EXTRACTION_PRIMARY_MAX_OUTPUT_TOKENS", 16*1024); err != nil {
+	if policy.PrimaryMaxOutputTokens, err = intEnvironment(
+		"TEAM_MEMORY_EXTRACTION_PRIMARY_MAX_OUTPUT_TOKENS", providerDefaults.PrimaryMaxOutputTokens,
+	); err != nil {
 		return err
 	}
-	if policy.SummaryMaxOutputTokens, err = intEnvironment("TEAM_MEMORY_EXTRACTION_SUMMARY_MAX_OUTPUT_TOKENS", 4*1024); err != nil {
+	if policy.SummaryMaxOutputTokens, err = intEnvironment(
+		"TEAM_MEMORY_EXTRACTION_SUMMARY_MAX_OUTPUT_TOKENS", providerDefaults.SummaryMaxOutputTokens,
+	); err != nil {
 		return err
 	}
-	policy.CompactionMaxOutputTokens, err = intEnvironment("TEAM_MEMORY_EXTRACTION_COMPACTION_MAX_OUTPUT_TOKENS", 4*1024)
+	policy.CompactionMaxOutputTokens, err = intEnvironment(
+		"TEAM_MEMORY_EXTRACTION_COMPACTION_MAX_OUTPUT_TOKENS", providerDefaults.CompactionMaxOutputTokens,
+	)
 	return err
-}
-
-func validateExtractionExecutionBudget(config applicationConfig) error {
-	policy := config.extractionExecutionPolicy
-	if policy.AttemptTimeout <= 0 || policy.MaxAttempts < 1 || policy.MaxAttempts > 3 || policy.RetryBackoff < 0 ||
-		config.maxSlicesPerJob < 1 || config.workerJobTimeout <= 0 {
-		return fmt.Errorf("extraction execution budget contains invalid limits")
-	}
-	logicalCallBudget := time.Duration(policy.MaxAttempts) * policy.AttemptTimeout
-	logicalCallBudget += time.Duration(policy.MaxAttempts-1) * policy.RetryBackoff
-	serialCallsPerSlice := 1
-	if config.extractionCompactionEnabled {
-		serialCallsPerSlice = 3
-	}
-	jobProviderBudget := time.Duration(config.maxSlicesPerJob*serialCallsPerSlice) * logicalCallBudget
-	if jobProviderBudget >= config.workerJobTimeout {
-		return fmt.Errorf(
-			"extraction execution budget %s for %d slices must be less than worker job deadline %s",
-			jobProviderBudget, config.maxSlicesPerJob, config.workerJobTimeout,
-		)
-	}
-	return nil
 }
 
 func boolEnvironment(name string, fallback bool) (bool, error) {

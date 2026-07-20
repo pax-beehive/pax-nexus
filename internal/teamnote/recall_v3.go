@@ -105,7 +105,9 @@ type RecallCandidateTrace struct {
 
 var recallDatePattern = regexp.MustCompile(`\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)?`)
 
-func compileRecallIntent(request RecallRequest) RecallIntent {
+// CompileRecallIntent deterministically interprets one RecallRequest for
+// adapters that must choose current or historical candidate sources.
+func CompileRecallIntent(request RecallRequest) RecallIntent {
 	query := strings.ToLower(request.Query)
 	intent := RecallIntent{
 		Mode: RecallModeCurrent, TaskRef: request.TaskRef, ThreadRef: request.ThreadRef,
@@ -236,7 +238,7 @@ func evaluateRecallCandidate(candidate RecallCandidate, request RecallRequest, i
 	}
 	trace := RecallCandidateTrace{
 		NoteID: candidate.ID, MatchedTermCount: len(matchedTerms),
-		HardGateResults:    recallHardGateResults(candidate.Note, temporalPassed),
+		HardGateResults:    recallHardGateResults(candidate.Note, intent.Mode, temporalPassed),
 		TemporalResolution: temporalRecallResolution(intent.Mode, queryTime, temporalPassed),
 		ScoreContributions: contributions, EvidenceConfidence: math.Min(total/100, 1),
 		RoutingAffinity: recallRoutingAffinity(candidate.Note, request, intent),
@@ -261,14 +263,18 @@ func recallBoolPointer(value bool) *bool {
 	return &value
 }
 
-func recallHardGateResults(note Note, temporalPassed bool) []RecallHardGateResult {
+func recallHardGateResults(note Note, mode RecallMode, temporalPassed bool) []RecallHardGateResult {
 	provenancePassed := len(note.EvidenceEventIDs) > 0
 	contentSafe := !unsafeRecallContent(note.Subject + " " + note.Body)
+	stateReason := "adapter_prechecked"
+	if mode == RecallModeAsOf || mode == RecallModeHistory || mode == RecallModeChangesSince {
+		stateReason = "historical_revision_source"
+	}
 	return []RecallHardGateResult{
 		{Gate: "scope", Passed: true, Reason: "adapter_prechecked"},
 		{Gate: "authorization_audience", Passed: true, Reason: "adapter_prechecked"},
 		{Gate: "task_thread", Passed: true, Reason: "adapter_prechecked"},
-		{Gate: "active_state", Passed: true, Reason: "adapter_prechecked"},
+		{Gate: "active_state", Passed: true, Reason: stateReason},
 		{Gate: "temporal", Passed: temporalPassed},
 		{Gate: "source_provenance", Passed: provenancePassed},
 		{Gate: "stored_content_safety", Passed: contentSafe},

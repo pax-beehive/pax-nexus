@@ -10,6 +10,7 @@ import (
 	"github.com/pax-beehive/pax-nexus/internal/platform/observability"
 	"github.com/pax-beehive/pax-nexus/internal/sessionlake"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote"
+	"github.com/pax-beehive/pax-nexus/internal/teamnote/extractionbudget"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote/extractor"
 )
 
@@ -48,7 +49,7 @@ func New(lake *sessionlake.Lake, candidateExtractor extractor.Extractor, config 
 		config.SliceOverlap = 3
 	}
 	if config.MaxSlicesPerJob <= 0 {
-		config.MaxSlicesPerJob = 1
+		config.MaxSlicesPerJob = extractionbudget.DefaultMaxSlicesPerJob
 	}
 	if config.TTLPolicy == nil {
 		config.TTLPolicy = teamnote.DefaultTTLPolicy()

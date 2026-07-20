@@ -1,6 +1,6 @@
 # General Recall v3 Optimization
 
-Status: Accepted; core planner implemented; final-state packing and durable historical retrieval remain follow-ups
+Status: Accepted; core planner and durable historical retrieval implemented; final-state packing remains a follow-up
 
 Date: 2026-07-16
 
@@ -607,14 +607,21 @@ candidate source as the default. The next recall optimization belongs in
 candidate retrieval or a lower global threshold. See the
 [BM25 baseline](../../evals/recall-v2/results/2026-07-19-bm25-baselines.md).
 
+The durable historical follow-up was completed on 2026-07-20. PostgreSQL now
+supplies revision-specific candidates for explicit `as_of`, `history`, and
+`changes_since` intent. Selection respects both valid time and recorded time,
+uses the audience and task/thread snapshot associated with each revision, and
+claims delivery against the canonical Note ID plus revision. Historical replay
+independently exports every revision recorded by Observation Time as the
+Extraction Observation before applying recall authorization, scope, delivery,
+and query gates to candidates. Later-recorded revisions cannot leak into an
+earlier fixture, and retrieval misses remain distinct from extraction misses.
+This is contract-correctness evidence, not an end-to-end answer-quality claim.
+
 Known limits remain explicit:
 
-- PostgreSQL currently supplies only the active current revision, so
-  `as_of` and `history` can reason over supplied fixtures or candidates but do
-  not yet retrieve retired revision chains from durable storage. Historical
-  replay excludes notes first recorded after the captured observation, but a
-  note revised after that observation still exposes its current revision until
-  revision snapshots are wired into candidate export;
+- passive current recall still intentionally supplies only the active current
+  revision; historical revisions require explicit temporal intent;
 - the current Team Note schema represents generic related subjects rather than
   the full typed relation whitelist;
 - exact-scope matching currently covers task/thread references and normalized

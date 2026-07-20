@@ -41,7 +41,7 @@ they do not each require a new ADR.
 | Atom-Level Extraction Loss Attribution | [Extraction v2](./decisions/2026-07-16-extraction-v2.md) | Implemented; extraction eval exports one first-loss entry per required Atom. |
 | Eval Validity and Attempt Ledger | [Multi-Agent GroupMemBench Eval v3](./decisions/2026-07-16-multi-agent-groupmembench-eval-v3.md) | Implemented; append-only Attempts and the comparative Validity Report now reject incomplete or unobservable runs. |
 | Budget-Aware Final-State Selection | [General Recall v3](./decisions/2026-07-16-general-recall-v3-optimization.md) | Planned; BM25 improved candidate availability without improving delivered recall. |
-| Durable Historical Recall | [General Recall v3](./decisions/2026-07-16-general-recall-v3-optimization.md) | Planned; PostgreSQL does not yet export retired revision chains to `as_of` or `history`. |
+| Durable Historical Recall | [General Recall v3](./decisions/2026-07-16-general-recall-v3-optimization.md) | Implemented; PostgreSQL supplies recorded-visible, revision-authorized candidates for `as_of`, `history`, and `changes_since`, while replay independently exports the recorded revision ledger as its extraction observation. |
 | Hint selectivity/query utility | [Hint Recall v0](./decisions/2026-07-16-hint-recall-v0.md) | Evaluation-only; the real-Agent pilot had no accuracy lift and used 14.9 times the passive input tokens. |
 | Claim Card v1/v2 | [v1](./decisions/2026-07-19-claim-card-v1.md), [v2](./decisions/2026-07-19-claim-card-v2.md) | Rejected; both fixed canaries produced zero of three atoms. |
 | Source Span v1/v2 | [v1](./decisions/2026-07-19-source-span-v1.md), [v2](./decisions/2026-07-19-source-span-v2.md) | Rejected; end-to-end correctness regressed while fusion and budget rejection grew. |
@@ -117,6 +117,11 @@ backoff, reaches or exceeds the worker deadline. Additional Slices are claimed
 as later durable jobs instead of sharing one deadline. The fixed implicit-state
 Run completed all ten physical calls under the 120-second deadline with zero
 errors, retries, or timeouts.
+
+The shared Extraction Execution Envelope now owns those defaults and validates
+their aggregate arithmetic for production startup, runtime, queue workers,
+provider calls, compaction, summaries, and extraction eval. Overflow and a
+provider budget that leaves no outcome-persistence margin fail closed.
 
 When synchronous compaction is enabled, validation reserves the initial
 compaction call, one possible hard-limit fallback call, and the primary call
@@ -195,12 +200,25 @@ lower the semantic threshold from one case.
 
 ## Tranche 5: Durable Historical Recall
 
-Status: Planned
+Status: Implemented
 
 Build reviewed `as_of`, `history`, and revision-transition fixtures before
 exporting retired PostgreSQL Note revisions as recall candidates. Observation
 time must select the historically visible revision and prevent future-revision
 leakage. Treat this as contract correctness until an end-to-end gain is shown.
+
+Implemented on 2026-07-20. Explicit historical Recall Intent reads immutable
+`note_revisions` joined to the Candidate snapshot that created each revision.
+`as_of` selects the latest revision valid at the requested time; `history`
+returns the recorded-visible revision chain; `changes_since` includes later
+transitions such as resolution. Every path applies Observation Time and the
+revision's audience and task/thread scope. Planner-only revision IDs keep chain
+members distinct, while delivery and the external `RecallNotes` envelope retain
+the canonical Note ID plus revision. Historical replay independently exports
+all revisions recorded by Observation Time as its Extraction Observation, then
+exports retrieval candidates through authorization, scope, delivery, and query
+gates. This preserves extraction/recall loss attribution and prevents a current
+or future-recorded revision from contaminating the fixed fixture.
 
 ## Evaluation-only follow-up
 

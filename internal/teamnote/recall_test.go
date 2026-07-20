@@ -312,6 +312,29 @@ func (s *recallSuite) TestPlanRecallTraceRecordsStageRejections() {
 		s.True(strictRelationDrop)
 	})
 
+	s.Run("historical relation sources retain canonical note ids", func() {
+		primary := recallCandidate(
+			"note-primary:2", "alpha beta history", "alpha beta revised release state", 0.9, nil,
+		)
+		primary.CanonicalNoteID = "note-primary"
+		primary.RelatedSubjects = []string{"gamma related history"}
+		linked := recallCandidate(
+			"note-linked:3", "gamma related history", "gamma related historical evidence", 0.4, nil,
+		)
+		linked.CanonicalNoteID = "note-linked"
+		historicalRequest := request
+		historicalRequest.Query = "alpha beta revision history"
+
+		planned, _ := teamnote.PlanRecall(
+			[]teamnote.RecallCandidate{primary, linked}, historicalRequest,
+			teamnote.RecallPolicy{CandidateLimit: 10},
+		)
+
+		s.Require().NotEmpty(planned)
+		s.Equal("note-primary", planned[0].CanonicalNoteID)
+		s.Equal([]string{"note-primary", "note-linked"}, planned[0].SourceNoteIDs)
+	})
+
 	s.Run("current-state query prefers newest related fact", func() {
 		primary := recallCandidate("note-primary", "calculation logic freeze", "late-cycle source changes validation approach", 0.9, nil)
 		old := recallCandidate("note-old", "old freeze policy", "freeze all late changes", 0.8, nil)

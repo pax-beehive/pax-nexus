@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -445,6 +446,279 @@ func (s *noteStoreSuite) TestRecallCandidatesExcludeNotesRecordedAfterObservatio
 	s.Equal(firstNote.ID, exported.Cases[0].Candidates[0].ID)
 	s.Require().Len(exported.Cases[0].ExtractionItems, 1)
 	s.Equal(firstNote.ID, exported.Cases[0].ExtractionItems[0].ID)
+}
+
+func (s *noteStoreSuite) TestRecallAsOfReturnsRetiredRevision() {
+	ctx := context.Background()
+	scopeID := uniqueScope("durable-as-of-revision")
+	producer := teamnote.Actor{UserID: "owner", AgentID: "producer", SessionID: "producer-session"}
+	firstEvent := event("durable-as-of-first", producer, 1)
+	secondEvent := event("durable-as-of-second", producer, 2)
+	s.appendEvents(ctx, scopeID, firstEvent, secondEvent)
+	notes := s.newNoteStore()
+
+	first := candidate(
+		"durable-as-of-candidate-1", teamnote.ActionCreate,
+		"Validation owners must confirm by July 15.", producer, firstEvent.ID,
+	)
+	first.Subject = "validation owner deadline"
+	first.ValidAt = timestampPointer(time.Date(2026, time.July, 10, 0, 0, 0, 0, time.UTC))
+	created, err := notes.ApplyCandidate(ctx, scopeID, "durable-as-of-run-1", first, []teamnote.SessionEvent{firstEvent})
+	s.Require().NoError(err)
+	firstObservation := s.clock.now
+
+	s.clock.now = time.Date(2026, time.July, 16, 12, 0, 0, 0, time.UTC)
+	second := candidate(
+		"durable-as-of-candidate-2", teamnote.ActionUpdate,
+		"Validation owners must confirm by July 18.", producer, secondEvent.ID,
+	)
+	second.Subject = first.Subject
+	second.ValidAt = timestampPointer(time.Date(2026, time.July, 12, 0, 0, 0, 0, time.UTC))
+	_, err = notes.ApplyCandidate(ctx, scopeID, "durable-as-of-run-2", second, []teamnote.SessionEvent{secondEvent})
+	s.Require().NoError(err)
+
+	envelope, err := notes.RecallNotes(ctx, scopeID, teamnote.RecallRequest{
+		Actor:   teamnote.Actor{UserID: "owner", AgentID: "consumer", SessionID: "durable-as-of-consumer"},
+		TaskRef: "task-1", TokenBudget: 256,
+		Query: "What was the validation owner deadline as of 2026-07-11?", MaxItems: 1,
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(envelope.Details, 1)
+	s.Equal(created.ID, envelope.Details[0].NoteID)
+	s.Equal(1, envelope.Details[0].Revision)
+	s.Contains(envelope.Details[0].Text, "July 15")
+	s.NotContains(envelope.Details[0].Text, "July 18")
+
+	s.clock.now = firstObservation
+	beforeSecondWasRecorded, err := notes.RecallNotes(ctx, scopeID, teamnote.RecallRequest{
+		Actor: teamnote.Actor{
+			UserID: "owner", AgentID: "consumer", SessionID: "durable-as-of-recorded-time-consumer",
+		},
+		TaskRef: "task-1", TokenBudget: 256,
+		Query: "What was the validation owner deadline as of 2026-07-13?", MaxItems: 1,
+	})
+	s.Require().NoError(err)
+	s.Require().Len(beforeSecondWasRecorded.Details, 1)
+	s.Equal(1, beforeSecondWasRecorded.Details[0].Revision)
+	s.Contains(beforeSecondWasRecorded.Details[0].Text, "July 15")
+}
+
+func (s *noteStoreSuite) TestRecallAsOfPreservesIntrinsicInvalidationBeforeFutureSuccessor() {
+	ctx := context.Background()
+	scopeID := uniqueScope("durable-as-of-intrinsic-invalidation")
+	producer := teamnote.Actor{UserID: "owner", AgentID: "producer", SessionID: "producer-session"}
+	firstEvent := event("durable-intrinsic-first", producer, 1)
+	secondEvent := event("durable-intrinsic-second", producer, 2)
+	s.appendEvents(ctx, scopeID, firstEvent, secondEvent)
+	notes := s.newNoteStore()
+
+	first := candidate(
+		"durable-intrinsic-candidate-1", teamnote.ActionCreate,
+		"The temporary validation window was open.", producer, firstEvent.ID,
+	)
+	first.Subject = "temporary validation window"
+	first.ValidAt = timestampPointer(time.Date(2026, time.July, 10, 0, 0, 0, 0, time.UTC))
+	first.InvalidAt = timestampPointer(time.Date(2026, time.July, 12, 0, 0, 0, 0, time.UTC))
+	_, err := notes.ApplyCandidate(ctx, scopeID, "durable-intrinsic-run-1", first, []teamnote.SessionEvent{firstEvent})
+	s.Require().NoError(err)
+	firstObservation := s.clock.now
+
+	s.clock.now = firstObservation.Add(48 * time.Hour)
+	second := candidate(
+		"durable-intrinsic-candidate-2", teamnote.ActionUpdate,
+		"A new validation window opened later.", producer, secondEvent.ID,
+	)
+	second.Subject = first.Subject
+	second.ValidAt = timestampPointer(time.Date(2026, time.July, 15, 0, 0, 0, 0, time.UTC))
+	_, err = notes.ApplyCandidate(ctx, scopeID, "durable-intrinsic-run-2", second, []teamnote.SessionEvent{secondEvent})
+	s.Require().NoError(err)
+
+	s.clock.now = firstObservation
+	candidates, err := notes.RecallCandidates(ctx, scopeID, teamnote.RecallRequest{
+		Actor: teamnote.Actor{
+			UserID: "owner", AgentID: "consumer", SessionID: "durable-intrinsic-consumer",
+		},
+		TaskRef: "task-1", TokenBudget: 256,
+		Query: "What was the temporary validation window as of 2026-07-13?", MaxItems: 1,
+	})
+	s.Require().NoError(err)
+	s.Empty(candidates)
+}
+
+func (s *noteStoreSuite) TestRecallHistoryReturnsVisibleRevisionChain() {
+	ctx := context.Background()
+	scopeID := uniqueScope("durable-revision-history")
+	producer := teamnote.Actor{UserID: "owner", AgentID: "producer", SessionID: "producer-session"}
+	firstEvent := event("durable-history-first", producer, 1)
+	secondEvent := event("durable-history-second", producer, 2)
+	s.appendEvents(ctx, scopeID, firstEvent, secondEvent)
+	notes := s.newNoteStore()
+
+	first := candidate(
+		"durable-history-candidate-1", teamnote.ActionCreate,
+		"Validation owners must confirm the initial control set by July 15.", producer, firstEvent.ID,
+	)
+	first.Subject = "validation owner deadline"
+	first.ValidAt = timestampPointer(time.Date(2026, time.July, 10, 0, 0, 0, 0, time.UTC))
+	created, err := notes.ApplyCandidate(ctx, scopeID, "durable-history-run-1", first, []teamnote.SessionEvent{firstEvent})
+	s.Require().NoError(err)
+
+	s.clock.now = time.Date(2026, time.July, 16, 12, 0, 0, 0, time.UTC)
+	second := candidate(
+		"durable-history-candidate-2", teamnote.ActionUpdate,
+		"Validation owners must confirm the revised evidence package by July 18.", producer, secondEvent.ID,
+	)
+	second.Subject = first.Subject
+	second.ValidAt = timestampPointer(time.Date(2026, time.July, 12, 0, 0, 0, 0, time.UTC))
+	_, err = notes.ApplyCandidate(ctx, scopeID, "durable-history-run-2", second, []teamnote.SessionEvent{secondEvent})
+	s.Require().NoError(err)
+
+	request := teamnote.RecallRequest{
+		Actor:   teamnote.Actor{UserID: "owner", AgentID: "consumer", SessionID: "durable-history-consumer"},
+		TaskRef: "task-1", TokenBudget: 512,
+		Query: "Show the validation owner deadline revision history", MaxItems: 5,
+	}
+	envelope, err := notes.RecallNotes(ctx, scopeID, request)
+
+	s.Require().NoError(err)
+	s.Require().Len(envelope.Details, 2)
+	for _, detail := range envelope.Details {
+		s.Equal(created.ID, detail.NoteID)
+	}
+	s.ElementsMatch([]int{1, 2}, []int{envelope.Details[0].Revision, envelope.Details[1].Revision})
+	s.Contains(strings.Join(envelope.Items, "\n"), "July 15")
+	s.Contains(strings.Join(envelope.Items, "\n"), "July 18")
+
+	repeated, err := notes.RecallNotes(ctx, scopeID, request)
+	s.Require().NoError(err)
+	s.Empty(repeated.Items)
+}
+
+func (s *noteStoreSuite) TestRecallChangesSinceReturnsResolvedRevision() {
+	ctx := context.Background()
+	scopeID := uniqueScope("durable-revision-transition")
+	producer := teamnote.Actor{UserID: "owner", AgentID: "producer", SessionID: "producer-session"}
+	firstEvent := event("durable-transition-first", producer, 1)
+	resolveEvent := event("durable-transition-resolve", producer, 2)
+	s.appendEvents(ctx, scopeID, firstEvent, resolveEvent)
+	notes := s.newNoteStore()
+
+	first := candidate(
+		"durable-transition-candidate-1", teamnote.ActionCreate,
+		"The validation blocker is open.", producer, firstEvent.ID,
+	)
+	first.Kind = teamnote.KindBlocker
+	first.Subject = "validation blocker"
+	_, err := notes.ApplyCandidate(ctx, scopeID, "durable-transition-run-1", first, []teamnote.SessionEvent{firstEvent})
+	s.Require().NoError(err)
+
+	s.clock.now = time.Date(2026, time.July, 16, 12, 0, 0, 0, time.UTC)
+	resolved := candidate(
+		"durable-transition-candidate-2", teamnote.ActionResolve,
+		"The validation blocker was resolved after approval.", producer, resolveEvent.ID,
+	)
+	resolved.Kind = first.Kind
+	resolved.Subject = first.Subject
+	_, err = notes.ApplyCandidate(ctx, scopeID, "durable-transition-run-2", resolved, []teamnote.SessionEvent{resolveEvent})
+	s.Require().NoError(err)
+
+	envelope, err := notes.RecallNotes(ctx, scopeID, teamnote.RecallRequest{
+		Actor:   teamnote.Actor{UserID: "owner", AgentID: "consumer", SessionID: "durable-transition-consumer"},
+		TaskRef: "task-1", TokenBudget: 256,
+		Query: "What changed in the validation blocker since 2026-07-15?", MaxItems: 5,
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(envelope.Details, 1)
+	s.Equal(2, envelope.Details[0].Revision)
+	s.Contains(envelope.Details[0].Text, "resolved after approval")
+}
+
+func (s *noteStoreSuite) TestRecallHistoryRespectsRecordedTimeAndRevisionAudience() {
+	ctx := context.Background()
+	scopeID := uniqueScope("durable-history-guards")
+	producer := teamnote.Actor{UserID: "owner", AgentID: "producer", SessionID: "producer-session"}
+	firstEvent := event("durable-guards-first", producer, 1)
+	secondEvent := event("durable-guards-second", producer, 2)
+	firstEvent.TaskRef = ""
+	secondEvent.TaskRef = ""
+	s.appendEvents(ctx, scopeID, firstEvent, secondEvent)
+	notes := s.newNoteStore()
+
+	first := candidate(
+		"durable-guards-candidate-1", teamnote.ActionCreate,
+		"The original audit owner is Alice.", producer, firstEvent.ID,
+	)
+	first.Subject = "audit ownership"
+	first.TaskRef = ""
+	first.AudienceAgentIDs = []string{"old-consumer"}
+	created, err := notes.ApplyCandidate(ctx, scopeID, "durable-guards-run-1", first, []teamnote.SessionEvent{firstEvent})
+	s.Require().NoError(err)
+	firstObservation := s.clock.now
+
+	s.clock.now = firstObservation.Add(24 * time.Hour)
+	second := candidate(
+		"durable-guards-candidate-2", teamnote.ActionUpdate,
+		"The revised audit owner is Bob.", producer, secondEvent.ID,
+	)
+	second.Subject = first.Subject
+	second.TaskRef = ""
+	second.AudienceAgentIDs = []string{"new-consumer"}
+	_, err = notes.ApplyCandidate(ctx, scopeID, "durable-guards-run-2", second, []teamnote.SessionEvent{secondEvent})
+	s.Require().NoError(err)
+	currentObservation := s.clock.now
+
+	tests := []struct {
+		name            string
+		observationTime time.Time
+		agentID         string
+		wantRevision    int
+	}{
+		{name: "future revision is invisible", observationTime: firstObservation, agentID: "old-consumer", wantRevision: 1},
+		{name: "old audience sees old revision", observationTime: currentObservation, agentID: "old-consumer", wantRevision: 1},
+		{name: "new audience sees new revision", observationTime: currentObservation, agentID: "new-consumer", wantRevision: 2},
+	}
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			s.clock.now = test.observationTime
+			candidates, err := notes.RecallCandidates(ctx, scopeID, teamnote.RecallRequest{
+				Actor:   teamnote.Actor{UserID: "owner", AgentID: test.agentID, SessionID: "durable-guards-" + test.name},
+				TaskRef: "task-1", TokenBudget: 256, Query: "Show audit ownership revision history", MaxItems: 5,
+			})
+
+			s.Require().NoError(err)
+			s.Require().Len(candidates, 1)
+			s.Equal(created.ID, candidates[0].CanonicalNoteID)
+			s.Equal(test.wantRevision, candidates[0].Revision)
+		})
+	}
+
+	s.clock.now = currentObservation
+	exportRequest := teamnote.RecallRequest{
+		Actor: teamnote.Actor{
+			UserID: "owner", AgentID: "old-consumer", SessionID: "durable-guards-export-observation",
+		},
+		TaskRef: "task-1", TokenBudget: 256, Query: "Show audit ownership revision history", MaxItems: 5,
+	}
+	_, err = notes.RecallNotes(ctx, scopeID, exportRequest)
+	s.Require().NoError(err)
+	exporter, err := recallreplay.NewExporter(s.store, nil, "", recallreplay.Policy{CandidateLimit: 16})
+	s.Require().NoError(err)
+	exported, err := exporter.Export(ctx, stageeval.FixtureSet{
+		SchemaVersion: stageeval.SchemaVersion,
+		Cases: []stageeval.Fixture{{
+			CaseID: "durable-history-guards", SourceRevision: "reviewed-revision-chain-v1",
+			RecallContext: stageeval.RecallContext{
+				ConsumerUserID: exportRequest.Actor.UserID, ConsumerAgentID: exportRequest.Actor.AgentID,
+				Query: exportRequest.Query, TokenBudget: exportRequest.TokenBudget, MaxItems: exportRequest.MaxItems,
+			},
+		}},
+	}, recallreplay.Provenance{RunID: "durable-history-guards", Arm: "team_note"}, func(string) string { return scopeID })
+	s.Require().NoError(err)
+	s.Require().Len(exported.Cases, 1)
+	s.Len(exported.Cases[0].Candidates, 1)
+	s.Len(exported.Cases[0].ExtractionItems, 2)
 }
 
 func (s *noteStoreSuite) TestConcurrentAdmissionAndDeliveryAreSerialized() {

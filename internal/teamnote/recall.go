@@ -11,6 +11,9 @@ import (
 // Team Note recall policy.
 type RecallCandidate struct {
 	Note
+	// CanonicalNoteID is set when an adapter gives one durable revision a
+	// revision-specific planning identity. Empty means Note.ID is canonical.
+	CanonicalNoteID    string
 	LexicalScore       float64
 	SemanticScore      *float64
 	intentScore        float64
@@ -72,6 +75,7 @@ const duplicateBodySimilarity = 0.8
 // PlannedRecall is one budgeted Delivery decision awaiting an adapter claim.
 type PlannedRecall struct {
 	Note              Note
+	CanonicalNoteID   string
 	SourceNoteIDs     []string
 	Text              string
 	Tokens            int
@@ -144,7 +148,8 @@ type RecallTrace struct {
 // PlanRecall applies shared precision, ranking, relation, and budget policy to
 // candidates supplied by any NoteStore adapter.
 func PlanRecall(candidates []RecallCandidate, request RecallRequest, policy RecallPolicy) ([]PlannedRecall, RecallTrace) {
-	intent := compileRecallIntent(request)
+	intent := CompileRecallIntent(request)
+	canonicalIDs := canonicalRecallNoteIDs(candidates)
 	observationTime := recallObservationTime(candidates, policy.ObservationTime)
 	ranked, rejections, lanes := rankRecallCandidates(candidates, request, policy, intent, observationTime)
 	trace := initializeRecallTrace(
@@ -167,7 +172,8 @@ func PlanRecall(candidates []RecallCandidate, request RecallRequest, policy Reca
 			recordMaxItemsDrops(&trace, ranked[index:], relationPlans)
 			break
 		}
-		if policy.SuppressDuplicates && duplicatesSelected(candidate.Note, planned) {
+		if policy.SuppressDuplicates && intent.Mode != RecallModeHistory && intent.Mode != RecallModeChangesSince &&
+			duplicatesSelected(candidate.Note, planned) {
 			recordRecallRejection(&trace, RecallRejection{NoteID: candidate.ID, Reason: RejectDuplicate})
 			continue
 		}
@@ -191,7 +197,8 @@ func PlanRecall(candidates []RecallCandidate, request RecallRequest, policy Reca
 			continue
 		}
 		planned = append(planned, PlannedRecall{
-			Note: candidate.Note, SourceNoteIDs: recallSourceNoteIDs(candidate.Note, related), Text: text, Tokens: tokens,
+			Note: candidate.Note, CanonicalNoteID: canonicalRecallNoteID(candidate),
+			SourceNoteIDs: canonicalRecallSourceNoteIDs(candidate, related, canonicalIDs), Text: text, Tokens: tokens,
 			Relevance: candidate.evidenceConfidence, Disposition: RecallDispositionEvidence, ClaimNoteDelivery: true,
 		})
 		markRecallEvidence(&trace, candidate.Note, related)
@@ -206,6 +213,31 @@ func PlanRecall(candidates []RecallCandidate, request RecallRequest, policy Reca
 	trace.PlannedTokens = usedTokens
 	finalizeRecallTrace(&trace)
 	return planned, trace
+}
+
+func canonicalRecallNoteIDs(candidates []RecallCandidate) map[string]string {
+	ids := make(map[string]string, len(candidates))
+	for _, candidate := range candidates {
+		ids[candidate.ID] = canonicalRecallNoteID(candidate)
+	}
+	return ids
+}
+
+func canonicalRecallNoteID(candidate RecallCandidate) string {
+	if candidate.CanonicalNoteID != "" {
+		return candidate.CanonicalNoteID
+	}
+	return candidate.ID
+}
+
+func canonicalRecallSourceNoteIDs(candidate RecallCandidate, related []Note, canonicalIDs map[string]string) []string {
+	ids := recallSourceNoteIDs(candidate.Note, related)
+	for index, id := range ids {
+		if canonicalID := canonicalIDs[id]; canonicalID != "" {
+			ids[index] = canonicalID
+		}
+	}
+	return ids
 }
 
 func planRecallRelated(
@@ -543,14 +575,18 @@ func bodyOverlap(left, right string) float64 {
 // AppendPlannedRecall adds a claimed Delivery to its external envelope.
 func AppendPlannedRecall(envelope *NoteEnvelope, planned PlannedRecall) {
 	note := planned.Note
+	noteID := planned.CanonicalNoteID
+	if noteID == "" {
+		noteID = note.ID
+	}
 	envelope.Items = append(envelope.Items, planned.Text)
 	envelope.Details = append(envelope.Details, RecalledNote{
-		NoteID: note.ID, Revision: note.Revision, Text: planned.Text, Origin: note.Origin,
+		NoteID: noteID, Revision: note.Revision, Text: planned.Text, Origin: note.Origin,
 		SourceNoteIDs: planned.SourceNoteIDs,
 		Relevance:     planned.Relevance, Certainty: CertaintyForKind(note.Kind),
 	})
 	envelope.Tokens += planned.Tokens
-	envelope.Revision = fmt.Sprintf("%s:%d", note.ID, note.Revision)
+	envelope.Revision = fmt.Sprintf("%s:%d", noteID, note.Revision)
 }
 
 // AppendPlannedHint adds navigation text without representing its lead as a

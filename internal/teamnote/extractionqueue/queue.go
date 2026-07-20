@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pax-beehive/pax-nexus/internal/platform/observability"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote"
+	"github.com/pax-beehive/pax-nexus/internal/teamnote/extractionbudget"
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 	"github.com/riverqueue/river/rivermigrate"
@@ -197,7 +198,7 @@ func withDefaults(config Config) Config {
 		config.BatchTimeout = 30 * time.Second
 	}
 	if config.JobTimeout == 0 {
-		config.JobTimeout = 3 * time.Minute
+		config.JobTimeout = extractionbudget.DefaultWorkerJobTimeout
 	}
 	if config.SoftStopTimeout == 0 {
 		config.SoftStopTimeout = 30 * time.Second

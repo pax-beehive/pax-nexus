@@ -683,6 +683,12 @@ call. Background summary and compaction deadlines derive from the same provider
 attempt and retry budget plus an outcome-persistence margin instead of using an
 independent two-minute constant.
 
+One internal Extraction Execution Budget Module now owns these defaults and
+performs overflow-safe aggregate validation for production startup, runtime,
+queue workers, provider execution, and Extraction Eval. Invalid compaction,
+retry, Slice, persistence-margin, or worker-deadline arithmetic fails at
+startup rather than drifting between adapters.
+
 The first implicit-state follow-up is rejected for promotion. Its fixed-cohort
 Run recovered `user_implicit_7`, but overall fact recall regressed from 4/6 to
 3/6 because the previously matched temporal and term-ambiguity Events became

@@ -75,6 +75,12 @@ The latest source time among the new Events in one extraction slice. It is the
 fixed instant used by deterministic temporal admission and remains unchanged
 when a saved extraction response is replayed.
 
+**Extraction Execution Envelope**:
+The validated serial budget shared by provider execution, the durable worker,
+runtime configuration, and extraction evaluation. It relates attempt timeout,
+retry backoff, calls per Slice, Slices per job, background persistence margin,
+and the worker deadline so no inner provider budget can outlive its job.
+
 **Candidate Rejection**:
 A Candidate dropped before admission with a deterministic grounding or policy
 reason, recorded so extraction evaluation can attribute lost facts without
@@ -110,6 +116,12 @@ candidate evidence.
 The current admitted revision of a short-lived collaboration fact.
 _Avoid_: Wiki page, raw memory
 
+**Historical Team Note Revision**:
+An immutable recorded revision selected only by explicit `as_of`, `history`, or
+`changes_since` Recall Intent. Its validity interval, recorded time, audience,
+task/thread scope, evidence, and delivery revision are evaluated as recorded;
+future-recorded revisions cannot leak into an earlier Recall Observation.
+
 **Delivery**:
 A recorded insertion of one Team Note revision into an agent session.
 
@@ -126,6 +138,9 @@ A recorded insertion of one Team Note revision into an agent session.
   rolling context; summary failure never blocks episode advancement.
 - A **Candidate** creates, updates, or resolves one **Team Note**.
 - A **Team Note** may produce one **Delivery** per revision and recipient session.
+- An explicit historical **Recall Intent** selects **Historical Team Note
+  Revisions**; passive current recall continues to select only active current
+  **Team Notes**.
 
 ## Example dialogue
 
