@@ -3,6 +3,7 @@ package v2
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -294,6 +295,59 @@ func (s *runnerSuite) TestBoundedRetryReusesPersistedSharedProducer() {
 	s.Equal(4, executor.count("consumer"))
 }
 
+func (s *runnerSuite) TestAttemptLedgerExportsStageAndStableRetryArtifacts() {
+	store := newFakeStore()
+	executor := &fakeExecutor{failProgram: "consumer"}
+	runner, err := NewRunner(store, executor, nil)
+	s.Require().NoError(err)
+	config := testConfig(s.T().TempDir())
+	config.RetryFailed = true
+	config.RetryMaxAttempts = 2
+	cases := []Case{{ID: "case", Question: "q", Expected: "answer", AskingUserID: "user"}}
+
+	_, _, err = runner.Run(context.Background(), config, cases, "revision")
+	s.Require().NoError(err)
+	failed := findResult(store.results, "control")
+	s.Equal(TrialStageConsumer, failed.FailureStage)
+	s.Equal(FailureClassUnknown, failed.FailureClass)
+
+	executor.failProgram = ""
+	_, _, err = runner.Run(context.Background(), config, cases, "revision")
+	s.Require().NoError(err)
+	s.Require().Len(store.trialAttempts, 4)
+	first := findAttempt(store.trialAttempts, "control", 1)
+	second := findAttempt(store.trialAttempts, "control", 2)
+	s.Equal("failed", first.Status)
+	s.Equal(TrialStageConsumer, first.Stage)
+	s.Equal("completed", second.Status)
+	s.Equal(TrialStageCompleted, second.Stage)
+	for _, attempt := range []string{"001", "002"} {
+		_, err := os.Stat(filepath.Join(config.Run.OutputDir, "trials", "case", "control", "attempts", attempt, "consumer.jsonl"))
+		s.Require().NoError(err)
+	}
+	attemptData, err := os.ReadFile(filepath.Join(config.Run.OutputDir, "attempts.jsonl"))
+	s.Require().NoError(err)
+	s.Contains(string(attemptData), `"failure_class":"unknown"`)
+}
+
+func (s *runnerSuite) TestFailureClassification() {
+	tests := []struct {
+		name string
+		err  error
+		want FailureClass
+	}{
+		{name: "deadline", err: context.DeadlineExceeded, want: FailureClassDeadline},
+		{name: "canceled", err: context.Canceled, want: FailureClassCanceled},
+		{name: "invalid output", err: fmt.Errorf("decode: %w", errInvalidAgentOutput), want: FailureClassInvalidOutput},
+		{name: "unknown", err: errors.New("transport unavailable"), want: FailureClassUnknown},
+	}
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			s.Equal(test.want, classifyFailure(stageError(TrialStageConsumer, test.err)))
+		})
+	}
+}
+
 func (s *runnerSuite) TestSharedProducerRecoversPlainTextFromCompletedJSONL() {
 	store := newFakeStore()
 	executor := &fakeExecutor{}
@@ -382,6 +436,15 @@ func findResult(results []TrialResult, arm string) TrialResult {
 	return TrialResult{}
 }
 
+func findAttempt(attempts []TrialAttempt, arm string, number int) TrialAttempt {
+	for _, attempt := range attempts {
+		if attempt.Arm == arm && attempt.Number == number {
+			return attempt
+		}
+	}
+	return TrialAttempt{}
+}
+
 func (s *runnerSuite) TestTeardownFailureIsReturned() {
 	store := newFakeStore()
 	executor := &fakeExecutor{failProgram: "teardown"}
@@ -426,16 +489,17 @@ func (s *runnerSuite) TestConstructionAndRunErrors() {
 }
 
 type fakeStore struct {
-	mu       sync.Mutex
-	statuses map[TrialKey]string
-	attempts map[TrialKey]int
-	results  []TrialResult
-	finished bool
-	acquired bool
+	mu            sync.Mutex
+	statuses      map[TrialKey]string
+	attemptCounts map[TrialKey]int
+	trialAttempts []TrialAttempt
+	results       []TrialResult
+	finished      bool
+	acquired      bool
 }
 
 func newFakeStore() *fakeStore {
-	return &fakeStore{statuses: make(map[TrialKey]string), attempts: make(map[TrialKey]int)}
+	return &fakeStore{statuses: make(map[TrialKey]string), attemptCounts: make(map[TrialKey]int)}
 }
 
 func (s *fakeStore) Acquire(context.Context, string) (bool, error) {
@@ -472,27 +536,80 @@ func (s *fakeStore) HasRunnable(_ context.Context, _ string, retry bool, maxAtte
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for key, status := range s.statuses {
-		if status == "pending" || (retry && status == "failed" && s.attempts[key] < maxAttempts) {
+		if status == "pending" || (retry && status == "failed" && s.attemptCounts[key] < maxAttempts) {
 			return true, nil
 		}
 	}
 	return false, nil
 }
 
-func (s *fakeStore) Claim(_ context.Context, key TrialKey, retry bool, maxAttempts int) (bool, error) {
+func (s *fakeStore) Claim(_ context.Context, key TrialKey, retry bool, maxAttempts int) (TrialAttemptHandle, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	status := s.statuses[key]
-	if status != "pending" && (!retry || status != "failed" || s.attempts[key] >= maxAttempts) {
-		return false, nil
+	if status != "pending" && (!retry || status != "failed" || s.attemptCounts[key] >= maxAttempts) {
+		return TrialAttemptHandle{}, false, nil
 	}
 	s.statuses[key] = "running"
-	s.attempts[key]++
-	return true, nil
+	s.attemptCounts[key]++
+	handle := TrialAttemptHandle{RunID: key.RunID, CaseID: key.CaseID, Arm: key.Arm, Number: s.attemptCounts[key]}
+	s.trialAttempts = append(s.trialAttempts, TrialAttempt{TrialAttemptHandle: handle, Status: "running", Stage: TrialStageClaimed, StartedAt: time.Now().UTC()})
+	return handle, true, nil
 }
 
-func (s *fakeStore) Complete(_ context.Context, result TrialResult) error { return s.record(result) }
-func (s *fakeStore) Fail(_ context.Context, result TrialResult) error     { return s.record(result) }
+func (s *fakeStore) UpdateAttempt(_ context.Context, handle TrialAttemptHandle, stage TrialStage, refs map[string]string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for index := range s.trialAttempts {
+		attempt := &s.trialAttempts[index]
+		if attempt.TrialAttemptHandle == handle {
+			attempt.Stage = stage
+			if attempt.ArtifactRefs == nil {
+				attempt.ArtifactRefs = make(map[string]string)
+			}
+			for key, value := range refs {
+				attempt.ArtifactRefs[key] = value
+			}
+			return nil
+		}
+	}
+	return errors.New("attempt not found")
+}
+
+func (s *fakeStore) Complete(_ context.Context, handle TrialAttemptHandle, result TrialResult) error {
+	return s.recordAttempt(handle, result)
+}
+
+func (s *fakeStore) Fail(_ context.Context, handle TrialAttemptHandle, result TrialResult) error {
+	return s.recordAttempt(handle, result)
+}
+
+func (s *fakeStore) Attempts(context.Context, string) ([]TrialAttempt, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]TrialAttempt(nil), s.trialAttempts...), nil
+}
+
+func (s *fakeStore) recordAttempt(handle TrialAttemptHandle, result TrialResult) error {
+	s.mu.Lock()
+	for index := range s.trialAttempts {
+		attempt := &s.trialAttempts[index]
+		if attempt.TrialAttemptHandle == handle {
+			attempt.Status = result.Status
+			if result.Status == "completed" {
+				attempt.Stage = TrialStageCompleted
+			} else {
+				attempt.Stage = result.FailureStage
+			}
+			attempt.FailureClass = result.FailureClass
+			attempt.Error = result.Error
+			completed := result.CompletedAt
+			attempt.CompletedAt = &completed
+		}
+	}
+	s.mu.Unlock()
+	return s.record(result)
+}
 
 func (s *fakeStore) record(result TrialResult) error {
 	s.mu.Lock()

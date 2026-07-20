@@ -1,5 +1,7 @@
 # Source Span v2 retrieval shards
 
+Status: Rejected after end-to-end evaluation; retained only for reproducibility
+
 Date: 2026-07-19
 
 ## Decision
@@ -40,3 +42,11 @@ candidate recall over available atoms, context precision, and judge accuracy
 to the recorded `source-span-v1 + passive-v1` baseline. If v2 does not reduce
 budget drops and improve positive-case judge correctness, stop further
 investment in the source-span extraction path.
+
+## Evaluation result
+
+The fixed ten-case cohort produced one correct Team Note answer, 235
+fusion-limit rejections, and 130 token-budget rejections. It triggered this
+ADR's stop condition and closes the Source Span extraction line. The
+implementation remains available only for reproducibility. See the
+[Source Span no-go](../../evals/extraction-v1/results/2026-07-19-source-span-v2-passive10-go-no-go.md).

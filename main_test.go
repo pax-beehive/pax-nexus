@@ -130,7 +130,7 @@ func (s *configSuite) TestCheckedInCandidateStrategyBuildInterface() {
 		path string
 		want string
 	}{
-		{path: ".env.example", want: "source-span-v1, source-span-v2, claim-card-v1, or claim-card-v2"},
+		{path: ".env.example", want: "evidence-fidelity-v1, typed-2, source-span-v1, source-span-v2, claim-card-v1"},
 		{path: ".env.example", want: "TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY="},
 		{path: ".env.eval-v2.example", want: "TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY=current"},
 		{path: "compose.yaml", want: "EXTRACTION_CANDIDATE_STRATEGY: ${TEAM_MEMORY_BUILD_EXTRACTION_CANDIDATE_STRATEGY:-current}"},

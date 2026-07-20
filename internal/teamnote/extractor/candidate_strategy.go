@@ -36,6 +36,12 @@ var candidateStrategies = []candidateStrategy{
 		mapResult: mapExtractionV2,
 	},
 	{
+		name: CandidateStrategyEvidenceFidelity, protocolVersion: extractionProtocolV2RevisionEvidenceFidelity,
+		protocol: extractionProtocol{rollingSystemPromptV2EvidenceFidelity, decodeExtractionResponseV2,
+			decodeExtractionContentV2},
+		mapResult: mapExtractionV2,
+	},
+	{
 		name: CandidateStrategyTyped2, protocolVersion: extractionProtocolV2RevisionTypedCurrent,
 		protocol:  extractionProtocol{rollingSystemPromptV2Typed, decodeExtractionResponseV2Typed, decodeExtractionContentV2Typed},
 		mapResult: mapExtractionV2,

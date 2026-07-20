@@ -1,0 +1,139 @@
+# Team Memory Optimization Plan
+
+Status: Active
+
+Date: 2026-07-19
+
+## Objective
+
+Improve answer quality and evaluation confidence without widening retrieval or
+adding another extraction rendering schema. Ingest, extraction, recall, and
+answer judging remain separate control loops. Each tranche starts with a fixed,
+deterministic fixture and advances to a paid end-to-end cohort only after its
+stage-local gate improves.
+
+## Evidence baseline
+
+- `interaction-slim + passive-v1` is the best observed ten-case end-to-end arm
+  at 3/10 Team Note judge correctness, but its 228-second mean duration and
+  single-cohort scope block promotion.
+- Note BM25 improved candidate recall from 0.879 to 1.000 without improving
+  delivered recall, so candidate breadth is not the next recall bottleneck.
+- Hint Recall matched passive accuracy at 6/15 while consuming 14.9 times the
+  input tokens.
+- Claim Card v1/v2 and Source Span v1/v2 failed their fixed gates and remain
+  available only for reproducibility.
+
+## ADR coverage
+
+The tranches are implementation plans under existing architectural decisions;
+they do not each require a new ADR.
+
+| Plan or candidate | Governing ADR | Current status and reason |
+| --- | --- | --- |
+| Extraction Evidence Fidelity | [Extraction v2](./decisions/2026-07-16-extraction-v2.md) | In progress; `evidence-fidelity-v1` is not retained because recall stayed 2/3 while leakage, rejections, and unreviewed Events increased. |
+| Extraction Execution Reliability | [Extraction v2](./decisions/2026-07-16-extraction-v2.md) | Planned; quality acceptance remains blocked by deadline retries and latency evidence. |
+| Eval Validity and Attempt Ledger | [Multi-Agent GroupMemBench Eval v3](./decisions/2026-07-16-multi-agent-groupmembench-eval-v3.md) | In progress; the append-only Attempt ledger is implemented, while comparative validity gates remain planned. |
+| Budget-Aware Final-State Selection | [General Recall v3](./decisions/2026-07-16-general-recall-v3-optimization.md) | Planned; BM25 improved candidate availability without improving delivered recall. |
+| Durable Historical Recall | [General Recall v3](./decisions/2026-07-16-general-recall-v3-optimization.md) | Planned; PostgreSQL does not yet export retired revision chains to `as_of` or `history`. |
+| Hint selectivity/query utility | [Hint Recall v0](./decisions/2026-07-16-hint-recall-v0.md) | Evaluation-only; the real-Agent pilot had no accuracy lift and used 14.9 times the passive input tokens. |
+| Claim Card v1/v2 | [v1](./decisions/2026-07-19-claim-card-v1.md), [v2](./decisions/2026-07-19-claim-card-v2.md) | Rejected; both fixed canaries produced zero of three atoms. |
+| Source Span v1/v2 | [v1](./decisions/2026-07-19-source-span-v1.md), [v2](./decisions/2026-07-19-source-span-v2.md) | Rejected; end-to-end correctness regressed while fusion and budget rejection grew. |
+
+## Tranche 1: Extraction Evidence Fidelity
+
+Status: In progress
+
+Deepen the existing extractor Module behind the unchanged `Extractor` seam.
+Use the existing semantic Candidate schema and deterministic admission. Do not
+add a Claim Card, Source Span, verifier call, or ingest-time token-overlap gate.
+
+The first candidate, `evidence-fidelity-v1`, adds a candidate-by-candidate
+source fidelity pass to `interaction-slim`. Before returning, the model must
+re-read cited source clauses and preserve answer-changing actors, roles, exact
+values, negation, time expressions, conditions, actions, and contrastive
+qualifiers. It must prefer durable state over routine progress and must not
+promote proposals or desired ownership into committed state.
+
+Gate:
+
+- run `finance-micro6-quick` for at least three paired seeds;
+- compare atom recall, leakage, unreviewed Events, output tokens, provider-call
+  count, and latency against `interaction-slim`;
+- keep extraction input and recall policy fixed;
+- require a repeatable coverage improvement without additional leakage before
+  an end-to-end cohort.
+
+The next independent fidelity slice, if the canary supports it, will examine
+whether whole-body update replacement supersedes away previously retained
+answer-bearing qualifiers.
+
+First canary result: `evidence-fidelity-v1` matched the `interaction-slim`
+baseline at 2/3 atoms but increased leakage from one item to two, decision
+rejections from 8 to 16, and unreviewed Events from 6 to 13. The candidate is
+not retained from this run. Do not run the remaining seeds unchanged; first
+make Candidate evidence source-clause atomic so adjacent committed-looking
+Events cannot launder proposal-only ownership into canonical state. See the
+[micro3 result](../evals/extraction-v1/results/2026-07-19-evidence-fidelity-v1-micro3-r1.md).
+
+## Tranche 2: Extraction Execution Reliability
+
+Status: In progress; Attempt ledger implemented
+
+Concentrate provider deadlines, error classification, bounded retries, resume,
+response budgets, and provider-call telemetry in the Extraction Execution
+Module. Do not add concurrency until retry and deadline evidence is available.
+
+Gate: fixed-fixture fact coverage must not regress; P95 provider duration,
+retry rate, invalid-response rate, output tokens, calls per window, and cache
+rate must satisfy the outstanding Extraction v2 acceptance criteria.
+
+## Tranche 3: Eval Validity and Attempt Ledger
+
+Status: Planned
+
+Add an append-only Trial Attempt ledger behind the Eval Store seam. Preserve
+each retry's stage, timing, exit classification, and artifact references rather
+than retaining only the final Trial result. A validity gate must verify source
+coverage, actual memory mutation, recall observation, stage artifacts, and
+resolved configuration provenance before a comparative score is accepted.
+
+Implemented on 2026-07-19: PostgreSQL now retains one row per claimed Attempt,
+including stage, classified failure, timestamps, and the attempt-specific
+artifact directory. The runner writes raw command output below
+`trials/<case>/<arm>/attempts/<sequence>/` and exports `attempts.jsonl`. Resume
+marks abandoned running Attempts as interrupted before reclaiming the Trial.
+The comparative validity gate is the remaining part of this tranche.
+
+## Tranche 4: Budget-Aware Final-State Selection
+
+Status: Planned
+
+Keep `RecallNotes` unchanged and place selection behind `PlanRecall`. Optimize
+for uncovered answer-bearing facts per token, final-state evidence, and
+same-family deduplication. Add lane-local atom recall and unique lane
+contribution to replay reports. Do not increase the global candidate limit or
+lower the semantic threshold from one case.
+
+## Tranche 5: Durable Historical Recall
+
+Status: Planned
+
+Build reviewed `as_of`, `history`, and revision-transition fixtures before
+exporting retired PostgreSQL Note revisions as recall candidates. Observation
+time must select the historically visible revision and prevent future-revision
+leakage. Treat this as contract correctness until an end-to-end gain is shown.
+
+## Evaluation-only follow-up
+
+Hint Recall remains evaluation-only. Work may improve activation selectivity or
+focused-query utility on replay, but production enablement and a hard 30-case
+cohort remain blocked.
+
+## Closed lines
+
+- Claim Card v1/v2
+- Source Span v1/v2
+- BM25 as the production candidate source
+- global threshold or budget widening from a single case
+- default Hint Recall or compaction enablement

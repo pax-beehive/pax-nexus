@@ -73,6 +73,10 @@ func (s *artifactSuite) TestSummaryPairwiseAndExport() {
 
 	directory := s.T().TempDir()
 	run := RunRecord{ID: "run", Dataset: "suite", DatasetRevision: "rev", ConfigHash: "hash"}
+	s.Require().NoError(ExportTrialAttempts(directory, []TrialAttempt{{
+		TrialAttemptHandle: TrialAttemptHandle{RunID: "run", CaseID: "case", Arm: "control", Number: 1},
+		Status:             "completed", Stage: TrialStageCompleted,
+	}}))
 	s.Require().NoError(ExportArtifacts(directory, run, "control", []string{"csv", "jsonl", "html"}, results, func(writer io.Writer) error {
 		_, err := io.Copy(writer, bytes.NewBufferString("<!doctype html><title>report</title>"))
 		return err
@@ -90,9 +94,10 @@ func (s *artifactSuite) TestSummaryPairwiseAndExport() {
 		Files         map[string]string `json:"files"`
 	}
 	s.Require().NoError(json.Unmarshal(manifestInput, &manifest))
-	s.Equal("pax-eval-v2.9", manifest.SchemaVersion)
+	s.Equal(ArtifactSchemaVersion, manifest.SchemaVersion)
 	s.Equal("report.html", manifest.Files["report"])
 	s.Equal("config.resolved.json", manifest.Files["resolved_config"])
+	s.Equal("attempts.jsonl", manifest.Files["trial_attempts"])
 	s.InDelta(0.06, manifest.CostSummary.TotalCost, 0.000001)
 	summaryCSV, err := os.ReadFile(filepath.Join(directory, "summary.csv"))
 	s.Require().NoError(err)

@@ -190,6 +190,8 @@ trials. Every completed run can export:
   producer/consumer cost, total observed cost, stage latency, memory ingest
   receipt counts/no-op status, trial status, and error
 - `trials.jsonl`: lossless trial records for downstream processing
+- `attempts.jsonl`: append-only execution history with retry sequence, stage,
+  failure class, timing, and artifact references
 - `summary.csv`: overall and per-category arm aggregates
 - `pairwise.csv`: candidate versus control wins, losses, ties, F1 delta, exact
   lift, safe-success lift, and incremental cost over paired completed trials
@@ -201,10 +203,14 @@ trials. Every completed run can export:
   per-category token-F1 summaries, representative field notes, and an
   expandable breakdown of every case and every arm
 
-The stable artifact schema is `pax-eval-v2.9`. Trial CSV/JSONL rows include
+The stable artifact schema is `pax-eval-v2.10`. Trial CSV/JSONL rows include
 observed recall candidates, hits, injected context items, and recall latency.
 `report.html` covers the common comparison views; raw CSV/JSONL files remain
 available for other analysis.
+
+Raw command output is retained per execution under
+`trials/<case>/<arm>/attempts/<sequence>/`; a retry never overwrites the prior
+Attempt's logs.
 
 ## Automated workstation job
 

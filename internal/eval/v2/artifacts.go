@@ -16,9 +16,9 @@ import (
 	"github.com/pax-beehive/pax-nexus/internal/eval/v2/mem0config"
 )
 
-const ArtifactSchemaVersion = "pax-eval-v2.9"
-const ArtifactSchemaVersionV3 = "pax-eval-v3.1"
-const ArtifactSchemaVersionRecallV2 = "pax-recall-eval-v2.1"
+const ArtifactSchemaVersion = "pax-eval-v2.10"
+const ArtifactSchemaVersionV3 = "pax-eval-v3.2"
+const ArtifactSchemaVersionRecallV2 = "pax-recall-eval-v2.2"
 
 type SummaryRow struct {
 	DimensionType     string
@@ -188,6 +188,18 @@ func ExportArtifacts(directory string, run RunRecord, baselineArm string, format
 	return writeJSON(filepath.Join(directory, "artifacts.json"), manifest)
 }
 
+// ExportTrialAttempts writes the append-only execution ledger independently of
+// the final Trial projection.
+func ExportTrialAttempts(directory string, attempts []TrialAttempt) error {
+	if err := os.MkdirAll(directory, 0o755); err != nil {
+		return fmt.Errorf("create eval attempt artifact directory: %w", err)
+	}
+	if err := writeJSONLines(filepath.Join(directory, "attempts.jsonl"), attempts); err != nil {
+		return fmt.Errorf("export eval trial attempts: %w", err)
+	}
+	return nil
+}
+
 func linkProtocolArtifacts(directory, version string, files map[string]string) (string, error) {
 	if version == "v3" {
 		return ArtifactSchemaVersionV3, nil
@@ -295,6 +307,11 @@ func summarizeMem0Recall(results []TrialResult) map[string]int {
 }
 
 func linkOptionalArtifacts(directory string, config Config, files map[string]string) error {
+	if _, err := os.Stat(filepath.Join(directory, "attempts.jsonl")); err == nil {
+		files["trial_attempts"] = "attempts.jsonl"
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("inspect eval trial attempt ledger: %w", err)
+	}
 	if config.StageCapture != nil {
 		if _, err := os.Stat(filepath.Join(directory, "stage", "artifacts.json")); err == nil {
 			files["stage"] = filepath.Join("stage", "artifacts.json")
@@ -589,7 +606,7 @@ func ensureArmMap(value map[string]TrialResult) map[string]TrialResult {
 	return value
 }
 
-func writeJSONLines(path string, results []TrialResult) error {
+func writeJSONLines[T any](path string, results []T) error {
 	output, err := os.Create(path)
 	if err != nil {
 		return fmt.Errorf("create eval JSONL: %w", err)

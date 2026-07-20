@@ -203,15 +203,16 @@ under `run.output_dir`:
 | File | Contents |
 | --- | --- |
 | `trials.jsonl` | Lossless record for every case and arm |
+| `attempts.jsonl` | Append-only retry history with stage, failure class, timing, and artifact directory |
 | `trials.csv` | Flattened trial identity, quality, ingest, recall activity, token, cost, latency, status, and answer fields |
 | `summary.csv` | Overall and per-category aggregates for every arm |
 | `pairwise.csv` | Team Note and Mem0 wins, losses, ties, F1 delta, lifts, and incremental cost versus control |
 | `artifacts.json` | Schema version, revision, config hash, runtime provenance, artifact paths, and cost summary |
 | `stage/artifacts.json` | Optional live Team Note extraction/recall Observations and stage scores |
 | `report.html` | Self-contained overall, category, and case-by-arm comparison report |
-| `trials/<case>/<arm>/` | Raw command stdout and stderr for ingest, readiness, and consumer stages |
+| `trials/<case>/<arm>/attempts/<sequence>/` | Raw command stdout and stderr for one immutable Trial Attempt |
 
-The stable artifact schema is `pax-eval-v2.9`. Current cost fields use the
+The stable artifact schema is `pax-eval-v2.10`. Current cost fields use the
 `opencode_reported` scope: they include reported OpenCode calls but not Team
 Note extraction/embedding or Mem0 internal model/embedding billing. Treat them
 as arm-level subtotals, not the complete provider bill.

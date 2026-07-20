@@ -14,8 +14,12 @@ One product strategy or control executed for the same Case.
 A versioned collection of Cases, Arms, configuration, and artifacts.
 
 **Trial**:
-One durable execution of a Case through an Arm. A Trial is the unit of resume,
-timeout, failure reporting, and paired comparison.
+The durable final projection of a Case through an Arm. A Trial is the unit of
+resume and paired comparison.
+
+**Trial Attempt**:
+One claimed execution of a Trial. Attempts are append-only and retain their
+sequence, last entered Stage, failure class, timing, and artifact references.
 
 **Stage Fixture**:
 A fixed contract for one memory stage. It names required atoms, supporting
@@ -73,6 +77,8 @@ the observable rejection or budget reason.
 - A **Run** contains many **Cases**.
 - Each **Case** executes one or more **Arms**.
 - A **Run** persists the full Case-by-Arm Trial matrix before execution.
+- A **Trial** contains one or more ordered **Trial Attempts**; retries append an
+  Attempt and never replace prior execution evidence.
 - A **Stage Fixture** may produce paired extraction and recall **Observations**.
 - A **Case** pins one **Recall Consumer**, **Observation Time**, and **Query
   Time** interpretation.

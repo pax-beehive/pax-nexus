@@ -41,7 +41,7 @@ Cases without reviewed supporting-event annotations report
 accuracy. The runner never silently relaxes an annotated case when no eligible
 Answering Agent exists.
 
-The artifact schema is `pax-eval-v3.1`. `trials.csv` and `trials.jsonl` record
+The artifact schema is `pax-eval-v3.2`. `trials.csv` and `trials.jsonl` record
 the paired answerer identity, seed, source-overlap status, strict-trial flag,
 and observed recall candidates, hits, and injected context items. `summary.csv` includes a `trial_class=strict_cross_agent` slice when
 annotated strict trials exist. `artifacts.json` links the three full-domain
@@ -53,6 +53,10 @@ extraction profile, retrieval limit and score semantics, observed retrieval
 activity, observed accuracy, published comparison targets, and known protocol deviations. The current runner rejects stronger
 reproduction labels until an official Mem0 runner and pinned artifacts are
 available.
+
+`attempts.jsonl` is the append-only execution ledger. Its artifact references
+point to retry-specific raw logs under
+`trials/<case>/<arm>/attempts/<sequence>/`.
 
 Eval v3 is the outer architecture comparison, not the recall-policy tuning
 loop. Before using it to validate a recall change, first improve the fixed

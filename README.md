@@ -107,8 +107,11 @@ decision; the failed shadow latency and cost gates remain recorded in the ADR
 and must not be presented as a measured quality win.
 
 V2 extraction candidate strategies are packaged behind the same `Extractor`
-interface. `current`, `interaction-slim`, and `typed-2` each bind their prompt,
-response decoder, and rolling episode protocol revision in one registry. Build
+interface. `current`, `interaction-slim`, `evidence-fidelity-v1`, and `typed-2`
+each bind their prompt, response decoder, and rolling episode protocol revision
+in one registry. `evidence-fidelity-v1` is an evaluation candidate that keeps
+the semantic Candidate schema and adds a source-fidelity pass; it is not a
+production default. Build
 a distribution with a selected default using
 `make build EXTRACTION_CANDIDATE_STRATEGY=typed-2`, or pass the same build
 argument to Docker as `EXTRACTION_CANDIDATE_STRATEGY`. At runtime,

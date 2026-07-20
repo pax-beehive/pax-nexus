@@ -4,8 +4,9 @@ package extractor
 // or reasoning contract changes. It is part of rolling episode compatibility,
 // independent of the operator-owned prompt version label.
 const (
-	extractionProtocolV2RevisionCurrent         = "v2-slim-4"
-	extractionProtocolV2RevisionInteractionSlim = "v2-slim-3-interaction-slim"
+	extractionProtocolV2RevisionCurrent          = "v2-slim-4"
+	extractionProtocolV2RevisionInteractionSlim  = "v2-slim-3-interaction-slim"
+	extractionProtocolV2RevisionEvidenceFidelity = "v2-slim-6-evidence-fidelity-v1"
 )
 
 // The v2 user prompt is the same session-slice JSON as v1 (buildPrompt), so
@@ -24,6 +25,19 @@ every emitted decision or claim must still cite at least one event from the
 current new_event_ids.`
 
 const rollingSystemPromptV2InteractionSlim = systemPromptV2BeforeInteractions + interactionPromptV2Slim + systemPromptV2Closing + `
+You are maintaining one cumulative knowledge state for a task or thread across
+multiple agents and sessions. Previous assistant responses are your own prior
+state decisions and exceptional claims. Reuse the same identity_ref for the
+same real-world fact, decision, obligation, blocker, or artifact even when a
+different agent reports the update. Prefer update or resolve over creating a
+parallel fact. A checkpoint is a lossy handoff context, not new evidence;
+every emitted decision or claim must still cite at least one event from the
+current new_event_ids.`
+
+// rollingSystemPromptV2EvidenceFidelity keeps the semantic Candidate schema
+// and deterministic admission of interaction-slim while giving source fidelity
+// one explicit, candidate-local pass.
+const rollingSystemPromptV2EvidenceFidelity = systemPromptV2BeforeInteractions + interactionPromptV2Slim + evidenceFidelityPromptV2 + systemPromptV2Closing + `
 You are maintaining one cumulative knowledge state for a task or thread across
 multiple agents and sessions. Previous assistant responses are your own prior
 state decisions and exceptional claims. Reuse the same identity_ref for the
@@ -164,6 +178,24 @@ create, update, or resolve canonical state. Only emit such a transition when
 the cited source separately commits, approves, rejects, hands off, escalates,
 or directly states the factual state. Sentiment never changes factual
 confidence, authority, or temporal truth.
+
+`
+
+const evidenceFidelityPromptV2 = `Evidence fidelity pass before returning:
+- Re-read the exact source clause cited by every create, update, and resolve
+  decision, and compare it with candidate.subject and candidate.body.
+- Preserve every source detail that changes the answer: actor or role, exact
+  identifier or value, negation, temporal phrase, condition, exception,
+  ordering, scope, and contrastive qualifier.
+- Preserve concrete actions as actions. If the source requires both a targeted
+  check and a rerun of an impacted workflow, do not replace them with a broad
+  category such as validation coverage.
+- Prefer durable current state, changes, owners, blockers, deadlines, and
+  conditions over routine progress or adjacent discussion. Use no_state for
+  conversational material that contains none of those facts.
+- This pass does not relax modality. A proposal, desired owner, request, or
+  question still cannot become committed state without separate source
+  evidence that establishes the transition.
 
 `
 

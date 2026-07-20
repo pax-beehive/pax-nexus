@@ -1,6 +1,6 @@
 # Multi-Agent GroupMemBench Eval v3
 
-Status: Accepted; protocol runner implemented, product-use acceptance pending
+Status: Accepted; protocol and Attempt ledger implemented; product-use acceptance blocked by comparator validity
 
 Date: 2026-07-16
 
@@ -410,6 +410,23 @@ Eval v3 is ready for product use when:
 - semantic-judge accuracy is the primary answer metric;
 - stage traces can attribute Team Note failures without relying on end-to-end
   guesses.
+
+### Current status reason (2026-07-19)
+
+Product-use acceptance remains blocked. Completed Mem0 attempts did not provide
+a valid paired comparison because most source-bearing cases produced no memory
+mutation or failed before a recall observation. Later chunk attempts also had
+trial failures and cannot replace that comparison. The evaluator records an
+operation-context error on the final Trial result, but retry attempts overwrite
+the prior result rather than preserving an append-only stage history.
+
+The Eval Validity and Attempt Ledger tranche implements this accepted ADR's
+visibility requirements; it is not a separate architectural decision. The
+append-only ledger now preserves every attempt's stage, timing, classified
+failure, and artifact directory. The remaining validity gate must reject
+comparative scoring when source coverage, memory mutation, recall observation,
+stage artifacts, or resolved configuration provenance is missing. Until those
+gates pass, no Mem0 or three-arm result is benchmark-quality.
 
 ## Consequences
 

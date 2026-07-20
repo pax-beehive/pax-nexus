@@ -66,10 +66,18 @@ rules.
 | Extraction scheduling | `extractionqueue.Processor` and `postgres.ExtractionEnqueuer` | Durable debounce, shard selection, retries, and worker lifecycle | River queue |
 | HTTP transport | `teamnote.Runtime`, `handler.ScopeResolver` | Authentication-to-scope mapping and Thrift/Hertz request mapping | Static API keys and generated Hertz routes |
 | PostgreSQL owner | `postgres.Store` accessors | Pool and migration ownership; constructs stable Session and Episode adapters | pgxpool |
+| Evaluation orchestration | `eval/v2.Store`, `eval/v2.Executor` | Durable Run and Trial projections, append-only Trial Attempts, bounded retries, stage attribution, scoring, and artifact export | PostgreSQL Store and process Executor |
 
 These are real seams because production and test or memory adapters exercise
 the same interfaces. Callers and tests should observe behavior through these
 interfaces rather than reaching into private policy functions or SQL details.
+
+Evaluation keeps a final Trial projection for resume and paired scoring, while
+each claimed execution appends a Trial Attempt. The Attempt row is the failure
+and observability boundary: it records the last entered protocol stage,
+classified failure, timing, and a retry-specific artifact directory. Runner
+retries therefore update the Trial projection without destroying earlier raw
+execution evidence.
 
 ## Ingestion and extraction flow
 

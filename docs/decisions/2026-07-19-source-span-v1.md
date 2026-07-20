@@ -1,5 +1,7 @@
 # Source Span v1 extraction candidate
 
+Status: Rejected after end-to-end evaluation; retained only for reproducibility
+
 Date: 2026-07-19
 
 ## Decision
@@ -33,3 +35,10 @@ Evaluate extraction separately from recall. The source-span cohort should
 measure source-event retention, metadata coverage, provenance correctness,
 and raw-span token cost. Existing recall replay and end-to-end answer judging
 remain unchanged consumers; they must not gain candidate-specific behavior.
+
+## Evaluation result
+
+The fixed ten-case end-to-end cohort produced two correct Team Note answers.
+`source-span-v1` remains a reproducible rejected baseline, not an active
+optimization candidate. See the
+[Source Span no-go](../../evals/extraction-v1/results/2026-07-19-source-span-v2-passive10-go-no-go.md).

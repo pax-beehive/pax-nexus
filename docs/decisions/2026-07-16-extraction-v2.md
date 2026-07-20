@@ -1,6 +1,6 @@
 # Extraction v2
 
-Status: Accepted with rollout exception; production default enabled, quality gates blocked
+Status: Accepted with rollout exception; production default enabled; quality gates blocked; `evidence-fidelity-v1` not retained
 
 Date: 2026-07-16
 
@@ -540,7 +540,7 @@ is compared with its control on identical persisted session events. Performance 
 also remain failed: the run consumed 52.8 minutes of model-call time and
 approximately US$0.58 for one physical domain.
 
-### Quick optimization loop (implemented, paid canary pending)
+### Quick optimization loop
 
 `extraction-eval-v1` now has a tracked `finance-micro3-quick` profile covering
 the positive multi-hop sentinel, the temporal-admission knowledge update, and
@@ -562,10 +562,33 @@ is no longer hidden inside the primary-slice count.
 Two protocol variants are available on the identical quick input: `current`
 and `interaction-slim`. The latter requires an empty interaction-observation
 array and relies on deterministic source-evidence admission to block proposals
-and requests. The paired runner is implemented, but no paid comparison is
-recorded yet: the configured external extractor requires explicit approval to
-send the selected Finance session-event content. Quality and performance gates remain
-blocked until that paired artifact exists.
+and requests.
+
+### Evaluation update (2026-07-19)
+
+The paid ten-case passive-recall cohort is complete. `interaction-slim`
+produced three correct Team Note answers versus one for control, but its
+228-second mean total duration includes extractor deadline retries. This is the
+best observed result on one cohort, not promotion evidence; quality and
+performance acceptance remain blocked. See the
+[interaction-slim baseline](../../evals/extraction-v1/results/2026-07-19-interaction-slim-passive10-baseline.md).
+
+Claim Card v1/v2 and Source Span v1/v2 were rejected by their fixed gates. The
+next extraction work is confined to evidence-backed materiality,
+temporal/identity preservation, and execution reliability over the existing
+semantic Candidate. It must not add another rendering schema. See the
+[Claim Card no-go](../../evals/extraction-v1/results/2026-07-19-claim-card-canary-no-go.md)
+and [Source Span no-go](../../evals/extraction-v1/results/2026-07-19-source-span-v2-passive10-go-no-go.md).
+
+The first `evidence-fidelity-v1` micro3 canary reused the semantic Candidate
+schema and added a candidate-local source-fidelity prompt pass. It matched the
+`interaction-slim` baseline at 2/3 atoms but increased leakage from one item to
+two, decision rejections from 8 to 16, and unreviewed Events from 6 to 13. The
+new unsuppressed leak promoted proposal-only Compliance ownership after citing
+a broad set of adjacent Events. The candidate is not retained, and unchanged
+additional seeds are not authorized. A successor must first make Candidate
+evidence source-clause atomic without adding a new rendering schema. See the
+[evidence-fidelity result](../../evals/extraction-v1/results/2026-07-19-evidence-fidelity-v1-micro3-r1.md).
 
 ## Consequences
 

@@ -21,6 +21,7 @@ func (s *candidateStrategySuite) TestRegistryExposesStableDistributionNames() {
 	s.Equal([]string{
 		extractor.CandidateStrategyCurrent,
 		extractor.CandidateStrategyInteractionSlim,
+		extractor.CandidateStrategyEvidenceFidelity,
 		extractor.CandidateStrategyTyped2,
 		extractor.CandidateStrategySourceSpanV1,
 		extractor.CandidateStrategySourceSpanV2,

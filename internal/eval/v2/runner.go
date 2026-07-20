@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"maps"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sync"
 	"time"
@@ -31,6 +32,8 @@ type sharedProducerState struct {
 	output harness.AgentOutput
 	err    error
 }
+
+var errInvalidAgentOutput = errors.New("invalid agent output")
 
 func NewRunner(store Store, executor Executor, logger *slog.Logger) (*Runner, error) {
 	if store == nil || executor == nil {
@@ -159,6 +162,13 @@ func (r *Runner) Run(ctx context.Context, config Config, cases []Case, revision 
 	results = HydrateResults(results, cases)
 	if err := r.store.Finish(ctx, run.ID); err != nil {
 		return RunRecord{}, nil, fmt.Errorf("finish eval run: %w", err)
+	}
+	attempts, err := r.store.Attempts(ctx, run.ID)
+	if err != nil {
+		return RunRecord{}, nil, fmt.Errorf("load eval trial attempts: %w", err)
+	}
+	if err := ExportTrialAttempts(config.Run.OutputDir, attempts); err != nil {
+		return RunRecord{}, nil, err
 	}
 	if config.Judge != nil {
 		if incomplete := countIncompleteJudgments(results); incomplete > 0 {
@@ -322,7 +332,7 @@ sendLoop:
 
 func (r *Runner) runTrial(ctx context.Context, run RunRecord, evalCase Case, arm ArmConfig, config Config, timeout time.Duration, shared *sharedProducerState) error {
 	key := TrialKey{RunID: run.ID, CaseID: evalCase.ID, Arm: arm.Name}
-	claimed, err := r.store.Claim(ctx, key, config.RetryFailed, config.MaxAttempts())
+	attempt, claimed, err := r.store.Claim(ctx, key, config.RetryFailed, config.MaxAttempts())
 	if err != nil {
 		return fmt.Errorf("claim eval trial %s/%s: %w", evalCase.ID, arm.Name, err)
 	}
@@ -332,16 +342,22 @@ func (r *Runner) runTrial(ctx context.Context, run RunRecord, evalCase Case, arm
 	started := r.now()
 	trialCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	result, runErr := r.executeTrial(trialCtx, run, evalCase, arm, config.SharedProducer, config.Judge, shared, config.Run.OutputDir, started)
+	artifactDir := attemptArtifactDirectory(config.Run.OutputDir, attempt)
+	if err := r.store.UpdateAttempt(ctx, attempt, TrialStageAnswererSelection, map[string]string{"artifact_dir": attemptArtifactReference(attempt)}); err != nil {
+		return fmt.Errorf("initialize eval trial attempt %s/%s/%d: %w", evalCase.ID, arm.Name, attempt.Number, err)
+	}
+	result, runErr := r.executeTrial(trialCtx, run, evalCase, arm, config.SharedProducer, config.Judge, shared, config.Run.OutputDir, artifactDir, started, func(stage TrialStage) error {
+		return r.store.UpdateAttempt(ctx, attempt, stage, nil)
+	})
 	if runErr == nil {
-		if err := r.store.Complete(ctx, result); err != nil {
+		if err := r.store.Complete(ctx, attempt, result); err != nil {
 			return fmt.Errorf("complete eval trial %s/%s: %w", evalCase.ID, arm.Name, err)
 		}
 		r.logger.InfoContext(ctx, "eval trial completed", "case_id", evalCase.ID, "arm", arm.Name, "token_f1", result.TokenF1)
 		return nil
 	}
 	failed := failureResult(result, run, evalCase, arm.Name, started, runErr)
-	if err := r.store.Fail(ctx, failed); err != nil {
+	if err := r.store.Fail(ctx, attempt, failed); err != nil {
 		return errors.Join(fmt.Errorf("run eval trial %s/%s: %w", evalCase.ID, arm.Name, runErr), fmt.Errorf("persist eval failure: %w", err))
 	}
 	r.logger.ErrorContext(ctx, "eval trial failed", "case_id", evalCase.ID, "arm", arm.Name, "error", runErr)
@@ -357,10 +373,11 @@ func (r *Runner) executeTrial(
 	judgeSpec *CommandSpec,
 	shared *sharedProducerState,
 	outputDir string,
+	artifactDir string,
 	started time.Time,
+	enterStage func(TrialStage) error,
 ) (TrialResult, error) {
-	variables := trialVariables(run, evalCase, arm.Name, outputDir)
-	artifactDir := variables["artifact_dir"]
+	variables := trialVariablesAtArtifactDirectory(run, evalCase, arm.Name, outputDir, artifactDir)
 	durations := [3]time.Duration{}
 	partial := withCaseIdentity(TrialResult{
 		RunID: run.ID, Dataset: run.Dataset, DatasetRevision: run.DatasetRevision,
@@ -368,34 +385,43 @@ func (r *Runner) executeTrial(
 		Expected: evalCase.Expected, Status: "running", CostScope: "opencode_reported", StartedAt: started,
 	}, evalCase)
 	if evalCase.AnsweringAgentID == "" && evalCase.AnswererSourceOverlap == "no_cross_agent_answerer_available" {
-		return partial, fmt.Errorf("select eval answerer: %s", evalCase.AnswererSourceOverlap)
+		return partial, stageError(TrialStageAnswererSelection, fmt.Errorf("select eval answerer: %s", evalCase.AnswererSourceOverlap))
 	}
 	var producerOutput harness.AgentOutput
 	var ingestResult memoryprobe.IngestResult
 	if arm.Ingest != nil {
+		if err := enterStage(TrialStageMemoryIngest); err != nil {
+			return partial, stageError(TrialStageMemoryIngest, fmt.Errorf("record eval attempt stage: %w", err))
+		}
 		producerDuration, ingestDuration, observedIngest, err := r.runMemoryIngest(ctx, run, evalCase, arm, sharedSpec, shared, variables, artifactDir, outputDir)
 		durations[0], durations[1] = producerDuration, ingestDuration
 		partial.ProducerDurationMS = durations[0].Milliseconds()
 		if err != nil {
-			return partial, err
+			return partial, stageError(TrialStageMemoryIngest, err)
 		}
 		ingestResult = observedIngest
 		partial = withMemoryIngest(partial, ingestResult)
 		partial.ReadinessDurationMS = durations[1].Milliseconds()
 	}
 	if arm.Producer != nil {
+		if err := enterStage(TrialStageProducer); err != nil {
+			return partial, stageError(TrialStageProducer, fmt.Errorf("record eval attempt stage: %w", err))
+		}
 		var err error
 		durations[0], producerOutput, err = r.runLegacyProducer(ctx, *arm.Producer, variables, artifactDir)
 		partial = withProducerUsage(partial, producerOutput)
 		partial.ProducerDurationMS = durations[0].Milliseconds()
 		if err != nil {
-			return partial, err
+			return partial, stageError(TrialStageProducer, err)
 		}
 	}
 	if arm.AfterProducer != nil {
+		if err := enterStage(TrialStageReadiness); err != nil {
+			return partial, stageError(TrialStageReadiness, fmt.Errorf("record eval attempt stage: %w", err))
+		}
 		readinessDuration, err := r.waitForMemory(ctx, *arm.AfterProducer, variables, artifactDir)
 		if err != nil {
-			return partial, err
+			return partial, stageError(TrialStageReadiness, err)
 		}
 		durations[1] += readinessDuration
 		partial.ReadinessDurationMS = durations[1].Milliseconds()
@@ -403,12 +429,15 @@ func (r *Runner) executeTrial(
 	var output harness.AgentOutput
 	var recallDiagnostics recallDiagnostics
 	var executeErr error
+	if err := enterStage(TrialStageConsumer); err != nil {
+		return partial, stageError(TrialStageConsumer, fmt.Errorf("record eval attempt stage: %w", err))
+	}
 	durations[2], output, recallDiagnostics, executeErr = r.runConsumer(ctx, arm.Consumer, variables, artifactDir)
 	partial = withConsumerUsage(partial, output)
 	partial = withRecallDiagnostics(partial, recallDiagnostics)
 	partial.ConsumerDurationMS = durations[2].Milliseconds()
 	if executeErr != nil {
-		return partial, executeErr
+		return partial, stageError(TrialStageConsumer, executeErr)
 	}
 	scored := withRecallDiagnostics(
 		withMemoryIngest(ScoreResult(run, evalCase, arm.Name, producerOutput, output, started, durations), ingestResult),
@@ -416,6 +445,9 @@ func (r *Runner) executeTrial(
 	)
 	if judgeSpec == nil {
 		return scored, nil
+	}
+	if err := enterStage(TrialStageJudge); err != nil {
+		return scored, stageError(TrialStageJudge, fmt.Errorf("record eval attempt stage: %w", err))
 	}
 	variables["answer"] = output.Text
 	judgeDuration, judgment, judgeErr := r.runJudge(ctx, *judgeSpec, variables, artifactDir)
@@ -678,11 +710,11 @@ func (r *Runner) runJudge(ctx context.Context, spec CommandSpec, variables map[s
 
 func parseAgentOutput(result CommandResult, label string) (harness.AgentOutput, error) {
 	if len(result.Output) == 0 {
-		return harness.AgentOutput{}, fmt.Errorf("parse %s output: OpenCode output contains no text", label)
+		return harness.AgentOutput{}, fmt.Errorf("%w: parse %s output: OpenCode output contains no text", errInvalidAgentOutput, label)
 	}
 	output, err := harness.ParseOpenCodeJSON(bytes.NewReader(result.Output))
 	if err != nil {
-		return output, fmt.Errorf("parse %s output: %w", label, err)
+		return output, fmt.Errorf("%w: parse %s output: %w", errInvalidAgentOutput, label, err)
 	}
 	return output, nil
 }
@@ -837,6 +869,10 @@ func trialKeys(runID string, cases []Case, arms []ArmConfig) []TrialKey {
 
 func trialVariables(run RunRecord, evalCase Case, arm, outputDir string) map[string]string {
 	artifactDir := filepath.Join(outputDir, "trials", evalCase.ID, arm)
+	return trialVariablesAtArtifactDirectory(run, evalCase, arm, outputDir, artifactDir)
+}
+
+func trialVariablesAtArtifactDirectory(run RunRecord, evalCase Case, arm, outputDir, artifactDir string) map[string]string {
 	sharedArtifactDir := filepath.Join(outputDir, "trials", evalCase.ID, "shared")
 	return map[string]string{
 		"run_id": run.ID, "dataset": run.Dataset, "dataset_revision": run.DatasetRevision,
@@ -854,6 +890,26 @@ func trialVariables(run RunRecord, evalCase Case, arm, outputDir string) map[str
 	}
 }
 
+func attemptArtifactDirectory(outputDir string, attempt TrialAttemptHandle) string {
+	return filepath.Join(outputDir, attemptArtifactReference(attempt))
+}
+
+func attemptArtifactReference(attempt TrialAttemptHandle) string {
+	return filepath.Join("trials", attempt.CaseID, attempt.Arm, "attempts", fmt.Sprintf("%03d", attempt.Number))
+}
+
+type trialStageError struct {
+	stage TrialStage
+	err   error
+}
+
+func (e *trialStageError) Error() string { return e.err.Error() }
+func (e *trialStageError) Unwrap() error { return e.err }
+
+func stageError(stage TrialStage, err error) error {
+	return &trialStageError{stage: stage, err: err}
+}
+
 func failureResult(partial TrialResult, run RunRecord, evalCase Case, arm string, started time.Time, err error) TrialResult {
 	completed := time.Now().UTC()
 	if partial.RunID == "" {
@@ -867,7 +923,28 @@ func failureResult(partial TrialResult, run RunRecord, evalCase Case, arm string
 	partial.CompletedAt = completed
 	partial.TotalDurationMS = completed.Sub(started).Milliseconds()
 	partial.Error = err.Error()
+	var staged *trialStageError
+	if errors.As(err, &staged) {
+		partial.FailureStage = staged.stage
+	}
+	partial.FailureClass = classifyFailure(err)
 	return partial
+}
+
+func classifyFailure(err error) FailureClass {
+	var exitErr *exec.ExitError
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return FailureClassDeadline
+	case errors.Is(err, context.Canceled):
+		return FailureClassCanceled
+	case errors.As(err, &exitErr):
+		return FailureClassExit
+	case errors.Is(err, errInvalidAgentOutput):
+		return FailureClassInvalidOutput
+	default:
+		return FailureClassUnknown
+	}
 }
 
 func withCaseIdentity(result TrialResult, evalCase Case) TrialResult {
