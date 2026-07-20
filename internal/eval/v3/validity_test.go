@@ -140,30 +140,6 @@ func (s *validitySuite) TestInvalidReportIsExportedAndRejected() {
 	s.Contains(string(input), `"check": "recall_observation"`)
 }
 
-func (s *validitySuite) TestRejudgeEvidenceCreatesANewCanonicalAttempt() {
-	directory, run, _, results := s.validRunFixture()
-	before := append([]v2.TrialResult(nil), results...)
-	before[1].Judged = false
-	results[1].JudgeAnswer = "correct"
-	legacyDirectory := filepath.Join(directory, "trials", "case", v3.ArmGroupMemBenchMem0)
-	s.Require().NoError(os.WriteFile(filepath.Join(legacyDirectory, "judge.jsonl"), []byte("{}\n"), 0o600))
-
-	err := v3.RecordRejudgeEvidence(directory, run.ID, before, results)
-
-	s.Require().NoError(err)
-	attempts := s.loadAttempts(filepath.Join(directory, "attempts.jsonl"))
-	s.Require().Len(attempts, 4)
-	rejudge := attempts[3]
-	s.Equal(2, rejudge.Number)
-	s.Equal(v2.TrialStageCompleted, rejudge.Stage)
-	s.Equal("completed", rejudge.Status)
-	s.NotNil(rejudge.CompletedAt)
-	for _, name := range []string{"consumer.jsonl", "judge.jsonl"} {
-		_, statErr := os.Stat(filepath.Join(directory, rejudge.ArtifactRefs["artifact_dir"], name))
-		s.Require().NoError(statErr)
-	}
-}
-
 func (s *validitySuite) TestManifestWithoutSourceCountFailsSourceCoverage() {
 	directory, run, cases, results := s.validRunFixture()
 	s.writeJSON(run.Config.Run.Manifest, map[string]any{

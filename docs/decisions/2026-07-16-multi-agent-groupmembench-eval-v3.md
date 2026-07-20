@@ -430,10 +430,11 @@ provenance is incomplete. Recall evidence must identify and call the provider
 required by its Arm; the no-memory Arm must expose no provider evidence. The
 latest Attempt must be completed and own its canonical raw artifacts.
 Invalid runs retain `validity.json` and available raw JSONL/provenance, remove
-stale CSV/HTML comparisons, and return a non-zero acceptance error. Judge-only
-recovery appends a new immutable Attempt containing the original consumer and
-new judge evidence. A fresh three-arm cohort must pass this gate before any
-Mem0 or PAX result is described as benchmark-quality.
+stale CSV/HTML comparisons, omit derived manifest scores, and return a non-zero
+acceptance error. Judge-only recovery claims and completes a new immutable
+Attempt through the PostgreSQL Store, containing the original consumer and new
+judge evidence. A fresh three-arm cohort must pass this gate before any Mem0 or
+PAX result is described as benchmark-quality.
 
 ## Consequences
 

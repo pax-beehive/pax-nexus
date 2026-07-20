@@ -139,6 +139,62 @@ func (s *runnerSuite) TestJudgeExistingRunOnlyJudgesMissingCompletedAnswers() {
 	s.False(judged[2].Judged)
 }
 
+func (s *runnerSuite) TestJudgeExistingRunDurablyAppendsCanonicalAttempt() {
+	directory := s.T().TempDir()
+	executor := &fakeExecutor{}
+	store := newFakeStore()
+	config := testConfig(directory)
+	config.Judge = &CommandSpec{Program: "judge"}
+	result := TrialResult{
+		RunID: "run", CaseID: "case", Arm: "control", Status: "completed",
+		Question: "q", Expected: "answer", Answer: "answer",
+	}
+	key := TrialKey{RunID: result.RunID, CaseID: result.CaseID, Arm: result.Arm}
+	store.statuses[key] = "completed"
+	store.attemptCounts[key] = 1
+	store.results = []TrialResult{result}
+	completed := time.Now().UTC()
+	store.trialAttempts = []TrialAttempt{{
+		TrialAttemptHandle: TrialAttemptHandle{RunID: result.RunID, CaseID: result.CaseID, Arm: result.Arm, Number: 1},
+		Status:             "completed", Stage: TrialStageCompleted, CompletedAt: &completed,
+		ArtifactRefs: map[string]string{"artifact_dir": filepath.Join("trials", "case", "control", "attempts", "001")},
+	}}
+	consumerPath := filepath.Join(directory, store.trialAttempts[0].ArtifactRefs["artifact_dir"], "consumer.jsonl")
+	s.Require().NoError(os.MkdirAll(filepath.Dir(consumerPath), 0o755))
+	s.Require().NoError(os.WriteFile(consumerPath, []byte("{}\n"), 0o600))
+
+	run, judged, err := JudgeExistingRunDurable(context.Background(), store, executor, nil, config, "revision", []TrialResult{result})
+
+	s.Require().NoError(err)
+	s.Equal("run", run.ID)
+	s.Require().Len(judged, 1)
+	s.True(judged[0].Judged)
+	s.Require().Len(store.trialAttempts, 2)
+	s.Equal(2, store.trialAttempts[1].Number)
+	s.Equal("completed", store.trialAttempts[1].Status)
+	s.Equal(filepath.Join("trials", "case", "control", "attempts", "002"), store.trialAttempts[1].ArtifactRefs["artifact_dir"])
+	for _, name := range []string{"consumer.jsonl", "judge.jsonl"} {
+		_, statErr := os.Stat(filepath.Join(directory, store.trialAttempts[1].ArtifactRefs["artifact_dir"], name))
+		s.Require().NoError(statErr)
+	}
+
+	executor.failProgram = "judge"
+	judged[0].Judged = false
+	judged[0].JudgeError = ""
+	store.results[0].Judged = false
+	_, failed, err := JudgeExistingRunDurable(context.Background(), store, executor, nil, config, "revision", judged)
+
+	s.Require().Error(err)
+	s.Require().Len(failed, 1)
+	s.Equal("failed", failed[0].Status)
+	s.Require().Len(store.trialAttempts, 3)
+	s.Equal("failed", store.trialAttempts[2].Status)
+	s.Equal(TrialStageJudge, store.trialAttempts[2].Stage)
+	s.Equal(FailureClassUnknown, store.trialAttempts[2].FailureClass)
+	_, statErr := os.Stat(filepath.Join(directory, store.trialAttempts[2].ArtifactRefs["artifact_dir"], "judge.jsonl"))
+	s.Require().NoError(statErr)
+}
+
 func (s *runnerSuite) TestRunPreflightsOnlyWhenWorkIsRunnable() {
 	store := newFakeStore()
 	executor := &fakeExecutor{}
@@ -579,6 +635,30 @@ func (s *fakeStore) Claim(_ context.Context, key TrialKey, retry bool, maxAttemp
 	s.attemptCounts[key]++
 	handle := TrialAttemptHandle{RunID: key.RunID, CaseID: key.CaseID, Arm: key.Arm, Number: s.attemptCounts[key]}
 	s.trialAttempts = append(s.trialAttempts, TrialAttempt{TrialAttemptHandle: handle, Status: "running", Stage: TrialStageClaimed, StartedAt: time.Now().UTC()})
+	return handle, true, nil
+}
+
+func (s *fakeStore) ClaimRejudge(_ context.Context, key TrialKey) (TrialAttemptHandle, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.statuses[key] != "completed" {
+		return TrialAttemptHandle{}, false, nil
+	}
+	unjudged := false
+	for _, result := range s.results {
+		if result.RunID == key.RunID && result.CaseID == key.CaseID && result.Arm == key.Arm {
+			unjudged = !result.Judged
+		}
+	}
+	if !unjudged {
+		return TrialAttemptHandle{}, false, nil
+	}
+	s.attemptCounts[key]++
+	handle := TrialAttemptHandle{RunID: key.RunID, CaseID: key.CaseID, Arm: key.Arm, Number: s.attemptCounts[key]}
+	s.statuses[key] = "running"
+	s.trialAttempts = append(s.trialAttempts, TrialAttempt{
+		TrialAttemptHandle: handle, Status: "running", Stage: TrialStageClaimed, StartedAt: time.Now().UTC(),
+	})
 	return handle, true, nil
 }
 

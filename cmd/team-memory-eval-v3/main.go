@@ -67,20 +67,6 @@ func run(ctx context.Context, args []string, logger *slog.Logger) error {
 		return err
 	}
 	dsn := strings.TrimSpace(os.Getenv(config.Store.DSNEnv))
-	if strings.TrimSpace(*judgeInput) != "" {
-		results, loadErr := v2.LoadTrialResultsJSONL(*judgeInput)
-		if loadErr != nil {
-			return fmt.Errorf("load eval v3 judge input: %w", loadErr)
-		}
-		hydrated := v2.HydrateResults(results, cases)
-		runRecord, judged, judgeErr := v2.JudgeExistingRun(ctx, v2.ProcessExecutor{}, logger, config, revision, hydrated)
-		if runRecord.ID == "" {
-			runRecord = plannedRun
-		}
-		evidenceErr := v3.RecordRejudgeEvidence(config.Run.OutputDir, runRecord.ID, hydrated, judged)
-		exportErr := exportResults(config, runRecord, cases, v2.RescoreResults(judged))
-		return errors.Join(judgeErr, evidenceErr, exportErr)
-	}
 	if dsn == "" {
 		storeErr := fmt.Errorf("load eval v3 store: environment variable %s is required", config.Store.DSNEnv)
 		return errors.Join(storeErr, exportResults(config, plannedRun, cases, nil))
@@ -92,6 +78,19 @@ func run(ctx context.Context, args []string, logger *slog.Logger) error {
 	defer store.Close()
 	if err := store.Migrate(ctx); err != nil {
 		return errors.Join(err, exportResults(config, plannedRun, cases, nil))
+	}
+	if strings.TrimSpace(*judgeInput) != "" {
+		results, loadErr := v2.LoadTrialResultsJSONL(*judgeInput)
+		if loadErr != nil {
+			return fmt.Errorf("load eval v3 judge input: %w", loadErr)
+		}
+		hydrated := v2.HydrateResults(results, cases)
+		runRecord, judged, judgeErr := v2.JudgeExistingRunDurable(ctx, store, v2.ProcessExecutor{}, logger, config, revision, hydrated)
+		if runRecord.ID == "" {
+			runRecord = plannedRun
+		}
+		exportErr := exportResults(config, runRecord, cases, v2.RescoreResults(judged))
+		return errors.Join(judgeErr, exportErr)
 	}
 	runner, err := v2.NewRunner(store, v2.ProcessExecutor{}, logger)
 	if err != nil {
@@ -132,15 +131,16 @@ func exportResults(config v2.Config, runRecord v2.RunRecord, cases []v2.Case, re
 		validityExportErr = v3.ExportValidity(config.Run.OutputDir, report)
 		gateErr = v3.RequireValid(report)
 	}
-	formats := config.OutputFormats()
 	var cleanupErr error
+	var artifactErr error
 	if gateErr != nil {
-		formats = []string{"jsonl"}
 		cleanupErr = removeComparisonArtifacts(config.Run.OutputDir)
+		artifactErr = v2.ExportRawArtifacts(config.Run.OutputDir, runRecord, results)
+	} else {
+		artifactErr = v2.ExportArtifacts(config.Run.OutputDir, runRecord, config.BaselineArm, config.OutputFormats(), results, func(writer io.Writer) error {
+			return render.Report(runRecord, config.BaselineArm, results, writer)
+		})
 	}
-	artifactErr := v2.ExportArtifacts(config.Run.OutputDir, runRecord, config.BaselineArm, formats, results, func(writer io.Writer) error {
-		return render.Report(runRecord, config.BaselineArm, results, writer)
-	})
 	return errors.Join(resolvedErr, validityErr, validityExportErr, cleanupErr, artifactErr, gateErr)
 }
 

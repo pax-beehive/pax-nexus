@@ -63,6 +63,9 @@ func (s *mainSuite) TestInvalidRunRetainsArtifactsAndReturnsGateError() {
 	manifestInput, readErr := os.ReadFile(filepath.Join(directory, "artifacts.json"))
 	s.Require().NoError(readErr)
 	s.Contains(string(manifestInput), `"validity_report": "validity.json"`)
+	s.NotContains(string(manifestInput), `"observed_accuracy"`)
+	s.NotContains(string(manifestInput), `"mem0_reproduction"`)
+	s.NotContains(string(manifestInput), `"cost_summary"`)
 	for _, comparisonArtifact := range []string{"trials.csv", "summary.csv", "pairwise.csv", "report.html"} {
 		_, statErr := os.Stat(filepath.Join(directory, comparisonArtifact))
 		s.Require().ErrorIs(statErr, os.ErrNotExist)

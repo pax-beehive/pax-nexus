@@ -219,6 +219,42 @@ VALUES ($1, $2, $3, $4)`, key.RunID, key.CaseID, key.Arm, attempt); err != nil {
 	return v2.TrialAttemptHandle{RunID: key.RunID, CaseID: key.CaseID, Arm: key.Arm, Number: attempt}, true, nil
 }
 
+func (s *Store) ClaimRejudge(ctx context.Context, key v2.TrialKey) (_ v2.TrialAttemptHandle, claimed bool, returnedErr error) {
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return v2.TrialAttemptHandle{}, false, fmt.Errorf("begin claim eval rejudge: %w", err)
+	}
+	defer func() {
+		rollbackErr := tx.Rollback(context.Background())
+		if rollbackErr != nil && !errors.Is(rollbackErr, pgx.ErrTxClosed) {
+			returnedErr = errors.Join(returnedErr, fmt.Errorf("rollback claim eval rejudge: %w", rollbackErr))
+		}
+	}()
+	var attempt int
+	err = tx.QueryRow(ctx, `
+UPDATE eval_v2_trials
+SET status = 'running', attempts = attempts + 1, started_at = NOW(), completed_at = NULL,
+    updated_at = NOW()
+WHERE run_id = $1 AND case_id = $2 AND arm = $3 AND status = 'completed'
+  AND COALESCE((result->>'judged')::boolean, FALSE) = FALSE
+RETURNING attempts`, key.RunID, key.CaseID, key.Arm).Scan(&attempt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return v2.TrialAttemptHandle{}, false, nil
+	}
+	if err != nil {
+		return v2.TrialAttemptHandle{}, false, fmt.Errorf("claim eval rejudge: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+INSERT INTO eval_v2_trial_attempts (run_id, case_id, arm, attempt)
+VALUES ($1, $2, $3, $4)`, key.RunID, key.CaseID, key.Arm, attempt); err != nil {
+		return v2.TrialAttemptHandle{}, false, fmt.Errorf("insert eval rejudge attempt: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return v2.TrialAttemptHandle{}, false, fmt.Errorf("commit claim eval rejudge: %w", err)
+	}
+	return v2.TrialAttemptHandle{RunID: key.RunID, CaseID: key.CaseID, Arm: key.Arm, Number: attempt}, true, nil
+}
+
 func (s *Store) UpdateAttempt(ctx context.Context, handle v2.TrialAttemptHandle, stage v2.TrialStage, artifactRefs map[string]string) error {
 	encoded, err := json.Marshal(artifactRefs)
 	if err != nil {

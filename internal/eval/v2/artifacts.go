@@ -184,6 +184,50 @@ func ExportArtifacts(directory string, run RunRecord, baselineArm string, format
 	return writeJSON(filepath.Join(directory, "artifacts.json"), manifest)
 }
 
+// ExportRawArtifacts publishes only direct Trial evidence and provenance for a
+// Run that was rejected before comparative scoring.
+func ExportRawArtifacts(directory string, run RunRecord, results []TrialResult) error {
+	if err := os.MkdirAll(directory, 0o755); err != nil {
+		return fmt.Errorf("create raw eval artifact directory: %w", err)
+	}
+	files := make(map[string]string)
+	if len(results) > 0 {
+		slices.SortFunc(results, func(left, right TrialResult) int {
+			if left.CaseID != right.CaseID {
+				return cmpString(left.CaseID, right.CaseID)
+			}
+			return cmpString(left.Arm, right.Arm)
+		})
+		if err := writeJSONLines(filepath.Join(directory, "trials.jsonl"), results); err != nil {
+			return err
+		}
+		files["raw_trials"] = "trials.jsonl"
+	}
+	if err := ExportResolvedConfig(filepath.Join(directory, "config.resolved.json"), run.Config, run.Runtime); err != nil {
+		return err
+	}
+	files["resolved_config"] = "config.resolved.json"
+	if err := linkOptionalArtifacts(directory, run.Config, files); err != nil {
+		return err
+	}
+	schemaVersion, err := linkProtocolArtifacts(directory, run.Config.Version, files)
+	if err != nil {
+		return err
+	}
+	manifest := map[string]any{
+		"schema_version":   schemaVersion,
+		"artifact_mode":    "raw_invalid_evidence",
+		"run_id":           run.ID,
+		"dataset":          run.Dataset,
+		"dataset_revision": run.DatasetRevision,
+		"config_hash":      run.ConfigHash,
+		"generated_at":     time.Now().UTC(),
+		"runtime":          run.Runtime,
+		"files":            files,
+	}
+	return writeJSON(filepath.Join(directory, "artifacts.json"), manifest)
+}
+
 func addProtocolManifestMetadata(directory string, run RunRecord, results []TrialResult, manifest map[string]any) error {
 	if run.Config.Version != "v3" {
 		return nil

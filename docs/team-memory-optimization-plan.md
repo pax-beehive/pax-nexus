@@ -111,8 +111,9 @@ memory arms with the correct provider identity and call evidence, no provider
 activity in the no-memory arm, completed canonical latest-Attempt
 consumer/judge artifacts, and a resolved configuration hash matching the
 durable Run. Invalid runs export `validity.json` plus raw evidence, remove
-stale comparison reports, and return an acceptance error. Judge-only recovery
-is recorded as a new immutable Attempt.
+stale comparison reports, omit derived manifest scores, and return an
+acceptance error. Judge-only recovery is recorded as a new immutable Attempt
+through the durable Store seam.
 
 ## Tranche 4: Budget-Aware Final-State Selection
 

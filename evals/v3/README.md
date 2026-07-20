@@ -72,8 +72,10 @@ decision for comparative scoring. A valid report requires:
 
 The artifact manifest links and embeds this report. An invalid run exports raw
 JSONL and available provenance, removes stale CSV/HTML comparisons, and exits
-non-zero. Judge-only recovery appends a new Attempt and copies the original
-consumer plus new judge evidence into its canonical artifact directory.
+non-zero; its manifest is labeled `raw_invalid_evidence` and contains no
+derived accuracy or cost summary. Judge-only recovery claims a new Attempt
+through the durable Store and writes the original consumer plus new judge
+evidence into its canonical artifact directory.
 
 Eval v3 is the outer architecture comparison, not the recall-policy tuning
 loop. Before using it to validate a recall change, first improve the fixed

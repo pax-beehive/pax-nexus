@@ -171,6 +171,41 @@ func (s *storeSuite) TestAttemptLedgerPreservesFailedAttemptAcrossRetry() {
 	s.NotNil(attempts[1].CompletedAt)
 }
 
+func (s *storeSuite) TestClaimRejudgeAppendsAttemptWithoutDiscardingCompletedResult() {
+	ctx := context.Background()
+	runID := "eval-rejudge-" + time.Now().UTC().Format("20060102150405.000000000")
+	key := v2.TrialKey{RunID: runID, CaseID: "case-1", Arm: "memory"}
+	run := v2.RunRecord{
+		ID: runID, Dataset: "suite", DatasetRevision: "rev", ConfigHash: "hash",
+		Config: v2.Config{Version: v2.ConfigVersion},
+	}
+	s.Require().NoError(s.store.Initialize(ctx, run, []v2.TrialKey{key}))
+	first, claimed, err := s.store.Claim(ctx, key, false, 1)
+	s.Require().NoError(err)
+	s.True(claimed)
+	unjudged := result(runID, "memory", "completed")
+	unjudged.Judged = false
+	s.Require().NoError(s.store.Complete(ctx, first, unjudged))
+
+	second, claimed, err := s.store.ClaimRejudge(ctx, key)
+
+	s.Require().NoError(err)
+	s.True(claimed)
+	s.Equal(2, second.Number)
+	results, err := s.store.Results(ctx, runID)
+	s.Require().NoError(err)
+	s.Empty(results)
+	unjudged.Judged = true
+	s.Require().NoError(s.store.Complete(ctx, second, unjudged))
+	_, claimed, err = s.store.ClaimRejudge(ctx, key)
+	s.Require().NoError(err)
+	s.False(claimed)
+	attempts, err := s.store.Attempts(ctx, runID)
+	s.Require().NoError(err)
+	s.Require().Len(attempts, 2)
+	s.Equal("completed", attempts[1].Status)
+}
+
 func TestOpenRejectsEmptyDSN(t *testing.T) {
 	store, err := postgresstore.Open(context.Background(), "")
 	if err == nil || store != nil {
