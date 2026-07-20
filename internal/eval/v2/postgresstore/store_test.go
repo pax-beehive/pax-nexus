@@ -115,6 +115,9 @@ func (s *storeSuite) TestRejectsRunIDConfigCollisionAndInvalidTransition() {
 	s.Require().NoError(s.store.Initialize(ctx, run, []v2.TrialKey{key}))
 	run.ConfigHash = "second"
 	s.Require().Error(s.store.Initialize(ctx, run, []v2.TrialKey{key}))
+	run.ConfigHash = "first"
+	run.DatasetRevision = "different-revision"
+	s.Require().Error(s.store.Initialize(ctx, run, []v2.TrialKey{key}))
 	s.Require().Error(s.store.Complete(ctx, v2.TrialAttemptHandle{RunID: runID, CaseID: "case", Arm: "control", Number: 1}, result(runID, "control", "completed")))
 	handle, claimed, err := s.store.Claim(ctx, key, false, 1)
 	s.Require().NoError(err)
@@ -194,11 +197,12 @@ func (s *storeSuite) TestClaimRejudgeAppendsAttemptWithoutDiscardingCompletedRes
 	s.Equal(2, second.Number)
 	results, err := s.store.Results(ctx, runID)
 	s.Require().NoError(err)
-	s.Empty(results)
+	s.Require().Len(results, 1)
+	s.Equal("answer", results[0].Answer)
 	unjudged.FailureStage = v2.TrialStageJudge
 	unjudged.FailureClass = v2.FailureClassUnknown
 	unjudged.JudgeError = "temporary judge failure"
-	s.Require().NoError(s.store.Complete(ctx, second, unjudged))
+	s.Require().NoError(s.store.CompleteRejudge(ctx, second, unjudged))
 	third, claimed, err := s.store.ClaimRejudge(ctx, key)
 	s.Require().NoError(err)
 	s.True(claimed)
@@ -207,7 +211,7 @@ func (s *storeSuite) TestClaimRejudgeAppendsAttemptWithoutDiscardingCompletedRes
 	unjudged.FailureStage = ""
 	unjudged.FailureClass = ""
 	unjudged.JudgeError = ""
-	s.Require().NoError(s.store.Complete(ctx, third, unjudged))
+	s.Require().NoError(s.store.CompleteRejudge(ctx, third, unjudged))
 	_, claimed, err = s.store.ClaimRejudge(ctx, key)
 	s.Require().NoError(err)
 	s.False(claimed)
@@ -217,6 +221,38 @@ func (s *storeSuite) TestClaimRejudgeAppendsAttemptWithoutDiscardingCompletedRes
 	s.Equal("failed", attempts[1].Status)
 	s.Equal(v2.TrialStageJudge, attempts[1].Stage)
 	s.Equal("completed", attempts[2].Status)
+}
+
+func (s *storeSuite) TestRejudgeClaimRecoversAnOrphanWithoutHidingConsumerResult() {
+	ctx := context.Background()
+	runID := "eval-rejudge-orphan-" + time.Now().UTC().Format("20060102150405.000000000")
+	key := v2.TrialKey{RunID: runID, CaseID: "case-1", Arm: "memory"}
+	run := v2.RunRecord{
+		ID: runID, Dataset: "suite", DatasetRevision: "rev", ConfigHash: "hash",
+		Config: v2.Config{Version: v2.ConfigVersion},
+	}
+	s.Require().NoError(s.store.Initialize(ctx, run, []v2.TrialKey{key}))
+	first, claimed, err := s.store.Claim(ctx, key, false, 1)
+	s.Require().NoError(err)
+	s.True(claimed)
+	s.Require().NoError(s.store.Complete(ctx, first, result(runID, "memory", "completed")))
+	orphan, claimed, err := s.store.ClaimRejudge(ctx, key)
+	s.Require().NoError(err)
+	s.True(claimed)
+
+	recovered, claimed, err := s.store.ClaimRejudge(ctx, key)
+
+	s.Require().NoError(err)
+	s.True(claimed)
+	s.Equal(orphan.Number+1, recovered.Number)
+	results, err := s.store.Results(ctx, runID)
+	s.Require().NoError(err)
+	s.Require().Len(results, 1)
+	attempts, err := s.store.Attempts(ctx, runID)
+	s.Require().NoError(err)
+	s.Require().Len(attempts, 3)
+	s.Equal("interrupted", attempts[1].Status)
+	s.Equal(v2.FailureClassInterrupted, attempts[1].FailureClass)
 }
 
 func TestOpenRejectsEmptyDSN(t *testing.T) {

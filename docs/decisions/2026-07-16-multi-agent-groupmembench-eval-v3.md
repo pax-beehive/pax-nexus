@@ -435,9 +435,11 @@ acceptance error. Judge-only recovery claims and completes a new immutable
 Attempt through the PostgreSQL Store under the Run lock. It verifies the
 durable configuration hash and treats the stored consumer result, not the
 external JSONL projection, as the answer source. A judge-stage failure retains
-the completed, unjudged Trial so recovery can be retried. A fresh three-arm
-cohort must pass this gate before any Mem0 or PAX result is described as
-benchmark-quality.
+the completed, unjudged Trial so recovery can be retried; the next claim marks
+an orphaned rejudge Attempt interrupted without changing that Trial. Durable
+Run verification also matches the dataset and dataset revision. A fresh
+three-arm cohort must pass this gate before any Mem0 or PAX result is described
+as benchmark-quality.
 
 ## Consequences
 

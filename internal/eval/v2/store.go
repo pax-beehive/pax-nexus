@@ -12,6 +12,7 @@ type Store interface {
 	ClaimRejudge(context.Context, TrialKey) (TrialAttemptHandle, bool, error)
 	UpdateAttempt(context.Context, TrialAttemptHandle, TrialStage, map[string]string) error
 	Complete(context.Context, TrialAttemptHandle, TrialResult) error
+	CompleteRejudge(context.Context, TrialAttemptHandle, TrialResult) error
 	Fail(context.Context, TrialAttemptHandle, TrialResult) error
 	Attempts(context.Context, string) ([]TrialAttempt, error)
 	Results(context.Context, string) ([]TrialResult, error)

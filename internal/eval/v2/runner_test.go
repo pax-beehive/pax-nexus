@@ -154,7 +154,7 @@ func (s *runnerSuite) TestJudgeExistingRunDurablyAppendsCanonicalAttempt() {
 	key := TrialKey{RunID: result.RunID, CaseID: result.CaseID, Arm: result.Arm}
 	store.statuses[key] = "completed"
 	store.attemptCounts[key] = 1
-	store.runHashes[result.RunID] = durableRun.ConfigHash
+	store.runs[result.RunID] = durableRun
 	store.results = []TrialResult{result}
 	result.Answer = "tampered external answer"
 	completed := time.Now().UTC()
@@ -597,11 +597,11 @@ type fakeStore struct {
 	results       []TrialResult
 	finished      bool
 	acquired      bool
-	runHashes     map[string]string
+	runs          map[string]RunRecord
 }
 
 func newFakeStore() *fakeStore {
-	return &fakeStore{statuses: make(map[TrialKey]string), attemptCounts: make(map[TrialKey]int), runHashes: make(map[string]string)}
+	return &fakeStore{statuses: make(map[TrialKey]string), attemptCounts: make(map[TrialKey]int), runs: make(map[string]RunRecord)}
 }
 
 func (s *fakeStore) Acquire(context.Context, string) (bool, error) {
@@ -624,10 +624,11 @@ func (s *fakeStore) Release(context.Context, string) error {
 func (s *fakeStore) Initialize(_ context.Context, run RunRecord, trials []TrialKey) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if hash, exists := s.runHashes[run.ID]; exists && hash != run.ConfigHash {
+	if stored, exists := s.runs[run.ID]; exists &&
+		(stored.ConfigHash != run.ConfigHash || stored.Dataset != run.Dataset || stored.DatasetRevision != run.DatasetRevision) {
 		return errors.New("run config collision")
 	}
-	s.runHashes[run.ID] = run.ConfigHash
+	s.runs[run.ID] = run
 	for _, key := range trials {
 		if _, exists := s.statuses[key]; !exists {
 			s.statuses[key] = "pending"
@@ -678,9 +679,19 @@ func (s *fakeStore) ClaimRejudge(_ context.Context, key TrialKey) (TrialAttemptH
 	if !unjudged {
 		return TrialAttemptHandle{}, false, nil
 	}
+	completed := time.Now().UTC()
+	for index := range s.trialAttempts {
+		attempt := &s.trialAttempts[index]
+		if attempt.RunID == key.RunID && attempt.CaseID == key.CaseID && attempt.Arm == key.Arm && attempt.Status == "running" {
+			attempt.Status = "interrupted"
+			attempt.Stage = TrialStageJudge
+			attempt.FailureClass = FailureClassInterrupted
+			attempt.Error = "rejudge stopped before attempt finalization"
+			attempt.CompletedAt = &completed
+		}
+	}
 	s.attemptCounts[key]++
 	handle := TrialAttemptHandle{RunID: key.RunID, CaseID: key.CaseID, Arm: key.Arm, Number: s.attemptCounts[key]}
-	s.statuses[key] = "running"
 	s.trialAttempts = append(s.trialAttempts, TrialAttempt{
 		TrialAttemptHandle: handle, Status: "running", Stage: TrialStageClaimed, StartedAt: time.Now().UTC(),
 	})
@@ -707,6 +718,10 @@ func (s *fakeStore) UpdateAttempt(_ context.Context, handle TrialAttemptHandle, 
 }
 
 func (s *fakeStore) Complete(_ context.Context, handle TrialAttemptHandle, result TrialResult) error {
+	return s.recordAttempt(handle, result)
+}
+
+func (s *fakeStore) CompleteRejudge(_ context.Context, handle TrialAttemptHandle, result TrialResult) error {
 	return s.recordAttempt(handle, result)
 }
 

@@ -118,12 +118,14 @@ VALUES ($1, $2, $3, $4, $5)
 ON CONFLICT (run_id) DO NOTHING`, run.ID, run.Dataset, run.DatasetRevision, run.ConfigHash, config); err != nil {
 		return fmt.Errorf("insert eval run: %w", err)
 	}
-	var storedHash string
-	if err := tx.QueryRow(ctx, `SELECT config_hash FROM eval_v2_runs WHERE run_id = $1`, run.ID).Scan(&storedHash); err != nil {
+	var storedHash, storedDataset, storedRevision string
+	if err := tx.QueryRow(ctx, `
+SELECT config_hash, dataset, dataset_revision
+FROM eval_v2_runs WHERE run_id = $1`, run.ID).Scan(&storedHash, &storedDataset, &storedRevision); err != nil {
 		return fmt.Errorf("read eval run config hash: %w", err)
 	}
-	if storedHash != run.ConfigHash {
-		return fmt.Errorf("initialize eval run: run ID %q already uses a different config", run.ID)
+	if storedHash != run.ConfigHash || storedDataset != run.Dataset || storedRevision != run.DatasetRevision {
+		return fmt.Errorf("initialize eval run: run ID %q already uses different provenance", run.ID)
 	}
 	for _, trial := range trials {
 		if _, err := tx.Exec(ctx, `
@@ -230,11 +232,17 @@ func (s *Store) ClaimRejudge(ctx context.Context, key v2.TrialKey) (_ v2.TrialAt
 			returnedErr = errors.Join(returnedErr, fmt.Errorf("rollback claim eval rejudge: %w", rollbackErr))
 		}
 	}()
+	if _, err := tx.Exec(ctx, `
+UPDATE eval_v2_trial_attempts
+SET status = 'interrupted', stage = 'judge', failure_class = 'interrupted',
+    error = 'rejudge stopped before attempt finalization', completed_at = NOW()
+WHERE run_id = $1 AND case_id = $2 AND arm = $3 AND status = 'running'`, key.RunID, key.CaseID, key.Arm); err != nil {
+		return v2.TrialAttemptHandle{}, false, fmt.Errorf("interrupt orphaned eval rejudge: %w", err)
+	}
 	var attempt int
 	err = tx.QueryRow(ctx, `
 UPDATE eval_v2_trials
-SET status = 'running', attempts = attempts + 1, started_at = NOW(), completed_at = NULL,
-    updated_at = NOW()
+SET attempts = attempts + 1, updated_at = NOW()
 WHERE run_id = $1 AND case_id = $2 AND arm = $3 AND status = 'completed'
   AND COALESCE((result->>'judged')::boolean, FALSE) = FALSE
 RETURNING attempts`, key.RunID, key.CaseID, key.Arm).Scan(&attempt)
@@ -275,11 +283,15 @@ WHERE run_id = $1 AND case_id = $2 AND arm = $3 AND attempt = $4 AND status = 'r
 }
 
 func (s *Store) Complete(ctx context.Context, handle v2.TrialAttemptHandle, result v2.TrialResult) error {
-	return s.storeResult(ctx, handle, result, "completed")
+	return s.storeResult(ctx, handle, result, "running", "completed")
+}
+
+func (s *Store) CompleteRejudge(ctx context.Context, handle v2.TrialAttemptHandle, result v2.TrialResult) error {
+	return s.storeResult(ctx, handle, result, "completed", "completed")
 }
 
 func (s *Store) Fail(ctx context.Context, handle v2.TrialAttemptHandle, result v2.TrialResult) error {
-	return s.storeResult(ctx, handle, result, "failed")
+	return s.storeResult(ctx, handle, result, "running", "failed")
 }
 
 func (s *Store) Attempts(ctx context.Context, runID string) ([]v2.TrialAttempt, error) {
@@ -364,7 +376,12 @@ WHERE run_id = $1`, runID)
 	return nil
 }
 
-func (s *Store) storeResult(ctx context.Context, handle v2.TrialAttemptHandle, result v2.TrialResult, status string) (returnedErr error) {
+func (s *Store) storeResult(
+	ctx context.Context,
+	handle v2.TrialAttemptHandle,
+	result v2.TrialResult,
+	expectedStatus, status string,
+) (returnedErr error) {
 	if handle.RunID != result.RunID || handle.CaseID != result.CaseID || handle.Arm != result.Arm {
 		return fmt.Errorf("store eval result: attempt handle and result identity do not match")
 	}
@@ -385,7 +402,8 @@ func (s *Store) storeResult(ctx context.Context, handle v2.TrialAttemptHandle, r
 	command, err := tx.Exec(ctx, `
 UPDATE eval_v2_trials
 SET status = $4, result = $5, completed_at = NOW(), updated_at = NOW()
-WHERE run_id = $1 AND case_id = $2 AND arm = $3 AND status = 'running'`, handle.RunID, handle.CaseID, handle.Arm, status, encoded)
+WHERE run_id = $1 AND case_id = $2 AND arm = $3 AND status = $6`,
+		handle.RunID, handle.CaseID, handle.Arm, status, encoded, expectedStatus)
 	if err != nil {
 		return fmt.Errorf("store eval result: %w", err)
 	}

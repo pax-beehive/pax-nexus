@@ -77,7 +77,10 @@ derived accuracy or cost summary. Judge-only recovery claims a new Attempt
 under the Run lock, verifies the stored configuration hash, uses the durable
 consumer result as its only answer input, and writes new judge evidence into
 the canonical Attempt directory. A transient judge failure preserves the
-completed consumer result and can be retried without rerunning the Trial.
+completed consumer result and can be retried without rerunning the Trial. A
+crashed rejudge Attempt is marked interrupted on the next claim without hiding
+or replacing that consumer result. Run provenance checks include dataset and
+dataset revision as well as the configuration hash.
 
 Eval v3 is the outer architecture comparison, not the recall-policy tuning
 loop. Before using it to validate a recall change, first improve the fixed

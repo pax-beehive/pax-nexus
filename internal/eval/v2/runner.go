@@ -264,7 +264,7 @@ func judgeExistingTrialDurably(
 		result.FailureClass = classifyFailure(judgeErr)
 		result.Error = judgeErr.Error()
 		result.Status = "completed"
-		if err := store.Complete(ctx, attempt, *result); err != nil {
+		if err := store.CompleteRejudge(ctx, attempt, *result); err != nil {
 			return errors.Join(fmt.Errorf("run durable rejudge %s/%s: %w", result.CaseID, result.Arm, judgeErr), fmt.Errorf("persist failed rejudge Attempt: %w", err))
 		}
 		logger.ErrorContext(ctx, "eval rejudgment failed", "case_id", result.CaseID, "arm", result.Arm, "error", judgeErr)
@@ -282,7 +282,7 @@ func judgeExistingTrialDurably(
 	result.FailureStage = ""
 	result.FailureClass = ""
 	result.Error = ""
-	if err := store.Complete(ctx, attempt, *result); err != nil {
+	if err := store.CompleteRejudge(ctx, attempt, *result); err != nil {
 		return fmt.Errorf("complete rejudge Attempt %s/%s/%d: %w", result.CaseID, result.Arm, attempt.Number, err)
 	}
 	latest[identity] = TrialAttempt{TrialAttemptHandle: attempt, Status: "completed", Stage: TrialStageCompleted, ArtifactRefs: map[string]string{"artifact_dir": reference}, CompletedAt: &completed}
@@ -298,12 +298,12 @@ func failClaimedRejudge(
 	failure error,
 ) error {
 	completed := time.Now().UTC()
-	result.Status = "failed"
+	result.Status = "completed"
 	result.CompletedAt = completed
 	result.FailureStage = stage
 	result.FailureClass = classifyFailure(failure)
 	result.Error = failure.Error()
-	if err := store.Fail(ctx, attempt, *result); err != nil {
+	if err := store.CompleteRejudge(ctx, attempt, *result); err != nil {
 		return errors.Join(failure, fmt.Errorf("persist failed rejudge Attempt: %w", err))
 	}
 	return failure
