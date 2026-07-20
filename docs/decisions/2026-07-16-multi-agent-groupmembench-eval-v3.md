@@ -437,9 +437,10 @@ durable configuration hash and treats the stored consumer result, not the
 external JSONL projection, as the answer source. A judge-stage failure retains
 the completed, unjudged Trial so recovery can be retried; the next claim marks
 an orphaned rejudge Attempt interrupted without changing that Trial. Durable
-Run verification also matches the dataset and dataset revision. A fresh
-three-arm cohort must pass this gate before any Mem0 or PAX result is described
-as benchmark-quality.
+recovery chooses the newest prior Attempt with a canonical, non-empty consumer
+artifact rather than trusting the highest Attempt number. Run verification also
+matches the dataset and dataset revision. A fresh three-arm cohort must pass
+this gate before any Mem0 or PAX result is described as benchmark-quality.
 
 ## Consequences
 

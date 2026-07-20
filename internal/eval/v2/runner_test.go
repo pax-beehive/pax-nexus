@@ -215,6 +215,38 @@ func (s *runnerSuite) TestJudgeExistingRunDurablyAppendsCanonicalAttempt() {
 	s.Require().ErrorContains(err, "verify durable rejudge Run")
 }
 
+func (s *runnerSuite) TestDurableRejudgeSkipsNewestAttemptWithoutConsumerEvidence() {
+	directory := s.T().TempDir()
+	store := newFakeStore()
+	config := testConfig(directory)
+	config.Judge = &CommandSpec{Program: "judge"}
+	run, err := buildRunRecord(config, "revision")
+	s.Require().NoError(err)
+	result := TrialResult{RunID: run.ID, CaseID: "case", Arm: "control", Status: "completed", Answer: "answer"}
+	key := TrialKey{RunID: result.RunID, CaseID: result.CaseID, Arm: result.Arm}
+	store.statuses[key] = "completed"
+	store.attemptCounts[key] = 2
+	store.results = []TrialResult{result}
+	store.runs[run.ID] = run
+	completed := time.Now().UTC()
+	validReference := filepath.Join("trials", "case", "control", "attempts", "001")
+	store.trialAttempts = []TrialAttempt{
+		{TrialAttemptHandle: TrialAttemptHandle{RunID: run.ID, CaseID: "case", Arm: "control", Number: 1}, Status: "completed", Stage: TrialStageCompleted, CompletedAt: &completed, ArtifactRefs: map[string]string{"artifact_dir": validReference}},
+		{TrialAttemptHandle: TrialAttemptHandle{RunID: run.ID, CaseID: "case", Arm: "control", Number: 2}, Status: "interrupted", Stage: TrialStageJudge, CompletedAt: &completed, ArtifactRefs: map[string]string{"artifact_dir": filepath.Join("trials", "case", "control", "attempts", "002")}},
+	}
+	consumerPath := filepath.Join(directory, validReference, "consumer.jsonl")
+	s.Require().NoError(os.MkdirAll(filepath.Dir(consumerPath), 0o755))
+	s.Require().NoError(os.WriteFile(consumerPath, []byte("{}\n"), 0o600))
+
+	_, judged, err := JudgeExistingRunDurable(context.Background(), store, &fakeExecutor{}, nil, config, "revision", []TrialResult{result})
+
+	s.Require().NoError(err)
+	s.Require().Len(judged, 1)
+	s.True(judged[0].Judged)
+	s.Require().Len(store.trialAttempts, 3)
+	s.Equal(3, store.trialAttempts[2].Number)
+}
+
 func (s *runnerSuite) TestRunPreflightsOnlyWhenWorkIsRunnable() {
 	store := newFakeStore()
 	executor := &fakeExecutor{}

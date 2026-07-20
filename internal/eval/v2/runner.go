@@ -205,7 +205,7 @@ func loadDurableRejudgeState(
 	if err != nil {
 		return nil, nil, fmt.Errorf("load durable rejudge Attempts: %w", err)
 	}
-	return judged, latestTrialAttempts(attempts), nil
+	return judged, latestConsumerAttempts(attempts, run.Config.Run.OutputDir), nil
 }
 
 func exportDurableRejudgeAttempts(ctx context.Context, store Store, runID, outputDirectory string) error {
@@ -320,15 +320,25 @@ func judgeExistingVariables(run RunRecord, result TrialResult, outputDirectory, 
 	}
 }
 
-func latestTrialAttempts(attempts []TrialAttempt) map[string]TrialAttempt {
+func latestConsumerAttempts(attempts []TrialAttempt, outputDirectory string) map[string]TrialAttempt {
 	latest := make(map[string]TrialAttempt, len(attempts))
 	for _, attempt := range attempts {
+		reference := attempt.ArtifactRefs["artifact_dir"]
+		if reference != attemptArtifactReference(attempt.TrialAttemptHandle) ||
+			!nonEmptyAttemptArtifact(filepath.Join(outputDirectory, reference, "consumer.jsonl")) {
+			continue
+		}
 		key := attempt.CaseID + "\x00" + attempt.Arm
 		if current, exists := latest[key]; !exists || attempt.Number > current.Number {
 			latest[key] = attempt
 		}
 	}
 	return latest
+}
+
+func nonEmptyAttemptArtifact(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.Mode().IsRegular() && info.Size() > 0
 }
 
 func copyAttemptArtifact(source, destination string) error {
