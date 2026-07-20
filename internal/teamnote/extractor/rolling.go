@@ -20,20 +20,7 @@ type eventScope struct {
 	threadRef string
 }
 
-// extractionProtocol captures the version-specific parts of one rolling
-// extraction call: the stable system prompt and the response decoders for
-// fresh and saved responses. Episode, compaction, and summary mechanics are
-// shared across protocols.
-type extractionProtocol struct {
-	systemPrompt string
-	decodeFresh  func(body []byte) (Result, string, error)
-	decodeSaved  func(content string) (Result, error)
-}
-
-var (
-	protocolV1 = extractionProtocol{rollingSystemPrompt, decodeResponse, decodeCandidateContent}
-	protocolV2 = extractionProtocol{rollingSystemPromptV2, decodeExtractionResponseV2, decodeExtractionContentV2}
-)
+var protocolV1 = extractionProtocol{rollingSystemPrompt, decodeResponse, decodeCandidateContent}
 
 func (e *OpenAI) extractRolling(ctx context.Context, slice sessionlake.Slice) (Result, error) {
 	return e.extractRollingWith(ctx, slice, protocolV1, nil)
@@ -46,7 +33,7 @@ func (e *OpenAI) extractRollingV2(ctx context.Context, slice sessionlake.Slice) 
 // extractRollingV2With maps validated v2 products onto candidates after each
 // episode group, keeping the trace merged across groups.
 func (e *OpenAI) extractRollingV2With(ctx context.Context, slice sessionlake.Slice) (Result, error) {
-	return e.extractRollingWith(ctx, slice, protocolV2, func(groupResult *Result, groupSlice sessionlake.Slice) {
+	return e.extractRollingWith(ctx, slice, e.candidateStrategy.protocol, func(groupResult *Result, groupSlice sessionlake.Slice) {
 		mapExtractionV2(groupResult, groupSlice)
 	})
 }
@@ -159,12 +146,15 @@ func (e *OpenAI) advanceEpisode(ctx context.Context, key EpisodeKey, slice sessi
 	lock.Lock()
 	defer lock.Unlock()
 
+	if err := e.consumeReadySummary(key); err != nil {
+		return Result{}, fmt.Errorf("persist rolling extraction summary: %w", err)
+	}
 	episode, found, err := e.config.EpisodeStore.LoadEpisode(ctx, key)
 	if err != nil {
 		return Result{}, fmt.Errorf("load rolling extraction episode: %w", err)
 	}
 	expectedVersion := episode.Version
-	if found && !episodeCompatible(episode, e.config) {
+	if found && !e.episodeCompatible(episode) {
 		// A rolling transcript contains protocol-specific assistant responses.
 		// Replaying it under a different model, prompt, or response protocol can
 		// either fail decoding or silently carry stale state forward. Preserve
@@ -189,7 +179,6 @@ func (e *OpenAI) advanceEpisode(ctx context.Context, key EpisodeKey, slice sessi
 	if err != nil {
 		return Result{}, err
 	}
-	summaryUsage := e.consumeReadySummary(key, &episode)
 	compactionUsage, err := e.prepareEpisode(ctx, key, &episode, estimateTokens(prompt))
 	if err != nil {
 		return Result{}, err
@@ -205,7 +194,6 @@ func (e *OpenAI) advanceEpisode(ctx context.Context, key EpisodeKey, slice sessi
 	}
 	removeHistoricalEvidence(&result, episode, slice)
 	contextTokens := result.Usage.InputTokens + result.Usage.OutputTokens
-	addUsage(&result.Usage, summaryUsage)
 	addUsage(&result.Usage, compactionUsage)
 	episode.Messages = append(episode.Messages,
 		EpisodeMessage{Role: "user", Content: prompt},
@@ -241,7 +229,7 @@ func (e *OpenAI) advanceEpisode(ctx context.Context, key EpisodeKey, slice sessi
 	return result, nil
 }
 
-func episodeCompatible(episode Episode, config OpenAIConfig) bool {
+func (e *OpenAI) episodeCompatible(episode Episode) bool {
 	protocolVersion := episode.ProtocolVersion
 	if protocolVersion == "" {
 		// Episodes written before protocol versioning used the v1 response
@@ -249,16 +237,16 @@ func episodeCompatible(episode Episode, config OpenAIConfig) bool {
 		protocolVersion = ExtractionVersionV1
 	}
 	expectedProtocol := ExtractionVersionV1
-	if config.ExtractionVersion == ExtractionVersionV2 {
-		expectedProtocol = extractionProtocolV2Revision
+	if e.config.ExtractionVersion == ExtractionVersionV2 {
+		expectedProtocol = e.candidateStrategy.protocolVersion
 	}
 	return protocolVersion == expectedProtocol &&
-		episode.Model == config.Model && episode.PromptVersion == config.PromptVersion
+		episode.Model == e.config.Model && episode.PromptVersion == e.config.PromptVersion
 }
 
 func (e *OpenAI) episodeProtocolVersion() string {
 	if e.config.ExtractionVersion == ExtractionVersionV2 {
-		return extractionProtocolV2Revision
+		return e.candidateStrategy.protocolVersion
 	}
 	return ExtractionVersionV1
 }
@@ -395,7 +383,7 @@ func (e *OpenAI) computeCompaction(ctx context.Context, episode Episode) (compac
 		return compactionResult{}, fmt.Errorf("build compaction context: %w", err)
 	}
 	messages = append(messages, chatMessage{Role: "user", Content: compactionPrompt})
-	body, err := e.call(ctx, messages)
+	body, err := e.callWithType(ctx, messages, 0, ProviderCallCompaction)
 	if err != nil {
 		return compactionResult{}, fmt.Errorf("compact extraction episode: %w", err)
 	}

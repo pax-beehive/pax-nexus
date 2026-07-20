@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"testing"
 	"time"
 
@@ -21,7 +22,9 @@ func (s *configSuite) SetupTest() {
 		"TEAM_MEMORY_DATABASE_URL", "TEAM_MEMORY_API_KEYS", "TEAM_MEMORY_LISTEN_ADDRESS",
 		"TEAM_MEMORY_EXTRACTOR_MODE", "TEAM_MEMORY_EXTRACTOR_BASE_URL",
 		"TEAM_MEMORY_EXTRACTOR_API_KEY", "TEAM_MEMORY_EXTRACTOR_MODEL", "TEAM_MEMORY_PROMPT_VERSION",
-		"TEAM_MEMORY_EXTRACTION_CONTEXT_MODE", "TEAM_MEMORY_EXTRACTION_COMPACT_START_TOKENS",
+		"TEAM_MEMORY_EXTRACTION_CONTEXT_MODE", "TEAM_MEMORY_EXTRACTION_VERSION",
+		"TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY",
+		"TEAM_MEMORY_EXTRACTION_COMPACT_START_TOKENS",
 		"TEAM_MEMORY_EXTRACTION_COMPACT_TOKENS", "TEAM_MEMORY_EXTRACTION_COMPACTION_ENABLED",
 		"TEAM_MEMORY_EXTRACTION_SUMMARY_ENABLED", "TEAM_MEMORY_EXTRACTION_SUMMARY_TRIGGER_TOKENS",
 		"TEAM_MEMORY_EXTRACTION_SUMMARY_TAIL_TOKENS",
@@ -32,7 +35,7 @@ func (s *configSuite) SetupTest() {
 		"TEAM_MEMORY_SLICE_OVERLAP", "TEAM_MEMORY_MAX_SLICES_PER_JOB",
 		"TEAM_MEMORY_EMBEDDING_BASE_URL", "TEAM_MEMORY_EMBEDDING_MODEL",
 		"TEAM_MEMORY_EMBEDDING_TIMEOUT", "TEAM_MEMORY_SEMANTIC_THRESHOLD",
-		"TEAM_MEMORY_RETRIEVAL_CANDIDATE_LIMIT",
+		"TEAM_MEMORY_RETRIEVAL_CANDIDATE_LIMIT", "TEAM_MEMORY_HINT_RECALL_ENABLED", "TEAM_MEMORY_HINT_SEMANTIC_THRESHOLD", "TEAM_MEMORY_HINT_THRESHOLD",
 	} {
 		s.T().Setenv(name, "")
 	}
@@ -49,6 +52,8 @@ func (s *configSuite) TestLoadsNoopConfiguration() {
 	s.Equal("scope", config.apiKeys["key"])
 	s.Equal("v1", config.promptVersion)
 	s.Equal("rolling", config.extractionContextMode)
+	s.Equal("v2", config.extractionVersion)
+	s.Equal(extractor.DefaultCandidateStrategy(), config.extractionCandidateStrategy)
 	s.False(config.extractionCompactionEnabled)
 	s.True(config.extractionSummaryEnabled)
 	s.Equal(12*1024, config.extractionCompactStartTokens)
@@ -66,10 +71,84 @@ func (s *configSuite) TestLoadsNoopConfiguration() {
 	s.Equal(4, config.maxSlicesPerJob)
 	s.Equal(10*time.Second, config.embeddingTimeout)
 	s.InDelta(0.50, config.semanticThreshold, 0.0001)
+	s.InDelta(0.50, config.hintSemanticThreshold, 0.0001)
 	s.Equal(16, config.retrievalCandidateLimit)
+	s.False(config.hintRecallEnabled)
+	s.InDelta(0.65, config.hintThreshold, 0.0001)
 	adapter, err := buildExtractor(config)
 	s.Require().NoError(err)
 	s.IsType(extractor.Noop{}, adapter)
+}
+
+func (s *configSuite) TestRuntimeCandidateStrategyOverridesBuildDefault() {
+	s.T().Setenv("TEAM_MEMORY_DATABASE_URL", "postgres://database")
+	s.T().Setenv("TEAM_MEMORY_API_KEYS", `{"key":"scope"}`)
+	s.T().Setenv("TEAM_MEMORY_EXTRACTOR_MODE", "noop")
+	s.T().Setenv("TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY", extractor.CandidateStrategyTyped2)
+
+	config, err := loadConfig()
+
+	s.Require().NoError(err)
+	s.Equal(extractor.CandidateStrategyTyped2, config.extractionCandidateStrategy)
+}
+
+func (s *configSuite) TestAllowsExtractionV1Rollback() {
+	s.T().Setenv("TEAM_MEMORY_DATABASE_URL", "postgres://database")
+	s.T().Setenv("TEAM_MEMORY_API_KEYS", `{"key":"scope"}`)
+	s.T().Setenv("TEAM_MEMORY_EXTRACTOR_MODE", "noop")
+	s.T().Setenv("TEAM_MEMORY_EXTRACTION_VERSION", "v1")
+
+	config, err := loadConfig()
+	s.Require().NoError(err)
+	s.Equal("v1", config.extractionVersion)
+}
+
+func (s *configSuite) TestCheckedInExtractionDefaultsUseV2() {
+	tests := []struct {
+		path string
+		want string
+	}{
+		{path: ".env.example", want: "TEAM_MEMORY_EXTRACTION_VERSION=v2"},
+		{path: ".env.eval-v2.example", want: "TEAM_MEMORY_EXTRACTION_VERSION=v2"},
+		{path: "compose.yaml", want: "TEAM_MEMORY_EXTRACTION_VERSION: ${TEAM_MEMORY_EXTRACTION_VERSION:-v2}"},
+		{path: "evals/opencode/compose.yaml", want: "TEAM_MEMORY_EXTRACTION_VERSION: ${TEAM_MEMORY_EXTRACTION_VERSION:-v2}"},
+		{path: "evals/v2/compose.yaml", want: "TEAM_MEMORY_EXTRACTION_VERSION: ${TEAM_MEMORY_EXTRACTION_VERSION:-v2}"},
+		{path: "scripts/load-eval-v2-env.sh", want: `: "${TEAM_MEMORY_EXTRACTION_VERSION:=v2}"`},
+	}
+	for _, test := range tests {
+		s.Run(test.path, func() {
+			content, err := os.ReadFile(test.path)
+			s.Require().NoError(err)
+			s.Contains(string(content), test.want)
+		})
+	}
+}
+
+func (s *configSuite) TestCheckedInCandidateStrategyBuildInterface() {
+	tests := []struct {
+		path string
+		want string
+	}{
+		{path: ".env.example", want: "TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY="},
+		{path: ".env.eval-v2.example", want: "TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY=current"},
+		{path: "compose.yaml", want: "EXTRACTION_CANDIDATE_STRATEGY: ${TEAM_MEMORY_BUILD_EXTRACTION_CANDIDATE_STRATEGY:-current}"},
+		{path: "evals/v2/compose.yaml", want: "TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY: ${TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY:-}"},
+		{path: "evals/opencode/compose.yaml", want: "TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY: ${TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY:-}"},
+		{path: "evals/v2/config.example.yaml", want: "  - TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY"},
+		{path: "evals/v2/config.smoke.example.yaml", want: "  - TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY"},
+		{path: "evals/v3/config.example.yaml", want: "  - TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY"},
+		{path: "scripts/load-eval-v2-env.sh", want: `: "${TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY:=current}"`},
+		{path: "scripts/load-eval-v2-env.sh", want: "TEAM_MEMORY_EXTRACTION_VERSION TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY"},
+		{path: "Dockerfile", want: "ARG EXTRACTION_CANDIDATE_STRATEGY=current"},
+		{path: "Makefile", want: "EXTRACTION_CANDIDATE_STRATEGY ?= current"},
+	}
+	for _, test := range tests {
+		s.Run(test.path, func() {
+			content, err := os.ReadFile(test.path)
+			s.Require().NoError(err)
+			s.Contains(string(content), test.want)
+		})
+	}
 }
 
 func (s *configSuite) TestRejectsInvalidWorkerConfiguration() {
@@ -98,6 +177,9 @@ func (s *configSuite) TestRejectsInvalidWorkerConfiguration() {
 		{name: "TEAM_MEMORY_EMBEDDING_TIMEOUT", value: "0s"},
 		{name: "TEAM_MEMORY_SEMANTIC_THRESHOLD", value: "high"},
 		{name: "TEAM_MEMORY_RETRIEVAL_CANDIDATE_LIMIT", value: "0"},
+		{name: "TEAM_MEMORY_HINT_RECALL_ENABLED", value: "sometimes"},
+		{name: "TEAM_MEMORY_HINT_SEMANTIC_THRESHOLD", value: "low"},
+		{name: "TEAM_MEMORY_HINT_THRESHOLD", value: "high"},
 	}
 	for _, test := range tests {
 		s.Run(test.name, func() {

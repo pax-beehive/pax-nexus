@@ -63,6 +63,31 @@ func (s *RunSuite) TestRunRejectsIncompleteOrUnknownObservations() {
 	}
 }
 
+func (s *RunSuite) TestRunAggregatesSuppressedLeakage() {
+	fixtures := stageeval.FixtureSet{SchemaVersion: stageeval.SchemaVersion, Cases: []stageeval.Fixture{
+		{CaseID: "one", SourceRevision: testSourceRevision, RecallContext: testRecallContext(),
+			ForbiddenAtoms: []stageeval.Atom{{ID: "owner", Patterns: []string{"(?i)compliance.{0,100}owner"}}}},
+	}}
+	observations := strings.NewReader(strings.Join([]string{
+		`{"case_id":"one","stage":"extraction","source_revision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","items":[{"id":"n1","text":"Compliance is not the owner."}]}`,
+		`{"case_id":"one","stage":"recall","source_revision":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","recall_context":{"consumer_user_id":"user","query":"question","token_budget":512},"items":[{"id":"n1","text":"Compliance is not the owner."}]}`,
+	}, "\n"))
+
+	results, summary, err := stageeval.Run(fixtures, observations)
+
+	s.Require().NoError(err)
+	s.Require().Len(results, 1)
+	s.Equal(1, summary.ExtractionLeakageItems)
+	s.Equal(1, summary.ExtractionSuppressedLeakageItems)
+	s.Equal(1, summary.RecallLeakageItems)
+	s.Equal(1, summary.RecallSuppressedLeakageItems)
+	s.Equal(1, results[0].Extraction.SuppressedLeakageItems)
+	s.Require().Len(results[0].Extraction.LeakageDetails, 1)
+	s.Equal(stageeval.LeakageDetail{
+		ItemID: "n1", AtomID: "owner", Suppressed: true, SuppressionCue: "not",
+	}, results[0].Extraction.LeakageDetails[0])
+}
+
 func (s *RunSuite) TestRunSeparatesObservationErrorsFromQualityScores() {
 	fixtures := stageeval.FixtureSet{SchemaVersion: stageeval.SchemaVersion, Cases: []stageeval.Fixture{
 		{CaseID: "one", SourceRevision: testSourceRevision, RecallContext: testRecallContext(), RequiredAtoms: []stageeval.Atom{{ID: "atom", Patterns: []string{"fact"}}}},

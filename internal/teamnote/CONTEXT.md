@@ -12,9 +12,28 @@ evaluation without changing recall decisions.
 
 **Recall Trace**:
 The per-candidate record of how shared recall policy handled every available
-candidate: fusion lane membership, relevance-gate rejection, duplicate
-suppression, max-items stop, token-budget drop, and delivery-claim loss. It
-attributes recall losses to a stage without re-running retrieval.
+candidate: compiled Recall Intent, retrieval lanes and reasons, hard-gate
+results, temporal resolution, query-safe matched-term counts, scorecard contributions, relation path, final
+disposition, budget drop, and delivery-claim loss. It attributes recall losses
+to a stage without re-running retrieval.
+
+**Recall Intent**:
+The deterministic interpretation of a recall query as current, as-of,
+changes-since, history, or discovery work, plus requested fact types, scope,
+time boundary, relation budget, and token budget. Unrecognized text does not
+become a hard constraint.
+
+**Retrieval Lane**:
+An inspectable candidate path such as exact scope, lexical terms, temporal
+state, one-hop relation, coordination act, or agent routing. Semantic retrieval
+is a compatibility fallback and never contributes points to the General Recall
+v3 evidence scorecard.
+
+**Evidence Scorecard**:
+The monotonic General Recall v3 point breakdown for direct scope or entity
+match, required-fact coverage, lexical coverage, temporal validity, source
+evidence, and coordination relevance. Version 1 is intentionally uncalibrated;
+the score is evidence ordering, not a probability or answer-quality claim.
 
 **Candidate**:
 A model-proposed collaboration fact grounded in one or more Session Events.

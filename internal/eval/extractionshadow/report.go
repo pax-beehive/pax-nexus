@@ -9,6 +9,7 @@ import (
 
 	"github.com/pax-beehive/pax-nexus/internal/eval/stageeval"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote"
+	"github.com/pax-beehive/pax-nexus/internal/teamnote/extractor"
 )
 
 // CaseReport pairs one case's stage evaluation with its shadow telemetry.
@@ -23,30 +24,47 @@ type CaseReport struct {
 
 // Telemetry aggregates extraction usage and v2 products across the cohort.
 type Telemetry struct {
-	Calls                      int            `json:"calls"`
-	CallErrors                 int            `json:"call_errors"`
-	InputTokens                int            `json:"input_tokens"`
-	OutputTokens               int            `json:"output_tokens"`
-	CacheHitTokens             int            `json:"cache_hit_tokens"`
-	CacheMissTokens            int            `json:"cache_miss_tokens"`
-	CacheHitRate               float64        `json:"cache_hit_rate"`
-	MeanDurationMS             float64        `json:"mean_duration_ms"`
-	P95DurationMS              int64          `json:"p95_duration_ms"`
-	Slices                     int            `json:"slices"`
-	SliceRejections            int            `json:"slice_rejections"`
-	Claims                     int            `json:"claims,omitempty"`
-	StateDecisions             int            `json:"state_decisions,omitempty"`
-	ClaimRejections            int            `json:"claim_rejections,omitempty"`
-	DecisionRejections         int            `json:"decision_rejections,omitempty"`
-	InteractionRejections      int            `json:"interaction_rejections,omitempty"`
-	NoStateEvents              int            `json:"no_state_events,omitempty"`
-	UnreviewedEvents           int            `json:"unreviewed_events,omitempty"`
-	SlicesWithUnreviewedEvents int            `json:"slices_with_unreviewed_events,omitempty"`
-	InvalidNoStateEvents       int            `json:"invalid_no_state_events,omitempty"`
-	OrphanClaims               int            `json:"orphan_claims,omitempty"`
-	DecisionDist               map[string]int `json:"decision_distribution,omitempty"`
-	WouldVerifySlices          int            `json:"would_verify_slices,omitempty"`
-	WouldVerifyDist            map[string]int `json:"would_verify_distribution,omitempty"`
+	Calls                      int                              `json:"calls"`
+	CallErrors                 int                              `json:"call_errors"`
+	InputTokens                int                              `json:"input_tokens"`
+	OutputTokens               int                              `json:"output_tokens"`
+	CacheHitTokens             int                              `json:"cache_hit_tokens"`
+	CacheMissTokens            int                              `json:"cache_miss_tokens"`
+	CacheHitRate               float64                          `json:"cache_hit_rate"`
+	MeanDurationMS             float64                          `json:"mean_duration_ms"`
+	P95DurationMS              int64                            `json:"p95_duration_ms"`
+	Slices                     int                              `json:"slices"`
+	SliceRejections            int                              `json:"slice_rejections"`
+	Claims                     int                              `json:"claims,omitempty"`
+	StateDecisions             int                              `json:"state_decisions,omitempty"`
+	ClaimRejections            int                              `json:"claim_rejections,omitempty"`
+	DecisionRejections         int                              `json:"decision_rejections,omitempty"`
+	InteractionRejections      int                              `json:"interaction_rejections,omitempty"`
+	NoStateEvents              int                              `json:"no_state_events,omitempty"`
+	UnreviewedEvents           int                              `json:"unreviewed_events,omitempty"`
+	SlicesWithUnreviewedEvents int                              `json:"slices_with_unreviewed_events,omitempty"`
+	InvalidNoStateEvents       int                              `json:"invalid_no_state_events,omitempty"`
+	OrphanClaims               int                              `json:"orphan_claims,omitempty"`
+	DecisionDist               map[string]int                   `json:"decision_distribution,omitempty"`
+	WouldVerifySlices          int                              `json:"would_verify_slices,omitempty"`
+	WouldVerifyDist            map[string]int                   `json:"would_verify_distribution,omitempty"`
+	ProviderCalls              int                              `json:"provider_calls"`
+	ProviderCallErrors         int                              `json:"provider_call_errors"`
+	ProviderCallTypes          map[string]ProviderCallTelemetry `json:"provider_call_types,omitempty"`
+
+	durations []int64
+}
+
+type ProviderCallTelemetry struct {
+	Calls           int     `json:"calls"`
+	Errors          int     `json:"errors"`
+	InputTokens     int     `json:"input_tokens"`
+	OutputTokens    int     `json:"output_tokens"`
+	CacheHitTokens  int     `json:"cache_hit_tokens"`
+	CacheMissTokens int     `json:"cache_miss_tokens"`
+	CacheHitRate    float64 `json:"cache_hit_rate"`
+	MeanDurationMS  float64 `json:"mean_duration_ms"`
+	P95DurationMS   int64   `json:"p95_duration_ms"`
 
 	durations []int64
 }
@@ -75,12 +93,16 @@ func BuildReport(runID, arm, extractorVersion string, fixtures stageeval.Fixture
 	encoder := json.NewEncoder(&observations)
 	report := Report{
 		SchemaVersion: SchemaVersion, RunID: runID, Arm: arm, Extractor: extractorVersion,
-		GeneratedAt: time.Now().UTC(), Telemetry: Telemetry{DecisionDist: map[string]int{}, WouldVerifyDist: map[string]int{}},
+		GeneratedAt: time.Now().UTC(), Telemetry: Telemetry{
+			DecisionDist: map[string]int{}, WouldVerifyDist: map[string]int{},
+			ProviderCallTypes: map[string]ProviderCallTelemetry{},
+		},
 	}
 	runsByID := make(map[string]CaseRun, len(runs))
 	for _, run := range runs {
 		runsByID[run.CaseID] = run
 	}
+	telemetryScopes := make(map[string]struct{}, len(runs))
 	for _, fixture := range fixtures.Cases {
 		run, ok := runsByID[fixture.CaseID]
 		if !ok {
@@ -104,7 +126,15 @@ func BuildReport(runID, arm, extractorVersion string, fixtures stageeval.Fixture
 		report.Cases = append(report.Cases, CaseReport{
 			CaseID: run.CaseID, Streams: run.Streams, Events: run.Events, Notes: len(run.Notes), Slices: len(run.Slices),
 		})
-		report.Telemetry.add(run.Slices)
+		telemetryScope := run.ScopeID
+		if telemetryScope == "" {
+			telemetryScope = run.CaseID
+		}
+		if _, exists := telemetryScopes[telemetryScope]; !exists {
+			report.Telemetry.add(run.Slices)
+			report.Telemetry.addProviderCalls(run.ProviderCalls)
+			telemetryScopes[telemetryScope] = struct{}{}
+		}
 	}
 	results, summary, err := stageeval.Run(fixtures, &observations)
 	if err != nil {
@@ -201,6 +231,47 @@ func (t *Telemetry) finalize() {
 	if len(t.durations) == 0 {
 		t.P95DurationMS = 0
 	}
+	for callType, telemetry := range t.ProviderCallTypes {
+		telemetry.finalize()
+		t.ProviderCallTypes[callType] = telemetry
+	}
+}
+
+func (t *Telemetry) addProviderCalls(calls []extractor.ProviderCall) {
+	for _, call := range calls {
+		t.ProviderCalls++
+		if call.Error != "" {
+			t.ProviderCallErrors++
+		}
+		callType := string(call.Type)
+		telemetry := t.ProviderCallTypes[callType]
+		telemetry.Calls++
+		if call.Error != "" {
+			telemetry.Errors++
+		}
+		telemetry.InputTokens += call.Usage.InputTokens
+		telemetry.OutputTokens += call.Usage.OutputTokens
+		telemetry.CacheHitTokens += call.Usage.PromptCacheHitTokens
+		telemetry.CacheMissTokens += call.Usage.PromptCacheMissTokens
+		telemetry.durations = append(telemetry.durations, call.DurationMS)
+		t.ProviderCallTypes[callType] = telemetry
+	}
+}
+
+func (t *ProviderCallTelemetry) finalize() {
+	if total := t.CacheHitTokens + t.CacheMissTokens; total > 0 {
+		t.CacheHitRate = float64(t.CacheHitTokens) / float64(total)
+	}
+	sort.Slice(t.durations, func(left, right int) bool { return t.durations[left] < t.durations[right] })
+	if len(t.durations) == 0 {
+		return
+	}
+	var total int64
+	for _, duration := range t.durations {
+		total += duration
+	}
+	t.MeanDurationMS = float64(total) / float64(len(t.durations))
+	t.P95DurationMS = percentile(t.durations, 0.95)
 }
 
 func percentile(sorted []int64, quantile float64) int64 {

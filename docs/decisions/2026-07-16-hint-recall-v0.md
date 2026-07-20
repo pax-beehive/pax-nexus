@@ -1,6 +1,6 @@
 # Hint Recall v0
 
-Status: Proposed
+Status: Accepted for evaluation; production default disabled
 
 Date: 2026-07-16
 
@@ -260,6 +260,27 @@ Consumer evaluation separately reports:
 Hint Recall is not enabled by default until it improves judge accuracy or safe
 success without increasing forbidden/superseded leakage and until its Hint
 Score clears the unchanged paxm gates without score inflation.
+
+## Implemented evaluation candidate
+
+The evaluation candidate is `general-recall-v3-hint-recall-v0` with scoring
+version `hint-utility-v0-heuristic-eval-only`. It is enabled only with
+`TEAM_MEMORY_HINT_RECALL_ENABLED=true`; the production default remains false.
+PostgreSQL records hint fingerprints separately from Note deliveries, so a
+hint cannot make its lead unavailable to a subsequent focused recall.
+
+Recall Eval v2 runs a third `hint_recall_v0` Arm through an isolated Team
+Memory service and the real external Agent `active_recall` tool. A Hint Trial
+is unscored when active-recall instrumentation is missing. The checked-in
+12-case intervention replay remains a control fixture rather than calibration
+evidence for enabling the policy by default.
+
+The first real-Agent activation candidate keeps the evidence semantic lane at
+`0.50`, adds a separate Hint-candidate semantic lane at `0.20`, and uses Hint
+utility threshold `0.60` in the isolated Hint service. A lower Hint-candidate
+threshold must not widen evidence retrieval. The ordinary passive service
+remains at semantic threshold `0.50`, and production Hint Recall stays
+disabled. These are explicit eval-arm parameters, not new global defaults.
 
 ## Consequences
 

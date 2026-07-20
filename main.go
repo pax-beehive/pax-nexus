@@ -57,6 +57,8 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	noteStore, err := postgres.NewNoteStore(store, teamnote.DefaultTTLPolicy(), teamnote.SystemClock{}, postgres.RetrievalConfig{
 		Embedder: embedder, EmbeddingModel: config.embeddingModel,
 		SemanticThreshold: config.semanticThreshold, CandidateLimit: config.retrievalCandidateLimit,
+		HintSemanticThreshold: config.hintSemanticThreshold,
+		HintRecallEnabled:     config.hintRecallEnabled, HintThreshold: config.hintThreshold,
 	})
 	if err != nil {
 		return fmt.Errorf("initialize note store: %w", err)
@@ -99,7 +101,8 @@ func run(ctx context.Context, logger *slog.Logger) error {
 
 	h := server.Default(server.WithHostPorts(config.listenAddress))
 	register(h)
-	logger.Info("team-memory started", "listen_address", config.listenAddress, "worker_shards", config.workerShards)
+	logger.Info("team-memory started", "listen_address", config.listenAddress, "worker_shards", config.workerShards,
+		"extraction_candidate_strategy", config.extractionCandidateStrategy)
 	h.Spin()
 	stopContext, cancel := context.WithTimeout(context.Background(), config.workerStopTimeout)
 	defer cancel()
@@ -137,6 +140,7 @@ type applicationConfig struct {
 	promptVersion                  string
 	extractionContextMode          string
 	extractionVersion              string
+	extractionCandidateStrategy    string
 	extractionCompactionEnabled    bool
 	extractionCompactStartTokens   int
 	extractionCompactTokens        int
@@ -157,7 +161,10 @@ type applicationConfig struct {
 	embeddingModel                 string
 	embeddingTimeout               time.Duration
 	semanticThreshold              float64
+	hintSemanticThreshold          float64
 	retrievalCandidateLimit        int
+	hintRecallEnabled              bool
+	hintThreshold                  float64
 }
 
 func loadConfig() (applicationConfig, error) {
@@ -165,11 +172,12 @@ func loadConfig() (applicationConfig, error) {
 		databaseURL: os.Getenv("TEAM_MEMORY_DATABASE_URL"), listenAddress: os.Getenv("TEAM_MEMORY_LISTEN_ADDRESS"),
 		extractorMode: os.Getenv("TEAM_MEMORY_EXTRACTOR_MODE"), extractorBaseURL: os.Getenv("TEAM_MEMORY_EXTRACTOR_BASE_URL"),
 		extractorAPIKey: os.Getenv("TEAM_MEMORY_EXTRACTOR_API_KEY"), extractorModel: os.Getenv("TEAM_MEMORY_EXTRACTOR_MODEL"),
-		promptVersion:         os.Getenv("TEAM_MEMORY_PROMPT_VERSION"),
-		extractionContextMode: os.Getenv("TEAM_MEMORY_EXTRACTION_CONTEXT_MODE"),
-		extractionVersion:     os.Getenv("TEAM_MEMORY_EXTRACTION_VERSION"),
-		embeddingBaseURL:      os.Getenv("TEAM_MEMORY_EMBEDDING_BASE_URL"),
-		embeddingModel:        os.Getenv("TEAM_MEMORY_EMBEDDING_MODEL"),
+		promptVersion:               os.Getenv("TEAM_MEMORY_PROMPT_VERSION"),
+		extractionContextMode:       os.Getenv("TEAM_MEMORY_EXTRACTION_CONTEXT_MODE"),
+		extractionVersion:           os.Getenv("TEAM_MEMORY_EXTRACTION_VERSION"),
+		extractionCandidateStrategy: os.Getenv("TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY"),
+		embeddingBaseURL:            os.Getenv("TEAM_MEMORY_EMBEDDING_BASE_URL"),
+		embeddingModel:              os.Getenv("TEAM_MEMORY_EMBEDDING_MODEL"),
 	}
 	var err error
 	if config.workerShards, err = intEnvironment("TEAM_MEMORY_WORKER_SHARDS", 16); err != nil {
@@ -207,6 +215,12 @@ func loadConfig() (applicationConfig, error) {
 	}
 	if config.extractionContextMode == "" {
 		config.extractionContextMode = string(extractor.ContextModeRolling)
+	}
+	if config.extractionVersion == "" {
+		config.extractionVersion = extractor.ExtractionVersionV2
+	}
+	if config.extractionCandidateStrategy == "" {
+		config.extractionCandidateStrategy = extractor.DefaultCandidateStrategy()
 	}
 	if config.embeddingModel == "" && strings.TrimSpace(config.embeddingBaseURL) != "" {
 		config.embeddingModel = "Qwen/Qwen3-Embedding-0.6B"
@@ -286,6 +300,15 @@ func loadRetrievalConfig(config *applicationConfig) error {
 	if config.semanticThreshold, err = floatEnvironment("TEAM_MEMORY_SEMANTIC_THRESHOLD", 0.50); err != nil {
 		return err
 	}
+	if config.hintSemanticThreshold, err = floatEnvironment("TEAM_MEMORY_HINT_SEMANTIC_THRESHOLD", config.semanticThreshold); err != nil {
+		return err
+	}
+	if config.hintRecallEnabled, err = boolEnvironment("TEAM_MEMORY_HINT_RECALL_ENABLED", false); err != nil {
+		return err
+	}
+	if config.hintThreshold, err = floatEnvironment("TEAM_MEMORY_HINT_THRESHOLD", 0.65); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -348,6 +371,7 @@ func buildExtractor(config applicationConfig, stores ...extractor.EpisodeStore) 
 			PromptVersion: config.promptVersion, Client: &http.Client{},
 			ContextMode: extractor.ContextMode(config.extractionContextMode), EpisodeStore: episodes,
 			ExtractionVersion:  config.extractionVersion,
+			V2Variant:          config.extractionCandidateStrategy,
 			CompactionEnabled:  config.extractionCompactionEnabled,
 			CompactStartTokens: config.extractionCompactStartTokens, CompactTokens: config.extractionCompactTokens,
 			SummaryEnabled:       config.extractionSummaryEnabled,

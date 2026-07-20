@@ -244,6 +244,7 @@ func mapExtractionV2(result *Result, slice sessionlake.Slice) {
 	seenClaims := make(map[string]struct{}, len(trace.Claims))
 	keptClaims := trace.Claims[:0]
 	for _, claim := range trace.Claims {
+		claim = normalizeClaimTemporal(claim)
 		reason := claimRejectionReason(claim, allEvents, newEvents, seenClaims)
 		if reason != "" {
 			trace.ClaimRejections = append(trace.ClaimRejections, ClaimRejection{Claim: claim, Reason: reason})
@@ -270,7 +271,8 @@ func mapExtractionV2(result *Result, slice sessionlake.Slice) {
 	candidates := make([]teamnote.Candidate, 0, len(trace.StateDecisions))
 	keptDecisions := trace.StateDecisions[:0]
 	for _, decision := range trace.StateDecisions {
-		candidate, reason := mapDecision(decision, admittedClaims, allEvents, newEvents, speechActs)
+		decision = normalizeDecisionTemporal(decision)
+		candidate, reason := mapDecision(decision, admittedClaims, allEvents, newEvents, speechActs, slice.Events)
 		if reason != "" {
 			trace.DecisionRejections = append(trace.DecisionRejections, DecisionRejection{Decision: decision, Reason: reason})
 			continue
@@ -361,6 +363,7 @@ func mapDecision(
 	allEvents map[string]struct{},
 	newEvents map[string]struct{},
 	speechActs map[string]map[string]struct{},
+	events []teamnote.SessionEvent,
 ) (*teamnote.Candidate, string) {
 	if !validDecisionAction(decision.Decision) {
 		return nil, fmt.Sprintf("decision %q is not in the decision vocabulary", decision.Decision)
@@ -400,7 +403,7 @@ func mapDecision(
 	if !grounded {
 		return nil, "decision is not grounded in a new event"
 	}
-	if reason := stateDecisionAdmissionReason(decision.Decision, evidence, speechActs); reason != "" {
+	if reason := stateDecisionAdmissionReason(decision.Decision, evidence, speechActs, events, decision.Candidate); reason != "" {
 		return nil, reason
 	}
 	temporal := decisionTemporal(decision, referencedClaims)
@@ -452,7 +455,12 @@ func stateDecisionAdmissionReason(
 	action DecisionAction,
 	evidence []string,
 	speechActs map[string]map[string]struct{},
+	events []teamnote.SessionEvent,
+	candidate *DecisionCandidate,
 ) string {
+	if decisionChangesState(action) && evidenceIsOnlyNonCommittalSourceLanguage(evidence, events, candidate) {
+		return "decision evidence contains only a non-committal source proposal or request"
+	}
 	if decisionChangesState(action) && evidenceIsOnlyNonCommittal(evidence, speechActs) {
 		return "decision evidence contains only a non-committal speech act"
 	}
@@ -518,6 +526,36 @@ type temporalFields struct {
 	validAt    string
 	invalidAt  string
 	resolution TemporalResolution
+}
+
+func normalizeClaimTemporal(claim Claim) Claim {
+	if temporalResolutionHasNoSourceMetadata(
+		claim.TemporalExpression, claim.ValidAt, claim.InvalidAt, claim.TemporalResolution,
+	) {
+		claim.TemporalResolution = ""
+	}
+	return claim
+}
+
+func normalizeDecisionTemporal(decision StateDecision) StateDecision {
+	if temporalResolutionHasNoSourceMetadata(
+		decision.TemporalExpression, decision.ValidAt, decision.InvalidAt, decision.TemporalResolution,
+	) {
+		decision.TemporalResolution = ""
+	}
+	return decision
+}
+
+func temporalResolutionHasNoSourceMetadata(
+	expression string,
+	validAt string,
+	invalidAt string,
+	resolution TemporalResolution,
+) bool {
+	return resolution == TemporalUnresolved &&
+		strings.TrimSpace(expression) == "" &&
+		strings.TrimSpace(validAt) == "" &&
+		strings.TrimSpace(invalidAt) == ""
 }
 
 func decisionTemporal(decision StateDecision, claims []Claim) temporalFields {

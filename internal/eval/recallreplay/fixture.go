@@ -5,17 +5,28 @@ package recallreplay
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"time"
 
 	"github.com/pax-beehive/pax-nexus/internal/eval/stageeval"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote"
 )
 
-const SchemaVersion = "pax-recall-replay-v1"
+// ErrInvalidFixture identifies invalid deterministic recall replay input.
+var ErrInvalidFixture = errors.New("invalid recall replay fixture")
+
+const (
+	SchemaVersion         = "pax-recall-replay-v4"
+	legacySchemaVersionV3 = "pax-recall-replay-v3"
+	legacySchemaVersionV2 = "pax-recall-replay-v2"
+	legacySchemaVersionV1 = "pax-recall-replay-v1"
+)
 
 // FixtureSet pins one exported recall cohort: persisted Team Notes with
 // adapter retrieval scores, per-case recall requests, extraction observations,
@@ -38,10 +49,13 @@ type Provenance struct {
 
 // Policy is the recall policy captured at export time.
 type Policy struct {
-	SemanticThreshold  float64 `json:"semantic_threshold"`
-	CandidateLimit     int     `json:"candidate_limit"`
-	SuppressDuplicates bool    `json:"suppress_duplicates,omitempty"`
-	DegradeRelated     bool    `json:"degrade_related,omitempty"`
+	SemanticThreshold              float64 `json:"semantic_threshold"`
+	HintThreshold                  float64 `json:"hint_threshold,omitempty"`
+	CandidateLimit                 int     `json:"candidate_limit"`
+	EnableHintRecall               bool    `json:"enable_hint_recall,omitempty"`
+	SuppressDuplicates             bool    `json:"suppress_duplicates,omitempty"`
+	DegradeRelated                 bool    `json:"degrade_related,omitempty"`
+	DisableRelationMarginalUtility bool    `json:"disable_relation_marginal_utility,omitempty"`
 }
 
 // Actor identifies one recall recipient.
@@ -49,6 +63,72 @@ type Actor struct {
 	UserID    string `json:"user_id"`
 	AgentID   string `json:"agent_id"`
 	SessionID string `json:"session_id"`
+}
+
+// EligibilityReason identifies why one extracted item is or is not available
+// to the captured Recall Consumer.
+type EligibilityReason string
+
+const (
+	EligibilityEligible        EligibilityReason = "eligible"
+	EligibilityAuthorization   EligibilityReason = "authorization"
+	EligibilityTemporal        EligibilityReason = "temporal"
+	EligibilityFuture          EligibilityReason = "future"
+	EligibilityTaskThread      EligibilityReason = "task_thread"
+	EligibilityDelivery        EligibilityReason = "delivery"
+	EligibilityAdapterExcluded EligibilityReason = "adapter_excluded"
+	EligibilityMixed           EligibilityReason = "mixed"
+)
+
+// EligibilityDecision pins the adapter decision for one extraction item.
+type EligibilityDecision struct {
+	ItemID   string            `json:"item_id"`
+	Eligible bool              `json:"eligible"`
+	Reason   EligibilityReason `json:"reason"`
+}
+
+// HintRecallCall captures one focused active-recall result. It is an eval
+// observation, not evidence that an agent chose to make the call.
+type HintRecallCall struct {
+	Items              []stageeval.Item        `json:"items"`
+	OriginAttributions []HintOriginAttribution `json:"origin_attributions,omitempty"`
+	DurationNS         int64                   `json:"duration_ns,omitempty"`
+	Tokens             int                     `json:"tokens,omitempty"`
+	CostUSD            float64                 `json:"cost_usd,omitempty"`
+}
+
+// HintOriginAttribution pins the Knowledge Origins claimed for one focused
+// recall result.
+type HintOriginAttribution struct {
+	ItemID  string  `json:"item_id"`
+	Origins []Actor `json:"origins"`
+}
+
+// EvidenceScoreObservation captures one candidate's evidence calibration
+// output and whether policy admitted it as passive evidence.
+type EvidenceScoreObservation struct {
+	ItemID   string  `json:"item_id"`
+	Score    float64 `json:"score"`
+	Admitted bool    `json:"admitted"`
+}
+
+// HintObservation captures a production hint decision and its deterministic
+// one- or two-call intervention. Consumer activation is evaluated separately.
+type HintObservation struct {
+	Exposed          bool                       `json:"exposed"`
+	Score            *float64                   `json:"score"`
+	FocusedQuery     string                     `json:"focused_query"`
+	Consumer         Actor                      `json:"consumer"`
+	ObservationTime  time.Time                  `json:"observation_time"`
+	TemporalMode     string                     `json:"temporal_mode"`
+	QueryTimezone    string                     `json:"query_timezone"`
+	QueryTime        *time.Time                 `json:"query_time,omitempty"`
+	LeadNoteIDs      []string                   `json:"lead_note_ids"`
+	ClaimedNoteIDs   []string                   `json:"claimed_note_ids,omitempty"`
+	LeadFingerprint  string                     `json:"lead_fingerprint,omitempty"`
+	DuplicateDropped bool                       `json:"duplicate_dropped,omitempty"`
+	EvidenceScores   []EvidenceScoreObservation `json:"evidence_scores,omitempty"`
+	Calls            []HintRecallCall           `json:"calls"`
 }
 
 // Candidate is one persisted Team Note with its adapter-supplied retrieval
@@ -75,11 +155,17 @@ type Candidate struct {
 
 // Case pins one recall request against its persisted candidate set.
 type Case struct {
-	Fixture         stageeval.Fixture `json:"fixture"`
-	ScopeID         string            `json:"scope_id"`
-	Actor           Actor             `json:"actor"`
-	ExtractionItems []stageeval.Item  `json:"extraction_items"`
-	Candidates      []Candidate       `json:"candidates"`
+	Fixture                 stageeval.Fixture       `json:"fixture"`
+	ScopeID                 string                  `json:"scope_id"`
+	Actor                   Actor                   `json:"actor"`
+	ObservationTime         time.Time               `json:"observation_time"`
+	QueryTimezone           string                  `json:"query_timezone"`
+	ExtractionItems         []stageeval.Item        `json:"extraction_items"`
+	Candidates              []Candidate             `json:"candidates"`
+	AtomSupports            []stageeval.AtomSupport `json:"atom_supports,omitempty"`
+	EligibilityDecisions    []EligibilityDecision   `json:"eligibility_decisions"`
+	CandidateSnapshotSHA256 string                  `json:"candidate_snapshot_sha256"`
+	HintObservation         *HintObservation        `json:"hint_observation,omitempty"`
 }
 
 // LoadFixtureSet reads a replay fixture set from disk.
@@ -94,6 +180,21 @@ func LoadFixtureSet(path string) (FixtureSet, error) {
 	if err := decoder.Decode(&set); err != nil {
 		return FixtureSet{}, fmt.Errorf("decode recall replay fixture set: %w", err)
 	}
+	switch set.SchemaVersion {
+	case legacySchemaVersionV1:
+		set.migrateLegacyObservationTimes()
+		set.defaultLegacyQueryTimezones()
+		set.SchemaVersion = SchemaVersion
+	case legacySchemaVersionV2, legacySchemaVersionV3:
+		set.defaultLegacyQueryTimezones()
+		set.SchemaVersion = SchemaVersion
+	case SchemaVersion:
+	default:
+		return FixtureSet{}, fmt.Errorf("validate recall replay fixture set: schema_version must be %q", SchemaVersion)
+	}
+	if err := normalizeFixtureSet(&set); err != nil {
+		return FixtureSet{}, err
+	}
 	if err := set.Validate(); err != nil {
 		return FixtureSet{}, err
 	}
@@ -102,6 +203,9 @@ func LoadFixtureSet(path string) (FixtureSet, error) {
 
 // WriteFixtureSet persists a replay fixture set.
 func WriteFixtureSet(path string, set FixtureSet) error {
+	if err := normalizeFixtureSet(&set); err != nil {
+		return err
+	}
 	if err := set.Validate(); err != nil {
 		return err
 	}
@@ -152,7 +256,253 @@ func (replayCase Case) Validate() error {
 	if replayCase.Fixture.RecallContext.TokenBudget <= 0 {
 		return fmt.Errorf("validate recall replay case %q: positive token budget is required", replayCase.Fixture.CaseID)
 	}
+	if replayCase.ObservationTime.IsZero() {
+		return fmt.Errorf("validate recall replay case %q: observation time is required", replayCase.Fixture.CaseID)
+	}
+	if replayCase.QueryTimezone == "" {
+		return fmt.Errorf("%w: case %q query timezone is required", ErrInvalidFixture, replayCase.Fixture.CaseID)
+	}
+	if _, err := time.LoadLocation(replayCase.QueryTimezone); err != nil {
+		return fmt.Errorf("%w: case %q query timezone: %w", ErrInvalidFixture, replayCase.Fixture.CaseID, err)
+	}
+	if len(replayCase.CandidateSnapshotSHA256) != sha256.Size*2 {
+		return fmt.Errorf("validate recall replay case %q: candidate snapshot SHA-256 is required", replayCase.Fixture.CaseID)
+	}
+	expectedDigest, err := candidateSnapshotSHA256(replayCase.Candidates)
+	if err != nil {
+		return fmt.Errorf("validate recall replay case %q candidate snapshot: %w", replayCase.Fixture.CaseID, err)
+	}
+	if replayCase.CandidateSnapshotSHA256 != expectedDigest {
+		return fmt.Errorf("validate recall replay case %q: candidate snapshot SHA-256 does not match", replayCase.Fixture.CaseID)
+	}
+	if len(replayCase.AtomSupports) != len(replayCase.Fixture.RequiredAtoms) {
+		return fmt.Errorf("validate recall replay case %q: every required atom needs support metadata", replayCase.Fixture.CaseID)
+	}
+	if len(replayCase.Fixture.RequiredAtoms) > 0 {
+		expectedSupports, err := stageeval.RequiredAtomSupports(replayCase.Fixture, replayCase.ExtractionItems)
+		if err != nil {
+			return fmt.Errorf("validate recall replay case %q atom support metadata: %w", replayCase.Fixture.CaseID, err)
+		}
+		if !reflect.DeepEqual(replayCase.AtomSupports, expectedSupports) {
+			return fmt.Errorf("validate recall replay case %q: atom support metadata does not match extraction snapshot", replayCase.Fixture.CaseID)
+		}
+	}
+	if err := validateEligibilityDecisions(replayCase); err != nil {
+		return err
+	}
+	if err := validateHintObservation(replayCase); err != nil {
+		return err
+	}
 	return nil
+}
+
+func validateHintObservation(replayCase Case) error {
+	observation := replayCase.HintObservation
+	if observation == nil {
+		return nil
+	}
+	if err := validateHintCore(replayCase.Fixture.CaseID, *observation); err != nil {
+		return err
+	}
+	if err := validateHintCalls(replayCase.Fixture.CaseID, observation.Calls); err != nil {
+		return err
+	}
+	return validateEvidenceScoreObservations(replayCase, observation.EvidenceScores)
+}
+
+func validateHintCore(caseID string, observation HintObservation) error {
+	if observation.Score == nil || *observation.Score < 0 || *observation.Score > 1 {
+		return fmt.Errorf("%w: case %q hint score must be between zero and one", ErrInvalidFixture, caseID)
+	}
+	if observation.FocusedQuery == "" || observation.ObservationTime.IsZero() ||
+		observation.TemporalMode == "" || observation.QueryTimezone == "" {
+		return fmt.Errorf("%w: case %q focused query and hint temporal context are required", ErrInvalidFixture, caseID)
+	}
+	if _, err := time.LoadLocation(observation.QueryTimezone); err != nil {
+		return fmt.Errorf("%w: case %q query timezone: %w", ErrInvalidFixture, caseID, err)
+	}
+	if len(observation.LeadNoteIDs) == 0 || len(observation.Calls) == 0 || len(observation.Calls) > 2 {
+		return fmt.Errorf("%w: case %q hint lead and one or two intervention calls are required", ErrInvalidFixture, caseID)
+	}
+	return nil
+}
+
+func validateHintCalls(caseID string, calls []HintRecallCall) error {
+	for _, call := range calls {
+		if call.DurationNS < 0 || call.Tokens < 0 || call.CostUSD < 0 {
+			return fmt.Errorf("%w: case %q hint call usage cannot be negative", ErrInvalidFixture, caseID)
+		}
+	}
+	return nil
+}
+
+func validateEvidenceScoreObservations(replayCase Case, scores []EvidenceScoreObservation) error {
+	seenScores := make(map[string]struct{}, len(scores))
+	knownItems := make(map[string]struct{}, len(replayCase.ExtractionItems))
+	for _, item := range replayCase.ExtractionItems {
+		knownItems[item.ID] = struct{}{}
+	}
+	for _, score := range scores {
+		if score.ItemID == "" || score.Score < 0 || score.Score > 1 {
+			return fmt.Errorf("%w: case %q evidence score item and probability are required", ErrInvalidFixture, replayCase.Fixture.CaseID)
+		}
+		if _, duplicate := seenScores[score.ItemID]; duplicate {
+			return fmt.Errorf("%w: case %q duplicate evidence score for %q", ErrInvalidFixture, replayCase.Fixture.CaseID, score.ItemID)
+		}
+		if _, known := knownItems[score.ItemID]; !known {
+			return fmt.Errorf("%w: case %q evidence score item %q is not in extraction snapshot", ErrInvalidFixture, replayCase.Fixture.CaseID, score.ItemID)
+		}
+		seenScores[score.ItemID] = struct{}{}
+	}
+	return nil
+}
+
+func (set *FixtureSet) migrateLegacyObservationTimes() {
+	for index := range set.Cases {
+		replayCase := &set.Cases[index]
+		if set.SchemaVersion != SchemaVersion && replayCase.QueryTimezone == "" {
+			replayCase.QueryTimezone = "UTC"
+		}
+		replayCase.ObservationTime = inferredObservationTime(replayCase.Candidates)
+		if len(replayCase.ExtractionItems) == 0 {
+			for _, candidate := range replayCase.Candidates {
+				replayCase.ExtractionItems = append(replayCase.ExtractionItems, stageeval.Item{
+					ID: candidate.ID, Text: candidate.Body, EvidenceEventIDs: append([]string(nil), candidate.EvidenceEventIDs...),
+				})
+			}
+		}
+	}
+}
+
+func (set *FixtureSet) defaultLegacyQueryTimezones() {
+	for index := range set.Cases {
+		if set.Cases[index].QueryTimezone == "" {
+			set.Cases[index].QueryTimezone = "UTC"
+		}
+	}
+}
+
+func normalizeFixtureSet(set *FixtureSet) error {
+	for index := range set.Cases {
+		replayCase := &set.Cases[index]
+		if set.SchemaVersion != SchemaVersion && replayCase.QueryTimezone == "" {
+			replayCase.QueryTimezone = "UTC"
+		}
+		if replayCase.CandidateSnapshotSHA256 == "" {
+			digest, err := candidateSnapshotSHA256(replayCase.Candidates)
+			if err != nil {
+				return fmt.Errorf("digest recall replay candidate snapshot for %q: %w", replayCase.Fixture.CaseID, err)
+			}
+			replayCase.CandidateSnapshotSHA256 = digest
+		}
+		if len(replayCase.AtomSupports) == 0 && len(replayCase.Fixture.RequiredAtoms) > 0 {
+			supports, err := stageeval.RequiredAtomSupports(replayCase.Fixture, replayCase.ExtractionItems)
+			if err != nil {
+				return fmt.Errorf("derive recall replay atom support for %q: %w", replayCase.Fixture.CaseID, err)
+			}
+			replayCase.AtomSupports = supports
+		}
+		if len(replayCase.EligibilityDecisions) == 0 {
+			replayCase.EligibilityDecisions = defaultEligibilityDecisions(*replayCase)
+		}
+	}
+	return nil
+}
+
+func defaultEligibilityDecisions(replayCase Case) []EligibilityDecision {
+	ineligible := make(map[string]EligibilityReason)
+	_, trace := teamnote.PlanRecall(replayCase.recallCandidates(), replayCase.recallRequest(), teamnote.RecallPolicy{
+		ObservationTime: replayCase.ObservationTime,
+	})
+	queryTime := temporalQueryTime(trace.Intent, replayCase.ObservationTime)
+	candidates := make(map[string]Candidate, len(replayCase.Candidates))
+	for _, candidate := range replayCase.Candidates {
+		candidates[candidate.ID] = candidate
+	}
+	for _, candidateTrace := range trace.CandidateTraces {
+		if candidateTrace.TemporalResolution.GatePassed {
+			continue
+		}
+		reason := EligibilityTemporal
+		candidate := candidates[candidateTrace.NoteID]
+		if queryTime != nil && candidate.ValidAt != nil && candidate.ValidAt.After(*queryTime) {
+			reason = EligibilityFuture
+		}
+		ineligible[candidateTrace.NoteID] = reason
+	}
+	decisions := make([]EligibilityDecision, 0, len(replayCase.ExtractionItems))
+	for _, item := range replayCase.ExtractionItems {
+		reason, excluded := ineligible[item.ID]
+		if excluded {
+			decisions = append(decisions, EligibilityDecision{ItemID: item.ID, Reason: reason})
+			continue
+		}
+		decisions = append(decisions, EligibilityDecision{ItemID: item.ID, Eligible: true, Reason: EligibilityEligible})
+	}
+	return decisions
+}
+
+func validateEligibilityDecisions(replayCase Case) error {
+	items := make(map[string]struct{}, len(replayCase.ExtractionItems))
+	for _, item := range replayCase.ExtractionItems {
+		items[item.ID] = struct{}{}
+	}
+	decisions := make(map[string]EligibilityDecision, len(replayCase.EligibilityDecisions))
+	for _, decision := range replayCase.EligibilityDecisions {
+		if _, ok := items[decision.ItemID]; !ok {
+			return fmt.Errorf("%w: case %q eligibility item %q is not in extraction snapshot", ErrInvalidFixture, replayCase.Fixture.CaseID, decision.ItemID)
+		}
+		if _, duplicate := decisions[decision.ItemID]; duplicate {
+			return fmt.Errorf("%w: case %q duplicate eligibility item %q", ErrInvalidFixture, replayCase.Fixture.CaseID, decision.ItemID)
+		}
+		if !validEligibilityReason(decision.Reason) || decision.Eligible != (decision.Reason == EligibilityEligible) {
+			return fmt.Errorf("%w: case %q invalid eligibility decision for %q", ErrInvalidFixture, replayCase.Fixture.CaseID, decision.ItemID)
+		}
+		decisions[decision.ItemID] = decision
+	}
+	if len(decisions) != len(items) {
+		return fmt.Errorf("%w: case %q every extraction item needs eligibility metadata", ErrInvalidFixture, replayCase.Fixture.CaseID)
+	}
+	for _, candidate := range replayCase.Candidates {
+		if _, ok := decisions[candidate.ID]; !ok {
+			return fmt.Errorf("%w: case %q candidate %q needs eligibility metadata", ErrInvalidFixture, replayCase.Fixture.CaseID, candidate.ID)
+		}
+	}
+	return nil
+}
+
+func validEligibilityReason(reason EligibilityReason) bool {
+	switch reason {
+	case EligibilityEligible, EligibilityAuthorization, EligibilityTemporal, EligibilityFuture,
+		EligibilityTaskThread, EligibilityDelivery, EligibilityAdapterExcluded, EligibilityMixed:
+		return true
+	default:
+		return false
+	}
+}
+
+func candidateSnapshotSHA256(candidates []Candidate) (string, error) {
+	encoded, err := json.Marshal(candidates)
+	if err != nil {
+		return "", fmt.Errorf("encode candidates: %w", err)
+	}
+	digest := sha256.Sum256(encoded)
+	return fmt.Sprintf("%x", digest[:]), nil
+}
+
+func inferredObservationTime(candidates []Candidate) time.Time {
+	var result time.Time
+	for _, candidate := range candidates {
+		for _, value := range []time.Time{candidate.SourceOccurredAt, candidate.UpdatedAt, candidate.CreatedAt} {
+			if value.After(result) {
+				result = value.UTC()
+			}
+		}
+	}
+	if result.IsZero() {
+		return time.Unix(0, 0).UTC()
+	}
+	return result
 }
 
 // recallRequest rebuilds the recall request captured for the case.
@@ -191,4 +541,29 @@ func (replayCase Case) recallCandidates() []teamnote.RecallCandidate {
 		})
 	}
 	return candidates
+}
+
+func (replayCase Case) plannerRecallCandidates() []teamnote.RecallCandidate {
+	decisions := eligibilityByItem(replayCase.EligibilityDecisions)
+	all := replayCase.recallCandidates()
+	result := make([]teamnote.RecallCandidate, 0, len(all))
+	for _, candidate := range all {
+		if adapterExcludesCandidate(decisions[candidate.ID]) {
+			continue
+		}
+		result = append(result, candidate)
+	}
+	return result
+}
+
+func adapterExcludesCandidate(decision EligibilityDecision) bool {
+	if decision.Eligible {
+		return false
+	}
+	switch decision.Reason {
+	case EligibilityAuthorization, EligibilityTaskThread, EligibilityDelivery, EligibilityAdapterExcluded, EligibilityMixed:
+		return true
+	default:
+		return false
+	}
 }

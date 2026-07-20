@@ -3,6 +3,7 @@ package extractor_test
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
@@ -66,6 +67,11 @@ func (s *extractionV2Suite) TestConfigValidation() {
 			ContextMode: extractor.ContextModeRolling, EpisodeStore: extractor.NewMemoryEpisodeStore(),
 			ExtractionVersion: "v3",
 		}},
+		{name: "unsupported v2 variant", config: extractor.OpenAIConfig{
+			BaseURL: "http://extractor.test", Model: "model",
+			ContextMode: extractor.ContextModeRolling, EpisodeStore: extractor.NewMemoryEpisodeStore(),
+			ExtractionVersion: extractor.ExtractionVersionV2, V2Variant: "wide",
+		}},
 	}
 	for _, test := range tests {
 		s.Run(test.name, func() {
@@ -73,6 +79,28 @@ func (s *extractionV2Suite) TestConfigValidation() {
 			s.Require().Error(err)
 		})
 	}
+}
+
+func (s *extractionV2Suite) TestInteractionSlimVariantUsesBoundedPrompt() {
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		body, err := io.ReadAll(request.Body)
+		s.Require().NoError(err)
+		s.Contains(string(body), "Return interaction_observations as an empty array")
+		s.NotContains(string(body), "mandatory when an event proposes")
+		return response(http.StatusOK, v2BodyWithNoStateEvents("", "", `"event-1"`)), nil
+	})}
+	adapter, err := extractor.NewOpenAI(extractor.OpenAIConfig{
+		BaseURL: "http://extractor.test", Model: "model", Client: client,
+		ContextMode: extractor.ContextModeRolling, EpisodeStore: extractor.NewMemoryEpisodeStore(),
+		ExtractionVersion: extractor.ExtractionVersionV2, V2Variant: extractor.V2VariantInteractionSlim,
+	})
+	s.Require().NoError(err)
+
+	result, err := adapter.Extract(teamnote.WithScope(context.Background(), "scope-v2-interaction-slim"), v2Slice())
+
+	s.Require().NoError(err)
+	s.Empty(result.Candidates)
+	s.Equal([]string{"event-1"}, result.Trace.NoStateEventIDs)
 }
 
 func (s *extractionV2Suite) TestMapsClaimsAndDecisionsToCandidates() {
@@ -218,6 +246,50 @@ func (s *extractionV2Suite) TestProposalCannotBecomeCanonicalStateWithoutCommitm
 	s.Require().Len(result.Trace.InteractionObservations, 1)
 }
 
+func (s *extractionV2Suite) TestSourceProposalCannotBecomeCanonicalStateWhenInteractionIsInvalid() {
+	tests := []struct {
+		name    string
+		content string
+	}{
+		{
+			name: "ask owner",
+			content: "Data Ops owning issuer-level reruns today feels right. " +
+				"I'd lock weaker providers as evidence-only and ask Compliance to own the exception log.",
+		},
+		{
+			name:    "should name owner",
+			content: "Compliance should name that exception-log owner today; loose ownership can derail closeout.",
+		},
+		{
+			name: "parallel obligation",
+			content: "Data Ops can finish the same-issuer-set evidence today, " +
+				"while Compliance names the fallback owner and exception log for July 19.",
+		},
+	}
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			decision := `{"decision":"create","identity_ref":"owner/exception-log","evidence_event_ids":["event-1"],"reason_codes":["explicit_new_fact"],"candidate":{"kind":"status","subject":"exception log owner","body":"Compliance owns the exception log."}}`
+			interaction := `{"actor":"","target":"Compliance","stance":"neutral","speech_act":"propose","evidence_event_id":"event-1"}`
+			client := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+				return response(http.StatusOK, v2BodyWithProducts("", decision, "", interaction)), nil
+			})}
+			adapter := newV2Adapter(s, client)
+			slice := v2Slice()
+			slice.Events[0].Content = test.content
+
+			result, err := adapter.Extract(
+				teamnote.WithScope(context.Background(), "scope-v2-source-proposal-"+strings.ReplaceAll(test.name, " ", "-")), slice,
+			)
+
+			s.Require().NoError(err)
+			s.Empty(result.Candidates)
+			s.Require().Len(result.Trace.DecisionRejections, 1)
+			s.Contains(result.Trace.DecisionRejections[0].Reason, "non-committal")
+			s.Require().Len(result.Trace.InteractionRejections, 1)
+		})
+	}
+}
+
 func (s *extractionV2Suite) TestExplicitApprovalCanBecomeCanonicalState() {
 	decision := `{"decision":"create","identity_ref":"owner/exception-log","evidence_event_ids":["event-1"],"reason_codes":["explicit_new_fact"],"candidate":{"kind":"status","subject":"exception log owner","body":"Compliance owns the exception log."}}`
 	interaction := `{"actor":"producer","target":"Compliance","stance":"support","speech_act":"approve","evidence_event_id":"event-1"}`
@@ -233,6 +305,80 @@ func (s *extractionV2Suite) TestExplicitApprovalCanBecomeCanonicalState() {
 	s.Require().Len(result.Candidates, 1)
 	s.Equal("owner/exception-log", result.Candidates[0].IdentityRef)
 	s.Empty(result.Trace.DecisionRejections)
+}
+
+func (s *extractionV2Suite) TestCurrentCapabilityIsNotTreatedAsProposal() {
+	decision := `{"decision":"create","identity_ref":"capability/control-engine","evidence_event_ids":["event-1"],"reason_codes":["explicit_new_fact"],"candidate":{"kind":"status","subject":"control engine capability","body":"The control engine can process the full issuer set."}}`
+	client := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		return response(http.StatusOK, v2Body("", decision)), nil
+	})}
+	adapter := newV2Adapter(s, client)
+	slice := v2Slice()
+	slice.Events[0].Content = "The control engine can process the full issuer set without manual intervention."
+
+	result, err := adapter.Extract(
+		teamnote.WithScope(context.Background(), "scope-v2-current-capability"), slice,
+	)
+
+	s.Require().NoError(err)
+	s.Require().Len(result.Candidates, 1)
+	s.Empty(result.Trace.DecisionRejections)
+}
+
+func (s *extractionV2Suite) TestCommittedFactSurvivesAdjacentRequestLanguage() {
+	decision := `{"decision":"create","identity_ref":"owner/exception-log","evidence_event_ids":["event-1"],"reason_codes":["explicit_new_fact"],"candidate":{"kind":"status","subject":"exception log owner","body":"Compliance owns the exception log."}}`
+	client := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		return response(http.StatusOK, v2Body("", decision)), nil
+	})}
+	adapter := newV2Adapter(s, client)
+	slice := v2Slice()
+	slice.Events[0].Content = "Compliance owns the exception log and should publish it today."
+
+	result, err := adapter.Extract(
+		teamnote.WithScope(context.Background(), "scope-v2-fact-with-request"), slice,
+	)
+
+	s.Require().NoError(err)
+	s.Require().Len(result.Candidates, 1)
+	s.Empty(result.Trace.DecisionRejections)
+}
+
+func (s *extractionV2Suite) TestUnrelatedFactDoesNotAuthorizeRequestedOwnership() {
+	decision := `{"decision":"create","identity_ref":"owner/exception-log","evidence_event_ids":["event-1"],"reason_codes":["explicit_new_fact"],"candidate":{"kind":"status","subject":"exception log owner","body":"Compliance owns the exception log."}}`
+	client := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		return response(http.StatusOK, v2Body("", decision)), nil
+	})}
+	adapter := newV2Adapter(s, client)
+	slice := v2Slice()
+	slice.Events[0].Content = "The database is healthy; Compliance should own the exception log."
+
+	result, err := adapter.Extract(
+		teamnote.WithScope(context.Background(), "scope-v2-unrelated-fact-with-request"), slice,
+	)
+
+	s.Require().NoError(err)
+	s.Empty(result.Candidates)
+	s.Require().Len(result.Trace.DecisionRejections, 1)
+	s.Contains(result.Trace.DecisionRejections[0].Reason, "non-committal")
+}
+
+func (s *extractionV2Suite) TestCandidateTokensAndCommittedPredicateMustShareAClause() {
+	decision := `{"decision":"create","identity_ref":"owner/exception-log","evidence_event_ids":["event-1"],"reason_codes":["explicit_new_fact"],"candidate":{"kind":"status","subject":"exception log owner","body":"Compliance owns the exception log."}}`
+	client := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		return response(http.StatusOK, v2Body("", decision)), nil
+	})}
+	adapter := newV2Adapter(s, client)
+	slice := v2Slice()
+	slice.Events[0].Content = "Compliance reviewed the exception log; the database is healthy; Compliance should own the exception log."
+
+	result, err := adapter.Extract(
+		teamnote.WithScope(context.Background(), "scope-v2-cross-clause-request"), slice,
+	)
+
+	s.Require().NoError(err)
+	s.Empty(result.Candidates)
+	s.Require().Len(result.Trace.DecisionRejections, 1)
+	s.Contains(result.Trace.DecisionRejections[0].Reason, "non-committal")
 }
 
 func (s *extractionV2Suite) TestTraceOnlyDecisionsAndWouldVerifyTriggers() {
@@ -296,6 +442,22 @@ func (s *extractionV2Suite) TestRejectsInvalidTemporalMetadata() {
 			s.Contains(result.Trace.DecisionRejections[0].Reason, test.wantReason)
 		})
 	}
+}
+
+func (s *extractionV2Suite) TestNormalizesUnresolvedResolutionWithoutTemporalMetadata() {
+	decision := `{"decision":"create","identity_ref":"approach/calculation-discrepancy","evidence_event_ids":["event-1"],"temporal_resolution":"unresolved","reason_codes":["explicit_new_fact"],"candidate":{"kind":"status","subject":"validation approach","body":"Add a targeted currency-feed check and rerun the impacted close cycle."}}`
+	client := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		return response(http.StatusOK, v2Body("", decision)), nil
+	})}
+	adapter := newV2Adapter(s, client)
+
+	result, err := adapter.Extract(teamnote.WithScope(context.Background(), "scope-v2-empty-unresolved"), v2Slice())
+
+	s.Require().NoError(err)
+	s.Require().Len(result.Candidates, 1)
+	s.Require().Len(result.Trace.StateDecisions, 1)
+	s.Empty(result.Trace.StateDecisions[0].TemporalResolution)
+	s.Empty(result.Trace.DecisionRejections)
 }
 
 func (s *extractionV2Suite) TestDropsInvalidClaimsAndDecisionsWithTraceRejections() {

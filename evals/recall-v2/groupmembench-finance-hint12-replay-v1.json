@@ -1,0 +1,1833 @@
+{
+  "schema_version": "pax-recall-replay-v4",
+  "dataset": "Recall Eval v2 hard cohort from e2682e01ff490acfe4fac2940159dce60307dfc9 curated Hint Recall v0 interventions",
+  "exported_from": {
+    "run_id": "synthetic-hint-v0",
+    "arm": "hint_recall_v0",
+    "scope_prefix": "hint-"
+  },
+  "policy": {
+    "semantic_threshold": 0.65,
+    "hint_threshold": 0.65,
+    "candidate_limit": 4,
+    "enable_hint_recall": true
+  },
+  "cases": [
+    {
+      "fixture": {
+        "case_id": "multi_hop_13",
+        "category": "multi_hop",
+        "source_revision": "6c79b2531a762ed4fa50dd359ed3e363f63c3c4c640a5151a4174577d9dbc596",
+        "recall_context": {
+          "consumer_user_id": "User_3",
+          "consumer_agent_id": "groupmembench-User_3",
+          "query": "Who is expected to own the rollback evidence pack if the July 26 milestone slips?",
+          "token_budget": 500,
+          "max_items": 5
+        },
+        "required_atoms": [
+          {
+            "id": "gold_answer",
+            "patterns": [
+              "(?i)Ops Lead"
+            ]
+          }
+        ]
+      },
+      "scope_id": "hint-multi_hop_13",
+      "actor": {
+        "user_id": "User_3",
+        "agent_id": "groupmembench-User_3",
+        "session_id": "hint-consumer-multi_hop_13"
+      },
+      "observation_time": "2026-07-18T12:00:00Z",
+      "query_timezone": "UTC",
+      "extraction_items": [
+        {
+          "id": "multi_hop_13-lead",
+          "text": "A safe navigation lead indicates that related Team Memory may be useful.",
+          "evidence_event_ids": [
+            "event-multi_hop_13-lead"
+          ]
+        },
+        {
+          "id": "multi_hop_13-active-evidence",
+          "text": "Ops Lead",
+          "evidence_event_ids": [
+            "event-multi_hop_13-active"
+          ]
+        }
+      ],
+      "candidates": [
+        {
+          "id": "multi_hop_13-lead",
+          "kind": "status",
+          "subject": "memory navigation topic",
+          "body": "A safe navigation lead indicates that related Team Memory may be useful.",
+          "origin": {
+            "user_id": "source-user",
+            "agent_id": "source-agent",
+            "session_id": "source-multi_hop_13"
+          },
+          "evidence_event_ids": [
+            "event-multi_hop_13-lead"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-18T10:00:00Z",
+          "updated_at": "2026-07-18T10:00:00Z",
+          "source_occurred_at": "2026-07-18T10:00:00Z",
+          "lexical_score": 0,
+          "semantic_score": 0.9
+        },
+        {
+          "id": "multi_hop_13-active-evidence",
+          "kind": "status",
+          "subject": "focused evidence record",
+          "body": "Ops Lead",
+          "origin": {
+            "user_id": "source-user",
+            "agent_id": "source-agent",
+            "session_id": "source-multi_hop_13"
+          },
+          "evidence_event_ids": [
+            "event-multi_hop_13-active"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-18T11:00:00Z",
+          "updated_at": "2026-07-18T11:00:00Z",
+          "source_occurred_at": "2026-07-18T11:00:00Z",
+          "lexical_score": 0
+        }
+      ],
+      "atom_supports": [
+        {
+          "atom_id": "gold_answer",
+          "item_ids": [
+            "multi_hop_13-active-evidence"
+          ]
+        }
+      ],
+      "eligibility_decisions": [
+        {
+          "item_id": "multi_hop_13-lead",
+          "eligible": true,
+          "reason": "eligible"
+        },
+        {
+          "item_id": "multi_hop_13-active-evidence",
+          "eligible": true,
+          "reason": "eligible"
+        }
+      ],
+      "candidate_snapshot_sha256": "ec628c8e7d0766f4a937cbda5d62c2d36836ee220fb0a8471dc951de4aec9982",
+      "hint_observation": {
+        "exposed": true,
+        "score": 0.8099999999999999,
+        "focused_query": "Who is expected to own the rollback evidence pack if the July 26 milestone slips?; related topic: memory navigation topic",
+        "consumer": {
+          "user_id": "User_3",
+          "agent_id": "groupmembench-User_3",
+          "session_id": "hint-consumer-multi_hop_13"
+        },
+        "observation_time": "2026-07-18T12:00:00Z",
+        "temporal_mode": "current",
+        "query_timezone": "UTC",
+        "query_time": "2026-07-18T12:00:00Z",
+        "lead_note_ids": [
+          "multi_hop_13-lead"
+        ],
+        "lead_fingerprint": "175e524fb1e2ac848c86ee48e7e327fa6dbe03a3e8d1a0d5141a4947aaef1996",
+        "evidence_scores": [
+          {
+            "item_id": "multi_hop_13-lead",
+            "score": 0.3,
+            "admitted": false
+          }
+        ],
+        "calls": [
+          {
+            "items": [
+              {
+                "id": "multi_hop_13-active-evidence",
+                "source_item_ids": [
+                  "multi_hop_13-active-evidence"
+                ],
+                "text": "Ops Lead",
+                "evidence_event_ids": [
+                  "event-multi_hop_13-active"
+                ]
+              }
+            ],
+            "origin_attributions": [
+              {
+                "item_id": "multi_hop_13-active-evidence",
+                "origins": [
+                  {
+                    "user_id": "source-user",
+                    "agent_id": "source-agent",
+                    "session_id": "source-multi_hop_13"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "fixture": {
+        "case_id": "multi_hop_15",
+        "category": "multi_hop",
+        "source_revision": "314726aa30a36c25b79137ef0649825a6800c6919e7832c3ac47dd303b0c2cc2",
+        "recall_context": {
+          "consumer_user_id": "User_2",
+          "consumer_agent_id": "groupmembench-User_2",
+          "query": "What additional requirements were identified to avoid audit replay issues during the integration testing cycle revision?",
+          "token_budget": 500,
+          "max_items": 5
+        },
+        "required_atoms": [
+          {
+            "id": "gold_answer",
+            "patterns": [
+              "(?i)rerun slot and timestamped evidence linkage"
+            ]
+          }
+        ]
+      },
+      "scope_id": "hint-multi_hop_15",
+      "actor": {
+        "user_id": "User_2",
+        "agent_id": "groupmembench-User_2",
+        "session_id": "hint-consumer-multi_hop_15"
+      },
+      "observation_time": "2026-07-18T12:00:00Z",
+      "query_timezone": "UTC",
+      "extraction_items": [
+        {
+          "id": "multi_hop_15-lead",
+          "text": "A safe navigation lead indicates that related Team Memory may be useful.",
+          "evidence_event_ids": [
+            "event-multi_hop_15-lead"
+          ]
+        },
+        {
+          "id": "multi_hop_15-active-evidence",
+          "text": "rerun slot and timestamped evidence linkage",
+          "evidence_event_ids": [
+            "event-multi_hop_15-active"
+          ]
+        }
+      ],
+      "candidates": [
+        {
+          "id": "multi_hop_15-lead",
+          "kind": "status",
+          "subject": "memory navigation topic",
+          "body": "A safe navigation lead indicates that related Team Memory may be useful.",
+          "origin": {
+            "user_id": "source-user",
+            "agent_id": "source-agent",
+            "session_id": "source-multi_hop_15"
+          },
+          "evidence_event_ids": [
+            "event-multi_hop_15-lead"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-18T10:00:00Z",
+          "updated_at": "2026-07-18T10:00:00Z",
+          "source_occurred_at": "2026-07-18T10:00:00Z",
+          "lexical_score": 0,
+          "semantic_score": 0.9
+        },
+        {
+          "id": "multi_hop_15-active-evidence",
+          "kind": "status",
+          "subject": "focused evidence record",
+          "body": "rerun slot and timestamped evidence linkage",
+          "origin": {
+            "user_id": "source-user",
+            "agent_id": "source-agent",
+            "session_id": "source-multi_hop_15"
+          },
+          "evidence_event_ids": [
+            "event-multi_hop_15-active"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-18T11:00:00Z",
+          "updated_at": "2026-07-18T11:00:00Z",
+          "source_occurred_at": "2026-07-18T11:00:00Z",
+          "lexical_score": 0
+        }
+      ],
+      "atom_supports": [
+        {
+          "atom_id": "gold_answer",
+          "item_ids": [
+            "multi_hop_15-active-evidence"
+          ]
+        }
+      ],
+      "eligibility_decisions": [
+        {
+          "item_id": "multi_hop_15-lead",
+          "eligible": true,
+          "reason": "eligible"
+        },
+        {
+          "item_id": "multi_hop_15-active-evidence",
+          "eligible": true,
+          "reason": "eligible"
+        }
+      ],
+      "candidate_snapshot_sha256": "ec2d00c1daad34734eb50409e099f225523f4ae05f1838e8644d1ef9291e12d6",
+      "hint_observation": {
+        "exposed": true,
+        "score": 0.8099999999999999,
+        "focused_query": "What additional requirements were identified to avoid audit replay issues during the integration testing cycle revision?; related topic: memory navigation topic",
+        "consumer": {
+          "user_id": "User_2",
+          "agent_id": "groupmembench-User_2",
+          "session_id": "hint-consumer-multi_hop_15"
+        },
+        "observation_time": "2026-07-18T12:00:00Z",
+        "temporal_mode": "current",
+        "query_timezone": "UTC",
+        "query_time": "2026-07-18T12:00:00Z",
+        "lead_note_ids": [
+          "multi_hop_15-lead"
+        ],
+        "lead_fingerprint": "a03ba11144ef2f61db1b649e663d8e2a55dddb8c537b1a940c5656ce79a1ad77",
+        "evidence_scores": [
+          {
+            "item_id": "multi_hop_15-lead",
+            "score": 0.3,
+            "admitted": false
+          }
+        ],
+        "calls": [
+          {
+            "items": [
+              {
+                "id": "multi_hop_15-active-evidence",
+                "source_item_ids": [
+                  "multi_hop_15-active-evidence"
+                ],
+                "text": "rerun slot and timestamped evidence linkage",
+                "evidence_event_ids": [
+                  "event-multi_hop_15-active"
+                ]
+              }
+            ],
+            "origin_attributions": [
+              {
+                "item_id": "multi_hop_15-active-evidence",
+                "origins": [
+                  {
+                    "user_id": "source-user",
+                    "agent_id": "source-agent",
+                    "session_id": "source-multi_hop_15"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "fixture": {
+        "case_id": "knowledge_update_23",
+        "category": "knowledge_update",
+        "source_revision": "1c97ba9efb275fd0e4793664b0252cc71a2507e2fe2d6472652171f4588eb2a7",
+        "recall_context": {
+          "consumer_user_id": "User_11",
+          "consumer_agent_id": "groupmembench-User_11",
+          "query": "What is the current approach for handling the consent timestamp and audit-trail fields in the requirements?",
+          "token_budget": 500,
+          "max_items": 5
+        },
+        "required_atoms": [
+          {
+            "id": "gold_answer",
+            "patterns": [
+              "(?i)Instead of keeping interpretation open, update the baseline now to include the consent timestamp and audit-trail fields, and treat the Legal redline as a scope change that must be reflected in requirements before build sequencing is locked\\."
+            ]
+          }
+        ]
+      },
+      "scope_id": "hint-knowledge_update_23",
+      "actor": {
+        "user_id": "User_11",
+        "agent_id": "groupmembench-User_11",
+        "session_id": "hint-consumer-knowledge_update_23"
+      },
+      "observation_time": "2026-07-18T12:00:00Z",
+      "query_timezone": "UTC",
+      "extraction_items": [
+        {
+          "id": "knowledge_update_23-lead",
+          "text": "A safe navigation lead indicates that related Team Memory may be useful.",
+          "evidence_event_ids": [
+            "event-knowledge_update_23-lead"
+          ]
+        },
+        {
+          "id": "knowledge_update_23-active-evidence",
+          "text": "Instead of keeping interpretation open, update the baseline now to include the consent timestamp and audit-trail fields, and treat the Legal redline as a scope change that must be reflected in requirements before build sequencing is locked.",
+          "evidence_event_ids": [
+            "event-knowledge_update_23-active"
+          ]
+        }
+      ],
+      "candidates": [
+        {
+          "id": "knowledge_update_23-lead",
+          "kind": "status",
+          "subject": "memory navigation topic",
+          "body": "A safe navigation lead indicates that related Team Memory may be useful.",
+          "origin": {
+            "user_id": "source-user",
+            "agent_id": "source-agent",
+            "session_id": "source-knowledge_update_23"
+          },
+          "evidence_event_ids": [
+            "event-knowledge_update_23-lead"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-18T10:00:00Z",
+          "updated_at": "2026-07-18T10:00:00Z",
+          "source_occurred_at": "2026-07-18T10:00:00Z",
+          "lexical_score": 0,
+          "semantic_score": 0.9
+        },
+        {
+          "id": "knowledge_update_23-active-evidence",
+          "kind": "status",
+          "subject": "focused evidence record",
+          "body": "Instead of keeping interpretation open, update the baseline now to include the consent timestamp and audit-trail fields, and treat the Legal redline as a scope change that must be reflected in requirements before build sequencing is locked.",
+          "origin": {
+            "user_id": "source-user",
+            "agent_id": "source-agent",
+            "session_id": "source-knowledge_update_23"
+          },
+          "evidence_event_ids": [
+            "event-knowledge_update_23-active"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-18T11:00:00Z",
+          "updated_at": "2026-07-18T11:00:00Z",
+          "source_occurred_at": "2026-07-18T11:00:00Z",
+          "lexical_score": 0
+        }
+      ],
+      "atom_supports": [
+        {
+          "atom_id": "gold_answer",
+          "item_ids": [
+            "knowledge_update_23-active-evidence"
+          ]
+        }
+      ],
+      "eligibility_decisions": [
+        {
+          "item_id": "knowledge_update_23-lead",
+          "eligible": true,
+          "reason": "eligible"
+        },
+        {
+          "item_id": "knowledge_update_23-active-evidence",
+          "eligible": true,
+          "reason": "eligible"
+        }
+      ],
+      "candidate_snapshot_sha256": "e87865d3d2ec0f2e2c7970be80cfca82c9a19efceeacf5b714f8da70b5a14827",
+      "hint_observation": {
+        "exposed": true,
+        "score": 0.8099999999999999,
+        "focused_query": "What is the current approach for handling the consent timestamp and audit-trail fields in the requirements?; related topic: memory navigation topic",
+        "consumer": {
+          "user_id": "User_11",
+          "agent_id": "groupmembench-User_11",
+          "session_id": "hint-consumer-knowledge_update_23"
+        },
+        "observation_time": "2026-07-18T12:00:00Z",
+        "temporal_mode": "current",
+        "query_timezone": "UTC",
+        "query_time": "2026-07-18T12:00:00Z",
+        "lead_note_ids": [
+          "knowledge_update_23-lead"
+        ],
+        "lead_fingerprint": "8d131946f1b879fc46105a1b2704251eb4c694a8abaee215d8fdc92f8dede64b",
+        "evidence_scores": [
+          {
+            "item_id": "knowledge_update_23-lead",
+            "score": 0.3,
+            "admitted": false
+          }
+        ],
+        "calls": [
+          {
+            "items": [
+              {
+                "id": "knowledge_update_23-active-evidence",
+                "source_item_ids": [
+                  "knowledge_update_23-active-evidence"
+                ],
+                "text": "Instead of keeping interpretation open, update the baseline now to include the consent timestamp and audit-trail fields, and treat the Legal redline as a scope change that must be reflected in requirements before build sequencing is locked.",
+                "evidence_event_ids": [
+                  "event-knowledge_update_23-active"
+                ]
+              }
+            ],
+            "origin_attributions": [
+              {
+                "item_id": "knowledge_update_23-active-evidence",
+                "origins": [
+                  {
+                    "user_id": "source-user",
+                    "agent_id": "source-agent",
+                    "session_id": "source-knowledge_update_23"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "fixture": {
+        "case_id": "knowledge_update_8",
+        "category": "knowledge_update",
+        "source_revision": "899c0bff61f439d9236c09830dd0d0879fc52fa2a7d3818fc239a4ef81b27625",
+        "recall_context": {
+          "consumer_user_id": "User_2",
+          "consumer_agent_id": "groupmembench-User_2",
+          "query": "What approach is the team using to address high verification drop-off in the pilot launch?",
+          "token_budget": 500,
+          "max_items": 5
+        },
+        "required_atoms": [
+          {
+            "id": "gold_answer",
+            "patterns": [
+              "(?i)Instead of starting with prompt-level isolation, the team should first instrument the full upload-to-review funnel with step timestamps and retry timing, then branch by device/request type to identify whether the drop-off is coming from validation, upload friction, or queue delay\\."
+            ]
+          }
+        ]
+      },
+      "scope_id": "hint-knowledge_update_8",
+      "actor": {
+        "user_id": "User_2",
+        "agent_id": "groupmembench-User_2",
+        "session_id": "hint-consumer-knowledge_update_8"
+      },
+      "observation_time": "2026-07-18T12:00:00Z",
+      "query_timezone": "UTC",
+      "extraction_items": [
+        {
+          "id": "knowledge_update_8-lead",
+          "text": "A safe navigation lead indicates that related Team Memory may be useful.",
+          "evidence_event_ids": [
+            "event-knowledge_update_8-lead"
+          ]
+        },
+        {
+          "id": "knowledge_update_8-active-evidence",
+          "text": "Instead of starting with prompt-level isolation, the team should first instrument the full upload-to-review funnel with step timestamps and retry timing, then branch by device/request type to identify whether the drop-off is coming from validation, upload friction, or queue delay.",
+          "evidence_event_ids": [
+            "event-knowledge_update_8-active"
+          ]
+        }
+      ],
+      "candidates": [
+        {
+          "id": "knowledge_update_8-lead",
+          "kind": "status",
+          "subject": "memory navigation topic",
+          "body": "A safe navigation lead indicates that related Team Memory may be useful.",
+          "origin": {
+            "user_id": "source-user",
+            "agent_id": "source-agent",
+            "session_id": "source-knowledge_update_8"
+          },
+          "evidence_event_ids": [
+            "event-knowledge_update_8-lead"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-18T10:00:00Z",
+          "updated_at": "2026-07-18T10:00:00Z",
+          "source_occurred_at": "2026-07-18T10:00:00Z",
+          "lexical_score": 0,
+          "semantic_score": 0.9
+        },
+        {
+          "id": "knowledge_update_8-active-evidence",
+          "kind": "status",
+          "subject": "focused evidence record",
+          "body": "Instead of starting with prompt-level isolation, the team should first instrument the full upload-to-review funnel with step timestamps and retry timing, then branch by device/request type to identify whether the drop-off is coming from validation, upload friction, or queue delay.",
+          "origin": {
+            "user_id": "source-user",
+            "agent_id": "source-agent",
+            "session_id": "source-knowledge_update_8"
+          },
+          "evidence_event_ids": [
+            "event-knowledge_update_8-active"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-18T11:00:00Z",
+          "updated_at": "2026-07-18T11:00:00Z",
+          "source_occurred_at": "2026-07-18T11:00:00Z",
+          "lexical_score": 0
+        }
+      ],
+      "atom_supports": [
+        {
+          "atom_id": "gold_answer",
+          "item_ids": [
+            "knowledge_update_8-active-evidence"
+          ]
+        }
+      ],
+      "eligibility_decisions": [
+        {
+          "item_id": "knowledge_update_8-lead",
+          "eligible": true,
+          "reason": "eligible"
+        },
+        {
+          "item_id": "knowledge_update_8-active-evidence",
+          "eligible": true,
+          "reason": "eligible"
+        }
+      ],
+      "candidate_snapshot_sha256": "3b67ec12abce45d0499c9aad17850bfdf4d45247a42a8253e29247ae31b75608",
+      "hint_observation": {
+        "exposed": true,
+        "score": 0.825,
+        "focused_query": "What approach is the team using to address high verification drop-off in the pilot launch?; related topic: memory navigation topic",
+        "consumer": {
+          "user_id": "User_2",
+          "agent_id": "groupmembench-User_2",
+          "session_id": "hint-consumer-knowledge_update_8"
+        },
+        "observation_time": "2026-07-18T12:00:00Z",
+        "temporal_mode": "current",
+        "query_timezone": "UTC",
+        "query_time": "2026-07-18T12:00:00Z",
+        "lead_note_ids": [
+          "knowledge_update_8-lead"
+        ],
+        "lead_fingerprint": "df946de0af1dfdaebdca207e8e73459d7b89729c77794cec27743886a8fc5c24",
+        "evidence_scores": [
+          {
+            "item_id": "knowledge_update_8-lead",
+            "score": 0.3,
+            "admitted": false
+          }
+        ],
+        "calls": [
+          {
+            "items": [
+              {
+                "id": "knowledge_update_8-active-evidence",
+                "source_item_ids": [
+                  "knowledge_update_8-active-evidence"
+                ],
+                "text": "Instead of starting with prompt-level isolation, the team should first instrument the full upload-to-review funnel with step timestamps and retry timing, then branch by device/request type to identify whether the drop-off is coming from validation, upload friction, or queue delay.",
+                "evidence_event_ids": [
+                  "event-knowledge_update_8-active"
+                ]
+              }
+            ],
+            "origin_attributions": [
+              {
+                "item_id": "knowledge_update_8-active-evidence",
+                "origins": [
+                  {
+                    "user_id": "source-user",
+                    "agent_id": "source-agent",
+                    "session_id": "source-knowledge_update_8"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "fixture": {
+        "case_id": "temporal_33",
+        "category": "temporal",
+        "source_revision": "72b121ecc20b22acf7a0e6d4a532addedfe3493dd153aa7d512df65dc76144cb",
+        "recall_context": {
+          "consumer_user_id": "User_3",
+          "consumer_agent_id": "groupmembench-User_3",
+          "query": "On what date (YYYY-MM-DD) did the product owner request leadership review to address the high verification drop-off in the pilot?",
+          "token_budget": 500,
+          "max_items": 5
+        },
+        "required_atoms": [
+          {
+            "id": "gold_answer",
+            "patterns": [
+              "(?i)2025-07-24"
+            ]
+          }
+        ]
+      },
+      "scope_id": "hint-temporal_33",
+      "actor": {
+        "user_id": "User_3",
+        "agent_id": "groupmembench-User_3",
+        "session_id": "hint-consumer-temporal_33"
+      },
+      "observation_time": "2026-07-18T12:00:00Z",
+      "query_timezone": "UTC",
+      "extraction_items": [
+        {
+          "id": "temporal_33-lead",
+          "text": "A safe navigation lead indicates that related Team Memory may be useful.",
+          "evidence_event_ids": [
+            "event-temporal_33-lead"
+          ]
+        },
+        {
+          "id": "temporal_33-active-evidence",
+          "text": "2025-07-24",
+          "evidence_event_ids": [
+            "event-temporal_33-active"
+          ]
+        }
+      ],
+      "candidates": [
+        {
+          "id": "temporal_33-lead",
+          "kind": "status",
+          "subject": "memory navigation topic",
+          "body": "A safe navigation lead indicates that related Team Memory may be useful.",
+          "origin": {
+            "user_id": "source-user",
+            "agent_id": "source-agent",
+            "session_id": "source-temporal_33"
+          },
+          "evidence_event_ids": [
+            "event-temporal_33-lead"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-18T10:00:00Z",
+          "updated_at": "2026-07-18T10:00:00Z",
+          "source_occurred_at": "2026-07-18T10:00:00Z",
+          "lexical_score": 0,
+          "semantic_score": 0.9
+        },
+        {
+          "id": "temporal_33-active-evidence",
+          "kind": "status",
+          "subject": "focused evidence record",
+          "body": "2025-07-24",
+          "origin": {
+            "user_id": "source-user",
+            "agent_id": "source-agent",
+            "session_id": "source-temporal_33"
+          },
+          "evidence_event_ids": [
+            "event-temporal_33-active"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-18T11:00:00Z",
+          "updated_at": "2026-07-18T11:00:00Z",
+          "source_occurred_at": "2026-07-18T11:00:00Z",
+          "lexical_score": 0
+        }
+      ],
+      "atom_supports": [
+        {
+          "atom_id": "gold_answer",
+          "item_ids": [
+            "temporal_33-active-evidence"
+          ]
+        }
+      ],
+      "eligibility_decisions": [
+        {
+          "item_id": "temporal_33-lead",
+          "eligible": true,
+          "reason": "eligible"
+        },
+        {
+          "item_id": "temporal_33-active-evidence",
+          "eligible": true,
+          "reason": "eligible"
+        }
+      ],
+      "candidate_snapshot_sha256": "ce88572694bbfa5fda6702d3293f7dd9fe25505ee91975f3a175ab3c2c59833b",
+      "hint_observation": {
+        "exposed": true,
+        "score": 0.8099999999999999,
+        "focused_query": "On what date (YYYY-MM-DD) did the product owner request leadership review to address the high verification drop-off in the pilot?; related topic: memory navigation topic",
+        "consumer": {
+          "user_id": "User_3",
+          "agent_id": "groupmembench-User_3",
+          "session_id": "hint-consumer-temporal_33"
+        },
+        "observation_time": "2026-07-18T12:00:00Z",
+        "temporal_mode": "current",
+        "query_timezone": "UTC",
+        "query_time": "2026-07-18T12:00:00Z",
+        "lead_note_ids": [
+          "temporal_33-lead"
+        ],
+        "lead_fingerprint": "d7a97553b06b6ecddb1e9cc26725892766fadb5ecdf5adef1a82a79f09d8a9d4",
+        "evidence_scores": [
+          {
+            "item_id": "temporal_33-lead",
+            "score": 0.3,
+            "admitted": false
+          }
+        ],
+        "calls": [
+          {
+            "items": [
+              {
+                "id": "temporal_33-active-evidence",
+                "source_item_ids": [
+                  "temporal_33-active-evidence"
+                ],
+                "text": "2025-07-24",
+                "evidence_event_ids": [
+                  "event-temporal_33-active"
+                ]
+              }
+            ],
+            "origin_attributions": [
+              {
+                "item_id": "temporal_33-active-evidence",
+                "origins": [
+                  {
+                    "user_id": "source-user",
+                    "agent_id": "source-agent",
+                    "session_id": "source-temporal_33"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "fixture": {
+        "case_id": "temporal_26",
+        "category": "temporal",
+        "source_revision": "877ad625d15442dd98478e5bc7a518ecd0d7f41f6823dca6f6570cf68fd5d321",
+        "recall_context": {
+          "consumer_user_id": "User_3",
+          "consumer_agent_id": "groupmembench-User_3",
+          "query": "By what date (YYYY-MM-DD) were decisions on the open items in the spec requested to be sent?",
+          "token_budget": 500,
+          "max_items": 5
+        },
+        "required_atoms": [
+          {
+            "id": "gold_answer",
+            "patterns": [
+              "(?i)2025-07-28"
+            ]
+          }
+        ]
+      },
+      "scope_id": "hint-temporal_26",
+      "actor": {
+        "user_id": "User_3",
+        "agent_id": "groupmembench-User_3",
+        "session_id": "hint-consumer-temporal_26"
+      },
+      "observation_time": "2026-07-18T12:00:00Z",
+      "query_timezone": "UTC",
+      "extraction_items": [
+        {
+          "id": "temporal_26-lead",
+          "text": "A safe navigation lead indicates that related Team Memory may be useful.",
+          "evidence_event_ids": [
+            "event-temporal_26-lead"
+          ]
+        },
+        {
+          "id": "temporal_26-active-evidence",
+          "text": "2025-07-28",
+          "evidence_event_ids": [
+            "event-temporal_26-active"
+          ]
+        }
+      ],
+      "candidates": [
+        {
+          "id": "temporal_26-lead",
+          "kind": "status",
+          "subject": "memory navigation topic",
+          "body": "A safe navigation lead indicates that related Team Memory may be useful.",
+          "origin": {
+            "user_id": "source-user",
+            "agent_id": "source-agent",
+            "session_id": "source-temporal_26"
+          },
+          "evidence_event_ids": [
+            "event-temporal_26-lead"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-18T10:00:00Z",
+          "updated_at": "2026-07-18T10:00:00Z",
+          "source_occurred_at": "2026-07-18T10:00:00Z",
+          "lexical_score": 0,
+          "semantic_score": 0.9
+        },
+        {
+          "id": "temporal_26-active-evidence",
+          "kind": "status",
+          "subject": "focused evidence record",
+          "body": "2025-07-28",
+          "origin": {
+            "user_id": "source-user",
+            "agent_id": "source-agent",
+            "session_id": "source-temporal_26"
+          },
+          "evidence_event_ids": [
+            "event-temporal_26-active"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-18T11:00:00Z",
+          "updated_at": "2026-07-18T11:00:00Z",
+          "source_occurred_at": "2026-07-18T11:00:00Z",
+          "lexical_score": 0
+        }
+      ],
+      "atom_supports": [
+        {
+          "atom_id": "gold_answer",
+          "item_ids": [
+            "temporal_26-active-evidence"
+          ]
+        }
+      ],
+      "eligibility_decisions": [
+        {
+          "item_id": "temporal_26-lead",
+          "eligible": true,
+          "reason": "eligible"
+        },
+        {
+          "item_id": "temporal_26-active-evidence",
+          "eligible": true,
+          "reason": "eligible"
+        }
+      ],
+      "candidate_snapshot_sha256": "a8bd9ba97526736a44c84106637f9cf4e8bff8eb605edbca1aabedbe47020db5",
+      "hint_observation": {
+        "exposed": true,
+        "score": 0.8099999999999999,
+        "focused_query": "By what date (YYYY-MM-DD) were decisions on the open items in the spec requested to be sent?; related topic: memory navigation topic",
+        "consumer": {
+          "user_id": "User_3",
+          "agent_id": "groupmembench-User_3",
+          "session_id": "hint-consumer-temporal_26"
+        },
+        "observation_time": "2026-07-18T12:00:00Z",
+        "temporal_mode": "current",
+        "query_timezone": "UTC",
+        "query_time": "2026-07-18T12:00:00Z",
+        "lead_note_ids": [
+          "temporal_26-lead"
+        ],
+        "lead_fingerprint": "1030bfc79fc34952cc34a81f4cde59deaa97e5cfa4149a52b10b0bc406f3e534",
+        "evidence_scores": [
+          {
+            "item_id": "temporal_26-lead",
+            "score": 0.3,
+            "admitted": false
+          }
+        ],
+        "calls": [
+          {
+            "items": [
+              {
+                "id": "temporal_26-active-evidence",
+                "source_item_ids": [
+                  "temporal_26-active-evidence"
+                ],
+                "text": "2025-07-28",
+                "evidence_event_ids": [
+                  "event-temporal_26-active"
+                ]
+              }
+            ],
+            "origin_attributions": [
+              {
+                "item_id": "temporal_26-active-evidence",
+                "origins": [
+                  {
+                    "user_id": "source-user",
+                    "agent_id": "source-agent",
+                    "session_id": "source-temporal_26"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "fixture": {
+        "case_id": "user_implicit_11",
+        "category": "user_implicit",
+        "source_revision": "3a0def6d5a550ffa95266a0881d6ca23fee7d7fbe8ac1b554ce844cac6b0e38c",
+        "recall_context": {
+          "consumer_user_id": "User_13",
+          "consumer_agent_id": "groupmembench-User_13",
+          "query": "What do I need to confirm about metrics ownership and evidence standards for the Risk: Incomplete Impact Data phase?",
+          "token_budget": 500,
+          "max_items": 5
+        },
+        "required_atoms": [
+          {
+            "id": "gold_answer",
+            "patterns": [
+              "(?i)which metrics are still pending, who owns them, and what evidence can be defended if fields remain partially populated"
+            ]
+          }
+        ]
+      },
+      "scope_id": "hint-user_implicit_11",
+      "actor": {
+        "user_id": "User_13",
+        "agent_id": "groupmembench-User_13",
+        "session_id": "hint-consumer-user_implicit_11"
+      },
+      "observation_time": "2026-07-18T12:00:00Z",
+      "query_timezone": "UTC",
+      "extraction_items": [
+        {
+          "id": "user_implicit_11-lead",
+          "text": "A safe navigation lead indicates that related Team Memory may be useful.",
+          "evidence_event_ids": [
+            "event-user_implicit_11-lead"
+          ]
+        },
+        {
+          "id": "user_implicit_11-active-evidence",
+          "text": "which metrics are still pending, who owns them, and what evidence can be defended if fields remain partially populated",
+          "evidence_event_ids": [
+            "event-user_implicit_11-active"
+          ]
+        }
+      ],
+      "candidates": [
+        {
+          "id": "user_implicit_11-lead",
+          "kind": "status",
+          "subject": "memory navigation topic",
+          "body": "A safe navigation lead indicates that related Team Memory may be useful.",
+          "origin": {
+            "user_id": "source-user",
+            "agent_id": "source-agent",
+            "session_id": "source-user_implicit_11"
+          },
+          "evidence_event_ids": [
+            "event-user_implicit_11-lead"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-18T10:00:00Z",
+          "updated_at": "2026-07-18T10:00:00Z",
+          "source_occurred_at": "2026-07-18T10:00:00Z",
+          "lexical_score": 0,
+          "semantic_score": 0.9
+        },
+        {
+          "id": "user_implicit_11-active-evidence",
+          "kind": "status",
+          "subject": "focused evidence record",
+          "body": "which metrics are still pending, who owns them, and what evidence can be defended if fields remain partially populated",
+          "origin": {
+            "user_id": "source-user",
+            "agent_id": "source-agent",
+            "session_id": "source-user_implicit_11"
+          },
+          "evidence_event_ids": [
+            "event-user_implicit_11-active"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-18T11:00:00Z",
+          "updated_at": "2026-07-18T11:00:00Z",
+          "source_occurred_at": "2026-07-18T11:00:00Z",
+          "lexical_score": 0
+        }
+      ],
+      "atom_supports": [
+        {
+          "atom_id": "gold_answer",
+          "item_ids": [
+            "user_implicit_11-active-evidence"
+          ]
+        }
+      ],
+      "eligibility_decisions": [
+        {
+          "item_id": "user_implicit_11-lead",
+          "eligible": true,
+          "reason": "eligible"
+        },
+        {
+          "item_id": "user_implicit_11-active-evidence",
+          "eligible": true,
+          "reason": "eligible"
+        }
+      ],
+      "candidate_snapshot_sha256": "348fddc04f9010e09af8fa81a318d983ef920d7c212eafa9c225f773ed8af2d2",
+      "hint_observation": {
+        "exposed": true,
+        "score": 0.8099999999999999,
+        "focused_query": "What do I need to confirm about metrics ownership and evidence standards for the Risk: Incomplete Impact Data phase?; related topic: memory navigation topic",
+        "consumer": {
+          "user_id": "User_13",
+          "agent_id": "groupmembench-User_13",
+          "session_id": "hint-consumer-user_implicit_11"
+        },
+        "observation_time": "2026-07-18T12:00:00Z",
+        "temporal_mode": "current",
+        "query_timezone": "UTC",
+        "query_time": "2026-07-18T12:00:00Z",
+        "lead_note_ids": [
+          "user_implicit_11-lead"
+        ],
+        "lead_fingerprint": "df5f47e94289265c403aaf7415177c3dc12c6893396bdb5d6ebfc78dd14b5ad5",
+        "evidence_scores": [
+          {
+            "item_id": "user_implicit_11-lead",
+            "score": 0.3,
+            "admitted": false
+          }
+        ],
+        "calls": [
+          {
+            "items": [
+              {
+                "id": "user_implicit_11-active-evidence",
+                "source_item_ids": [
+                  "user_implicit_11-active-evidence"
+                ],
+                "text": "which metrics are still pending, who owns them, and what evidence can be defended if fields remain partially populated",
+                "evidence_event_ids": [
+                  "event-user_implicit_11-active"
+                ]
+              }
+            ],
+            "origin_attributions": [
+              {
+                "item_id": "user_implicit_11-active-evidence",
+                "origins": [
+                  {
+                    "user_id": "source-user",
+                    "agent_id": "source-agent",
+                    "session_id": "source-user_implicit_11"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "fixture": {
+        "case_id": "user_implicit_1",
+        "category": "user_implicit",
+        "source_revision": "60201a5bc1c4269ac6e7f952a6f0cc90cf78bef804a282f569a629fe7f7c5767",
+        "recall_context": {
+          "consumer_user_id": "User_3",
+          "consumer_agent_id": "groupmembench-User_3",
+          "query": "Which teams am I asking to pressure-test the current assumptions for the decision criteria in the Risk: Misalignment with Sustainability Targets phase?",
+          "token_budget": 500,
+          "max_items": 5
+        },
+        "required_atoms": [
+          {
+            "id": "gold_answer",
+            "patterns": [
+              "(?i)Finance, ESG, Ops, and Analytics are being asked to pressure-test the current assumptions against the spec\\."
+            ]
+          }
+        ]
+      },
+      "scope_id": "hint-user_implicit_1",
+      "actor": {
+        "user_id": "User_3",
+        "agent_id": "groupmembench-User_3",
+        "session_id": "hint-consumer-user_implicit_1"
+      },
+      "observation_time": "2026-07-18T12:00:00Z",
+      "query_timezone": "UTC",
+      "extraction_items": [
+        {
+          "id": "user_implicit_1-lead",
+          "text": "A safe navigation lead indicates that related Team Memory may be useful.",
+          "evidence_event_ids": [
+            "event-user_implicit_1-lead"
+          ]
+        },
+        {
+          "id": "user_implicit_1-active-evidence",
+          "text": "Finance, ESG, Ops, and Analytics are being asked to pressure-test the current assumptions against the spec.",
+          "evidence_event_ids": [
+            "event-user_implicit_1-active"
+          ]
+        }
+      ],
+      "candidates": [
+        {
+          "id": "user_implicit_1-lead",
+          "kind": "status",
+          "subject": "memory navigation topic",
+          "body": "A safe navigation lead indicates that related Team Memory may be useful.",
+          "origin": {
+            "user_id": "source-user",
+            "agent_id": "source-agent",
+            "session_id": "source-user_implicit_1"
+          },
+          "evidence_event_ids": [
+            "event-user_implicit_1-lead"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-18T10:00:00Z",
+          "updated_at": "2026-07-18T10:00:00Z",
+          "source_occurred_at": "2026-07-18T10:00:00Z",
+          "lexical_score": 0,
+          "semantic_score": 0.9
+        },
+        {
+          "id": "user_implicit_1-active-evidence",
+          "kind": "status",
+          "subject": "focused evidence record",
+          "body": "Finance, ESG, Ops, and Analytics are being asked to pressure-test the current assumptions against the spec.",
+          "origin": {
+            "user_id": "source-user",
+            "agent_id": "source-agent",
+            "session_id": "source-user_implicit_1"
+          },
+          "evidence_event_ids": [
+            "event-user_implicit_1-active"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-18T11:00:00Z",
+          "updated_at": "2026-07-18T11:00:00Z",
+          "source_occurred_at": "2026-07-18T11:00:00Z",
+          "lexical_score": 0
+        }
+      ],
+      "atom_supports": [
+        {
+          "atom_id": "gold_answer",
+          "item_ids": [
+            "user_implicit_1-active-evidence"
+          ]
+        }
+      ],
+      "eligibility_decisions": [
+        {
+          "item_id": "user_implicit_1-lead",
+          "eligible": true,
+          "reason": "eligible"
+        },
+        {
+          "item_id": "user_implicit_1-active-evidence",
+          "eligible": true,
+          "reason": "eligible"
+        }
+      ],
+      "candidate_snapshot_sha256": "234ee203d5c004235d458cf395083057c70959a01205695136c932bb42579558",
+      "hint_observation": {
+        "exposed": true,
+        "score": 0.8099999999999999,
+        "focused_query": "Which teams am I asking to pressure-test the current assumptions for the decision criteria in the Risk: Misalignment with Sustainability Targets phase?; related topic: memory navigation topic",
+        "consumer": {
+          "user_id": "User_3",
+          "agent_id": "groupmembench-User_3",
+          "session_id": "hint-consumer-user_implicit_1"
+        },
+        "observation_time": "2026-07-18T12:00:00Z",
+        "temporal_mode": "current",
+        "query_timezone": "UTC",
+        "query_time": "2026-07-18T12:00:00Z",
+        "lead_note_ids": [
+          "user_implicit_1-lead"
+        ],
+        "lead_fingerprint": "aa0f3afc8c8f3c3416090d0239faaf97450da8f4bf8c7ea42b76ad5dd0b559b5",
+        "evidence_scores": [
+          {
+            "item_id": "user_implicit_1-lead",
+            "score": 0.3,
+            "admitted": false
+          }
+        ],
+        "calls": [
+          {
+            "items": [
+              {
+                "id": "user_implicit_1-active-evidence",
+                "source_item_ids": [
+                  "user_implicit_1-active-evidence"
+                ],
+                "text": "Finance, ESG, Ops, and Analytics are being asked to pressure-test the current assumptions against the spec.",
+                "evidence_event_ids": [
+                  "event-user_implicit_1-active"
+                ]
+              }
+            ],
+            "origin_attributions": [
+              {
+                "item_id": "user_implicit_1-active-evidence",
+                "origins": [
+                  {
+                    "user_id": "source-user",
+                    "agent_id": "source-agent",
+                    "session_id": "source-user_implicit_1"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "fixture": {
+        "case_id": "term_ambiguity_37",
+        "category": "term_ambiguity",
+        "source_revision": "ae16eb831b2b0b6c6aa9febeb2507ae0a0d77fa38f184391a96eba2ec936ffdd",
+        "recall_context": {
+          "consumer_user_id": "User_7",
+          "consumer_agent_id": "groupmembench-User_7",
+          "query": "What is the deadline for operational finance to confirm the bank statement format and exception owner during the Cash Management Module Build?",
+          "token_budget": 500,
+          "max_items": 5
+        },
+        "required_atoms": [
+          {
+            "id": "gold_answer",
+            "patterns": [
+              "(?i)2025-07-18"
+            ]
+          }
+        ]
+      },
+      "scope_id": "hint-term_ambiguity_37",
+      "actor": {
+        "user_id": "User_7",
+        "agent_id": "groupmembench-User_7",
+        "session_id": "hint-consumer-term_ambiguity_37"
+      },
+      "observation_time": "2026-07-18T12:00:00Z",
+      "query_timezone": "UTC",
+      "extraction_items": [
+        {
+          "id": "term_ambiguity_37-lead",
+          "text": "A safe navigation lead indicates that related Team Memory may be useful.",
+          "evidence_event_ids": [
+            "event-term_ambiguity_37-lead"
+          ]
+        },
+        {
+          "id": "term_ambiguity_37-active-evidence",
+          "text": "2025-07-18",
+          "evidence_event_ids": [
+            "event-term_ambiguity_37-active"
+          ]
+        }
+      ],
+      "candidates": [
+        {
+          "id": "term_ambiguity_37-lead",
+          "kind": "status",
+          "subject": "memory navigation topic",
+          "body": "A safe navigation lead indicates that related Team Memory may be useful.",
+          "origin": {
+            "user_id": "source-user",
+            "agent_id": "source-agent",
+            "session_id": "source-term_ambiguity_37"
+          },
+          "evidence_event_ids": [
+            "event-term_ambiguity_37-lead"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-18T10:00:00Z",
+          "updated_at": "2026-07-18T10:00:00Z",
+          "source_occurred_at": "2026-07-18T10:00:00Z",
+          "lexical_score": 0,
+          "semantic_score": 0.9
+        },
+        {
+          "id": "term_ambiguity_37-active-evidence",
+          "kind": "status",
+          "subject": "focused evidence record",
+          "body": "2025-07-18",
+          "origin": {
+            "user_id": "source-user",
+            "agent_id": "source-agent",
+            "session_id": "source-term_ambiguity_37"
+          },
+          "evidence_event_ids": [
+            "event-term_ambiguity_37-active"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-18T11:00:00Z",
+          "updated_at": "2026-07-18T11:00:00Z",
+          "source_occurred_at": "2026-07-18T11:00:00Z",
+          "lexical_score": 0
+        }
+      ],
+      "atom_supports": [
+        {
+          "atom_id": "gold_answer",
+          "item_ids": [
+            "term_ambiguity_37-active-evidence"
+          ]
+        }
+      ],
+      "eligibility_decisions": [
+        {
+          "item_id": "term_ambiguity_37-lead",
+          "eligible": true,
+          "reason": "eligible"
+        },
+        {
+          "item_id": "term_ambiguity_37-active-evidence",
+          "eligible": true,
+          "reason": "eligible"
+        }
+      ],
+      "candidate_snapshot_sha256": "325f88c1b3745fcab7b75dd75bcb8a29080b6d38509cc0a9cc4e9b0e4bf3fb0d",
+      "hint_observation": {
+        "exposed": true,
+        "score": 0.8099999999999999,
+        "focused_query": "What is the deadline for operational finance to confirm the bank statement format and exception owner during the Cash Management Module Build?; related topic: memory navigation topic",
+        "consumer": {
+          "user_id": "User_7",
+          "agent_id": "groupmembench-User_7",
+          "session_id": "hint-consumer-term_ambiguity_37"
+        },
+        "observation_time": "2026-07-18T12:00:00Z",
+        "temporal_mode": "current",
+        "query_timezone": "UTC",
+        "query_time": "2026-07-18T12:00:00Z",
+        "lead_note_ids": [
+          "term_ambiguity_37-lead"
+        ],
+        "lead_fingerprint": "ecbe93aa8f7e578e646a83354231cb7452f3495bdc93bb25d5721b75c891a58d",
+        "evidence_scores": [
+          {
+            "item_id": "term_ambiguity_37-lead",
+            "score": 0.3,
+            "admitted": false
+          }
+        ],
+        "calls": [
+          {
+            "items": [
+              {
+                "id": "term_ambiguity_37-active-evidence",
+                "source_item_ids": [
+                  "term_ambiguity_37-active-evidence"
+                ],
+                "text": "2025-07-18",
+                "evidence_event_ids": [
+                  "event-term_ambiguity_37-active"
+                ]
+              }
+            ],
+            "origin_attributions": [
+              {
+                "item_id": "term_ambiguity_37-active-evidence",
+                "origins": [
+                  {
+                    "user_id": "source-user",
+                    "agent_id": "source-agent",
+                    "session_id": "source-term_ambiguity_37"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "fixture": {
+        "case_id": "term_ambiguity_1",
+        "category": "term_ambiguity",
+        "source_revision": "e6308f4b9812694bf26075455bf4031892e80982d3d9688d8f2e26d314eb9602",
+        "recall_context": {
+          "consumer_user_id": "User_1",
+          "consumer_agent_id": "groupmembench-User_1",
+          "query": "What is the freeze status of finance workflows approval in the Design Automated Report Templates phase?",
+          "token_budget": 500,
+          "max_items": 5
+        },
+        "required_atoms": [
+          {
+            "id": "gold_answer",
+            "patterns": [
+              "(?i)frozen"
+            ]
+          }
+        ]
+      },
+      "scope_id": "hint-term_ambiguity_1",
+      "actor": {
+        "user_id": "User_1",
+        "agent_id": "groupmembench-User_1",
+        "session_id": "hint-consumer-term_ambiguity_1"
+      },
+      "observation_time": "2026-07-18T12:00:00Z",
+      "query_timezone": "UTC",
+      "extraction_items": [
+        {
+          "id": "term_ambiguity_1-lead",
+          "text": "A safe navigation lead indicates that related Team Memory may be useful.",
+          "evidence_event_ids": [
+            "event-term_ambiguity_1-lead"
+          ]
+        },
+        {
+          "id": "term_ambiguity_1-active-evidence",
+          "text": "frozen",
+          "evidence_event_ids": [
+            "event-term_ambiguity_1-active"
+          ]
+        }
+      ],
+      "candidates": [
+        {
+          "id": "term_ambiguity_1-lead",
+          "kind": "status",
+          "subject": "memory navigation topic",
+          "body": "A safe navigation lead indicates that related Team Memory may be useful.",
+          "origin": {
+            "user_id": "source-user",
+            "agent_id": "source-agent",
+            "session_id": "source-term_ambiguity_1"
+          },
+          "evidence_event_ids": [
+            "event-term_ambiguity_1-lead"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-18T10:00:00Z",
+          "updated_at": "2026-07-18T10:00:00Z",
+          "source_occurred_at": "2026-07-18T10:00:00Z",
+          "lexical_score": 0,
+          "semantic_score": 0.9
+        },
+        {
+          "id": "term_ambiguity_1-active-evidence",
+          "kind": "status",
+          "subject": "focused evidence record",
+          "body": "frozen",
+          "origin": {
+            "user_id": "source-user",
+            "agent_id": "source-agent",
+            "session_id": "source-term_ambiguity_1"
+          },
+          "evidence_event_ids": [
+            "event-term_ambiguity_1-active"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-18T11:00:00Z",
+          "updated_at": "2026-07-18T11:00:00Z",
+          "source_occurred_at": "2026-07-18T11:00:00Z",
+          "lexical_score": 0
+        }
+      ],
+      "atom_supports": [
+        {
+          "atom_id": "gold_answer",
+          "item_ids": [
+            "term_ambiguity_1-active-evidence"
+          ]
+        }
+      ],
+      "eligibility_decisions": [
+        {
+          "item_id": "term_ambiguity_1-lead",
+          "eligible": true,
+          "reason": "eligible"
+        },
+        {
+          "item_id": "term_ambiguity_1-active-evidence",
+          "eligible": true,
+          "reason": "eligible"
+        }
+      ],
+      "candidate_snapshot_sha256": "da3a15625ad27a2a2d1680b88460f073ea89a6cdcd4691149faa01b747bf9103",
+      "hint_observation": {
+        "exposed": true,
+        "score": 0.8099999999999999,
+        "focused_query": "What is the freeze status of finance workflows approval in the Design Automated Report Templates phase?; related topic: memory navigation topic",
+        "consumer": {
+          "user_id": "User_1",
+          "agent_id": "groupmembench-User_1",
+          "session_id": "hint-consumer-term_ambiguity_1"
+        },
+        "observation_time": "2026-07-18T12:00:00Z",
+        "temporal_mode": "current",
+        "query_timezone": "UTC",
+        "query_time": "2026-07-18T12:00:00Z",
+        "lead_note_ids": [
+          "term_ambiguity_1-lead"
+        ],
+        "lead_fingerprint": "54510b78c463649793b4ba249285e8c5970d5629be54022531c9b40390f19af7",
+        "evidence_scores": [
+          {
+            "item_id": "term_ambiguity_1-lead",
+            "score": 0.3,
+            "admitted": false
+          }
+        ],
+        "calls": [
+          {
+            "items": [
+              {
+                "id": "term_ambiguity_1-active-evidence",
+                "source_item_ids": [
+                  "term_ambiguity_1-active-evidence"
+                ],
+                "text": "frozen",
+                "evidence_event_ids": [
+                  "event-term_ambiguity_1-active"
+                ]
+              }
+            ],
+            "origin_attributions": [
+              {
+                "item_id": "term_ambiguity_1-active-evidence",
+                "origins": [
+                  {
+                    "user_id": "source-user",
+                    "agent_id": "source-agent",
+                    "session_id": "source-term_ambiguity_1"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "fixture": {
+        "case_id": "abstention_42",
+        "category": "abstention",
+        "source_revision": "0319cfc38cd41fe34c7b4deb847290205993ce9150ea3ea7d041ed1794fea9ec",
+        "recall_context": {
+          "consumer_user_id": "User_10",
+          "consumer_agent_id": "groupmembench-User_10",
+          "query": "What is the exact target date mentioned for the cutover readiness in the Treasury Management System implementation?",
+          "token_budget": 500,
+          "max_items": 5
+        },
+        "required_atoms": null,
+        "forbidden_atoms": [
+          {
+            "id": "unsupported_answer",
+            "patterns": [
+              "(?i)unsupported designated answer"
+            ]
+          }
+        ]
+      },
+      "scope_id": "hint-abstention_42",
+      "actor": {
+        "user_id": "User_10",
+        "agent_id": "groupmembench-User_10",
+        "session_id": "hint-consumer-abstention_42"
+      },
+      "observation_time": "2026-07-18T12:00:00Z",
+      "query_timezone": "UTC",
+      "extraction_items": [
+        {
+          "id": "abstention_42-lead",
+          "text": "A safe navigation lead indicates that related Team Memory may be useful.",
+          "evidence_event_ids": [
+            "event-abstention_42-lead"
+          ]
+        }
+      ],
+      "candidates": [
+        {
+          "id": "abstention_42-lead",
+          "kind": "status",
+          "subject": "memory navigation topic",
+          "body": "A safe navigation lead indicates that related Team Memory may be useful.",
+          "origin": {
+            "user_id": "source-user",
+            "agent_id": "source-agent",
+            "session_id": "source-abstention_42"
+          },
+          "evidence_event_ids": [
+            "event-abstention_42-lead"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-18T10:00:00Z",
+          "updated_at": "2026-07-18T10:00:00Z",
+          "source_occurred_at": "2026-07-18T10:00:00Z",
+          "lexical_score": 0,
+          "semantic_score": 0.9
+        }
+      ],
+      "eligibility_decisions": [
+        {
+          "item_id": "abstention_42-lead",
+          "eligible": true,
+          "reason": "eligible"
+        }
+      ],
+      "candidate_snapshot_sha256": "bb152e41d8c77fc098492f35a768b924df4d83405f8bab89432a101aba119598",
+      "hint_observation": {
+        "exposed": true,
+        "score": 0.8099999999999999,
+        "focused_query": "What is the exact target date mentioned for the cutover readiness in the Treasury Management System implementation?; related topic: memory navigation topic",
+        "consumer": {
+          "user_id": "User_10",
+          "agent_id": "groupmembench-User_10",
+          "session_id": "hint-consumer-abstention_42"
+        },
+        "observation_time": "2026-07-18T12:00:00Z",
+        "temporal_mode": "current",
+        "query_timezone": "UTC",
+        "query_time": "2026-07-18T12:00:00Z",
+        "lead_note_ids": [
+          "abstention_42-lead"
+        ],
+        "lead_fingerprint": "5be9c1a7524d739ca65fbc01d2c1860bf6b81c994c8aeaf49e2345f4324519da",
+        "evidence_scores": [
+          {
+            "item_id": "abstention_42-lead",
+            "score": 0.3,
+            "admitted": false
+          }
+        ],
+        "calls": [
+          {
+            "items": null
+          },
+          {
+            "items": null
+          }
+        ]
+      }
+    },
+    {
+      "fixture": {
+        "case_id": "abstention_2",
+        "category": "abstention",
+        "source_revision": "3ec8ebaf31c5360347a3d8cb1f5176e24891e0a4f4ec19a772ac7ff99556d130",
+        "recall_context": {
+          "consumer_user_id": "User_4",
+          "consumer_agent_id": "groupmembench-User_4",
+          "query": "What is the name of the primary approver for the ESG Policy Framework in the Define ESG Policy Requirements phase?",
+          "token_budget": 500,
+          "max_items": 5
+        },
+        "required_atoms": null,
+        "forbidden_atoms": [
+          {
+            "id": "unsupported_answer",
+            "patterns": [
+              "(?i)unsupported designated answer"
+            ]
+          }
+        ]
+      },
+      "scope_id": "hint-abstention_2",
+      "actor": {
+        "user_id": "User_4",
+        "agent_id": "groupmembench-User_4",
+        "session_id": "hint-consumer-abstention_2"
+      },
+      "observation_time": "2026-07-18T12:00:00Z",
+      "query_timezone": "UTC",
+      "extraction_items": [
+        {
+          "id": "abstention_2-lead",
+          "text": "A safe navigation lead indicates that related Team Memory may be useful.",
+          "evidence_event_ids": [
+            "event-abstention_2-lead"
+          ]
+        }
+      ],
+      "candidates": [
+        {
+          "id": "abstention_2-lead",
+          "kind": "status",
+          "subject": "memory navigation topic",
+          "body": "A safe navigation lead indicates that related Team Memory may be useful.",
+          "origin": {
+            "user_id": "source-user",
+            "agent_id": "source-agent",
+            "session_id": "source-abstention_2"
+          },
+          "evidence_event_ids": [
+            "event-abstention_2-lead"
+          ],
+          "revision": 1,
+          "created_at": "2026-07-18T10:00:00Z",
+          "updated_at": "2026-07-18T10:00:00Z",
+          "source_occurred_at": "2026-07-18T10:00:00Z",
+          "lexical_score": 0,
+          "semantic_score": 0.9
+        }
+      ],
+      "eligibility_decisions": [
+        {
+          "item_id": "abstention_2-lead",
+          "eligible": true,
+          "reason": "eligible"
+        }
+      ],
+      "candidate_snapshot_sha256": "82353124f036fc7d6ecb9400fd8304ed723faf185d5bcb1a6337c910769b7aee",
+      "hint_observation": {
+        "exposed": true,
+        "score": 0.8099999999999999,
+        "focused_query": "What is the name of the primary approver for the ESG Policy Framework in the Define ESG Policy Requirements phase?; related topic: memory navigation topic",
+        "consumer": {
+          "user_id": "User_4",
+          "agent_id": "groupmembench-User_4",
+          "session_id": "hint-consumer-abstention_2"
+        },
+        "observation_time": "2026-07-18T12:00:00Z",
+        "temporal_mode": "current",
+        "query_timezone": "UTC",
+        "query_time": "2026-07-18T12:00:00Z",
+        "lead_note_ids": [
+          "abstention_2-lead"
+        ],
+        "lead_fingerprint": "3f01f922ed00c5209afaa292f83874f4e2fb83fc66b4dc0236d3f9da6635e6e4",
+        "evidence_scores": [
+          {
+            "item_id": "abstention_2-lead",
+            "score": 0.3,
+            "admitted": false
+          }
+        ],
+        "calls": [
+          {
+            "items": null
+          },
+          {
+            "items": null
+          }
+        ]
+      }
+    }
+  ]
+}

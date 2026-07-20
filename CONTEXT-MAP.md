@@ -13,3 +13,6 @@
 - **Session → LLM Wiki**: LLM Wiki will maintain durable pages from larger Session Lake batches.
 - **Evaluation → Team Note/LLM Wiki**: Evaluation may exercise product contexts; product contexts never import Evaluation.
 - **Team Note ↔ LLM Wiki**: They share Session evidence but do not import each other.
+
+The implementation boundary and extension rules are documented in the
+[Session Lake processor guide](./docs/session-lake-processors.md).

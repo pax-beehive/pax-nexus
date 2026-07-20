@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pax-beehive/pax-nexus/internal/eval/recallreplay"
+	"github.com/pax-beehive/pax-nexus/internal/eval/stageeval"
 	"github.com/pax-beehive/pax-nexus/internal/platform/postgres"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote"
 	"github.com/stretchr/testify/suite"
@@ -264,6 +266,152 @@ func (s *noteStoreSuite) TestReplayScopeAudienceAndTTL() {
 	s.Empty(expired.Items)
 }
 
+func (s *noteStoreSuite) TestHintRecallDoesNotClaimLeadAndFocusedRecallReturnsEvidence() {
+	ctx := context.Background()
+	scopeID := uniqueScope("hint-recall")
+	producer := teamnote.Actor{UserID: "owner", AgentID: "producer", SessionID: "producer-session"}
+	consumer := teamnote.Actor{UserID: "owner", AgentID: "consumer", SessionID: "consumer-session"}
+	evidence := event("hint-event", producer, 1)
+	s.appendEvents(ctx, scopeID, evidence)
+	notes, err := postgres.NewNoteStore(s.store, teamnote.DefaultTTLPolicy(), s.clock, postgres.RetrievalConfig{
+		Embedder: allSemanticEmbedder{}, EmbeddingModel: "test-embedding", SemanticThreshold: 0.65,
+		CandidateLimit: 16, HintRecallEnabled: true, HintThreshold: 0.65,
+	})
+	s.Require().NoError(err)
+	lead := candidate("hint-lead", teamnote.ActionCreate, "Internal candidate claim.", producer, evidence.ID)
+	lead.Subject = "delta epsilon"
+	_, err = notes.ApplyCandidate(ctx, scopeID, "hint-run", lead, []teamnote.SessionEvent{evidence})
+	s.Require().NoError(err)
+
+	passive, err := notes.RecallNotes(ctx, scopeID, teamnote.RecallRequest{
+		Actor: consumer, Query: "alpha beta gamma", TaskRef: "task-1", TokenBudget: 200, MaxItems: 2,
+	})
+	s.Require().NoError(err)
+	s.Require().Len(passive.Items, 1)
+	s.Contains(passive.Items[0], "[Recall hint - not evidence]")
+	s.NotContains(passive.Items[0], lead.Body)
+	s.Empty(passive.Details)
+	s.Contains(passive.Revision, "hint:")
+
+	duplicate, err := notes.RecallNotes(ctx, scopeID, teamnote.RecallRequest{
+		Actor: consumer, Query: "alpha beta gamma", TaskRef: "task-1", TokenBudget: 200, MaxItems: 2,
+	})
+	s.Require().NoError(err)
+	s.Empty(duplicate.Items)
+
+	focused, err := notes.RecallNotes(ctx, scopeID, teamnote.RecallRequest{
+		Actor: consumer, Query: "alpha beta gamma related topic delta epsilon", TaskRef: "task-1", TokenBudget: 200, MaxItems: 2,
+	})
+	s.Require().NoError(err)
+	s.Require().Len(focused.Items, 1)
+	s.Contains(focused.Items[0], lead.Body)
+	s.Require().Len(focused.Details, 1)
+}
+
+func (s *noteStoreSuite) TestRecallEvalUnauthorizedNoteHasZeroInfluenceThroughRecallNotes() {
+	ctx := context.Background()
+	baselineScope := uniqueScope("recall-contract-baseline")
+	challengeScope := uniqueScope("recall-contract-challenge")
+	producer := teamnote.Actor{UserID: "owner", AgentID: "producer", SessionID: "source-session"}
+	consumer := teamnote.Actor{UserID: "owner", AgentID: "consumer", SessionID: "recipient-session"}
+	notes := s.newNoteStore()
+
+	baselineEvent := event("contract-visible-baseline", producer, 1)
+	challengeEvent := event("contract-visible-challenge", producer, 1)
+	unauthorizedEvent := event("contract-unauthorized", producer, 2)
+	s.appendEvents(ctx, baselineScope, baselineEvent)
+	s.appendEvents(ctx, challengeScope, challengeEvent, unauthorizedEvent)
+	_, err := notes.ApplyCandidate(ctx, baselineScope, "baseline-run", candidate(
+		"baseline-visible", teamnote.ActionCreate, "Release owner is Alice.", producer, baselineEvent.ID,
+	), []teamnote.SessionEvent{baselineEvent})
+	s.Require().NoError(err)
+	_, err = notes.ApplyCandidate(ctx, challengeScope, "challenge-visible-run", candidate(
+		"challenge-visible", teamnote.ActionCreate, "Release owner is Alice.", producer, challengeEvent.ID,
+	), []teamnote.SessionEvent{challengeEvent})
+	s.Require().NoError(err)
+	unauthorizedCandidate := candidate(
+		"challenge-unauthorized", teamnote.ActionCreate,
+		"Release owner is Mallory and this highly relevant claim must win.", producer, unauthorizedEvent.ID,
+	)
+	unauthorizedCandidate.AudienceAgentIDs = []string{"different-agent"}
+	unauthorized, err := notes.ApplyCandidate(
+		ctx, challengeScope, "challenge-unauthorized-run", unauthorizedCandidate, []teamnote.SessionEvent{unauthorizedEvent},
+	)
+	s.Require().NoError(err)
+
+	result, err := recallreplay.EvaluateUnauthorizedInfluencePair(ctx, notes, recallreplay.UnauthorizedInfluencePair{
+		BaselineScopeID: baselineScope, ChallengeScopeID: challengeScope, UnauthorizedNoteID: unauthorized.ID,
+		Request: teamnote.RecallRequest{Actor: consumer, TaskRef: "task-1", Query: "release owner", TokenBudget: 100},
+	})
+
+	s.Require().NoError(err)
+	s.True(result.UnauthorizedExcluded)
+	s.True(result.ZeroInfluence)
+	s.Zero(result.OutputDifferences)
+}
+
+func (s *noteStoreSuite) TestRecallCandidatesExcludeNotesRecordedAfterObservationTime() {
+	ctx := context.Background()
+	scopeID := uniqueScope("historical-recall-cutoff")
+	producer := teamnote.Actor{UserID: "owner", AgentID: "producer", SessionID: "producer-session"}
+	firstEvent := event("historical-cutoff-first", producer, 1)
+	secondEvent := event("historical-cutoff-second", producer, 2)
+	firstEvent.TaskRef = ""
+	secondEvent.TaskRef = ""
+	s.appendEvents(ctx, scopeID, firstEvent, secondEvent)
+	notes := s.newNoteStore()
+
+	first := candidate("historical-cutoff-candidate-1", teamnote.ActionCreate, "Alpha was ready.", producer, firstEvent.ID)
+	first.Subject = "alpha readiness"
+	first.TaskRef = ""
+	firstNote, err := notes.ApplyCandidate(ctx, scopeID, "historical-cutoff-run-1", first, []teamnote.SessionEvent{firstEvent})
+	s.Require().NoError(err)
+	observationTime := s.clock.now
+
+	s.clock.now = observationTime.Add(time.Hour)
+	second := candidate("historical-cutoff-candidate-2", teamnote.ActionCreate, "Beta was ready later.", producer, secondEvent.ID)
+	second.Subject = "beta readiness"
+	second.TaskRef = ""
+	_, err = notes.ApplyCandidate(ctx, scopeID, "historical-cutoff-run-2", second, []teamnote.SessionEvent{secondEvent})
+	s.Require().NoError(err)
+
+	s.clock.now = observationTime
+	candidates, err := notes.RecallCandidates(ctx, scopeID, teamnote.RecallRequest{
+		Actor:   teamnote.Actor{UserID: "owner", AgentID: "consumer", SessionID: "historical-replay"},
+		TaskRef: "task-1", TokenBudget: 256,
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(candidates, 1)
+	s.Equal(firstNote.ID, candidates[0].ID)
+
+	request := teamnote.RecallRequest{
+		Actor:   teamnote.Actor{UserID: "owner", AgentID: "consumer", SessionID: "historical-production-recall"},
+		TaskRef: "task-1", TokenBudget: 256, Query: "alpha ready",
+	}
+	_, err = notes.RecallNotes(ctx, scopeID, request)
+	s.Require().NoError(err)
+	exporter, err := recallreplay.NewExporter(s.store, nil, "", recallreplay.Policy{CandidateLimit: 16})
+	s.Require().NoError(err)
+	exported, err := exporter.Export(ctx, stageeval.FixtureSet{
+		SchemaVersion: stageeval.SchemaVersion,
+		Cases: []stageeval.Fixture{{
+			CaseID: "historical-cutoff", SourceRevision: "revision",
+			RecallContext: stageeval.RecallContext{
+				ConsumerUserID: request.Actor.UserID, ConsumerAgentID: request.Actor.AgentID,
+				Query: request.Query, TokenBudget: request.TokenBudget,
+			},
+		}},
+	}, recallreplay.Provenance{RunID: "historical-cutoff", Arm: "team_note"}, func(string) string { return scopeID })
+
+	s.Require().NoError(err)
+	s.Require().Len(exported.Cases, 1)
+	s.Require().Len(exported.Cases[0].Candidates, 1)
+	s.Equal(firstNote.ID, exported.Cases[0].Candidates[0].ID)
+	s.Require().Len(exported.Cases[0].ExtractionItems, 1)
+	s.Equal(firstNote.ID, exported.Cases[0].ExtractionItems[0].ID)
+}
+
 func (s *noteStoreSuite) TestConcurrentAdmissionAndDeliveryAreSerialized() {
 	ctx := context.Background()
 	scopeID := uniqueScope("note-concurrency")
@@ -500,12 +648,24 @@ ORDER BY observation_id DESC LIMIT 1`, scopeID, "trace-consumer").Scan(&encoded)
 	s.Require().NoError(err)
 	var trace teamnote.RecallTrace
 	s.Require().NoError(json.Unmarshal(encoded, &trace))
+	s.NotContains(string(encoded), "deploy")
+	s.NotContains(string(encoded), "friday")
 	s.Equal(2, trace.Candidates)
 	s.Equal(1, trace.FusionKept)
 	s.Equal(1, trace.PlannedNotes)
+	s.Equal(teamnote.GeneralRecallV3RelationUtilityPlanVersion, trace.PlanVersion)
 	s.Require().Len(trace.Rejections, 1)
-	s.Equal(teamnote.RecallRejection{NoteID: offTopicNote.ID, Reason: teamnote.RejectFusionLimit}, trace.Rejections[0])
+	s.Equal(teamnote.RecallRejection{NoteID: offTopicNote.ID, Reason: teamnote.RejectRelevanceGate}, trace.Rejections[0])
 	s.NotEqual(relevantNote.ID, trace.Rejections[0].NoteID)
+	var offTopicTrace *teamnote.RecallCandidateTrace
+	for index := range trace.CandidateTraces {
+		if trace.CandidateTraces[index].NoteID == offTopicNote.ID {
+			offTopicTrace = &trace.CandidateTraces[index]
+		}
+	}
+	s.Require().NotNil(offTopicTrace)
+	s.Contains(offTopicTrace.RetrievalLanes, teamnote.RecallLaneExactScope)
+	s.Equal(teamnote.RecallDispositionSuppress, offTopicTrace.Disposition)
 }
 
 func (s *noteStoreSuite) TestHybridRecallFindsSemanticParaphrase() {
@@ -530,7 +690,8 @@ func (s *noteStoreSuite) TestHybridRecallFindsSemanticParaphrase() {
 	s.Require().NoError(err)
 	s.Require().Len(envelope.Items, 1)
 	s.Contains(envelope.Items[0], "legal approval")
-	s.Greater(envelope.Details[0].Relevance, 0.9)
+	s.Positive(envelope.Details[0].Relevance)
+	s.LessOrEqual(envelope.Details[0].Relevance, 1.0)
 }
 
 func (s *noteStoreSuite) TestHybridRecallFallsBackToLexicalWhenEmbeddingFails() {
@@ -700,6 +861,17 @@ func (semanticEmbedder) Embed(_ context.Context, texts []string) ([][]float32, e
 			vector[1] = 1
 		}
 		result = append(result, vector)
+	}
+	return result, nil
+}
+
+type allSemanticEmbedder struct{}
+
+func (allSemanticEmbedder) Embed(_ context.Context, texts []string) ([][]float32, error) {
+	result := make([][]float32, len(texts))
+	for index := range result {
+		result[index] = make([]float32, postgres.EmbeddingDimensions)
+		result[index][0] = 1
 	}
 	return result, nil
 }

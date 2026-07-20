@@ -1,0 +1,37 @@
+{
+  "schema_version": "pax-extraction-eval-v1-manifest",
+  "dataset": "GroupMemBench Finance extraction micro6 v1",
+  "dataset_revision": "e2682e01ff490acfe4fac2940159dce60307dfc9",
+  "cases": [
+    {
+      "id": "multi_hop_1",
+      "category": "multi_hop",
+      "scope_id": "groupmembench-Finance"
+    },
+    {
+      "id": "knowledge_update_20",
+      "category": "knowledge_update",
+      "scope_id": "groupmembench-Finance"
+    },
+    {
+      "id": "temporal_7",
+      "category": "temporal",
+      "scope_id": "groupmembench-Finance"
+    },
+    {
+      "id": "user_implicit_7",
+      "category": "user_implicit",
+      "scope_id": "groupmembench-Finance"
+    },
+    {
+      "id": "term_ambiguity_11",
+      "category": "term_ambiguity",
+      "scope_id": "groupmembench-Finance"
+    },
+    {
+      "id": "abstention_4",
+      "category": "abstention",
+      "scope_id": "groupmembench-Finance"
+    }
+  ]
+}

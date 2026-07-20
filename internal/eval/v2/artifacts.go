@@ -14,8 +14,9 @@ import (
 	"time"
 )
 
-const ArtifactSchemaVersion = "pax-eval-v2.8"
-const ArtifactSchemaVersionV3 = "pax-eval-v3.0"
+const ArtifactSchemaVersion = "pax-eval-v2.9"
+const ArtifactSchemaVersionV3 = "pax-eval-v3.1"
+const ArtifactSchemaVersionRecallV2 = "pax-recall-eval-v2.1"
 
 type SummaryRow struct {
 	DimensionType     string
@@ -161,9 +162,9 @@ func ExportArtifacts(directory string, run RunRecord, baselineArm string, format
 	if err := linkOptionalArtifacts(directory, run.Config, files); err != nil {
 		return err
 	}
-	schemaVersion := ArtifactSchemaVersion
-	if run.Config.Version == "v3" {
-		schemaVersion = ArtifactSchemaVersionV3
+	schemaVersion, err := linkProtocolArtifacts(directory, run.Config.Version, files)
+	if err != nil {
+		return err
 	}
 	manifest := map[string]any{
 		"schema_version": schemaVersion,
@@ -183,6 +184,29 @@ func ExportArtifacts(directory string, run RunRecord, baselineArm string, format
 		manifest["mem0_reproduction"] = reproduction
 	}
 	return writeJSON(filepath.Join(directory, "artifacts.json"), manifest)
+}
+
+func linkProtocolArtifacts(directory, version string, files map[string]string) (string, error) {
+	if version == "v3" {
+		return ArtifactSchemaVersionV3, nil
+	}
+	if version != "recall-v2" {
+		return ArtifactSchemaVersion, nil
+	}
+	for key, path := range map[string]string{
+		"recall_agent_report":  "recall-agent-report.json",
+		"recall_cohort":        "cohort.json",
+		"recall_seed_receipt":  "before-run.log",
+		"deterministic_replay": filepath.Join("deterministic-replay", "summary.json"),
+		"hint_replay":          filepath.Join("deterministic-replay", "hint-summary.json"),
+	} {
+		if _, err := os.Stat(filepath.Join(directory, path)); err == nil {
+			files[key] = path
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return "", fmt.Errorf("inspect recall eval v2 artifact %q: %w", path, err)
+		}
+	}
+	return ArtifactSchemaVersionRecallV2, nil
 }
 
 func buildMem0Reproduction(directory string, run RunRecord, results []TrialResult) (map[string]any, error) {
@@ -559,7 +583,7 @@ func writeJSONLines(path string, results []TrialResult) error {
 }
 
 func writeTrialsCSV(path string, results []TrialResult) error {
-	header := []string{"run_id", "dataset", "dataset_revision", "case_id", "category", "arm", "asking_user_id", "answering_agent_id", "answerer_seed", "strict_cross_agent", "answerer_source_overlap", "status", "memory_ingest_provider", "memory_ingest_accepted", "memory_ingest_duplicate", "memory_ingest_created", "memory_ingest_updated", "memory_ingest_deleted", "memory_ingest_noop_known", "memory_ingest_noop", "memory_source_events", "memory_source_actors", "memory_source_sessions", "exact", "safe_success", "token_f1", "judged", "correct", "judge_answer", "judge_error", "judge_session_id", "judge_input_tokens", "judge_output_tokens", "judge_cost", "judge_duration_ms", "input_tokens", "output_tokens", "cost", "cost_scope", "producer_input_tokens", "producer_output_tokens", "producer_cost", "consumer_input_tokens", "consumer_output_tokens", "consumer_cost", "producer_duration_ms", "readiness_duration_ms", "consumer_duration_ms", "total_duration_ms", "session_id", "question", "expected", "answer", "error", "started_at", "completed_at"}
+	header := []string{"run_id", "dataset", "dataset_revision", "case_id", "category", "arm", "asking_user_id", "answering_agent_id", "answerer_seed", "strict_cross_agent", "answerer_source_overlap", "status", "memory_ingest_provider", "memory_ingest_accepted", "memory_ingest_duplicate", "memory_ingest_created", "memory_ingest_updated", "memory_ingest_deleted", "memory_ingest_noop_known", "memory_ingest_noop", "memory_source_events", "memory_source_actors", "memory_source_sessions", "memory_recall_observed", "memory_recall_success", "memory_recall_provider_calls", "memory_recall_provider_type", "memory_recall_candidates", "memory_recall_eligible", "memory_recall_hits", "memory_context_items", "memory_recall_duration_ms", "active_recall_observed", "active_recall_success", "active_recall_calls", "exact", "safe_success", "token_f1", "judged", "correct", "judge_answer", "judge_error", "judge_session_id", "judge_input_tokens", "judge_output_tokens", "judge_cost", "judge_duration_ms", "input_tokens", "output_tokens", "cost", "cost_scope", "producer_input_tokens", "producer_output_tokens", "producer_cost", "consumer_input_tokens", "consumer_output_tokens", "consumer_cost", "producer_duration_ms", "readiness_duration_ms", "consumer_duration_ms", "total_duration_ms", "session_id", "question", "expected", "answer", "error", "started_at", "completed_at"}
 	rows := make([][]string, 0, len(results))
 	for _, result := range results {
 		rows = append(rows, []string{
@@ -569,6 +593,10 @@ func writeTrialsCSV(path string, results []TrialResult) error {
 			strconv.Itoa(result.MemoryIngestCreated), strconv.Itoa(result.MemoryIngestUpdated), strconv.Itoa(result.MemoryIngestDeleted),
 			strconv.FormatBool(result.MemoryIngestNoOpKnown), strconv.FormatBool(result.MemoryIngestNoOp),
 			strconv.Itoa(result.MemorySourceEvents), strconv.Itoa(result.MemorySourceActors), strconv.Itoa(result.MemorySourceSessions),
+			strconv.FormatBool(result.MemoryRecallObserved), strconv.FormatBool(result.MemoryRecallSuccess),
+			strconv.Itoa(result.MemoryRecallProviderCalls), result.MemoryRecallProviderType, strconv.Itoa(result.MemoryRecallCandidates), strconv.Itoa(result.MemoryRecallEligible),
+			strconv.Itoa(result.MemoryRecallHits), strconv.Itoa(result.MemoryContextItems), strconv.FormatInt(result.MemoryRecallDurationMS, 10),
+			strconv.FormatBool(result.ActiveRecallObserved), strconv.FormatBool(result.ActiveRecallSuccess), strconv.Itoa(result.ActiveRecallCalls),
 			strconv.FormatBool(result.Exact), strconv.FormatBool(result.SafeSuccess), floatString(result.TokenF1),
 			strconv.FormatBool(result.Judged), strconv.FormatBool(result.Correct), result.JudgeAnswer, result.JudgeError, result.JudgeSessionID,
 			strconv.Itoa(result.JudgeInputTokens), strconv.Itoa(result.JudgeOutputTokens), floatString(result.JudgeCost), strconv.FormatInt(result.JudgeDurationMS, 10), strconv.Itoa(result.InputTokens),

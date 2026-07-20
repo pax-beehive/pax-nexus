@@ -1,6 +1,6 @@
 # Extraction v2
 
-Status: Proposed
+Status: Accepted with rollout exception; production default enabled, quality gates blocked
 
 Date: 2026-07-16
 
@@ -462,7 +462,29 @@ speech-act guard is covered by unit tests, `v2` remains opt-in, and `v1`
 remains the default until a cache- and latency-feasible profile passes the
 paired fixed shadow.
 
-## Acceptance
+## Production default decision (2026-07-17)
+
+The product owner explicitly chose to make Extraction v2 the service and
+deployment default despite the failed shadow latency, token, and fact-recall
+gates above. This is an operator rollout decision, not a reinterpretation of
+the shadow result and not evidence that the Acceptance gates passed.
+
+The application, checked-in environment templates, root Compose stack, Eval v2
+environment loader, Eval v2 Compose stack, and OpenCode eval stack now default
+`TEAM_MEMORY_EXTRACTION_VERSION` to `v2`. Operators can set
+`TEAM_MEMORY_EXTRACTION_VERSION=v1` for an immediate protocol rollback. A
+protocol change still starts a fresh rolling episode, so v1 and v2 assistant
+responses are not mixed.
+
+The remaining acceptance debt is explicit:
+
+- repeat the paired fixed shadow for `v2-slim-2`;
+- measure fact recall, leakage, output tokens, cache behavior, latency, and
+  failures under the default configuration;
+- do not describe the default switch as a measured extraction-quality win;
+- roll back to v1 if the production latency or cost envelope is unacceptable.
+
+## Quality acceptance (outstanding)
 
 Extraction v2 may replace the current extractor only when the paired fixed
 cohort satisfies all of the following:
@@ -486,6 +508,60 @@ cohort satisfies all of the following:
 
 Thresholds are evaluated on the same fixed cohort. A result from one case does
 not justify a global prompt, limit, or compaction change.
+
+## Extraction Eval v1 result (2026-07-17, blocked)
+
+The first independent `extraction-eval-v1` full-domain run is recorded in
+[`evals/extraction-v1/results/2026-07-17-finance-micro6-v2-r1.md`](../../evals/extraction-v1/results/2026-07-17-finance-micro6-v2-r1.md).
+It produced raw fact recall of 1/6, three leakage matches, 74 error-free
+recorded primary calls, 416,021 output tokens, 6.91 percent token-weighted
+cache reuse, 42.8 second mean latency, and 100.9 second P95 latency. Periodic
+summary calls are currently folded into extraction usage rather than counted
+as separate provider calls, so the harness must expose call type before the
+next cost comparison.
+
+This run does not satisfy or fairly measure the six-case quality gate. Its
+persisted source contains supporting phases for only three fixture cases; the
+other three required facts are absent from the extraction input. Within the
+supported subset, the trace confirmed two admission defects: grounded current
+state was rejected when the model emitted an otherwise empty `unresolved`
+temporal resolution, and proposal/request language could become current state
+when its invalid interaction observation was dropped before the speech-act
+guard.
+
+Both defects now have deterministic regressions and admission fixes. The paid
+artifact predates those fixes. Quality acceptance remains blocked until a
+preflight-validated six-case source is regenerated and the fixed v2 protocol
+is compared with its control on identical persisted session events. Performance gates
+also remain failed: the run consumed 52.8 minutes of model-call time and
+approximately US$0.58 for one physical domain.
+
+### Quick optimization loop (implemented, paid canary pending)
+
+`extraction-eval-v1` now has a tracked `finance-micro3-quick` profile covering
+the positive multi-hop sentinel, the temporal-admission knowledge update, and
+the proposal-leakage abstention case. A live zero-cost source preflight reduced
+the persisted Finance input from 1,605 session events to 65 session events over four streams
+and exactly five expected primary slices. Preflight fails before extractor
+construction when a selected case has no supporting event IDs, a referenced
+session event is absent, or the selected cohort exceeds its six-slice ceiling.
+
+The harness now journals every completed slice and rolling episode so an
+interrupted run can rebuild notes from saved responses and continue at the
+first unpaid slice. Resume validates model, endpoint, protocol variant, prompt,
+source scope, selected event IDs, and slice size before reusing artifacts.
+Physical provider calls are separately journaled and classified as primary,
+summary, compaction, or verifier. Completed asynchronous summaries are persisted
+into the rolling episode before the run is declared resumable, and their usage
+is no longer hidden inside the primary-slice count.
+
+Two protocol variants are available on the identical quick input: `current`
+and `interaction-slim`. The latter requires an empty interaction-observation
+array and relies on deterministic source-evidence admission to block proposals
+and requests. The paired runner is implemented, but no paid comparison is
+recorded yet: the configured external extractor requires explicit approval to
+send the selected Finance session-event content. Quality and performance gates remain
+blocked until that paired artifact exists.
 
 ## Consequences
 

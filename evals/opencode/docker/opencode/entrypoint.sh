@@ -210,6 +210,22 @@ intentionally contains no source messages. Do not search, inspect, or mention th
 and do not use any tool other than active_recall. If the available memory evidence does not
 contain the answer, state directly that the information is unavailable."
       ;;
+	 hint)
+	  case "${PAXM_ACTIVE_RECALL_MAX_CALLS}" in
+	    1|2) ;;
+	    *)
+	      echo "PAXM_ACTIVE_RECALL_MAX_CALLS must be between 1 and 2" >&2
+	      exit 1
+	      ;;
+	  esac
+	  mkdir -p "${opencode_config}/tools"
+	  cp "${PAXM_ACTIVE_RECALL_TOOL_SOURCE}" "${opencode_config}/tools/active_recall.ts"
+	  recall_policy="Treat [Recall hint - not evidence] as a navigation instruction, never as factual evidence.
+Call active_recall with the hint's exact focused query when and only when such a hint is present,
+using at most ${PAXM_ACTIVE_RECALL_MAX_CALLS} calls. The consumer workspace intentionally contains no source
+messages. Do not search, inspect, or mention the workspace, and do not use any other tool. Answer only from
+evidence returned by passive or active recall; otherwise state that the information is unavailable."
+	  ;;
     *)
       echo "unsupported PAXM_EVAL_RECALL_MODE: ${PAXM_EVAL_RECALL_MODE}" >&2
       exit 1
@@ -236,7 +252,7 @@ EOF
   },'
   permission_config='    "*": "deny"'
   tools_config='    "*": false'
-  if [ "${PAXM_EVAL_RECALL_MODE}" = "hybrid" ]; then
+  if [ "${PAXM_EVAL_RECALL_MODE}" = "hybrid" ] || [ "${PAXM_EVAL_RECALL_MODE}" = "hint" ]; then
     agent_config='  "agent": {
     "eval-consumer": {
       "mode": "primary",
@@ -298,5 +314,16 @@ if [ "${PAXM_WRITE_ENABLED}" = "1" ]; then
 fi
 if [ "${PAXM_EVAL_DIAGNOSTICS:-0}" = "1" ]; then
   paxm --config "${paxm_config}" logs --tail 100 --json >&2 || true
+	active_calls=0
+	for counter in "${PAXM_ACTIVE_RECALL_STATE_DIR}"/*.count; do
+	  [ -f "${counter}" ] || continue
+	  count="$(tr -d '[:space:]' < "${counter}")"
+	  case "${count}" in
+	    ''|*[!0-9]*) continue ;;
+	    *) active_calls=$((active_calls + count)) ;;
+	  esac
+	done
+	printf '{"kind":"hook_active_recall","success":true,"call_count":%s}\n' "${active_calls}" >&2
+	printf '{"kind":"hook_provider_config","provider_type":"%s"}\n' "${PAXM_PROVIDER_TYPE}" >&2
 fi
 exit "${status}"

@@ -102,6 +102,29 @@ run_memory_preflight() {
     opencode -action preflight -marker "${helper_marker}"
 }
 
+zep_api_key() {
+  if [ -n "${ZEP_API_KEY:-}" ]; then
+    printf '%s' "${ZEP_API_KEY}"
+    return
+  fi
+  zep_config_path="${PAXM_CONFIG_PATH:-$(paxm config path)}"
+  awk 'BEGIN { in_zep=0 } /^[[:space:]]{2}zep:/ { in_zep=1; next } in_zep && /^[[:space:]]{2}[A-Za-z0-9_-]+:/ { exit } in_zep && /^[[:space:]]{4}api_key:/ { sub(/^[[:space:]]*api_key:[[:space:]]*/, ""); print; exit }' "${zep_config_path}"
+}
+
+run_zep() {
+  zep_key="$(zep_api_key)"
+  if [ -z "${zep_key}" ]; then
+    echo "Zep API key is unavailable from ZEP_API_KEY or paxm config" >&2
+    exit 1
+  fi
+  if [ -n "${EVAL_V2_ZEP_BINARY:-}" ]; then
+    ZEP_API_KEY="${zep_key}" "${EVAL_V2_ZEP_BINARY}" "$@"
+    return
+  fi
+  ZEP_API_KEY="${zep_key}" GOCACHE="${GOCACHE:-/tmp/team-memory-go-cache}" \
+    go run ./cmd/eval-v2-zep "$@"
+}
+
 case "${stage}" in
   producer)
     producer_write_enabled=1
@@ -124,6 +147,11 @@ case "${stage}" in
     fi
     if [ "${arm}" = "team_note_hybrid" ]; then
       ingest_provider="team_note"
+    fi
+    if [ "${arm}" = "zep_native" ]; then
+      zep_user_id="zep-eval-${PAX_EVAL_RUN_ID}-${case_id}"
+      run_zep -action ingest -user-id "${zep_user_id}" -session-batches-file "${batches_absolute}/${batches_file}"
+      exit 0
     fi
     run_memory_ingest "${ingest_provider}" "${api_key}" "${ingest_user_id}" "${ingest_agent_id}" "${mem0_run_id}" \
       "${batches_absolute}" "/artifact/${batches_file}"
@@ -148,6 +176,29 @@ case "${stage}" in
       echo "timed out waiting for all Team Note session streams after ${readiness_attempts} attempts" >&2
       exit 1
     fi
+    if [ "${arm}" = "zep_native" ]; then
+      attempts=0
+      readiness_attempts="${PAX_EVAL_ZEP_READINESS_ATTEMPTS:-480}"
+      zep_user_id="zep-eval-${PAX_EVAL_RUN_ID}-${case_id}"
+      ingest_result_file="${PAX_EVAL_ARTIFACT_DIR}/ingest.log"
+      if [ ! -f "${ingest_result_file}" ]; then
+        echo "Zep ingest result is missing: ${ingest_result_file}" >&2
+        exit 1
+      fi
+      accepted="$(jq -er '.accepted' "${ingest_result_file}")"
+      while [ "${attempts}" -lt "${readiness_attempts}" ]; do
+        readiness_result="$(run_zep -action ready -user-id "${zep_user_id}")"
+        episodes="$(printf '%s' "${readiness_result}" | jq -er '.episodes')"
+        processed="$(printf '%s' "${readiness_result}" | jq -er '.processed')"
+        if [ "${episodes}" -ge "${accepted}" ] && [ "${episodes}" -eq "${processed}" ]; then
+          exit 0
+        fi
+        attempts=$((attempts + 1))
+        sleep 1
+      done
+      echo "timed out waiting for Zep graph processing after ${readiness_attempts} attempts" >&2
+      exit 1
+    fi
     ;;
   consumer)
     consumer_recall_enabled=1
@@ -165,6 +216,16 @@ case "${stage}" in
         exit 1
       fi
       consumer_prompt="$(printf 'Asking user: %s\n\nQuestion:\n%s\n\nRetrieved conversation passages:\n' "${eval_user_id}" "${PAX_EVAL_QUESTION}"; cat "${source_file}")"
+    fi
+    if [ "${arm}" = "zep_native" ]; then
+      consumer_recall_enabled=0
+      consumer_recall_mode=direct
+      zep_user_id="zep-eval-${PAX_EVAL_RUN_ID}-${case_id}"
+      zep_result="$(run_zep -action search -user-id "${zep_user_id}" -query "${PAX_EVAL_QUESTION}" -max-characters "${PAX_EVAL_ZEP_MAX_CHARACTERS:-2000}")"
+      mkdir -p "${PAX_EVAL_ARTIFACT_DIR}"
+      printf '%s\n' "${zep_result}" > "${PAX_EVAL_ARTIFACT_DIR}/zep-native.json"
+      zep_context="$(printf '%s' "${zep_result}" | jq -er '.context')"
+      consumer_prompt="$(printf 'Asking user: %s\n\nQuestion:\n%s\n\nRetrieved conversation passages:\n%s' "${eval_user_id}" "${PAX_EVAL_QUESTION}" "${zep_context}")"
     fi
     if [ "${arm}" = "team_note_hybrid" ]; then
       consumer_recall_mode=hybrid

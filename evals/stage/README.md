@@ -66,8 +66,13 @@ fixed cohort for validating retrieval changes before any paid end-to-end run.
 
 Export pins a cohort from a persisted eval store (candidate notes with the
 exact lexical and semantic scores produced by the recall code path, extraction
-snapshot, recall request, and gold atoms), using schema
-`pax-recall-replay-v1`:
+snapshot, recall request, observation time, and gold atoms), using schema
+`pax-recall-replay-v4`. V4 adds Recall Consumer eligibility decisions, Knowledge
+Origin identity, the three temporal clocks, and optional captured Evidence
+Score and Hint Opportunity interventions. V3 added required-atom-to-Team-Note
+support metadata and a candidate snapshot SHA-256. Tracked legacy v1/v2/v3
+fixtures are migrated in memory, using the Unix epoch when a case has no
+candidates:
 
 ```bash
 go run ./cmd/team-memory-recall-replay -export \
@@ -89,11 +94,53 @@ go run ./cmd/team-memory-recall-replay \
   -output-dir runs/recall-replay/<label>
 ```
 
-The runner writes `replay-results.jsonl` (per-case stage results plus the
-Recall Trace) and `replay-summary.json` (stage summary plus aggregated stage
-counters: candidates, fusion kept, and rejections by reason). The tracked
-fixtures under `evals/stage/replay/` were exported from the
+The runner implements the `pax-recall-eval-v1` report contract. It writes:
+
+- `replay-results.jsonl`: per-case stage results, Recall Trace, and atom losses;
+- `replay-summary.json`: candidate, relation-expanded, selected-set, and
+  delivered recall plus context precision, budget loss, leakage, and aggregate
+  stage counters. It also reports `PlanRecall` call count, mean duration, and
+  nearest-rank P95 duration in nanoseconds. Identity and temporal slices use
+  Eligible Atoms, rather than actor-neutral Available Atoms, as their
+  denominator. `delivered_conditional_recall` remains delivery over Available
+  Atoms, while `delivered_eligible_recall` is the consumer-scoped metric;
+- `recall-loss-ledger.jsonl`: one deterministic stage outcome per required
+  atom, including Recall Consumer, Knowledge Origins, Observation Time, Query
+  Time, Source Times, and the eligibility decision.
+
+When a v4 Case includes `hint_observation`, the same summary also reports
+Evidence Score and Hint Score precision, recall, Brier score, calibration
+error, focused-recall success within one and two calls, new Eligible Atom gain,
+identity/temporal slices, usage, and safety violations. The observation is a
+captured planner intervention; it does not claim that an agent saw the hint or
+called active recall. Agent exposure, activation, answer judging, and paired
+wins/losses remain measurements of the isolated `hint_recall_v0` consumer Arm.
+
+`EvaluateUnauthorizedInfluencePair` separately drives the production
+`RecallNotes` interface against isolated baseline and challenge scopes. It
+verifies that a named unauthorized Note never enters the delivered envelope
+and that visible text, relevance, certainty, revision, and Knowledge Origin
+are unchanged. Candidate-stage exclusion remains visible in the fixed replay
+eligibility decisions rather than widening the external module interface.
+
+The default zero-cost baseline is also available through:
+
+```bash
+make recall-eval-v1
+```
+
+Override `RECALL_EVAL_FIXTURE`, `RECALL_EVAL_OUTPUT`,
+`RECALL_EVAL_SEMANTIC_THRESHOLD`, or `RECALL_EVAL_CANDIDATE_LIMIT` to compare a
+fixed fixture under another recall policy. The tracked fixtures under
+`evals/stage/replay/` were exported from the
 `team-note-optimization-30-20260716-c20fdd7` store for both arms.
+
+`evals/stage/replay/relation-marginal-utility-v1.json` is a four-case curated
+contrast cohort covering status, schedule, ownership, and blocker relations.
+Each case has one relation that adds an uncovered query fact and one relation
+that is merely adjacent or repetitive. Use
+`-disable-relation-marginal-utility` for the legacy comparison arm; production
+zero-value policy enables marginal-utility filtering.
 
 ## Live Eval v2 capture
 

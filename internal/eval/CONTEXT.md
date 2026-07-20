@@ -28,7 +28,45 @@ evidence links, duration, and error state.
 
 **Conditional Recall**:
 Recall measured only over required atoms present in the paired extraction
-Observation. It separates delivery loss from upstream extraction loss.
+Observation. Actor-neutral evaluation uses Available Atoms; consumer-scoped
+evaluation uses Eligible Atoms.
+
+**Available Atom**:
+A required atom present in the fixed extraction Observation for a recall
+evaluation Case, independent of consumer eligibility.
+
+**Eligible Atom**:
+An Available Atom supported by knowledge the Recall Consumer may access and
+that is valid for the Case's Query Time. It is the denominator for
+consumer-scoped recall and hint-opportunity metrics.
+
+**Recall Consumer**:
+The asking user, answering agent, and recipient session whose authenticated
+identity governs one recall opportunity.
+
+**Knowledge Origin**:
+The user, agent, and source session that produced a recalled fact's evidence.
+It is provenance and is distinct from the Recall Consumer.
+
+**Observation Time**:
+The fixed instant when a Case's passive recall and any focused intervention
+observe memory state and current authorization.
+
+**Query Time**:
+The semantic instant or boundary requested by a current, as-of, or
+changes-since query. It governs factual validity, not authorization.
+
+**Source Time**:
+The instant when the evidence supporting recalled knowledge occurred. It is
+distinct from storage mutation time.
+
+**Hint Opportunity**:
+A safe lead whose focused recall retrieves a new Eligible Atom absent from the
+passive evidence set within the configured call and token budgets.
+
+**Recall Loss Ledger**:
+The per-Available-Atom record of the first recall stage that lost the atom and
+the observable rejection or budget reason.
 
 ## Relationships
 
@@ -36,6 +74,10 @@ Observation. It separates delivery loss from upstream extraction loss.
 - Each **Case** executes one or more **Arms**.
 - A **Run** persists the full Case-by-Arm Trial matrix before execution.
 - A **Stage Fixture** may produce paired extraction and recall **Observations**.
+- A **Case** pins one **Recall Consumer**, **Observation Time**, and **Query
+  Time** interpretation.
+- An **Eligible Atom** is an **Available Atom** filtered by consumer access and
+  temporal validity.
 - Evaluation may call Team Note or LLM Wiki through their public seams.
 - A storage-specific capture adapter may read evaluation Observations after a
   Run; the stage scorer remains independent of product storage.
