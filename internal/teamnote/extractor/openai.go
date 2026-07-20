@@ -494,6 +494,11 @@ func committedClauseSupportsCandidate(content string, candidate *DecisionCandida
 		return false
 	}
 	candidateTokens := significantTokens(candidate.Subject + " " + candidate.Body)
+	subjectTokens := significantTokens(candidate.Subject)
+	assertionTokens := significantTokens(candidate.Body)
+	for token := range subjectTokens {
+		delete(assertionTokens, token)
+	}
 	clauses := strings.FieldsFunc(content, func(character rune) bool {
 		return character == '.' || character == ';' || character == '!' || character == '?' || character == '\n'
 	})
@@ -504,12 +509,18 @@ func committedClauseSupportsCandidate(content string, candidate *DecisionCandida
 		}
 		clauseTokens := significantTokens(paddedClause)
 		matches := 0
+		assertionMatches := 0
 		for token := range candidateTokens {
 			if _, exists := clauseTokens[token]; exists {
 				matches++
 			}
 		}
-		if matches >= 2 {
+		for token := range assertionTokens {
+			if _, exists := clauseTokens[token]; exists {
+				assertionMatches++
+			}
+		}
+		if matches >= 2 && assertionMatches >= 1 {
 			return true
 		}
 	}
@@ -517,6 +528,7 @@ func committedClauseSupportsCandidate(content string, candidate *DecisionCandida
 }
 
 func committedSourceClauseSupportsCandidate(quote string, candidate *DecisionCandidate) bool {
+	quote, _ = sourceTextWithoutMarkdownFormatting(quote)
 	content := " " + strings.ToLower(strings.Join(strings.Fields(quote), " ")) + " "
 	return committedClauseSupportsCandidate(content, candidate)
 }
@@ -526,6 +538,7 @@ func containsCommittedPredicate(content string) bool {
 	for _, marker := range []string{
 		" is ", " are ", " owns ", " has ", " have ", " completed ", " finished ",
 		" approved ", " assigned ", " designated ", " decided ", " confirmed ",
+		" agreed ", " change to decision",
 		" i'll ", " i’ll ", " i will ", " we'll ", " we’ll ", " we will ",
 		" update ", " freeze ", " pause ", " lock ",
 	} {
@@ -548,11 +561,22 @@ func significantTokens(content string) map[string]struct{} {
 		if len(field) < 3 {
 			continue
 		}
+		field = normalizeSignificantToken(field)
 		if _, stop := stopWords[field]; !stop {
 			tokens[field] = struct{}{}
 		}
 	}
 	return tokens
+}
+
+func normalizeSignificantToken(token string) string {
+	if len(token) > 4 && strings.HasSuffix(token, "ies") {
+		return strings.TrimSuffix(token, "ies") + "y"
+	}
+	if len(token) > 3 && strings.HasSuffix(token, "s") && !strings.HasSuffix(token, "ss") {
+		return strings.TrimSuffix(token, "s")
+	}
+	return token
 }
 
 // candidateRejectionReason returns the deterministic reason one candidate can

@@ -79,6 +79,21 @@ func (s *admissionSuite) TestSourceClauseAdmissionValidatesExactAtomicEvidence()
 			subject: "final journey lock", body: "UX is owner for the final journey lock.", wantNotes: 1,
 		},
 		{
+			name: "unrelated commitment cannot authorize ownership", content: "I suggest one final review. I’ll update the final baseline.",
+			clause:  "I’ll update the final baseline.",
+			subject: "final baseline owner", body: "Legal owns the final baseline.", wantCause: "non-committal",
+		},
+		{
+			name: "agreed clause overrides surrounding suggestion", content: "I suggest one final review. Agreed — final baseline.",
+			clause:  "Agreed — final baseline.",
+			subject: "baseline", body: "Final baseline agreed.", wantNotes: 1,
+		},
+		{
+			name: "change-to-decision label establishes commitment", content: "I suggest one final review. **Change to decision: Legal takes ownership of rollback evidence.**",
+			clause:  "**Change to decision: Legal takes ownership of rollback evidence.**",
+			subject: "rollback evidence", body: "Legal takes ownership of rollback evidence.", wantNotes: 1,
+		},
+		{
 			name: "markdown formatting preserves exact source span", content: "I suggest revising the baseline. **Update the baseline now** to include the mandatory consent timestamp and 7-year audit-trail fields.",
 			clause:     "Update the baseline now to include the mandatory consent timestamp and 7-year audit-trail fields.",
 			wantClause: "**Update the baseline now** to include the mandatory consent timestamp and 7-year audit-trail fields.",
@@ -87,6 +102,16 @@ func (s *admissionSuite) TestSourceClauseAdmissionValidatesExactAtomicEvidence()
 		{
 			name: "ambiguous markdown span is not repaired", content: "Update **the** baseline now. Later: Update **the** baseline now.",
 			clause: "Update the baseline now.", wantCause: "exact text",
+		},
+		{
+			name: "overlapping markdown span is not repaired", content: "**a****a****a**",
+			clause: "aa", wantCause: "exact text",
+		},
+		{
+			name: "underscore formatting preserves exact source span", content: "Update _the_ baseline now.",
+			clause:     "Update the baseline now.",
+			wantClause: "Update _the_ baseline now.",
+			subject:    "baseline", body: "Update the baseline now.", wantNotes: 1,
 		},
 		{
 			name: "markdown decision label is an atomic boundary", content: "I suggest tightening this up. **Change to decision:** pause scenario creation and have Legal and Ops freeze the audit-trail rules.",
@@ -113,6 +138,11 @@ func (s *admissionSuite) TestSourceClauseAdmissionValidatesExactAtomicEvidence()
 			name: "desired owner remains non-committal", content: "I’d want Legal to own rollback evidence. Can we lock that in now?",
 			clause:  "I’d want Legal to own rollback evidence.",
 			subject: "rollback evidence owner", body: "Legal owns rollback evidence.", wantCause: "non-committal",
+		},
+		{
+			name: "punctuation-free can-we remains non-committal", content: "Can we lock Legal as rollback evidence owner",
+			clause:  "Can we lock Legal as rollback evidence owner",
+			subject: "rollback evidence owner", body: "Legal is rollback evidence owner.", wantCause: "non-committal",
 		},
 		{
 			name: "shortest compound clause", content: "Compliance owns the exceptions log, and Reporting owns the audit log.",
@@ -194,6 +224,31 @@ func (s *admissionSuite) TestSourceClauseAdmissionValidatesExactAtomicEvidence()
 			}
 		})
 	}
+}
+
+func (s *admissionSuite) TestClauseLocalOverrideDoesNotAffectCurrentStrategy() {
+	slice := v2Slice()
+	slice.Events[0].Content = "The plan is provisional. I’ll update the final baseline. Legal should own the final baseline."
+	decision := `{"decision":"create","identity_ref":"owner/final-baseline","evidence_event_ids":["event-1"],` +
+		`"evidence_clauses":[{"event_id":"event-1","quote":"I’ll update the final baseline."}],` +
+		`"reason_codes":["explicit_new_fact"],"candidate":{"kind":"owner","subject":"final baseline owner",` +
+		`"body":"Legal owns the final baseline."}}`
+	client := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		return response(http.StatusOK, v2Body("", decision)), nil
+	})}
+	adapter, err := extractor.NewOpenAI(extractor.OpenAIConfig{
+		BaseURL: "http://extractor.test", Model: "model", Client: client,
+		ContextMode: extractor.ContextModeRolling, EpisodeStore: extractor.NewMemoryEpisodeStore(),
+		ExtractionVersion: extractor.ExtractionVersionV2, V2Variant: extractor.V2VariantCurrent,
+	})
+	s.Require().NoError(err)
+
+	result, err := adapter.Extract(teamnote.WithScope(context.Background(), "current-strategy-clause-isolation"), slice)
+
+	s.Require().NoError(err)
+	s.Empty(result.Candidates)
+	s.Require().Len(result.Trace.DecisionRejections, 1)
+	s.Contains(result.Trace.DecisionRejections[0].Reason, "non-committal")
 }
 
 func (s *admissionSuite) TestTemporalAdmissionUsesNewEventObservationTime() {

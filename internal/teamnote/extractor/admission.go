@@ -39,31 +39,33 @@ func normalizeSourceClauseCitations(trace *TraceV2, events []teamnote.SessionEve
 }
 
 func exactSourceSpanIgnoringMarkdown(content, quote string) (string, bool) {
+	formatting := markdownFormattingPositions(content)
 	normalizedContent, sourceOffsets := sourceTextWithoutMarkdownFormatting(content)
 	normalizedQuote, _ := sourceTextWithoutMarkdownFormatting(quote)
 	if normalizedQuote == "" || len(sourceOffsets) == 0 {
 		return "", false
 	}
 	start := strings.Index(normalizedContent, normalizedQuote)
-	if start < 0 || strings.Contains(normalizedContent[start+len(normalizedQuote):], normalizedQuote) {
+	if start < 0 || strings.Contains(normalizedContent[start+1:], normalizedQuote) {
 		return "", false
 	}
 	sourceStart := sourceOffsets[start]
 	sourceEnd := sourceOffsets[start+len(normalizedQuote)-1] + 1
-	for sourceStart > 0 && isMarkdownFormattingByte(content[sourceStart-1]) {
+	for sourceStart > 0 && formatting[sourceStart-1] {
 		sourceStart--
 	}
-	for sourceEnd < len(content) && isMarkdownFormattingByte(content[sourceEnd]) {
+	for sourceEnd < len(content) && formatting[sourceEnd] {
 		sourceEnd++
 	}
 	return content[sourceStart:sourceEnd], true
 }
 
 func sourceTextWithoutMarkdownFormatting(content string) (string, []int) {
+	formatting := markdownFormattingPositions(content)
 	text := make([]byte, 0, len(content))
 	offsets := make([]int, 0, len(content))
 	for index := 0; index < len(content); index++ {
-		if isMarkdownFormattingByte(content[index]) {
+		if formatting[index] {
 			continue
 		}
 		text = append(text, content[index])
@@ -72,8 +74,96 @@ func sourceTextWithoutMarkdownFormatting(content string) (string, []int) {
 	return string(text), offsets
 }
 
-func isMarkdownFormattingByte(value byte) bool {
-	return value == '*' || value == '`'
+func markdownFormattingPositions(content string) []bool {
+	positions := make([]bool, len(content))
+	for _, delimiter := range []string{"**", "__", "`", "*", "_"} {
+		markMarkdownDelimiterPairs(content, delimiter, positions)
+	}
+	return positions
+}
+
+func markMarkdownDelimiterPairs(content, delimiter string, positions []bool) {
+	searchFrom := 0
+	for searchFrom < len(content) {
+		opening := nextMarkdownDelimiter(content, delimiter, positions, searchFrom, true)
+		if opening < 0 {
+			return
+		}
+		closing := nextMarkdownDelimiter(content, delimiter, positions, opening+len(delimiter), false)
+		if closing < 0 {
+			return
+		}
+		for index := 0; index < len(delimiter); index++ {
+			positions[opening+index] = true
+			positions[closing+index] = true
+		}
+		searchFrom = closing + len(delimiter)
+	}
+}
+
+func nextMarkdownDelimiter(
+	content, delimiter string,
+	positions []bool,
+	searchFrom int,
+	opening bool,
+) int {
+	for searchFrom <= len(content)-len(delimiter) {
+		relative := strings.Index(content[searchFrom:], delimiter)
+		if relative < 0 {
+			return -1
+		}
+		index := searchFrom + relative
+		if !markdownDelimiterAlreadyMarked(positions, index, len(delimiter)) &&
+			markdownDelimiterHasBoundary(content, index, delimiter, opening) {
+			return index
+		}
+		searchFrom = index + 1
+	}
+	return -1
+}
+
+func markdownDelimiterAlreadyMarked(positions []bool, start, length int) bool {
+	for index := start; index < start+length; index++ {
+		if positions[index] {
+			return true
+		}
+	}
+	return false
+}
+
+func markdownDelimiterHasBoundary(content string, index int, delimiter string, opening bool) bool {
+	if delimiter == "`" {
+		return true
+	}
+	if opening {
+		after := index + len(delimiter)
+		if after >= len(content) {
+			return false
+		}
+		next, _ := utf8.DecodeRuneInString(content[after:])
+		return !unicode.IsSpace(next) && markdownBoundaryBefore(content, index)
+	}
+	if index == 0 {
+		return false
+	}
+	previous, _ := utf8.DecodeLastRuneInString(content[:index])
+	return !unicode.IsSpace(previous) && markdownBoundaryAfter(content, index+len(delimiter))
+}
+
+func markdownBoundaryBefore(content string, index int) bool {
+	if index == 0 {
+		return true
+	}
+	previous, _ := utf8.DecodeLastRuneInString(content[:index])
+	return unicode.IsSpace(previous) || unicode.IsPunct(previous)
+}
+
+func markdownBoundaryAfter(content string, index int) bool {
+	if index == len(content) {
+		return true
+	}
+	next, _ := utf8.DecodeRuneInString(content[index:])
+	return unicode.IsSpace(next) || unicode.IsPunct(next)
 }
 
 func mapSourceClauseDecision(
@@ -87,7 +177,7 @@ func mapSourceClauseDecision(
 	if reason := sourceClauseRejectionReason(decision, events, newEvents); reason != "" {
 		return nil, reason
 	}
-	return mapDecision(decision, claims, allEvents, newEvents, events, extractionObservationTime(slice))
+	return mapDecision(decision, claims, allEvents, newEvents, events, extractionObservationTime(slice), true)
 }
 
 func sourceClauseRejectionReason(
@@ -158,7 +248,7 @@ func sourceClauseIsNonCommittal(quote string) bool {
 	}
 	nonCommittal := containsAny(normalized, []string{
 		" i propose ", " we propose ", " proposal ", " suggest ", " recommend ",
-		" should ", " please ", " can you ", " could ", " would ", " might ",
+		" should ", " please ", " can you ", " can we ", " could ", " would ", " might ",
 		" i'd want ", " i’d want ", " i'd like ", " i’d like ",
 		" we'd want ", " we’d want ", " we'd like ", " we’d like ",
 		" ask ", " asks ", " request ", " prefer ", " hope ",
@@ -200,10 +290,11 @@ func hasInternalSourceClauseBoundary(quote string) bool {
 }
 
 func sourceClauseBoundaryBefore(content string, index int) bool {
+	formatting := markdownFormattingPositions(content)
 	prefixEnd := index
 	for prefixEnd > 0 {
 		last, size := utf8.DecodeLastRuneInString(content[:prefixEnd])
-		if !unicode.IsSpace(last) && !isMarkdownFormattingRune(last) {
+		if !unicode.IsSpace(last) && (size != 1 || !formatting[prefixEnd-1]) {
 			break
 		}
 		prefixEnd -= size
@@ -223,6 +314,7 @@ func sourceClauseBoundaryBefore(content string, index int) bool {
 }
 
 func sourceClauseBoundaryAfter(content string, index int) bool {
+	formatting := markdownFormattingPositions(content)
 	if index > 0 {
 		last, size := utf8.DecodeLastRuneInString(content[:index])
 		if isSourceClauseBoundary(content, index-size, last) {
@@ -232,7 +324,7 @@ func sourceClauseBoundaryAfter(content string, index int) bool {
 	suffixStart := index
 	for suffixStart < len(content) {
 		first, size := utf8.DecodeRuneInString(content[suffixStart:])
-		if !unicode.IsSpace(first) && !isMarkdownFormattingRune(first) {
+		if !unicode.IsSpace(first) && (size != 1 || !formatting[suffixStart]) {
 			break
 		}
 		suffixStart += size
@@ -253,10 +345,6 @@ func sourceClauseBoundaryAfter(content string, index int) bool {
 
 func isInlineSourceClauseDelimiter(character rune) bool {
 	return character == ',' || character == ':' || character == '，' || character == '：'
-}
-
-func isMarkdownFormattingRune(character rune) bool {
-	return character == '*' || character == '`'
 }
 
 func endsWithSourceConjunction(value string) bool {

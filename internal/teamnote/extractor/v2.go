@@ -344,7 +344,7 @@ func mapStandardDecision(
 	events []teamnote.SessionEvent,
 	slice sessionlake.Slice,
 ) (*teamnote.Candidate, string) {
-	return mapDecision(decision, claims, allEvents, newEvents, events, extractionObservationTime(slice))
+	return mapDecision(decision, claims, allEvents, newEvents, events, extractionObservationTime(slice), false)
 }
 
 func interactionRejectionReason(
@@ -422,6 +422,7 @@ func mapDecision(
 	newEvents map[string]struct{},
 	events []teamnote.SessionEvent,
 	observationTime time.Time,
+	allowSourceClauseCommitment bool,
 ) (*teamnote.Candidate, string) {
 	if !validDecisionAction(decision.Decision) {
 		return nil, fmt.Sprintf("decision %q is not in the decision vocabulary", decision.Decision)
@@ -465,6 +466,7 @@ func mapDecision(
 	}
 	if reason := stateDecisionAdmissionReason(
 		decision.Decision, evidence, decision.EvidenceClauses, events, decision.Candidate,
+		allowSourceClauseCommitment,
 	); reason != "" {
 		return nil, reason
 	}
@@ -506,7 +508,9 @@ func mapClaimCardDecision(
 	events []teamnote.SessionEvent,
 	slice sessionlake.Slice,
 ) (*teamnote.Candidate, string) {
-	candidate, reason := mapDecision(decision, claims, allEvents, newEvents, events, extractionObservationTime(slice))
+	candidate, reason := mapDecision(
+		decision, claims, allEvents, newEvents, events, extractionObservationTime(slice), false,
+	)
 	if reason != "" || candidate == nil {
 		return candidate, reason
 	}
@@ -627,11 +631,12 @@ func stateDecisionAdmissionReason(
 	evidenceClauses []EvidenceClause,
 	events []teamnote.SessionEvent,
 	candidate *DecisionCandidate,
+	allowSourceClauseCommitment bool,
 ) string {
 	if !decisionChangesState(action) {
 		return ""
 	}
-	if sourceClausesContainCommittedCandidate(evidenceClauses, candidate) {
+	if allowSourceClauseCommitment && sourceClausesContainCommittedCandidate(evidenceClauses, candidate) {
 		return ""
 	}
 	if evidenceIsOnlyNonCommittalSourceLanguage(evidence, events, candidate) {
