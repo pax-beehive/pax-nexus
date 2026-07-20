@@ -16,8 +16,8 @@ stage-local gate improves.
 
 - `source-clause-v1` is the selected extraction evaluation baseline on
   `finance-micro6-quick`: 4/6 required Atoms, zero leakage, 61,244 output
-  tokens, and 69.3-second P95 across eight primary Slices. This baseline does
-  not change the production candidate-strategy default.
+  tokens, and 69.3-second P95 across eight primary Slices. It is also the
+  production candidate-strategy default; `current` is the explicit rollback.
 - `interaction-slim + passive-v1` is the best observed ten-case end-to-end arm
   at 3/10 Team Note judge correctness, but its 228-second mean duration and
   single-cohort scope block promotion.
@@ -35,7 +35,7 @@ they do not each require a new ADR.
 
 | Plan or candidate | Governing ADR | Current status and reason |
 | --- | --- | --- |
-| Extraction Evidence Fidelity | [Extraction v2](./decisions/2026-07-16-extraction-v2.md) | `source-clause-v1` adopted as the Extraction Evaluation Baseline after a valid 4/6, zero-leakage fixed-cohort Run; production rollout remains a separate decision. |
+| Extraction Evidence Fidelity | [Extraction v2](./decisions/2026-07-16-extraction-v2.md) | `source-clause-v1` adopted as both the production default and Extraction Evaluation Baseline after a valid 4/6, zero-leakage fixed-cohort Run. |
 | Extraction Execution Reliability | [Extraction v2](./decisions/2026-07-16-extraction-v2.md) | Implemented; checksum resume is retained and provider deadlines, retry classification, budgets, and attempt telemetry are consolidated. |
 | Atom-Level Extraction Loss Attribution | [Extraction v2](./decisions/2026-07-16-extraction-v2.md) | Implemented; extraction eval exports one first-loss entry per required Atom. |
 | Eval Validity and Attempt Ledger | [Multi-Agent GroupMemBench Eval v3](./decisions/2026-07-16-multi-agent-groupmembench-eval-v3.md) | Implemented; append-only Attempts and the comparative Validity Report now reject incomplete or unobservable runs. |
@@ -47,7 +47,7 @@ they do not each require a new ADR.
 
 ## Tranche 1: Extraction Evidence Fidelity
 
-Status: Evaluation baseline adopted; production rollout not implied
+Status: Production and evaluation default
 
 Deepen the existing extractor Module behind the unchanged `Extractor` seam.
 Use the existing semantic Candidate schema and deterministic admission. Do not

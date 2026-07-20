@@ -1,6 +1,6 @@
 # Extraction v2
 
-Status: Accepted with rollout exception; production default enabled; `source-clause-v1` selected as the extraction evaluation baseline
+Status: Accepted; `source-clause-v1` is the production and extraction evaluation default
 
 Date: 2026-07-16
 
@@ -659,10 +659,12 @@ The two remaining misses were both classified `no_state` at Event review, so
 future extraction work should target implicit-state review rather than widen
 source coverage or relax deterministic admission.
 
-Baseline selection is not a claim of statistical superiority and does not
-change the production candidate-strategy default. The earlier three-paired-seed
-gate remains necessary for a production rollout claim, but it is no longer a
-prerequisite for using this artifact as the engineering control. See the
+Baseline selection is not a claim of statistical superiority. On 2026-07-20,
+the production candidate-strategy default was explicitly changed from
+`current` to `source-clause-v1`; an explicit runtime or build setting of
+`current` remains the rollback path. This rollout decision accepts the
+single-run evidence while retaining the earlier three-paired-seed gate for any
+claim of repeatable superiority. See the
 [baseline result](../../evals/extraction-v1/results/2026-07-20-source-clause-v1-baseline.md).
 
 ## Consequences

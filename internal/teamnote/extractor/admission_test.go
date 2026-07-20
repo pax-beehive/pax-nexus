@@ -138,6 +138,7 @@ func (s *admissionSuite) TestSourceClauseAdmissionValidatesExactAtomicEvidence()
 
 func (s *admissionSuite) TestTemporalAdmissionUsesNewEventObservationTime() {
 	slice := v2Slice()
+	slice.Events[0].Content = "The review remains active through 2025."
 	slice.Events[0].OccurredAt = time.Date(2024, time.January, 2, 12, 0, 0, 0, time.UTC)
 	overlap := slice.Events[0]
 	overlap.ID = "event-overlap"
@@ -146,6 +147,7 @@ func (s *admissionSuite) TestTemporalAdmissionUsesNewEventObservationTime() {
 	slice.Events = append([]teamnote.SessionEvent{overlap}, slice.Events...)
 	slice.OverlapEventIDs = []string{overlap.ID}
 	decision := `{"decision":"create","identity_ref":"window/review","evidence_event_ids":["event-1"],` +
+		`"evidence_clauses":[{"event_id":"event-1","quote":"The review remains active through 2025."}],` +
 		`"temporal_expression":"through 2025","invalid_at":"2025-01-01T00:00:00Z","temporal_resolution":"explicit",` +
 		`"reason_codes":["explicit_new_fact"],"candidate":{"kind":"status","subject":"review window","body":"The review remains active through 2025."}}`
 	client := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
@@ -154,7 +156,7 @@ func (s *admissionSuite) TestTemporalAdmissionUsesNewEventObservationTime() {
 	adapter, err := extractor.NewOpenAI(extractor.OpenAIConfig{
 		BaseURL: "http://extractor.test", Model: "model", Client: client,
 		ContextMode: extractor.ContextModeRolling, EpisodeStore: extractor.NewMemoryEpisodeStore(),
-		ExtractionVersion: extractor.ExtractionVersionV2,
+		ExtractionVersion: extractor.ExtractionVersionV2, V2Variant: extractor.V2VariantSourceClause,
 	})
 	s.Require().NoError(err)
 

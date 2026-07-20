@@ -8,7 +8,7 @@ import (
 
 // buildDefaultCandidateStrategy is injected with -ldflags -X for release
 // builds. An explicit runtime strategy still takes precedence.
-var buildDefaultCandidateStrategy = CandidateStrategyCurrent
+var buildDefaultCandidateStrategy = CandidateStrategySourceClause
 
 type extractionProtocol struct {
 	systemPrompt string

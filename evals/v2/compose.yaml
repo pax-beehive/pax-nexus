@@ -20,7 +20,7 @@ services:
       context: ../..
       dockerfile: Dockerfile
       args:
-        EXTRACTION_CANDIDATE_STRATEGY: ${TEAM_MEMORY_BUILD_EXTRACTION_CANDIDATE_STRATEGY:-current}
+        EXTRACTION_CANDIDATE_STRATEGY: ${TEAM_MEMORY_BUILD_EXTRACTION_CANDIDATE_STRATEGY:-source-clause-v1}
         RECALL_CANDIDATE_STRATEGY: passive-v1
     environment:
       TEAM_MEMORY_DATABASE_URL: postgres://team_memory:team_memory@postgres:5432/team_memory?sslmode=disable
@@ -55,7 +55,7 @@ services:
       context: ../..
       dockerfile: Dockerfile
       args:
-        EXTRACTION_CANDIDATE_STRATEGY: ${TEAM_MEMORY_BUILD_EXTRACTION_CANDIDATE_STRATEGY:-current}
+        EXTRACTION_CANDIDATE_STRATEGY: ${TEAM_MEMORY_BUILD_EXTRACTION_CANDIDATE_STRATEGY:-source-clause-v1}
         RECALL_CANDIDATE_STRATEGY: hint-v1-selective
     environment:
       TEAM_MEMORY_DATABASE_URL: postgres://team_memory:team_memory@postgres:5432/team_memory?sslmode=disable

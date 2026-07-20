@@ -16,7 +16,7 @@ MOCK_VERSION := v0.6.0
 GOLANGCI_LINT_VERSION := v2.11.3
 COVERAGE_MIN := 75
 OUTPUT_BIN_DIR ?= output/bin
-EXTRACTION_CANDIDATE_STRATEGY ?= current
+EXTRACTION_CANDIDATE_STRATEGY ?= source-clause-v1
 EXTRACTION_CANDIDATE_STRATEGIES := current interaction-slim evidence-fidelity-v1 source-clause-v1 typed-2 source-span-v1 source-span-v2 claim-card-v1 claim-card-v2
 EXTRACTION_CANDIDATE_LDFLAG := -X $(MODULE)/internal/teamnote/extractor.buildDefaultCandidateStrategy=$(EXTRACTION_CANDIDATE_STRATEGY)
 RECALL_CANDIDATE_STRATEGY ?= passive-v1

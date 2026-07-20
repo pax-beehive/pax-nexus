@@ -35,6 +35,10 @@ func (s *candidateStrategySuite) TestBuildDefaultIsARegisteredStrategy() {
 	s.Contains(extractor.CandidateStrategyNames(), extractor.DefaultCandidateStrategy())
 }
 
+func (s *candidateStrategySuite) TestSourceClauseIsReleaseDefault() {
+	s.Equal(extractor.CandidateStrategySourceClause, extractor.DefaultCandidateStrategy())
+}
+
 func (s *candidateStrategySuite) TestBuildDefaultMatchesInjectedValue() {
 	want := os.Getenv("TEAM_MEMORY_TEST_BUILD_DEFAULT_CANDIDATE_STRATEGY")
 	if want == "" {

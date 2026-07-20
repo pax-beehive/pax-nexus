@@ -2,9 +2,9 @@
 
 Date: 2026-07-20 (America/Los_Angeles)
 
-Decision: adopt `source-clause-v1` as the Extraction Evaluation Baseline.
-This names the control for future extraction work; it does not change the
-production candidate-strategy default or claim statistical superiority.
+Decision: adopt `source-clause-v1` as the Extraction Evaluation Baseline and
+the production candidate-strategy default. This does not claim statistical
+superiority; `current` remains available as an explicit rollback strategy.
 
 ## Fixed inputs
 

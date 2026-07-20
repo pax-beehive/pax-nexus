@@ -47,7 +47,7 @@ func newV2Adapter(s *extractionV2Suite, client *http.Client) extractor.Extractor
 	adapter, err := extractor.NewOpenAI(extractor.OpenAIConfig{
 		BaseURL: "http://extractor.test", Model: "model", Client: client,
 		ContextMode: extractor.ContextModeRolling, EpisodeStore: extractor.NewMemoryEpisodeStore(),
-		ExtractionVersion: extractor.ExtractionVersionV2,
+		ExtractionVersion: extractor.ExtractionVersionV2, V2Variant: extractor.V2VariantCurrent,
 	})
 	s.Require().NoError(err)
 	return adapter
@@ -613,7 +613,7 @@ func (s *extractionV2Suite) TestProtocolChangeStartsFreshEpisodeInsteadOfReplayi
 	v2, err := extractor.NewOpenAI(extractor.OpenAIConfig{
 		BaseURL: "http://extractor.test", Model: "model", PromptVersion: "prompt",
 		Client: v2Client, ContextMode: extractor.ContextModeRolling, EpisodeStore: store,
-		ExtractionVersion: extractor.ExtractionVersionV2,
+		ExtractionVersion: extractor.ExtractionVersionV2, V2Variant: extractor.V2VariantCurrent,
 	})
 	s.Require().NoError(err)
 	ctx := teamnote.WithScope(context.Background(), "scope-protocol-change")
