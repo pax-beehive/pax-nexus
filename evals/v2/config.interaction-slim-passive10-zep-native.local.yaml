@@ -1,0 +1,42 @@
+version: v2
+run:
+  id: groupmembench-finance-v2-interaction-slim-passive10-zep-native-20260719-r1
+  dataset: GroupMemBench
+  manifest: runs/groupmembench-v2-selection/manifest.source-span-passive10.json
+  output_dir: runs/eval-v2/groupmembench-finance-v2-interaction-slim-passive10-zep-native-20260719-r1
+  parallelism: 1
+store:
+  dsn_env: EVAL_V2_POSTGRES_DSN
+baseline_arm: control
+retry_failed: false
+trial_timeout: 12m
+runtime_env:
+  - OPENCODE_MODEL
+  - OPENCODE_VERSION
+  - EVAL_V2_JUDGE_MODEL
+  - EVAL_V2_JUDGE_THINKING
+  - PAXM_EXPECTED_VERSION
+  - PAXM_EVAL_DIAGNOSTICS
+output:
+  formats: [csv, jsonl, html]
+judge:
+  program: scripts/eval-v2-judge.sh
+arms:
+  - name: control
+    consumer:
+      program: scripts/eval-v2-opencode.sh
+      args: [consumer, control]
+  - name: zep_native
+    ingest:
+      program: scripts/eval-v2-opencode.sh
+      args: [ingest, zep_native]
+    after_producer:
+      program: scripts/eval-v2-opencode.sh
+      args: [ready, zep_native]
+      env:
+        PAX_EVAL_ZEP_READINESS_ATTEMPTS: "480"
+    consumer:
+      program: scripts/eval-v2-opencode.sh
+      args: [consumer, zep_native]
+      env:
+        PAX_EVAL_ZEP_MAX_CHARACTERS: "2000"

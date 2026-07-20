@@ -228,6 +228,98 @@ func (s *entrypointSuite) TestDirectContextArmSuppliesRawConversationWithoutReca
 	s.Contains(arguments, "Ops Lead owns the rollback evidence pack.")
 }
 
+func (s *entrypointSuite) TestZepNativeArmSuppliesProcessedNativeContextWithoutPaxmRecall() {
+	repositoryRoot, err := filepath.Abs(filepath.Join("..", "..", "..", ".."))
+	s.Require().NoError(err)
+	directory := s.T().TempDir()
+	batches := filepath.Join(directory, "session-batches.json")
+	s.Require().NoError(os.WriteFile(batches, []byte("[]"), 0o600))
+	artifactDirectory := filepath.Join(directory, "artifacts")
+	binDirectory := filepath.Join(directory, "bin")
+	s.Require().NoError(os.Mkdir(binDirectory, 0o700))
+	dockerCapture := filepath.Join(directory, "docker-args")
+	goCapture := filepath.Join(directory, "go-args")
+	docker := filepath.Join(binDirectory, "docker")
+	goCommand := filepath.Join(binDirectory, "go")
+	s.Require().NoError(os.WriteFile(docker, []byte("#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$DOCKER_CAPTURE\"\n"), 0o700))
+	goScript := "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$GO_CAPTURE\"\nprintf '%s\\n' '{\"context\":\"Zep processed evidence.\",\"episodes\":1,\"processed\":1}'\n"
+	s.Require().NoError(os.WriteFile(goCommand, []byte(goScript), 0o700))
+
+	command := exec.Command("sh", filepath.Join(repositoryRoot, "scripts", "eval-v2-opencode.sh"), "consumer", "zep_native")
+	command.Dir = repositoryRoot
+	command.Env = []string{
+		"PATH=" + binDirectory + string(os.PathListSeparator) + os.Getenv("PATH"),
+		"DOCKER_CAPTURE=" + dockerCapture,
+		"GO_CAPTURE=" + goCapture,
+		"ZEP_API_KEY=test-zep-key",
+		"PAX_EVAL_RUN_ID=zep-native-test",
+		"PAX_EVAL_CASE_ID=case-1",
+		"PAX_EVAL_SCOPE_ID=scope-1",
+		"PAX_EVAL_USER_ID=User_3",
+		"PAX_EVAL_CONSUMER_WORKSPACE=" + directory,
+		"PAX_EVAL_SESSION_BATCHES_FILE=" + batches,
+		"PAX_EVAL_ARTIFACT_DIR=" + artifactDirectory,
+		"PAX_EVAL_QUESTION=Who owns the rollback evidence?",
+		"OPENCODE_MODEL=deepseek/deepseek-v4-flash",
+		"TEAM_MEMORY_API_KEYS={}",
+	}
+	output, err := command.CombinedOutput()
+	s.Require().NoError(err, string(output))
+	goArguments, err := os.ReadFile(goCapture)
+	s.Require().NoError(err)
+	s.Contains(string(goArguments), "./cmd/eval-v2-zep")
+	s.Contains(string(goArguments), "-action")
+	s.Contains(string(goArguments), "search")
+	s.Contains(string(goArguments), "zep-eval-zep-native-test-case-1")
+	s.NotContains(strings.Split(strings.TrimSpace(string(goArguments)), "\n"), "opencode")
+	dockerArguments, err := os.ReadFile(dockerCapture)
+	s.Require().NoError(err)
+	s.Contains(string(dockerArguments), "PAXM_RECALL_ENABLED=0")
+	s.Contains(string(dockerArguments), "PAXM_EVAL_RECALL_MODE=direct")
+	s.Contains(string(dockerArguments), "Zep processed evidence.")
+	artifact, err := os.ReadFile(filepath.Join(artifactDirectory, "zep-native.json"))
+	s.Require().NoError(err)
+	s.JSONEq(`{"context":"Zep processed evidence.","episodes":1,"processed":1}`, string(artifact))
+}
+
+func (s *entrypointSuite) TestZepNativeReadinessRequiresAllIngestedEpisodes() {
+	repositoryRoot, err := filepath.Abs(filepath.Join("..", "..", "..", ".."))
+	s.Require().NoError(err)
+	directory := s.T().TempDir()
+	artifactDirectory := filepath.Join(directory, "artifacts")
+	s.Require().NoError(os.MkdirAll(artifactDirectory, 0o700))
+	s.Require().NoError(os.WriteFile(filepath.Join(artifactDirectory, "ingest.log"), []byte(`{"accepted":2}`), 0o600))
+	binDirectory := filepath.Join(directory, "bin")
+	s.Require().NoError(os.Mkdir(binDirectory, 0o700))
+	goCapture := filepath.Join(directory, "go-args")
+	goCommand := filepath.Join(binDirectory, "go")
+	goScript := "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$GO_CAPTURE\"\nprintf '%s\\n' '{\"episodes\":2,\"processed\":2}'\n"
+	s.Require().NoError(os.WriteFile(goCommand, []byte(goScript), 0o700))
+
+	command := exec.Command("sh", filepath.Join(repositoryRoot, "scripts", "eval-v2-opencode.sh"), "ready", "zep_native")
+	command.Dir = repositoryRoot
+	command.Env = []string{
+		"PATH=" + binDirectory + string(os.PathListSeparator) + os.Getenv("PATH"),
+		"GO_CAPTURE=" + goCapture,
+		"ZEP_API_KEY=test-zep-key",
+		"PAX_EVAL_RUN_ID=zep-ready-test",
+		"PAX_EVAL_CASE_ID=case-1",
+		"PAX_EVAL_SCOPE_ID=scope-1",
+		"PAX_EVAL_USER_ID=User_3",
+		"PAX_EVAL_ARTIFACT_DIR=" + artifactDirectory,
+		"PAX_EVAL_ZEP_READINESS_ATTEMPTS=1",
+		"TEAM_MEMORY_API_KEYS={}",
+	}
+	output, err := command.CombinedOutput()
+	s.Require().NoError(err, string(output))
+	goArguments, err := os.ReadFile(goCapture)
+	s.Require().NoError(err)
+	s.Contains(string(goArguments), "./cmd/eval-v2-zep")
+	s.Contains(string(goArguments), "-action")
+	s.Contains(string(goArguments), "ready")
+	s.Contains(string(goArguments), "zep-eval-zep-ready-test-case-1")
+}
+
 func (s *entrypointSuite) TestMem0UsesSharedIdentityAcrossAskingUsers() {
 	repositoryRoot, err := filepath.Abs(filepath.Join("..", "..", "..", ".."))
 	s.Require().NoError(err)

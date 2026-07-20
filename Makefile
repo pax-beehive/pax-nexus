@@ -204,6 +204,11 @@ eval-v2-job-image:
 
 eval-v2-job: eval-v2-job-image
 	@. ./scripts/load-eval-v2-env.sh; \
+		zep_api_key="$${ZEP_API_KEY:-}"; \
+		if [ -z "$$zep_api_key" ] && command -v paxm >/dev/null 2>&1; then \
+			zep_config_path="$${PAXM_CONFIG_PATH:-$$(paxm config path)}"; \
+			zep_api_key="$$(awk 'BEGIN { in_zep=0 } /^[[:space:]]{2}zep:/ { in_zep=1; next } in_zep && /^[[:space:]]{2}[A-Za-z0-9_-]+:/ { exit } in_zep && /^[[:space:]]{4}api_key:/ { sub(/^[[:space:]]*api_key:[[:space:]]*/, ""); print; exit }' "$$zep_config_path")"; \
+		fi; \
 		extra_mount=""; \
 		if [ -n "$${PAXM_SOURCE_DIR:-}" ]; then extra_mount="-v $${PAXM_SOURCE_DIR}:$${PAXM_SOURCE_DIR}:ro"; fi; \
 		docker run --rm \
@@ -217,6 +222,7 @@ eval-v2-job: eval-v2-job-image
 			-e EVAL_V2_OUTPUT_ROOT -e EVAL_V2_BASE_CONFIG -e EVAL_V2_JOB_TIMEOUT -e EVAL_V2_JOB_POSTGRES_DSN \
 			-e EVAL_FRAMEWORK_VERSION -e EVAL_SELECTION_ALGORITHM -e EVAL_V2_COMPOSE_FILE -e EVAL_V2_POSTGRES_PORT \
 			-e EVAL_V2_JOB_DRY_RUN -e EVAL_V2_PREPARED_SELECTION -e EVAL_V2_ALLOW_DIRTY \
+			-e EVAL_V2_ZEP_BINARY=/usr/local/bin/eval-v2-zep -e ZEP_API_KEY="$$zep_api_key" \
 			team-memory-eval-v2-runner:local -c 'mkdir -p .build; exec flock -n .build/eval-v2-job.lock timeout "$${EVAL_V2_JOB_TIMEOUT:-24h}" ./scripts/eval-v2-job.sh'
 
 clean:
