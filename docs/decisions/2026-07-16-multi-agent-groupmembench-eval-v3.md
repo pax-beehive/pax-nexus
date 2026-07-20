@@ -432,9 +432,12 @@ latest Attempt must be completed and own its canonical raw artifacts.
 Invalid runs retain `validity.json` and available raw JSONL/provenance, remove
 stale CSV/HTML comparisons, omit derived manifest scores, and return a non-zero
 acceptance error. Judge-only recovery claims and completes a new immutable
-Attempt through the PostgreSQL Store, containing the original consumer and new
-judge evidence. A fresh three-arm cohort must pass this gate before any Mem0 or
-PAX result is described as benchmark-quality.
+Attempt through the PostgreSQL Store under the Run lock. It verifies the
+durable configuration hash and treats the stored consumer result, not the
+external JSONL projection, as the answer source. A judge-stage failure retains
+the completed, unjudged Trial so recovery can be retried. A fresh three-arm
+cohort must pass this gate before any Mem0 or PAX result is described as
+benchmark-quality.
 
 ## Consequences
 

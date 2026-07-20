@@ -145,6 +145,8 @@ func (s *runnerSuite) TestJudgeExistingRunDurablyAppendsCanonicalAttempt() {
 	store := newFakeStore()
 	config := testConfig(directory)
 	config.Judge = &CommandSpec{Program: "judge"}
+	durableRun, err := buildRunRecord(config, "revision")
+	s.Require().NoError(err)
 	result := TrialResult{
 		RunID: "run", CaseID: "case", Arm: "control", Status: "completed",
 		Question: "q", Expected: "answer", Answer: "answer",
@@ -152,7 +154,9 @@ func (s *runnerSuite) TestJudgeExistingRunDurablyAppendsCanonicalAttempt() {
 	key := TrialKey{RunID: result.RunID, CaseID: result.CaseID, Arm: result.Arm}
 	store.statuses[key] = "completed"
 	store.attemptCounts[key] = 1
+	store.runHashes[result.RunID] = durableRun.ConfigHash
 	store.results = []TrialResult{result}
+	result.Answer = "tampered external answer"
 	completed := time.Now().UTC()
 	store.trialAttempts = []TrialAttempt{{
 		TrialAttemptHandle: TrialAttemptHandle{RunID: result.RunID, CaseID: result.CaseID, Arm: result.Arm, Number: 1},
@@ -169,6 +173,7 @@ func (s *runnerSuite) TestJudgeExistingRunDurablyAppendsCanonicalAttempt() {
 	s.Equal("run", run.ID)
 	s.Require().Len(judged, 1)
 	s.True(judged[0].Judged)
+	s.Equal("answer", judged[0].Answer)
 	s.Require().Len(store.trialAttempts, 2)
 	s.Equal(2, store.trialAttempts[1].Number)
 	s.Equal("completed", store.trialAttempts[1].Status)
@@ -186,13 +191,28 @@ func (s *runnerSuite) TestJudgeExistingRunDurablyAppendsCanonicalAttempt() {
 
 	s.Require().Error(err)
 	s.Require().Len(failed, 1)
-	s.Equal("failed", failed[0].Status)
+	s.Equal("completed", failed[0].Status)
 	s.Require().Len(store.trialAttempts, 3)
 	s.Equal("failed", store.trialAttempts[2].Status)
 	s.Equal(TrialStageJudge, store.trialAttempts[2].Stage)
 	s.Equal(FailureClassUnknown, store.trialAttempts[2].FailureClass)
 	_, statErr := os.Stat(filepath.Join(directory, store.trialAttempts[2].ArtifactRefs["artifact_dir"], "judge.jsonl"))
 	s.Require().NoError(statErr)
+
+	executor.failProgram = ""
+	_, recovered, err := JudgeExistingRunDurable(context.Background(), store, executor, nil, config, "revision", failed)
+
+	s.Require().NoError(err)
+	s.Require().Len(recovered, 1)
+	s.True(recovered[0].Judged)
+	s.Equal("completed", recovered[0].Status)
+	s.Require().Len(store.trialAttempts, 4)
+	s.Equal("completed", store.trialAttempts[3].Status)
+
+	mismatched := config
+	mismatched.AnswererSeed = "different"
+	_, _, err = JudgeExistingRunDurable(context.Background(), store, executor, nil, mismatched, "revision", recovered)
+	s.Require().ErrorContains(err, "verify durable rejudge Run")
 }
 
 func (s *runnerSuite) TestRunPreflightsOnlyWhenWorkIsRunnable() {
@@ -577,10 +597,11 @@ type fakeStore struct {
 	results       []TrialResult
 	finished      bool
 	acquired      bool
+	runHashes     map[string]string
 }
 
 func newFakeStore() *fakeStore {
-	return &fakeStore{statuses: make(map[TrialKey]string), attemptCounts: make(map[TrialKey]int)}
+	return &fakeStore{statuses: make(map[TrialKey]string), attemptCounts: make(map[TrialKey]int), runHashes: make(map[string]string)}
 }
 
 func (s *fakeStore) Acquire(context.Context, string) (bool, error) {
@@ -600,9 +621,13 @@ func (s *fakeStore) Release(context.Context, string) error {
 	return nil
 }
 
-func (s *fakeStore) Initialize(_ context.Context, _ RunRecord, trials []TrialKey) error {
+func (s *fakeStore) Initialize(_ context.Context, run RunRecord, trials []TrialKey) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if hash, exists := s.runHashes[run.ID]; exists && hash != run.ConfigHash {
+		return errors.New("run config collision")
+	}
+	s.runHashes[run.ID] = run.ConfigHash
 	for _, key := range trials {
 		if _, exists := s.statuses[key]; !exists {
 			s.statuses[key] = "pending"

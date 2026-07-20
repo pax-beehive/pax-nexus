@@ -126,7 +126,7 @@ func JudgeExistingRunDurable(
 	config Config,
 	revision string,
 	results []TrialResult,
-) (RunRecord, []TrialResult, error) {
+) (run RunRecord, judged []TrialResult, returnedErr error) {
 	if store == nil {
 		return RunRecord{}, nil, fmt.Errorf("judge existing run durably: store is required")
 	}
@@ -139,17 +139,27 @@ func JudgeExistingRunDurable(
 	if logger == nil {
 		logger = observability.DiscardLogger()
 	}
-	run, err := buildRunRecord(config, revision)
+	var err error
+	run, err = buildRunRecord(config, revision)
 	if err != nil {
 		return RunRecord{}, nil, fmt.Errorf("judge existing run durably: %w", err)
 	}
-	attempts, err := store.Attempts(ctx, run.ID)
+	acquired, err := store.Acquire(ctx, run.ID)
 	if err != nil {
-		return run, nil, fmt.Errorf("load durable rejudge Attempts: %w", err)
+		return run, nil, fmt.Errorf("acquire durable rejudge run: %w", err)
 	}
-	latest := latestTrialAttempts(attempts)
-	judged := append([]TrialResult(nil), results...)
-	var returnedErr error
+	if !acquired {
+		return run, nil, fmt.Errorf("acquire durable rejudge run: run %q is already active", run.ID)
+	}
+	defer func() {
+		if err := store.Release(context.Background(), run.ID); err != nil {
+			returnedErr = errors.Join(returnedErr, fmt.Errorf("release durable rejudge run: %w", err))
+		}
+	}()
+	judged, latest, err := loadDurableRejudgeState(ctx, store, run, results)
+	if err != nil {
+		return run, nil, err
+	}
 	for index := range judged {
 		result := &judged[index]
 		if result.Status != "completed" || result.Judged {
@@ -159,16 +169,51 @@ func JudgeExistingRunDurable(
 			returnedErr = errors.Join(returnedErr, err)
 		}
 	}
-	attempts, err = store.Attempts(ctx, run.ID)
-	if err != nil {
-		returnedErr = errors.Join(returnedErr, fmt.Errorf("reload durable rejudge Attempts: %w", err))
-	} else if err := ExportTrialAttempts(config.Run.OutputDir, attempts); err != nil {
-		returnedErr = errors.Join(returnedErr, err)
-	}
+	returnedErr = errors.Join(returnedErr, exportDurableRejudgeAttempts(ctx, store, run.ID, config.Run.OutputDir))
 	if incomplete := countIncompleteJudgments(judged); incomplete > 0 {
 		returnedErr = errors.Join(returnedErr, fmt.Errorf("judge existing run durably: %d completed trials remain unjudged", incomplete))
 	}
 	return run, judged, returnedErr
+}
+
+func loadDurableRejudgeState(
+	ctx context.Context,
+	store Store,
+	run RunRecord,
+	requested []TrialResult,
+) ([]TrialResult, map[string]TrialAttempt, error) {
+	if err := store.Initialize(ctx, run, nil); err != nil {
+		return nil, nil, fmt.Errorf("verify durable rejudge Run: %w", err)
+	}
+	durableResults, err := store.Results(ctx, run.ID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("load durable rejudge Trials: %w", err)
+	}
+	durableByTrial := make(map[string]TrialResult, len(durableResults))
+	for _, result := range durableResults {
+		durableByTrial[result.CaseID+"\x00"+result.Arm] = result
+	}
+	judged := make([]TrialResult, 0, len(requested))
+	for _, selection := range requested {
+		durable, exists := durableByTrial[selection.CaseID+"\x00"+selection.Arm]
+		if !exists {
+			return nil, nil, fmt.Errorf("load durable rejudge Trial %s/%s: result is missing", selection.CaseID, selection.Arm)
+		}
+		judged = append(judged, durable)
+	}
+	attempts, err := store.Attempts(ctx, run.ID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("load durable rejudge Attempts: %w", err)
+	}
+	return judged, latestTrialAttempts(attempts), nil
+}
+
+func exportDurableRejudgeAttempts(ctx context.Context, store Store, runID, outputDirectory string) error {
+	attempts, err := store.Attempts(ctx, runID)
+	if err != nil {
+		return fmt.Errorf("reload durable rejudge Attempts: %w", err)
+	}
+	return ExportTrialAttempts(outputDirectory, attempts)
 }
 
 func judgeExistingTrialDurably(
@@ -214,18 +259,19 @@ func judgeExistingTrialDurably(
 	completed := time.Now().UTC()
 	result.CompletedAt = completed
 	if judgeErr != nil {
-		result.Status = "failed"
 		result.JudgeError = judgeErr.Error()
 		result.FailureStage = TrialStageJudge
 		result.FailureClass = classifyFailure(judgeErr)
 		result.Error = judgeErr.Error()
-		if err := store.Fail(ctx, attempt, *result); err != nil {
+		result.Status = "completed"
+		if err := store.Complete(ctx, attempt, *result); err != nil {
 			return errors.Join(fmt.Errorf("run durable rejudge %s/%s: %w", result.CaseID, result.Arm, judgeErr), fmt.Errorf("persist failed rejudge Attempt: %w", err))
 		}
 		logger.ErrorContext(ctx, "eval rejudgment failed", "case_id", result.CaseID, "arm", result.Arm, "error", judgeErr)
 		return fmt.Errorf("run durable rejudge %s/%s: %w", result.CaseID, result.Arm, judgeErr)
 	}
 	result.Judged = true
+	result.Status = "completed"
 	result.Correct = judgment.Correct
 	result.JudgeAnswer = judgment.Text
 	result.JudgeSessionID = judgment.SessionID

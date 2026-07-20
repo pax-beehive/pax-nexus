@@ -195,15 +195,28 @@ func (s *storeSuite) TestClaimRejudgeAppendsAttemptWithoutDiscardingCompletedRes
 	results, err := s.store.Results(ctx, runID)
 	s.Require().NoError(err)
 	s.Empty(results)
-	unjudged.Judged = true
+	unjudged.FailureStage = v2.TrialStageJudge
+	unjudged.FailureClass = v2.FailureClassUnknown
+	unjudged.JudgeError = "temporary judge failure"
 	s.Require().NoError(s.store.Complete(ctx, second, unjudged))
+	third, claimed, err := s.store.ClaimRejudge(ctx, key)
+	s.Require().NoError(err)
+	s.True(claimed)
+	s.Equal(3, third.Number)
+	unjudged.Judged = true
+	unjudged.FailureStage = ""
+	unjudged.FailureClass = ""
+	unjudged.JudgeError = ""
+	s.Require().NoError(s.store.Complete(ctx, third, unjudged))
 	_, claimed, err = s.store.ClaimRejudge(ctx, key)
 	s.Require().NoError(err)
 	s.False(claimed)
 	attempts, err := s.store.Attempts(ctx, runID)
 	s.Require().NoError(err)
-	s.Require().Len(attempts, 2)
-	s.Equal("completed", attempts[1].Status)
+	s.Require().Len(attempts, 3)
+	s.Equal("failed", attempts[1].Status)
+	s.Equal(v2.TrialStageJudge, attempts[1].Stage)
+	s.Equal("completed", attempts[2].Status)
 }
 
 func TestOpenRejectsEmptyDSN(t *testing.T) {

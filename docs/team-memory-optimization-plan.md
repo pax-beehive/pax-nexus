@@ -113,7 +113,8 @@ consumer/judge artifacts, and a resolved configuration hash matching the
 durable Run. Invalid runs export `validity.json` plus raw evidence, remove
 stale comparison reports, omit derived manifest scores, and return an
 acceptance error. Judge-only recovery is recorded as a new immutable Attempt
-through the durable Store seam.
+through the locked durable Store seam; it verifies Run configuration, judges
+the stored consumer result, and preserves retryability after judge failure.
 
 ## Tranche 4: Budget-Aware Final-State Selection
 

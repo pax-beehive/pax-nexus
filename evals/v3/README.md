@@ -74,8 +74,10 @@ The artifact manifest links and embeds this report. An invalid run exports raw
 JSONL and available provenance, removes stale CSV/HTML comparisons, and exits
 non-zero; its manifest is labeled `raw_invalid_evidence` and contains no
 derived accuracy or cost summary. Judge-only recovery claims a new Attempt
-through the durable Store and writes the original consumer plus new judge
-evidence into its canonical artifact directory.
+under the Run lock, verifies the stored configuration hash, uses the durable
+consumer result as its only answer input, and writes new judge evidence into
+the canonical Attempt directory. A transient judge failure preserves the
+completed consumer result and can be retried without rerunning the Trial.
 
 Eval v3 is the outer architecture comparison, not the recall-policy tuning
 loop. Before using it to validate a recall change, first improve the fixed
