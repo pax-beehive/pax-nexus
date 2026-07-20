@@ -463,7 +463,9 @@ func mapDecision(
 	if !grounded {
 		return nil, "decision is not grounded in a new event"
 	}
-	if reason := stateDecisionAdmissionReason(decision.Decision, evidence, events, decision.Candidate); reason != "" {
+	if reason := stateDecisionAdmissionReason(
+		decision.Decision, evidence, decision.EvidenceClauses, events, decision.Candidate,
+	); reason != "" {
 		return nil, reason
 	}
 	temporal := decisionTemporal(decision, referencedClaims)
@@ -622,13 +624,29 @@ func candidateAction(decision DecisionAction) teamnote.CandidateAction {
 func stateDecisionAdmissionReason(
 	action DecisionAction,
 	evidence []string,
+	evidenceClauses []EvidenceClause,
 	events []teamnote.SessionEvent,
 	candidate *DecisionCandidate,
 ) string {
-	if decisionChangesState(action) && evidenceIsOnlyNonCommittalSourceLanguage(evidence, events, candidate) {
+	if !decisionChangesState(action) {
+		return ""
+	}
+	if sourceClausesContainCommittedCandidate(evidenceClauses, candidate) {
+		return ""
+	}
+	if evidenceIsOnlyNonCommittalSourceLanguage(evidence, events, candidate) {
 		return "decision evidence contains only a non-committal source proposal or request"
 	}
 	return ""
+}
+
+func sourceClausesContainCommittedCandidate(clauses []EvidenceClause, candidate *DecisionCandidate) bool {
+	for _, clause := range clauses {
+		if committedSourceClauseSupportsCandidate(clause.Quote, candidate) {
+			return true
+		}
+	}
+	return false
 }
 
 func invalidReasonCode(reasonCodes []string) string {

@@ -355,7 +355,8 @@ func normalizeCandidates(result *Result, slice sessionlake.Slice, candidateLimit
 			result.Rejections = append(result.Rejections, teamnote.CandidateRejection{Candidate: candidate, Reason: reason})
 			continue
 		}
-		if evidenceIsOnlyNonCommittalProposal(candidate.EvidenceEventIDs, slice.Events) {
+		if evidenceIsOnlyNonCommittalProposal(candidate.EvidenceEventIDs, slice.Events) &&
+			!transitionAuthorityContainsCommittedCandidate(authority, candidate) {
 			result.Rejections = append(result.Rejections, teamnote.CandidateRejection{
 				Candidate: candidate, Reason: "extractor candidate is grounded only in a non-committal proposal or request",
 			})
@@ -400,6 +401,19 @@ func normalizeCandidates(result *Result, slice sessionlake.Slice, candidateLimit
 	result.Candidates = kept
 	result.TransitionAuthorities = keptAuthorities
 	return nil
+}
+
+func transitionAuthorityContainsCommittedCandidate(
+	authority teamnote.TransitionAuthority,
+	candidate teamnote.Candidate,
+) bool {
+	decisionCandidate := &DecisionCandidate{Subject: candidate.Subject, Body: candidate.Body}
+	for _, clause := range authority.EvidenceClauses {
+		if committedSourceClauseSupportsCandidate(clause.Quote, decisionCandidate) {
+			return true
+		}
+	}
+	return false
 }
 
 func evidenceIsOnlyNonCommittalProposal(evidenceIDs []string, events []teamnote.SessionEvent) bool {
@@ -502,10 +516,18 @@ func committedClauseSupportsCandidate(content string, candidate *DecisionCandida
 	return false
 }
 
+func committedSourceClauseSupportsCandidate(quote string, candidate *DecisionCandidate) bool {
+	content := " " + strings.ToLower(strings.Join(strings.Fields(quote), " ")) + " "
+	return committedClauseSupportsCandidate(content, candidate)
+}
+
 func containsCommittedPredicate(content string) bool {
+	content, _ = sourceTextWithoutMarkdownFormatting(content)
 	for _, marker := range []string{
 		" is ", " are ", " owns ", " has ", " have ", " completed ", " finished ",
 		" approved ", " assigned ", " designated ", " decided ", " confirmed ",
+		" i'll ", " i’ll ", " i will ", " we'll ", " we’ll ", " we will ",
+		" update ", " freeze ", " pause ", " lock ",
 	} {
 		if strings.Contains(content, marker) {
 			return true

@@ -12,7 +12,68 @@ import (
 )
 
 func mapExtractionSourceClauseV1(result *Result, slice sessionlake.Slice) {
+	normalizeSourceClauseCitations(result.Trace, slice.Events)
 	mapExtractionV2With(result, slice, mapSourceClauseDecision)
+}
+
+func normalizeSourceClauseCitations(trace *TraceV2, events []teamnote.SessionEvent) {
+	if trace == nil {
+		return
+	}
+	eventsByID := make(map[string]teamnote.SessionEvent, len(events))
+	for _, event := range events {
+		eventsByID[event.ID] = event
+	}
+	for decisionIndex := range trace.StateDecisions {
+		for clauseIndex := range trace.StateDecisions[decisionIndex].EvidenceClauses {
+			clause := &trace.StateDecisions[decisionIndex].EvidenceClauses[clauseIndex]
+			event, exists := eventsByID[clause.EventID]
+			if !exists || strings.Contains(event.Content, clause.Quote) {
+				continue
+			}
+			if exact, ok := exactSourceSpanIgnoringMarkdown(event.Content, clause.Quote); ok {
+				clause.Quote = exact
+			}
+		}
+	}
+}
+
+func exactSourceSpanIgnoringMarkdown(content, quote string) (string, bool) {
+	normalizedContent, sourceOffsets := sourceTextWithoutMarkdownFormatting(content)
+	normalizedQuote, _ := sourceTextWithoutMarkdownFormatting(quote)
+	if normalizedQuote == "" || len(sourceOffsets) == 0 {
+		return "", false
+	}
+	start := strings.Index(normalizedContent, normalizedQuote)
+	if start < 0 || strings.Contains(normalizedContent[start+len(normalizedQuote):], normalizedQuote) {
+		return "", false
+	}
+	sourceStart := sourceOffsets[start]
+	sourceEnd := sourceOffsets[start+len(normalizedQuote)-1] + 1
+	for sourceStart > 0 && isMarkdownFormattingByte(content[sourceStart-1]) {
+		sourceStart--
+	}
+	for sourceEnd < len(content) && isMarkdownFormattingByte(content[sourceEnd]) {
+		sourceEnd++
+	}
+	return content[sourceStart:sourceEnd], true
+}
+
+func sourceTextWithoutMarkdownFormatting(content string) (string, []int) {
+	text := make([]byte, 0, len(content))
+	offsets := make([]int, 0, len(content))
+	for index := 0; index < len(content); index++ {
+		if isMarkdownFormattingByte(content[index]) {
+			continue
+		}
+		text = append(text, content[index])
+		offsets = append(offsets, index)
+	}
+	return string(text), offsets
+}
+
+func isMarkdownFormattingByte(value byte) bool {
+	return value == '*' || value == '`'
 }
 
 func mapSourceClauseDecision(
@@ -98,6 +159,8 @@ func sourceClauseIsNonCommittal(quote string) bool {
 	nonCommittal := containsAny(normalized, []string{
 		" i propose ", " we propose ", " proposal ", " suggest ", " recommend ",
 		" should ", " please ", " can you ", " could ", " would ", " might ",
+		" i'd want ", " i’d want ", " i'd like ", " i’d like ",
+		" we'd want ", " we’d want ", " we'd like ", " we’d like ",
 		" ask ", " asks ", " request ", " prefer ", " hope ",
 	})
 	return nonCommittal
@@ -140,7 +203,7 @@ func sourceClauseBoundaryBefore(content string, index int) bool {
 	prefixEnd := index
 	for prefixEnd > 0 {
 		last, size := utf8.DecodeLastRuneInString(content[:prefixEnd])
-		if !unicode.IsSpace(last) {
+		if !unicode.IsSpace(last) && !isMarkdownFormattingRune(last) {
 			break
 		}
 		prefixEnd -= size
@@ -169,7 +232,7 @@ func sourceClauseBoundaryAfter(content string, index int) bool {
 	suffixStart := index
 	for suffixStart < len(content) {
 		first, size := utf8.DecodeRuneInString(content[suffixStart:])
-		if !unicode.IsSpace(first) {
+		if !unicode.IsSpace(first) && !isMarkdownFormattingRune(first) {
 			break
 		}
 		suffixStart += size
@@ -190,6 +253,10 @@ func sourceClauseBoundaryAfter(content string, index int) bool {
 
 func isInlineSourceClauseDelimiter(character rune) bool {
 	return character == ',' || character == ':' || character == '，' || character == '：'
+}
+
+func isMarkdownFormattingRune(character rune) bool {
+	return character == '*' || character == '`'
 }
 
 func endsWithSourceConjunction(value string) bool {

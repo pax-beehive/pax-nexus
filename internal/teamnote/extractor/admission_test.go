@@ -24,11 +24,14 @@ func TestAdmissionSuite(t *testing.T) {
 
 func (s *admissionSuite) TestSourceClauseAdmissionValidatesExactAtomicEvidence() {
 	tests := []struct {
-		name      string
-		content   string
-		clause    string
-		wantNotes int
-		wantCause string
+		name       string
+		content    string
+		clause     string
+		wantClause string
+		subject    string
+		body       string
+		wantNotes  int
+		wantCause  string
 	}{
 		{
 			name: "exact committed clause", content: "Compliance owns the exceptions log. Please publish it today.",
@@ -71,6 +74,26 @@ func (s *admissionSuite) TestSourceClauseAdmissionValidatesExactAtomicEvidence()
 			clause: "The request was approved.", wantNotes: 1,
 		},
 		{
+			name: "exact commitment overrides surrounding suggestion", content: "I suggest one final review. I’ll log UX as owner for the final journey lock.",
+			clause:  "I’ll log UX as owner for the final journey lock.",
+			subject: "final journey lock", body: "UX is owner for the final journey lock.", wantNotes: 1,
+		},
+		{
+			name: "markdown formatting preserves exact source span", content: "I suggest revising the baseline. **Update the baseline now** to include the mandatory consent timestamp and 7-year audit-trail fields.",
+			clause:     "Update the baseline now to include the mandatory consent timestamp and 7-year audit-trail fields.",
+			wantClause: "**Update the baseline now** to include the mandatory consent timestamp and 7-year audit-trail fields.",
+			subject:    "baseline consent and audit fields", body: "Update the baseline with the mandatory consent timestamp and 7-year audit-trail fields.", wantNotes: 1,
+		},
+		{
+			name: "ambiguous markdown span is not repaired", content: "Update **the** baseline now. Later: Update **the** baseline now.",
+			clause: "Update the baseline now.", wantCause: "exact text",
+		},
+		{
+			name: "markdown decision label is an atomic boundary", content: "I suggest tightening this up. **Change to decision:** pause scenario creation and have Legal and Ops freeze the audit-trail rules.",
+			clause:  "pause scenario creation and have Legal and Ops freeze the audit-trail rules.",
+			subject: "scenario creation and audit rules", body: "Pause scenario creation and have Legal and Ops freeze the audit-trail rules.", wantNotes: 1,
+		},
+		{
 			name: "conditional state is committed", content: "If the July 26 milestone slips, Ops Lead owns the rollback evidence pack.",
 			clause: "If the July 26 milestone slips, Ops Lead owns the rollback evidence pack.", wantNotes: 1,
 		},
@@ -85,6 +108,11 @@ func (s *admissionSuite) TestSourceClauseAdmissionValidatesExactAtomicEvidence()
 		{
 			name: "capability request remains non-committal", content: "Can you validate fit against the same standard before July 18?",
 			clause: "Can you validate fit against the same standard before July 18?", wantCause: "non-committal",
+		},
+		{
+			name: "desired owner remains non-committal", content: "I’d want Legal to own rollback evidence. Can we lock that in now?",
+			clause:  "I’d want Legal to own rollback evidence.",
+			subject: "rollback evidence owner", body: "Legal owns rollback evidence.", wantCause: "non-committal",
 		},
 		{
 			name: "shortest compound clause", content: "Compliance owns the exceptions log, and Reporting owns the audit log.",
@@ -124,9 +152,18 @@ func (s *admissionSuite) TestSourceClauseAdmissionValidatesExactAtomicEvidence()
 		s.Run(test.name, func() {
 			slice := v2Slice()
 			slice.Events[0].Content = test.content
+			subject := test.subject
+			if subject == "" {
+				subject = "exceptions log owner"
+			}
+			body := test.body
+			if body == "" {
+				body = "Compliance owns the exceptions log."
+			}
 			decision := `{"decision":"create","identity_ref":"owner/exceptions-log","evidence_event_ids":["event-1"],` +
 				`"evidence_clauses":[{"event_id":"event-1","quote":` + quoteJSON(test.clause) + `}],` +
-				`"reason_codes":["explicit_new_fact"],"candidate":{"kind":"status","subject":"exceptions log owner","body":"Compliance owns the exceptions log."}}`
+				`"reason_codes":["explicit_new_fact"],"candidate":{"kind":"status","subject":` + quoteJSON(subject) +
+				`,"body":` + quoteJSON(body) + `}}`
 			client := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
 				return response(http.StatusOK, v2Body("", decision)), nil
 			})}
@@ -140,12 +177,16 @@ func (s *admissionSuite) TestSourceClauseAdmissionValidatesExactAtomicEvidence()
 			result, err := adapter.Extract(teamnote.WithScope(context.Background(), "source-clause-"+test.name), slice)
 
 			s.Require().NoError(err)
-			s.Len(result.Candidates, test.wantNotes)
+			s.Len(result.Candidates, test.wantNotes, "decision trace: %+v", result.Trace)
 			if test.wantNotes == 1 {
 				s.Require().Len(result.TransitionAuthorities, 1)
 				s.Equal(result.Candidates[0].ID, result.TransitionAuthorities[0].CandidateID)
 				s.Require().Len(result.TransitionAuthorities[0].EvidenceClauses, 1)
-				s.Equal(test.clause, result.TransitionAuthorities[0].EvidenceClauses[0].Quote)
+				wantClause := test.wantClause
+				if wantClause == "" {
+					wantClause = test.clause
+				}
+				s.Equal(wantClause, result.TransitionAuthorities[0].EvidenceClauses[0].Quote)
 			}
 			if test.wantCause != "" {
 				s.Require().Len(result.Trace.DecisionRejections, 1)
