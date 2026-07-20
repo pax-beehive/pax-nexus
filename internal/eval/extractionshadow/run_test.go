@@ -356,6 +356,36 @@ func (s *shadowSuite) TestLossLedgerRequiresEverySupportingEvent() {
 	s.False(report.LossLedger[0].SupportingEvents[1].SourceCovered)
 }
 
+func (s *shadowSuite) TestLossLedgerUsesEarliestStageAcrossSupportingEvents() {
+	fixtures := stageeval.FixtureSet{
+		SchemaVersion: stageeval.SchemaVersion,
+		Cases: []stageeval.Fixture{{
+			CaseID: "case-a", SourceRevision: strings.Repeat("fa", 32),
+			RecallContext: stageeval.RecallContext{ConsumerUserID: "owner", Query: "q", TokenBudget: 10},
+			RequiredAtoms: []stageeval.Atom{{
+				ID: "combined", Patterns: []string{"combined fact"},
+				SupportingEventIDs: []string{"event-rejected", "event-unreviewed"},
+			}},
+		}},
+	}
+	run := extractionshadow.CaseRun{CaseID: "case-a", Slices: []extractionshadow.SliceRecord{{
+		NewEventIDs: []string{"event-rejected", "event-unreviewed"},
+		Trace: &extractor.TraceV2{
+			ClaimRejections: []extractor.ClaimRejection{{
+				Claim: extractor.Claim{EvidenceEventIDs: []string{"event-rejected"}}, Reason: "invalid claim",
+			}},
+			UnreviewedEventIDs: []string{"event-unreviewed"},
+		},
+	}}}
+
+	report, err := extractionshadow.BuildReport("run", "arm", "v2", fixtures, []extractionshadow.CaseRun{run})
+
+	s.Require().NoError(err)
+	s.Require().Len(report.LossLedger, 1)
+	s.Equal(extractionshadow.ExtractionLossEventReview, report.LossLedger[0].LostAt)
+	s.Equal("supporting_event_unreviewed", report.LossLedger[0].Reason)
+}
+
 func (s *shadowSuite) TestLoadManifestCases() {
 	tests := []struct {
 		name      string

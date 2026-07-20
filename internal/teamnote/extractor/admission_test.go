@@ -54,6 +54,14 @@ func (s *admissionSuite) TestSourceClauseAdmissionValidatesExactAtomicEvidence()
 			clause: "I propose Compliance owns the exceptions log.", wantCause: "non-committal",
 		},
 		{
+			name: "adjacent approval does not neutralize proposal", content: "I propose Compliance owns the exceptions log, but Reporting is the approved owner.",
+			clause: "I propose Compliance owns the exceptions log, but Reporting is the approved owner.", wantCause: "non-committal",
+		},
+		{
+			name: "completed proposal is committed", content: "The proposal was approved.",
+			clause: "The proposal was approved.", wantNotes: 1,
+		},
+		{
 			name: "exact value with decimal", content: "The alert threshold is 1.5%.",
 			clause: "The alert threshold is 1.5%.", wantNotes: 1,
 		},

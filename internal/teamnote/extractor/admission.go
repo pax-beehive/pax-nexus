@@ -83,18 +83,18 @@ func sourceClauseIsNonCommittal(quote string) bool {
 	if strings.Contains(normalized, "?") {
 		return true
 	}
+	if containsAny(normalized, []string{
+		" proposal was approved", " proposal is approved", " proposal was accepted",
+		" proposal is accepted", " proposal has been approved", " proposal has been accepted",
+	}) {
+		return false
+	}
 	nonCommittal := containsAny(normalized, []string{
 		" i propose ", " we propose ", " proposal ", " suggest ", " recommend ",
 		" should ", " please ", " can you ", " could ", " would ", " might ",
 		" if ", " ask ", " asks ", " request ", " prefer ", " hope ",
 	})
-	if !nonCommittal {
-		return false
-	}
-	return !containsAny(normalized, []string{
-		" approved ", " accepted ", " assigned ", " designated ", " committed ",
-		" confirmed ", " decided ",
-	})
+	return nonCommittal
 }
 
 func isAtomicSourceClause(content, quote string) bool {

@@ -29,7 +29,9 @@ func attributeExtractionLosses(
 			return status.Reviewed
 		})
 		if !loss.Matched {
-			loss.LostAt, loss.Reason = firstExtractionLoss(run.Slices, atom.SupportingEventIDs, loss.SourceCovered)
+			loss.LostAt, loss.Reason = firstExtractionLoss(
+				run.Slices, atom.SupportingEventIDs, loss.SourceCovered, loss.Reviewed,
+			)
 		}
 		losses = append(losses, loss)
 	}
@@ -81,12 +83,20 @@ func allEventStatuses(statuses []ExtractionEventStatus, predicate func(Extractio
 	return true
 }
 
-func firstExtractionLoss(slices []SliceRecord, eventIDs []string, sourceCovered bool) (ExtractionLossStage, string) {
+func firstExtractionLoss(
+	slices []SliceRecord,
+	eventIDs []string,
+	sourceCovered bool,
+	reviewed bool,
+) (ExtractionLossStage, string) {
 	if len(eventIDs) == 0 {
 		return ExtractionLossSourceCoverage, "fixture_missing_supporting_events"
 	}
 	if !sourceCovered {
 		return ExtractionLossSourceCoverage, "supporting_events_not_in_extraction_input"
+	}
+	if stage, reason, lost := eventReviewLoss(slices, eventIDs, reviewed); lost {
+		return stage, reason
 	}
 	for _, slice := range slices {
 		trace := slice.Trace
@@ -103,15 +113,6 @@ func firstExtractionLoss(slices []SliceRecord, eventIDs []string, sourceCovered 
 				return ExtractionLossDecisionAdmission, rejection.Reason
 			}
 		}
-		if intersects(trace.InvalidNoStateEventIDs, eventIDs) {
-			return ExtractionLossEventReview, "invalid_no_state_classification"
-		}
-		if intersects(trace.UnreviewedEventIDs, eventIDs) {
-			return ExtractionLossEventReview, "supporting_event_unreviewed"
-		}
-		if intersects(trace.NoStateEventIDs, eventIDs) {
-			return ExtractionLossEventReview, "supporting_event_classified_no_state"
-		}
 		for _, decision := range trace.StateDecisions {
 			if decisionSupports(decision, trace.Claims, eventIDs) {
 				return ExtractionLossNoteMaterialization, "admitted_decision_missing_atom"
@@ -119,6 +120,31 @@ func firstExtractionLoss(slices []SliceRecord, eventIDs []string, sourceCovered 
 		}
 	}
 	return ExtractionLossEventReview, "supporting_event_has_no_extraction_product"
+}
+
+func eventReviewLoss(
+	slices []SliceRecord,
+	eventIDs []string,
+	reviewed bool,
+) (ExtractionLossStage, string, bool) {
+	for _, slice := range slices {
+		if slice.Trace == nil {
+			continue
+		}
+		if intersects(slice.Trace.InvalidNoStateEventIDs, eventIDs) {
+			return ExtractionLossEventReview, "invalid_no_state_classification", true
+		}
+		if intersects(slice.Trace.UnreviewedEventIDs, eventIDs) {
+			return ExtractionLossEventReview, "supporting_event_unreviewed", true
+		}
+		if intersects(slice.Trace.NoStateEventIDs, eventIDs) {
+			return ExtractionLossEventReview, "supporting_event_classified_no_state", true
+		}
+	}
+	if !reviewed {
+		return ExtractionLossEventReview, "supporting_event_has_no_extraction_product", true
+	}
+	return "", "", false
 }
 
 func traceReviewsEvent(trace *extractor.TraceV2, eventID string) bool {
