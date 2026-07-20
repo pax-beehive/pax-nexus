@@ -355,10 +355,9 @@ func normalizeCandidates(result *Result, slice sessionlake.Slice, candidateLimit
 			result.Rejections = append(result.Rejections, teamnote.CandidateRejection{Candidate: candidate, Reason: reason})
 			continue
 		}
-		if evidenceIsOnlyNonCommittalProposal(candidate.EvidenceEventIDs, slice.Events) &&
-			!transitionAuthorityContainsCommittedCandidate(authority, candidate) {
+		if reason := candidateProposalRejectionReason(candidate, authority, slice.Events); reason != "" {
 			result.Rejections = append(result.Rejections, teamnote.CandidateRejection{
-				Candidate: candidate, Reason: "extractor candidate is grounded only in a non-committal proposal or request",
+				Candidate: candidate, Reason: reason,
 			})
 			continue
 		}
@@ -401,6 +400,18 @@ func normalizeCandidates(result *Result, slice sessionlake.Slice, candidateLimit
 	result.Candidates = kept
 	result.TransitionAuthorities = keptAuthorities
 	return nil
+}
+
+func candidateProposalRejectionReason(
+	candidate teamnote.Candidate,
+	authority teamnote.TransitionAuthority,
+	events []teamnote.SessionEvent,
+) string {
+	if !evidenceIsOnlyNonCommittalProposal(candidate.EvidenceEventIDs, events) ||
+		transitionAuthorityContainsCommittedCandidate(authority, candidate) {
+		return ""
+	}
+	return "extractor candidate is grounded only in a non-committal proposal or request"
 }
 
 func transitionAuthorityContainsCommittedCandidate(
@@ -520,11 +531,38 @@ func committedClauseSupportsCandidate(content string, candidate *DecisionCandida
 				assertionMatches++
 			}
 		}
-		if matches >= 2 && assertionMatches >= 1 {
+		if matches >= 2 && assertionGroundedByClause(assertionTokens, clauseTokens, assertionMatches) {
 			return true
 		}
 	}
 	return false
+}
+
+func assertionGroundedByClause(
+	assertionTokens map[string]struct{},
+	clauseTokens map[string]struct{},
+	assertionMatches int,
+) bool {
+	if assertionMatches >= 2 {
+		return true
+	}
+	for token := range assertionTokens {
+		if _, matched := clauseTokens[token]; matched && isAssertionPredicate(token) {
+			return true
+		}
+	}
+	return false
+}
+
+func isAssertionPredicate(token string) bool {
+	_, ok := map[string]struct{}{
+		"agree": {}, "agreed": {}, "approve": {}, "approved": {}, "assign": {}, "assigned": {},
+		"block": {}, "complete": {}, "confirm": {}, "cover": {}, "decide": {}, "decided": {},
+		"designate": {}, "designated": {}, "finish": {}, "freeze": {}, "include": {}, "lock": {},
+		"log": {}, "own": {}, "owner": {}, "ownership": {}, "pause": {}, "publish": {},
+		"require": {}, "resolve": {}, "send": {}, "take": {}, "update": {}, "validate": {},
+	}[token]
+	return ok
 }
 
 func committedSourceClauseSupportsCandidate(quote string, candidate *DecisionCandidate) bool {

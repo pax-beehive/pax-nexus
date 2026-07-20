@@ -84,6 +84,11 @@ func (s *admissionSuite) TestSourceClauseAdmissionValidatesExactAtomicEvidence()
 			subject: "final baseline owner", body: "Legal owns the final baseline.", wantCause: "non-committal",
 		},
 		{
+			name: "shared temporal qualifier cannot authorize ownership", content: "I suggest one final review. I’ll update the final baseline now.",
+			clause:  "I’ll update the final baseline now.",
+			subject: "final baseline", body: "Legal owns the final baseline now.", wantCause: "non-committal",
+		},
+		{
 			name: "agreed clause overrides surrounding suggestion", content: "I suggest one final review. Agreed — final baseline.",
 			clause:  "Agreed — final baseline.",
 			subject: "baseline", body: "Final baseline agreed.", wantNotes: 1,
