@@ -5,6 +5,11 @@ For the three-arm, full-domain multi-agent GroupMemBench protocol, use
 arms and compares no memory, shared Mem0, and private SQLite plus shared Team
 Note. The remainder of this runbook covers Eval v2.
 
+If you are authoring a new evaluation or memory-provider arm, first read
+[`agent-memory-e2e.md`](agent-memory-e2e.md). It defines the source, identity,
+temporal, Agent-exposure, judgment, and artifact requirements for a valid
+end-to-end result.
+
 Use Eval v2 for current Team Note quality, latency, and cost comparisons. It
 runs the same deterministic GroupMemBench cases through four arms:
 
