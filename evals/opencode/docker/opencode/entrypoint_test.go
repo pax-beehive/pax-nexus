@@ -88,6 +88,7 @@ func (s *entrypointSuite) TestEvalV3ConsumerKeepsPairedAnswererAndArmTopology() 
 				"PATH=" + binDirectory + string(os.PathListSeparator) + os.Getenv("PATH"),
 				"DOCKER_CAPTURE=" + capture,
 				"PAX_EVAL_RUN_ID=eval-v3-test", "PAX_EVAL_CASE_ID=case-1",
+				"PAX_EVAL_SCOPE_ID=groupmembench-Finance",
 				"PAX_EVAL_USER_ID=User_1", "PAX_EVAL_ASKING_USER_ID=User_1",
 				"PAX_EVAL_ANSWERING_AGENT_ID=groupmembench-User_3",
 				"PAX_EVAL_CONSUMER_WORKSPACE=" + directory, "PAX_EVAL_OUTPUT_DIR=" + directory,
