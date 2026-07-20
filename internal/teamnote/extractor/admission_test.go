@@ -70,6 +70,10 @@ func (s *admissionSuite) TestSourceClauseAdmissionValidatesExactAtomicEvidence()
 			clause: "If the July 26 milestone slips, Ops Lead owns the rollback evidence pack.", wantNotes: 1,
 		},
 		{
+			name: "shortest compound clause", content: "Compliance owns the exceptions log, and Reporting owns the audit log.",
+			clause: "Compliance owns the exceptions log", wantNotes: 1,
+		},
+		{
 			name: "exact value with decimal", content: "The alert threshold is 1.5%.",
 			clause: "The alert threshold is 1.5%.", wantNotes: 1,
 		},

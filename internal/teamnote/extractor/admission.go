@@ -101,18 +101,90 @@ func sourceClauseIsNonCommittal(quote string) bool {
 }
 
 func isAtomicSourceClause(content, quote string) bool {
-	start := 0
-	for index, character := range content {
-		if !isSourceClauseBoundary(content, index, character) {
-			continue
+	if hasInternalSourceClauseBoundary(quote) {
+		return false
+	}
+	searchFrom := 0
+	for searchFrom <= len(content)-len(quote) {
+		relative := strings.Index(content[searchFrom:], quote)
+		if relative < 0 {
+			return false
 		}
-		end := index + len(string(character))
-		if strings.TrimSpace(content[start:end]) == quote {
+		start := searchFrom + relative
+		end := start + len(quote)
+		if sourceClauseBoundaryBefore(content, start) && sourceClauseBoundaryAfter(content, end) {
 			return true
 		}
-		start = end
+		searchFrom = start + 1
 	}
-	return strings.TrimSpace(content[start:]) == quote
+	return false
+}
+
+func hasInternalSourceClauseBoundary(quote string) bool {
+	trimmed := strings.TrimSpace(quote)
+	for index, character := range trimmed {
+		if !isSourceClauseBoundary(trimmed, index, character) {
+			continue
+		}
+		if index+utf8.RuneLen(character) < len(trimmed) {
+			return true
+		}
+	}
+	return false
+}
+
+func sourceClauseBoundaryBefore(content string, index int) bool {
+	prefix := strings.TrimSpace(content[:index])
+	if prefix == "" {
+		return true
+	}
+	last, _ := utf8.DecodeLastRuneInString(prefix)
+	if isInlineSourceClauseDelimiter(last) {
+		return true
+	}
+	return endsWithSourceConjunction(strings.ToLower(prefix))
+}
+
+func sourceClauseBoundaryAfter(content string, index int) bool {
+	if index > 0 {
+		last, size := utf8.DecodeLastRuneInString(content[:index])
+		if isSourceClauseBoundary(content, index-size, last) {
+			return true
+		}
+	}
+	suffix := strings.TrimSpace(content[index:])
+	if suffix == "" {
+		return true
+	}
+	first, _ := utf8.DecodeRuneInString(suffix)
+	if isInlineSourceClauseDelimiter(first) {
+		return true
+	}
+	return startsWithSourceConjunction(strings.ToLower(suffix))
+}
+
+func isInlineSourceClauseDelimiter(character rune) bool {
+	return character == ',' || character == ':' || character == ';' || character == '.' ||
+		character == '!' || character == '?' || character == '\n' || character == '，' ||
+		character == '：' || character == '；' || character == '。' || character == '！' || character == '？'
+}
+
+func endsWithSourceConjunction(value string) bool {
+	for _, conjunction := range []string{" and", " but", " while", " however"} {
+		if strings.HasSuffix(value, conjunction) {
+			return true
+		}
+	}
+	return false
+}
+
+func startsWithSourceConjunction(value string) bool {
+	for _, conjunction := range []string{"and ", "but ", "while ", "however "} {
+		if strings.HasPrefix(value, conjunction) {
+			return true
+		}
+	}
+	return false
 }
 
 func isSourceClauseBoundary(content string, index int, character rune) bool {
