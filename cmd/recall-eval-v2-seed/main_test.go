@@ -64,3 +64,29 @@ func (s *seedSuite) TestFixedObservationAndChecksumsAreStable() {
 	s.Equal(firstDigest, secondDigest)
 	s.Equal(fixedObservationTime, first[0].Evidence[0].OccurredAt)
 }
+
+func (s *seedSuite) TestDiagnosticCohortBounds() {
+	tests := []struct {
+		name       string
+		caseCount  int
+		wantErr    string
+		wantMinMax int
+	}{
+		{name: "default pilot", caseCount: 10, wantMinMax: 10},
+		{name: "fifteen case pilot", caseCount: 15, wantMinMax: 15},
+		{name: "too small", caseCount: 5, wantErr: "6 to 15"},
+		{name: "too large", caseCount: 16, wantErr: "6 to 15"},
+	}
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			minimum, maximum, err := diagnosticCohortBounds(test.caseCount)
+			if test.wantErr != "" {
+				s.ErrorContains(err, test.wantErr)
+				return
+			}
+			s.Require().NoError(err)
+			s.Equal(test.wantMinMax, minimum)
+			s.Equal(test.wantMinMax, maximum)
+		})
+	}
+}

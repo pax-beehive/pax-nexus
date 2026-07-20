@@ -8,10 +8,16 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote/extractor"
 )
 
-func (s *Store) LoadEpisode(ctx context.Context, key extractor.EpisodeKey) (extractor.Episode, bool, error) {
+// EpisodeStore persists extraction episode checkpoints using optimistic concurrency.
+type EpisodeStore struct {
+	pool *pgxpool.Pool
+}
+
+func (s *EpisodeStore) LoadEpisode(ctx context.Context, key extractor.EpisodeKey) (extractor.Episode, bool, error) {
 	if strings.TrimSpace(key.ScopeID) == "" {
 		return extractor.Episode{}, false, fmt.Errorf("load extraction episode: scope is required")
 	}
@@ -46,7 +52,7 @@ WHERE scope_id = $1 AND task_ref = $2 AND thread_ref = $3`,
 	return episode, true, nil
 }
 
-func (s *Store) SaveEpisode(ctx context.Context, episode extractor.Episode, expectedVersion int64) error {
+func (s *EpisodeStore) SaveEpisode(ctx context.Context, episode extractor.Episode, expectedVersion int64) error {
 	checkpoint, err := json.Marshal(episode.Checkpoint)
 	if err != nil {
 		return fmt.Errorf("encode extraction episode checkpoint: %w", err)

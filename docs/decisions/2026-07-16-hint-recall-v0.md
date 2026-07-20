@@ -263,9 +263,13 @@ Score clears the unchanged paxm gates without score inflation.
 
 ## Implemented evaluation candidate
 
-The evaluation candidate is `general-recall-v3-hint-recall-v0` with scoring
-version `hint-utility-v0-heuristic-eval-only`. It is enabled only with
-`TEAM_MEMORY_HINT_RECALL_ENABLED=true`; the production default remains false.
+The current evaluation candidate is `general-recall-v3-hint-recall-v1` with
+scoring version `hint-utility-v1-selective-eval-only`. It is distributed as the
+build-time `hint-v1-selective` recall candidate; the `passive-v1` build remains
+the production default. `hint-v1-selective` retains passive evidence selection
+and admits at most one focused active recall only after its selectivity gates
+pass. Runtime recall-policy environment overrides are rejected so an evaluated
+candidate image cannot silently drift.
 PostgreSQL records hint fingerprints separately from Note deliveries, so a
 hint cannot make its lead unavailable to a subsequent focused recall.
 

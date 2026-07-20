@@ -44,8 +44,9 @@ type OpenAIConfig struct {
 type OpenAI struct {
 	config            OpenAIConfig
 	candidateStrategy candidateStrategy
+	lifecycle         lifecycleCoordinator
 	locksMu           sync.Mutex
-	locks             map[EpisodeKey]*sync.Mutex
+	locks             map[EpisodeKey]*episodeLease
 	flightsMu         sync.Mutex
 	flights           map[EpisodeKey]*compactionFlight
 	summariesMu       sync.Mutex
@@ -71,7 +72,8 @@ func NewOpenAI(config OpenAIConfig) (*OpenAI, error) {
 		return nil, fmt.Errorf("create OpenAI extractor: %w", err)
 	}
 	return &OpenAI{
-		config: config, candidateStrategy: strategy, locks: make(map[EpisodeKey]*sync.Mutex),
+		config: config, candidateStrategy: strategy, lifecycle: newLifecycleCoordinator(),
+		locks:     make(map[EpisodeKey]*episodeLease),
 		flights:   make(map[EpisodeKey]*compactionFlight),
 		summaries: make(map[EpisodeKey]*summaryFlight),
 	}, nil
@@ -136,6 +138,10 @@ func normalizeExtractionVersion(config *OpenAIConfig) error {
 }
 
 func (e *OpenAI) Extract(ctx context.Context, slice sessionlake.Slice) (Result, error) {
+	if err := e.lifecycle.beginForeground(); err != nil {
+		return Result{}, fmt.Errorf("extract with OpenAI: %w", err)
+	}
+	defer e.lifecycle.finishForeground()
 	if e.config.ContextMode == ContextModeRolling {
 		if e.config.ExtractionVersion == ExtractionVersionV2 {
 			return e.extractRollingV2(ctx, slice)
@@ -145,49 +151,29 @@ func (e *OpenAI) Extract(ctx context.Context, slice sessionlake.Slice) (Result, 
 	return e.extractSlice(ctx, slice)
 }
 
-// WaitForBackground waits for compaction and periodic-summary provider calls
-// that were already started. Evaluation harnesses use it before closing their
-// call journal so asynchronous usage is not lost.
+// WaitForBackground waits until active extractions and their compaction or
+// periodic-summary calls are drained. Including active extractions prevents a
+// wait from missing background work that is started concurrently. Evaluation
+// harnesses use it before closing their call journal so usage is not lost.
 func (e *OpenAI) WaitForBackground(ctx context.Context) error {
-	e.flightsMu.Lock()
-	compactions := make([]<-chan struct{}, 0, len(e.flights))
-	for _, flight := range e.flights {
-		compactions = append(compactions, flight.done)
-	}
-	e.flightsMu.Unlock()
-	e.summariesMu.Lock()
-	type pendingSummary struct {
-		key    EpisodeKey
-		flight *summaryFlight
-	}
-	summaries := make([]pendingSummary, 0, len(e.summaries))
-	for key, flight := range e.summaries {
-		summaries = append(summaries, pendingSummary{key: key, flight: flight})
-	}
-	e.summariesMu.Unlock()
-	for _, done := range compactions {
-		select {
-		case <-done:
-		case <-ctx.Done():
-			return fmt.Errorf("wait for extractor background calls: %w", ctx.Err())
-		}
-	}
-	var waitErr error
-	for _, summary := range summaries {
-		select {
-		case <-summary.flight.done:
-			e.deleteSummaryFlight(summary.key, summary.flight)
-			if summary.flight.persistErr != nil {
-				waitErr = errors.Join(waitErr, summary.flight.persistErr)
-			}
-		case <-ctx.Done():
-			return fmt.Errorf("wait for extractor background calls: %w", ctx.Err())
-		}
-	}
-	if waitErr != nil {
-		return fmt.Errorf("wait for extractor background calls: %w", waitErr)
-	}
-	return nil
+	return e.lifecycle.wait(ctx, false)
+}
+
+// Close prevents new extractions and waits for in-progress extractions and
+// their background work to finish. A canceled close still leaves the extractor
+// closed; callers may invoke Close again with a fresh context to finish waiting.
+func (e *OpenAI) Close(ctx context.Context) error {
+	return e.lifecycle.wait(ctx, true)
+}
+
+// LifecycleStatus reports current coordinator activity. ActiveEpisodes counts
+// only Episode locks that are held or have waiters; idle keys are reclaimed.
+func (e *OpenAI) LifecycleStatus() LifecycleStatus {
+	status := e.lifecycle.status()
+	e.locksMu.Lock()
+	status.ActiveEpisodes = len(e.locks)
+	e.locksMu.Unlock()
+	return status
 }
 
 // systemPrompt returns the stable extraction system prompt for the configured
@@ -211,7 +197,7 @@ func (e *OpenAI) extractSlice(ctx context.Context, slice sessionlake.Slice) (Res
 	if err != nil {
 		return Result{}, err
 	}
-	if err := normalizeCandidates(&result, slice); err != nil {
+	if err := normalizeCandidates(&result, slice, e.candidateStrategy.candidateLimit); err != nil {
 		return Result{}, err
 	}
 	result.Model = e.config.Model
@@ -354,7 +340,7 @@ func decodeResponse(body []byte) (Result, string, error) {
 	}, content, nil
 }
 
-func normalizeCandidates(result *Result, slice sessionlake.Slice) error {
+func normalizeCandidates(result *Result, slice sessionlake.Slice, candidateLimit int) error {
 	checksum := slice.InputChecksum
 	if len(checksum) > 16 {
 		checksum = checksum[:16]
@@ -402,13 +388,16 @@ func normalizeCandidates(result *Result, slice sessionlake.Slice) error {
 		candidate.SourceOccurredAt = latestEvidenceTime(candidate.EvidenceEventIDs, slice.Events)
 		kept = append(kept, candidate)
 	}
-	if len(kept) > maxCandidatesPerSlice {
-		for _, overflow := range kept[maxCandidatesPerSlice:] {
+	if candidateLimit == 0 {
+		candidateLimit = maxCandidatesPerSlice
+	}
+	if candidateLimit > 0 && len(kept) > candidateLimit {
+		for _, overflow := range kept[candidateLimit:] {
 			result.Rejections = append(result.Rejections, teamnote.CandidateRejection{
 				Candidate: overflow, Reason: "extractor candidate overflow beyond the per-slice maximum",
 			})
 		}
-		kept = kept[:maxCandidatesPerSlice]
+		kept = kept[:candidateLimit]
 	}
 	result.Candidates = kept
 	return nil

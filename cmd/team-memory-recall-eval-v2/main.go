@@ -45,7 +45,11 @@ func run(ctx context.Context, args []string, logger *slog.Logger) error {
 	if err := runReplayGate(config); err != nil {
 		return err
 	}
-	cases, revision, cohort, err := recallv2.LoadCases(
+	loadCases := recallv2.LoadCases
+	if config.Recall.Diagnostic {
+		loadCases = recallv2.LoadDiagnosticCases
+	}
+	cases, revision, cohort, err := loadCases(
 		config.Run.Manifest, config.Recall.CaseAnnotations, config.AnswererSeed,
 		config.Recall.MinAgentCases, config.Recall.MaxAgentCases,
 	)

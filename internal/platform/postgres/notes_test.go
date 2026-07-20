@@ -114,6 +114,39 @@ func (s *noteStoreSuite) TestLifecycleDeliveryAndPersistence() {
 	s.Empty(afterResolve.Items)
 }
 
+func (s *noteStoreSuite) TestDefaultRecallPolicyMatchesMemoryAdapterCandidateBoundary() {
+	ctx := context.Background()
+	postgresScope := uniqueScope("default-policy-postgres")
+	memoryScope := uniqueScope("default-policy-memory")
+	producer := teamnote.Actor{UserID: "owner", AgentID: "producer", SessionID: "producer-session"}
+	consumer := teamnote.Actor{UserID: "owner", AgentID: "consumer", SessionID: "consumer-session"}
+	postgresNotes := s.newNoteStore()
+	memoryNotes := teamnote.NewScopedLedgerStore(teamnote.DefaultTTLPolicy(), s.clock)
+	for index := 0; index < 17; index++ {
+		evidence := event(fmt.Sprintf("default-policy-event-%02d", index), producer, int64(index+1))
+		evidence.Content = fmt.Sprintf("release %cword %cmark", 'a'+rune(index), 'a'+rune(index))
+		s.appendEvents(ctx, postgresScope, evidence)
+		candidate := candidate(
+			fmt.Sprintf("default-policy-candidate-%02d", index), teamnote.ActionCreate,
+			evidence.Content, producer, evidence.ID,
+		)
+		candidate.Subject = fmt.Sprintf("release fact %02d", index)
+		_, err := postgresNotes.ApplyCandidate(ctx, postgresScope, fmt.Sprintf("postgres-run-%02d", index), candidate, []teamnote.SessionEvent{evidence})
+		s.Require().NoError(err)
+		_, err = memoryNotes.ApplyCandidate(ctx, memoryScope, fmt.Sprintf("memory-run-%02d", index), candidate, []teamnote.SessionEvent{evidence})
+		s.Require().NoError(err)
+	}
+	request := teamnote.RecallRequest{Actor: consumer, TaskRef: "task-1", Query: "release", TokenBudget: 10_000, MaxItems: 20}
+
+	postgresResult, err := postgresNotes.RecallNotes(ctx, postgresScope, request)
+	s.Require().NoError(err)
+	memoryResult, err := memoryNotes.RecallNotes(ctx, memoryScope, request)
+	s.Require().NoError(err)
+
+	s.Len(postgresResult.Items, teamnote.DefaultRecallPolicy().CandidateLimit)
+	s.Len(memoryResult.Items, teamnote.DefaultRecallPolicy().CandidateLimit)
+}
+
 func (s *noteStoreSuite) TestExtractionRunPersistsZeroCandidateProvenance() {
 	ctx := context.Background()
 	scopeID := uniqueScope("zero-candidate-run")
@@ -274,8 +307,10 @@ func (s *noteStoreSuite) TestHintRecallDoesNotClaimLeadAndFocusedRecallReturnsEv
 	evidence := event("hint-event", producer, 1)
 	s.appendEvents(ctx, scopeID, evidence)
 	notes, err := postgres.NewNoteStore(s.store, teamnote.DefaultTTLPolicy(), s.clock, postgres.RetrievalConfig{
-		Embedder: allSemanticEmbedder{}, EmbeddingModel: "test-embedding", SemanticThreshold: 0.65,
-		CandidateLimit: 16, HintRecallEnabled: true, HintThreshold: 0.65,
+		Embedder: allSemanticEmbedder{}, EmbeddingModel: "test-embedding",
+		Policy: teamnote.RecallPolicy{
+			SemanticThreshold: 0.65, CandidateLimit: 16, EnableHintRecall: true, HintThreshold: 0.65,
+		},
 	})
 	s.Require().NoError(err)
 	lead := candidate("hint-lead", teamnote.ActionCreate, "Internal candidate claim.", producer, evidence.ID)
@@ -826,14 +861,14 @@ func (s *noteStoreSuite) newHybridNoteStore(embedder interface {
 }) *postgres.NoteStore {
 	store, err := postgres.NewNoteStore(s.store, teamnote.DefaultTTLPolicy(), s.clock, postgres.RetrievalConfig{
 		Embedder: embedder, EmbeddingModel: "Qwen/Qwen3-Embedding-0.6B",
-		SemanticThreshold: 0.65, CandidateLimit: 16,
+		Policy: teamnote.RecallPolicy{SemanticThreshold: 0.65, CandidateLimit: 16},
 	})
 	s.Require().NoError(err)
 	return store
 }
 
 func (s *noteStoreSuite) appendEvents(ctx context.Context, scopeID string, events ...teamnote.SessionEvent) {
-	_, err := s.store.AppendSession(ctx, scopeID, teamnote.SessionBatch{Events: events})
+	_, err := s.store.Sessions().AppendSession(ctx, scopeID, teamnote.SessionBatch{Events: events})
 	s.Require().NoError(err)
 }
 

@@ -7,16 +7,15 @@ import (
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
-	api "github.com/pax-beehive/pax-nexus/internal/teamnote/transport/httpapi/model/teammemory/api"
 )
 
 // Health .
 // @router /healthz [GET]
 func Health(ctx context.Context, c *app.RequestContext) {
-	var req api.HealthRequest
-	if err := c.BindAndValidate(&req); err != nil {
-		c.String(consts.StatusBadRequest, "invalid health request")
+	handler, ok := handlerFromRequest(c)
+	if !ok {
+		c.String(consts.StatusInternalServerError, "runtime is not configured")
 		return
 	}
-	c.JSON(consts.StatusOK, &api.HealthResponse{Status: "ok"})
+	handler.Health(ctx, c)
 }

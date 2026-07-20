@@ -424,15 +424,19 @@ changes:
   exact values, conditions, exceptions, dependencies, and state changes;
 - deterministic mapping now preserves `valid_at`, `invalid_at`, and related
   subjects instead of dropping them between State Decision and Candidate;
-- temporal metadata is rejected when it lacks a source expression, uses an
-  invalid RFC3339 window, or marks an unresolved expression with a resolved
-  validity timestamp;
+- temporal metadata that lacks a source expression is discarded rather than
+  rejecting the decision, unresolved resolutions drop their validity
+  timestamps, and an already-past `invalid_at` is dropped on create; invalid
+  RFC3339 windows are still rejected;
 - interaction observations are retained only when their stance and speech act
   use the explicit vocabulary and their evidence cites a new source Event;
 - proposal, request, question, acknowledgment, concern, and urgency evidence
   cannot by themselves create, update, or resolve canonical state; an explicit
   approval, commitment, rejection, handoff, escalation, or other factual
-  evidence is required, and the rule is enforced after model generation;
+  evidence is required, and the rule is enforced after model generation by
+  inspecting the cited source text directly (the model-classified speech-act
+  veto was removed after measurement showed interaction observations are
+  discarded or misclassified too often to gate admission);
 - the production-default v1 path applies a narrower deterministic guard for
   explicit proposal and assignment-request phrasing, so this safety fix does
   not depend on adopting the slower v2 response protocol;
@@ -458,7 +462,7 @@ model calls it had consumed 1,118,499 input tokens and 97,723 output tokens;
 observed Slice durations ranged from 91.7 to 308.7 seconds. Continuing the run
 would not have established an acceptable v2 profile, so no end-to-end quality
 claim is made from this partial artifact. The deterministic non-committal
-speech-act guard is covered by unit tests, `v2` remains opt-in, and `v1`
+source-language guard is covered by unit tests, `v2` remains opt-in, and `v1`
 remains the default until a cache- and latency-feasible profile passes the
 paired fixed shadow.
 

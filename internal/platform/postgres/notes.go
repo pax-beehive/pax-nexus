@@ -16,20 +16,14 @@ import (
 )
 
 const (
-	EmbeddingDimensions      = 384
-	defaultCandidateLimit    = 16
-	defaultSemanticThreshold = 0.65
-	queryInstruction         = "Retrieve Team Notes containing facts, decisions, blockers, ownership, deadlines, or status relevant to the current agent request."
+	EmbeddingDimensions = 384
+	queryInstruction    = "Retrieve Team Notes containing facts, decisions, blockers, ownership, deadlines, or status relevant to the current agent request."
 )
 
 type RetrievalConfig struct {
-	Embedder              textembedding.Embedder
-	EmbeddingModel        string
-	SemanticThreshold     float64
-	HintSemanticThreshold float64
-	HintThreshold         float64
-	CandidateLimit        int
-	HintRecallEnabled     bool
+	Embedder       textembedding.Embedder
+	EmbeddingModel string
+	Policy         teamnote.RecallPolicy
 }
 
 type recallSnapshotItem struct {
@@ -61,22 +55,31 @@ func NewNoteStore(store *Store, policy teamnote.TTLPolicy, clock teamnote.Clock,
 	if retrieval.Embedder != nil && strings.TrimSpace(retrieval.EmbeddingModel) == "" {
 		return nil, fmt.Errorf("create postgres note store: embedding model is required when embedding is enabled")
 	}
-	if retrieval.SemanticThreshold == 0 {
-		retrieval.SemanticThreshold = defaultSemanticThreshold
+	if retrieval.Policy == (teamnote.RecallPolicy{}) {
+		retrieval.Policy = teamnote.DefaultRecallPolicy()
 	}
-	if retrieval.SemanticThreshold < 0 || retrieval.SemanticThreshold > 1 {
+	if retrieval.Policy.SemanticThreshold == 0 {
+		retrieval.Policy.SemanticThreshold = teamnote.DefaultRecallPolicy().SemanticThreshold
+	}
+	if retrieval.Policy.SemanticThreshold < 0 || retrieval.Policy.SemanticThreshold > 1 {
 		return nil, fmt.Errorf("create postgres note store: semantic threshold must be between zero and one")
 	}
-	if retrieval.HintSemanticThreshold == 0 {
-		retrieval.HintSemanticThreshold = retrieval.SemanticThreshold
+	if retrieval.Policy.HintSemanticThreshold == 0 {
+		retrieval.Policy.HintSemanticThreshold = retrieval.Policy.SemanticThreshold
 	}
-	if retrieval.HintSemanticThreshold < 0 || retrieval.HintSemanticThreshold > 1 {
+	if retrieval.Policy.HintSemanticThreshold < 0 || retrieval.Policy.HintSemanticThreshold > 1 {
 		return nil, fmt.Errorf("create postgres note store: hint semantic threshold must be between zero and one")
 	}
-	if retrieval.CandidateLimit == 0 {
-		retrieval.CandidateLimit = defaultCandidateLimit
+	if retrieval.Policy.HintMinQueryRelevance < 0 || retrieval.Policy.HintMinQueryRelevance > 1 {
+		return nil, fmt.Errorf("create postgres note store: hint minimum query relevance must be between zero and one")
 	}
-	if retrieval.CandidateLimit < 1 {
+	if retrieval.Policy.HintMinMarginalUtility < 0 || retrieval.Policy.HintMinMarginalUtility > 1 {
+		return nil, fmt.Errorf("create postgres note store: hint minimum marginal utility must be between zero and one")
+	}
+	if retrieval.Policy.CandidateLimit == 0 {
+		retrieval.Policy.CandidateLimit = teamnote.DefaultRecallPolicy().CandidateLimit
+	}
+	if retrieval.Policy.CandidateLimit < 1 {
 		return nil, fmt.Errorf("create postgres note store: candidate limit must be positive")
 	}
 	return &NoteStore{store: store, policy: policy, clock: clock, retrieval: retrieval}, nil
@@ -100,12 +103,12 @@ func (s *NoteStore) ApplyCandidate(ctx context.Context, scopeID, runID string, c
 
 func (s *NoteStore) ApplyExtractionRun(ctx context.Context, scopeID string, run teamnote.ExtractionRun) (notes []teamnote.Note, returnedErr error) {
 	var err error
-	run, err = teamnote.NormalizeExtractionRun(run)
+	run, err = teamnote.PrepareExtractionRun(run)
 	if err != nil {
 		return nil, err
 	}
-	if err := validateExtractionRun(scopeID, run); err != nil {
-		return nil, err
+	if err := teamnote.ValidateDurableExtractionRun(scopeID, run); err != nil {
+		return nil, fmt.Errorf("apply postgres extraction run: %w", err)
 	}
 	tx, err := s.store.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -120,7 +123,7 @@ func (s *NoteStore) ApplyExtractionRun(ctx context.Context, scopeID string, run 
 
 	notes, err = s.applyExtractionRunTx(ctx, tx, scopeID, run)
 	if err != nil {
-		if !isDeterministicAdmissionError(err) {
+		if !teamnote.ShouldQuarantineExtractionRun(err) {
 			return nil, err
 		}
 		// Roll back before quarantining: the quarantine insert conflicts with
@@ -145,14 +148,6 @@ func (s *NoteStore) ApplyExtractionRun(ctx context.Context, scopeID string, run 
 		}
 	}
 	return notes, nil
-}
-
-// isDeterministicAdmissionError reports whether re-admitting the same run can
-// never succeed, as opposed to a transient store failure.
-func isDeterministicAdmissionError(err error) bool {
-	return errors.Is(err, teamnote.ErrInvalidCandidate) ||
-		errors.Is(err, teamnote.ErrMissingEvidence) ||
-		errors.Is(err, teamnote.ErrNoteNotFound)
 }
 
 // quarantineExtractionRun durably records a run whose candidates failed
@@ -289,16 +284,9 @@ func (s *NoteStore) RecallNotes(ctx context.Context, scopeID string, request tea
 	if err != nil {
 		return teamnote.NoteEnvelope{}, err
 	}
-	planned, trace := teamnote.PlanRecall(eligible, request, teamnote.RecallPolicy{
-		SemanticThreshold:     s.retrieval.SemanticThreshold,
-		HintSemanticThreshold: s.retrieval.HintSemanticThreshold,
-		HintThreshold:         s.retrieval.HintThreshold,
-		CandidateLimit:        s.retrieval.CandidateLimit,
-		ObservationTime:       observationTime,
-		SuppressDuplicates:    true,
-		DegradeRelated:        true,
-		EnableHintRecall:      s.retrieval.HintRecallEnabled,
-	})
+	recallPolicy := s.retrieval.Policy
+	recallPolicy.ObservationTime = observationTime
+	planned, trace := teamnote.PlanRecall(eligible, request, recallPolicy)
 	for _, delivery := range planned {
 		if !delivery.ClaimNoteDelivery {
 			claimed, err := insertHintDelivery(ctx, tx, scopeID, delivery, request.Actor)
@@ -500,14 +488,10 @@ FROM extraction_runs WHERE scope_id = $1 AND run_id = $2`, scopeID, run.ID).Scan
 	if err != nil {
 		return nil, fmt.Errorf("load extraction run %q: %w", run.ID, err)
 	}
-	if !sameExtractionRunInputs(stored, run) {
-		return nil, fmt.Errorf("replay extraction run %q: %w", run.ID, teamnote.ErrExtractionRunConflict)
-	}
-	if status == "quarantined" {
-		return nil, fmt.Errorf("replay extraction run %q: %w", run.ID, errors.Join(teamnote.ErrExtractionRunQuarantined, errors.New(storedError)))
-	}
-	if status != "completed" {
-		return nil, fmt.Errorf("replay extraction run %q with status %q: %w", run.ID, status, teamnote.ErrExtractionRunConflict)
+	if err := teamnote.ValidateExtractionRunReplay(
+		stored, run, teamnote.ExtractionRunStatus(status), storedError,
+	); err != nil {
+		return nil, err
 	}
 	// The durable result wins over any recomputation for the same input, so a
 	// replay after a lost saved response cannot double-apply state.
@@ -516,16 +500,6 @@ FROM extraction_runs WHERE scope_id = $1 AND run_id = $2`, scopeID, run.ID).Scan
 		return nil, fmt.Errorf("decode extraction run result: %w", err)
 	}
 	return notes, nil
-}
-
-// sameExtractionRunInputs compares the deterministic inputs of one extraction
-// run. Token usage is telemetry, and a recomputed candidate batch after a lost
-// saved response must not conflict with the durable result, so neither is part
-// of the replay identity.
-func sameExtractionRunInputs(left, right teamnote.ExtractionRun) bool {
-	return left.Actor == right.Actor && left.FromSequence == right.FromSequence &&
-		left.ToSequence == right.ToSequence && left.InputChecksum == right.InputChecksum &&
-		left.Model == right.Model && left.PromptVersion == right.PromptVersion
 }
 
 // insertRejectedCandidate durably records one candidate dropped before or
@@ -542,32 +516,6 @@ func insertRejectedCandidate(ctx context.Context, tx pgx.Tx, scopeID, runID stri
 UPDATE note_candidates SET admission_status = 'rejected', rejection_reason = $3
 WHERE scope_id = $1 AND candidate_id = $2`, scopeID, candidate.ID, reason); err != nil {
 		return fmt.Errorf("mark candidate rejected: %w", err)
-	}
-	return nil
-}
-
-func validateExtractionRun(scopeID string, run teamnote.ExtractionRun) error {
-	if strings.TrimSpace(scopeID) == "" || strings.TrimSpace(run.ID) == "" ||
-		strings.TrimSpace(run.Actor.UserID) == "" || strings.TrimSpace(run.Actor.AgentID) == "" ||
-		strings.TrimSpace(run.Actor.SessionID) == "" || strings.TrimSpace(run.InputChecksum) == "" ||
-		strings.TrimSpace(run.CandidateChecksum) == "" ||
-		run.FromSequence <= 0 || run.ToSequence < run.FromSequence || run.InputTokens < 0 || run.OutputTokens < 0 {
-		return fmt.Errorf("apply postgres extraction run: invalid scope or run")
-	}
-	seen := make(map[string]struct{}, len(run.Candidates))
-	for _, candidate := range run.Candidates {
-		if candidate.Origin != run.Actor {
-			return fmt.Errorf("apply postgres extraction run candidate %q origin: %w", candidate.ID, teamnote.ErrInvalidCandidate)
-		}
-		if _, ok := seen[candidate.ID]; ok {
-			return fmt.Errorf("apply postgres extraction run duplicate candidate %q: %w", candidate.ID, teamnote.ErrInvalidCandidate)
-		}
-		seen[candidate.ID] = struct{}{}
-	}
-	for _, event := range run.Evidence {
-		if event.Actor != run.Actor {
-			return fmt.Errorf("apply postgres extraction run evidence %q actor: %w", event.ID, teamnote.ErrMissingEvidence)
-		}
 	}
 	return nil
 }

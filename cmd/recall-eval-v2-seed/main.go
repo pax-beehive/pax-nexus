@@ -47,6 +47,8 @@ func run(ctx context.Context, arguments []string) error {
 	manifest := flags.String("manifest", "", "GroupMemBench manifest")
 	annotations := flags.String("annotations", "", "Recall Eval v2 case annotations")
 	answererSeed := flags.String("answerer-seed", "pax-recall-eval-v2-answerer-1", "deterministic answerer seed")
+	diagnostic := flags.Bool("diagnostic", false, "Seed the compact diagnostic recall cohort")
+	diagnosticCases := flags.Int("diagnostic-cases", 10, "Number of cases in a compact diagnostic recall cohort")
 	embeddingURL := flags.String("embedding-url", "http://qwen-embedding:8080", "OpenAI-compatible embedding base URL")
 	embeddingModel := flags.String("embedding-model", defaultEmbeddingModel, "embedding model")
 	if err := flags.Parse(arguments); err != nil {
@@ -55,7 +57,17 @@ func run(ctx context.Context, arguments []string) error {
 	if strings.TrimSpace(*dsn) == "" || strings.TrimSpace(*scopeID) == "" || strings.TrimSpace(*manifest) == "" || strings.TrimSpace(*annotations) == "" {
 		return fmt.Errorf("dsn, scope, manifest, and annotations are required")
 	}
-	cases, _, _, err := recallv2.LoadCases(*manifest, *annotations, *answererSeed, 30, 50)
+	loadCases := recallv2.LoadCases
+	minimumCases, maximumCases := 30, 50
+	if *diagnostic {
+		loadCases = recallv2.LoadDiagnosticCases
+		minimum, maximum, boundsErr := diagnosticCohortBounds(*diagnosticCases)
+		if boundsErr != nil {
+			return boundsErr
+		}
+		minimumCases, maximumCases = minimum, maximum
+	}
+	cases, _, _, err := loadCases(*manifest, *annotations, *answererSeed, minimumCases, maximumCases)
 	if err != nil {
 		return fmt.Errorf("load fixed recall cohort: %w", err)
 	}
@@ -75,7 +87,8 @@ func run(ctx context.Context, arguments []string) error {
 		return fmt.Errorf("migrate recall eval v2 seed store: %w", err)
 	}
 	notes, err := postgres.NewNoteStore(store, recallEvalTTLPolicy(), teamnote.SystemClock{}, postgres.RetrievalConfig{
-		Embedder: embedder, EmbeddingModel: *embeddingModel, SemanticThreshold: 0.50, CandidateLimit: 16,
+		Embedder: embedder, EmbeddingModel: *embeddingModel,
+		Policy: teamnote.RecallPolicy{SemanticThreshold: 0.50, CandidateLimit: 16},
 	})
 	if err != nil {
 		return fmt.Errorf("create recall eval v2 note store: %w", err)
@@ -104,11 +117,19 @@ func run(ctx context.Context, arguments []string) error {
 		"scope_id": *scopeID, "cases": len(cases), "notes": seeded, "observation": seedPromptVersion,
 		"observation_time": fixedObservationTime.Format(time.RFC3339), "observation_sha256": observationSHA,
 		"manifest_sha256": manifestSHA, "annotations_sha256": annotationsSHA,
+		"diagnostic": *diagnostic,
 	}
 	if err := json.NewEncoder(os.Stdout).Encode(receipt); err != nil {
 		return fmt.Errorf("encode recall eval v2 seed receipt: %w", err)
 	}
 	return nil
+}
+
+func diagnosticCohortBounds(caseCount int) (int, int, error) {
+	if caseCount < 6 || caseCount > 15 {
+		return 0, 0, fmt.Errorf("diagnostic recall cohort must contain 6 to 15 cases")
+	}
+	return caseCount, caseCount, nil
 }
 
 func buildSeededCases(cases []v2.Case) ([]seededCase, error) {
@@ -133,7 +154,7 @@ func persistSeededCases(
 	seeded := 0
 	for _, evalCase := range cases {
 		for index, seed := range evalCase.Runs {
-			if _, err := store.AppendSession(ctx, scopeID, session.SessionBatch{
+			if _, err := store.Sessions().AppendSession(ctx, scopeID, session.SessionBatch{
 				Events: seed.Evidence, Complete: index == len(evalCase.Runs)-1,
 			}); err != nil {
 				return 0, fmt.Errorf("seed evidence for case %q: %w", evalCase.CaseID, err)

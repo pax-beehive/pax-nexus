@@ -8,8 +8,8 @@ import (
 )
 
 const (
-	HintRecallV0PlanVersion    = "general-recall-v3-hint-recall-v0"
-	HintRecallV0ScoringVersion = "hint-utility-v0-heuristic-eval-only"
+	HintRecallV1PlanVersion    = "general-recall-v3-hint-recall-v1"
+	HintRecallV1ScoringVersion = "hint-utility-v1-selective-eval-only"
 	defaultHintThreshold       = 0.65
 	maximumHintSubjectTerms    = 8
 )
@@ -40,8 +40,8 @@ func planRecallHint(
 		return PlannedRecall{}, false
 	}
 	markRecallHint(trace, lead.ID, score, focusedQuery)
-	trace.PlanVersion = HintRecallV0PlanVersion
-	trace.ScoringVersion = HintRecallV0ScoringVersion
+	trace.PlanVersion = HintRecallV1PlanVersion
+	trace.ScoringVersion = HintRecallV1ScoringVersion
 	return PlannedRecall{
 		Note: lead.Note, SourceNoteIDs: []string{lead.ID}, Text: text, Tokens: tokens,
 		Relevance: score, Disposition: RecallDispositionHint, ClaimNoteDelivery: false,
@@ -64,22 +64,25 @@ func bestHintLead(
 	bestScore := 0.0
 	for _, candidate := range candidates {
 		candidateTrace := recallCandidateTraceByID(trace.CandidateTraces, candidate.ID)
-		if candidateTrace == nil || !hintEligibleCandidate(candidate, *candidateTrace, policy) || recallIDSelected(trace.SelectedSet, candidate.ID) {
+		if candidateTrace == nil || !hintEligibleCandidate(candidate, *candidateTrace, request, policy) || recallIDSelected(trace.SelectedSet, candidate.ID) {
 			continue
 		}
 		score := hintUtility(candidate, request, *candidateTrace, passiveGap)
-		if score >= threshold && score > bestScore {
+		if score >= threshold && score >= policy.HintMinMarginalUtility && score > bestScore {
 			best, bestScore = candidate, score
 		}
 	}
 	return best, bestScore, bestScore > 0
 }
 
-func hintEligibleCandidate(candidate RecallCandidate, trace RecallCandidateTrace, policy RecallPolicy) bool {
+func hintEligibleCandidate(candidate RecallCandidate, trace RecallCandidateTrace, request RecallRequest, policy RecallPolicy) bool {
 	for _, gate := range trace.HardGateResults {
 		if !gate.Passed {
 			return false
 		}
+	}
+	if policy.HintMinQueryRelevance > 0 && QueryRelevance(candidate.Note, request.Query) < policy.HintMinQueryRelevance {
+		return false
 	}
 	switch trace.RejectionReason {
 	case RejectEvidenceGate, RejectRelevanceGate:

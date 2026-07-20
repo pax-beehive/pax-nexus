@@ -25,10 +25,11 @@ func main() {
 
 func run(ctx context.Context, args []string, getenv func(string) string, output io.Writer, httpClient *http.Client) error {
 	flags := flag.NewFlagSet("eval-v2-memory", flag.ContinueOnError)
-	action := flags.String("action", "", "preflight or ingest")
+	action := flags.String("action", "", "preflight, preflight-mem0, or ingest")
 	provider := flags.String("provider", "", "memory provider for ingest")
 	textFile := flags.String("text-file", "", "shared producer transcript path")
 	sessionBatchesFile := flags.String("session-batches-file", "", "native session batches path")
+	requireWrite := flags.Bool("require-write", false, "reject a source-bearing ingest that produces no mutations")
 	marker := flags.String("marker", "", "preflight marker")
 	if err := flags.Parse(args); err != nil {
 		return fmt.Errorf("parse eval memory flags: %w", err)
@@ -46,6 +47,8 @@ func run(ctx context.Context, args []string, getenv func(string) string, output 
 	switch *action {
 	case "preflight":
 		return client.Preflight(ctx, *marker)
+	case "preflight-mem0":
+		return client.PreflightMem0(ctx, *marker)
 	case "ingest":
 		if (*textFile == "") == (*sessionBatchesFile == "") {
 			return fmt.Errorf("ingest eval memory: exactly one of text-file or session-batches-file is required")
@@ -70,12 +73,15 @@ func run(ctx context.Context, args []string, getenv func(string) string, output 
 				return err
 			}
 		}
+		if *requireWrite && result.SourceEvents > 0 && result.NoOpKnown && result.NoOp {
+			return fmt.Errorf("validate source-bearing ingest: provider %q produced no mutations for %d source events", result.Provider, result.SourceEvents)
+		}
 		if err := json.NewEncoder(output).Encode(result); err != nil {
 			return fmt.Errorf("encode eval ingest result: %w", err)
 		}
 		return nil
 	default:
-		return fmt.Errorf("eval memory action must be preflight or ingest")
+		return fmt.Errorf("eval memory action must be preflight, preflight-mem0, or ingest")
 	}
 }
 

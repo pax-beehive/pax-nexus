@@ -183,7 +183,18 @@ func (s *artifactSuite) TestExportLinksEvalV3FullDomainIngestReceipts() {
 	for _, name := range []string{"team-note-ingest.json", "mem0-ingest.json", "private-sqlite-ingest.json"} {
 		s.Require().NoError(os.WriteFile(filepath.Join(directory, "memory", name), []byte("{}\n"), 0o600))
 	}
-	result := []TrialResult{trial("case", "category", "no_memory_team", "completed", 1, true, 1)}
+	mem0Result := trial("case", "category", "groupmembench_mem0", "completed", 1, true, 1)
+	mem0Result.MemoryRecallObserved = true
+	mem0Result.MemoryRecallSuccess = true
+	mem0Result.MemoryRecallProviderCalls = 1
+	mem0Result.MemoryRecallCandidates = 5
+	mem0Result.MemoryRecallEligible = 3
+	mem0Result.MemoryRecallHits = 2
+	mem0Result.MemoryContextItems = 2
+	result := []TrialResult{
+		trial("case", "category", "no_memory_team", "completed", 1, true, 1),
+		mem0Result,
+	}
 	run := RunRecord{Config: Config{Version: "v3"}}
 
 	s.Require().NoError(ExportArtifacts(directory, run, "no_memory_team", []string{"jsonl"}, result, nil))
@@ -195,8 +206,20 @@ func (s *artifactSuite) TestExportLinksEvalV3FullDomainIngestReceipts() {
 		Mem0Reproduction struct {
 			Level                   string         `json:"level"`
 			IngestionUnit           string         `json:"ingestion_unit"`
+			ExtractionProfile       string         `json:"extraction_profile"`
 			SourceMessagesPreserved bool           `json:"source_messages_preserved"`
 			IngestReceipt           map[string]int `json:"ingest_receipt"`
+			RetrievalObservation    struct {
+				ObservedTrials    int `json:"observed_trials"`
+				SuccessfulTrials  int `json:"successful_trials"`
+				TrialsWithHits    int `json:"trials_with_hits"`
+				TrialsWithContext int `json:"trials_with_context"`
+				ProviderCalls     int `json:"provider_calls"`
+				Candidates        int `json:"candidates"`
+				Eligible          int `json:"eligible"`
+				Hits              int `json:"hits"`
+				ContextItems      int `json:"context_items"`
+			} `json:"retrieval_observation"`
 		} `json:"mem0_reproduction"`
 	}
 	s.Require().NoError(json.Unmarshal(encoded, &manifest))
@@ -206,8 +229,18 @@ func (s *artifactSuite) TestExportLinksEvalV3FullDomainIngestReceipts() {
 	s.Equal(filepath.Join("memory", "private-sqlite-ingest.json"), manifest.Files["private_sqlite_ingest"])
 	s.Empty(manifest.Mem0Reproduction.Level)
 	s.Equal("native_session_batch", manifest.Mem0Reproduction.IngestionUnit)
+	s.Equal("team_collaboration_v1", manifest.Mem0Reproduction.ExtractionProfile)
 	s.True(manifest.Mem0Reproduction.SourceMessagesPreserved)
 	s.NotNil(manifest.Mem0Reproduction.IngestReceipt)
+	s.Equal(1, manifest.Mem0Reproduction.RetrievalObservation.ObservedTrials)
+	s.Equal(1, manifest.Mem0Reproduction.RetrievalObservation.SuccessfulTrials)
+	s.Equal(1, manifest.Mem0Reproduction.RetrievalObservation.TrialsWithHits)
+	s.Equal(1, manifest.Mem0Reproduction.RetrievalObservation.TrialsWithContext)
+	s.Equal(1, manifest.Mem0Reproduction.RetrievalObservation.ProviderCalls)
+	s.Equal(5, manifest.Mem0Reproduction.RetrievalObservation.Candidates)
+	s.Equal(3, manifest.Mem0Reproduction.RetrievalObservation.Eligible)
+	s.Equal(2, manifest.Mem0Reproduction.RetrievalObservation.Hits)
+	s.Equal(2, manifest.Mem0Reproduction.RetrievalObservation.ContextItems)
 }
 
 func (s *artifactSuite) TestEvalV3ExportsPrivateTeamNoteComparisonAgainstMem0() {

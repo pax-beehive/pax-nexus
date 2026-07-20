@@ -50,11 +50,12 @@ func (s *integrationSuite) TestCommittedSessionRunsInRiverWorker() {
 	s.Require().NoError(err)
 	defer store.Close()
 	s.Require().NoError(store.Migrate(ctx))
-	s.Require().NoError(store.ConfigureExtractionEnqueuer(queue))
+	sessions := store.Sessions()
+	s.Require().NoError(sessions.ConfigureExtractionEnqueuer(queue))
 
 	scopeID := fmt.Sprintf("river-integration-%d", time.Now().UnixNano())
 	actor := teamnote.Actor{UserID: "owner", AgentID: "producer", SessionID: "session"}
-	receipt, err := store.AppendSession(ctx, scopeID, teamnote.SessionBatch{
+	receipt, err := sessions.AppendSession(ctx, scopeID, teamnote.SessionBatch{
 		Complete: true,
 		Events: []teamnote.SessionEvent{{
 			ID: "event", Actor: actor, Sequence: 1, Type: "assistant", Content: "status",
@@ -83,7 +84,7 @@ completeJob:
 	}
 
 	incompleteScope := scopeID + "-incomplete"
-	receipt, err = store.AppendSession(ctx, incompleteScope, teamnote.SessionBatch{Events: []teamnote.SessionEvent{{
+	receipt, err = sessions.AppendSession(ctx, incompleteScope, teamnote.SessionBatch{Events: []teamnote.SessionEvent{{
 		ID: "event", Actor: actor, Sequence: 1, Type: "assistant", Content: "status", OccurredAt: time.Now().UTC(),
 	}}})
 	s.Require().NoError(err)

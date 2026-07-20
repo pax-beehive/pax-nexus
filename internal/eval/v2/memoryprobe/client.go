@@ -23,6 +23,8 @@ const (
 	ProviderTeamNote     = "team_note"
 	ProviderMem0         = "mem0"
 	ProviderMem0Messages = "mem0_messages"
+	ProviderMem0Chunks   = "mem0_chunks"
+	mem0ChunkEventLimit  = 8
 	defaultAttempts      = 120
 	preflightNeedle      = "durable verification code remains active"
 )
@@ -123,6 +125,8 @@ func (c *Client) IngestBatches(ctx context.Context, provider string, batches []s
 		result = added.IngestResult
 	case ProviderMem0Messages:
 		result, err = c.ingestMem0Messages(ctx, batches)
+	case ProviderMem0Chunks:
+		result, err = c.ingestMem0Chunks(ctx, batches)
 	default:
 		return IngestResult{}, fmt.Errorf("ingest eval session batches: unsupported provider %q", provider)
 	}
@@ -145,7 +149,7 @@ func (c *Client) ingestMem0Messages(ctx context.Context, batches []session.Sessi
 	})
 	result := IngestResult{Provider: ProviderMem0Messages, NoOpKnown: true, NoOp: true}
 	for index, batch := range ordered {
-		added, err := c.addMem0Batch(ctx, batch)
+		added, err := c.addMem0BatchWithEventFallback(ctx, batch)
 		if err != nil {
 			return IngestResult{}, fmt.Errorf(
 				"ingest Mem0 session batch %d %q: %w",
@@ -157,6 +161,55 @@ func (c *Client) ingestMem0Messages(ctx context.Context, batches []session.Sessi
 		result.Updated += added.Updated
 		result.Deleted += added.Deleted
 		result.NoOp = result.NoOp && added.NoOp
+	}
+	return result, nil
+}
+
+func (c *Client) ingestMem0Chunks(ctx context.Context, batches []session.SessionBatch) (IngestResult, error) {
+	events := make([]session.SessionEvent, 0)
+	for _, batch := range batches {
+		events = append(events, batch.Events...)
+	}
+	slices.SortStableFunc(events, compareSessionEvents)
+	result := IngestResult{Provider: ProviderMem0Chunks, NoOpKnown: true, NoOp: true}
+	for start := 0; start < len(events); start += mem0ChunkEventLimit {
+		end := min(start+mem0ChunkEventLimit, len(events))
+		added, err := c.addMem0EventsWithEventFallback(ctx, events[start:end])
+		if err != nil {
+			return IngestResult{}, fmt.Errorf("ingest Mem0 event chunk %d: %w", start/mem0ChunkEventLimit, err)
+		}
+		result.Accepted += end - start
+		result.Created += added.Created
+		result.Updated += added.Updated
+		result.Deleted += added.Deleted
+		result.NoOp = result.NoOp && added.NoOp
+	}
+	return result, nil
+}
+
+func (c *Client) addMem0BatchWithEventFallback(ctx context.Context, batch session.SessionBatch) (mem0AddResult, error) {
+	return c.addMem0EventsWithEventFallback(ctx, batch.Events)
+}
+
+func (c *Client) addMem0EventsWithEventFallback(ctx context.Context, events []session.SessionEvent) (mem0AddResult, error) {
+	added, err := c.addMem0Events(ctx, events)
+	if err != nil || !added.NoOp || len(events) == 1 {
+		return added, err
+	}
+
+	result := mem0AddResult{IngestResult: IngestResult{Provider: ProviderMem0, Accepted: 1, NoOpKnown: true, NoOp: true}}
+	ordered := slices.Clone(events)
+	slices.SortStableFunc(ordered, compareSessionEvents)
+	for eventIndex, event := range ordered {
+		retried, retryErr := c.addMem0Events(ctx, []session.SessionEvent{event})
+		if retryErr != nil {
+			return mem0AddResult{}, fmt.Errorf("retry Mem0 event %d %q: %w", eventIndex, event.ID, retryErr)
+		}
+		result.Created += retried.Created
+		result.Updated += retried.Updated
+		result.Deleted += retried.Deleted
+		result.refs = append(result.refs, retried.refs...)
+		result.NoOp = result.NoOp && retried.NoOp
 	}
 	return result, nil
 }
@@ -266,38 +319,60 @@ func (c *Client) Preflight(ctx context.Context, marker string) error {
 	}
 	probe := c.newPreflightProbe(marker)
 	probeText := fmt.Sprintf("The evaluation owner confirmed the durable verification code %s remains active and must be retained for this run.", marker)
+	if err := probe.preflightTeamNote(ctx, probeText); err != nil {
+		return err
+	}
+	return probe.preflightMem0(ctx, probeText)
+}
+
+// PreflightMem0 verifies only the provider exercised by a Mem0-only cohort.
+func (c *Client) PreflightMem0(ctx context.Context, marker string) error {
+	marker = strings.TrimSpace(marker)
+	if marker == "" {
+		return fmt.Errorf("preflight Mem0: marker is required")
+	}
+	probe := c.newPreflightProbe(marker)
+	probeText := fmt.Sprintf("The evaluation owner confirmed the durable verification code %s remains active and must be retained for this run.", marker)
+	return probe.preflightMem0(ctx, probeText)
+}
+
+func (c *Client) preflightTeamNote(ctx context.Context, probeText string) error {
 	if _, err := c.do(ctx, http.MethodGet, c.teamNoteURL+"/healthz", "", nil); err != nil {
 		return fmt.Errorf("preflight Team Note health: %w", err)
 	}
-	receipt, err := probe.observeTeamNote(ctx, probeText)
+	receipt, err := c.observeTeamNote(ctx, probeText)
 	if err != nil {
 		return fmt.Errorf("preflight Team Note add: %w", err)
 	}
 	if receipt.Accepted != 1 || receipt.Duplicate != 0 {
 		return fmt.Errorf("preflight Team Note add: expected one accepted event, got accepted=%d duplicate=%d", receipt.Accepted, receipt.Duplicate)
 	}
-	if err := probe.pollTeamNoteOrigin(ctx, preflightNeedle, probe.runID); err != nil {
+	if err := c.pollTeamNoteOrigin(ctx, preflightNeedle, c.runID); err != nil {
 		return fmt.Errorf("preflight Team Note recall: %w", err)
 	}
+	return nil
+}
+
+func (c *Client) preflightMem0(ctx context.Context, probeText string) error {
 	if _, err := c.do(ctx, http.MethodGet, c.mem0URL+"/openapi.json", "", nil); err != nil {
 		return fmt.Errorf("preflight Mem0 health: %w", err)
 	}
-	added, err := probe.addMem0(ctx, probeText)
+	added, err := c.addMem0(ctx, probeText)
 	if err != nil {
 		return fmt.Errorf("preflight Mem0 add: %w", err)
 	}
 	if len(added.refs) == 0 {
 		return fmt.Errorf("preflight Mem0 add: add returned no memory IDs")
 	}
-	if err := probe.pollNonEmpty(ctx, preflightNeedle, "results", probe.searchMem0); err != nil {
+	if err := c.pollNonEmpty(ctx, preflightNeedle, "results", c.searchMem0); err != nil {
 		return fmt.Errorf("preflight Mem0 recall: %w", err)
 	}
 	for _, ref := range added.refs {
-		if _, err := probe.do(ctx, http.MethodDelete, c.mem0URL+"/memories/"+url.PathEscape(ref), "", nil); err != nil {
+		if _, err := c.do(ctx, http.MethodDelete, c.mem0URL+"/memories/"+url.PathEscape(ref), "", nil); err != nil {
 			return fmt.Errorf("preflight Mem0 delete %q: %w", ref, err)
 		}
 	}
-	body, err := probe.searchMem0(ctx, preflightNeedle)
+	body, err := c.searchMem0(ctx, preflightNeedle)
 	if err != nil {
 		return fmt.Errorf("preflight Mem0 cleanup search: %w", err)
 	}
@@ -375,14 +450,9 @@ func (c *Client) addMem0(ctx context.Context, text string) (mem0AddResult, error
 	return c.addMem0WithMetadata(ctx, text, metadata)
 }
 
-func (c *Client) addMem0Batch(ctx context.Context, batch session.SessionBatch) (mem0AddResult, error) {
-	events := slices.Clone(batch.Events)
-	slices.SortStableFunc(events, func(left, right session.SessionEvent) int {
-		if comparison := left.OccurredAt.Compare(right.OccurredAt); comparison != 0 {
-			return comparison
-		}
-		return strings.Compare(left.ID, right.ID)
-	})
+func (c *Client) addMem0Events(ctx context.Context, sourceEvents []session.SessionEvent) (mem0AddResult, error) {
+	events := slices.Clone(sourceEvents)
+	slices.SortStableFunc(events, compareSessionEvents)
 	parts := make([]string, 0, len(events))
 	eventIDs := make([]string, 0, len(events))
 	for _, event := range events {
@@ -395,11 +465,49 @@ func (c *Client) addMem0Batch(ctx context.Context, batch session.SessionBatch) (
 	first := events[0]
 	metadata := map[string]string{
 		"eval_run_id": c.runID, "eval_event_ids": strings.Join(eventIDs, ","),
-		"source_user_id": first.Actor.UserID, "source_agent_id": first.Actor.AgentID,
-		"source_session_id":  first.Actor.SessionID,
 		"source_occurred_at": first.OccurredAt.UTC().Format(time.RFC3339Nano),
 	}
+	if sameActor(events, first.Actor) {
+		metadata["source_user_id"] = first.Actor.UserID
+		metadata["source_agent_id"] = first.Actor.AgentID
+		metadata["source_session_id"] = first.Actor.SessionID
+	} else {
+		metadata["source_actor_count"] = fmt.Sprintf("%d", uniqueActors(events))
+		metadata["source_session_count"] = fmt.Sprintf("%d", uniqueSessions(events))
+	}
 	return c.addMem0WithMetadata(ctx, strings.Join(parts, "\n\n"), metadata)
+}
+
+func compareSessionEvents(left, right session.SessionEvent) int {
+	if comparison := left.OccurredAt.Compare(right.OccurredAt); comparison != 0 {
+		return comparison
+	}
+	return strings.Compare(left.ID, right.ID)
+}
+
+func sameActor(events []session.SessionEvent, actor session.Actor) bool {
+	for _, event := range events[1:] {
+		if event.Actor != actor {
+			return false
+		}
+	}
+	return true
+}
+
+func uniqueActors(events []session.SessionEvent) int {
+	actors := make(map[string]struct{})
+	for _, event := range events {
+		actors[event.Actor.UserID+"\x00"+event.Actor.AgentID] = struct{}{}
+	}
+	return len(actors)
+}
+
+func uniqueSessions(events []session.SessionEvent) int {
+	sessions := make(map[string]struct{})
+	for _, event := range events {
+		sessions[event.Actor.SessionID] = struct{}{}
+	}
+	return len(sessions)
 }
 
 func (c *Client) addMem0WithMetadata(ctx context.Context, text string, metadata map[string]string) (mem0AddResult, error) {

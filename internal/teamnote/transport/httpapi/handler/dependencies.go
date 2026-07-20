@@ -1,56 +1,53 @@
 package handler
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
-	"sync"
 
 	"github.com/cloudwego/hertz/pkg/app"
-	"github.com/pax-beehive/pax-nexus/internal/platform/observability"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote"
 )
 
-var (
-	ErrUnauthorized        = errors.New("unauthorized")
-	ErrNotConfigured       = errors.New("HTTP handler is not configured")
-	configuredDependencies dependencies
-	dependenciesMu         sync.RWMutex
-)
+var ErrUnauthorized = errors.New("unauthorized")
+
+const handlerContextKey = "team-memory.http-handler"
 
 type ScopeResolver interface {
 	ResolveScope(*app.RequestContext) (string, error)
 }
 
-type dependencies struct {
+// Handler adapts HTTP requests to one Team Note runtime instance.
+type Handler struct {
 	runtime  teamnote.Runtime
 	resolver ScopeResolver
 	logger   *slog.Logger
 }
 
-func Configure(runtime teamnote.Runtime, resolver ScopeResolver) error {
-	return ConfigureWithLogger(runtime, resolver, observability.DiscardLogger())
-}
-
-func ConfigureWithLogger(runtime teamnote.Runtime, resolver ScopeResolver, logger *slog.Logger) error {
+func New(runtime teamnote.Runtime, resolver ScopeResolver, logger *slog.Logger) (*Handler, error) {
 	if runtime == nil || resolver == nil || logger == nil {
-		return fmt.Errorf("configure HTTP handler: runtime, scope resolver, and logger are required")
+		return nil, fmt.Errorf("create HTTP handler: runtime, scope resolver, and logger are required")
 	}
-	dependenciesMu.Lock()
-	configuredDependencies = dependencies{runtime: runtime, resolver: resolver, logger: logger}
-	dependenciesMu.Unlock()
-	return nil
+	return &Handler{runtime: runtime, resolver: resolver, logger: logger}, nil
 }
 
-func currentDependencies() (dependencies, error) {
-	dependenciesMu.RLock()
-	result := configuredDependencies
-	dependenciesMu.RUnlock()
-	if result.runtime == nil || result.resolver == nil {
-		return dependencies{}, ErrNotConfigured
+// InstanceMiddleware binds a handler to requests served by one Hertz instance.
+func InstanceMiddleware(handler *Handler) app.HandlerFunc {
+	return func(ctx context.Context, request *app.RequestContext) {
+		request.Set(handlerContextKey, handler)
+		request.Next(ctx)
 	}
-	return result, nil
+}
+
+func handlerFromRequest(request *app.RequestContext) (*Handler, bool) {
+	configured, found := request.Get(handlerContextKey)
+	if !found {
+		return nil, false
+	}
+	handler, ok := configured.(*Handler)
+	return handler, ok && handler != nil
 }
 
 type StaticAPIKeys map[string]string

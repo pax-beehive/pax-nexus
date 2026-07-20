@@ -64,7 +64,7 @@ func (s *mainSuite) TestRunReplayWritesRecallEvalV1Artifacts() {
 	s.Require().NoError(recallreplay.WriteFixtureSet(fixturePath, set))
 	var stdout bytes.Buffer
 
-	s.Require().NoError(runReplay(fixturePath, 0.5, 16, false, false, false, false, 0.65, outputDirectory, &stdout))
+	s.Require().NoError(runReplay(fixturePath, recallreplay.RetrievalStrategyAdapter, 0.5, 16, false, false, false, false, 0.65, outputDirectory, &stdout))
 	for _, name := range []string{"replay-results.jsonl", "replay-summary.json", "recall-loss-ledger.jsonl"} {
 		_, err := os.Stat(filepath.Join(outputDirectory, name))
 		s.Require().NoError(err, name)

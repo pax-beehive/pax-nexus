@@ -72,6 +72,28 @@ func (s *replaySuite) TestFixtureRoundTripAndRun() {
 	}
 }
 
+func (s *replaySuite) TestRunBM25RanksFixedTeamNotesWithoutAdapterScores() {
+	set := recallreplay.FixtureSet{
+		SchemaVersion: recallreplay.SchemaVersion,
+		Dataset:       "synthetic",
+		ExportedFrom:  recallreplay.Provenance{RunID: "run-1", Arm: "team_note", ScopePrefix: "run-1-groupmembench-"},
+		Policy:        recallreplay.Policy{CandidateLimit: 16},
+		Cases: []recallreplay.Case{syntheticCase("case-bm25", "who owns rollback evidence", []recallreplay.Candidate{
+			syntheticCandidate("distractor", "ownership", "Finance owns the evidence review.", 0.99, nil),
+			syntheticCandidate("gold", "rollback", "Ops Lead owns the rollback evidence pack.", 0, nil),
+		})},
+	}
+	set.Cases[0].Fixture.RequiredAtoms = []stageeval.Atom{{ID: "owner", Patterns: []string{"(?i)ops lead owns"}}}
+
+	report, err := recallreplay.Run(set, recallreplay.Policy{
+		RetrievalStrategy: recallreplay.RetrievalStrategyBM25, CandidateLimit: 16,
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(report.Cases, 1)
+	s.Contains(report.Cases[0].Trace.SelectedSet, "gold")
+}
+
 func (s *replaySuite) TestCuratedRelationUtilityFixtureSelectsUsefulAndRejectsNoiseEdges() {
 	set, err := recallreplay.LoadFixtureSet(filepath.Join(
 		"..", "..", "..", "evals", "stage", "replay", "relation-marginal-utility-v1.json",

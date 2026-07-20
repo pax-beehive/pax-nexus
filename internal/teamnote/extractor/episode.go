@@ -23,6 +23,18 @@ const (
 	// ExtractionVersionV2 separates claims and state decisions inside one
 	// primary model call and maps them onto candidates deterministically.
 	ExtractionVersionV2 = "v2"
+	// ExtractionVersionSourceSpanV1 identifies a source-preserving extraction
+	// result so it cannot replay a state-normalizing v2 run for the same slice.
+	ExtractionVersionSourceSpanV1 = "source-span-v1"
+	// ExtractionVersionSourceSpanV2 identifies source shards so they cannot
+	// replay a source-span-v1 or state-normalizing extraction result.
+	ExtractionVersionSourceSpanV2 = "source-span-v2"
+	// ExtractionVersionClaimCardV1 identifies deterministic claim-card output
+	// so a state-normalizing v2 replay cannot reuse a free-form candidate body.
+	ExtractionVersionClaimCardV1 = "claim-card-v1"
+	// ExtractionVersionClaimCardV2 identifies exact-value claim cards so they
+	// cannot replay a v1 card response with compressed claim values.
+	ExtractionVersionClaimCardV2 = "claim-card-v2"
 )
 
 type EpisodeKey struct {

@@ -87,6 +87,34 @@ func (s *fixtureSuite) TestLoadCasesRejectsCohortDefects() {
 	}
 }
 
+func (s *fixtureSuite) TestLoadDiagnosticCasesKeepsCategoryCoverageWithoutHardCohortSize() {
+	manifest, annotations := s.writeCohort(10)
+
+	cases, revision, cohort, err := recallv2.LoadDiagnosticCases(manifest, annotations, "seed", 10, 10)
+
+	s.Require().NoError(err)
+	s.Len(cases, 10)
+	s.Equal("revision-1", revision)
+	s.Len(cohort.Categories, 6)
+	s.Equal(4, cohort.TemporalCases)
+	s.Equal(2, cohort.IdentityDependentCases)
+}
+
+func (s *fixtureSuite) TestLoadDiagnosticCasesSelectsBalancedPilotFromHardCohort() {
+	manifest, annotations := s.writeCohort(30)
+
+	cases, _, cohort, err := recallv2.LoadDiagnosticCases(manifest, annotations, "seed", 15, 15)
+
+	s.Require().NoError(err)
+	s.Len(cases, 15)
+	s.Len(cohort.Categories, 6)
+	for category, count := range cohort.Categories {
+		s.GreaterOrEqualf(count, 2, "category %q", category)
+	}
+	s.GreaterOrEqual(cohort.TemporalCases, 2)
+	s.GreaterOrEqual(cohort.IdentityDependentCases, 1)
+}
+
 func (s *fixtureSuite) TestLoadConfigRoundTrip() {
 	config := validConfig()
 	directory := s.T().TempDir()

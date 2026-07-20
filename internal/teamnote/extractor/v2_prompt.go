@@ -4,7 +4,7 @@ package extractor
 // or reasoning contract changes. It is part of rolling episode compatibility,
 // independent of the operator-owned prompt version label.
 const (
-	extractionProtocolV2RevisionCurrent         = "v2-slim-2"
+	extractionProtocolV2RevisionCurrent         = "v2-slim-4"
 	extractionProtocolV2RevisionInteractionSlim = "v2-slim-3-interaction-slim"
 )
 
@@ -32,6 +32,40 @@ different agent reports the update. Prefer update or resolve over creating a
 parallel fact. A checkpoint is a lossy handoff context, not new evidence;
 every emitted decision or claim must still cite at least one event from the
 current new_event_ids.`
+
+// rollingSystemPromptClaimCardV1 keeps the v2 reasoning products, but makes
+// claims the only model-written source for persisted candidate content.
+const rollingSystemPromptClaimCardV1 = rollingSystemPromptV2 + `
+
+Claim-card strategy override:
+- This override takes precedence over earlier guidance that ordinary decisions
+  do not need claims. Every create, update, and resolve decision MUST reference
+  exactly one primary claim in claim_ids. Split compound facts into separate
+  atomic claim-card decisions.
+- Put every answerable fact in that claim's subject, predicate, value, speaker,
+  evidence_event_ids, and temporal fields. Preserve exact values, identities,
+  negation, and source temporal language there.
+- candidate remains a required schema placeholder for create, update, and
+  resolve. Its kind, subject, body, related_subjects, and identity_ref are not
+  persisted by this strategy. Do not put facts only in candidate.body.
+- A proposal, request, question, concern, or acknowledgement remains a claim
+  or no-change observation unless separate source evidence establishes a
+  committed state transition.`
+
+// rollingSystemPromptClaimCardV2 adds a source-faithfulness constraint after
+// the v1 canary showed that abstract claim values lose answerable qualifiers.
+const rollingSystemPromptClaimCardV2 = rollingSystemPromptClaimCardV1 + `
+
+Exact-value override:
+- claim.value MUST be the shortest contiguous source phrase that contains the
+  answerable value or condition. Copy it exactly from one cited Event; do not
+  summarize, generalize, reorder, or replace it with a category label.
+- If an event states multiple independently answerable conditions, emit one
+  Claim and one StateDecision for each condition. Keep each value focused on
+  one condition, including qualifiers such as targeted, impacted, primary,
+  backup, before, after, and negation.
+- Never rely on candidate.body to preserve omitted wording. The persisted card
+  renders claim.value verbatim.`
 
 const systemPromptV2BeforeInteractions = `You extract atomic, short-lived collaboration
 state from session events in one JSON response. The normal product is a
@@ -110,8 +144,11 @@ Temporal rules for both decisions and claims:
 const interactionPromptV2Current = `Interaction observations are optional for ordinary factual reports, but
 mandatory when an event proposes, requests, questions, acknowledges, commits,
 approves, rejects, hands off, escalates, or expresses concern or urgency.
-Record stance (support, oppose, question, neutral) and the exact speech act
-with one evidence_event_id each. A proposal, request, question, concern,
+Emit each observation as
+{"actor":"user id of the cited event's speaker","target":"user id addressed, or empty","stance":"support, oppose, question, or neutral","speech_act":"propose, request, commit, approve, reject, handoff, escalate, acknowledge, question, express_concern, or express_urgency","evidence_event_id":"one id from new_event_ids"}.
+actor is required and always names the speaker of the cited event; an
+observation without actor is discarded deterministically and its speech act
+cannot inform state admission. A proposal, request, question, concern,
 urgency, or acknowledgement alone cannot create, update, or resolve canonical
 state. Only emit such a transition when separate evidence explicitly commits,
 approves, rejects, hands off, escalates, or directly states the factual state.

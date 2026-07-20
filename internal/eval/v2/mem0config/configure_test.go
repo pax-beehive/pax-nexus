@@ -58,6 +58,11 @@ func (s *configureSuite) TestConfigureUsesDeepSeekAndKeepsOpenAIEmbedding() {
 	s.Require().True(ok)
 	s.Equal("text-embedding-3-small", embedderConfig["model"])
 	s.Equal("openai-key", embedderConfig["api_key"])
+	extractionPrompt, ok := payload["custom_fact_extraction_prompt"].(string)
+	s.Require().True(ok)
+	s.Contains(extractionPrompt, "team collaboration")
+	s.Contains(extractionPrompt, "deadlines")
+	s.Contains(extractionPrompt, `{"facts":`)
 
 	vectorStore, ok := payload["vector_store"].(map[string]any)
 	s.Require().True(ok)

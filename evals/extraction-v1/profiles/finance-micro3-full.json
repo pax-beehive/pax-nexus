@@ -1,0 +1,23 @@
+{
+  "schema_version": "pax-extraction-eval-v1-profile",
+  "name": "finance-micro3-full",
+  "full_source": true,
+  "before_events": 0,
+  "after_events": 0,
+  "max_slices": 100,
+  "cases": [
+    {
+      "case_id": "multi_hop_1"
+    },
+    {
+      "case_id": "knowledge_update_20"
+    },
+    {
+      "case_id": "abstention_4",
+      "extra_event_ids": [
+        "Msg_13513",
+        "Msg_28265"
+      ]
+    }
+  ]
+}

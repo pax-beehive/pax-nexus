@@ -39,7 +39,7 @@ run_agent() {
   provider_type="team-memory"
   memory_user_id="${eval_user_id}"
   memory_agent_id="${agent_id}"
-  if [ "${arm}" = "mem0" ]; then
+  if [ "${arm}" = "mem0" ] || [ "${arm}" = "mem0_messages" ] || [ "${arm}" = "mem0_chunks" ]; then
     provider_type="mem0"
     memory_user_id="${MEM0_EVAL_USER_ID}"
     memory_agent_id="${MEM0_EVAL_AGENT_ID}"
@@ -58,7 +58,7 @@ run_agent() {
     -e PAXM_WRITE_ENABLED="${write_enabled}" \
     -e PAXM_EVAL_CONSUMER_POLICY="${consumer_policy}" \
     -e PAXM_EVAL_RECALL_MODE="${recall_mode}" \
-    -e PAXM_ACTIVE_RECALL_MAX_CALLS=2 \
+    -e PAXM_ACTIVE_RECALL_MAX_CALLS="${PAXM_ACTIVE_RECALL_MAX_CALLS:-1}" \
     -e PAXM_PASSIVE_MIN_RELEVANCE="${PAXM_PASSIVE_MIN_RELEVANCE:--1}" \
     -e PAXM_PASSIVE_MIN_SCORE="${PAXM_PASSIVE_MIN_SCORE:--1}" \
     -e PAXM_PASSIVE_PROVIDER_TIMEOUT="${PAXM_PASSIVE_PROVIDER_TIMEOUT:-2s}" \
@@ -71,10 +71,11 @@ run_memory_ingest() {
   helper_provider="$1"
   helper_api_key="$2"
   helper_user_id="$3"
-  helper_agent_id="$4"
-  helper_run_id="$5"
-  helper_mount="$6"
-  helper_file="$7"
+	  helper_agent_id="$4"
+	  helper_run_id="$5"
+	  helper_mount="$6"
+	  helper_file="$7"
+	  helper_require_write="$8"
   docker compose -p "${project_name}" -f "${compose_file}" run --rm --no-deps \
     --entrypoint /usr/local/bin/eval-v2-memory \
     --volume "${helper_mount}:/artifact:ro" \
@@ -84,13 +85,15 @@ run_memory_ingest() {
     -e PAXM_USER_ID="${helper_user_id}" \
     -e PAXM_AGENT_ID="${helper_agent_id}" \
     -e MEM0_RUN_ID="${helper_run_id}" \
-    opencode -action ingest -provider "${helper_provider}" -session-batches-file "${helper_file}"
+    opencode -action ingest -provider "${helper_provider}" -session-batches-file "${helper_file}" \
+      -require-write="${helper_require_write}"
 }
 
 run_memory_preflight() {
   helper_api_key="$1"
   helper_run_id="$2"
   helper_marker="$3"
+	preflight_action="$4"
   docker compose -p "${project_name}" -f "${compose_file}" run --rm --no-deps \
     --entrypoint /usr/local/bin/eval-v2-memory \
     -e TEAM_MEMORY_BASE_URL=http://team-memory:8080 \
@@ -99,7 +102,23 @@ run_memory_preflight() {
     -e PAXM_USER_ID="${eval_user_id}" \
     -e PAXM_AGENT_ID=preflight \
     -e MEM0_RUN_ID="${helper_run_id}" \
-    opencode -action preflight -marker "${helper_marker}"
+    opencode -action "${preflight_action}" -marker "${helper_marker}"
+}
+
+run_raw_bm25() {
+  batches_dir="$(dirname "${PAX_EVAL_SESSION_BATCHES_FILE}")"
+  batches_file="$(basename "${PAX_EVAL_SESSION_BATCHES_FILE}")"
+  batches_absolute="$(cd "${batches_dir}" && pwd -P)"
+  docker compose -p "${project_name}" -f "${compose_file}" run --rm --no-deps \
+    --entrypoint /usr/local/bin/eval-v2-bm25 \
+    --volume "${batches_absolute}:/artifact:ro" \
+    opencode \
+      -session-batches-file "/artifact/${batches_file}" \
+      -query "${PAX_EVAL_QUESTION}" \
+      -candidate-limit "${PAX_EVAL_BM25_CANDIDATE_LIMIT:-8}" \
+      -token-budget "${PAX_EVAL_BM25_TOKEN_BUDGET:-500}" \
+      -chunk-events "${PAX_EVAL_BM25_CHUNK_EVENTS:-4}" \
+      -temporal-cutoff "${PAX_EVAL_BM25_TEMPORAL_CUTOFF:-}"
 }
 
 zep_api_key() {
@@ -185,9 +204,11 @@ case "${stage}" in
     ingest_user_id="${eval_user_id}"
     ingest_agent_id="${agent_id}"
     ingest_provider="${arm}"
-    if [ "${arm}" = "mem0" ]; then
+    ingest_require_write=0
+    if [ "${arm}" = "mem0" ] || [ "${arm}" = "mem0_messages" ] || [ "${arm}" = "mem0_chunks" ]; then
       ingest_user_id="${MEM0_EVAL_USER_ID}"
       ingest_agent_id="${MEM0_EVAL_AGENT_ID}"
+      ingest_require_write=1
     fi
     if [ "${arm}" = "team_note_hybrid" ]; then
       ingest_provider="team_note"
@@ -198,7 +219,7 @@ case "${stage}" in
       exit $?
     fi
     run_memory_ingest "${ingest_provider}" "${api_key}" "${ingest_user_id}" "${ingest_agent_id}" "${mem0_run_id}" \
-      "${batches_absolute}" "/artifact/${batches_file}"
+      "${batches_absolute}" "/artifact/${batches_file}" "${ingest_require_write}"
     ;;
   preflight)
     if [ "${arm}" = "zep_native" ]; then
@@ -208,7 +229,11 @@ case "${stage}" in
     fi
     preflight_key="eval-${PAX_EVAL_RUN_ID}-preflight"
     preflight_run_id="${PAX_EVAL_RUN_ID}-preflight"
-    run_memory_preflight "${preflight_key}" "${preflight_run_id}" "PAX-EVAL-PREFLIGHT-${PAX_EVAL_RUN_ID}"
+    preflight_action="preflight"
+    if [ "${arm}" = "mem0" ] || [ "${arm}" = "mem0_messages" ] || [ "${arm}" = "mem0_chunks" ]; then
+      preflight_action="preflight-mem0"
+    fi
+    run_memory_preflight "${preflight_key}" "${preflight_run_id}" "PAX-EVAL-PREFLIGHT-${PAX_EVAL_RUN_ID}" "${preflight_action}"
     ;;
   ready)
     if [ "${arm}" = "team_note" ] || [ "${arm}" = "team_note_hybrid" ]; then
@@ -297,6 +322,15 @@ case "${stage}" in
         exit 1
       fi
       consumer_prompt="$(printf 'Asking user: %s\n\nQuestion:\n%s\n\nRetrieved conversation passages:\n' "${eval_user_id}" "${PAX_EVAL_QUESTION}"; cat "${source_file}")"
+    fi
+    if [ "${arm}" = "raw_bm25" ]; then
+      consumer_recall_enabled=0
+      consumer_recall_mode=direct
+      bm25_result="$(run_raw_bm25)"
+      mkdir -p "${PAX_EVAL_ARTIFACT_DIR}"
+      printf '%s\n' "${bm25_result}" > "${PAX_EVAL_ARTIFACT_DIR}/raw-bm25.json"
+      bm25_context="$(printf '%s' "${bm25_result}" | jq -er '.context')"
+      consumer_prompt="$(printf 'Asking user: %s\n\nQuestion:\n%s\n\nRetrieved conversation passages:\n%s' "${eval_user_id}" "${PAX_EVAL_QUESTION}" "${bm25_context}")"
     fi
     if [ "${arm}" = "zep_native" ]; then
       consumer_recall_enabled=0

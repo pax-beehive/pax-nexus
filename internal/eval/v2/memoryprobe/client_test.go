@@ -116,6 +116,72 @@ func (s *clientSuite) TestFullDomainMem0IngestBatchesMessagesByNativeSession() {
 	s.Contains(calls[0].body, `"source_session_id":"s1"`)
 }
 
+func (s *clientSuite) TestMem0MessagesRetriesNoOpSessionByEvent() {
+	transport := &recordingTransport{memoryResponses: []string{
+		`{"results":[]}`,
+		`{"results":[{"id":"mem-1","event":"ADD"}]}`,
+		`{"results":[{"id":"mem-2","event":"ADD"}]}`,
+	}}
+	client, err := memoryprobe.New(memoryprobe.Config{
+		TeamNoteURL: "http://team-note", TeamNoteAPIKey: "key", Mem0URL: "http://mem0",
+		UserID: "shared", AgentID: "shared", RunID: "domain", HTTPClient: &http.Client{Transport: transport},
+	})
+	s.Require().NoError(err)
+	batches := []session.SessionBatch{{Complete: true, Events: []session.SessionEvent{
+		{ID: "Msg_1", Actor: session.Actor{UserID: "User_1", AgentID: "groupmembench-User_1", SessionID: "s1"}, Sequence: 1, Content: "first", OccurredAt: time.Unix(1, 0).UTC(), Metadata: map[string]string{"role": "Lead"}},
+		{ID: "Msg_2", Actor: session.Actor{UserID: "User_1", AgentID: "groupmembench-User_1", SessionID: "s1"}, Sequence: 2, Content: "second", OccurredAt: time.Unix(2, 0).UTC(), Metadata: map[string]string{"role": "Lead"}},
+	}}}
+
+	result, err := client.IngestBatches(context.Background(), memoryprobe.ProviderMem0Messages, batches)
+
+	s.Require().NoError(err)
+	s.Equal(2, result.Accepted)
+	s.Equal(2, result.Created)
+	s.False(result.NoOp)
+	calls := transport.snapshot()
+	s.Require().Len(calls, 3)
+	s.Contains(calls[0].body, "Msg_1")
+	s.Contains(calls[0].body, "Msg_2")
+	s.Contains(calls[1].body, "Msg_1")
+	s.NotContains(calls[1].body, "Msg_2")
+	s.Contains(calls[2].body, "Msg_2")
+	s.NotContains(calls[2].body, "Msg_1")
+}
+
+func (s *clientSuite) TestMem0ChunksBoundsRequestsAndPreservesEventProvenance() {
+	transport := &recordingTransport{}
+	client, err := memoryprobe.New(memoryprobe.Config{
+		TeamNoteURL: "http://team-note", TeamNoteAPIKey: "key", Mem0URL: "http://mem0",
+		UserID: "shared", AgentID: "shared", RunID: "domain", HTTPClient: &http.Client{Transport: transport},
+	})
+	s.Require().NoError(err)
+	batches := make([]session.SessionBatch, 0, 2)
+	for batchIndex := range 2 {
+		events := make([]session.SessionEvent, 0, 5)
+		for eventIndex := range 5 {
+			sequence := batchIndex*5 + eventIndex + 1
+			events = append(events, session.SessionEvent{
+				ID:       fmt.Sprintf("Msg_%d", sequence),
+				Actor:    session.Actor{UserID: fmt.Sprintf("User_%d", batchIndex+1), AgentID: fmt.Sprintf("agent_%d", batchIndex+1), SessionID: fmt.Sprintf("s%d", batchIndex+1)},
+				Sequence: int64(eventIndex + 1), Content: fmt.Sprintf("event %d", sequence), OccurredAt: time.Unix(int64(sequence), 0).UTC(), Metadata: map[string]string{"role": "Lead"},
+			})
+		}
+		batches = append(batches, session.SessionBatch{Complete: true, Events: events})
+	}
+
+	result, err := client.IngestBatches(context.Background(), memoryprobe.ProviderMem0Chunks, batches)
+
+	s.Require().NoError(err)
+	s.Equal(10, result.Accepted)
+	s.Equal(2, result.Created)
+	calls := transport.snapshot()
+	s.Require().Len(calls, 2)
+	s.Contains(calls[0].body, `"eval_event_ids":"Msg_1,Msg_2,Msg_3,Msg_4,Msg_5,Msg_6,Msg_7,Msg_8"`)
+	s.Contains(calls[0].body, `"source_actor_count":"2"`)
+	s.Contains(calls[0].body, `"source_session_count":"2"`)
+	s.Contains(calls[1].body, `"eval_event_ids":"Msg_9,Msg_10"`)
+}
+
 func (s *clientSuite) TestIngestBatchesValidationMatrix() {
 	client, err := memoryprobe.New(memoryprobe.Config{
 		TeamNoteURL: "http://team-note", TeamNoteAPIKey: "key", Mem0URL: "http://mem0",
@@ -271,6 +337,27 @@ func (s *clientSuite) TestPreflightExercisesAddRecallAndSupportedCleanup() {
 	}
 }
 
+func (s *clientSuite) TestPreflightMem0DoesNotDependOnTeamNote() {
+	transport := &recordingTransport{}
+	client, err := memoryprobe.New(memoryprobe.Config{
+		TeamNoteURL: "http://team-note", TeamNoteAPIKey: "key", Mem0URL: "http://mem0",
+		UserID: "user", AgentID: "preflight", RunID: "run", HTTPClient: &http.Client{Transport: transport},
+		PollInterval: time.Millisecond,
+	})
+	s.Require().NoError(err)
+
+	err = client.PreflightMem0(context.Background(), "MEM0-ONLY-PREFLIGHT")
+
+	s.Require().NoError(err)
+	calls := transport.snapshot()
+	s.NotEmpty(calls)
+	for _, call := range calls {
+		s.NotEqual("/healthz", call.path)
+		s.NotEqual("/v1/session-batches", call.path)
+		s.NotEqual("/v1/notes/recall", call.path)
+	}
+}
+
 func (s *clientSuite) TestPreflightIgnoresStaleTeamNoteRecall() {
 	transport := &recordingTransport{staleRecallCount: 1}
 	client, err := memoryprobe.New(memoryprobe.Config{
@@ -329,6 +416,8 @@ type recordingTransport struct {
 	searchCount       int
 	recallCount       int
 	memoryResponse    string
+	memoryResponses   []string
+	memoryResponseIdx int
 	teamReceipt       string
 	observedSessionID string
 	staleRecallCount  int
@@ -378,7 +467,12 @@ func (t *recordingTransport) RoundTrip(request *http.Request) (*http.Response, e
 		}
 		responseBody = fmt.Sprintf(`{"revision":"1","items":["Confirmed active for this run."],"tokens":1,"details":[{"origin":{"session_id":%q}}]}`, originSessionID)
 	case "/memories":
-		responseBody = t.memoryResponse
+		if t.memoryResponseIdx < len(t.memoryResponses) {
+			responseBody = t.memoryResponses[t.memoryResponseIdx]
+			t.memoryResponseIdx++
+		} else {
+			responseBody = t.memoryResponse
+		}
 		if responseBody == "" {
 			responseBody = `{"results":[{"id":"mem-1","event":"ADD"}]}`
 		}

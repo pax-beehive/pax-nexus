@@ -228,7 +228,7 @@ func (s *extractionV2Suite) TestInteractionObservationsRequireGroundedVocabulary
 	}
 }
 
-func (s *extractionV2Suite) TestProposalCannotBecomeCanonicalStateWithoutCommitment() {
+func (s *extractionV2Suite) TestInteractionObservationDoesNotVetoDecision() {
 	decision := `{"decision":"create","identity_ref":"owner/exception-log","evidence_event_ids":["event-1"],"reason_codes":["explicit_new_fact"],"candidate":{"kind":"status","subject":"exception log owner","body":"Compliance owns the exception log."}}`
 	interaction := `{"actor":"producer","target":"Compliance","stance":"neutral","speech_act":"propose","evidence_event_id":"event-1"}`
 	client := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
@@ -237,13 +237,62 @@ func (s *extractionV2Suite) TestProposalCannotBecomeCanonicalStateWithoutCommitm
 	adapter := newV2Adapter(s, client)
 
 	result, err := adapter.Extract(
-		teamnote.WithScope(context.Background(), "scope-v2-proposal"), v2Slice(),
+		teamnote.WithScope(context.Background(), "scope-v2-interaction-no-veto"), v2Slice(),
 	)
 	s.Require().NoError(err)
-	s.Empty(result.Candidates)
-	s.Require().Len(result.Trace.DecisionRejections, 1)
-	s.Contains(result.Trace.DecisionRejections[0].Reason, "non-committal speech act")
+	s.Require().Len(result.Candidates, 1)
+	s.Equal("owner/exception-log", result.Candidates[0].IdentityRef)
+	s.Empty(result.Trace.DecisionRejections)
 	s.Require().Len(result.Trace.InteractionObservations, 1)
+	s.Equal("propose", result.Trace.InteractionObservations[0].SpeechAct)
+}
+
+func (s *extractionV2Suite) TestTemporalMetadataWithoutSourceExpressionIsStripped() {
+	tests := []struct {
+		name        string
+		fields      string
+		wantValidAt bool
+		wantInvalid bool
+	}{
+		{
+			name:   "timestamps without expression are dropped",
+			fields: `,"temporal_expression":"","valid_at":"2025-07-17T00:00:00Z","invalid_at":"2025-07-17T23:59:59Z"`,
+		},
+		{
+			name:   "resolution without expression is dropped",
+			fields: `,"temporal_resolution":"unresolved"`,
+		},
+		{
+			name:        "anchored window survives a source expression",
+			fields:      `,"temporal_expression":"today","valid_at":"2025-07-17T00:00:00Z","temporal_resolution":"anchored"`,
+			wantValidAt: true,
+			wantInvalid: false,
+		},
+	}
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			decision := fmt.Sprintf(
+				`{"decision":"create","identity_ref":"schedule/reporting-validation","evidence_event_ids":["event-1"],`+
+					`"reason_codes":["explicit_new_fact"]%s,"candidate":{"kind":"status","subject":"reporting validation deadline","body":"Reporting validates fit before 2025-07-18."}}`,
+				test.fields,
+			)
+			client := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+				return response(http.StatusOK, v2Body("", decision)), nil
+			})}
+			adapter := newV2Adapter(s, client)
+
+			result, err := adapter.Extract(
+				teamnote.WithScope(context.Background(), "scope-v2-temporal-strip-"+strings.ReplaceAll(test.name, " ", "-")),
+				v2Slice(),
+			)
+
+			s.Require().NoError(err)
+			s.Require().Len(result.Candidates, 1)
+			s.Empty(result.Trace.DecisionRejections)
+			s.Equal(test.wantValidAt, result.Candidates[0].ValidAt != nil)
+			s.Equal(test.wantInvalid, result.Candidates[0].InvalidAt != nil)
+		})
+	}
 }
 
 func (s *extractionV2Suite) TestSourceProposalCannotBecomeCanonicalStateWhenInteractionIsInvalid() {
@@ -412,16 +461,6 @@ func (s *extractionV2Suite) TestRejectsInvalidTemporalMetadata() {
 		wantReason string
 	}{
 		{
-			name:       "timestamp without source expression",
-			temporal:   `"valid_at":"2026-07-18T00:00:00Z","temporal_resolution":"explicit",`,
-			wantReason: "without a source expression",
-		},
-		{
-			name:       "unresolved expression with timestamp",
-			temporal:   `"temporal_expression":"next Friday","valid_at":"2026-07-18T00:00:00Z","temporal_resolution":"unresolved",`,
-			wantReason: "unresolved time",
-		},
-		{
 			name:       "invalid window",
 			temporal:   `"temporal_expression":"effective window","valid_at":"2026-07-19T00:00:00Z","invalid_at":"2026-07-18T00:00:00Z","temporal_resolution":"explicit",`,
 			wantReason: "invalid temporal window",
@@ -490,7 +529,7 @@ func (s *extractionV2Suite) TestDropsInvalidClaimsAndDecisionsWithTraceRejection
 	s.Contains(result.Trace.ClaimRejections[2].Reason, "unknown event")
 	s.Require().Len(result.Trace.StateDecisions, 1)
 	s.Require().Len(result.Trace.DecisionRejections, 3)
-	s.Contains(result.Trace.DecisionRejections[0].Reason, "unknown or rejected claim")
+	s.Contains(result.Trace.DecisionRejections[0].Reason, "no grounded evidence")
 	s.Contains(result.Trace.DecisionRejections[1].Reason, "reason vocabulary")
 	s.Contains(result.Trace.DecisionRejections[2].Reason, "require a candidate")
 }
@@ -575,4 +614,84 @@ func (s *extractionV2Suite) TestRejectsMalformedV2Responses() {
 			s.Require().ErrorIs(err, extractor.ErrInvalidModelResponse)
 		})
 	}
+}
+
+func (s *extractionV2Suite) TestTemporalWindowNormalization() {
+	past := "2025-07-17T23:59:59Z"
+	future := "2099-07-18T00:00:00Z"
+	tests := []struct {
+		name        string
+		action      string
+		fields      string
+		wantValidAt bool
+		wantInvalid bool
+	}{
+		{
+			name:   "unresolved with timestamp keeps fact and drops timestamps",
+			action: "create",
+			fields: `,"temporal_expression":"Friday EOD","valid_at":"2025-07-18T17:00:00Z","temporal_resolution":"unresolved"`,
+		},
+		{
+			name:        "past invalid_at on create is dropped",
+			action:      "create",
+			fields:      `,"temporal_expression":"today","valid_at":"2025-07-17T00:00:00Z","invalid_at":"` + past + `","temporal_resolution":"anchored"`,
+			wantValidAt: true,
+			wantInvalid: false,
+		},
+		{
+			name:        "future invalid_at on create is preserved",
+			action:      "create",
+			fields:      `,"temporal_expression":"until the freeze lifts","invalid_at":"` + future + `","temporal_resolution":"explicit"`,
+			wantValidAt: false,
+			wantInvalid: true,
+		},
+		{
+			name:        "past invalid_at on resolve is preserved",
+			action:      "resolve",
+			fields:      `,"temporal_expression":"today","invalid_at":"` + past + `","temporal_resolution":"anchored"`,
+			wantValidAt: false,
+			wantInvalid: true,
+		},
+	}
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			decision := fmt.Sprintf(
+				`{"decision":%q,"identity_ref":"schedule/reporting-validation","evidence_event_ids":["event-1"],`+
+					`"reason_codes":["explicit_new_fact"]%s,"candidate":{"kind":"status","subject":"reporting validation deadline","body":"Reporting validates fit before 2025-07-18."}}`,
+				test.action, test.fields,
+			)
+			client := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+				return response(http.StatusOK, v2Body("", decision)), nil
+			})}
+			adapter := newV2Adapter(s, client)
+
+			result, err := adapter.Extract(
+				teamnote.WithScope(context.Background(), "scope-v2-temporal-normalize-"+strings.ReplaceAll(test.name, " ", "-")),
+				v2Slice(),
+			)
+
+			s.Require().NoError(err)
+			s.Require().Len(result.Candidates, 1)
+			s.Empty(result.Trace.DecisionRejections)
+			s.Equal(test.wantValidAt, result.Candidates[0].ValidAt != nil)
+			s.Equal(test.wantInvalid, result.Candidates[0].InvalidAt != nil)
+		})
+	}
+}
+
+func (s *extractionV2Suite) TestDanglingClaimReferenceDoesNotVoidDirectEvidence() {
+	decision := `{"decision":"create","identity_ref":"schedule/reporting-validation","claim_ids":["missing-claim"],"evidence_event_ids":["event-1"],"reason_codes":["explicit_new_fact"],"candidate":{"kind":"status","subject":"reporting validation deadline","body":"Reporting validates fit before 2025-07-18."}}`
+	client := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		return response(http.StatusOK, v2Body("", decision)), nil
+	})}
+	adapter := newV2Adapter(s, client)
+
+	result, err := adapter.Extract(
+		teamnote.WithScope(context.Background(), "scope-v2-dangling-claim"), v2Slice(),
+	)
+
+	s.Require().NoError(err)
+	s.Require().Len(result.Candidates, 1)
+	s.Equal([]string{"event-1"}, result.Candidates[0].EvidenceEventIDs)
+	s.Empty(result.Trace.DecisionRejections)
 }

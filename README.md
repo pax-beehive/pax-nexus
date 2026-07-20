@@ -52,6 +52,11 @@ The core module owns admission, canonical note state, lifecycle, and delivery.
 Adapters may vary storage, extraction model, and transport without exposing
 those choices to callers.
 
+See [Code Module Architecture](docs/code-architecture.md) for the current
+module seams, runtime flows, dependency direction, concurrency ownership, and
+verification contracts. The documents under `docs/decisions/` retain the
+decision history for individual extraction, recall, and evaluation policies.
+
 ## Local runtime
 
 The runtime uses PostgreSQL with pgvector, the Team Memory service, and a local
@@ -141,12 +146,15 @@ passive evidence without inspectable coordination, routing, or intent support.
 It is not a core v3 ranking or confidence signal.
 The default local model is `Qwen/Qwen3-Embedding-0.6B`; its Matryoshka output is truncated and normalized
 to 384 dimensions. One-hop related facts are composed in either direction, so
-a recalled blocker can carry the action that points back to it. Configure it
-with `TEAM_MEMORY_EMBEDDING_BASE_URL`,
-`TEAM_MEMORY_EMBEDDING_MODEL`, `TEAM_MEMORY_EMBEDDING_TIMEOUT`,
-`TEAM_MEMORY_SEMANTIC_THRESHOLD`, and
-`TEAM_MEMORY_RETRIEVAL_CANDIDATE_LIMIT`. Leaving the base URL empty disables
-semantic recall, and embedding failures fall back to lexical recall.
+a recalled blocker can carry the action that points back to it. Configure the
+embedding adapter with `TEAM_MEMORY_EMBEDDING_BASE_URL`,
+`TEAM_MEMORY_EMBEDDING_MODEL`, and `TEAM_MEMORY_EMBEDDING_TIMEOUT`. Recall
+semantics are distributed as a build-time candidate:
+`TEAM_MEMORY_BUILD_RECALL_CANDIDATE_STRATEGY=passive-v1` is the production
+default, while `hint-v1-selective` retains the same passive evidence path and
+permits one focused active recall when the selectivity gates pass. Leaving the
+base URL empty disables semantic recall, and embedding failures fall back to
+lexical recall.
 
 ## Identity assumption
 

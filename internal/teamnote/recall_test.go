@@ -100,6 +100,25 @@ func (s *recallSuite) TestPlanRecallTraceRecordsStageRejections() {
 		s.Empty(trace.DeliveredItems)
 	})
 
+	s.Run("hint activation requires configured query relevance and marginal utility", func() {
+		semantic := 0.90
+		generic := recallCandidate("note-generic", "handoff navigation", "A generic navigation lead.", 0, &semantic)
+		specific := recallCandidate("note-specific", "alpha beta ownership", "Alpha beta status is held by the release owner.", 0, &semantic)
+		specific.RelatedSubjects = []string{"alpha beta release coordination"}
+		hintPolicy := policy
+		hintPolicy.EnableHintRecall = true
+		hintPolicy.HintThreshold = 0.50
+		hintPolicy.HintMinQueryRelevance = 0.50
+		hintPolicy.HintMinMarginalUtility = 0.70
+
+		planned, trace := teamnote.PlanRecall([]teamnote.RecallCandidate{generic, specific}, request, hintPolicy)
+
+		s.Require().Len(planned, 1)
+		s.Equal(specific.ID, planned[0].Note.ID)
+		genericTrace := candidateTraceByID(s, trace.CandidateTraces, generic.ID)
+		s.Equal(teamnote.RecallDispositionSuppress, genericTrace.Disposition)
+	})
+
 	s.Run("hint is suppressed when the envelope already has evidence", func() {
 		evidenceSemantic := 0.95
 		hintSemantic := 0.30
@@ -370,6 +389,46 @@ func (s *recallSuite) TestPlanRecallTraceRecordsStageRejections() {
 		)
 		s.Require().Len(planned, 1)
 		s.Equal("note-precise", planned[0].Note.ID)
+	})
+
+	s.Run("first-person query prefers the asking user's evidenced note", func() {
+		other := recallCandidate("note-other", "integration testing blocker", "Vendor timing is blocking the Integration Testing Cycle.", 0.9, nil)
+		own := recallCandidate("note-own", "integration testing blocker", "I flagged payment approval workflow changes and bank statement timing assumptions.", 0.4, nil)
+		other.Origin.UserID = "other-user"
+		own.Origin.UserID = "owner"
+		own.SourceOccurredAt = other.SourceOccurredAt.Add(-time.Hour)
+		own.UpdatedAt = own.SourceOccurredAt
+		firstPerson := teamnote.RecallRequest{
+			Actor: teamnote.Actor{UserID: "owner", AgentID: "consumer", SessionID: "own-context"},
+			Query: "What is the blocker I flagged for the Integration Testing Cycle?", TokenBudget: 500, MaxItems: 1,
+		}
+
+		planned, _ := teamnote.PlanRecall([]teamnote.RecallCandidate{other, own}, firstPerson, policy)
+
+		s.Require().Len(planned, 1)
+		s.Equal("note-own", planned[0].Note.ID)
+	})
+
+	s.Run("current-state query ranks by effective time before source arrival time", func() {
+		recentArrival := recallCandidate("note-recent-arrival", "current close validation state", "The current close validation state is recorded.", 0.9, nil)
+		effectiveCurrent := recallCandidate("note-effective-current", "current close validation state", "The current close validation state is recorded.", 0.4, nil)
+		recentArrival.SourceOccurredAt = time.Date(2026, time.July, 17, 12, 0, 0, 0, time.UTC)
+		recentArrival.UpdatedAt = recentArrival.SourceOccurredAt
+		effectiveCurrent.SourceOccurredAt = time.Date(2026, time.July, 16, 12, 0, 0, 0, time.UTC)
+		effectiveCurrent.UpdatedAt = effectiveCurrent.SourceOccurredAt
+		effectiveAt := time.Date(2026, time.July, 18, 12, 0, 0, 0, time.UTC)
+		effectiveCurrent.ValidAt = &effectiveAt
+		current := teamnote.RecallRequest{
+			Actor: teamnote.Actor{UserID: "owner", AgentID: "consumer", SessionID: "effective-time"},
+			Query: "What is the current close validation state?", TokenBudget: 500, MaxItems: 1,
+		}
+
+		effectivePolicy := policy
+		effectivePolicy.ObservationTime = effectiveAt.Add(24 * time.Hour)
+		planned, _ := teamnote.PlanRecall([]teamnote.RecallCandidate{recentArrival, effectiveCurrent}, current, effectivePolicy)
+
+		s.Require().Len(planned, 1)
+		s.Equal("note-effective-current", planned[0].Note.ID)
 	})
 }
 

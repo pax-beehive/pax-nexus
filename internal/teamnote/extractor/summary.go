@@ -54,14 +54,16 @@ func (e *OpenAI) startSummary(ctx context.Context, key EpisodeKey, episode Episo
 	}
 	flight := &summaryFlight{done: make(chan struct{})}
 	e.summaries[key] = flight
+	owned, finishBackground := e.lifecycle.beginBackground(ctx)
 	e.summariesMu.Unlock()
 
 	go func() {
-		background, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
+		background, cancel := context.WithTimeout(owned, 2*time.Minute)
 		defer cancel()
 		flight.result, flight.err = e.computeSummary(background, episode)
 		flight.persistErr = e.persistSummaryOutcome(background, key, flight.result, flight.err)
 		close(flight.done)
+		finishBackground(errors.Join(flight.err, flight.persistErr))
 	}()
 	return flight
 }
@@ -72,9 +74,8 @@ func (e *OpenAI) persistSummaryOutcome(
 	result summaryResult,
 	resultErr error,
 ) error {
-	lock := e.episodeLock(key)
-	lock.Lock()
-	defer lock.Unlock()
+	releaseEpisode := e.acquireEpisode(key)
+	defer releaseEpisode()
 	episode, found, err := e.config.EpisodeStore.LoadEpisode(ctx, key)
 	if err != nil {
 		return fmt.Errorf("load rolling extraction episode for summary: %w", err)

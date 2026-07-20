@@ -54,7 +54,7 @@ func (s *CaptureSuite) TestCaptureExportsAdmittedNotesAndExactRecallEnvelope() {
 		ID: "event-1", Actor: producer, Sequence: 1, Type: "message", Content: "Ops Lead owns rollback evidence.",
 		Visibility: "team_note_eligible", OccurredAt: time.Now().UTC(), CapturedAt: time.Now().UTC(),
 	}
-	_, err := s.store.AppendSession(ctx, scopeID, session.SessionBatch{Events: []session.SessionEvent{event}, Complete: true})
+	_, err := s.store.Sessions().AppendSession(ctx, scopeID, session.SessionBatch{Events: []session.SessionEvent{event}, Complete: true})
 	s.Require().NoError(err)
 	notes, err := postgres.NewNoteStore(s.store, teamnote.DefaultTTLPolicy(), teamnote.SystemClock{}, postgres.RetrievalConfig{})
 	s.Require().NoError(err)
@@ -113,7 +113,7 @@ func (s *CaptureSuite) TestCaptureExportsAdmittedNotesAndExactRecallEnvelope() {
 		ID: "event-2", Actor: producer, Sequence: 2, Type: "message", Content: "Rollback evidence is no longer current.",
 		Visibility: "team_note_eligible", OccurredAt: time.Now().UTC(), CapturedAt: time.Now().UTC(),
 	}
-	_, err = s.store.AppendSession(ctx, scopeID, session.SessionBatch{Events: []session.SessionEvent{resolvedEvent}, Complete: true})
+	_, err = s.store.Sessions().AppendSession(ctx, scopeID, session.SessionBatch{Events: []session.SessionEvent{resolvedEvent}, Complete: true})
 	s.Require().NoError(err)
 	_, err = notes.ApplyExtractionRun(ctx, scopeID, teamnote.ExtractionRun{
 		ID: "run-2", Actor: producer, FromSequence: 2, ToSequence: 2, InputChecksum: "resolve-input",

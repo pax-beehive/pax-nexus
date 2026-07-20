@@ -38,6 +38,9 @@ type ProtocolConfig struct {
 	MinReplayCases      int    `json:"min_replay_cases" yaml:"min_replay_cases"`
 	MinAgentCases       int    `json:"min_agent_cases" yaml:"min_agent_cases"`
 	MaxAgentCases       int    `json:"max_agent_cases" yaml:"max_agent_cases"`
+	// Diagnostic permits a small, category-balanced Agent cohort. It is not
+	// eligible to replace hard-cohort acceptance evidence.
+	Diagnostic bool `json:"diagnostic" yaml:"diagnostic"`
 }
 
 type caseAnnotations struct {
@@ -94,6 +97,7 @@ func LoadConfig(path string) (Config, error) {
 		"min_replay_cases":        fmt.Sprintf("%d", config.Recall.MinReplayCases),
 		"min_agent_cases":         fmt.Sprintf("%d", config.Recall.MinAgentCases),
 		"max_agent_cases":         fmt.Sprintf("%d", config.Recall.MaxAgentCases),
+		"diagnostic":              fmt.Sprintf("%t", config.Recall.Diagnostic),
 	}
 	return config, nil
 }
@@ -108,9 +112,23 @@ func fileDigest(path string) (string, error) {
 }
 
 func LoadCases(manifestPath, annotationsPath, answererSeed string, minCases, maxCases int) ([]v2.Case, string, CohortReport, error) {
+	return loadCases(manifestPath, annotationsPath, answererSeed, minCases, maxCases, true)
+}
+
+// LoadDiagnosticCases loads a compact, category-balanced cohort for fast
+// candidate comparison. Its results remain diagnostic rather than acceptance
+// evidence for the hard 30-case recall cohort.
+func LoadDiagnosticCases(manifestPath, annotationsPath, answererSeed string, minCases, maxCases int) ([]v2.Case, string, CohortReport, error) {
+	return loadCases(manifestPath, annotationsPath, answererSeed, minCases, maxCases, false)
+}
+
+func loadCases(manifestPath, annotationsPath, answererSeed string, minCases, maxCases int, hardCohort bool) ([]v2.Case, string, CohortReport, error) {
 	cases, revision, err := v3.LoadCases(manifestPath, answererSeed)
 	if err != nil {
 		return nil, "", CohortReport{}, err
+	}
+	if !hardCohort && len(cases) > maxCases {
+		cases = selectDiagnosticCases(cases, maxCases)
 	}
 	annotations, err := loadAnnotations(annotationsPath)
 	if err != nil {
@@ -143,14 +161,62 @@ func LoadCases(manifestPath, annotationsPath, answererSeed string, minCases, max
 			report.StrictCrossAgentCases++
 		}
 	}
-	balanced := len(report.Categories) == 6
-	for _, count := range report.Categories {
-		balanced = balanced && count >= 4
-	}
-	if !balanced || report.TemporalCases < 8 || report.IdentityDependentCases < 4 || report.ReviewedSourceCases < 2 || report.StrictCrossAgentCases < 2 {
-		return nil, "", CohortReport{}, fmt.Errorf("load recall eval v2 cases: hard cohort must cover six categories, temporal, identity, and reviewed knowledge origins")
+	if err := validateCohortCoverage(report, hardCohort); err != nil {
+		return nil, "", CohortReport{}, err
 	}
 	return cases, revision, report, nil
+}
+
+// selectDiagnosticCases builds a fixed, category-balanced pilot cohort from a
+// larger manifest without changing the hard-cohort source fixture.
+func selectDiagnosticCases(cases []v2.Case, limit int) []v2.Case {
+	byCategory := make(map[string][]v2.Case)
+	for _, evalCase := range cases {
+		byCategory[evalCase.Category] = append(byCategory[evalCase.Category], evalCase)
+	}
+	categories := make([]string, 0, len(byCategory))
+	for category := range byCategory {
+		categories = append(categories, category)
+	}
+	slices.Sort(categories)
+
+	selected := make([]v2.Case, 0, limit)
+	for index := 0; len(selected) < limit; index++ {
+		added := false
+		for _, category := range categories {
+			candidates := byCategory[category]
+			if index >= len(candidates) {
+				continue
+			}
+			selected = append(selected, candidates[index])
+			added = true
+			if len(selected) == limit {
+				return selected
+			}
+		}
+		if !added {
+			break
+		}
+	}
+	return selected
+}
+
+func validateCohortCoverage(report CohortReport, hardCohort bool) error {
+	if !hardCohort {
+		if len(report.Categories) != 6 || report.TemporalCases < 2 || report.IdentityDependentCases < 1 {
+			return fmt.Errorf("load recall eval v2 cases: diagnostic cohort must cover six categories plus temporal and identity cases")
+		}
+		return nil
+	}
+	if len(report.Categories) != 6 || report.TemporalCases < 8 || report.IdentityDependentCases < 4 || report.ReviewedSourceCases < 2 || report.StrictCrossAgentCases < 2 {
+		return fmt.Errorf("load recall eval v2 cases: hard cohort must cover six categories, temporal, identity, and reviewed knowledge origins")
+	}
+	for _, count := range report.Categories {
+		if count < 4 {
+			return fmt.Errorf("load recall eval v2 cases: hard cohort must cover six categories, temporal, identity, and reviewed knowledge origins")
+		}
+	}
+	return nil
 }
 
 type caseCoverage struct{ temporal, identity, reviewedSource int }
@@ -309,7 +375,11 @@ func Validate(config Config) error {
 	if config.Recall.MinReplayCases < 30 {
 		return fmt.Errorf("validate recall eval v2 config: min_replay_cases must be at least 30")
 	}
-	if config.Recall.MinAgentCases < 30 || config.Recall.MaxAgentCases > 50 || config.Recall.MaxAgentCases < config.Recall.MinAgentCases {
+	if config.Recall.Diagnostic {
+		if config.Recall.MinAgentCases < 6 || config.Recall.MaxAgentCases > 15 || config.Recall.MaxAgentCases < config.Recall.MinAgentCases {
+			return fmt.Errorf("validate recall eval v2 config: diagnostic agent cohort must contain 6 to 15 cases")
+		}
+	} else if config.Recall.MinAgentCases < 30 || config.Recall.MaxAgentCases > 50 || config.Recall.MaxAgentCases < config.Recall.MinAgentCases {
 		return fmt.Errorf("validate recall eval v2 config: agent cohort must contain 30 to 50 cases")
 	}
 	names := make([]string, 0, len(config.Arms))

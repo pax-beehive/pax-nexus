@@ -33,9 +33,7 @@ func (e *OpenAI) extractRollingV2(ctx context.Context, slice sessionlake.Slice) 
 // extractRollingV2With maps validated v2 products onto candidates after each
 // episode group, keeping the trace merged across groups.
 func (e *OpenAI) extractRollingV2With(ctx context.Context, slice sessionlake.Slice) (Result, error) {
-	return e.extractRollingWith(ctx, slice, e.candidateStrategy.protocol, func(groupResult *Result, groupSlice sessionlake.Slice) {
-		mapExtractionV2(groupResult, groupSlice)
-	})
+	return e.extractRollingWith(ctx, slice, e.candidateStrategy.protocol, e.candidateStrategy.mapResult)
 }
 
 func (e *OpenAI) extractRollingWith(ctx context.Context, slice sessionlake.Slice, protocol extractionProtocol, mapResult func(*Result, sessionlake.Slice)) (Result, error) {
@@ -46,7 +44,7 @@ func (e *OpenAI) extractRollingWith(ctx context.Context, slice sessionlake.Slice
 	groups := groupSlice(slice)
 	result := Result{
 		Model: e.config.Model, PromptVersion: e.config.PromptVersion,
-		ExtractionVersion: e.config.ExtractionVersion,
+		ExtractionVersion: e.resultExtractionVersion(),
 	}
 	for _, group := range groups {
 		key := EpisodeKey{ScopeID: scopeID, TaskRef: group.scope.taskRef, ThreadRef: group.scope.threadRef}
@@ -58,10 +56,11 @@ func (e *OpenAI) extractRollingWith(ctx context.Context, slice sessionlake.Slice
 			mapResult(&groupResult, group.slice)
 		}
 		result.Candidates = append(result.Candidates, groupResult.Candidates...)
+		result.SourceSpans = append(result.SourceSpans, groupResult.SourceSpans...)
 		mergeTraceV2(&result, groupResult.Trace)
 		addUsage(&result.Usage, groupResult.Usage)
 	}
-	if err := normalizeCandidates(&result, slice); err != nil {
+	if err := normalizeCandidates(&result, slice, e.candidateStrategy.candidateLimit); err != nil {
 		return Result{}, err
 	}
 	return result, nil
@@ -142,9 +141,20 @@ func groupSlice(slice sessionlake.Slice) []scopedSlice {
 }
 
 func (e *OpenAI) advanceEpisode(ctx context.Context, key EpisodeKey, slice sessionlake.Slice, protocol extractionProtocol) (Result, error) {
-	lock := e.episodeLock(key)
-	lock.Lock()
-	defer lock.Unlock()
+	releaseEpisode := e.acquireEpisode(key)
+	defer releaseEpisode()
+	var result Result
+	var err error
+	for attempt := 0; attempt < 2; attempt++ {
+		result, err = e.advanceEpisodeAttempt(ctx, key, slice, protocol)
+		if !errors.Is(err, ErrEpisodeConflict) {
+			return result, err
+		}
+	}
+	return Result{}, fmt.Errorf("advance rolling extraction episode after conflict retry: %w", err)
+}
+
+func (e *OpenAI) advanceEpisodeAttempt(ctx context.Context, key EpisodeKey, slice sessionlake.Slice, protocol extractionProtocol) (Result, error) {
 
 	if err := e.consumeReadySummary(key); err != nil {
 		return Result{}, fmt.Errorf("persist rolling extraction summary: %w", err)
@@ -172,7 +182,7 @@ func (e *OpenAI) advanceEpisode(ctx context.Context, key EpisodeKey, slice sessi
 		removeHistoricalEvidence(&result, episode, slice)
 		result.Model = e.config.Model
 		result.PromptVersion = e.config.PromptVersion
-		result.ExtractionVersion = e.config.ExtractionVersion
+		result.ExtractionVersion = e.resultExtractionVersion()
 		return result, nil
 	}
 	prompt, err := buildPrompt(slice, e.config.PromptVersion)
@@ -225,8 +235,24 @@ func (e *OpenAI) advanceEpisode(ctx context.Context, key EpisodeKey, slice sessi
 	}
 	result.Model = e.config.Model
 	result.PromptVersion = e.config.PromptVersion
-	result.ExtractionVersion = e.config.ExtractionVersion
+	result.ExtractionVersion = e.resultExtractionVersion()
 	return result, nil
+}
+
+func (e *OpenAI) resultExtractionVersion() string {
+	if e.config.ExtractionVersion == ExtractionVersionV2 {
+		switch e.candidateStrategy.name {
+		case CandidateStrategySourceSpanV1:
+			return ExtractionVersionSourceSpanV1
+		case CandidateStrategySourceSpanV2:
+			return ExtractionVersionSourceSpanV2
+		case CandidateStrategyClaimCardV1:
+			return ExtractionVersionClaimCardV1
+		case CandidateStrategyClaimCardV2:
+			return ExtractionVersionClaimCardV2
+		}
+	}
+	return e.config.ExtractionVersion
 }
 
 func (e *OpenAI) episodeCompatible(episode Episode) bool {
@@ -334,13 +360,15 @@ func (e *OpenAI) startCompaction(ctx context.Context, key EpisodeKey, episode Ep
 	}
 	flight := &compactionFlight{done: make(chan struct{})}
 	e.flights[key] = flight
+	owned, finishBackground := e.lifecycle.beginBackground(ctx)
 	e.flightsMu.Unlock()
 
 	go func() {
-		background, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
+		background, cancel := context.WithTimeout(owned, 2*time.Minute)
 		defer cancel()
 		flight.result, flight.err = e.computeCompaction(background, episode)
 		close(flight.done)
+		finishBackground(flight.err)
 	}()
 	return flight
 }
@@ -592,15 +620,30 @@ func pruneEpisodeRuns(runs map[string]EpisodeRun, limit int) {
 	}
 }
 
-func (e *OpenAI) episodeLock(key EpisodeKey) *sync.Mutex {
+type episodeLease struct {
+	mutex      sync.Mutex
+	references int
+}
+
+func (e *OpenAI) acquireEpisode(key EpisodeKey) func() {
 	e.locksMu.Lock()
-	defer e.locksMu.Unlock()
-	lock, ok := e.locks[key]
+	lease, ok := e.locks[key]
 	if !ok {
-		lock = new(sync.Mutex)
-		e.locks[key] = lock
+		lease = new(episodeLease)
+		e.locks[key] = lease
 	}
-	return lock
+	lease.references++
+	e.locksMu.Unlock()
+	lease.mutex.Lock()
+	return func() {
+		lease.mutex.Unlock()
+		e.locksMu.Lock()
+		lease.references--
+		if lease.references == 0 && e.locks[key] == lease {
+			delete(e.locks, key)
+		}
+		e.locksMu.Unlock()
+	}
 }
 
 func updateSourceCursor(checkpoint *Checkpoint, slice sessionlake.Slice) {

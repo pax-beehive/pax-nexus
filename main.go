@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -46,7 +47,8 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	if err := store.Migrate(ctx); err != nil {
 		return fmt.Errorf("initialize storage schema: %w", err)
 	}
-	candidateExtractor, err := buildExtractor(config, store)
+	sessions := store.Sessions()
+	candidateExtractor, err := buildExtractor(config, store.Episodes())
 	if err != nil {
 		return fmt.Errorf("initialize extractor: %w", err)
 	}
@@ -56,9 +58,7 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	}
 	noteStore, err := postgres.NewNoteStore(store, teamnote.DefaultTTLPolicy(), teamnote.SystemClock{}, postgres.RetrievalConfig{
 		Embedder: embedder, EmbeddingModel: config.embeddingModel,
-		SemanticThreshold: config.semanticThreshold, CandidateLimit: config.retrievalCandidateLimit,
-		HintSemanticThreshold: config.hintSemanticThreshold,
-		HintRecallEnabled:     config.hintRecallEnabled, HintThreshold: config.hintThreshold,
+		Policy: config.recallCandidateStrategy.Policy,
 	})
 	if err != nil {
 		return fmt.Errorf("initialize note store: %w", err)
@@ -70,7 +70,7 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	if backfilled > 0 {
 		logger.Info("team note embeddings backfilled", "notes", backfilled, "model", config.embeddingModel)
 	}
-	runtime, err := teamruntime.New(sessionlake.New(store), candidateExtractor, teamruntime.Config{
+	runtime, err := teamruntime.New(sessionlake.New(sessions), candidateExtractor, teamruntime.Config{
 		NoteStore: noteStore, Logger: logger, SliceEventLimit: config.sliceEventLimit, SliceTokenLimit: config.sliceTokenLimit,
 		SliceOverlap: config.sliceOverlap, MaxSlicesPerJob: config.maxSlicesPerJob,
 	})
@@ -88,10 +88,11 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	if err := extractionqueue.Migrate(ctx, store.Pool()); err != nil {
 		return fmt.Errorf("initialize extraction queue schema: %w", err)
 	}
-	if err := store.ConfigureExtractionEnqueuer(queue); err != nil {
+	if err := sessions.ConfigureExtractionEnqueuer(queue); err != nil {
 		return fmt.Errorf("connect extraction queue: %w", err)
 	}
-	if err := handler.ConfigureWithLogger(runtime, handler.StaticAPIKeys(config.apiKeys), logger); err != nil {
+	httpHandler, err := handler.New(runtime, handler.StaticAPIKeys(config.apiKeys), logger)
+	if err != nil {
 		return fmt.Errorf("configure HTTP transport: %w", err)
 	}
 	if err := queue.Start(ctx); err != nil {
@@ -100,17 +101,41 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	go continueEmbeddingBackfill(ctx, noteStore, logger)
 
 	h := server.Default(server.WithHostPorts(config.listenAddress))
+	h.Use(handler.InstanceMiddleware(httpHandler))
 	register(h)
 	logger.Info("team-memory started", "listen_address", config.listenAddress, "worker_shards", config.workerShards,
-		"extraction_candidate_strategy", config.extractionCandidateStrategy)
+		"extraction_candidate_strategy", config.extractionCandidateStrategy,
+		"recall_candidate_strategy", config.recallCandidateStrategy.Name)
 	h.Spin()
-	stopContext, cancel := context.WithTimeout(context.Background(), config.workerStopTimeout)
-	defer cancel()
-	if err := queue.Stop(stopContext); err != nil {
-		return fmt.Errorf("stop extraction queue: %w", err)
+	queueStopContext, cancelQueueStop := context.WithTimeout(context.Background(), config.workerStopTimeout)
+	queueErr := queue.Stop(queueStopContext)
+	cancelQueueStop()
+	extractorStopContext, cancelExtractorStop := context.WithTimeout(context.Background(), config.workerStopTimeout)
+	extractorErr := closeExtractor(extractorStopContext, candidateExtractor)
+	cancelExtractorStop()
+	if queueErr != nil || extractorErr != nil {
+		return errors.Join(
+			wrapOptionalError("stop extraction queue", queueErr),
+			wrapOptionalError("stop extractor", extractorErr),
+		)
 	}
 	logger.Info("team-memory stopped")
 	return nil
+}
+
+func closeExtractor(ctx context.Context, candidateExtractor extractor.Extractor) error {
+	lifecycle, ok := candidateExtractor.(extractor.Lifecycle)
+	if !ok {
+		return nil
+	}
+	return lifecycle.Close(ctx)
+}
+
+func wrapOptionalError(operation string, err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("%s: %w", operation, err)
 }
 
 func continueEmbeddingBackfill(ctx context.Context, noteStore *postgres.NoteStore, logger *slog.Logger) {
@@ -160,11 +185,7 @@ type applicationConfig struct {
 	embeddingBaseURL               string
 	embeddingModel                 string
 	embeddingTimeout               time.Duration
-	semanticThreshold              float64
-	hintSemanticThreshold          float64
-	retrievalCandidateLimit        int
-	hintRecallEnabled              bool
-	hintThreshold                  float64
+	recallCandidateStrategy        teamnote.RecallCandidateStrategy
 }
 
 func loadConfig() (applicationConfig, error) {
@@ -294,22 +315,31 @@ func loadRetrievalConfig(config *applicationConfig) error {
 	if config.embeddingTimeout, err = durationEnvironment("TEAM_MEMORY_EMBEDDING_TIMEOUT", 10*time.Second); err != nil {
 		return err
 	}
-	if config.retrievalCandidateLimit, err = intEnvironment("TEAM_MEMORY_RETRIEVAL_CANDIDATE_LIMIT", 16); err != nil {
+	config.recallCandidateStrategy, err = teamnote.ResolveRecallCandidateStrategy("")
+	if err != nil {
+		return fmt.Errorf("resolve build recall candidate strategy: %w", err)
+	}
+	policy := &config.recallCandidateStrategy.Policy
+	if policy.CandidateLimit, err = intEnvironment("TEAM_MEMORY_RETRIEVAL_CANDIDATE_LIMIT", policy.CandidateLimit); err != nil {
 		return err
 	}
-	if config.semanticThreshold, err = floatEnvironment("TEAM_MEMORY_SEMANTIC_THRESHOLD", 0.50); err != nil {
+	if policy.SemanticThreshold, err = floatEnvironment("TEAM_MEMORY_SEMANTIC_THRESHOLD", policy.SemanticThreshold); err != nil {
 		return err
 	}
-	if config.hintSemanticThreshold, err = floatEnvironment("TEAM_MEMORY_HINT_SEMANTIC_THRESHOLD", config.semanticThreshold); err != nil {
+	if policy.HintSemanticThreshold, err = floatEnvironment("TEAM_MEMORY_HINT_SEMANTIC_THRESHOLD", policy.HintSemanticThreshold); err != nil {
 		return err
 	}
-	if config.hintRecallEnabled, err = boolEnvironment("TEAM_MEMORY_HINT_RECALL_ENABLED", false); err != nil {
+	if policy.EnableHintRecall, err = boolEnvironment("TEAM_MEMORY_HINT_RECALL_ENABLED", policy.EnableHintRecall); err != nil {
 		return err
 	}
-	if config.hintThreshold, err = floatEnvironment("TEAM_MEMORY_HINT_THRESHOLD", 0.65); err != nil {
+	if policy.HintThreshold, err = floatEnvironment("TEAM_MEMORY_HINT_THRESHOLD", policy.HintThreshold); err != nil {
 		return err
 	}
-	return nil
+	if policy.HintMinQueryRelevance, err = floatEnvironment("TEAM_MEMORY_HINT_MIN_QUERY_RELEVANCE", policy.HintMinQueryRelevance); err != nil {
+		return err
+	}
+	policy.HintMinMarginalUtility, err = floatEnvironment("TEAM_MEMORY_HINT_MIN_MARGINAL_UTILITY", policy.HintMinMarginalUtility)
+	return err
 }
 
 func floatEnvironment(name string, fallback float64) (float64, error) {

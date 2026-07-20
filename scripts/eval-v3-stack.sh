@@ -6,6 +6,11 @@ manifest="${2:-}"
 run_id="${3:-}"
 . ./scripts/load-eval-v3-env.sh
 
+if { [ "${action}" = "down" ] || [ "${action}" = "reset" ]; } && [ -z "${TEAM_MEMORY_API_KEYS:-}" ]; then
+  TEAM_MEMORY_API_KEYS='{}'
+  export TEAM_MEMORY_API_KEYS
+fi
+
 case "${action}" in
   up)
     if [ -z "${manifest}" ] || [ -z "${run_id}" ]; then
@@ -23,7 +28,7 @@ case "${action}" in
     fi
     TEAM_MEMORY_API_KEYS="$(jq -cn --arg run_id "${run_id}" --arg domain_scope "${domain_scope}" '{("eval-" + $run_id + "-preflight"): ($run_id + "-preflight"), ("eval-" + $run_id + "-domain"): ($run_id + "-" + $domain_scope)}')"
     export TEAM_MEMORY_API_KEYS
-    docker compose -p "${EVAL_V3_COMPOSE_PROJECT}" -f "${EVAL_V3_COMPOSE_FILE}" build team-memory opencode mem0 mem0-configure
+    docker compose -p "${EVAL_V3_COMPOSE_PROJECT}" -f "${EVAL_V3_COMPOSE_FILE}" build team-memory team-memory-hint opencode mem0 mem0-configure
     ./scripts/start-local-embedding.sh -p "${EVAL_V3_COMPOSE_PROJECT}" -f "${EVAL_V3_COMPOSE_FILE}"
     docker compose -p "${EVAL_V3_COMPOSE_PROJECT}" -f "${EVAL_V3_COMPOSE_FILE}" up -d --wait postgres team-memory mem0-postgres mem0
     docker compose -p "${EVAL_V3_COMPOSE_PROJECT}" -f "${EVAL_V3_COMPOSE_FILE}" run --rm --no-deps mem0-configure

@@ -39,6 +39,7 @@ func run(args []string, stdout io.Writer) error {
 	embeddingBaseURL := flags.String("embedding-base-url", "", "OpenAI-compatible embedding endpoint for export mode")
 	embeddingModel := flags.String("embedding-model", "Qwen/Qwen3-Embedding-0.6B", "Embedding model name for export mode")
 	semanticThreshold := flags.Float64("semantic-threshold", 0.65, "Semantic lane threshold")
+	retrievalStrategy := flags.String("retrieval-strategy", recallreplay.RetrievalStrategyAdapter, "Candidate retrieval strategy (adapter or bm25)")
 	candidateLimit := flags.Int("candidate-limit", 16, "Fusion candidate lane limit")
 	dedup := flags.Bool("dedup", false, "Suppress near-duplicate facts during selection")
 	degradeRelated := flags.Bool("degrade-related", false, "Fall back to the note without its related block when over budget")
@@ -54,12 +55,13 @@ func run(args []string, stdout io.Writer) error {
 		return runExport(*stageFixturePath, *dsn, *runID, *scopeID, *arm, *embeddingBaseURL, *embeddingModel,
 			*semanticThreshold, *candidateLimit, *outputPath, stdout)
 	}
-	return runReplay(*replayFixturePath, *semanticThreshold, *candidateLimit, *dedup, *degradeRelated,
+	return runReplay(*replayFixturePath, *retrievalStrategy, *semanticThreshold, *candidateLimit, *dedup, *degradeRelated,
 		*disableRelationUtility, *enableHintRecall, *hintThreshold, *outputDirectory, stdout)
 }
 
 func runReplay(
 	fixturePath string,
+	retrievalStrategy string,
 	threshold float64,
 	limit int,
 	dedup, degradeRelated, disableRelationUtility, enableHintRecall bool,
@@ -75,7 +77,7 @@ func runReplay(
 		return err
 	}
 	report, err := recallreplay.Run(set, recallreplay.Policy{
-		SemanticThreshold: threshold, CandidateLimit: limit,
+		RetrievalStrategy: retrievalStrategy, SemanticThreshold: threshold, CandidateLimit: limit,
 		SuppressDuplicates: dedup, DegradeRelated: degradeRelated,
 		DisableRelationMarginalUtility: disableRelationUtility,
 		EnableHintRecall:               enableHintRecall, HintThreshold: hintThreshold,

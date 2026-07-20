@@ -12,6 +12,8 @@ import (
 	"slices"
 	"strconv"
 	"time"
+
+	"github.com/pax-beehive/pax-nexus/internal/eval/v2/mem0config"
 )
 
 const ArtifactSchemaVersion = "pax-eval-v2.9"
@@ -243,13 +245,15 @@ func buildMem0Reproduction(directory string, run RunRecord, results []TrialResul
 	return map[string]any{
 		"level": run.Config.Mem0ReproductionLevel, "implementation": "self_hosted_mem0",
 		"groupmembench_revision": run.DatasetRevision, "mem0_image": run.Runtime["MEM0_IMAGE"],
-		"ingestion_unit": "native_session_batch", "source_messages_preserved": true, "author_metadata_preserved": true,
+		"ingestion_unit": "native_session_batch", "extraction_profile": mem0config.ExtractionProfile,
+		"source_messages_preserved": true, "author_metadata_preserved": true,
 		"namespace": map[string]string{
 			"user_id": run.Runtime["MEM0_EVAL_USER_ID"], "agent_id": run.Runtime["MEM0_EVAL_AGENT_ID"], "run_scope": "one shared domain run_id",
 		},
 		"retrieval": map[string]any{
 			"max_results": 5, "score_semantics": run.Runtime["MEM0_SCORE_SEMANTICS"], "scope_payload": run.Runtime["MEM0_SEARCH_SCOPE_PAYLOAD"],
 		},
+		"retrieval_observation": summarizeMem0Recall(results),
 		"models": map[string]string{
 			"ingestion": run.Runtime["MEM0_DEFAULT_LLM_MODEL"], "embedding": run.Runtime["MEM0_DEFAULT_EMBEDDER_MODEL"],
 			"answer": run.Runtime["OPENCODE_MODEL"], "judge": run.Runtime["EVAL_V2_JUDGE_MODEL"],
@@ -258,6 +262,36 @@ func buildMem0Reproduction(directory string, run RunRecord, results []TrialResul
 		"published_accuracy_targets": map[string]float64{"aggregate": 0.2573, "knowledge_update": 0.0467},
 		"deviations":                 []string{"official Mem0 runner and per-question artifacts are unavailable", "self-hosted models and paxm retrieval profile are used", "source messages are submitted as one transcript per native session"},
 	}, nil
+}
+
+func summarizeMem0Recall(results []TrialResult) map[string]int {
+	summary := map[string]int{
+		"observed_trials": 0, "successful_trials": 0, "trials_with_hits": 0, "trials_with_context": 0,
+		"provider_calls": 0, "candidates": 0, "eligible": 0, "hits": 0, "context_items": 0,
+	}
+	for _, result := range results {
+		if result.Arm != "groupmembench_mem0" {
+			continue
+		}
+		if result.MemoryRecallObserved {
+			summary["observed_trials"]++
+		}
+		if result.MemoryRecallObserved && result.MemoryRecallSuccess {
+			summary["successful_trials"]++
+		}
+		if result.MemoryRecallHits > 0 {
+			summary["trials_with_hits"]++
+		}
+		if result.MemoryContextItems > 0 {
+			summary["trials_with_context"]++
+		}
+		summary["provider_calls"] += result.MemoryRecallProviderCalls
+		summary["candidates"] += result.MemoryRecallCandidates
+		summary["eligible"] += result.MemoryRecallEligible
+		summary["hits"] += result.MemoryRecallHits
+		summary["context_items"] += result.MemoryContextItems
+	}
+	return summary
 }
 
 func linkOptionalArtifacts(directory string, config Config, files map[string]string) error {

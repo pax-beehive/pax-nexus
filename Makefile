@@ -17,26 +17,34 @@ GOLANGCI_LINT_VERSION := v2.11.3
 COVERAGE_MIN := 75
 OUTPUT_BIN_DIR ?= output/bin
 EXTRACTION_CANDIDATE_STRATEGY ?= current
-EXTRACTION_CANDIDATE_STRATEGIES := current interaction-slim typed-2
+EXTRACTION_CANDIDATE_STRATEGIES := current interaction-slim typed-2 source-span-v1 source-span-v2 claim-card-v1 claim-card-v2
 EXTRACTION_CANDIDATE_LDFLAG := -X $(MODULE)/internal/teamnote/extractor.buildDefaultCandidateStrategy=$(EXTRACTION_CANDIDATE_STRATEGY)
+RECALL_CANDIDATE_STRATEGY ?= passive-v1
+RECALL_CANDIDATE_STRATEGIES := passive-v1 hint-v1-selective
+RECALL_CANDIDATE_LDFLAG := -X $(MODULE)/internal/teamnote.buildDefaultRecallCandidateStrategy=$(RECALL_CANDIDATE_STRATEGY)
 RECALL_EVAL_FIXTURE ?= evals/stage/replay/team-note-optimization-30-c20fdd7-team_note.json
 RECALL_EVAL_OUTPUT ?= runs/recall-eval-v1/current
 RECALL_EVAL_SEMANTIC_THRESHOLD ?= 0.50
 RECALL_EVAL_CANDIDATE_LIMIT ?= 16
 
-.PHONY: all build validate-extraction-candidate-strategy tools generate-init generate mocks fmt format-check lint test test-unit test-scripts coverage integration-test recall-eval-v1 recall-eval-v2 recall-eval-v2-up recall-eval-v2-down docker-eval groupmembench-data groupmembench-eval eval-v2-prepare eval-v2-up eval-v2 eval-v2-smoke-up eval-v2-smoke eval-v2-acceptance-up eval-v2-acceptance eval-v2-down eval-v2-reset eval-v2-job-image eval-v2-job eval-v2-zep-canary eval-v3-prepare eval-v3-up eval-v3 eval-v3-down eval-v3-reset up down logs db-up db-down clean
+.PHONY: all build validate-extraction-candidate-strategy validate-recall-candidate-strategy tools generate-init generate mocks fmt format-check lint test test-unit test-scripts coverage integration-test recall-eval-v1 recall-eval-v2 recall-eval-v2-up recall-eval-v2-down docker-eval groupmembench-data groupmembench-eval eval-v2-prepare eval-v2-up eval-v2 eval-v2-smoke-up eval-v2-smoke eval-v2-acceptance-up eval-v2-acceptance eval-v2-down eval-v2-reset eval-v2-job-image eval-v2-job eval-v2-zep-canary eval-v3-prepare eval-v3-up eval-v3 eval-v3-down eval-v3-reset up down logs db-up db-down clean
 
 all: lint test
 
 validate-extraction-candidate-strategy:
-	@case "$(EXTRACTION_CANDIDATE_STRATEGY)" in current|interaction-slim|typed-2) ;; \
+	@case "$(EXTRACTION_CANDIDATE_STRATEGY)" in current|interaction-slim|typed-2|source-span-v1|source-span-v2|claim-card-v1|claim-card-v2) ;; \
 		*) echo "unsupported EXTRACTION_CANDIDATE_STRATEGY=$(EXTRACTION_CANDIDATE_STRATEGY); expected one of: $(EXTRACTION_CANDIDATE_STRATEGIES)" >&2; exit 2 ;; \
 	esac
 
-build: validate-extraction-candidate-strategy
+validate-recall-candidate-strategy:
+	@case "$(RECALL_CANDIDATE_STRATEGY)" in passive-v1|hint-v1-selective) ;; \
+		*) echo "unsupported RECALL_CANDIDATE_STRATEGY=$(RECALL_CANDIDATE_STRATEGY); expected one of: $(RECALL_CANDIDATE_STRATEGIES)" >&2; exit 2 ;; \
+	esac
+
+build: validate-extraction-candidate-strategy validate-recall-candidate-strategy
 	mkdir -p $(OUTPUT_BIN_DIR)
 	CGO_ENABLED=0 GOCACHE=$${GOCACHE:-/tmp/team-memory-go-cache} go build -trimpath \
-		-ldflags "$(EXTRACTION_CANDIDATE_LDFLAG)" -o $(OUTPUT_BIN_DIR)/hertz_service .
+		-ldflags "$(EXTRACTION_CANDIDATE_LDFLAG) $(RECALL_CANDIDATE_LDFLAG)" -o $(OUTPUT_BIN_DIR)/hertz_service .
 
 tools: $(HZ) $(TOOLS_DIR)/thriftgo $(MOCKGEN) $(GOLANGCI_LINT)
 
@@ -91,6 +99,7 @@ test-unit:
 test-scripts:
 	./scripts/test-eval-v2-job.sh
 	./scripts/test-extraction-candidate-builds.sh
+	./scripts/test-recall-candidate-builds.sh
 	./scripts/test-zep-native-acceptance.sh
 
 integration-test: db-up

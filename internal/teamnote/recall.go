@@ -31,8 +31,16 @@ type RecallPolicy struct {
 	EvidenceThreshold     float64
 	HintSemanticThreshold float64
 	HintThreshold         float64
-	CandidateLimit        int
-	ObservationTime       time.Time
+	// HintMinQueryRelevance avoids activating a focused recall from a generic
+	// semantic neighbor that does not cover enough of the requesting query.
+	// Zero preserves the unfiltered evaluation-only candidate.
+	HintMinQueryRelevance float64
+	// HintMinMarginalUtility requires a navigation lead to provide enough
+	// expected value beyond the passive evidence envelope. Zero preserves the
+	// unfiltered evaluation-only candidate.
+	HintMinMarginalUtility float64
+	CandidateLimit         int
+	ObservationTime        time.Time
 	// EnableHintRecall admits at most one non-evidentiary active-recall lead
 	// after evidence planning. The zero value preserves passive recall.
 	EnableHintRecall bool
@@ -46,6 +54,15 @@ type RecallPolicy struct {
 	// every query-relevant one-hop relation. It exists for fixed-cohort eval
 	// comparison; production zero-value policy keeps marginal utility enabled.
 	DisableRelationMarginalUtility bool
+}
+
+// DefaultRecallPolicy is shared by in-memory and durable NoteStore adapters so
+// the same replay fixture has the same candidate boundary in every runtime.
+func DefaultRecallPolicy() RecallPolicy {
+	return RecallPolicy{
+		SemanticThreshold: 0.50, HintSemanticThreshold: 0.50, CandidateLimit: 16,
+		SuppressDuplicates: true, DegradeRelated: true,
+	}
 }
 
 // duplicateBodySimilarity is the term-set Jaccard overlap above which two
@@ -738,6 +755,9 @@ func sortRecallCandidates(candidates []RecallCandidate, request RecallRequest) {
 		if candidates[left].coordination != candidates[right].coordination {
 			return candidates[left].coordination > candidates[right].coordination
 		}
+		if before, decided := effectiveTimeBefore(candidates[left].Note, candidates[right].Note, request.Query); decided {
+			return before
+		}
 		// Evidence confidence combines query coverage, temporal validity, and
 		// source provenance. Prefer candidates with stronger observable support
 		// before falling back to lexical fit so ranking does not over-select
@@ -745,32 +765,54 @@ func sortRecallCandidates(candidates []RecallCandidate, request RecallRequest) {
 		if evidenceBefore(candidates[left], candidates[right]) {
 			return true
 		}
-		if candidates[left].exactMatch != candidates[right].exactMatch {
-			return candidates[left].exactMatch > candidates[right].exactMatch
-		}
-		if candidates[left].lexicalFit != candidates[right].lexicalFit {
-			return candidates[left].lexicalFit > candidates[right].lexicalFit
-		}
-		if candidates[left].explicitLane != candidates[right].explicitLane {
-			return candidates[left].explicitLane > candidates[right].explicitLane
-		}
-		if candidates[left].routingFit != candidates[right].routingFit {
-			return candidates[left].routingFit > candidates[right].routingFit
-		}
-		if ownSourceRank(candidates[left].Note, request) != ownSourceRank(candidates[right].Note, request) {
-			return ownSourceRank(candidates[left].Note, request) < ownSourceRank(candidates[right].Note, request)
-		}
-		if recallKindPriority(candidates[left].Kind, request.Query) != recallKindPriority(candidates[right].Kind, request.Query) {
-			return recallKindPriority(candidates[left].Kind, request.Query) < recallKindPriority(candidates[right].Kind, request.Query)
-		}
-		if !candidates[left].SourceOccurredAt.Equal(candidates[right].SourceOccurredAt) {
-			return candidates[left].SourceOccurredAt.After(candidates[right].SourceOccurredAt)
-		}
-		if !candidates[left].UpdatedAt.Equal(candidates[right].UpdatedAt) {
-			return candidates[left].UpdatedAt.After(candidates[right].UpdatedAt)
-		}
-		return candidates[left].ID < candidates[right].ID
+		return recallTieBreakBefore(candidates[left], candidates[right], request)
 	})
+}
+
+func recallTieBreakBefore(left, right RecallCandidate, request RecallRequest) bool {
+	if left.exactMatch != right.exactMatch {
+		return left.exactMatch > right.exactMatch
+	}
+	if left.lexicalFit != right.lexicalFit {
+		return left.lexicalFit > right.lexicalFit
+	}
+	if left.explicitLane != right.explicitLane {
+		return left.explicitLane > right.explicitLane
+	}
+	if left.routingFit != right.routingFit {
+		return left.routingFit > right.routingFit
+	}
+	if ownSourceRank(left.Note, request) != ownSourceRank(right.Note, request) {
+		return ownSourceRank(left.Note, request) < ownSourceRank(right.Note, request)
+	}
+	if recallKindPriority(left.Kind, request.Query) != recallKindPriority(right.Kind, request.Query) {
+		return recallKindPriority(left.Kind, request.Query) < recallKindPriority(right.Kind, request.Query)
+	}
+	if !left.SourceOccurredAt.Equal(right.SourceOccurredAt) {
+		return left.SourceOccurredAt.After(right.SourceOccurredAt)
+	}
+	if !left.UpdatedAt.Equal(right.UpdatedAt) {
+		return left.UpdatedAt.After(right.UpdatedAt)
+	}
+	return left.ID < right.ID
+}
+
+func recallEffectiveTime(note Note) time.Time {
+	if note.ValidAt != nil {
+		return *note.ValidAt
+	}
+	return note.SourceOccurredAt
+}
+
+func effectiveTimeBefore(left, right Note, query string) (bool, bool) {
+	if !queryRequestsCurrentState(query) {
+		return false, false
+	}
+	leftEffective, rightEffective := recallEffectiveTime(left), recallEffectiveTime(right)
+	if leftEffective.Equal(rightEffective) {
+		return false, false
+	}
+	return leftEffective.After(rightEffective), true
 }
 
 func evidenceBefore(left, right RecallCandidate) bool {

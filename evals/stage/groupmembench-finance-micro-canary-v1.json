@@ -64,6 +64,33 @@
           ]
         }
       ]
+    },
+    {
+      "case_id": "abstention_4",
+      "category": "abstention",
+      "source_revision": "a65607cf9396e827c1f237917c7a3061862aa72ba93cdaceab71c65363fdf360",
+      "recall_context": {
+        "consumer_user_id": "User_6",
+        "consumer_agent_id": "groupmembench-User_13",
+        "query": "Who is the designated exception log owner for the ESG data provider reliability control?",
+        "token_budget": 500,
+        "max_items": 5
+      },
+      "required_atoms": [],
+      "forbidden_atoms": [
+        {
+          "id": "unsupported_compliance_owner",
+          "patterns": [
+            "(?i)compliance.{0,100}(designated|owner)|designated.{0,100}owner.{0,100}compliance"
+          ],
+          "supporting_event_ids": [
+            "Msg_16876"
+          ]
+        }
+      ],
+      "forbidden_event_ids": [
+        "Msg_16876"
+      ]
     }
   ]
 }

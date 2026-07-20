@@ -49,17 +49,19 @@ seed_recall_domain() {
   annotations="${PAX_EVAL_CASE_ANNOTATIONS:?PAX_EVAL_CASE_ANNOTATIONS is required}"
   manifest_directory="$(cd "$(dirname "${manifest}")" && pwd -P)"
   annotations_directory="$(cd "$(dirname "${annotations}")" && pwd -P)"
-  scope_id="${run_id}-$(jq -r '.cases[0].scope_id' "${manifest}")"
-  docker compose -p "${project_name}" -f "${compose_file}" run --rm --no-deps \
-    --entrypoint /usr/local/bin/recall-eval-v2-seed \
+	scope_id="${run_id}-$(jq -r '.cases[0].scope_id' "${manifest}")"
+	docker compose -p "${project_name}" -f "${compose_file}" run --rm --no-deps \
+		--entrypoint /usr/local/bin/recall-eval-v2-seed \
     --volume "${manifest_directory}:/manifest:ro" \
     --volume "${annotations_directory}:/annotations:ro" \
     opencode \
     -dsn postgres://team_memory:team_memory@postgres:5432/team_memory?sslmode=disable \
     -scope "${scope_id}" \
     -manifest "/manifest/$(basename "${manifest}")" \
-    -annotations "/annotations/$(basename "${annotations}")" \
-    -answerer-seed pax-recall-eval-v2-answerer-1
+		-annotations "/annotations/$(basename "${annotations}")" \
+		-answerer-seed pax-recall-eval-v2-answerer-1 \
+		-diagnostic "${PAX_EVAL_RECALL_DIAGNOSTIC:-false}" \
+		-diagnostic-cases "${PAX_EVAL_RECALL_DIAGNOSTIC_CASES:-10}"
   start_hint_recall_service
 }
 
@@ -90,7 +92,9 @@ start_hint_recall_service() {
   if [ "${PAX_EVAL_HINT_RECALL:-0}" != "1" ]; then
     return
   fi
-  docker compose -p "${project_name}" -f "${compose_file}" --profile hint-recall up -d team-memory-hint
+  # Recreate this service for every seed so its run-scoped authorization map
+  # cannot be inherited from a previous evaluation.
+  docker compose -p "${project_name}" -f "${compose_file}" --profile hint-recall up -d --force-recreate team-memory-hint
   attempts=0
   while [ "${attempts}" -lt 30 ]; do
     if docker compose -p "${project_name}" -f "${compose_file}" exec -T qwen-embedding \
@@ -251,6 +255,7 @@ ${PAX_EVAL_QUESTION}"
     -e PAXM_WRITE_ENABLED=0 \
     -e PAXM_EVAL_CONSUMER_POLICY=1 \
 	-e PAXM_EVAL_RECALL_MODE="${recall_mode}" \
+	-e PAXM_ACTIVE_RECALL_MAX_CALLS="${PAXM_ACTIVE_RECALL_MAX_CALLS:-1}" \
     -e PAXM_PASSIVE_MIN_RELEVANCE="${PAXM_PASSIVE_MIN_RELEVANCE}" \
     -e PAXM_PASSIVE_MIN_SCORE="${PAXM_PASSIVE_MIN_SCORE}" \
     -e PAXM_PASSIVE_PROVIDER_TIMEOUT="${PAXM_PASSIVE_PROVIDER_TIMEOUT}" \

@@ -155,9 +155,24 @@ func BuildReport(runID, arm, extractorVersion string, fixtures stageeval.Fixture
 func noteItems(notes []teamnote.Note) []stageeval.Item {
 	items := make([]stageeval.Item, 0, len(notes))
 	for _, note := range notes {
-		items = append(items, stageeval.Item{ID: note.ID, Text: note.Body, EvidenceEventIDs: note.EvidenceEventIDs})
+		items = append(items, stageeval.Item{ID: note.ID, Text: noteText(note), EvidenceEventIDs: note.EvidenceEventIDs})
 	}
 	return items
+}
+
+// noteText renders one note for pattern scoring. Facts the extractor placed
+// in the structured temporal window (for example a deadline resolved into
+// valid_at) are part of the captured state a recall consumer reads, so they
+// are appended to the body text.
+func noteText(note teamnote.Note) string {
+	text := note.Body
+	if note.ValidAt != nil {
+		text += " [valid_at: " + note.ValidAt.Format("2006-01-02") + "]"
+	}
+	if note.InvalidAt != nil {
+		text += " [invalid_at: " + note.InvalidAt.Format("2006-01-02") + "]"
+	}
+	return text
 }
 
 func totalDurationMS(slices []SliceRecord) int64 {

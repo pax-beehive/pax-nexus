@@ -17,7 +17,9 @@ import (
 
 type storeSuite struct {
 	suite.Suite
-	store *postgres.Store
+	store    *postgres.Store
+	sessions *postgres.SessionRepository
+	episodes *postgres.EpisodeStore
 }
 
 func TestStoreSuite(t *testing.T) {
@@ -30,6 +32,8 @@ func (s *storeSuite) SetupSuite() {
 	s.Require().NoError(err)
 	s.Require().NoError(store.Migrate(context.Background()))
 	s.store = store
+	s.sessions = store.Sessions()
+	s.episodes = store.Episodes()
 }
 
 func testDSN(t *testing.T) string {
@@ -55,27 +59,27 @@ func (s *storeSuite) TestAppendReplayAndOrderedRead() {
 		event("event-1", actor, 1),
 	}}
 
-	receipt, err := s.store.AppendSession(context.Background(), scopeID, batch)
+	receipt, err := s.sessions.AppendSession(context.Background(), scopeID, batch)
 	s.Require().NoError(err)
 	s.Equal(2, receipt.Accepted)
 	s.Equal(0, receipt.Duplicate)
 	s.Equal(int64(2), receipt.Cursor)
 
-	replayed, err := s.store.AppendSession(context.Background(), scopeID, batch)
+	replayed, err := s.sessions.AppendSession(context.Background(), scopeID, batch)
 	s.Require().NoError(err)
 	s.Equal(0, replayed.Accepted)
 	s.Equal(2, replayed.Duplicate)
 
-	events, err := s.store.SessionEvents(context.Background(), scopeID, actor, 0, 10)
+	events, err := s.sessions.SessionEvents(context.Background(), scopeID, actor, 0, 10)
 	s.Require().NoError(err)
 	s.Require().Len(events, 2)
 	s.Equal("event-1", events[0].ID)
 	s.Equal("event-2", events[1].ID)
 	s.Equal("value", events[0].Metadata["key"])
-	head, err := s.store.SessionLatestSequence(context.Background(), scopeID, actor)
+	head, err := s.sessions.SessionLatestSequence(context.Background(), scopeID, actor)
 	s.Require().NoError(err)
 	s.Equal(int64(2), head)
-	overlap, err := s.store.SessionEventsBefore(context.Background(), scopeID, actor, 2, 1)
+	overlap, err := s.sessions.SessionEventsBefore(context.Background(), scopeID, actor, 2, 1)
 	s.Require().NoError(err)
 	s.Require().Len(overlap, 1)
 	s.Equal("event-2", overlap[0].ID)
@@ -90,9 +94,9 @@ func (s *storeSuite) TestExtractionEpisodePersistsAndRejectsStaleVersion() {
 		Runs:       map[string]extractor.EpisodeRun{"checksum": {Response: `{"candidates":[]}`, Ordinal: 2}},
 		Checkpoint: extractor.Checkpoint{SourceCursors: map[string]int64{"owner/agent/session": 2}},
 	}
-	s.Require().NoError(s.store.SaveEpisode(context.Background(), episode, 0))
+	s.Require().NoError(s.episodes.SaveEpisode(context.Background(), episode, 0))
 
-	loaded, ok, err := s.store.LoadEpisode(context.Background(), key)
+	loaded, ok, err := s.episodes.LoadEpisode(context.Background(), key)
 	s.Require().NoError(err)
 	s.True(ok)
 	s.Equal(int64(1), loaded.Version)
@@ -102,8 +106,8 @@ func (s *storeSuite) TestExtractionEpisodePersistsAndRejectsStaleVersion() {
 	s.JSONEq(`{"candidates":[]}`, loaded.Runs["checksum"].Response)
 
 	loaded.EventCount = 3
-	s.Require().NoError(s.store.SaveEpisode(context.Background(), loaded, loaded.Version))
-	s.ErrorIs(s.store.SaveEpisode(context.Background(), loaded, loaded.Version), extractor.ErrEpisodeConflict)
+	s.Require().NoError(s.episodes.SaveEpisode(context.Background(), loaded, loaded.Version))
+	s.ErrorIs(s.episodes.SaveEpisode(context.Background(), loaded, loaded.Version), extractor.ErrEpisodeConflict)
 }
 
 func (s *storeSuite) TestRejectsInvalidBatches() {
@@ -126,7 +130,7 @@ func (s *storeSuite) TestRejectsInvalidBatches() {
 
 	for _, test := range tests {
 		s.Run(test.name, func() {
-			_, err := s.store.AppendSession(context.Background(), test.scope, test.batch)
+			_, err := s.sessions.AppendSession(context.Background(), test.scope, test.batch)
 			s.ErrorIs(err, postgres.ErrInvalidSessionBatch)
 		})
 	}
@@ -135,18 +139,18 @@ func (s *storeSuite) TestRejectsInvalidBatches() {
 func (s *storeSuite) TestSequenceCollisionFailsWithoutPartialWrite() {
 	scopeID := uniqueScope("collision")
 	actor := teamnote.Actor{UserID: "owner", AgentID: "producer", SessionID: "session-1"}
-	_, err := s.store.AppendSession(context.Background(), scopeID, teamnote.SessionBatch{
+	_, err := s.sessions.AppendSession(context.Background(), scopeID, teamnote.SessionBatch{
 		Events: []teamnote.SessionEvent{event("first", actor, 1)},
 	})
 	s.Require().NoError(err)
 
-	_, err = s.store.AppendSession(context.Background(), scopeID, teamnote.SessionBatch{
+	_, err = s.sessions.AppendSession(context.Background(), scopeID, teamnote.SessionBatch{
 		Events: []teamnote.SessionEvent{event("different", actor, 1)},
 	})
 	s.Require().Error(err)
 	s.Require().NotErrorIs(err, postgres.ErrInvalidSessionBatch)
 
-	events, readErr := s.store.SessionEvents(context.Background(), scopeID, actor, 0, 10)
+	events, readErr := s.sessions.SessionEvents(context.Background(), scopeID, actor, 0, 10)
 	s.Require().NoError(readErr)
 	s.Require().Len(events, 1)
 	s.Equal("first", events[0].ID)
@@ -156,42 +160,42 @@ func (s *storeSuite) TestExtractionCursorLifecycle() {
 	ctx := context.Background()
 	scopeID := uniqueScope("cursor")
 	actor := teamnote.Actor{UserID: "owner", AgentID: "producer", SessionID: "cursor-session"}
-	cursor, err := s.store.ExtractionCursor(ctx, scopeID, actor)
+	cursor, err := s.sessions.ExtractionCursor(ctx, scopeID, actor)
 	s.Require().NoError(err)
 	s.Zero(cursor)
 
-	_, err = s.store.AppendSession(ctx, scopeID, teamnote.SessionBatch{Events: []teamnote.SessionEvent{
+	_, err = s.sessions.AppendSession(ctx, scopeID, teamnote.SessionBatch{Events: []teamnote.SessionEvent{
 		event("cursor-event-1", actor, 1), event("cursor-event-2", actor, 2),
 	}})
 	s.Require().NoError(err)
-	events, err := s.store.SessionEvents(ctx, scopeID, actor, 0, 10)
+	events, err := s.sessions.SessionEvents(ctx, scopeID, actor, 0, 10)
 	s.Require().NoError(err)
 	s.Require().Len(events, 2)
 	for _, current := range events {
 		s.False(current.CapturedAt.IsZero())
 		s.Nil(current.ExtractedAt)
 	}
-	s.Require().NoError(s.store.AdvanceExtractionCursor(ctx, scopeID, actor, 1))
-	cursor, err = s.store.ExtractionCursor(ctx, scopeID, actor)
+	s.Require().NoError(s.sessions.AdvanceExtractionCursor(ctx, scopeID, actor, 1))
+	cursor, err = s.sessions.ExtractionCursor(ctx, scopeID, actor)
 	s.Require().NoError(err)
 	s.Equal(int64(1), cursor)
-	events, err = s.store.SessionEvents(ctx, scopeID, actor, 0, 10)
+	events, err = s.sessions.SessionEvents(ctx, scopeID, actor, 0, 10)
 	s.Require().NoError(err)
 	s.Require().Len(events, 2)
 	s.NotNil(events[0].ExtractedAt)
 	s.Nil(events[1].ExtractedAt)
 
-	s.Require().NoError(s.store.AdvanceExtractionCursor(ctx, scopeID, actor, 2))
-	cursor, err = s.store.ExtractionCursor(ctx, scopeID, actor)
+	s.Require().NoError(s.sessions.AdvanceExtractionCursor(ctx, scopeID, actor, 2))
+	cursor, err = s.sessions.ExtractionCursor(ctx, scopeID, actor)
 	s.Require().NoError(err)
 	s.Equal(int64(2), cursor)
-	events, err = s.store.SessionEvents(ctx, scopeID, actor, 0, 10)
+	events, err = s.sessions.SessionEvents(ctx, scopeID, actor, 0, 10)
 	s.Require().NoError(err)
 	s.Require().Len(events, 2)
 	s.NotNil(events[0].ExtractedAt)
 	s.NotNil(events[1].ExtractedAt)
 
-	err = s.store.AdvanceExtractionCursor(ctx, scopeID, actor, 3)
+	err = s.sessions.AdvanceExtractionCursor(ctx, scopeID, actor, 3)
 	s.ErrorIs(err, postgres.ErrInvalidSessionBatch)
 }
 
@@ -200,12 +204,13 @@ func (s *storeSuite) TestCompleteBatchEnqueuesExtractionInSameOperation() {
 	s.Require().NoError(err)
 	defer store.Close()
 	enqueuer := &recordingEnqueuer{jobID: "river-42"}
-	s.Require().NoError(store.ConfigureExtractionEnqueuer(enqueuer))
-	s.Require().Error(store.ConfigureExtractionEnqueuer(enqueuer))
+	sessions := store.Sessions()
+	s.Require().NoError(sessions.ConfigureExtractionEnqueuer(enqueuer))
+	s.Require().Error(sessions.ConfigureExtractionEnqueuer(enqueuer))
 
 	scopeID := uniqueScope("enqueue")
 	actor := teamnote.Actor{UserID: "owner", AgentID: "producer", SessionID: "session"}
-	receipt, err := store.AppendSession(context.Background(), scopeID, teamnote.SessionBatch{
+	receipt, err := sessions.AppendSession(context.Background(), scopeID, teamnote.SessionBatch{
 		Complete: true, Events: []teamnote.SessionEvent{event("enqueue-event", actor, 1)},
 	})
 	s.Require().NoError(err)
@@ -216,7 +221,7 @@ func (s *storeSuite) TestCompleteBatchEnqueuesExtractionInSameOperation() {
 	s.True(enqueuer.complete)
 	s.Equal(1, enqueuer.calls)
 
-	incompleteReceipt, err := store.AppendSession(context.Background(), scopeID, teamnote.SessionBatch{
+	incompleteReceipt, err := sessions.AppendSession(context.Background(), scopeID, teamnote.SessionBatch{
 		Events: []teamnote.SessionEvent{event("incomplete-event", actor, 2)},
 	})
 	s.Require().NoError(err)
@@ -231,15 +236,16 @@ func (s *storeSuite) TestEnqueueFailureRollsBackEvents() {
 	s.Require().NoError(err)
 	defer store.Close()
 	expected := errors.New("queue unavailable")
-	s.Require().NoError(store.ConfigureExtractionEnqueuer(&recordingEnqueuer{err: expected}))
+	sessions := store.Sessions()
+	s.Require().NoError(sessions.ConfigureExtractionEnqueuer(&recordingEnqueuer{err: expected}))
 
 	scopeID := uniqueScope("enqueue-rollback")
 	actor := teamnote.Actor{UserID: "owner", AgentID: "producer", SessionID: "session"}
-	_, err = store.AppendSession(context.Background(), scopeID, teamnote.SessionBatch{
+	_, err = sessions.AppendSession(context.Background(), scopeID, teamnote.SessionBatch{
 		Complete: true, Events: []teamnote.SessionEvent{event("rollback-event", actor, 1)},
 	})
 	s.Require().ErrorIs(err, expected)
-	events, readErr := store.SessionEvents(context.Background(), scopeID, actor, 0, 10)
+	events, readErr := sessions.SessionEvents(context.Background(), scopeID, actor, 0, 10)
 	s.Require().NoError(readErr)
 	s.Empty(events)
 }

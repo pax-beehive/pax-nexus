@@ -47,5 +47,7 @@ output directory. The latter records a scored or unscored disposition for each
 Agent Trial rather than converting missing recall evidence into answer failure.
 
 The Hint candidate is evaluation-only and defaults off in production. The
-dedicated Eval service enables it with `TEAM_MEMORY_HINT_RECALL_ENABLED=true`;
-the ordinary `team_note` Arm continues using the passive production default.
+dedicated Eval service builds `hint-v1-selective`; the ordinary `team_note` Arm
+builds `passive-v1`. `hint-v1-selective` contains the same passive evidence
+path and allows at most one focused active recall after its selectivity gates
+pass.

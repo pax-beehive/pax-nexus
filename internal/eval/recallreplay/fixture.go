@@ -49,6 +49,7 @@ type Provenance struct {
 
 // Policy is the recall policy captured at export time.
 type Policy struct {
+	RetrievalStrategy              string  `json:"retrieval_strategy,omitempty"`
 	SemanticThreshold              float64 `json:"semantic_threshold"`
 	HintThreshold                  float64 `json:"hint_threshold,omitempty"`
 	CandidateLimit                 int     `json:"candidate_limit"`
@@ -57,6 +58,11 @@ type Policy struct {
 	DegradeRelated                 bool    `json:"degrade_related,omitempty"`
 	DisableRelationMarginalUtility bool    `json:"disable_relation_marginal_utility,omitempty"`
 }
+
+const (
+	RetrievalStrategyAdapter = "adapter"
+	RetrievalStrategyBM25    = "bm25"
+)
 
 // Actor identifies one recall recipient.
 type Actor struct {

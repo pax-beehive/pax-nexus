@@ -21,7 +21,7 @@ set -eu
 : "${PAXM_BINARY:=/usr/local/bin/paxm}"
 : "${PAXM_EVAL_CONSUMER_POLICY:=0}"
 : "${PAXM_EVAL_RECALL_MODE:=passive}"
-: "${PAXM_ACTIVE_RECALL_MAX_CALLS:=2}"
+: "${PAXM_ACTIVE_RECALL_MAX_CALLS:=1}"
 
 if [ "${PAXM_PASSIVE_MIN_RELEVANCE}" = "0" ] && [ "${PAXM_PASSIVE_MIN_SCORE}" = "0" ]; then
   echo "passive recall thresholds cannot both be 0 because paxm normalizes the zero-value profile to its defaults; use -1 to preserve raw top-k" >&2
@@ -221,8 +221,9 @@ contain the answer, state directly that the information is unavailable."
 	  mkdir -p "${opencode_config}/tools"
 	  cp "${PAXM_ACTIVE_RECALL_TOOL_SOURCE}" "${opencode_config}/tools/active_recall.ts"
 	  recall_policy="Treat [Recall hint - not evidence] as a navigation instruction, never as factual evidence.
-Call active_recall with the hint's exact focused query when and only when such a hint is present,
-using at most ${PAXM_ACTIVE_RECALL_MAX_CALLS} calls. The consumer workspace intentionally contains no source
+When a hint is present, the first active_recall call must use the hint's exact focused query; do not first
+call active_recall with the original question. Use at most ${PAXM_ACTIVE_RECALL_MAX_CALLS} focused call.
+The consumer workspace intentionally contains no source
 messages. Do not search, inspect, or mention the workspace, and do not use any other tool. Answer only from
 evidence returned by passive or active recall; otherwise state that the information is unavailable."
 	  ;;

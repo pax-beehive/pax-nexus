@@ -3,6 +3,7 @@ package extractor_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -582,6 +583,252 @@ func (s *openAISuite) TestWaitForBackgroundPersistsSummaryWithoutAnotherSlice() 
 	s.Equal("Release remains planned.", episode.Checkpoint.Summary)
 }
 
+func (s *openAISuite) TestCloseWaitsForSummaryAndRejectsNewExtraction() {
+	store := newMemoryEpisodeStore()
+	summaryStarted := make(chan struct{})
+	releaseSummary := make(chan struct{})
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		body, err := io.ReadAll(request.Body)
+		s.Require().NoError(err)
+		if strings.Contains(string(body), "Update the rolling continuity summary") {
+			close(summaryStarted)
+			<-releaseSummary
+			content := `{"summary":"Release remains planned."}`
+			return response(http.StatusOK, fmt.Sprintf(`{"choices":[{"message":{"content":%q}}]}`, content)), nil
+		}
+		content := `{"candidates":[{"action":"create","kind":"status","subject":"release","body":"Release state.","evidence_event_ids":["event-1"]}]}`
+		return response(http.StatusOK, fmt.Sprintf(`{"choices":[{"message":{"content":%q}}]}`, content)), nil
+	})}
+	adapter, err := extractor.NewOpenAI(extractor.OpenAIConfig{
+		BaseURL: "http://extractor.test", Model: "model", Client: client,
+		ContextMode: extractor.ContextModeRolling, EpisodeStore: store,
+		SummaryEnabled: true, SummaryTriggerTokens: 1, SummaryTailTokens: 1,
+	})
+	s.Require().NoError(err)
+	ctx := teamnote.WithScope(context.Background(), "scope-close-summary")
+	_, err = adapter.Extract(ctx, extractionEventSlice("event-1", "checksum-1", 1))
+	s.Require().NoError(err)
+	select {
+	case <-summaryStarted:
+	case <-time.After(time.Second):
+		s.FailNow("periodic summary did not start")
+	}
+
+	closed := make(chan error, 1)
+	go func() { closed <- adapter.Close(context.Background()) }()
+	select {
+	case <-closed:
+		s.FailNow("close returned before the periodic summary completed")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(releaseSummary)
+	s.Require().NoError(<-closed)
+
+	_, err = adapter.Extract(ctx, extractionEventSlice("event-2", "checksum-2", 2))
+	s.Require().ErrorIs(err, extractor.ErrClosed)
+	episode, ok, err := store.LoadEpisode(ctx, extractor.EpisodeKey{ScopeID: "scope-close-summary", TaskRef: "release-42"})
+	s.Require().NoError(err)
+	s.True(ok)
+	s.Equal("Release remains planned.", episode.Checkpoint.Summary)
+}
+
+func (s *openAISuite) TestCloseCancelsOwnedSummaryCall() {
+	store := newMemoryEpisodeStore()
+	summaryStarted := make(chan struct{})
+	summaryStopped := make(chan struct{})
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		body, err := io.ReadAll(request.Body)
+		s.Require().NoError(err)
+		if strings.Contains(string(body), "Update the rolling continuity summary") {
+			close(summaryStarted)
+			<-request.Context().Done()
+			close(summaryStopped)
+			return nil, request.Context().Err()
+		}
+		content := `{"candidates":[{"action":"create","kind":"status","subject":"release","body":"Release state.","evidence_event_ids":["event-1"]}]}`
+		return response(http.StatusOK, fmt.Sprintf(`{"choices":[{"message":{"content":%q}}]}`, content)), nil
+	})}
+	adapter, err := extractor.NewOpenAI(extractor.OpenAIConfig{
+		BaseURL: "http://extractor.test", Model: "model", Client: client,
+		ContextMode: extractor.ContextModeRolling, EpisodeStore: store,
+		SummaryEnabled: true, SummaryTriggerTokens: 1, SummaryTailTokens: 1,
+	})
+	s.Require().NoError(err)
+	ctx := teamnote.WithScope(context.Background(), "scope-close-cancel")
+	_, err = adapter.Extract(ctx, extractionEventSlice("event-1", "checksum-1", 1))
+	s.Require().NoError(err)
+	<-summaryStarted
+
+	err = adapter.Close(context.Background())
+
+	s.Require().NoError(err)
+	select {
+	case <-summaryStopped:
+	case <-time.After(time.Second):
+		s.FailNow("owned summary call was not canceled")
+	}
+}
+
+func (s *openAISuite) TestEpisodeConflictReloadsAndReplaysCommittedRun() {
+	base := newMemoryEpisodeStore()
+	store := &conflictOnceEpisodeStore{memoryEpisodeStore: base}
+	var calls atomic.Int32
+	client := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		calls.Add(1)
+		content := `{"candidates":[{"action":"create","kind":"status","subject":"release","body":"Release state.","evidence_event_ids":["event-1"]}]}`
+		return response(http.StatusOK, fmt.Sprintf(`{"choices":[{"message":{"content":%q}}]}`, content)), nil
+	})}
+	adapter, err := extractor.NewOpenAI(extractor.OpenAIConfig{
+		BaseURL: "http://extractor.test", Model: "model", Client: client,
+		ContextMode: extractor.ContextModeRolling, EpisodeStore: store,
+	})
+	s.Require().NoError(err)
+	ctx := teamnote.WithScope(context.Background(), "scope-conflict-replay")
+
+	result, err := adapter.Extract(ctx, extractionEventSlice("event-1", "checksum-1", 1))
+
+	s.Require().NoError(err)
+	s.Require().Len(result.Candidates, 1)
+	s.Equal(int32(1), calls.Load(), "retry should replay the run committed by the competing writer")
+}
+
+func (s *openAISuite) TestCloseLinearizesWithConcurrentExtraction() {
+	primaryStarted := make(chan struct{})
+	releasePrimary := make(chan struct{})
+	var firstCall atomic.Bool
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if firstCall.CompareAndSwap(false, true) {
+			close(primaryStarted)
+			<-releasePrimary
+		}
+		content := `{"candidates":[{"action":"create","kind":"status","subject":"release","body":"Release state.","evidence_event_ids":["event-1"]}]}`
+		return response(http.StatusOK, fmt.Sprintf(`{"choices":[{"message":{"content":%q}}]}`, content)), nil
+	})}
+	adapter, err := extractor.NewOpenAI(extractor.OpenAIConfig{
+		BaseURL: "http://extractor.test", Model: "model", Client: client,
+	})
+	s.Require().NoError(err)
+
+	extracted := make(chan error, 1)
+	go func() {
+		_, extractErr := adapter.Extract(context.Background(), extractorSlice())
+		extracted <- extractErr
+	}()
+	select {
+	case <-primaryStarted:
+	case <-time.After(time.Second):
+		s.FailNow("primary extraction did not start")
+	}
+	closed := make(chan error, 1)
+	go func() { closed <- adapter.Close(context.Background()) }()
+
+	s.Eventually(func() bool {
+		_, extractErr := adapter.Extract(context.Background(), extractorSlice())
+		return errors.Is(extractErr, extractor.ErrClosed)
+	}, time.Second, time.Millisecond)
+	select {
+	case <-closed:
+		s.FailNow("close returned before the active extraction completed")
+	default:
+	}
+	close(releasePrimary)
+	s.Require().NoError(<-extracted)
+	s.Require().NoError(<-closed)
+}
+
+func (s *openAISuite) TestWaitForBackgroundPropagatesProviderError() {
+	backgroundErr := errors.New("background provider failed")
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		body, err := io.ReadAll(request.Body)
+		s.Require().NoError(err)
+		if strings.Contains(string(body), "KNOWLEDGE CONTEXT CHECKPOINT COMPACTION") {
+			return nil, backgroundErr
+		}
+		content := `{"candidates":[{"action":"create","kind":"status","subject":"release","body":"Release state.","evidence_event_ids":["event-1"]}]}`
+		return response(http.StatusOK, fmt.Sprintf(`{"choices":[{"message":{"content":%q}}],"usage":{"prompt_tokens":100}}`, content)), nil
+	})}
+	adapter, err := extractor.NewOpenAI(extractor.OpenAIConfig{
+		BaseURL: "http://extractor.test", Model: "model", Client: client,
+		ContextMode: extractor.ContextModeRolling, EpisodeStore: newMemoryEpisodeStore(),
+		CompactionEnabled: true, CompactStartTokens: 1, CompactTokens: 1000,
+	})
+	s.Require().NoError(err)
+	ctx := teamnote.WithScope(context.Background(), "scope-background-error")
+	_, err = adapter.Extract(ctx, extractionEventSlice("event-1", "checksum-1", 1))
+	s.Require().NoError(err)
+
+	s.ErrorIs(adapter.WaitForBackground(ctx), backgroundErr)
+}
+
+func (s *openAISuite) TestWaitForBackgroundIncludesWorkStartedByConcurrentExtraction() {
+	primaryStarted := make(chan struct{})
+	releasePrimary := make(chan struct{})
+	summaryStarted := make(chan struct{})
+	releaseSummary := make(chan struct{})
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		body, err := io.ReadAll(request.Body)
+		s.Require().NoError(err)
+		switch {
+		case strings.Contains(string(body), "Update the rolling continuity summary"):
+			close(summaryStarted)
+			<-releaseSummary
+			content := `{"summary":"Release remains planned."}`
+			return response(http.StatusOK, fmt.Sprintf(`{"choices":[{"message":{"content":%q}}]}`, content)), nil
+		default:
+			close(primaryStarted)
+			<-releasePrimary
+			content := `{"candidates":[{"action":"create","kind":"status","subject":"release","body":"Release state.","evidence_event_ids":["event-1"]}]}`
+			return response(http.StatusOK, fmt.Sprintf(`{"choices":[{"message":{"content":%q}}]}`, content)), nil
+		}
+	})}
+	adapter, err := extractor.NewOpenAI(extractor.OpenAIConfig{
+		BaseURL: "http://extractor.test", Model: "model", Client: client,
+		ContextMode: extractor.ContextModeRolling, EpisodeStore: newMemoryEpisodeStore(),
+		SummaryEnabled: true, SummaryTriggerTokens: 1, SummaryTailTokens: 1,
+	})
+	s.Require().NoError(err)
+	ctx := teamnote.WithScope(context.Background(), "scope-wait-race")
+	extracted := make(chan error, 1)
+	go func() {
+		_, extractErr := adapter.Extract(ctx, extractionEventSlice("event-1", "checksum-1", 1))
+		extracted <- extractErr
+	}()
+	<-primaryStarted
+	waited := make(chan error, 1)
+	go func() { waited <- adapter.WaitForBackground(context.Background()) }()
+	close(releasePrimary)
+	s.Require().NoError(<-extracted)
+	<-summaryStarted
+	select {
+	case <-waited:
+		s.FailNow("background wait missed work started by the active extraction")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(releaseSummary)
+	s.Require().NoError(<-waited)
+}
+
+func (s *openAISuite) TestEpisodeLocksAreReclaimedAfterUse() {
+	client := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		content := `{"candidates":[{"action":"create","kind":"status","subject":"release","body":"Release state.","evidence_event_ids":["event-1"]}]}`
+		return response(http.StatusOK, fmt.Sprintf(`{"choices":[{"message":{"content":%q}}]}`, content)), nil
+	})}
+	adapter, err := extractor.NewOpenAI(extractor.OpenAIConfig{
+		BaseURL: "http://extractor.test", Model: "model", Client: client,
+		ContextMode: extractor.ContextModeRolling, EpisodeStore: newMemoryEpisodeStore(),
+	})
+	s.Require().NoError(err)
+	for index := 0; index < 50; index++ {
+		ctx := teamnote.WithScope(context.Background(), fmt.Sprintf("scope-lock-%d", index))
+		_, err = adapter.Extract(ctx, extractionEventSlice("event-1", fmt.Sprintf("checksum-%d", index), 1))
+		s.Require().NoError(err)
+	}
+
+	status := adapter.LifecycleStatus()
+	s.Zero(status.ActiveExtractions)
+	s.Zero(status.ActiveEpisodes)
+}
+
 func (s *openAISuite) TestRollingSummaryFailureDoesNotBlockExtraction() {
 	store := newMemoryEpisodeStore()
 	summaryReturned := make(chan struct{})
@@ -708,6 +955,22 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 type memoryEpisodeStore struct {
 	episodes map[extractor.EpisodeKey]extractor.Episode
+}
+
+type conflictOnceEpisodeStore struct {
+	*memoryEpisodeStore
+	conflicted bool
+}
+
+func (s *conflictOnceEpisodeStore) SaveEpisode(ctx context.Context, episode extractor.Episode, expectedVersion int64) error {
+	if !s.conflicted {
+		s.conflicted = true
+		if err := s.memoryEpisodeStore.SaveEpisode(ctx, episode, expectedVersion); err != nil {
+			return err
+		}
+		return extractor.ErrEpisodeConflict
+	}
+	return s.memoryEpisodeStore.SaveEpisode(ctx, episode, expectedVersion)
 }
 
 func newMemoryEpisodeStore() *memoryEpisodeStore {

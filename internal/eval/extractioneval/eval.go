@@ -55,13 +55,14 @@ func PlanDomains(sourceRunID, scopeSuffix string, cases []extractionshadow.Manif
 // ExtractionSummary contains only extraction-stage cohort metrics. Recall
 // metrics are intentionally absent from this protocol.
 type ExtractionSummary struct {
-	Cases         int     `json:"cases"`
-	RequiredAtoms int     `json:"required_atoms"`
-	ScoredAtoms   int     `json:"scored_atoms"`
-	MatchedAtoms  int     `json:"matched_atoms"`
-	FactRecall    float64 `json:"fact_recall"`
-	Errors        int     `json:"errors"`
-	LeakageItems  int     `json:"leakage_items"`
+	Cases                  int     `json:"cases"`
+	RequiredAtoms          int     `json:"required_atoms"`
+	ScoredAtoms            int     `json:"scored_atoms"`
+	MatchedAtoms           int     `json:"matched_atoms"`
+	FactRecall             float64 `json:"fact_recall"`
+	Errors                 int     `json:"errors"`
+	LeakageItems           int     `json:"leakage_items"`
+	SuppressedLeakageItems int     `json:"suppressed_leakage_items"`
 }
 
 // CaseReport is one question-specific atom score over a shared domain output.
@@ -151,7 +152,8 @@ func BuildReport(
 			Cases: shadowReport.Stage.Cases, RequiredAtoms: shadowReport.Stage.RequiredAtoms,
 			ScoredAtoms: shadowReport.Stage.ExtractionScoredAtoms, MatchedAtoms: shadowReport.Stage.ExtractionMatchedAtoms,
 			FactRecall: shadowReport.Stage.ExtractionFactRecall, Errors: shadowReport.Stage.ExtractionErrors,
-			LeakageItems: shadowReport.Stage.ExtractionLeakageItems,
+			LeakageItems:           shadowReport.Stage.ExtractionLeakageItems,
+			SuppressedLeakageItems: shadowReport.Stage.ExtractionSuppressedLeakageItems,
 		},
 	}
 	for _, scored := range shadowReport.Cases {

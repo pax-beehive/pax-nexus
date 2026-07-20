@@ -1,0 +1,62 @@
+version: recall-v2
+run:
+  id: groupmembench-finance-recall-v2-hint-v1-paxm-v0.2.0-pilot15-r3
+  dataset: GroupMemBench
+  manifest: runs/groupmembench-v3-selection/manifest.json
+  output_dir: runs/recall-v2/groupmembench-finance-recall-v2-hint-v1-paxm-v0.2.0-pilot15-r3
+  parallelism: 2
+store:
+  dsn_env: EVAL_V2_POSTGRES_DSN
+baseline_arm: no_memory
+answerer_seed: pax-recall-eval-v2-answerer-1
+retry_failed: false
+trial_timeout: 8m
+runtime_env:
+  - OPENCODE_MODEL
+  - OPENCODE_VERSION
+  - EVAL_V2_JUDGE_MODEL
+  - EVAL_V2_JUDGE_THINKING
+  - TEAM_MEMORY_EXTRACTOR_MODEL
+  - TEAM_MEMORY_PROMPT_VERSION
+  - TEAM_MEMORY_EXTRACTION_CONTEXT_MODE
+  - TEAM_MEMORY_EXTRACTION_VERSION
+  - TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY
+  - PAXM_EXPECTED_VERSION
+output:
+  formats: [csv, jsonl, html]
+recall:
+  deterministic_replay: evals/recall-v2/groupmembench-finance-hard34-replay-v1.json
+  hint_replay: evals/recall-v2/groupmembench-finance-hint12-replay-v1.json
+  case_annotations: evals/recall-v2/groupmembench-finance-hard30-agent-annotations-v1.json
+  min_replay_cases: 30
+  min_agent_cases: 15
+  max_agent_cases: 15
+  diagnostic: true
+before_run:
+  program: scripts/recall-eval-v2-opencode.sh
+  args: [ingest-domain, all]
+  env:
+    PAX_EVAL_CASE_ANNOTATIONS: evals/recall-v2/groupmembench-finance-hard30-agent-annotations-v1.json
+    PAX_EVAL_RECALL_DIAGNOSTIC: "true"
+    PAX_EVAL_RECALL_DIAGNOSTIC_CASES: "15"
+judge:
+  program: scripts/eval-v2-judge.sh
+arms:
+  - name: no_memory
+    consumer:
+      program: scripts/recall-eval-v2-opencode.sh
+      args: [consumer, no_memory]
+      env:
+        PAXM_PASSIVE_PROVIDER_TIMEOUT_OVERRIDE: 10s
+  - name: team_note
+    consumer:
+      program: scripts/recall-eval-v2-opencode.sh
+      args: [consumer, team_note]
+      env:
+        PAXM_PASSIVE_PROVIDER_TIMEOUT_OVERRIDE: 10s
+  - name: hint_recall_v0
+    consumer:
+      program: scripts/recall-eval-v2-opencode.sh
+      args: [consumer, hint_recall_v0]
+      env:
+        PAXM_PASSIVE_PROVIDER_TIMEOUT_OVERRIDE: 10s

@@ -141,6 +141,31 @@ func (s *shadowSuite) TestBuildReportScoresAgainstStageFixtures() {
 	s.GreaterOrEqual(report.Telemetry.Calls, 1)
 }
 
+func (s *shadowSuite) TestBuildReportScoresTemporalWindowFacts() {
+	fixtures := stageeval.FixtureSet{
+		SchemaVersion: stageeval.SchemaVersion, Dataset: "shadow-test",
+		Cases: []stageeval.Fixture{{
+			CaseID: "case-a", SourceRevision: strings.Repeat("ab", 32),
+			RecallContext: stageeval.RecallContext{ConsumerUserID: "owner", Query: "deadline", TokenBudget: 100},
+			RequiredAtoms: []stageeval.Atom{{ID: "deadline", Patterns: []string{"(?i)reporting.{0,80}(2025-07-18|july 18)"}}},
+		}},
+	}
+	first := s.event("event-1", 1)
+	validAt := time.Date(2025, time.July, 18, 23, 59, 59, 0, time.UTC)
+	stub := &stubExtractor{result: extractor.Result{Candidates: []teamnote.Candidate{{
+		ID: "candidate-1", Action: teamnote.ActionCreate, Kind: teamnote.KindStatus,
+		Subject: "reporting validation", Body: "Reporting validates fit against the standard.", TaskRef: "release-42",
+		Origin: s.actor, EvidenceEventIDs: []string{first.ID}, ValidAt: &validAt,
+	}}}}
+	run, err := extractionshadow.RunCase(context.Background(), "case-a", "shadow-scope",
+		[]extractionshadow.StreamEvents{{Actor: s.actor, Events: []teamnote.SessionEvent{first}}}, stub)
+	s.Require().NoError(err)
+
+	report, err := extractionshadow.BuildReport("run-1", "team_note", extractor.ExtractionVersionV1, fixtures, []extractionshadow.CaseRun{run})
+	s.Require().NoError(err)
+	s.InDelta(1.0, report.Stage.ExtractionFactRecall, 0.001)
+}
+
 func (s *shadowSuite) TestBuildReportValidation() {
 	fixtures := stageeval.FixtureSet{
 		SchemaVersion: stageeval.SchemaVersion,

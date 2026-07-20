@@ -27,6 +27,16 @@ func (s *protocolSuite) TestValidateConfigMatrix() {
 		{name: "hint replay required", mutate: func(config *recallv2.Config) { config.Recall.HintReplay = "" }, wantErr: "hint_replay"},
 		{name: "annotations required", mutate: func(config *recallv2.Config) { config.Recall.CaseAnnotations = "" }, wantErr: "case_annotations"},
 		{name: "baseline fixed", mutate: func(config *recallv2.Config) { config.BaselineArm = recallv2.ArmTeamNote }, wantErr: "baseline_arm"},
+		{name: "diagnostic pilot accepts fifteen cases", mutate: func(config *recallv2.Config) {
+			config.Recall.Diagnostic = true
+			config.Recall.MinAgentCases = 15
+			config.Recall.MaxAgentCases = 15
+		}},
+		{name: "diagnostic pilot rejects sixteen cases", mutate: func(config *recallv2.Config) {
+			config.Recall.Diagnostic = true
+			config.Recall.MinAgentCases = 16
+			config.Recall.MaxAgentCases = 16
+		}, wantErr: "diagnostic agent cohort"},
 		{name: "production arm required", mutate: func(config *recallv2.Config) { config.Arms[1].Name = "memory_mock" }, wantErr: "arms"},
 	}
 	for _, test := range tests {

@@ -1,10 +1,13 @@
 package main
 
 import (
+	"context"
 	"os"
 	"testing"
 	"time"
 
+	"github.com/pax-beehive/pax-nexus/internal/sessionlake"
+	"github.com/pax-beehive/pax-nexus/internal/teamnote"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote/extractor"
 	"github.com/stretchr/testify/suite"
 )
@@ -35,7 +38,7 @@ func (s *configSuite) SetupTest() {
 		"TEAM_MEMORY_SLICE_OVERLAP", "TEAM_MEMORY_MAX_SLICES_PER_JOB",
 		"TEAM_MEMORY_EMBEDDING_BASE_URL", "TEAM_MEMORY_EMBEDDING_MODEL",
 		"TEAM_MEMORY_EMBEDDING_TIMEOUT", "TEAM_MEMORY_SEMANTIC_THRESHOLD",
-		"TEAM_MEMORY_RETRIEVAL_CANDIDATE_LIMIT", "TEAM_MEMORY_HINT_RECALL_ENABLED", "TEAM_MEMORY_HINT_SEMANTIC_THRESHOLD", "TEAM_MEMORY_HINT_THRESHOLD",
+		"TEAM_MEMORY_RETRIEVAL_CANDIDATE_LIMIT", "TEAM_MEMORY_HINT_RECALL_ENABLED", "TEAM_MEMORY_HINT_SEMANTIC_THRESHOLD", "TEAM_MEMORY_HINT_THRESHOLD", "TEAM_MEMORY_HINT_MIN_QUERY_RELEVANCE", "TEAM_MEMORY_HINT_MIN_MARGINAL_UTILITY",
 	} {
 		s.T().Setenv(name, "")
 	}
@@ -70,11 +73,9 @@ func (s *configSuite) TestLoadsNoopConfiguration() {
 	s.Equal(3, config.sliceOverlap)
 	s.Equal(4, config.maxSlicesPerJob)
 	s.Equal(10*time.Second, config.embeddingTimeout)
-	s.InDelta(0.50, config.semanticThreshold, 0.0001)
-	s.InDelta(0.50, config.hintSemanticThreshold, 0.0001)
-	s.Equal(16, config.retrievalCandidateLimit)
-	s.False(config.hintRecallEnabled)
-	s.InDelta(0.65, config.hintThreshold, 0.0001)
+	strategy, err := teamnote.ResolveRecallCandidateStrategy("")
+	s.Require().NoError(err)
+	s.Equal(strategy, config.recallCandidateStrategy)
 	adapter, err := buildExtractor(config)
 	s.Require().NoError(err)
 	s.IsType(extractor.Noop{}, adapter)
@@ -129,6 +130,7 @@ func (s *configSuite) TestCheckedInCandidateStrategyBuildInterface() {
 		path string
 		want string
 	}{
+		{path: ".env.example", want: "source-span-v1, source-span-v2, claim-card-v1, or claim-card-v2"},
 		{path: ".env.example", want: "TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY="},
 		{path: ".env.eval-v2.example", want: "TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY=current"},
 		{path: "compose.yaml", want: "EXTRACTION_CANDIDATE_STRATEGY: ${TEAM_MEMORY_BUILD_EXTRACTION_CANDIDATE_STRATEGY:-current}"},
@@ -149,6 +151,39 @@ func (s *configSuite) TestCheckedInCandidateStrategyBuildInterface() {
 			s.Contains(string(content), test.want)
 		})
 	}
+}
+
+func (s *configSuite) TestCheckedInRecallCandidateStrategyBuildInterface() {
+	tests := []struct {
+		path string
+		want string
+	}{
+		{path: ".env.example", want: "TEAM_MEMORY_BUILD_RECALL_CANDIDATE_STRATEGY=passive-v1"},
+		{path: "compose.yaml", want: "RECALL_CANDIDATE_STRATEGY: ${TEAM_MEMORY_BUILD_RECALL_CANDIDATE_STRATEGY:-passive-v1}"},
+		{path: "evals/v2/compose.yaml", want: "RECALL_CANDIDATE_STRATEGY: passive-v1"},
+		{path: "evals/v2/compose.yaml", want: "RECALL_CANDIDATE_STRATEGY: hint-v1-selective"},
+		{path: "evals/opencode/compose.yaml", want: "RECALL_CANDIDATE_STRATEGY: ${TEAM_MEMORY_BUILD_RECALL_CANDIDATE_STRATEGY:-passive-v1}"},
+		{path: "Dockerfile", want: "ARG RECALL_CANDIDATE_STRATEGY=passive-v1"},
+		{path: "Makefile", want: "RECALL_CANDIDATE_STRATEGY ?= passive-v1"},
+	}
+	for _, test := range tests {
+		s.Run(test.path+test.want, func() {
+			content, err := os.ReadFile(test.path)
+			s.Require().NoError(err)
+			s.Contains(string(content), test.want)
+		})
+	}
+}
+
+func (s *configSuite) TestRuntimeRecallPolicyOverridesBuildDefaultCompatibly() {
+	s.T().Setenv("TEAM_MEMORY_DATABASE_URL", "postgres://database")
+	s.T().Setenv("TEAM_MEMORY_API_KEYS", `{"key":"scope"}`)
+	s.T().Setenv("TEAM_MEMORY_SEMANTIC_THRESHOLD", "0.20")
+
+	config, err := loadConfig()
+
+	s.Require().NoError(err)
+	s.InDelta(0.20, config.recallCandidateStrategy.Policy.SemanticThreshold, 0.001)
 }
 
 func (s *configSuite) TestRejectsInvalidWorkerConfiguration() {
@@ -180,6 +215,8 @@ func (s *configSuite) TestRejectsInvalidWorkerConfiguration() {
 		{name: "TEAM_MEMORY_HINT_RECALL_ENABLED", value: "sometimes"},
 		{name: "TEAM_MEMORY_HINT_SEMANTIC_THRESHOLD", value: "low"},
 		{name: "TEAM_MEMORY_HINT_THRESHOLD", value: "high"},
+		{name: "TEAM_MEMORY_HINT_MIN_QUERY_RELEVANCE", value: "high"},
+		{name: "TEAM_MEMORY_HINT_MIN_MARGINAL_UTILITY", value: "high"},
 	}
 	for _, test := range tests {
 		s.Run(test.name, func() {
@@ -232,4 +269,30 @@ func (s *configSuite) TestRejectsCompactionAndSummaryTogether() {
 func (s *configSuite) TestRejectsUnsupportedExtractor() {
 	_, err := buildExtractor(applicationConfig{extractorMode: "unknown"})
 	s.Require().Error(err)
+}
+
+func (s *configSuite) TestCloseExtractorDrainsLifecycleImplementations() {
+	adapter := new(lifecycleExtractor)
+
+	err := closeExtractor(context.Background(), adapter)
+
+	s.Require().NoError(err)
+	s.True(adapter.closed)
+}
+
+type lifecycleExtractor struct {
+	closed bool
+}
+
+func (*lifecycleExtractor) Extract(context.Context, sessionlake.Slice) (extractor.Result, error) {
+	return extractor.Result{}, nil
+}
+
+func (*lifecycleExtractor) WaitForBackground(context.Context) error {
+	return nil
+}
+
+func (e *lifecycleExtractor) Close(context.Context) error {
+	e.closed = true
+	return nil
 }

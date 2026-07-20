@@ -8,6 +8,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/pax-beehive/pax-nexus/internal/eval/bm25"
 	"github.com/pax-beehive/pax-nexus/internal/eval/stageeval"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote"
 )
@@ -75,7 +76,10 @@ func Run(set FixtureSet, policy Policy) (Report, error) {
 		if err := encoder.Encode(extraction); err != nil {
 			return Report{}, fmt.Errorf("encode replay extraction observation: %w", err)
 		}
-		candidates := replayCase.plannerRecallCandidates()
+		candidates, err := retrievalCandidates(replayCase, policy.RetrievalStrategy)
+		if err != nil {
+			return Report{}, fmt.Errorf("select replay candidates for %q: %w", replayCase.Fixture.CaseID, err)
+		}
 		request := replayCase.recallRequest()
 		recallPolicy := teamnote.RecallPolicy{
 			SemanticThreshold: policy.SemanticThreshold, CandidateLimit: policy.CandidateLimit,
@@ -156,6 +160,33 @@ func Run(set FixtureSet, policy Policy) (Report, error) {
 	finalizeHintEval(&report.HintEval)
 	setPlannerLatency(&report.RecallEval, plannerDurationByCase)
 	return report, nil
+}
+
+func retrievalCandidates(replayCase Case, strategy string) ([]teamnote.RecallCandidate, error) {
+	candidates := replayCase.plannerRecallCandidates()
+	if strategy == "" || strategy == RetrievalStrategyAdapter {
+		return candidates, nil
+	}
+	if strategy != RetrievalStrategyBM25 {
+		return nil, fmt.Errorf("unsupported retrieval strategy %q", strategy)
+	}
+	documents := make([]bm25.Document, 0, len(candidates))
+	for _, candidate := range candidates {
+		documents = append(documents, bm25.Document{ID: candidate.ID, Text: candidate.Subject + "\n" + candidate.Body})
+	}
+	ranked, err := bm25.RankDocuments(documents, replayCase.Fixture.RecallContext.Query)
+	if err != nil {
+		return nil, err
+	}
+	scores := make(map[string]float64, len(ranked))
+	for _, candidate := range ranked {
+		scores[candidate.ID] = candidate.Score
+	}
+	for index := range candidates {
+		candidates[index].LexicalScore = scores[candidates[index].ID]
+		candidates[index].SemanticScore = nil
+	}
+	return candidates, nil
 }
 
 func setPlannerLatency(summary *RecallEvalSummary, durationsByCase map[string]int64) {

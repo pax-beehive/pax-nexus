@@ -1,9 +1,9 @@
 import { tool } from "@opencode-ai/plugin"
 
-const configuredMaximum = Number.parseInt(process.env.PAXM_ACTIVE_RECALL_MAX_CALLS ?? "2", 10)
+const configuredMaximum = Number.parseInt(process.env.PAXM_ACTIVE_RECALL_MAX_CALLS ?? "1", 10)
 const maximumCalls = Number.isInteger(configuredMaximum)
   ? Math.min(Math.max(configuredMaximum, 1), 2)
-  : 2
+  : 1
 
 export default tool({
   description: `Recall additional memory with a focused query. May be called at most ${maximumCalls} times.`,

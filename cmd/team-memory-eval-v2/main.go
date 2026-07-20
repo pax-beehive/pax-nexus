@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 
@@ -63,6 +64,9 @@ func run(ctx context.Context, args []string, logger *slog.Logger) error {
 		runtimeValues, runtimeErr := config.ResolveRuntime(os.Getenv)
 		if runtimeErr != nil {
 			return fmt.Errorf("resolve eval runtime provenance: %w", runtimeErr)
+		}
+		if mkdirErr := os.MkdirAll(filepath.Dir(*resolvedConfigOutput), 0o755); mkdirErr != nil {
+			return fmt.Errorf("create resolved eval config directory: %w", mkdirErr)
 		}
 		if exportErr := v2.ExportResolvedConfig(*resolvedConfigOutput, config, runtimeValues); exportErr != nil {
 			return fmt.Errorf("export resolved eval config: %w", exportErr)

@@ -74,8 +74,11 @@
         {
           "id": "primary_backup_evidence_deadline",
           "patterns": [
-            "(?i)(finance.{0,40}(and|&).{0,40}it|it.{0,40}(and|&).{0,40}finance).{0,220}(primary|backup).{0,220}evidence.{0,220}(july 18|2025-07-18)",
-            "(?i)(july 18|2025-07-18).{0,220}(finance|it).{0,220}(primary|backup).{0,220}evidence"
+            "(?i)(finance.{0,40}(and|&|\\+|/).{0,40}it|it.{0,40}(and|&|\\+|/).{0,40}finance).{0,220}(primary|backup).{0,220}evidence.{0,220}(july 18|2025-07-18|friday)",
+            "(?i)(july 18|2025-07-18|friday).{0,220}(finance|it).{0,220}(primary|backup).{0,220}evidence"
+          ],
+          "supporting_event_ids": [
+            "Msg_11264"
           ]
         }
       ]
@@ -95,6 +98,9 @@
           "patterns": [
             "(?i)control.?mapping.{0,160}(revision|wording|baseline).{0,160}(moving|unresolved|not (final|locked)|under revision)",
             "(?i)(moving|unresolved|under revision).{0,160}control.?mapping"
+          ],
+          "supporting_event_ids": [
+            "Msg_18259"
           ]
         }
       ]
@@ -112,8 +118,11 @@
         {
           "id": "operational_finance_cutoff_owner_deadline",
           "patterns": [
-            "(?i)(operational finance|finance ops|finance operations).{0,220}(stamp|post|confirm).{0,160}(cutoff.{0,40}owner|owner.{0,40}cutoff).{0,160}(july 17|2025-07-17)",
-            "(?i)(july 17|2025-07-17).{0,220}(operational finance|finance ops|finance operations).{0,220}(cutoff.{0,40}owner|owner.{0,40}cutoff)"
+            "(?i)(operational finance|finance ops|finance operations).{0,220}(stamp|post|confirm).{0,160}(cutoff.{0,40}owner|owner.{0,40}cutoff).{0,160}(july 17|2025-07-17|today)",
+            "(?i)(july 17|2025-07-17|today).{0,220}(operational finance|finance ops|finance operations).{0,220}(cutoff.{0,40}owner|owner.{0,40}cutoff)"
+          ],
+          "supporting_event_ids": [
+            "Msg_25212"
           ]
         }
       ]
@@ -132,7 +141,7 @@
         {
           "id": "unsupported_compliance_owner",
           "patterns": [
-            "(?i)compliance.{0,100}(designated|owner)|designated.{0,100}owner.{0,100}compliance"
+            "(?i)compliance.{0,100}\\b(designated|owners?|owns|maintains)\\b|\\b(designated|owners?|owns|maintains)\\b.{0,100}compliance"
           ],
           "supporting_event_ids": [
             "Msg_16876"

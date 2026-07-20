@@ -86,6 +86,35 @@ func (s *extractionEvalSuite) TestBuildReportScoresCasesAndCountsDomainOnce() {
 	s.Equal("source-finance", report.Cases[0].ScopeID)
 }
 
+func (s *extractionEvalSuite) TestBuildReportPropagatesSuppressedLeakage() {
+	fixtures := stageeval.FixtureSet{
+		SchemaVersion: stageeval.SchemaVersion,
+		Cases: []stageeval.Fixture{{
+			CaseID: "case-a", SourceRevision: strings.Repeat("ab", 32),
+			RecallContext:  stageeval.RecallContext{ConsumerUserID: "owner", Query: "q", TokenBudget: 10},
+			ForbiddenAtoms: []stageeval.Atom{{ID: "compliance_owner", Patterns: []string{"(?i)compliance.{0,100}(designated|owner)"}}},
+		}},
+	}
+	plans := []extractioneval.DomainPlan{{ScopeID: "source-finance", CaseIDs: []string{"case-a"}}}
+	runs := []extractionshadow.CaseRun{{
+		CaseID: "source-finance", ScopeID: "source-finance",
+		Notes:  []teamnote.Note{{ID: "note-1", Body: "Compliance is not the designated owner.", State: teamnote.StateActive}},
+		Slices: []extractionshadow.SliceRecord{{DurationMS: 10}},
+	}}
+
+	report, err := extractioneval.BuildReport("eval-run", "source", extractor.ExtractionVersionV2, fixtures, plans, runs)
+
+	s.Require().NoError(err)
+	s.Equal(1, report.Summary.LeakageItems)
+	s.Equal(1, report.Summary.SuppressedLeakageItems)
+	s.Require().Len(report.Cases, 1)
+	s.Equal(1, report.Cases[0].Extraction.LeakageItems)
+	s.Equal(1, report.Cases[0].Extraction.SuppressedLeakageItems)
+	s.Equal([]stageeval.LeakageDetail{
+		{ItemID: "note-1", AtomID: "compliance_owner", Suppressed: true, SuppressionCue: "not"},
+	}, report.Cases[0].Extraction.LeakageDetails)
+}
+
 func (s *extractionEvalSuite) TestBuildReportValidation() {
 	fixtures := stageeval.FixtureSet{
 		SchemaVersion: stageeval.SchemaVersion,

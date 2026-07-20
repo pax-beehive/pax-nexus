@@ -183,7 +183,7 @@ func (s *entrypointSuite) TestHybridArmEnablesBoundedActiveRecall() {
 	s.Contains(arguments, "PAXM_PROVIDER_TYPE=team-memory")
 	s.Contains(arguments, "PAXM_RECALL_ENABLED=1")
 	s.Contains(arguments, "PAXM_EVAL_RECALL_MODE=hybrid")
-	s.Contains(arguments, "PAXM_ACTIVE_RECALL_MAX_CALLS=2")
+	s.Contains(arguments, "PAXM_ACTIVE_RECALL_MAX_CALLS=1")
 }
 
 func (s *entrypointSuite) TestDirectContextArmSuppliesRawConversationWithoutRecall() {
@@ -227,6 +227,50 @@ func (s *entrypointSuite) TestDirectContextArmSuppliesRawConversationWithoutReca
 	s.Contains(arguments, "PAXM_EVAL_RECALL_MODE=direct")
 	s.Contains(arguments, "Asking user: User_3")
 	s.Contains(arguments, "Ops Lead owns the rollback evidence pack.")
+}
+
+func (s *entrypointSuite) TestRawBM25ArmSuppliesSelectedEvidenceWithoutRecall() {
+	repositoryRoot, err := filepath.Abs(filepath.Join("..", "..", "..", ".."))
+	s.Require().NoError(err)
+	directory := s.T().TempDir()
+	batches := filepath.Join(directory, "session-batches.json")
+	s.Require().NoError(os.WriteFile(batches, []byte("[]"), 0o600))
+	artifactDirectory := filepath.Join(directory, "artifacts")
+	binDirectory := filepath.Join(directory, "bin")
+	s.Require().NoError(os.Mkdir(binDirectory, 0o700))
+	capture := filepath.Join(directory, "docker-args")
+	docker := filepath.Join(binDirectory, "docker")
+	dockerScript := "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$DOCKER_CAPTURE\"\ncase \"$*\" in\n  *eval-v2-bm25*) printf '%s\\n' '{\"context\":\"Ops owns the rollback evidence.\"}' ;;\nesac\n"
+	s.Require().NoError(os.WriteFile(docker, []byte(dockerScript), 0o700))
+
+	command := exec.Command("sh", filepath.Join(repositoryRoot, "scripts", "eval-v2-opencode.sh"), "consumer", "raw_bm25")
+	command.Dir = repositoryRoot
+	command.Env = []string{
+		"PATH=" + binDirectory + string(os.PathListSeparator) + os.Getenv("PATH"),
+		"DOCKER_CAPTURE=" + capture,
+		"PAX_EVAL_RUN_ID=raw-bm25-test",
+		"PAX_EVAL_CASE_ID=case-1",
+		"PAX_EVAL_SCOPE_ID=scope-1",
+		"PAX_EVAL_USER_ID=User_3",
+		"PAX_EVAL_CONSUMER_WORKSPACE=" + directory,
+		"PAX_EVAL_SESSION_BATCHES_FILE=" + batches,
+		"PAX_EVAL_ARTIFACT_DIR=" + artifactDirectory,
+		"PAX_EVAL_QUESTION=Who owns the rollback evidence?",
+		"OPENCODE_MODEL=deepseek/deepseek-v4-flash",
+		"TEAM_MEMORY_API_KEYS={}",
+	}
+	output, err := command.CombinedOutput()
+	s.Require().NoError(err, string(output))
+	input, err := os.ReadFile(capture)
+	s.Require().NoError(err)
+	arguments := strings.Split(strings.TrimSpace(string(input)), "\n")
+	s.Contains(arguments, "PAXM_RECALL_ENABLED=0")
+	s.Contains(arguments, "PAXM_EVAL_RECALL_MODE=direct")
+	s.Contains(arguments, "Ops owns the rollback evidence.")
+
+	artifact, err := os.ReadFile(filepath.Join(artifactDirectory, "raw-bm25.json"))
+	s.Require().NoError(err)
+	s.JSONEq(`{"context":"Ops owns the rollback evidence."}`, string(artifact))
 }
 
 func (s *entrypointSuite) TestZepNativeArmSuppliesProcessedNativeContextWithoutPaxmRecall() {
@@ -402,41 +446,43 @@ func (s *entrypointSuite) TestMem0UsesSharedIdentityAcrossAskingUsers() {
 		{name: "first asking user", askingUserID: "User_3", caseID: "case-1"},
 		{name: "second asking user", askingUserID: "User_12", caseID: "case-2"},
 	}
-	for _, test := range tests {
-		s.Run(test.name, func() {
-			directory := s.T().TempDir()
-			binDirectory := filepath.Join(directory, "bin")
-			s.Require().NoError(os.Mkdir(binDirectory, 0o700))
-			capture := filepath.Join(directory, "docker-args")
-			docker := filepath.Join(binDirectory, "docker")
-			s.Require().NoError(os.WriteFile(docker, []byte("#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$DOCKER_CAPTURE\"\n"), 0o700))
+	for _, arm := range []string{"mem0", "mem0_messages", "mem0_chunks"} {
+		for _, test := range tests {
+			s.Run(arm+"/"+test.name, func() {
+				directory := s.T().TempDir()
+				binDirectory := filepath.Join(directory, "bin")
+				s.Require().NoError(os.Mkdir(binDirectory, 0o700))
+				capture := filepath.Join(directory, "docker-args")
+				docker := filepath.Join(binDirectory, "docker")
+				s.Require().NoError(os.WriteFile(docker, []byte("#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$DOCKER_CAPTURE\"\n"), 0o700))
 
-			command := exec.Command("sh", filepath.Join(repositoryRoot, "scripts", "eval-v2-opencode.sh"), "consumer", "mem0")
-			command.Dir = repositoryRoot
-			command.Env = []string{
-				"PATH=" + binDirectory + string(os.PathListSeparator) + os.Getenv("PATH"),
-				"DOCKER_CAPTURE=" + capture,
-				"PAX_EVAL_RUN_ID=shared-mem0-identity-test",
-				"PAX_EVAL_CASE_ID=" + test.caseID,
-				"PAX_EVAL_SCOPE_ID=scope-1",
-				"PAX_EVAL_USER_ID=" + test.askingUserID,
-				"PAX_EVAL_CONSUMER_WORKSPACE=" + directory,
-				"PAX_EVAL_QUESTION=Who am I relying on?",
-				"MEM0_EVAL_USER_ID=groupmembench-shared-user",
-				"MEM0_EVAL_AGENT_ID=groupmembench-shared-agent",
-				"OPENCODE_MODEL=deepseek/deepseek-v4-flash",
-				"TEAM_MEMORY_API_KEYS={}",
-			}
-			output, runErr := command.CombinedOutput()
-			s.Require().NoError(runErr, string(output))
-			input, readErr := os.ReadFile(capture)
-			s.Require().NoError(readErr)
-			arguments := strings.Split(strings.TrimSpace(string(input)), "\n")
-			s.Contains(arguments, "PAXM_USER_ID=groupmembench-shared-user")
-			s.Contains(arguments, "PAXM_AGENT_ID=groupmembench-shared-agent")
-			s.Contains(arguments, "MEM0_RUN_ID=shared-mem0-identity-test-"+test.caseID)
-			s.NotContains(arguments, "PAXM_USER_ID="+test.askingUserID)
-		})
+				command := exec.Command("sh", filepath.Join(repositoryRoot, "scripts", "eval-v2-opencode.sh"), "consumer", arm)
+				command.Dir = repositoryRoot
+				command.Env = []string{
+					"PATH=" + binDirectory + string(os.PathListSeparator) + os.Getenv("PATH"),
+					"DOCKER_CAPTURE=" + capture,
+					"PAX_EVAL_RUN_ID=shared-mem0-identity-test",
+					"PAX_EVAL_CASE_ID=" + test.caseID,
+					"PAX_EVAL_SCOPE_ID=scope-1",
+					"PAX_EVAL_USER_ID=" + test.askingUserID,
+					"PAX_EVAL_CONSUMER_WORKSPACE=" + directory,
+					"PAX_EVAL_QUESTION=Who am I relying on?",
+					"MEM0_EVAL_USER_ID=groupmembench-shared-user",
+					"MEM0_EVAL_AGENT_ID=groupmembench-shared-agent",
+					"OPENCODE_MODEL=deepseek/deepseek-v4-flash",
+					"TEAM_MEMORY_API_KEYS={}",
+				}
+				output, runErr := command.CombinedOutput()
+				s.Require().NoError(runErr, string(output))
+				input, readErr := os.ReadFile(capture)
+				s.Require().NoError(readErr)
+				arguments := strings.Split(strings.TrimSpace(string(input)), "\n")
+				s.Contains(arguments, "PAXM_USER_ID=groupmembench-shared-user")
+				s.Contains(arguments, "PAXM_AGENT_ID=groupmembench-shared-agent")
+				s.Contains(arguments, "MEM0_RUN_ID=shared-mem0-identity-test-"+test.caseID)
+				s.NotContains(arguments, "PAXM_USER_ID="+test.askingUserID)
+			})
+		}
 	}
 }
 
@@ -552,7 +598,7 @@ func (s *entrypointSuite) TestMem0IngestUsesSharedIdentity() {
 	batches := filepath.Join(directory, "session-batches.json")
 	s.Require().NoError(os.WriteFile(batches, []byte("[]"), 0o600))
 
-	command := exec.Command("sh", filepath.Join(repositoryRoot, "scripts", "eval-v2-opencode.sh"), "ingest", "mem0")
+	command := exec.Command("sh", filepath.Join(repositoryRoot, "scripts", "eval-v2-opencode.sh"), "ingest", "mem0_messages")
 	command.Dir = repositoryRoot
 	command.Env = []string{
 		"PATH=" + binDirectory + string(os.PathListSeparator) + os.Getenv("PATH"),
@@ -574,6 +620,9 @@ func (s *entrypointSuite) TestMem0IngestUsesSharedIdentity() {
 	s.Contains(arguments, "PAXM_USER_ID=groupmembench-shared-user")
 	s.Contains(arguments, "PAXM_AGENT_ID=groupmembench-shared-agent")
 	s.Contains(arguments, "MEM0_RUN_ID=shared-mem0-ingest-test-case-1")
+	s.Contains(arguments, "-provider")
+	s.Contains(arguments, "mem0_messages")
+	s.Contains(arguments, "-require-write=1")
 }
 
 func (s *entrypointSuite) TestConsumerPolicyUsesDedicatedOpenCodeAgent() {

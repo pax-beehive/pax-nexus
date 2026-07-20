@@ -60,7 +60,7 @@ for variant in current interaction-slim; do
     -run-id "$run_id" \
     -extractor v2 \
     -v2-variant "$variant" \
-    "${resume_args[@]}"
+    ${resume_args[@]+"${resume_args[@]}"}
 done
 
 jq -s '

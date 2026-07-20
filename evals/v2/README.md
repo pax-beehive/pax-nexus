@@ -201,8 +201,10 @@ trials. Every completed run can export:
   per-category token-F1 summaries, representative field notes, and an
   expandable breakdown of every case and every arm
 
-The stable artifact schema is `pax-eval-v2.8`. `report.html` covers the common
-comparison views; raw CSV/JSONL files remain available for other analysis.
+The stable artifact schema is `pax-eval-v2.9`. Trial CSV/JSONL rows include
+observed recall candidates, hits, injected context items, and recall latency.
+`report.html` covers the common comparison views; raw CSV/JSONL files remain
+available for other analysis.
 
 ## Automated workstation job
 

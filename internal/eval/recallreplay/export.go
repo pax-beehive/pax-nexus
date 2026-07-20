@@ -66,7 +66,7 @@ func (e *Exporter) exportCase(ctx context.Context, fixture stageeval.Fixture, sc
 	}
 	noteStore, err := postgres.NewNoteStore(e.store, teamnote.DefaultTTLPolicy(), fixedClock{now: observationTime}, postgres.RetrievalConfig{
 		Embedder: e.embedder, EmbeddingModel: e.embeddingModel,
-		SemanticThreshold: e.policy.SemanticThreshold, CandidateLimit: e.policy.CandidateLimit,
+		Policy: teamnote.RecallPolicy{SemanticThreshold: e.policy.SemanticThreshold, CandidateLimit: e.policy.CandidateLimit},
 	})
 	if err != nil {
 		return Case{}, err

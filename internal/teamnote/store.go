@@ -2,10 +2,6 @@ package teamnote
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
-	"fmt"
 	"sort"
 	"sync"
 )
@@ -42,30 +38,24 @@ type CandidateRejection struct {
 	Reason    string
 }
 
-// NormalizeExtractionRun binds one idempotency key to the complete Candidate batch.
-func NormalizeExtractionRun(run ExtractionRun) (ExtractionRun, error) {
-	encoded, err := json.Marshal(run.Candidates)
-	if err != nil {
-		return ExtractionRun{}, fmt.Errorf("encode extraction run candidates: %w", err)
-	}
-	sum := sha256.Sum256(encoded)
-	checksum := hex.EncodeToString(sum[:])
-	if run.CandidateChecksum != "" && run.CandidateChecksum != checksum {
-		return ExtractionRun{}, fmt.Errorf("candidate checksum for extraction run %q: %w", run.ID, ErrExtractionRunConflict)
-	}
-	run.CandidateChecksum = checksum
-	return run, nil
-}
-
 type ScopedLedgerStore struct {
-	mu      sync.Mutex
-	policy  TTLPolicy
-	clock   Clock
-	ledgers map[string]*Ledger
+	mu           sync.Mutex
+	policy       TTLPolicy
+	clock        Clock
+	recallPolicy RecallPolicy
+	ledgers      map[string]*Ledger
 }
 
 func NewScopedLedgerStore(policy TTLPolicy, clock Clock) *ScopedLedgerStore {
-	return &ScopedLedgerStore{policy: policy, clock: clock, ledgers: make(map[string]*Ledger)}
+	return NewScopedLedgerStoreWithRecallPolicy(policy, clock, DefaultRecallPolicy())
+}
+
+// NewScopedLedgerStoreWithRecallPolicy configures every scope with the same
+// recall planning policy used by durable NoteStore adapters.
+func NewScopedLedgerStoreWithRecallPolicy(policy TTLPolicy, clock Clock, recallPolicy RecallPolicy) *ScopedLedgerStore {
+	return &ScopedLedgerStore{
+		policy: policy, clock: clock, recallPolicy: recallPolicy, ledgers: make(map[string]*Ledger),
+	}
 }
 
 func (s *ScopedLedgerStore) ApplyCandidate(ctx context.Context, scopeID, _ string, candidate Candidate, evidence []SessionEvent) (Note, error) {
@@ -104,7 +94,7 @@ func (s *ScopedLedgerStore) ledger(scopeID string) *Ledger {
 	defer s.mu.Unlock()
 	ledger, ok := s.ledgers[scopeID]
 	if !ok {
-		ledger = NewLedger(s.policy, s.clock)
+		ledger = NewLedgerWithRecallPolicy(s.policy, s.clock, s.recallPolicy)
 		s.ledgers[scopeID] = ledger
 	}
 	return ledger

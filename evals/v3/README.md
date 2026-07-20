@@ -26,6 +26,10 @@ make eval-v3
 make eval-v3-down
 ```
 
+Eval v3 defaults extraction jobs to a 20-minute timeout and ten attempts because
+full-domain native sessions require several rolling slices. These values are
+recorded in resolved runtime provenance and do not change production defaults.
+
 The PAX arm builds one SQLite database per Actor Agent under the run output
 directory and combines only the selected Answering Agent's database with the
 shared Team Note provider. Mem0 uses one shared domain namespace. The template
@@ -37,16 +41,16 @@ Cases without reviewed supporting-event annotations report
 accuracy. The runner never silently relaxes an annotated case when no eligible
 Answering Agent exists.
 
-The artifact schema is `pax-eval-v3.0`. `trials.csv` and `trials.jsonl` record
-the paired answerer identity, seed, source-overlap status, and strict-trial
-flag. `summary.csv` includes a `trial_class=strict_cross_agent` slice when
+The artifact schema is `pax-eval-v3.1`. `trials.csv` and `trials.jsonl` record
+the paired answerer identity, seed, source-overlap status, strict-trial flag,
+and observed recall candidates, hits, and injected context items. `summary.csv` includes a `trial_class=strict_cross_agent` slice when
 annotated strict trials exist. `artifacts.json` links the three full-domain
 ingest receipts under `memory/`, so source construction is auditable separately
 from answer quality.
 
 The artifact manifest also records the shared Mem0 namespace, image, models,
-retrieval limit and score semantics, observed accuracy, published comparison
-targets, and known protocol deviations. The current runner rejects stronger
+extraction profile, retrieval limit and score semantics, observed retrieval
+activity, observed accuracy, published comparison targets, and known protocol deviations. The current runner rejects stronger
 reproduction labels until an official Mem0 runner and pinned artifacts are
 available.
 

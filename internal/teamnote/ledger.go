@@ -29,6 +29,9 @@ const (
 	KindBlocker           NoteKind = "blocker"
 	KindHandoff           NoteKind = "handoff"
 	KindArtifactReference NoteKind = "artifact_reference"
+	// KindSourceSpan stores immutable source text with extraction metadata. It
+	// is not a normalized collaboration-state assertion.
+	KindSourceSpan NoteKind = "source_span"
 )
 
 type CandidateAction string
@@ -101,6 +104,7 @@ func DefaultTTLPolicy() TTLPolicy {
 		KindBlocker:           {SoftTTL: 48 * time.Hour, HardTTL: 14 * 24 * time.Hour},
 		KindHandoff:           {SoftTTL: 72 * time.Hour, HardTTL: 14 * 24 * time.Hour},
 		KindArtifactReference: {SoftTTL: 7 * 24 * time.Hour, HardTTL: 30 * 24 * time.Hour},
+		KindSourceSpan:        {SoftTTL: 7 * 24 * time.Hour, HardTTL: 30 * 24 * time.Hour},
 	}
 }
 
@@ -120,27 +124,18 @@ type Ledger struct {
 	runs           map[string]storedExtractionRun
 }
 
-type extractionRunIdentity struct {
-	Actor             Actor
-	FromSequence      int64
-	ToSequence        int64
-	InputChecksum     string
-	CandidateChecksum string
-	Model             string
-	PromptVersion     string
-	InputTokens       int
-	OutputTokens      int
-}
-
 type storedExtractionRun struct {
-	Identity    extractionRunIdentity
+	Input       ExtractionRun
 	Notes       []Note
 	Quarantined bool
 	Reason      string
 }
 
 func NewLedger(policy TTLPolicy, clock Clock) *Ledger {
-	return NewLedgerWithRecallPolicy(policy, clock, RecallPolicy{})
+	return NewLedgerWithRecallPolicy(policy, clock, RecallPolicy{
+		SuppressDuplicates: true,
+		DegradeRelated:     true,
+	})
 }
 
 // NewLedgerWithRecallPolicy configures the same planner candidate used by the
@@ -166,23 +161,21 @@ func (l *Ledger) ApplyRun(ctx context.Context, run ExtractionRun) ([]Note, error
 	if err := ctx.Err(); err != nil {
 		return nil, fmt.Errorf("apply extraction run context: %w", err)
 	}
-	if err := validateRunIdentity(run); err != nil {
-		return nil, err
-	}
 	var err error
-	run, err = NormalizeExtractionRun(run)
+	run, err = PrepareExtractionRun(run)
 	if err != nil {
 		return nil, err
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	identity := identityForExtractionRun(run)
+	input := extractionRunInput(run)
 	if stored, ok := l.runs[run.ID]; ok && run.ID != "" {
-		if !sameExtractionRunInputs(stored.Identity, identity) {
-			return nil, fmt.Errorf("replay extraction run %q: %w", run.ID, ErrExtractionRunConflict)
-		}
+		status := ExtractionRunCompleted
 		if stored.Quarantined {
-			return nil, fmt.Errorf("replay extraction run %q: %w", run.ID, errors.Join(ErrExtractionRunQuarantined, errors.New(stored.Reason)))
+			status = ExtractionRunQuarantined
+		}
+		if err := ValidateExtractionRunReplay(stored.Input, run, status, stored.Reason); err != nil {
+			return nil, err
 		}
 		// The durable result wins over any recomputation for the same input,
 		// so a replay after a lost saved response cannot double-apply state.
@@ -208,9 +201,12 @@ func (l *Ledger) ApplyRun(ctx context.Context, run ExtractionRun) ([]Note, error
 		}
 		admitted, err := AdmitCandidate(l.policy, l.clock.Now(), candidate, run.Evidence, current)
 		if err != nil {
+			if !ShouldQuarantineExtractionRun(err) {
+				return nil, err
+			}
 			// Deterministic admission failures cannot succeed on retry, so the
 			// run is quarantined and replayed attempts observe the same outcome.
-			quarantine := storedExtractionRun{Identity: identity, Quarantined: true, Reason: err.Error()}
+			quarantine := storedExtractionRun{Input: input, Quarantined: true, Reason: err.Error()}
 			if run.ID != "" {
 				l.runs[run.ID] = quarantine
 			}
@@ -223,28 +219,9 @@ func (l *Ledger) ApplyRun(ctx context.Context, run ExtractionRun) ([]Note, error
 	l.notes = notes
 	l.candidates = candidates
 	if run.ID != "" {
-		l.runs[run.ID] = storedExtractionRun{Identity: identity, Notes: cloneNoteSlice(result)}
+		l.runs[run.ID] = storedExtractionRun{Input: input, Notes: cloneNoteSlice(result)}
 	}
 	return result, nil
-}
-
-func identityForExtractionRun(run ExtractionRun) extractionRunIdentity {
-	return extractionRunIdentity{
-		Actor: run.Actor, FromSequence: run.FromSequence, ToSequence: run.ToSequence,
-		InputChecksum: run.InputChecksum, Model: run.Model, PromptVersion: run.PromptVersion,
-		CandidateChecksum: run.CandidateChecksum,
-		InputTokens:       run.InputTokens, OutputTokens: run.OutputTokens,
-	}
-}
-
-// sameExtractionRunInputs compares the deterministic inputs of one extraction
-// run. Token usage is telemetry, and a recomputed candidate batch after a lost
-// saved response must not conflict with the durable result, so neither is part
-// of the replay identity.
-func sameExtractionRunInputs(left, right extractionRunIdentity) bool {
-	return left.Actor == right.Actor && left.FromSequence == right.FromSequence &&
-		left.ToSequence == right.ToSequence && left.InputChecksum == right.InputChecksum &&
-		left.Model == right.Model && left.PromptVersion == right.PromptVersion
 }
 
 // ValidateCandidate reports whether one candidate satisfies the deterministic
@@ -260,27 +237,6 @@ func cloneNoteSlice(notes []Note) []Note {
 		cloned[index] = cloneNote(note)
 	}
 	return cloned
-}
-
-func validateRunIdentity(run ExtractionRun) error {
-	seen := make(map[string]struct{}, len(run.Candidates))
-	for _, candidate := range run.Candidates {
-		if _, ok := seen[candidate.ID]; ok {
-			return fmt.Errorf("duplicate candidate %q in extraction run: %w", candidate.ID, ErrInvalidCandidate)
-		}
-		seen[candidate.ID] = struct{}{}
-		if run.Actor != (Actor{}) && candidate.Origin != run.Actor {
-			return fmt.Errorf("candidate %q origin differs from extraction run: %w", candidate.ID, ErrInvalidCandidate)
-		}
-	}
-	if run.Actor != (Actor{}) {
-		for _, event := range run.Evidence {
-			if event.Actor != run.Actor {
-				return fmt.Errorf("evidence %q actor differs from extraction run: %w", event.ID, ErrMissingEvidence)
-			}
-		}
-	}
-	return nil
 }
 
 func cloneNotes(notes map[string]Note) map[string]Note {
@@ -310,10 +266,10 @@ func (l *Ledger) Recall(ctx context.Context, request RecallRequest) (NoteEnvelop
 	}
 	envelope := NoteEnvelope{}
 	recallPolicy := l.recallPolicy
-	recallPolicy.CandidateLimit = len(candidates)
+	if recallPolicy.CandidateLimit == 0 {
+		recallPolicy.CandidateLimit = len(candidates)
+	}
 	recallPolicy.ObservationTime = now
-	recallPolicy.SuppressDuplicates = true
-	recallPolicy.DegradeRelated = true
 	planned, _ := PlanRecall(candidates, request, recallPolicy)
 	for _, item := range planned {
 		if !item.ClaimNoteDelivery {
@@ -544,7 +500,7 @@ func CertaintyForKind(kind NoteKind) NoteCertainty {
 	switch kind {
 	case KindBlocker:
 		return CertaintyUnresolved
-	case KindHandoff:
+	case KindHandoff, KindSourceSpan:
 		return CertaintyProposed
 	default:
 		return CertaintyConfirmed
