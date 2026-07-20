@@ -195,6 +195,10 @@ func (s *validitySuite) TestValidityFailureMatrix() {
 			path := filepath.Join(directory, "trials", "case", v3.ArmGroupMemBenchMem0, "attempts", "001", "consumer.jsonl")
 			s.Require().NoError(os.Remove(path))
 		}},
+		{name: "truncated consumer artifact", wantCheck: "attempt_artifacts", configure: func(directory string, _ v2.RunRecord, _ []v2.TrialResult) {
+			path := filepath.Join(directory, "trials", "case", v3.ArmGroupMemBenchMem0, "attempts", "001", "consumer.jsonl")
+			s.Require().NoError(os.WriteFile(path, []byte(`{"truncated"`), 0o600))
+		}},
 		{name: "missing resolved config", wantCheck: "resolved_config_provenance", configure: func(directory string, _ v2.RunRecord, _ []v2.TrialResult) {
 			s.Require().NoError(os.Remove(filepath.Join(directory, "config.resolved.json")))
 		}},

@@ -439,8 +439,10 @@ the completed, unjudged Trial so recovery can be retried; the next claim marks
 an orphaned rejudge Attempt interrupted without changing that Trial. Durable
 recovery chooses the newest prior Attempt with a canonical, non-empty consumer
 artifact rather than trusting the highest Attempt number. Run verification also
-matches the dataset and dataset revision. A fresh three-arm cohort must pass
-this gate before any Mem0 or PAX result is described as benchmark-quality.
+matches the dataset and dataset revision. Consumer evidence is published by
+fsync and atomic rename; malformed or truncated consumer and judge JSONL fails
+the gate. A fresh three-arm cohort must pass this gate before any Mem0 or PAX
+result is described as benchmark-quality.
 
 ## Consequences
 

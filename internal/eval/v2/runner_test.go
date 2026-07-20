@@ -237,6 +237,9 @@ func (s *runnerSuite) TestDurableRejudgeSkipsNewestAttemptWithoutConsumerEvidenc
 	consumerPath := filepath.Join(directory, validReference, "consumer.jsonl")
 	s.Require().NoError(os.MkdirAll(filepath.Dir(consumerPath), 0o755))
 	s.Require().NoError(os.WriteFile(consumerPath, []byte("{}\n"), 0o600))
+	truncatedPath := filepath.Join(directory, store.trialAttempts[1].ArtifactRefs["artifact_dir"], "consumer.jsonl")
+	s.Require().NoError(os.MkdirAll(filepath.Dir(truncatedPath), 0o755))
+	s.Require().NoError(os.WriteFile(truncatedPath, []byte(`{"truncated"`), 0o600))
 
 	_, judged, err := JudgeExistingRunDurable(context.Background(), store, &fakeExecutor{}, nil, config, "revision", []TrialResult{result})
 

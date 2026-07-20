@@ -117,7 +117,9 @@ through the locked durable Store seam; it verifies Run configuration, judges
 the stored consumer result, and preserves retryability after judge failure or
 an interrupted rejudge claim. Consumer evidence is selected from the newest
 canonical, non-empty prior Attempt, not merely the highest Attempt number. Run
-identity includes dataset revision in addition to configuration hash.
+identity includes dataset revision in addition to configuration hash. Atomic
+consumer publication and JSONL validation prevent partial evidence from
+passing the gate.
 
 ## Tranche 4: Budget-Aware Final-State Selection
 

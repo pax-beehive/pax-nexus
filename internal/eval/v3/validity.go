@@ -358,8 +358,8 @@ func evaluateAttemptArtifact(
 		required = append(required, "judge.jsonl")
 	}
 	for _, name := range required {
-		if !nonEmptyFile(filepath.Join(directory, reference, name)) {
-			collector.fail("attempt_artifacts", result.CaseID, result.Arm, name+" is missing or empty")
+		if !validJSONLinesFile(filepath.Join(directory, reference, name)) {
+			collector.fail("attempt_artifacts", result.CaseID, result.Arm, name+" is missing, empty, or malformed")
 		}
 	}
 }
@@ -426,7 +426,15 @@ func safeArtifactReference(reference string) bool {
 	return strings.TrimSpace(reference) != "" && !filepath.IsAbs(reference) && cleaned != "." && cleaned != ".." && !strings.HasPrefix(cleaned, ".."+string(filepath.Separator))
 }
 
-func nonEmptyFile(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && info.Mode().IsRegular() && info.Size() > 0
+func validJSONLinesFile(path string) bool {
+	input, err := os.ReadFile(path)
+	if err != nil || len(bytes.TrimSpace(input)) == 0 {
+		return false
+	}
+	for _, line := range bytes.Split(bytes.TrimSpace(input), []byte{'\n'}) {
+		if !json.Valid(line) {
+			return false
+		}
+	}
+	return true
 }

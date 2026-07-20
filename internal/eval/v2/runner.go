@@ -325,7 +325,7 @@ func latestConsumerAttempts(attempts []TrialAttempt, outputDirectory string) map
 	for _, attempt := range attempts {
 		reference := attempt.ArtifactRefs["artifact_dir"]
 		if reference != attemptArtifactReference(attempt.TrialAttemptHandle) ||
-			!nonEmptyAttemptArtifact(filepath.Join(outputDirectory, reference, "consumer.jsonl")) {
+			!validJSONLinesArtifact(filepath.Join(outputDirectory, reference, "consumer.jsonl")) {
 			continue
 		}
 		key := attempt.CaseID + "\x00" + attempt.Arm
@@ -336,23 +336,57 @@ func latestConsumerAttempts(attempts []TrialAttempt, outputDirectory string) map
 	return latest
 }
 
-func nonEmptyAttemptArtifact(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && info.Mode().IsRegular() && info.Size() > 0
+func validJSONLinesArtifact(path string) bool {
+	input, err := os.ReadFile(path)
+	if err != nil || len(bytes.TrimSpace(input)) == 0 {
+		return false
+	}
+	for _, line := range bytes.Split(bytes.TrimSpace(input), []byte{'\n'}) {
+		if !json.Valid(line) {
+			return false
+		}
+	}
+	return true
 }
 
-func copyAttemptArtifact(source, destination string) error {
+func copyAttemptArtifact(source, destination string) (returnedErr error) {
 	input, err := os.ReadFile(source)
 	if err != nil {
 		return err
 	}
-	if len(input) == 0 {
-		return fmt.Errorf("source artifact is empty")
+	if !validJSONLinesArtifact(source) {
+		return fmt.Errorf("source artifact is empty or malformed")
 	}
-	if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
+	directory := filepath.Dir(destination)
+	if err := os.MkdirAll(directory, 0o755); err != nil {
 		return err
 	}
-	if err := os.WriteFile(destination, input, 0o600); err != nil {
+	output, err := os.CreateTemp(directory, ".consumer-*.jsonl")
+	if err != nil {
+		return err
+	}
+	temporaryPath := output.Name()
+	defer func() {
+		if err := os.Remove(temporaryPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			returnedErr = errors.Join(returnedErr, fmt.Errorf("remove temporary consumer artifact: %w", err))
+		}
+	}()
+	if _, err := output.Write(input); err != nil {
+		if closeErr := output.Close(); closeErr != nil {
+			return errors.Join(err, closeErr)
+		}
+		return err
+	}
+	if err := output.Sync(); err != nil {
+		if closeErr := output.Close(); closeErr != nil {
+			return errors.Join(err, closeErr)
+		}
+		return err
+	}
+	if err := output.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(temporaryPath, destination); err != nil {
 		return err
 	}
 	return nil

@@ -82,7 +82,9 @@ crashed rejudge Attempt is marked interrupted on the next claim without hiding
 or replacing that consumer result. Recovery selects the newest prior Attempt
 that actually owns a canonical, non-empty consumer artifact, so a crash before
 artifact copy does not poison later retries. Run provenance checks include
-dataset and dataset revision as well as the configuration hash.
+dataset and dataset revision as well as the configuration hash. Consumer
+evidence copies use fsync plus atomic rename, and the gate rejects malformed or
+truncated consumer and judge JSONL.
 
 Eval v3 is the outer architecture comparison, not the recall-policy tuning
 loop. Before using it to validate a recall change, first improve the fixed
