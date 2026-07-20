@@ -33,7 +33,7 @@ they do not each require a new ADR.
 | --- | --- | --- |
 | Extraction Evidence Fidelity | [Extraction v2](./decisions/2026-07-16-extraction-v2.md) | In progress; `evidence-fidelity-v1` is not retained because recall stayed 2/3 while leakage, rejections, and unreviewed Events increased. |
 | Extraction Execution Reliability | [Extraction v2](./decisions/2026-07-16-extraction-v2.md) | Planned; quality acceptance remains blocked by deadline retries and latency evidence. |
-| Eval Validity and Attempt Ledger | [Multi-Agent GroupMemBench Eval v3](./decisions/2026-07-16-multi-agent-groupmembench-eval-v3.md) | In progress; the append-only Attempt ledger is implemented, while comparative validity gates remain planned. |
+| Eval Validity and Attempt Ledger | [Multi-Agent GroupMemBench Eval v3](./decisions/2026-07-16-multi-agent-groupmembench-eval-v3.md) | Implemented; append-only Attempts and the comparative Validity Report now reject incomplete or unobservable runs. |
 | Budget-Aware Final-State Selection | [General Recall v3](./decisions/2026-07-16-general-recall-v3-optimization.md) | Planned; BM25 improved candidate availability without improving delivered recall. |
 | Durable Historical Recall | [General Recall v3](./decisions/2026-07-16-general-recall-v3-optimization.md) | Planned; PostgreSQL does not yet export retired revision chains to `as_of` or `history`. |
 | Hint selectivity/query utility | [Hint Recall v0](./decisions/2026-07-16-hint-recall-v0.md) | Evaluation-only; the real-Agent pilot had no accuracy lift and used 14.9 times the passive input tokens. |
@@ -90,7 +90,7 @@ rate must satisfy the outstanding Extraction v2 acceptance criteria.
 
 ## Tranche 3: Eval Validity and Attempt Ledger
 
-Status: In progress; Attempt ledger implemented
+Status: Implemented
 
 Add an append-only Trial Attempt ledger behind the Eval Store seam. Preserve
 each retry's stage, timing, exit classification, and artifact references rather
@@ -103,7 +103,14 @@ including stage, classified failure, timestamps, and the attempt-specific
 artifact directory. The runner writes raw command output below
 `trials/<case>/<arm>/attempts/<sequence>/` and exports `attempts.jsonl`. Resume
 marks abandoned running Attempts as interrupted before reclaiming the Trial.
-The comparative validity gate is the remaining part of this tranche.
+The comparative validity gate is now implemented as
+`pax-eval-v3-validity-v1`. It requires the complete judged Trial matrix,
+full-domain coverage in all three ingest receipts, observable mutations in
+Team Note, Mem0, and private SQLite, successful recall observations for both
+memory arms, no recall activity in the no-memory arm, complete latest-Attempt
+consumer/judge artifacts, and a resolved configuration hash matching the
+durable Run. Invalid runs export `validity.json` and all available evidence,
+but the Eval v3 command returns an acceptance error.
 
 ## Tranche 4: Budget-Aware Final-State Selection
 

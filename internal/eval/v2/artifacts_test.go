@@ -185,6 +185,7 @@ func (s *artifactSuite) TestExportLinksRecallEvalV2ProtocolArtifacts() {
 func (s *artifactSuite) TestExportLinksEvalV3FullDomainIngestReceipts() {
 	directory := s.T().TempDir()
 	s.Require().NoError(os.MkdirAll(filepath.Join(directory, "memory"), 0o755))
+	s.Require().NoError(os.WriteFile(filepath.Join(directory, "validity.json"), []byte(`{"schema_version":"pax-eval-v3-validity-v1","status":"valid","valid":true}`+"\n"), 0o600))
 	for _, name := range []string{"team-note-ingest.json", "mem0-ingest.json", "private-sqlite-ingest.json"} {
 		s.Require().NoError(os.WriteFile(filepath.Join(directory, "memory", name), []byte("{}\n"), 0o600))
 	}
@@ -226,12 +227,19 @@ func (s *artifactSuite) TestExportLinksEvalV3FullDomainIngestReceipts() {
 				ContextItems      int `json:"context_items"`
 			} `json:"retrieval_observation"`
 		} `json:"mem0_reproduction"`
+		Validity struct {
+			Status string `json:"status"`
+			Valid  bool   `json:"valid"`
+		} `json:"validity"`
 	}
 	s.Require().NoError(json.Unmarshal(encoded, &manifest))
 	s.Equal(ArtifactSchemaVersionV3, manifest.SchemaVersion)
 	s.Equal(filepath.Join("memory", "team-note-ingest.json"), manifest.Files["team_note_ingest"])
 	s.Equal(filepath.Join("memory", "mem0-ingest.json"), manifest.Files["mem0_ingest"])
 	s.Equal(filepath.Join("memory", "private-sqlite-ingest.json"), manifest.Files["private_sqlite_ingest"])
+	s.Equal("validity.json", manifest.Files["validity_report"])
+	s.Equal("valid", manifest.Validity.Status)
+	s.True(manifest.Validity.Valid)
 	s.Empty(manifest.Mem0Reproduction.Level)
 	s.Equal("native_session_batch", manifest.Mem0Reproduction.IngestionUnit)
 	s.Equal("team_collaboration_v1", manifest.Mem0Reproduction.ExtractionProfile)

@@ -79,6 +79,13 @@ classified failure, timing, and a retry-specific artifact directory. Runner
 retries therefore update the Trial projection without destroying earlier raw
 execution evidence.
 
+Eval v3 adds a Validity Report after execution. The report concentrates
+comparative-acceptance policy behind one Module interface and rejects a Run
+when its Trial matrix, source coverage, memory mutation, recall observations,
+latest-Attempt artifacts, or resolved configuration provenance is incomplete.
+Artifact export preserves invalid evidence while the command returns a non-zero
+acceptance error.
+
 ## Ingestion and extraction flow
 
 ```mermaid

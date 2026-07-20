@@ -17,7 +17,7 @@ import (
 )
 
 const ArtifactSchemaVersion = "pax-eval-v2.10"
-const ArtifactSchemaVersionV3 = "pax-eval-v3.2"
+const ArtifactSchemaVersionV3 = "pax-eval-v3.3"
 const ArtifactSchemaVersionRecallV2 = "pax-recall-eval-v2.2"
 
 type SummaryRow struct {
@@ -178,14 +178,29 @@ func ExportArtifacts(directory string, run RunRecord, baselineArm string, format
 		"files":                   files,
 		"cost_summary":            CostTotals(results),
 	}
-	if run.Config.Version == "v3" {
-		reproduction, err := buildMem0Reproduction(directory, run, results)
-		if err != nil {
-			return err
-		}
-		manifest["mem0_reproduction"] = reproduction
+	if err := addProtocolManifestMetadata(directory, run, results, manifest); err != nil {
+		return err
 	}
 	return writeJSON(filepath.Join(directory, "artifacts.json"), manifest)
+}
+
+func addProtocolManifestMetadata(directory string, run RunRecord, results []TrialResult, manifest map[string]any) error {
+	if run.Config.Version != "v3" {
+		return nil
+	}
+	validity, found, err := loadOptionalJSONObject(filepath.Join(directory, "validity.json"))
+	if err != nil {
+		return err
+	}
+	if found {
+		manifest["validity"] = validity
+	}
+	reproduction, err := buildMem0Reproduction(directory, run, results)
+	if err != nil {
+		return err
+	}
+	manifest["mem0_reproduction"] = reproduction
+	return nil
 }
 
 // ExportTrialAttempts writes the append-only execution ledger independently of
@@ -320,9 +335,31 @@ func linkOptionalArtifacts(directory string, config Config, files map[string]str
 		}
 	}
 	if config.Version == "v3" {
-		return linkEvalV3MemoryReceipts(directory, files)
+		if err := linkEvalV3MemoryReceipts(directory, files); err != nil {
+			return err
+		}
+		if _, err := os.Stat(filepath.Join(directory, "validity.json")); err == nil {
+			files["validity_report"] = "validity.json"
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("inspect eval v3 validity report: %w", err)
+		}
 	}
 	return nil
+}
+
+func loadOptionalJSONObject(path string) (map[string]any, bool, error) {
+	input, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("read optional eval artifact %q: %w", filepath.Base(path), err)
+	}
+	value := make(map[string]any)
+	if err := json.Unmarshal(input, &value); err != nil {
+		return nil, false, fmt.Errorf("decode optional eval artifact %q: %w", filepath.Base(path), err)
+	}
+	return value, true, nil
 }
 
 func linkEvalV3MemoryReceipts(directory string, files map[string]string) error {

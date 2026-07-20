@@ -17,6 +17,7 @@ type manifestHeader struct {
 	Protocol             string `json:"protocol"`
 	DomainSessionBatches string `json:"domain_session_batches"`
 	FullDomainMessages   int    `json:"full_domain_messages"`
+	DatasetRevision      string `json:"dataset_revision"`
 }
 
 func LoadConfig(path string) (v2.Config, error) {

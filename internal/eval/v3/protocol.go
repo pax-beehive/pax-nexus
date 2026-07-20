@@ -63,6 +63,9 @@ func Validate(config v2.Config) error {
 	if config.BeforeRun == nil {
 		return fmt.Errorf("validate eval v3 config: before_run must construct full-domain memory")
 	}
+	if config.Judge == nil {
+		return fmt.Errorf("validate eval v3 config: judge is required for comparative acceptance")
+	}
 	if len(config.Arms) != len(architectureArms) {
 		return fmt.Errorf("validate eval v3 config: exactly three architecture arms are required")
 	}

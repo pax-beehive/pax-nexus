@@ -204,6 +204,7 @@ under `run.output_dir`:
 | --- | --- |
 | `trials.jsonl` | Lossless record for every case and arm |
 | `attempts.jsonl` | Append-only retry history with stage, failure class, timing, and artifact directory |
+| `validity.json` | Eval v3 comparative-acceptance decision over source, mutation, recall, Attempt artifacts, and config provenance |
 | `trials.csv` | Flattened trial identity, quality, ingest, recall activity, token, cost, latency, status, and answer fields |
 | `summary.csv` | Overall and per-category aggregates for every arm |
 | `pairwise.csv` | Team Note and Mem0 wins, losses, ties, F1 delta, lifts, and incremental cost versus control |

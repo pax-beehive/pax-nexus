@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 
@@ -68,7 +69,7 @@ func run(ctx context.Context, args []string, logger *slog.Logger) error {
 			return fmt.Errorf("load eval v3 judge input: %w", loadErr)
 		}
 		runRecord, judged, judgeErr := v2.JudgeExistingRun(ctx, v2.ProcessExecutor{}, logger, config, revision, v2.HydrateResults(results, cases))
-		exportErr := exportResults(config, runRecord, v2.RescoreResults(judged))
+		exportErr := exportResults(config, runRecord, cases, v2.RescoreResults(judged))
 		return errors.Join(judgeErr, exportErr)
 	}
 	if dsn == "" {
@@ -90,12 +91,24 @@ func run(ctx context.Context, args []string, logger *slog.Logger) error {
 	if runErr != nil && len(results) == 0 {
 		return runErr
 	}
-	exportErr := exportResults(config, runRecord, v2.RescoreResults(results))
+	exportErr := exportResults(config, runRecord, cases, v2.RescoreResults(results))
 	return errors.Join(runErr, exportErr)
 }
 
-func exportResults(config v2.Config, runRecord v2.RunRecord, results []v2.TrialResult) error {
-	return v2.ExportArtifacts(config.Run.OutputDir, runRecord, config.BaselineArm, config.OutputFormats(), results, func(writer io.Writer) error {
+func exportResults(config v2.Config, runRecord v2.RunRecord, cases []v2.Case, results []v2.TrialResult) error {
+	if err := os.MkdirAll(config.Run.OutputDir, 0o755); err != nil {
+		return fmt.Errorf("create eval v3 output directory: %w", err)
+	}
+	resolvedErr := v2.ExportResolvedConfig(filepath.Join(config.Run.OutputDir, "config.resolved.json"), config, runRecord.Runtime)
+	report, validityErr := v3.EvaluateValidity(config.Run.OutputDir, runRecord, cases, results)
+	var validityExportErr error
+	var gateErr error
+	if validityErr == nil {
+		validityExportErr = v3.ExportValidity(config.Run.OutputDir, report)
+		gateErr = v3.RequireValid(report)
+	}
+	artifactErr := v2.ExportArtifacts(config.Run.OutputDir, runRecord, config.BaselineArm, config.OutputFormats(), results, func(writer io.Writer) error {
 		return render.Report(runRecord, config.BaselineArm, results, writer)
 	})
+	return errors.Join(resolvedErr, validityErr, validityExportErr, artifactErr, gateErr)
 }

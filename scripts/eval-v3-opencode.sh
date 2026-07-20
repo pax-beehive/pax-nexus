@@ -156,6 +156,14 @@ ingest_domain() {
   while [ "${attempts}" -lt "${readiness_attempts}" ]; do
     ready="$(printf '%s' "SELECT CASE WHEN EXISTS (SELECT 1 FROM session_streams WHERE scope_id = :'scope_id') AND NOT EXISTS (SELECT 1 FROM session_streams WHERE scope_id = :'scope_id' AND (NOT complete OR extraction_cursor < last_sequence)) THEN 1 ELSE 0 END" | docker compose -p "${project_name}" -f "${compose_file}" exec -T postgres psql -U team_memory -d team_memory -v scope_id="${scope_id}" -At 2>/dev/null || true)"
     if [ "${ready:-0}" -eq 1 ] 2>/dev/null; then
+	  memory_items="$(printf '%s' "SELECT COUNT(*) FROM team_notes WHERE scope_id = :'scope_id'" | docker compose -p "${project_name}" -f "${compose_file}" exec -T postgres psql -U team_memory -d team_memory -v scope_id="${scope_id}" -At 2>/dev/null || true)"
+	  case "${memory_items}" in
+	    ''|*[!0-9]*) memory_items=0 ;;
+	  esac
+	  receipt_tmp="${marker_directory}/team-note-ingest.json.tmp"
+	  jq --argjson memory_items "${memory_items}" '. + {memory_items: $memory_items}' \
+	    "${marker_directory}/team-note-ingest.json" > "${receipt_tmp}"
+	  mv "${receipt_tmp}" "${marker_directory}/team-note-ingest.json"
 	  start_hint_recall_service
       printf '{"full_domain_ready":true,"scope_id":"%s"}\n' "${scope_id}"
       return

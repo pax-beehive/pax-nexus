@@ -41,7 +41,7 @@ Cases without reviewed supporting-event annotations report
 accuracy. The runner never silently relaxes an annotated case when no eligible
 Answering Agent exists.
 
-The artifact schema is `pax-eval-v3.2`. `trials.csv` and `trials.jsonl` record
+The artifact schema is `pax-eval-v3.3`. `trials.csv` and `trials.jsonl` record
 the paired answerer identity, seed, source-overlap status, strict-trial flag,
 and observed recall candidates, hits, and injected context items. `summary.csv` includes a `trial_class=strict_cross_agent` slice when
 annotated strict trials exist. `artifacts.json` links the three full-domain
@@ -57,6 +57,21 @@ available.
 `attempts.jsonl` is the append-only execution ledger. Its artifact references
 point to retry-specific raw logs under
 `trials/<case>/<arm>/attempts/<sequence>/`.
+
+`validity.json` uses schema `pax-eval-v3-validity-v1` and is the acceptance
+decision for comparative scoring. A valid report requires:
+
+- the complete, successfully judged three-arm Trial matrix;
+- full-domain source coverage in all three ingest receipts;
+- non-zero Team Note and Mem0 mutation plus complete private-SQLite materialization;
+- successful recall observations for both memory arms and no recall activity
+  in the no-memory arm;
+- non-empty consumer and judge artifacts for every latest Attempt;
+- a resolved configuration whose hash matches the durable Run.
+
+The artifact manifest links and embeds this report. An invalid run still
+exports available evidence, but `team-memory-eval-v3` exits non-zero and its
+accuracy or pairwise rows must not be presented as benchmark-quality.
 
 Eval v3 is the outer architecture comparison, not the recall-policy tuning
 loop. Before using it to validate a recall change, first improve the fixed

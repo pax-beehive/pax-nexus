@@ -1,6 +1,6 @@
 # Multi-Agent GroupMemBench Eval v3
 
-Status: Accepted; protocol and Attempt ledger implemented; product-use acceptance blocked by comparator validity
+Status: Accepted; protocol, Attempt ledger, and Validity Report implemented; no valid comparator cohort recorded yet
 
 Date: 2026-07-16
 
@@ -422,11 +422,14 @@ overwrote the prior result rather than preserving an append-only stage history.
 
 The Eval Validity and Attempt Ledger tranche implements this accepted ADR's
 visibility requirements; it is not a separate architectural decision. The
-append-only ledger now preserves every attempt's stage, timing, classified
-failure, and artifact directory. The remaining validity gate must reject
-comparative scoring when source coverage, memory mutation, recall observation,
-stage artifacts, or resolved configuration provenance is missing. Until those
-gates pass, no Mem0 or three-arm result is benchmark-quality.
+append-only ledger preserves every attempt's stage, timing, classified failure,
+and artifact directory. The `pax-eval-v3-validity-v1` report now rejects
+comparative scoring when the Trial matrix, source coverage, memory mutation,
+recall observation, latest-Attempt artifacts, or resolved configuration
+provenance is incomplete. Invalid runs retain `validity.json` and available raw
+artifacts, while the command returns a non-zero acceptance error. A fresh
+three-arm cohort must pass this gate before any Mem0 or PAX result is described
+as benchmark-quality.
 
 ## Consequences
 

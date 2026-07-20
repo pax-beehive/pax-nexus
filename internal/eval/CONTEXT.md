@@ -21,6 +21,13 @@ resume and paired comparison.
 One claimed execution of a Trial. Attempts are append-only and retain their
 sequence, last entered Stage, failure class, timing, and artifact references.
 
+**Validity Report**:
+The durable Eval v3 decision that states whether one Run may support a
+comparative score. It checks the complete Trial matrix, source coverage,
+observable memory mutation, recall observations, Attempt artifacts, and
+resolved configuration provenance. Invalid Runs retain artifacts but are not
+benchmark-quality.
+
 **Stage Fixture**:
 A fixed contract for one memory stage. It names required atoms, supporting
 Events, and forbidden or superseded information while adjacent stages are held
@@ -79,6 +86,8 @@ the observable rejection or budget reason.
 - A **Run** persists the full Case-by-Arm Trial matrix before execution.
 - A **Trial** contains one or more ordered **Trial Attempts**; retries append an
   Attempt and never replace prior execution evidence.
+- Eval v3 produces one **Validity Report** after all Trial Attempts finish and
+  before comparative artifacts are accepted.
 - A **Stage Fixture** may produce paired extraction and recall **Observations**.
 - A **Case** pins one **Recall Consumer**, **Observation Time**, and **Query
   Time** interpretation.
