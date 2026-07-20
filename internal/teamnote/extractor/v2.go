@@ -14,8 +14,8 @@ import (
 	"github.com/pax-beehive/pax-nexus/internal/teamnote"
 )
 
-const extractionProtocolV2RevisionClaimCardV1 = "claim-card-v1"
-const extractionProtocolV2RevisionClaimCardV2 = "claim-card-v2"
+const extractionProtocolV2RevisionClaimCardV1 = "claim-card-v1-temporal-deterministic"
+const extractionProtocolV2RevisionClaimCardV2 = "claim-card-v2-temporal-deterministic"
 
 // Extraction v2 separates one model response into explicit internal products:
 // grounded Claims, proposed State Decisions, and interaction observations.

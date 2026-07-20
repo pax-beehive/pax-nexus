@@ -125,8 +125,18 @@ func traceReviewsEvent(trace *extractor.TraceV2, eventID string) bool {
 			return true
 		}
 	}
+	for _, rejection := range trace.ClaimRejections {
+		if containsString(rejection.Claim.EvidenceEventIDs, eventID) {
+			return true
+		}
+	}
 	for _, decision := range trace.StateDecisions {
 		if containsString(decision.EvidenceEventIDs, eventID) {
+			return true
+		}
+	}
+	for _, rejection := range trace.DecisionRejections {
+		if decisionSupports(rejection.Decision, trace.Claims, []string{eventID}) {
 			return true
 		}
 	}

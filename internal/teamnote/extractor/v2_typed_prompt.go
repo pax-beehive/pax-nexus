@@ -1,6 +1,6 @@
 package extractor
 
-const extractionProtocolV2RevisionTypedCurrent = "v2-typed-2"
+const extractionProtocolV2RevisionTypedCurrent = "v2-typed-3-temporal-deterministic"
 
 const rollingSystemPromptV2Typed = `You extract atomic, short-lived collaboration
 state from session events in one JSON response. Each state-changing decision

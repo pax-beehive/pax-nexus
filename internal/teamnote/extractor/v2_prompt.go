@@ -4,9 +4,9 @@ package extractor
 // or reasoning contract changes. It is part of rolling episode compatibility,
 // independent of the operator-owned prompt version label.
 const (
-	extractionProtocolV2RevisionCurrent          = "v2-slim-4"
-	extractionProtocolV2RevisionInteractionSlim  = "v2-slim-3-interaction-slim"
-	extractionProtocolV2RevisionEvidenceFidelity = "v2-slim-6-evidence-fidelity-v1"
+	extractionProtocolV2RevisionCurrent          = "v2-slim-5-temporal-deterministic"
+	extractionProtocolV2RevisionInteractionSlim  = "v2-slim-4-interaction-slim-temporal-deterministic"
+	extractionProtocolV2RevisionEvidenceFidelity = "v2-slim-7-evidence-fidelity-v1-temporal-deterministic"
 	extractionProtocolV2RevisionSourceClause     = "v2-slim-7-source-clause-v1"
 )
 
