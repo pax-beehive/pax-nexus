@@ -103,6 +103,7 @@ const (
 	RejectRelationRelevanceGate   RecallRejectReason = "relation_relevance_gate"
 	RejectRelationMarginalUtility RecallRejectReason = "relation_marginal_utility"
 	RejectUncoveredRelationCost   RecallRejectReason = "uncovered_relation_cost"
+	RejectSupersededState         RecallRejectReason = "superseded_state"
 )
 
 // RecallRejection records why one available candidate was not planned for
@@ -155,12 +156,25 @@ func PlanRecall(candidates []RecallCandidate, request RecallRequest, policy Reca
 	trace := initializeRecallTrace(
 		candidates, ranked, request, intent, observationTime, evidenceThreshold(policy), lanes, rejections,
 	)
-	trace.PlanVersion = GeneralRecallV3RelationUtilityPlanVersion
+	ranked, finalStateRejections := selectFinalStateFamilies(ranked, intent)
+	for _, rejection := range finalStateRejections {
+		recordRecallRejection(&trace, rejection)
+	}
+	ranked, duplicateRejections := selectRankedDistinctFacts(ranked, policy, intent)
+	for _, rejection := range duplicateRejections {
+		recordRecallRejection(&trace, rejection)
+	}
+	trace.PlanVersion = GeneralRecallV3FinalStatePlanVersion
 	if policy.DisableRelationMarginalUtility {
 		trace.PlanVersion = GeneralRecallV3LegacyRelationPlanVersion
 	}
-	allNotes := recallRelationEligibleNotes(candidates, intent, observationTime)
+	relationCandidates, _ := selectFinalStateFamilies(candidates, intent)
+	allNotes := recallRelationEligibleNotes(relationCandidates, intent, observationTime)
 	relationPlans := traceRecallRelations(&trace, ranked, allNotes, request, policy)
+	ranked, selectionRejections := orderRecallCandidatesByCoverage(ranked, relationPlans, request, intent)
+	for _, rejection := range selectionRejections {
+		recordRecallRejection(&trace, rejection)
+	}
 	planned := make([]PlannedRecall, 0, len(ranked))
 	usedTokens := 0
 	selectedNotes := 0

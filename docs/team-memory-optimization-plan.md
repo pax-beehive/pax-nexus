@@ -40,7 +40,7 @@ they do not each require a new ADR.
 | Implicit State Review v1 | [Extraction v2](./decisions/2026-07-16-extraction-v2.md) | Rejected for promotion; it recovered one implicit-state Atom but regressed two baseline Atoms and increased admitted Notes from 12 to 19. |
 | Atom-Level Extraction Loss Attribution | [Extraction v2](./decisions/2026-07-16-extraction-v2.md) | Implemented; extraction eval exports one first-loss entry per required Atom. |
 | Eval Validity and Attempt Ledger | [Multi-Agent GroupMemBench Eval v3](./decisions/2026-07-16-multi-agent-groupmembench-eval-v3.md) | Implemented; append-only Attempts and the comparative Validity Report now reject incomplete or unobservable runs. |
-| Budget-Aware Final-State Selection | [General Recall v3](./decisions/2026-07-16-general-recall-v3-optimization.md) | Planned; BM25 improved candidate availability without improving delivered recall. |
+| Budget-Aware Final-State Selection | [General Recall v3](./decisions/2026-07-16-general-recall-v3-optimization.md) | Planner implemented; lane-local atom recall and unique-lane contribution reporting remain before tranche completion. |
 | Durable Historical Recall | [General Recall v3](./decisions/2026-07-16-general-recall-v3-optimization.md) | Implemented; PostgreSQL supplies recorded-visible, revision-authorized candidates for `as_of`, `history`, and `changes_since`, while replay independently exports the recorded revision ledger as its extraction observation. |
 | Hint selectivity/query utility | [Hint Recall v0](./decisions/2026-07-16-hint-recall-v0.md) | Evaluation-only; the real-Agent pilot had no accuracy lift and used 14.9 times the passive input tokens. |
 | Claim Card v1/v2 | [v1](./decisions/2026-07-19-claim-card-v1.md), [v2](./decisions/2026-07-19-claim-card-v2.md) | Rejected; both fixed canaries produced zero of three atoms. |
@@ -87,6 +87,17 @@ After source-clause and temporal gates pass, the next independent fidelity
 slice may examine whether whole-body update replacement supersedes away
 previously retained answer-bearing qualifiers.
 
+Implemented on 2026-07-20: source-clause extraction now carries its validated
+transition authority beside, rather than inside, the Candidate. On update,
+deterministic admission requires protected dates, values, conditions,
+negation/modality, and responsibility clauses to remain in the complete new
+rendering unless an exact cited source clause explicitly authorizes their
+replacement. Ambiguous destructive revisions quarantine the Extraction Run
+without mutating the current note. Accepted revisions retain prior evidence
+and related-subject provenance. Transition authority participates in the
+immutable candidate checksum, while the external Candidate schema remains
+unchanged.
+
 First canary result: `evidence-fidelity-v1` matched the `interaction-slim`
 baseline at 2/3 atoms but increased leakage from one item to two, decision
 rejections from 8 to 16, and unreviewed Events from 6 to 13. The candidate is
@@ -97,7 +108,7 @@ Events cannot launder proposal-only ownership into canonical state. See the
 
 ## Tranche 2: Extraction Execution Reliability
 
-Status: Implemented
+Status: Planner implemented; evaluation reporting remains
 
 Concentrate provider deadlines, error classification, bounded retries,
 response budgets, and provider-call telemetry in the Extraction Execution
@@ -190,13 +201,23 @@ passing the gate.
 
 ## Tranche 4: Budget-Aware Final-State Selection
 
-Status: Planned
+Status: Implemented
 
 Keep `RecallNotes` unchanged and place selection behind `PlanRecall`. Optimize
 for uncovered answer-bearing facts per token, final-state evidence, and
 same-family deduplication. Add lane-local atom recall and unique lane
 contribution to replay reports. Do not increase the global candidate limit or
 lower the semantic threshold from one case.
+
+Implemented on 2026-07-20. Current-mode planning first collapses candidates by
+canonical Note ID or durable key and keeps the highest revision/effective
+state; `as_of`, `history`, and `changes_since` retain their historical chains.
+The planner then compares primary-plus-relation bundles by uncovered requested
+fact slots before the existing token and item packing gates. Equal-gain cases
+preserve the established evidence/ranking order, avoiding a recall regression
+from token efficiency alone. Replay fixtures now retain the durable note key,
+and traces record superseded-family rejection separately from ordinary budget
+drops. No retrieval threshold or candidate limit changed.
 
 ## Tranche 5: Durable Historical Recall
 

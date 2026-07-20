@@ -141,6 +141,12 @@ func (s *admissionSuite) TestSourceClauseAdmissionValidatesExactAtomicEvidence()
 
 			s.Require().NoError(err)
 			s.Len(result.Candidates, test.wantNotes)
+			if test.wantNotes == 1 {
+				s.Require().Len(result.TransitionAuthorities, 1)
+				s.Equal(result.Candidates[0].ID, result.TransitionAuthorities[0].CandidateID)
+				s.Require().Len(result.TransitionAuthorities[0].EvidenceClauses, 1)
+				s.Equal(test.clause, result.TransitionAuthorities[0].EvidenceClauses[0].Quote)
+			}
 			if test.wantCause != "" {
 				s.Require().Len(result.Trace.DecisionRejections, 1)
 				s.Contains(result.Trace.DecisionRejections[0].Reason, test.wantCause)

@@ -1,6 +1,6 @@
 # General Recall v3 Optimization
 
-Status: Accepted; core planner and durable historical retrieval implemented; final-state packing remains a follow-up
+Status: Accepted; core planner and durable historical retrieval implemented; final-state planner implemented with reporting follow-up
 
 Date: 2026-07-16
 
@@ -617,6 +617,16 @@ Extraction Observation before applying recall authorization, scope, delivery,
 and query gates to candidates. Later-recorded revisions cannot leak into an
 earlier fixture, and retrieval misses remain distinct from extraction misses.
 This is contract-correctness evidence, not an end-to-end answer-quality claim.
+
+The final-state packing follow-up was completed on 2026-07-20. `PlanRecall`
+now removes stale members of the same canonical Note family for current recall
+before relation expansion and budget packing, while explicit historical modes
+retain revision chains. Primary notes and their authorized one-hop relations
+are selected by incremental coverage of requested answer-bearing fact slots;
+ties retain the existing evidence-aware rank. Replay candidates persist both
+canonical Note ID and durable key so the decision is deterministic on fixed
+fixtures. The change adds no wider retrieval and makes no end-to-end accuracy
+claim until a fixed replay and paid cohort demonstrate one.
 
 Known limits remain explicit:
 

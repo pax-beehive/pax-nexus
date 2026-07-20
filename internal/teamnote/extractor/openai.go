@@ -337,9 +337,15 @@ func normalizeCandidates(result *Result, slice sessionlake.Slice, candidateLimit
 	allEvents := stringSet(eventIDs(slice.Events))
 	newEvents := stringSet(slice.NewEventIDs)
 	kept := make([]teamnote.Candidate, 0, len(result.Candidates))
+	keptAuthorities := make([]teamnote.TransitionAuthority, 0, len(result.Candidates))
 	for index := range result.Candidates {
 		candidate := result.Candidates[index]
 		candidate.ID = "extract-" + checksum + "-" + strconv.Itoa(index+1)
+		var authority teamnote.TransitionAuthority
+		if index < len(result.TransitionAuthorities) {
+			authority = result.TransitionAuthorities[index]
+			authority.CandidateID = candidate.ID
+		}
 		candidate.Origin = slice.Actor
 		candidate.IdentityRef = strings.TrimSpace(candidate.IdentityRef)
 		// Audience is an authorization boundary owned by the server, not a
@@ -373,6 +379,9 @@ func normalizeCandidates(result *Result, slice sessionlake.Slice, candidateLimit
 		candidate.ThreadRef = threadRef
 		candidate.SourceOccurredAt = latestEvidenceTime(candidate.EvidenceEventIDs, slice.Events)
 		kept = append(kept, candidate)
+		if index < len(result.TransitionAuthorities) {
+			keptAuthorities = append(keptAuthorities, authority)
+		}
 	}
 	if candidateLimit == 0 {
 		candidateLimit = maxCandidatesPerSlice
@@ -384,8 +393,12 @@ func normalizeCandidates(result *Result, slice sessionlake.Slice, candidateLimit
 			})
 		}
 		kept = kept[:candidateLimit]
+		if len(keptAuthorities) > candidateLimit {
+			keptAuthorities = keptAuthorities[:candidateLimit]
+		}
 	}
 	result.Candidates = kept
+	result.TransitionAuthorities = keptAuthorities
 	return nil
 }
 

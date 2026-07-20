@@ -89,10 +89,11 @@ const (
 )
 
 type Result struct {
-	Candidates    []teamnote.Candidate
-	Usage         Usage
-	Model         string
-	PromptVersion string
+	Candidates            []teamnote.Candidate
+	TransitionAuthorities []teamnote.TransitionAuthority
+	Usage                 Usage
+	Model                 string
+	PromptVersion         string
 	// ExtractionVersion identifies the response protocol that produced this
 	// result. Runtime idempotency uses it to keep v2 shadow or rollout results
 	// from replaying a v1 extraction run for the same Session Slice.

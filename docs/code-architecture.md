@@ -134,6 +134,7 @@ and PostgreSQL persistence. It owns:
 
 - stable input identity validation;
 - deterministic candidate-batch checksums;
+- source-clause Transition Authority used by qualifier-preserving revisions;
 - completed versus quarantined replay behavior;
 - the rule that a durable result wins over recomputed candidates and usage;
 - classification of deterministic errors that should be quarantined.
@@ -145,6 +146,11 @@ quarantine behavior cannot drift between memory tests and PostgreSQL.
 An Extraction Run is atomic: a candidate batch is admitted as one decision. It
 must not be decomposed into independent adapter calls, because that would lose
 the run-level idempotency and quarantine contract.
+
+For source-clause extraction, Transition Authority travels beside the semantic
+Candidate and participates in the candidate checksum. Shared admission rejects
+an update that silently drops a protected value, condition, modality, or role
+unless an exact validated clause explicitly authorizes that transition.
 
 ## Rolling extractor and concurrency ownership
 

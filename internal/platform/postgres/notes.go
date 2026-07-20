@@ -240,7 +240,14 @@ func (s *NoteStore) applyRunCandidate(ctx context.Context, tx pgx.Tx, scopeID st
 	if err != nil {
 		return teamnote.Note{}, err
 	}
-	note, err := teamnote.AdmitCandidate(s.policy, s.clock.Now(), candidate, run.Evidence, current)
+	var authority *teamnote.TransitionAuthority
+	for index := range run.TransitionAuthorities {
+		if run.TransitionAuthorities[index].CandidateID == candidate.ID {
+			authority = &run.TransitionAuthorities[index]
+			break
+		}
+	}
+	note, err := teamnote.AdmitCandidateWithAuthority(s.policy, s.clock.Now(), candidate, run.Evidence, current, authority)
 	if err != nil {
 		return teamnote.Note{}, err
 	}

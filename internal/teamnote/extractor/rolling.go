@@ -55,6 +55,7 @@ func (e *OpenAI) extractRollingWith(ctx context.Context, slice sessionlake.Slice
 			mapResult(&groupResult, group.slice)
 		}
 		result.Candidates = append(result.Candidates, groupResult.Candidates...)
+		result.TransitionAuthorities = append(result.TransitionAuthorities, groupResult.TransitionAuthorities...)
 		result.SourceSpans = append(result.SourceSpans, groupResult.SourceSpans...)
 		mergeTraceV2(&result, groupResult.Trace)
 		addUsage(&result.Usage, groupResult.Usage)

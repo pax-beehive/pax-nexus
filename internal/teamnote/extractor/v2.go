@@ -248,10 +248,12 @@ func decodeExtractionContentV2(content string) (Result, error) {
 // decisions are dropped with trace rejections instead of failing the slice.
 func mapExtractionV2(result *Result, slice sessionlake.Slice) {
 	mapExtractionV2With(result, slice, mapStandardDecision)
+	result.TransitionAuthorities = nil
 }
 
 func mapExtractionClaimCardV1(result *Result, slice sessionlake.Slice) {
 	mapExtractionV2With(result, slice, mapClaimCardDecision)
+	result.TransitionAuthorities = nil
 }
 
 type stateDecisionMapper func(
@@ -299,6 +301,7 @@ func mapExtractionV2With(result *Result, slice sessionlake.Slice, mapDecisionWit
 	trace.InteractionObservations = keptInteractions
 
 	candidates := make([]teamnote.Candidate, 0, len(trace.StateDecisions))
+	authorities := make([]teamnote.TransitionAuthority, 0, len(trace.StateDecisions))
 	keptDecisions := trace.StateDecisions[:0]
 	for _, decision := range trace.StateDecisions {
 		decision = normalizeDecisionTemporal(decision)
@@ -310,13 +313,27 @@ func mapExtractionV2With(result *Result, slice sessionlake.Slice, mapDecisionWit
 		keptDecisions = append(keptDecisions, decision)
 		if candidate != nil {
 			candidates = append(candidates, *candidate)
+			authorities = append(authorities, transitionAuthority(decision))
 		}
 	}
 	trace.StateDecisions = keptDecisions
 	traceCoverage(trace, slice, admittedClaims)
 	trace.WouldVerify = wouldVerifyTriggers(trace)
 	result.Candidates = candidates
+	result.TransitionAuthorities = authorities
 	result.ExtractionVersion = ExtractionVersionV2
+}
+
+func transitionAuthority(decision StateDecision) teamnote.TransitionAuthority {
+	clauses := make([]teamnote.TransitionEvidenceClause, 0, len(decision.EvidenceClauses))
+	for _, clause := range decision.EvidenceClauses {
+		clauses = append(clauses, teamnote.TransitionEvidenceClause{EventID: clause.EventID, Quote: clause.Quote})
+	}
+	return teamnote.TransitionAuthority{
+		PriorStateRef:   decision.PriorStateRef,
+		EvidenceClauses: clauses,
+		ReasonCodes:     append([]string(nil), decision.ReasonCodes...),
+	}
 }
 
 func mapStandardDecision(

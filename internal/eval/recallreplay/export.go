@@ -202,7 +202,7 @@ func pinCandidates(candidates []teamnote.RecallCandidate) []Candidate {
 	pinned := make([]Candidate, 0, len(candidates))
 	for _, candidate := range candidates {
 		pinned = append(pinned, Candidate{
-			ID: candidate.ID, CanonicalNoteID: candidate.CanonicalNoteID,
+			ID: candidate.ID, CanonicalNoteID: candidate.CanonicalNoteID, Key: candidate.Key,
 			Kind: string(candidate.Kind), Subject: candidate.Subject, Body: candidate.Body,
 			TaskRef: candidate.TaskRef, ThreadRef: candidate.ThreadRef,
 			Origin: Actor{

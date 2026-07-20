@@ -162,7 +162,8 @@ func (a *App) applyExtractionRun(ctx context.Context, slice sessionlake.Slice, r
 		FromSequence: slice.FromSequence, ToSequence: slice.ToSequence,
 		InputChecksum: slice.InputChecksum, Model: result.Model, PromptVersion: result.PromptVersion,
 		InputTokens: result.Usage.InputTokens, OutputTokens: result.Usage.OutputTokens,
-		Candidates: result.Candidates, Evidence: slice.Events, Rejections: result.Rejections,
+		Candidates: result.Candidates, TransitionAuthorities: result.TransitionAuthorities,
+		Evidence: slice.Events, Rejections: result.Rejections,
 	}
 	if _, err := a.config.NoteStore.ApplyExtractionRun(ctx, scopeID, run); err != nil {
 		return fmt.Errorf("apply extraction run %q: %w", run.ID, err)

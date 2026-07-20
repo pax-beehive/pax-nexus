@@ -423,6 +423,80 @@ func (s *ledgerSuite) TestExtractionRunQuarantinesDeterministicAdmissionFailure(
 	s.Empty(recall.Items)
 }
 
+func (s *ledgerSuite) TestRevisionAdmissionQualifierTransitions() {
+	tests := []struct {
+		name         string
+		initialBody  string
+		eventContent string
+		updatedBody  string
+		wantError    bool
+	}{
+		{name: "complete revision preserves qualifiers", updatedBody: "Alice owns deploy Monday only after QA approval."},
+		{name: "partial revision is quarantined", updatedBody: "Deploy Monday.", wantError: true},
+		{
+			name: "explicit numeric transition replaces prior value", initialBody: "Deploy threshold is 42.",
+			eventContent: "Deploy threshold changed from 42 to 43.", updatedBody: "Deploy threshold is 43.",
+		},
+	}
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			ledger := teamnote.NewLedger(teamnote.DefaultTTLPolicy(), s.clock)
+			initialBody := test.initialBody
+			if initialBody == "" {
+				initialBody = "Alice owns deploy Friday only after QA approval."
+			}
+			eventContent := test.eventContent
+			if eventContent == "" {
+				eventContent = "Deploy moved from Friday to Monday."
+			}
+			createdEvent := producerEvent("event-qualified-create", "Alice owns deploy. Deploy Friday only after QA approval.")
+			created, err := ledger.Apply(context.Background(), teamnote.Candidate{
+				ID: "qualified-create", Action: teamnote.ActionCreate, Kind: teamnote.KindStatus,
+				Subject: "deploy", Body: initialBody, TaskRef: "release-42",
+				Origin: createdEvent.Actor, EvidenceEventIDs: []string{createdEvent.ID}, RelatedSubjects: []string{"QA"},
+			}, []teamnote.SessionEvent{createdEvent})
+			s.Require().NoError(err)
+
+			updatedEvent := producerEvent("event-qualified-update", eventContent)
+			updatedEvent.Sequence = 2
+			run := teamnote.ExtractionRun{
+				ID: "qualified-update-run", Actor: updatedEvent.Actor, FromSequence: 2, ToSequence: 2,
+				InputChecksum: "qualified-update-input", Model: "extractor", PromptVersion: "source-clause-v1",
+				Candidates: []teamnote.Candidate{{
+					ID: "qualified-update", Action: teamnote.ActionUpdate, Kind: teamnote.KindStatus,
+					Subject: "deploy", Body: test.updatedBody, TaskRef: "release-42",
+					Origin: updatedEvent.Actor, EvidenceEventIDs: []string{updatedEvent.ID},
+				}},
+				TransitionAuthorities: []teamnote.TransitionAuthority{{
+					CandidateID: "qualified-update",
+					EvidenceClauses: []teamnote.TransitionEvidenceClause{{
+						EventID: updatedEvent.ID, Quote: updatedEvent.Content,
+					}},
+				}},
+				Evidence: []teamnote.SessionEvent{updatedEvent},
+			}
+			admitted, applyErr := ledger.ApplyRun(context.Background(), run)
+			if test.wantError {
+				s.Require().ErrorIs(applyErr, teamnote.ErrExtractionRunQuarantined)
+				s.Require().ErrorIs(applyErr, teamnote.ErrDestructiveRevision)
+				envelope, recallErr := ledger.Recall(context.Background(), teamnote.RecallRequest{
+					Actor:   teamnote.Actor{UserID: "owner", AgentID: "consumer", SessionID: "consumer-session"},
+					TaskRef: "release-42", Query: "deploy", TokenBudget: 128,
+				})
+				s.Require().NoError(recallErr)
+				s.Require().Len(envelope.Items, 1)
+				s.Contains(envelope.Items[0], "Friday only after QA approval")
+				return
+			}
+			s.Require().NoError(applyErr)
+			s.Require().Len(admitted, 1)
+			s.Equal(created.ID, admitted[0].ID)
+			s.Equal([]string{createdEvent.ID, updatedEvent.ID}, admitted[0].EvidenceEventIDs)
+			s.Equal([]string{"QA"}, admitted[0].RelatedSubjects)
+		})
+	}
+}
+
 func (s *ledgerSuite) TestAudienceAndBudgetAreEnforced() {
 	evidence := producerEvent("event-handoff", "Consumer A owns the handoff.")
 	_, err := s.ledger.Apply(context.Background(), teamnote.Candidate{

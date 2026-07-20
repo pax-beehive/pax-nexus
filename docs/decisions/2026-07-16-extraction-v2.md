@@ -629,6 +629,28 @@ deterministic Candidate rejections are not retried by default. Durable Episode
 replay remains the resume mechanism; exactly-once charging between an HTTP
 success and Episode persistence is not claimed.
 
+## Qualifier-preserving revision admission addendum (2026-07-20)
+
+Whole-body Candidate updates must be complete renderings of the resulting
+state. For the production source-clause strategy, the extractor carries the
+validated exact source clauses, prior-state reference, and reason codes as
+internal Transition Authority beside the unchanged Candidate schema.
+Deterministic admission protects answer-changing dates and exact values,
+conditions and exceptions, negation and modality, and responsibility clauses.
+A protected qualifier may disappear only when an exact cited clause contains
+an explicit transition and refers to the affected prior value. Otherwise the
+revision is destructive and the complete Extraction Run is quarantined without
+changing the current Note.
+
+Accepted updates union prior and new evidence and related-subject provenance,
+so retained qualifiers do not lose their support merely because the latest
+source clause changed another slot. Resolve remains an explicit lifecycle
+transition and is exempt from update preservation. Transition Authority is
+included in the Extraction Run candidate checksum, making retry and replay
+identity sensitive to the authority used for admission. This is deliberately
+conservative: ambiguous partial updates are rejected rather than repaired by
+inventing a merged sentence.
+
 Rejected alternatives were wall-clock admission, because replay outcomes
 drift; whole-Event modality checks, because unrelated clauses can authorize a
 proposal; and mandatory verifier calls, because they violate the single-call
