@@ -74,8 +74,16 @@ func (s *admissionSuite) TestSourceClauseAdmissionValidatesExactAtomicEvidence()
 			clause: "Compliance owns the exceptions log", wantNotes: 1,
 		},
 		{
+			name: "broad compound clause", content: "Compliance owns the exceptions log, and Reporting owns the audit log.",
+			clause: "Compliance owns the exceptions log, and Reporting owns the audit log.", wantCause: "atomic clause",
+		},
+		{
 			name: "exact value with decimal", content: "The alert threshold is 1.5%.",
 			clause: "The alert threshold is 1.5%.", wantNotes: 1,
+		},
+		{
+			name: "decimal cannot be truncated", content: "The alert threshold is 1.5%.",
+			clause: "The alert threshold is 1", wantCause: "atomic clause",
 		},
 		{
 			name: "abbreviation does not split clause", content: "Dr. Smith owns the exceptions log.",
@@ -84,6 +92,10 @@ func (s *admissionSuite) TestSourceClauseAdmissionValidatesExactAtomicEvidence()
 		{
 			name: "url does not split clause", content: "The runbook is https://ops.example.com/runbook.",
 			clause: "The runbook is https://ops.example.com/runbook.", wantNotes: 1,
+		},
+		{
+			name: "url cannot be truncated", content: "The runbook is https://ops.example.com/runbook.",
+			clause: "The runbook is https://ops", wantCause: "atomic clause",
 		},
 	}
 

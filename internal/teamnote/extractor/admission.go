@@ -101,7 +101,7 @@ func sourceClauseIsNonCommittal(quote string) bool {
 }
 
 func isAtomicSourceClause(content, quote string) bool {
-	if hasInternalSourceClauseBoundary(quote) {
+	if hasInternalSourceClauseBoundary(quote) || hasInternalIndependentConjunction(quote) {
 		return false
 	}
 	searchFrom := 0
@@ -134,14 +134,25 @@ func hasInternalSourceClauseBoundary(quote string) bool {
 }
 
 func sourceClauseBoundaryBefore(content string, index int) bool {
-	prefix := strings.TrimSpace(content[:index])
-	if prefix == "" {
+	prefixEnd := index
+	for prefixEnd > 0 {
+		last, size := utf8.DecodeLastRuneInString(content[:prefixEnd])
+		if !unicode.IsSpace(last) {
+			break
+		}
+		prefixEnd -= size
+	}
+	if prefixEnd == 0 {
 		return true
 	}
-	last, _ := utf8.DecodeLastRuneInString(prefix)
+	last, size := utf8.DecodeLastRuneInString(content[:prefixEnd])
+	if isSourceClauseBoundary(content, prefixEnd-size, last) {
+		return true
+	}
 	if isInlineSourceClauseDelimiter(last) {
 		return true
 	}
+	prefix := content[:prefixEnd]
 	return endsWithSourceConjunction(strings.ToLower(prefix))
 }
 
@@ -152,21 +163,65 @@ func sourceClauseBoundaryAfter(content string, index int) bool {
 			return true
 		}
 	}
-	suffix := strings.TrimSpace(content[index:])
-	if suffix == "" {
+	suffixStart := index
+	for suffixStart < len(content) {
+		first, size := utf8.DecodeRuneInString(content[suffixStart:])
+		if !unicode.IsSpace(first) {
+			break
+		}
+		suffixStart += size
+	}
+	if suffixStart == len(content) {
 		return true
 	}
-	first, _ := utf8.DecodeRuneInString(suffix)
+	first, _ := utf8.DecodeRuneInString(content[suffixStart:])
+	if isSourceClauseBoundary(content, suffixStart, first) {
+		return true
+	}
 	if isInlineSourceClauseDelimiter(first) {
 		return true
 	}
+	suffix := content[suffixStart:]
 	return startsWithSourceConjunction(strings.ToLower(suffix))
 }
 
 func isInlineSourceClauseDelimiter(character rune) bool {
-	return character == ',' || character == ':' || character == ';' || character == '.' ||
-		character == '!' || character == '?' || character == '\n' || character == '，' ||
-		character == '：' || character == '；' || character == '。' || character == '！' || character == '？'
+	return character == ',' || character == ':' || character == '，' || character == '：'
+}
+
+func hasInternalIndependentConjunction(quote string) bool {
+	trimmed := strings.TrimSpace(quote)
+	lower := strings.ToLower(trimmed)
+	for _, conjunction := range []string{" and ", " but ", " while ", " however "} {
+		searchFrom := 0
+		for searchFrom < len(lower) {
+			relative := strings.Index(lower[searchFrom:], conjunction)
+			if relative < 0 {
+				break
+			}
+			index := searchFrom + relative
+			rightStart := index + len(conjunction)
+			if !sourceClauseIsNonCommittal(trimmed[:index]) && beginsIndependentClause(trimmed[rightStart:]) {
+				return true
+			}
+			searchFrom = rightStart
+		}
+	}
+	return false
+}
+
+func beginsIndependentClause(value string) bool {
+	value = strings.TrimLeftFunc(value, func(character rune) bool {
+		return unicode.IsSpace(character) || character == ','
+	})
+	if value == "" {
+		return false
+	}
+	first, _ := utf8.DecodeRuneInString(value)
+	if !unicode.IsUpper(first) {
+		return false
+	}
+	return len(strings.Fields(value)) >= 2
 }
 
 func endsWithSourceConjunction(value string) bool {
