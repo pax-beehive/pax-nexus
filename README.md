@@ -207,7 +207,8 @@ and pgvector PostgreSQL in one unique Compose project. The test enrolls two
 Agents, exchanges their credentials, writes an Observation, waits for River and
 extraction, then verifies passive recall through the public HTTP API. PostgreSQL
 uses a project-scoped temporary volume; the script runs `docker compose down -v`
-and verifies that the volume was removed on both success and failure.
+and verifies that the volume was removed on both success and failure. It refuses
+to start if an overridden Compose project name already owns any resources.
 
 ## Identity assumption
 
