@@ -27,6 +27,7 @@ type Handler struct {
 	resolver    ScopeResolver
 	credentials CredentialLifecycle
 	memory      recall.Service
+	channel     ChannelLifecycle
 	logger      *slog.Logger
 }
 
@@ -36,6 +37,14 @@ type CredentialLifecycle interface {
 	ExchangeEnrollment(context.Context, string) (onprem.IssuedCredential, error)
 	RotateCredential(context.Context, onprem.Principal) (onprem.IssuedCredential, error)
 	RevokeCredential(context.Context, onprem.Principal, string) error
+}
+
+type ChannelLifecycle interface {
+	Send(context.Context, onprem.Principal, onprem.SendEnvelopeRequest) (onprem.ChannelEnvelope, error)
+	List(context.Context, onprem.Principal, onprem.ListEnvelopesFilter) ([]onprem.ChannelEnvelope, error)
+	Get(context.Context, onprem.Principal, string) (onprem.ChannelEnvelope, error)
+	Accept(context.Context, onprem.Principal, string) (onprem.ChannelEnvelope, error)
+	Archive(context.Context, onprem.Principal, string) (onprem.ChannelEnvelope, error)
 }
 
 func New(runtime teamnote.Runtime, resolver ScopeResolver, logger *slog.Logger) (*Handler, error) {
@@ -49,13 +58,14 @@ func NewOnPrem(
 	runtime teamnote.Runtime,
 	credentials CredentialLifecycle,
 	memory recall.Service,
+	channel ChannelLifecycle,
 	logger *slog.Logger,
 ) (*Handler, error) {
-	if runtime == nil || credentials == nil || memory == nil || logger == nil {
-		return nil, fmt.Errorf("create on-prem HTTP handler: runtime, credentials, memory, and logger are required")
+	if runtime == nil || credentials == nil || memory == nil || channel == nil || logger == nil {
+		return nil, fmt.Errorf("create on-prem HTTP handler: runtime, credentials, memory, channel, and logger are required")
 	}
 	return &Handler{
-		runtime: runtime, resolver: StaticAPIKeys{}, credentials: credentials, memory: memory, logger: logger,
+		runtime: runtime, resolver: StaticAPIKeys{}, credentials: credentials, memory: memory, channel: channel, logger: logger,
 	}, nil
 }
 

@@ -100,3 +100,43 @@ func _searchmemoryMw() []app.HandlerFunc {
 	// your code...
 	return nil
 }
+
+func _channelMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _listchannelenvelopesMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _sendchannelenvelopeMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _envelopesMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _getchannelenvelopeMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _envelope_idMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _acceptchannelenvelopeMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _archivechannelenvelopeMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}

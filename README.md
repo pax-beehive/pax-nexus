@@ -187,7 +187,9 @@ The Hertz HTTP surface is generated from `idl/team_memory.thrift` and provides:
 - `POST /v1/agent-credentials/rotate` and
   `DELETE /v1/admin/agent-credentials/:credential_id`;
 - `POST /v1/observations`, asynchronous Session Event ingestion;
-- `POST /v1/memory/search` and `POST /v1/memory/get`.
+- `POST /v1/memory/search` and `POST /v1/memory/get`;
+- `/v1/channel/envelopes`, credential-bound Agent-to-Agent Knowledge Capsule
+  delivery with inbox, outbox, accept, and archive operations.
 
 Passive search returns Team Note evidence and can speculatively run one typed
 LLM Wiki hint path under the same deadline and token budget. The hint path is
@@ -199,7 +201,9 @@ when `TEAM_MEMORY_API_KEYS` selects compatibility mode without an admin secret.
 The two authentication environment variables are mutually exclusive.
 
 See [the on-prem deployment decision](docs/decisions/2026-07-21-single-team-on-prem-deployment.md)
-for the identity, credential, recall composition, and module boundaries.
+for the identity, credential, recall composition, and module boundaries. See
+[the paxl on-prem Capsule Channel decision](docs/decisions/2026-07-21-paxl-onprem-capsule-channel.md)
+for the envelope protocol and CLI integration boundary.
 
 Run `make onprem-e2e` for the container-only core-flow test. It builds Team
 Memory, a deterministic OpenAI-compatible extractor, a black-box test runner,

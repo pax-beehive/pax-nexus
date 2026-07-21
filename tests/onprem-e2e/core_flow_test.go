@@ -81,9 +81,84 @@ func (s *coreFlowSuite) TestAgentObservationBecomesRecallableTeamNote() {
 	s.Equal("completed", stringField(s.T(), teamNoteTrace, "status"))
 }
 
+func (s *coreFlowSuite) TestKnowledgeCapsuleChannelEndToEnd() {
+	senderKey := s.enrollAgentWithPermissions("channel-sender", []string{"channel_send"})
+	recipientKey := s.enrollAgentWithPermissions("channel-recipient", []string{"channel_receive"})
+	otherRecipientKey := s.enrollAgentWithPermissions("channel-other", []string{"channel_receive"})
+	payload := map[string]any{
+		"schema_version": "paxl.envelope_payload.knowledge_capsule.v2",
+		"capsule": map[string]any{
+			"capsule_id": "kcap-e2e", "source_session_id": "codex:e2e-source",
+			"source_agent": "codex", "keyword": "onprem", "title": "On-prem handoff",
+			"summary": "Channel delivery", "content": "The capsule crossed the on-prem channel.",
+			"status": "active", "truncated": false, "original_estimated_chars": 44,
+		},
+		"route": map[string]any{
+			"match_type": "project", "match_value": "team-memory", "target_agent": "codex",
+		},
+	}
+	request := map[string]any{
+		"to_agent_id": "channel-recipient", "payload_type": "knowledge_capsule",
+		"payload_json": payload, "message": "review", "idempotency_key": "channel-e2e-1",
+	}
+
+	created := s.request(http.MethodPost, "/v1/channel/envelopes", senderKey, request)
+	envelope := objectField(s.T(), created, "envelope")
+	envelopeID := stringField(s.T(), envelope, "envelope_id")
+	s.Equal("channel-sender", stringField(s.T(), envelope, "from_agent_id"))
+	s.Equal("channel-recipient", stringField(s.T(), envelope, "to_agent_id"))
+	s.Equal("pending", stringField(s.T(), envelope, "status"))
+
+	replayed := s.request(http.MethodPost, "/v1/channel/envelopes", senderKey, request)
+	s.Equal(envelopeID, stringField(s.T(), objectField(s.T(), replayed, "envelope"), "envelope_id"))
+	request["message"] = "different intent"
+	s.expectStatus(http.StatusConflict, http.MethodPost, "/v1/channel/envelopes", senderKey, request)
+	request["message"] = "review"
+
+	inbox := s.request(http.MethodGet, "/v1/channel/envelopes?status=pending", recipientKey, nil)
+	envelopes := arrayField(s.T(), inbox, "envelopes")
+	s.Require().Len(envelopes, 1)
+	inboxEnvelope, ok := envelopes[0].(map[string]any)
+	s.Require().True(ok)
+	s.Equal(envelopeID, stringField(s.T(), inboxEnvelope, "envelope_id"))
+	expectedPayload, err := json.Marshal(payload)
+	s.Require().NoError(err)
+	actualPayload, err := json.Marshal(objectField(s.T(), inboxEnvelope, "payload_json"))
+	s.Require().NoError(err)
+	s.JSONEq(string(expectedPayload), string(actualPayload))
+
+	fetched := s.request(http.MethodGet, "/v1/channel/envelopes/"+envelopeID, recipientKey, nil)
+	s.Equal(envelopeID, stringField(s.T(), objectField(s.T(), fetched, "envelope"), "envelope_id"))
+	s.expectStatus(http.StatusForbidden, http.MethodGet, "/v1/channel/envelopes/"+envelopeID, senderKey, nil)
+	s.expectStatus(http.StatusNotFound, http.MethodGet, "/v1/channel/envelopes/"+envelopeID, otherRecipientKey, nil)
+
+	accepted := s.request(http.MethodPost, "/v1/channel/envelopes/"+envelopeID+"/accept", recipientKey, nil)
+	s.Equal("accepted", stringField(s.T(), objectField(s.T(), accepted, "envelope"), "status"))
+
+	acceptedInbox := s.request(http.MethodGet, "/v1/channel/envelopes?status=accepted", recipientKey, nil)
+	s.Require().Len(arrayField(s.T(), acceptedInbox, "envelopes"), 1)
+
+	archived := s.request(http.MethodPost, "/v1/channel/envelopes/"+envelopeID+"/archive", recipientKey, nil)
+	s.Equal("archived", stringField(s.T(), objectField(s.T(), archived, "envelope"), "status"))
+
+	outbox := s.request(http.MethodGet, "/v1/channel/envelopes?direction=sent&status=archived", senderKey, nil)
+	s.Require().Len(arrayField(s.T(), outbox, "envelopes"), 1)
+	archivedInbox := s.request(http.MethodGet, "/v1/channel/envelopes?status=archived", recipientKey, nil)
+	s.Require().Len(arrayField(s.T(), archivedInbox, "envelopes"), 1)
+	s.expectStatus(http.StatusForbidden, http.MethodGet, "/v1/channel/envelopes", senderKey, nil)
+	s.expectStatus(http.StatusForbidden, http.MethodGet, "/v1/channel/envelopes?direction=sent", recipientKey, nil)
+}
+
 func (s *coreFlowSuite) enrollAgent(agentID string) string {
+	return s.enrollAgentWithPermissions(agentID, []string{
+		"observe", "search", "get", "channel_send", "channel_receive",
+	})
+}
+
+func (s *coreFlowSuite) enrollAgentWithPermissions(agentID string, permissions []string) string {
 	enrollment := s.request(http.MethodPost, "/v1/admin/agent-enrollments", "e2e-admin-secret", map[string]any{
 		"user_id": "e2e-owner", "agent_id": agentID, "expires_in_seconds": 300,
+		"permissions": permissions,
 	})
 	token := stringField(s.T(), enrollment, "token")
 	credential := s.request(http.MethodPost, "/v1/agent-enrollments/exchange", "", map[string]any{"token": token})
@@ -91,6 +166,22 @@ func (s *coreFlowSuite) enrollAgent(agentID string) string {
 }
 
 func (s *coreFlowSuite) request(method, path, apiKey string, body any) map[string]any {
+	s.T().Helper()
+	statusCode, responseBody := s.performRequest(method, path, apiKey, body)
+	s.Require().GreaterOrEqual(statusCode, http.StatusOK, string(responseBody))
+	s.Require().Less(statusCode, http.StatusMultipleChoices, string(responseBody))
+	result := make(map[string]any)
+	s.Require().NoError(json.Unmarshal(responseBody, &result), "decode %s %s response", method, path)
+	return result
+}
+
+func (s *coreFlowSuite) expectStatus(expected int, method, path, apiKey string, body any) {
+	s.T().Helper()
+	statusCode, responseBody := s.performRequest(method, path, apiKey, body)
+	s.Equal(expected, statusCode, string(responseBody))
+}
+
+func (s *coreFlowSuite) performRequest(method, path, apiKey string, body any) (int, []byte) {
 	s.T().Helper()
 	var requestBody io.Reader
 	if body != nil {
@@ -109,11 +200,7 @@ func (s *coreFlowSuite) request(method, path, apiKey string, body any) map[strin
 	responseBody, err := io.ReadAll(response.Body)
 	s.Require().NoError(err)
 	s.Require().NoError(response.Body.Close())
-	s.Require().GreaterOrEqual(response.StatusCode, http.StatusOK, string(responseBody))
-	s.Require().Less(response.StatusCode, http.StatusMultipleChoices, string(responseBody))
-	result := make(map[string]any)
-	s.Require().NoError(json.Unmarshal(responseBody, &result), "decode %s %s response", method, path)
-	return result
+	return response.StatusCode, responseBody
 }
 
 func responseContainsEvidence(response map[string]any, expected string) bool {
@@ -153,6 +240,15 @@ func boolField(t *testing.T, value map[string]any, name string) bool {
 	result, ok := value[name].(bool)
 	if !ok {
 		t.Fatalf("field %s is not a bool: %#v", name, value[name])
+	}
+	return result
+}
+
+func arrayField(t *testing.T, value map[string]any, name string) []any {
+	t.Helper()
+	result, ok := value[name].([]any)
+	if !ok {
+		t.Fatalf("field %s is not an array: %#v", name, value[name])
 	}
 	return result
 }

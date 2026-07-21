@@ -10,19 +10,27 @@ import (
 const LocalScopeID = "local-team"
 
 var (
-	ErrUnauthorized       = errors.New("unauthorized")
-	ErrForbidden          = errors.New("forbidden")
-	ErrEnrollmentInvalid  = errors.New("enrollment is invalid or expired")
-	ErrCredentialNotFound = errors.New("credential not found")
+	ErrUnauthorized          = errors.New("unauthorized")
+	ErrForbidden             = errors.New("forbidden")
+	ErrEnrollmentInvalid     = errors.New("enrollment is invalid or expired")
+	ErrCredentialNotFound    = errors.New("credential not found")
+	ErrTargetAgentNotFound   = errors.New("target agent not found")
+	ErrAgentIdentityConflict = errors.New("agent identity is ambiguous")
+	ErrEnvelopeNotFound      = errors.New("channel envelope not found")
+	ErrEnvelopeState         = errors.New("channel envelope state does not allow the operation")
+	ErrIdempotencyConflict   = errors.New("idempotency key was already used for a different envelope")
+	ErrInvalidChannelRequest = errors.New("invalid channel request")
 )
 
 type Permission string
 
 const (
-	PermissionAdmin   Permission = "admin"
-	PermissionObserve Permission = "observe"
-	PermissionSearch  Permission = "search"
-	PermissionGet     Permission = "get"
+	PermissionAdmin          Permission = "admin"
+	PermissionObserve        Permission = "observe"
+	PermissionSearch         Permission = "search"
+	PermissionGet            Permission = "get"
+	PermissionChannelSend    Permission = "channel_send"
+	PermissionChannelReceive Permission = "channel_receive"
 )
 
 type Principal struct {

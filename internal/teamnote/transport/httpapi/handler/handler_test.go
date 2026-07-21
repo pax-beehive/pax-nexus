@@ -3,6 +3,7 @@ package handler_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -40,6 +41,7 @@ type onPremHandlerSuite struct {
 	runtime     *mocks.MockRuntime
 	credentials *credentialService
 	memory      *memoryService
+	channel     *channelService
 	handler     *handler.Handler
 }
 
@@ -52,10 +54,12 @@ func (s *onPremHandlerSuite) SetupTest() {
 	s.runtime = mocks.NewMockRuntime(s.controller)
 	s.credentials = &credentialService{}
 	s.memory = &memoryService{}
+	s.channel = &channelService{}
 	configured, err := handler.NewOnPrem(
 		s.runtime,
 		s.credentials,
 		s.memory,
+		s.channel,
 		slog.New(slog.DiscardHandler),
 	)
 	s.Require().NoError(err)
@@ -122,11 +126,59 @@ func (s *onPremHandlerSuite) TestMemorySearchAndGetBindPrincipal() {
 	s.Contains(get.Body.String(), `"text":"Full document"`)
 }
 
+func (s *onPremHandlerSuite) TestChannelEndpointsBindPrincipalAndPreservePayload() {
+	body := `{
+		"to_agent_id":"agent-2",
+		"payload_type":"knowledge_capsule",
+		"payload_json":{
+			"schema_version":"paxl.envelope_payload.knowledge_capsule.v2",
+			"capsule":{
+				"capsule_id":"kcap-1",
+				"source_session_id":"codex:source",
+				"source_agent":"codex",
+				"keyword":"onprem",
+				"title":"On-prem handoff",
+				"summary":"Summary",
+				"content":"Content",
+				"status":"active",
+				"truncated":false,
+				"original_estimated_chars":7
+			},
+			"route":{"match_type":"project","match_value":"team-memory","target_agent":"codex"}
+		},
+		"message":"review",
+		"idempotency_key":"send-1"
+	}`
+
+	response := perform(s.handler.SendChannelEnvelope, http.MethodPost, body, "agent")
+
+	s.Equal(consts.StatusOK, response.Code)
+	s.Equal("owner", s.channel.principal.UserID)
+	s.Equal("agent-1", s.channel.principal.AgentID)
+	s.Equal("agent-2", s.channel.sendRequest.ToAgentID)
+	s.JSONEq(`{"schema_version":"paxl.envelope_payload.knowledge_capsule.v2","capsule":{"capsule_id":"kcap-1","source_session_id":"codex:source","source_agent":"codex","keyword":"onprem","title":"On-prem handoff","summary":"Summary","content":"Content","status":"active","truncated":false,"original_estimated_chars":7},"route":{"match_type":"project","match_value":"team-memory","target_agent":"codex"}}`, string(s.channel.sendRequest.PayloadJSON))
+	s.Contains(response.Body.String(), `"envelope_id":"tm_env_1"`)
+	s.Contains(response.Body.String(), `"from_agent_id":"agent-1"`)
+
+	accepted := performWithPath(
+		s.handler.AcceptChannelEnvelope,
+		http.MethodPost,
+		"",
+		"agent",
+		"envelope_id",
+		"tm_env_1",
+	)
+	s.Equal(consts.StatusOK, accepted.Code)
+	s.Equal("tm_env_1", s.channel.acceptedID)
+}
+
 func (s *onPremHandlerSuite) TestOnPremEndpointsEnforceAuthenticationAndPermission() {
 	response := perform(s.handler.ObserveBatch, http.MethodPost, `{}`, "wrong")
 	s.Equal(consts.StatusUnauthorized, response.Code)
 	response = perform(s.handler.CreateAgentEnrollment, http.MethodPost,
 		`{"user_id":"owner","agent_id":"agent-1"}`, "agent")
+	s.Equal(consts.StatusForbidden, response.Code)
+	response = perform(s.handler.SendChannelEnvelope, http.MethodPost, `{}`, "memory-only")
 	s.Equal(consts.StatusForbidden, response.Code)
 }
 
@@ -145,6 +197,14 @@ func (s *onPremHandlerSuite) TestAuthenticationStoreFailureIsNotReportedAsBadCre
 	s.Equal(consts.StatusInternalServerError, response.Code)
 }
 
+func (s *onPremHandlerSuite) TestEnrollmentExchangeReportsAgentIdentityConflict() {
+	s.credentials.exchangeErr = onprem.ErrAgentIdentityConflict
+
+	response := perform(s.handler.ExchangeAgentEnrollment, http.MethodPost, `{"token":"tm_enroll_token"}`, "")
+
+	s.Equal(consts.StatusConflict, response.Code)
+}
+
 func (s *onPremHandlerSuite) TestGeneratedRoutesDispatchToConfiguredOnPremHandler() {
 	hertz := server.New()
 	hertz.Use(handler.InstanceMiddleware(s.handler))
@@ -158,8 +218,9 @@ func (s *onPremHandlerSuite) TestGeneratedRoutesDispatchToConfiguredOnPremHandle
 }
 
 type credentialService struct {
-	revokedID string
-	authErr   error
+	revokedID   string
+	authErr     error
+	exchangeErr error
 }
 
 func (s *credentialService) Authenticate(_ context.Context, apiKey string) (onprem.Principal, error) {
@@ -172,7 +233,18 @@ func (s *credentialService) Authenticate(_ context.Context, apiKey string) (onpr
 	case "agent":
 		return onprem.Principal{
 			UserID: "owner", AgentID: "agent-1", ScopeID: onprem.LocalScopeID, CredentialID: "credential-1",
-			Permissions: []onprem.Permission{onprem.PermissionObserve, onprem.PermissionSearch, onprem.PermissionGet},
+			Permissions: []onprem.Permission{
+				onprem.PermissionObserve,
+				onprem.PermissionSearch,
+				onprem.PermissionGet,
+				onprem.PermissionChannelSend,
+				onprem.PermissionChannelReceive,
+			},
+		}, nil
+	case "memory-only":
+		return onprem.Principal{
+			UserID: "owner", AgentID: "agent-1", ScopeID: onprem.LocalScopeID,
+			Permissions: []onprem.Permission{onprem.PermissionObserve},
 		}, nil
 	default:
 		return onprem.Principal{}, onprem.ErrUnauthorized
@@ -190,6 +262,9 @@ func (s *credentialService) CreateEnrollment(
 }
 
 func (s *credentialService) ExchangeEnrollment(context.Context, string) (onprem.IssuedCredential, error) {
+	if s.exchangeErr != nil {
+		return onprem.IssuedCredential{}, s.exchangeErr
+	}
 	return onprem.IssuedCredential{CredentialID: "credential-1", APIKey: "tm_key_agent"}, nil
 }
 
@@ -205,6 +280,84 @@ func (s *credentialService) RevokeCredential(_ context.Context, _ onprem.Princip
 type memoryService struct {
 	searchRequest recall.SearchRequest
 	getRequest    recall.GetRequest
+}
+
+type channelService struct {
+	principal   onprem.Principal
+	sendRequest onprem.SendEnvelopeRequest
+	acceptedID  string
+}
+
+func (s *channelService) Send(
+	_ context.Context,
+	principal onprem.Principal,
+	request onprem.SendEnvelopeRequest,
+) (onprem.ChannelEnvelope, error) {
+	s.principal = principal
+	s.sendRequest = request
+	return handlerTestChannelEnvelope(request.PayloadJSON), nil
+}
+
+func (s *channelService) List(
+	_ context.Context,
+	principal onprem.Principal,
+	_ onprem.ListEnvelopesFilter,
+) ([]onprem.ChannelEnvelope, error) {
+	s.principal = principal
+	return []onprem.ChannelEnvelope{handlerTestChannelEnvelope(validHandlerPayload())}, nil
+}
+
+func (s *channelService) Get(
+	_ context.Context,
+	principal onprem.Principal,
+	_ string,
+) (onprem.ChannelEnvelope, error) {
+	s.principal = principal
+	return handlerTestChannelEnvelope(validHandlerPayload()), nil
+}
+
+func (s *channelService) Accept(
+	_ context.Context,
+	principal onprem.Principal,
+	envelopeID string,
+) (onprem.ChannelEnvelope, error) {
+	s.principal = principal
+	s.acceptedID = envelopeID
+	envelope := handlerTestChannelEnvelope(validHandlerPayload())
+	envelope.Status = onprem.EnvelopeStatusAccepted
+	return envelope, nil
+}
+
+func (s *channelService) Archive(
+	_ context.Context,
+	principal onprem.Principal,
+	_ string,
+) (onprem.ChannelEnvelope, error) {
+	s.principal = principal
+	envelope := handlerTestChannelEnvelope(validHandlerPayload())
+	envelope.Status = onprem.EnvelopeStatusArchived
+	return envelope, nil
+}
+
+func handlerTestChannelEnvelope(payload json.RawMessage) onprem.ChannelEnvelope {
+	return onprem.ChannelEnvelope{
+		ID: "tm_env_1", FromUserID: "owner", FromAgentID: "agent-1",
+		ToUserID: "recipient", ToAgentID: "agent-2", PayloadType: onprem.EnvelopePayloadKnowledgeCapsule,
+		PayloadJSON: payload, Message: "review", IdempotencyKey: "send-1",
+		Status: onprem.EnvelopeStatusPending, CreatedAt: time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC),
+	}
+}
+
+func validHandlerPayload() json.RawMessage {
+	return json.RawMessage(`{
+		"schema_version":"paxl.envelope_payload.knowledge_capsule.v2",
+		"capsule":{
+			"capsule_id":"kcap-1","source_session_id":"codex:source","source_agent":"codex",
+			"keyword":"onprem","title":"On-prem handoff","summary":"Summary","content":"Content",
+			"status":"active","truncated":false,"original_estimated_chars":7
+		},
+		"route":{"match_type":"any"}
+	}`)
 }
 
 func (s *memoryService) Search(_ context.Context, request recall.SearchRequest) (recall.SearchResult, error) {
@@ -264,6 +417,11 @@ func TestGeneratedBridgesRequireAHandlerInstance(t *testing.T) {
 		{name: "observe", bridge: handler.ObserveSession},
 		{name: "recall", bridge: handler.RecallNotes},
 		{name: "health", bridge: handler.Health},
+		{name: "send channel envelope", bridge: handler.SendChannelEnvelope},
+		{name: "list channel envelopes", bridge: handler.ListChannelEnvelopes},
+		{name: "get channel envelope", bridge: handler.GetChannelEnvelope},
+		{name: "accept channel envelope", bridge: handler.AcceptChannelEnvelope},
+		{name: "archive channel envelope", bridge: handler.ArchiveChannelEnvelope},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
