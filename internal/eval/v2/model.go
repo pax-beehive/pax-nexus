@@ -128,6 +128,57 @@ type TrialKey struct {
 	Arm    string
 }
 
+// TrialStage identifies the last observable Eval stage entered by one Trial
+// Attempt. It is deliberately protocol-level rather than command-specific so
+// different benchmark adapters produce comparable failure records.
+type TrialStage string
+
+const (
+	TrialStageClaimed           TrialStage = "claimed"
+	TrialStageAnswererSelection TrialStage = "answerer_selection"
+	TrialStageMemoryIngest      TrialStage = "memory_ingest"
+	TrialStageProducer          TrialStage = "producer"
+	TrialStageReadiness         TrialStage = "readiness"
+	TrialStageConsumer          TrialStage = "consumer"
+	TrialStageJudge             TrialStage = "judge"
+	TrialStageArtifactPublish   TrialStage = "artifact_publish"
+	TrialStageCompleted         TrialStage = "completed"
+)
+
+// FailureClass groups infrastructure failures without requiring consumers to
+// match unstable error strings.
+type FailureClass string
+
+const (
+	FailureClassCanceled      FailureClass = "canceled"
+	FailureClassDeadline      FailureClass = "deadline"
+	FailureClassExit          FailureClass = "exit"
+	FailureClassInvalidOutput FailureClass = "invalid_output"
+	FailureClassInterrupted   FailureClass = "interrupted"
+	FailureClassStore         FailureClass = "store"
+	FailureClassUnknown       FailureClass = "unknown"
+)
+
+// TrialAttemptHandle identifies one immutable retry slot for a Trial.
+type TrialAttemptHandle struct {
+	RunID  string `json:"run_id"`
+	CaseID string `json:"case_id"`
+	Arm    string `json:"arm"`
+	Number int    `json:"attempt"`
+}
+
+// TrialAttempt is the durable execution record for one claimed Trial retry.
+type TrialAttempt struct {
+	TrialAttemptHandle
+	Status       string            `json:"status"`
+	Stage        TrialStage        `json:"stage"`
+	FailureClass FailureClass      `json:"failure_class,omitempty"`
+	Error        string            `json:"error,omitempty"`
+	ArtifactRefs map[string]string `json:"artifact_refs,omitempty"`
+	StartedAt    time.Time         `json:"started_at"`
+	CompletedAt  *time.Time        `json:"completed_at,omitempty"`
+}
+
 type RunRecord struct {
 	ID              string
 	Dataset         string
@@ -208,6 +259,8 @@ type TrialResult struct {
 	TotalDurationMS           int64          `json:"total_duration_ms"`
 	StartedAt                 time.Time      `json:"started_at"`
 	CompletedAt               time.Time      `json:"completed_at"`
+	FailureStage              TrialStage     `json:"failure_stage,omitempty"`
+	FailureClass              FailureClass   `json:"failure_class,omitempty"`
 	Error                     string         `json:"error,omitempty"`
 }
 

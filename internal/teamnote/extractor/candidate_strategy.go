@@ -8,7 +8,7 @@ import (
 
 // buildDefaultCandidateStrategy is injected with -ldflags -X for release
 // builds. An explicit runtime strategy still takes precedence.
-var buildDefaultCandidateStrategy = CandidateStrategyCurrent
+var buildDefaultCandidateStrategy = CandidateStrategySourceClause
 
 type extractionProtocol struct {
 	systemPrompt string
@@ -34,6 +34,24 @@ var candidateStrategies = []candidateStrategy{
 		name: CandidateStrategyInteractionSlim, protocolVersion: extractionProtocolV2RevisionInteractionSlim,
 		protocol:  extractionProtocol{rollingSystemPromptV2InteractionSlim, decodeExtractionResponseV2, decodeExtractionContentV2},
 		mapResult: mapExtractionV2,
+	},
+	{
+		name: CandidateStrategyEvidenceFidelity, protocolVersion: extractionProtocolV2RevisionEvidenceFidelity,
+		protocol: extractionProtocol{rollingSystemPromptV2EvidenceFidelity, decodeExtractionResponseV2,
+			decodeExtractionContentV2},
+		mapResult: mapExtractionV2,
+	},
+	{
+		name: CandidateStrategySourceClause, protocolVersion: extractionProtocolV2RevisionSourceClause,
+		protocol: extractionProtocol{rollingSystemPromptV2SourceClause, decodeExtractionResponseV2,
+			decodeExtractionContentV2},
+		mapResult: mapExtractionSourceClauseV1,
+	},
+	{
+		name: CandidateStrategyImplicitState, protocolVersion: extractionProtocolV2RevisionImplicitState,
+		protocol: extractionProtocol{rollingSystemPromptV2ImplicitState, decodeExtractionResponseV2,
+			decodeExtractionContentV2},
+		mapResult: mapExtractionSourceClauseV1,
 	},
 	{
 		name: CandidateStrategyTyped2, protocolVersion: extractionProtocolV2RevisionTypedCurrent,

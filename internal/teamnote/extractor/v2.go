@@ -14,8 +14,8 @@ import (
 	"github.com/pax-beehive/pax-nexus/internal/teamnote"
 )
 
-const extractionProtocolV2RevisionClaimCardV1 = "claim-card-v1"
-const extractionProtocolV2RevisionClaimCardV2 = "claim-card-v2"
+const extractionProtocolV2RevisionClaimCardV1 = "claim-card-v1-temporal-deterministic"
+const extractionProtocolV2RevisionClaimCardV2 = "claim-card-v2-temporal-deterministic"
 
 // Extraction v2 separates one model response into explicit internal products:
 // grounded Claims, proposed State Decisions, and interaction observations.
@@ -121,12 +121,21 @@ type DecisionCandidate struct {
 	RelatedSubjects []string `json:"related_subjects,omitempty"`
 }
 
+// EvidenceClause identifies the exact Event text that authorizes one State
+// Decision. It is extraction provenance and never changes the Candidate
+// storage schema.
+type EvidenceClause struct {
+	EventID string `json:"event_id"`
+	Quote   string `json:"quote"`
+}
+
 // StateDecision proposes one canonical state transition backed by claims.
 type StateDecision struct {
 	Decision           DecisionAction     `json:"decision"`
 	IdentityRef        string             `json:"identity_ref,omitempty"`
 	ClaimIDs           []string           `json:"claim_ids,omitempty"`
 	EvidenceEventIDs   []string           `json:"evidence_event_ids,omitempty"`
+	EvidenceClauses    []EvidenceClause   `json:"evidence_clauses,omitempty"`
 	PriorStateRef      string             `json:"prior_state_ref,omitempty"`
 	TemporalExpression string             `json:"temporal_expression,omitempty"`
 	ValidAt            string             `json:"valid_at,omitempty"`
@@ -239,10 +248,12 @@ func decodeExtractionContentV2(content string) (Result, error) {
 // decisions are dropped with trace rejections instead of failing the slice.
 func mapExtractionV2(result *Result, slice sessionlake.Slice) {
 	mapExtractionV2With(result, slice, mapStandardDecision)
+	result.TransitionAuthorities = nil
 }
 
 func mapExtractionClaimCardV1(result *Result, slice sessionlake.Slice) {
 	mapExtractionV2With(result, slice, mapClaimCardDecision)
+	result.TransitionAuthorities = nil
 }
 
 type stateDecisionMapper func(
@@ -290,6 +301,7 @@ func mapExtractionV2With(result *Result, slice sessionlake.Slice, mapDecisionWit
 	trace.InteractionObservations = keptInteractions
 
 	candidates := make([]teamnote.Candidate, 0, len(trace.StateDecisions))
+	authorities := make([]teamnote.TransitionAuthority, 0, len(trace.StateDecisions))
 	keptDecisions := trace.StateDecisions[:0]
 	for _, decision := range trace.StateDecisions {
 		decision = normalizeDecisionTemporal(decision)
@@ -301,13 +313,27 @@ func mapExtractionV2With(result *Result, slice sessionlake.Slice, mapDecisionWit
 		keptDecisions = append(keptDecisions, decision)
 		if candidate != nil {
 			candidates = append(candidates, *candidate)
+			authorities = append(authorities, transitionAuthority(decision))
 		}
 	}
 	trace.StateDecisions = keptDecisions
 	traceCoverage(trace, slice, admittedClaims)
 	trace.WouldVerify = wouldVerifyTriggers(trace)
 	result.Candidates = candidates
+	result.TransitionAuthorities = authorities
 	result.ExtractionVersion = ExtractionVersionV2
+}
+
+func transitionAuthority(decision StateDecision) teamnote.TransitionAuthority {
+	clauses := make([]teamnote.TransitionEvidenceClause, 0, len(decision.EvidenceClauses))
+	for _, clause := range decision.EvidenceClauses {
+		clauses = append(clauses, teamnote.TransitionEvidenceClause{EventID: clause.EventID, Quote: clause.Quote})
+	}
+	return teamnote.TransitionAuthority{
+		PriorStateRef:   decision.PriorStateRef,
+		EvidenceClauses: clauses,
+		ReasonCodes:     append([]string(nil), decision.ReasonCodes...),
+	}
 }
 
 func mapStandardDecision(
@@ -316,9 +342,9 @@ func mapStandardDecision(
 	allEvents map[string]struct{},
 	newEvents map[string]struct{},
 	events []teamnote.SessionEvent,
-	_ sessionlake.Slice,
+	slice sessionlake.Slice,
 ) (*teamnote.Candidate, string) {
-	return mapDecision(decision, claims, allEvents, newEvents, events)
+	return mapDecision(decision, claims, allEvents, newEvents, events, extractionObservationTime(slice), false)
 }
 
 func interactionRejectionReason(
@@ -395,6 +421,8 @@ func mapDecision(
 	allEvents map[string]struct{},
 	newEvents map[string]struct{},
 	events []teamnote.SessionEvent,
+	observationTime time.Time,
+	allowSourceClauseCommitment bool,
 ) (*teamnote.Candidate, string) {
 	if !validDecisionAction(decision.Decision) {
 		return nil, fmt.Sprintf("decision %q is not in the decision vocabulary", decision.Decision)
@@ -436,7 +464,10 @@ func mapDecision(
 	if !grounded {
 		return nil, "decision is not grounded in a new event"
 	}
-	if reason := stateDecisionAdmissionReason(decision.Decision, evidence, events, decision.Candidate); reason != "" {
+	if reason := stateDecisionAdmissionReason(
+		decision.Decision, evidence, decision.EvidenceClauses, events, decision.Candidate,
+		allowSourceClauseCommitment,
+	); reason != "" {
 		return nil, reason
 	}
 	temporal := decisionTemporal(decision, referencedClaims)
@@ -456,7 +487,7 @@ func mapDecision(
 	if identityRef == "" {
 		identityRef = strings.TrimSpace(decision.PriorStateRef)
 	}
-	validAt, invalidAt, reason := candidateTemporalWindow(decision.Decision, temporal)
+	validAt, invalidAt, reason := candidateTemporalWindow(decision.Decision, temporal, observationTime)
 	if reason != "" {
 		return nil, reason
 	}
@@ -477,7 +508,9 @@ func mapClaimCardDecision(
 	events []teamnote.SessionEvent,
 	slice sessionlake.Slice,
 ) (*teamnote.Candidate, string) {
-	candidate, reason := mapDecision(decision, claims, allEvents, newEvents, events)
+	candidate, reason := mapDecision(
+		decision, claims, allEvents, newEvents, events, extractionObservationTime(slice), false,
+	)
 	if reason != "" || candidate == nil {
 		return candidate, reason
 	}
@@ -595,13 +628,30 @@ func candidateAction(decision DecisionAction) teamnote.CandidateAction {
 func stateDecisionAdmissionReason(
 	action DecisionAction,
 	evidence []string,
+	evidenceClauses []EvidenceClause,
 	events []teamnote.SessionEvent,
 	candidate *DecisionCandidate,
+	allowSourceClauseCommitment bool,
 ) string {
-	if decisionChangesState(action) && evidenceIsOnlyNonCommittalSourceLanguage(evidence, events, candidate) {
+	if !decisionChangesState(action) {
+		return ""
+	}
+	if allowSourceClauseCommitment && sourceClausesContainCommittedCandidate(evidenceClauses, candidate) {
+		return ""
+	}
+	if evidenceIsOnlyNonCommittalSourceLanguage(evidence, events, candidate) {
 		return "decision evidence contains only a non-committal source proposal or request"
 	}
 	return ""
+}
+
+func sourceClausesContainCommittedCandidate(clauses []EvidenceClause, candidate *DecisionCandidate) bool {
+	for _, clause := range clauses {
+		if committedSourceClauseSupportsCandidate(clause.Quote, candidate) {
+			return true
+		}
+	}
+	return false
 }
 
 func invalidReasonCode(reasonCodes []string) string {
@@ -711,18 +761,21 @@ func temporalRejectionReason(
 
 // candidateTemporalWindow parses the decision's temporal window. A create
 // asserts current state, so an already-past invalid_at contradicts the
-// assertion; drop the expiry and keep the fact with its deadline in the body
-// rather than admitting a stillborn note.
+// assertion and cannot be admitted as a timeless current fact.
 func candidateTemporalWindow(
 	action DecisionAction,
 	temporal temporalFields,
+	observationTime time.Time,
 ) (*time.Time, *time.Time, string) {
 	validAt, invalidAt, err := parseTemporalWindow(temporal.validAt, temporal.invalidAt)
 	if err != nil {
 		return nil, nil, "decision temporal window is invalid"
 	}
-	if action == DecisionCreate && invalidAt != nil && !invalidAt.After(time.Now()) {
-		invalidAt = nil
+	if action == DecisionCreate && invalidAt != nil && observationTime.IsZero() {
+		return nil, nil, "decision temporal admission requires an extraction observation time"
+	}
+	if action == DecisionCreate && invalidAt != nil && !invalidAt.After(observationTime) {
+		return nil, nil, "create decision is not current at the extraction observation time"
 	}
 	return validAt, invalidAt, ""
 }

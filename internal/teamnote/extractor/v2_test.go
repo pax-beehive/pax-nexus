@@ -47,7 +47,7 @@ func newV2Adapter(s *extractionV2Suite, client *http.Client) extractor.Extractor
 	adapter, err := extractor.NewOpenAI(extractor.OpenAIConfig{
 		BaseURL: "http://extractor.test", Model: "model", Client: client,
 		ContextMode: extractor.ContextModeRolling, EpisodeStore: extractor.NewMemoryEpisodeStore(),
-		ExtractionVersion: extractor.ExtractionVersionV2,
+		ExtractionVersion: extractor.ExtractionVersionV2, V2Variant: extractor.V2VariantCurrent,
 	})
 	s.Require().NoError(err)
 	return adapter
@@ -58,6 +58,10 @@ func (s *extractionV2Suite) TestConfigValidation() {
 		name   string
 		config extractor.OpenAIConfig
 	}{
+		{name: "v1.1 requires rolling context", config: extractor.OpenAIConfig{
+			BaseURL: "http://extractor.test", Model: "model",
+			ContextMode: extractor.ContextModeSlice, ExtractionVersion: extractor.ExtractionVersionV11,
+		}},
 		{name: "v2 requires rolling context", config: extractor.OpenAIConfig{
 			BaseURL: "http://extractor.test", Model: "model",
 			ContextMode: extractor.ContextModeSlice, ExtractionVersion: extractor.ExtractionVersionV2,
@@ -101,6 +105,39 @@ func (s *extractionV2Suite) TestInteractionSlimVariantUsesBoundedPrompt() {
 	s.Require().NoError(err)
 	s.Empty(result.Candidates)
 	s.Equal([]string{"event-1"}, result.Trace.NoStateEventIDs)
+}
+
+func (s *extractionV2Suite) TestEvidenceFidelityVariantUsesSemanticCandidateSchemaAndPrompt() {
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		body, err := io.ReadAll(request.Body)
+		s.Require().NoError(err)
+		prompt := string(body)
+		s.Contains(prompt, "Evidence fidelity pass before returning")
+		s.Contains(prompt, "Preserve concrete actions as actions")
+		s.Contains(prompt, "does not relax modality")
+		s.Contains(prompt, "Return interaction_observations as an empty array")
+		s.NotContains(prompt, "Claim-card strategy override")
+		decision := `{"decision":"update","identity_ref":"approach/calculation-discrepancy","evidence_event_ids":["event-1"],"temporal_expression":"after the feed refresh","temporal_resolution":"unresolved","reason_codes":["explicit_correction"],"candidate":{"kind":"status","subject":"validation approach","body":"Run a targeted check on the refreshed feed and rerun the impacted close cycle."}}`
+		return response(http.StatusOK, v2Body("", decision)), nil
+	})}
+	adapter, err := extractor.NewOpenAI(extractor.OpenAIConfig{
+		BaseURL: "http://extractor.test", Model: "model", Client: client,
+		ContextMode: extractor.ContextModeRolling, EpisodeStore: extractor.NewMemoryEpisodeStore(),
+		ExtractionVersion: extractor.ExtractionVersionV2, V2Variant: extractor.V2VariantEvidenceFidelity,
+	})
+	s.Require().NoError(err)
+
+	result, err := adapter.Extract(
+		teamnote.WithScope(context.Background(), "scope-v2-evidence-fidelity"), v2Slice(),
+	)
+
+	s.Require().NoError(err)
+	s.Require().Len(result.Candidates, 1)
+	s.Equal("approach/calculation-discrepancy", result.Candidates[0].IdentityRef)
+	s.Equal("Run a targeted check on the refreshed feed and rerun the impacted close cycle.", result.Candidates[0].Body)
+	s.Equal([]string{"event-1"}, result.Candidates[0].EvidenceEventIDs)
+	s.Require().NotNil(result.Trace)
+	s.Empty(result.Trace.DecisionRejections)
 }
 
 func (s *extractionV2Suite) TestMapsClaimsAndDecisionsToCandidates() {
@@ -580,7 +617,7 @@ func (s *extractionV2Suite) TestProtocolChangeStartsFreshEpisodeInsteadOfReplayi
 	v2, err := extractor.NewOpenAI(extractor.OpenAIConfig{
 		BaseURL: "http://extractor.test", Model: "model", PromptVersion: "prompt",
 		Client: v2Client, ContextMode: extractor.ContextModeRolling, EpisodeStore: store,
-		ExtractionVersion: extractor.ExtractionVersionV2,
+		ExtractionVersion: extractor.ExtractionVersionV2, V2Variant: extractor.V2VariantCurrent,
 	})
 	s.Require().NoError(err)
 	ctx := teamnote.WithScope(context.Background(), "scope-protocol-change")
@@ -593,6 +630,45 @@ func (s *extractionV2Suite) TestProtocolChangeStartsFreshEpisodeInsteadOfReplayi
 	s.Equal(1, v2Calls)
 	s.Require().Len(result.Candidates, 1)
 	s.Equal(extractor.ExtractionVersionV2, result.ExtractionVersion)
+}
+
+func (s *extractionV2Suite) TestEvidenceFidelityStartsFreshEpisodeAfterInteractionSlim() {
+	store := extractor.NewMemoryEpisodeStore()
+	interactionCalls := 0
+	interactionClient := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		interactionCalls++
+		return response(http.StatusOK, v2BodyWithNoStateEvents("", "", `"event-1"`)), nil
+	})}
+	interaction, err := extractor.NewOpenAI(extractor.OpenAIConfig{
+		BaseURL: "http://extractor.test", Model: "model", PromptVersion: "prompt",
+		Client: interactionClient, ContextMode: extractor.ContextModeRolling, EpisodeStore: store,
+		ExtractionVersion: extractor.ExtractionVersionV2, V2Variant: extractor.V2VariantInteractionSlim,
+	})
+	s.Require().NoError(err)
+
+	fidelityCalls := 0
+	fidelityClient := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		fidelityCalls++
+		decision := `{"decision":"create","identity_ref":"decision/release","evidence_event_ids":["event-1"],"reason_codes":["explicit_new_fact"],"candidate":{"kind":"status","subject":"release","body":"Tests are failing."}}`
+		return response(http.StatusOK, v2Body("", decision)), nil
+	})}
+	fidelity, err := extractor.NewOpenAI(extractor.OpenAIConfig{
+		BaseURL: "http://extractor.test", Model: "model", PromptVersion: "prompt",
+		Client: fidelityClient, ContextMode: extractor.ContextModeRolling, EpisodeStore: store,
+		ExtractionVersion: extractor.ExtractionVersionV2, V2Variant: extractor.V2VariantEvidenceFidelity,
+	})
+	s.Require().NoError(err)
+	ctx := teamnote.WithScope(context.Background(), "scope-v2-evidence-fidelity-protocol-change")
+
+	_, err = interaction.Extract(ctx, v2Slice())
+	s.Require().NoError(err)
+	result, err := fidelity.Extract(ctx, v2Slice())
+
+	s.Require().NoError(err)
+	s.Equal(1, interactionCalls)
+	s.Equal(1, fidelityCalls)
+	s.Require().Len(result.Candidates, 1)
+	s.Equal("Tests are failing.", result.Candidates[0].Body)
 }
 
 func (s *extractionV2Suite) TestRejectsMalformedV2Responses() {
@@ -630,13 +706,6 @@ func (s *extractionV2Suite) TestTemporalWindowNormalization() {
 			name:   "unresolved with timestamp keeps fact and drops timestamps",
 			action: "create",
 			fields: `,"temporal_expression":"Friday EOD","valid_at":"2025-07-18T17:00:00Z","temporal_resolution":"unresolved"`,
-		},
-		{
-			name:        "past invalid_at on create is dropped",
-			action:      "create",
-			fields:      `,"temporal_expression":"today","valid_at":"2025-07-17T00:00:00Z","invalid_at":"` + past + `","temporal_resolution":"anchored"`,
-			wantValidAt: true,
-			wantInvalid: false,
 		},
 		{
 			name:        "future invalid_at on create is preserved",
@@ -677,6 +746,25 @@ func (s *extractionV2Suite) TestTemporalWindowNormalization() {
 			s.Equal(test.wantInvalid, result.Candidates[0].InvalidAt != nil)
 		})
 	}
+}
+
+func (s *extractionV2Suite) TestRejectsCreateThatExpiredBeforeObservationTime() {
+	decision := `{"decision":"create","identity_ref":"schedule/reporting-validation","evidence_event_ids":["event-1"],` +
+		`"temporal_expression":"until July 17","invalid_at":"2025-07-17T23:59:59Z","temporal_resolution":"explicit",` +
+		`"reason_codes":["explicit_new_fact"],"candidate":{"kind":"status","subject":"reporting validation","body":"Reporting validation was active."}}`
+	client := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		return response(http.StatusOK, v2Body("", decision)), nil
+	})}
+	adapter := newV2Adapter(s, client)
+	slice := v2Slice()
+	slice.Events[0].OccurredAt = time.Date(2026, time.July, 19, 0, 0, 0, 0, time.UTC)
+
+	result, err := adapter.Extract(teamnote.WithScope(context.Background(), "scope-v2-expired-create"), slice)
+
+	s.Require().NoError(err)
+	s.Empty(result.Candidates)
+	s.Require().Len(result.Trace.DecisionRejections, 1)
+	s.Contains(result.Trace.DecisionRejections[0].Reason, "not current")
 }
 
 func (s *extractionV2Suite) TestDanglingClaimReferenceDoesNotVoidDirectEvidence() {

@@ -20,7 +20,10 @@ const (
 
 // NormalizeExtractionRun binds one idempotency key to the complete Candidate batch.
 func NormalizeExtractionRun(run ExtractionRun) (ExtractionRun, error) {
-	encoded, err := json.Marshal(run.Candidates)
+	encoded, err := json.Marshal(struct {
+		Candidates            []Candidate
+		TransitionAuthorities []TransitionAuthority
+	}{run.Candidates, run.TransitionAuthorities})
 	if err != nil {
 		return ExtractionRun{}, fmt.Errorf("encode extraction run candidates: %w", err)
 	}
@@ -89,7 +92,8 @@ func SameExtractionRunInput(left, right ExtractionRun) bool {
 func ShouldQuarantineExtractionRun(err error) bool {
 	return errors.Is(err, ErrInvalidCandidate) ||
 		errors.Is(err, ErrMissingEvidence) ||
-		errors.Is(err, ErrNoteNotFound)
+		errors.Is(err, ErrNoteNotFound) ||
+		errors.Is(err, ErrDestructiveRevision)
 }
 
 func extractionRunInput(run ExtractionRun) ExtractionRun {

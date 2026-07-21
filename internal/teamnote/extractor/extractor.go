@@ -7,6 +7,7 @@ import (
 
 	"github.com/pax-beehive/pax-nexus/internal/sessionlake"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote"
+	"github.com/pax-beehive/pax-nexus/internal/teamnote/extractionbudget"
 )
 
 type Usage struct {
@@ -25,44 +26,74 @@ const (
 	ProviderCallVerifier   ProviderCallType = "verifier"
 )
 
+type ProviderFailureClass string
+
+const (
+	ProviderFailureNone             ProviderFailureClass = ""
+	ProviderFailureCanceled         ProviderFailureClass = "canceled"
+	ProviderFailureDeadline         ProviderFailureClass = "deadline"
+	ProviderFailureTransport        ProviderFailureClass = "transport"
+	ProviderFailureRateLimited      ProviderFailureClass = "rate_limited"
+	ProviderFailureServer           ProviderFailureClass = "provider_5xx"
+	ProviderFailureClient           ProviderFailureClass = "provider_4xx"
+	ProviderFailureInvalidResponse  ProviderFailureClass = "invalid_response"
+	ProviderFailureResponseTooLarge ProviderFailureClass = "response_too_large"
+)
+
+// ExecutionPolicy is the provider portion of the shared extraction execution
+// envelope. The alias preserves the extractor-facing configuration surface.
+type ExecutionPolicy = extractionbudget.ProviderPolicy
+
 // ProviderCall records one physical model request. Slice usage may include
 // asynchronously consumed summary or compaction usage, so evaluations use
 // these records when they need an exact provider-call breakdown.
 type ProviderCall struct {
-	Type       ProviderCallType `json:"type"`
-	ScopeID    string           `json:"scope_id,omitempty"`
-	StartedAt  time.Time        `json:"started_at"`
-	DurationMS int64            `json:"duration_ms"`
-	Usage      Usage            `json:"usage"`
-	HTTPStatus int              `json:"http_status,omitempty"`
-	Error      string           `json:"error,omitempty"`
+	Type            ProviderCallType     `json:"type"`
+	Attempt         int                  `json:"attempt"`
+	MaxAttempts     int                  `json:"max_attempts"`
+	ScopeID         string               `json:"scope_id,omitempty"`
+	StartedAt       time.Time            `json:"started_at"`
+	DurationMS      int64                `json:"duration_ms"`
+	Usage           Usage                `json:"usage"`
+	HTTPStatus      int                  `json:"http_status,omitempty"`
+	MaxOutputTokens int                  `json:"max_output_tokens,omitempty"`
+	FailureClass    ProviderFailureClass `json:"failure_class,omitempty"`
+	Retryable       bool                 `json:"retryable,omitempty"`
+	Error           string               `json:"error,omitempty"`
 }
 
 type ProviderCallObserver func(ProviderCall)
 
 const (
-	CandidateStrategyCurrent         = "current"
-	CandidateStrategyInteractionSlim = "interaction-slim"
-	CandidateStrategyTyped2          = "typed-2"
-	CandidateStrategySourceSpanV1    = "source-span-v1"
-	CandidateStrategySourceSpanV2    = "source-span-v2"
-	CandidateStrategyClaimCardV1     = "claim-card-v1"
-	CandidateStrategyClaimCardV2     = "claim-card-v2"
+	CandidateStrategyCurrent          = "current"
+	CandidateStrategyInteractionSlim  = "interaction-slim"
+	CandidateStrategyEvidenceFidelity = "evidence-fidelity-v1"
+	CandidateStrategySourceClause     = "source-clause-v1"
+	CandidateStrategyImplicitState    = "source-clause-implicit-state-v1"
+	CandidateStrategyTyped2           = "typed-2"
+	CandidateStrategySourceSpanV1     = "source-span-v1"
+	CandidateStrategySourceSpanV2     = "source-span-v2"
+	CandidateStrategyClaimCardV1      = "claim-card-v1"
+	CandidateStrategyClaimCardV2      = "claim-card-v2"
 
-	V2VariantCurrent         = CandidateStrategyCurrent
-	V2VariantInteractionSlim = CandidateStrategyInteractionSlim
-	V2VariantTypedCurrent    = CandidateStrategyTyped2
-	V2VariantSourceSpanV1    = CandidateStrategySourceSpanV1
-	V2VariantSourceSpanV2    = CandidateStrategySourceSpanV2
-	V2VariantClaimCardV1     = CandidateStrategyClaimCardV1
-	V2VariantClaimCardV2     = CandidateStrategyClaimCardV2
+	V2VariantCurrent          = CandidateStrategyCurrent
+	V2VariantInteractionSlim  = CandidateStrategyInteractionSlim
+	V2VariantEvidenceFidelity = CandidateStrategyEvidenceFidelity
+	V2VariantSourceClause     = CandidateStrategySourceClause
+	V2VariantImplicitState    = CandidateStrategyImplicitState
+	V2VariantTypedCurrent     = CandidateStrategyTyped2
+	V2VariantSourceSpanV1     = CandidateStrategySourceSpanV1
+	V2VariantSourceSpanV2     = CandidateStrategySourceSpanV2
+	V2VariantClaimCardV1      = CandidateStrategyClaimCardV1
+	V2VariantClaimCardV2      = CandidateStrategyClaimCardV2
 )
 
 type Result struct {
-	Candidates    []teamnote.Candidate
-	Usage         Usage
-	Model         string
-	PromptVersion string
+	Candidates            []teamnote.Candidate
+	TransitionAuthorities []teamnote.TransitionAuthority
+	Usage                 Usage
+	Model                 string
+	PromptVersion         string
 	// ExtractionVersion identifies the response protocol that produced this
 	// result. Runtime idempotency uses it to keep v2 shadow or rollout results
 	// from replaying a v1 extraction run for the same Session Slice.

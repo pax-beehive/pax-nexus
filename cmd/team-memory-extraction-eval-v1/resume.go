@@ -9,22 +9,24 @@ import (
 	"reflect"
 
 	"github.com/pax-beehive/pax-nexus/internal/eval/extractioneval"
+	"github.com/pax-beehive/pax-nexus/internal/teamnote/extractor"
 )
 
 const resumeConfigSchemaVersion = "pax-extraction-eval-resume-v1"
 
 type resumeConfig struct {
-	SchemaVersion    string         `json:"schema_version"`
-	RunID            string         `json:"run_id"`
-	SourceRunID      string         `json:"source_run_id"`
-	ExtractorVersion string         `json:"extractor_version"`
-	V2Variant        string         `json:"v2_variant"`
-	BaseURL          string         `json:"base_url"`
-	Model            string         `json:"model"`
-	PromptVersion    string         `json:"prompt_version"`
-	ProfileName      string         `json:"profile_name"`
-	SliceEventLimit  int            `json:"slice_event_limit"`
-	Domains          []resumeDomain `json:"domains"`
+	SchemaVersion    string                    `json:"schema_version"`
+	RunID            string                    `json:"run_id"`
+	SourceRunID      string                    `json:"source_run_id"`
+	ExtractorVersion string                    `json:"extractor_version"`
+	V2Variant        string                    `json:"v2_variant"`
+	BaseURL          string                    `json:"base_url"`
+	Model            string                    `json:"model"`
+	PromptVersion    string                    `json:"prompt_version"`
+	ProfileName      string                    `json:"profile_name"`
+	SliceEventLimit  int                       `json:"slice_event_limit"`
+	ExecutionPolicy  extractor.ExecutionPolicy `json:"execution_policy"`
+	Domains          []resumeDomain            `json:"domains"`
 }
 
 type resumeDomain struct {
@@ -42,6 +44,7 @@ func ensureResumeConfig(
 		ExtractorVersion: config.extractorVersion, V2Variant: config.v2Variant,
 		BaseURL: config.baseURL, Model: config.model, PromptVersion: config.promptVersion,
 		ProfileName: profile.Name, SliceEventLimit: config.sliceEventLimit,
+		ExecutionPolicy: config.executionPolicy,
 	}
 	for _, domain := range prepared {
 		desired.Domains = append(desired.Domains, resumeDomain{

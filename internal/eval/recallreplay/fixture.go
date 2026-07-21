@@ -141,6 +141,8 @@ type HintObservation struct {
 // scores at export time.
 type Candidate struct {
 	ID               string     `json:"id"`
+	CanonicalNoteID  string     `json:"canonical_note_id,omitempty"`
+	Key              string     `json:"key,omitempty"`
 	Kind             string     `json:"kind"`
 	Subject          string     `json:"subject"`
 	Body             string     `json:"body"`
@@ -531,7 +533,7 @@ func (replayCase Case) recallCandidates() []teamnote.RecallCandidate {
 	for _, pinned := range replayCase.Candidates {
 		candidates = append(candidates, teamnote.RecallCandidate{
 			Note: teamnote.Note{
-				ID: pinned.ID, Kind: teamnote.NoteKind(pinned.Kind), Subject: pinned.Subject, Body: pinned.Body,
+				ID: pinned.ID, Key: pinned.Key, Kind: teamnote.NoteKind(pinned.Kind), Subject: pinned.Subject, Body: pinned.Body,
 				TaskRef: pinned.TaskRef, ThreadRef: pinned.ThreadRef,
 				Origin: teamnote.Actor{
 					UserID: pinned.Origin.UserID, AgentID: pinned.Origin.AgentID, SessionID: pinned.Origin.SessionID,
@@ -543,7 +545,8 @@ func (replayCase Case) recallCandidates() []teamnote.RecallCandidate {
 				ValidAt: pinned.ValidAt, InvalidAt: pinned.InvalidAt,
 				SourceOccurredAt: pinned.SourceOccurredAt,
 			},
-			LexicalScore: pinned.LexicalScore, SemanticScore: pinned.SemanticScore,
+			CanonicalNoteID: pinned.CanonicalNoteID,
+			LexicalScore:    pinned.LexicalScore, SemanticScore: pinned.SemanticScore,
 		})
 	}
 	return candidates

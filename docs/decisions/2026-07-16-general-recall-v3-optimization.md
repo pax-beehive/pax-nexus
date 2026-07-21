@@ -1,6 +1,6 @@
 # General Recall v3 Optimization
 
-Status: Accepted; Team Note core planner implemented, deferred capabilities listed below
+Status: Accepted; core planner and durable historical retrieval implemented; final-state planner implemented with reporting follow-up
 
 Date: 2026-07-16
 
@@ -544,8 +544,10 @@ Status: Implemented for the existing Team Note relation and kind vocabulary on
 
 ### V3.3: Profile routing and hints
 
-Status: Deferred. Hint Recall v0 remains Proposed; Capability Evidence and
-Observed Agent Profile persistence are not implemented.
+Status: Partially implemented for evaluation. The `hint-v1-selective`
+candidate and real-Agent Hint Recall evaluation are implemented, while the
+production default remains disabled. Capability Evidence, Observed Agent
+Profile persistence, and profile routing remain deferred.
 
 - build Capability Evidence and Observed Agent Profiles;
 - evaluate routing in shadow mode;
@@ -597,14 +599,39 @@ baseline, the Team Note arm changed from 69 planned notes and 4,075 tokens to
 and 4,337 tokens to 73 planned notes and 4,077 tokens. These are stage-local
 replay results, not end-to-end answer-quality claims.
 
+The 2026-07-19 Note BM25 replay increased candidate recall at the lane limit
+from 0.879 to 1.000, but delivered conditional recall remained 0.909 and mean
+context precision fell from 0.603 to 0.574. This keeps the current adapter
+candidate source as the default. The next recall optimization belongs in
+`PlanRecall` final-state set selection and token-budget packing, not wider
+candidate retrieval or a lower global threshold. See the
+[BM25 baseline](../../evals/recall-v2/results/2026-07-19-bm25-baselines.md).
+
+The durable historical follow-up was completed on 2026-07-20. PostgreSQL now
+supplies revision-specific candidates for explicit `as_of`, `history`, and
+`changes_since` intent. Selection respects both valid time and recorded time,
+uses the audience and task/thread snapshot associated with each revision, and
+claims delivery against the canonical Note ID plus revision. Historical replay
+independently exports every revision recorded by Observation Time as the
+Extraction Observation before applying recall authorization, scope, delivery,
+and query gates to candidates. Later-recorded revisions cannot leak into an
+earlier fixture, and retrieval misses remain distinct from extraction misses.
+This is contract-correctness evidence, not an end-to-end answer-quality claim.
+
+The final-state packing follow-up was completed on 2026-07-20. `PlanRecall`
+now removes stale members of the same canonical Note family for current recall
+before relation expansion and budget packing, while explicit historical modes
+retain revision chains. Primary notes and their authorized one-hop relations
+are selected by incremental coverage of requested answer-bearing fact slots;
+ties retain the existing evidence-aware rank. Replay candidates persist both
+canonical Note ID and durable key so the decision is deterministic on fixed
+fixtures. The change adds no wider retrieval and makes no end-to-end accuracy
+claim until a fixed replay and paid cohort demonstrate one.
+
 Known limits remain explicit:
 
-- PostgreSQL currently supplies only the active current revision, so
-  `as_of` and `history` can reason over supplied fixtures or candidates but do
-  not yet retrieve retired revision chains from durable storage. Historical
-  replay excludes notes first recorded after the captured observation, but a
-  note revised after that observation still exposes its current revision until
-  revision snapshots are wired into candidate export;
+- passive current recall still intentionally supplies only the active current
+  revision; historical revisions require explicit temporal intent;
 - the current Team Note schema represents generic related subjects rather than
   the full typed relation whitelist;
 - exact-scope matching currently covers task/thread references and normalized
@@ -613,9 +640,14 @@ Known limits remain explicit:
 - the content-safety hard gate covers high-precision prompt override and system
   prompt exfiltration patterns; a broader stored-content safety classifier is
   deferred and must not weaken the deterministic fail-closed patterns;
-- stance, conflict groups, Capability Evidence, Observed Agent Profiles,
-  calibrated Evidence Confidence, Hint Utility, and Hint Recall are not part of
-  this implementation and require their own fixtures and acceptance gates.
+- stance, conflict groups, Capability Evidence, Observed Agent Profiles, and
+  calibrated Evidence Confidence are not part of this implementation and
+  require their own fixtures and acceptance gates;
+- Hint Utility and Hint Recall have an evaluation-only implementation. The
+  15-case real-Agent pilot found no accuracy improvement and materially higher
+  token use, so they are not accepted for production. See
+  [Hint Recall v0](./2026-07-16-hint-recall-v0.md) and the
+  [pilot result](../../evals/recall-v2/results/2026-07-19-hint-recall-v1-paxm-v0.2.0-pilot15.md);
 - replay aggregation currently reports bounded lane candidate counts, not
   lane-local atom recall or unique lane contribution; those acceptance metrics
   remain follow-up evaluation work.

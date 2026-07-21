@@ -16,9 +16,9 @@ import (
 	"github.com/pax-beehive/pax-nexus/internal/eval/v2/mem0config"
 )
 
-const ArtifactSchemaVersion = "pax-eval-v2.9"
-const ArtifactSchemaVersionV3 = "pax-eval-v3.1"
-const ArtifactSchemaVersionRecallV2 = "pax-recall-eval-v2.1"
+const ArtifactSchemaVersion = "pax-eval-v2.10"
+const ArtifactSchemaVersionV3 = "pax-eval-v3.3"
+const ArtifactSchemaVersionRecallV2 = "pax-recall-eval-v2.2"
 
 type SummaryRow struct {
 	DimensionType     string
@@ -178,14 +178,85 @@ func ExportArtifacts(directory string, run RunRecord, baselineArm string, format
 		"files":                   files,
 		"cost_summary":            CostTotals(results),
 	}
-	if run.Config.Version == "v3" {
-		reproduction, err := buildMem0Reproduction(directory, run, results)
-		if err != nil {
-			return err
-		}
-		manifest["mem0_reproduction"] = reproduction
+	if err := addProtocolManifestMetadata(directory, run, results, manifest); err != nil {
+		return err
 	}
 	return writeJSON(filepath.Join(directory, "artifacts.json"), manifest)
+}
+
+// ExportRawArtifacts publishes only direct Trial evidence and provenance for a
+// Run that was rejected before comparative scoring.
+func ExportRawArtifacts(directory string, run RunRecord, results []TrialResult) error {
+	if err := os.MkdirAll(directory, 0o755); err != nil {
+		return fmt.Errorf("create raw eval artifact directory: %w", err)
+	}
+	files := make(map[string]string)
+	if len(results) > 0 {
+		slices.SortFunc(results, func(left, right TrialResult) int {
+			if left.CaseID != right.CaseID {
+				return cmpString(left.CaseID, right.CaseID)
+			}
+			return cmpString(left.Arm, right.Arm)
+		})
+		if err := writeJSONLines(filepath.Join(directory, "trials.jsonl"), results); err != nil {
+			return err
+		}
+		files["raw_trials"] = "trials.jsonl"
+	}
+	if err := ExportResolvedConfig(filepath.Join(directory, "config.resolved.json"), run.Config, run.Runtime); err != nil {
+		return err
+	}
+	files["resolved_config"] = "config.resolved.json"
+	if err := linkOptionalArtifacts(directory, run.Config, files); err != nil {
+		return err
+	}
+	schemaVersion, err := linkProtocolArtifacts(directory, run.Config.Version, files)
+	if err != nil {
+		return err
+	}
+	manifest := map[string]any{
+		"schema_version":   schemaVersion,
+		"artifact_mode":    "raw_invalid_evidence",
+		"run_id":           run.ID,
+		"dataset":          run.Dataset,
+		"dataset_revision": run.DatasetRevision,
+		"config_hash":      run.ConfigHash,
+		"generated_at":     time.Now().UTC(),
+		"runtime":          run.Runtime,
+		"files":            files,
+	}
+	return writeJSON(filepath.Join(directory, "artifacts.json"), manifest)
+}
+
+func addProtocolManifestMetadata(directory string, run RunRecord, results []TrialResult, manifest map[string]any) error {
+	if run.Config.Version != "v3" {
+		return nil
+	}
+	validity, found, err := loadOptionalJSONObject(filepath.Join(directory, "validity.json"))
+	if err != nil {
+		return err
+	}
+	if found {
+		manifest["validity"] = validity
+	}
+	reproduction, err := buildMem0Reproduction(directory, run, results)
+	if err != nil {
+		return err
+	}
+	manifest["mem0_reproduction"] = reproduction
+	return nil
+}
+
+// ExportTrialAttempts writes the append-only execution ledger independently of
+// the final Trial projection.
+func ExportTrialAttempts(directory string, attempts []TrialAttempt) error {
+	if err := os.MkdirAll(directory, 0o755); err != nil {
+		return fmt.Errorf("create eval attempt artifact directory: %w", err)
+	}
+	if err := writeJSONLines(filepath.Join(directory, "attempts.jsonl"), attempts); err != nil {
+		return fmt.Errorf("export eval trial attempts: %w", err)
+	}
+	return nil
 }
 
 func linkProtocolArtifacts(directory, version string, files map[string]string) (string, error) {
@@ -295,6 +366,11 @@ func summarizeMem0Recall(results []TrialResult) map[string]int {
 }
 
 func linkOptionalArtifacts(directory string, config Config, files map[string]string) error {
+	if _, err := os.Stat(filepath.Join(directory, "attempts.jsonl")); err == nil {
+		files["trial_attempts"] = "attempts.jsonl"
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("inspect eval trial attempt ledger: %w", err)
+	}
 	if config.StageCapture != nil {
 		if _, err := os.Stat(filepath.Join(directory, "stage", "artifacts.json")); err == nil {
 			files["stage"] = filepath.Join("stage", "artifacts.json")
@@ -303,9 +379,31 @@ func linkOptionalArtifacts(directory string, config Config, files map[string]str
 		}
 	}
 	if config.Version == "v3" {
-		return linkEvalV3MemoryReceipts(directory, files)
+		if err := linkEvalV3MemoryReceipts(directory, files); err != nil {
+			return err
+		}
+		if _, err := os.Stat(filepath.Join(directory, "validity.json")); err == nil {
+			files["validity_report"] = "validity.json"
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("inspect eval v3 validity report: %w", err)
+		}
 	}
 	return nil
+}
+
+func loadOptionalJSONObject(path string) (map[string]any, bool, error) {
+	input, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("read optional eval artifact %q: %w", filepath.Base(path), err)
+	}
+	value := make(map[string]any)
+	if err := json.Unmarshal(input, &value); err != nil {
+		return nil, false, fmt.Errorf("decode optional eval artifact %q: %w", filepath.Base(path), err)
+	}
+	return value, true, nil
 }
 
 func linkEvalV3MemoryReceipts(directory string, files map[string]string) error {
@@ -589,7 +687,7 @@ func ensureArmMap(value map[string]TrialResult) map[string]TrialResult {
 	return value
 }
 
-func writeJSONLines(path string, results []TrialResult) error {
+func writeJSONLines[T any](path string, results []T) error {
 	output, err := os.Create(path)
 	if err != nil {
 		return fmt.Errorf("create eval JSONL: %w", err)

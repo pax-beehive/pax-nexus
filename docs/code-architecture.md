@@ -66,10 +66,25 @@ rules.
 | Extraction scheduling | `extractionqueue.Processor` and `postgres.ExtractionEnqueuer` | Durable debounce, shard selection, retries, and worker lifecycle | River queue |
 | HTTP transport | `teamnote.Runtime`, `handler.ScopeResolver` | Authentication-to-scope mapping and Thrift/Hertz request mapping | Static API keys and generated Hertz routes |
 | PostgreSQL owner | `postgres.Store` accessors | Pool and migration ownership; constructs stable Session and Episode adapters | pgxpool |
+| Evaluation orchestration | `eval/v2.Store`, `eval/v2.Executor` | Durable Run and Trial projections, append-only Trial Attempts, bounded retries, stage attribution, scoring, and artifact export | PostgreSQL Store and process Executor |
 
 These are real seams because production and test or memory adapters exercise
 the same interfaces. Callers and tests should observe behavior through these
 interfaces rather than reaching into private policy functions or SQL details.
+
+Evaluation keeps a final Trial projection for resume and paired scoring, while
+each claimed execution appends a Trial Attempt. The Attempt row is the failure
+and observability boundary: it records the last entered protocol stage,
+classified failure, timing, and a retry-specific artifact directory. Runner
+retries therefore update the Trial projection without destroying earlier raw
+execution evidence.
+
+Eval v3 adds a Validity Report after execution. The report concentrates
+comparative-acceptance policy behind one Module interface and rejects a Run
+when its Trial matrix, source coverage, memory mutation, recall observations,
+latest-Attempt artifacts, or resolved configuration provenance is incomplete.
+Artifact export preserves invalid evidence while the command returns a non-zero
+acceptance error.
 
 ## Ingestion and extraction flow
 
@@ -119,6 +134,7 @@ and PostgreSQL persistence. It owns:
 
 - stable input identity validation;
 - deterministic candidate-batch checksums;
+- source-clause Transition Authority used by qualifier-preserving revisions;
 - completed versus quarantined replay behavior;
 - the rule that a durable result wins over recomputed candidates and usage;
 - classification of deterministic errors that should be quarantined.
@@ -130,6 +146,11 @@ quarantine behavior cannot drift between memory tests and PostgreSQL.
 An Extraction Run is atomic: a candidate batch is admitted as one decision. It
 must not be decomposed into independent adapter calls, because that would lose
 the run-level idempotency and quarantine contract.
+
+For source-clause extraction, Transition Authority travels beside the semantic
+Candidate and participates in the candidate checksum. Shared admission rejects
+an update that silently drops a protected value, condition, modality, or role
+unless an exact validated clause explicitly authorizes that transition.
 
 ## Rolling extractor and concurrency ownership
 

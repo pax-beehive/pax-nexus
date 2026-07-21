@@ -20,6 +20,7 @@ type SliceRecord struct {
 	FromSequence          int64              `json:"from_sequence"`
 	ToSequence            int64              `json:"to_sequence"`
 	Events                int                `json:"events"`
+	NewEventIDs           []string           `json:"new_event_ids,omitempty"`
 	Candidates            int                `json:"candidates"`
 	Rejections            int                `json:"rejections"`
 	Claims                int                `json:"claims,omitempty"`
@@ -56,7 +57,8 @@ func (r *recordingExtractor) Extract(ctx context.Context, slice sessionlake.Slic
 		InputChecksum: slice.InputChecksum,
 		SessionID:     slice.Actor.SessionID, FromSequence: slice.FromSequence, ToSequence: slice.ToSequence,
 		Events: len(slice.Events), Candidates: len(result.Candidates), Rejections: len(result.Rejections),
-		Usage: result.Usage, DurationMS: time.Since(startedAt).Milliseconds(),
+		NewEventIDs: append([]string(nil), slice.NewEventIDs...),
+		Usage:       result.Usage, DurationMS: time.Since(startedAt).Milliseconds(),
 	}
 	if result.Trace != nil {
 		record.Claims = len(result.Trace.Claims)

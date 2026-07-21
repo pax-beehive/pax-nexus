@@ -20,7 +20,30 @@ func Register(r *server.Hertz) {
 	root.GET("/healthz", append(_healthMw(), handler.Health)...)
 	{
 		_v1 := root.Group("/v1", _v1Mw()...)
+		_v1.GET("/agent-identity", append(_getagentidentityMw(), handler.GetAgentIdentity)...)
+		_v1.POST("/observations", append(_observebatchMw(), handler.ObserveBatch)...)
 		_v1.POST("/session-batches", append(_observesessionMw(), handler.ObserveSession)...)
+		{
+			_admin := _v1.Group("/admin", _adminMw()...)
+			_admin.POST("/agent-enrollments", append(_createagentenrollmentMw(), handler.CreateAgentEnrollment)...)
+			{
+				_agent_credentials := _admin.Group("/agent-credentials", _agent_credentialsMw()...)
+				_agent_credentials.DELETE("/:credential_id", append(_revokeagentcredentialMw(), handler.RevokeAgentCredential)...)
+			}
+		}
+		{
+			_agent_credentials0 := _v1.Group("/agent-credentials", _agent_credentials0Mw()...)
+			_agent_credentials0.POST("/rotate", append(_rotateagentcredentialMw(), handler.RotateAgentCredential)...)
+		}
+		{
+			_agent_enrollments := _v1.Group("/agent-enrollments", _agent_enrollmentsMw()...)
+			_agent_enrollments.POST("/exchange", append(_exchangeagentenrollmentMw(), handler.ExchangeAgentEnrollment)...)
+		}
+		{
+			_memory := _v1.Group("/memory", _memoryMw()...)
+			_memory.POST("/get", append(_getmemoryMw(), handler.GetMemory)...)
+			_memory.POST("/search", append(_searchmemoryMw(), handler.SearchMemory)...)
+		}
 		{
 			_notes := _v1.Group("/notes", _notesMw()...)
 			_notes.POST("/recall", append(_recallnotesMw(), handler.RecallNotes)...)

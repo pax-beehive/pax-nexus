@@ -25,3 +25,23 @@ CREATE TABLE IF NOT EXISTS eval_v2_trials (
 
 CREATE INDEX IF NOT EXISTS eval_v2_trials_status_idx
     ON eval_v2_trials (run_id, status, case_id, arm);
+
+CREATE TABLE IF NOT EXISTS eval_v2_trial_attempts (
+    run_id TEXT NOT NULL,
+    case_id TEXT NOT NULL,
+    arm TEXT NOT NULL,
+    attempt INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'running',
+    stage TEXT NOT NULL DEFAULT 'claimed',
+    failure_class TEXT NOT NULL DEFAULT '',
+    error TEXT NOT NULL DEFAULT '',
+    artifact_refs JSONB NOT NULL DEFAULT '{}'::jsonb,
+    started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    completed_at TIMESTAMPTZ,
+    PRIMARY KEY (run_id, case_id, arm, attempt),
+    FOREIGN KEY (run_id, case_id, arm)
+        REFERENCES eval_v2_trials (run_id, case_id, arm)
+);
+
+CREATE INDEX IF NOT EXISTS eval_v2_trial_attempts_run_idx
+    ON eval_v2_trial_attempts (run_id, case_id, arm, attempt);

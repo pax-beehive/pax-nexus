@@ -1,6 +1,6 @@
 # Extraction v2
 
-Status: Accepted with rollout exception; production default enabled, quality gates blocked
+Status: Accepted for experimentation; v1 is the production default
 
 Date: 2026-07-16
 
@@ -488,6 +488,24 @@ The remaining acceptance debt is explicit:
 - do not describe the default switch as a measured extraction-quality win;
 - roll back to v1 if the production latency or cost envelope is unacceptable.
 
+## Production rollback decision (2026-07-20)
+
+A paired ten-case shadow on the same 23-Atom GroupMemBench Finance fixture
+compared the current v1 protocol with v2 `source-clause-v1` protocol revision
+8. V1 matched 7/23 scored Atoms versus 5/23 for v2. On the 11 Atoms whose
+supporting Events were present in the persisted source, v1 matched 5/11 versus
+4/11 for v2. V1 introduced one leakage item while v2 introduced none, but it
+also used fewer output tokens and had lower mean and P95 provider latency with
+zero call errors in both arms.
+
+The quality gain required to replace v1 was therefore not demonstrated. The
+service's blank-configuration default, root Compose stack, and primary
+environment template return to `TEAM_MEMORY_EXTRACTION_VERSION=v1`. The Eval
+v2 loader, Eval v2 Compose stack, and OpenCode eval stack intentionally remain
+on v2 so the structured protocol and `source-clause-v1` stay reproducible as
+explicit experiments. See the
+[paired result](../../evals/extraction-v1/results/2026-07-20-stage10-v1-rollback.md).
+
 ## Quality acceptance (outstanding)
 
 Extraction v2 may replace the current extractor only when the paired fixed
@@ -540,7 +558,7 @@ is compared with its control on identical persisted session events. Performance 
 also remain failed: the run consumed 52.8 minutes of model-call time and
 approximately US$0.58 for one physical domain.
 
-### Quick optimization loop (implemented, paid canary pending)
+### Quick optimization loop
 
 `extraction-eval-v1` now has a tracked `finance-micro3-quick` profile covering
 the positive multi-hop sentinel, the temporal-admission knowledge update, and
@@ -562,10 +580,163 @@ is no longer hidden inside the primary-slice count.
 Two protocol variants are available on the identical quick input: `current`
 and `interaction-slim`. The latter requires an empty interaction-observation
 array and relies on deterministic source-evidence admission to block proposals
-and requests. The paired runner is implemented, but no paid comparison is
-recorded yet: the configured external extractor requires explicit approval to
-send the selected Finance session-event content. Quality and performance gates remain
-blocked until that paired artifact exists.
+and requests.
+
+### Evaluation update (2026-07-19)
+
+The paid ten-case passive-recall cohort is complete. `interaction-slim`
+produced three correct Team Note answers versus one for control, but its
+228-second mean total duration includes extractor deadline retries. This is the
+best observed result on one cohort, not promotion evidence; quality and
+performance acceptance remain blocked. See the
+[interaction-slim baseline](../../evals/extraction-v1/results/2026-07-19-interaction-slim-passive10-baseline.md).
+
+Claim Card v1/v2 and Source Span v1/v2 were rejected by their fixed gates. The
+next extraction work is confined to evidence-backed materiality,
+temporal/identity preservation, and execution reliability over the existing
+semantic Candidate. It must not add another rendering schema. See the
+[Claim Card no-go](../../evals/extraction-v1/results/2026-07-19-claim-card-canary-no-go.md)
+and [Source Span no-go](../../evals/extraction-v1/results/2026-07-19-source-span-v2-passive10-go-no-go.md).
+
+The first `evidence-fidelity-v1` micro3 canary reused the semantic Candidate
+schema and added a candidate-local source-fidelity prompt pass. It matched the
+`interaction-slim` baseline at 2/3 atoms but increased leakage from one item to
+two, decision rejections from 8 to 16, and unreviewed Events from 6 to 13. The
+new unsuppressed leak promoted proposal-only Compliance ownership after citing
+a broad set of adjacent Events. The candidate is not retained, and unchanged
+additional seeds are not authorized. A successor must first make Candidate
+evidence source-clause atomic without adding a new rendering schema. See the
+[evidence-fidelity result](../../evals/extraction-v1/results/2026-07-19-evidence-fidelity-v1-micro3-r1.md).
+
+## Temporal admission and replay determinism addendum (2026-07-19)
+
+Deterministic temporal admission must never read the current wall clock. The
+Extraction Observation Time for a slice is the maximum `occurred_at` among its
+new Events; overlap Events do not move it. Every State Decision in that slice
+is admitted against the same instant. A temporal decision that needs an
+Observation Time is rejected when the new Events do not provide one rather
+than silently falling back to processing or replay time.
+
+This choice keeps the same saved provider response replayable across machines
+and dates. Source Time and Extraction Observation Time are intentionally equal
+for this passive, event-driven extraction boundary; storage mutation time
+remains distinct. A future workflow that needs a later observation instant
+must add that instant to the immutable Slice contract and its checksum instead
+of injecting a runtime clock.
+
+State-changing decisions also cite the shortest exact contiguous source clause
+that authorizes the change. Deterministic admission verifies the citation
+against the cited Event and evaluates proposal, request, and question language
+inside that clause only. The Session Event remains the evidence authority and
+the external Candidate schema remains unchanged. This rejects broad Event-level
+evidence laundering without adding another persisted note rendering.
+The validator enforces only structural boundaries it can prove without a
+parser: exact Event offsets and sentence punctuation, with special handling so
+decimals, URLs, and abbreviations are not split. It does not infer clause
+independence from conjunctions, capitalization, or word count because those
+rules confuse compound objects and lists with independent clauses. Semantic
+minimality within one sentence is therefore a generation requirement; exact
+grounding, sentence atomicity, and modality remain deterministic admission
+requirements.
+
+Provider execution is a separate internal Module behind `Extractor.Extract`.
+It owns per-attempt deadlines, bounded retries for transient transport and
+provider failures, response-size and output-token budgets, stable failure
+classification, and attempt telemetry. Invalid structured responses and
+deterministic Candidate rejections are not retried by default. Durable Episode
+replay remains the resume mechanism; exactly-once charging between an HTTP
+success and Episode persistence is not claimed.
+
+## Qualifier-preserving revision admission addendum (2026-07-20)
+
+Whole-body Candidate updates must be complete renderings of the resulting
+state. For the production source-clause strategy, the extractor carries the
+validated exact source clauses, prior-state reference, and reason codes as
+internal Transition Authority beside the unchanged Candidate schema.
+Deterministic admission protects answer-changing dates and exact values,
+conditions and exceptions, negation and modality, and responsibility clauses.
+A protected qualifier may disappear only when an exact cited clause contains
+an explicit transition and refers to the affected prior value. Otherwise the
+revision is destructive and the complete Extraction Run is quarantined without
+changing the current Note.
+
+Accepted updates union prior and new evidence and related-subject provenance,
+so retained qualifiers do not lose their support merely because the latest
+source clause changed another slot. Resolve remains an explicit lifecycle
+transition and is exempt from update preservation. Transition Authority is
+included in the Extraction Run candidate checksum, making retry and replay
+identity sensitive to the authority used for admission. This is deliberately
+conservative: ambiguous partial updates are rejected rather than repaired by
+inventing a merged sentence.
+
+Rejected alternatives were wall-clock admission, because replay outcomes
+drift; whole-Event modality checks, because unrelated clauses can authorize a
+proposal; and mandatory verifier calls, because they violate the single-call
+latency and cost envelope.
+
+Implementation update: `source-clause-v1` now uses a protocol-specific exact
+clause citation while retaining the semantic Candidate schema. Temporal
+admission derives one Observation Time from immutable new Events. The provider
+Execution Module records classified physical attempts and enforces deadlines,
+retry limits, and response budgets. Extraction Eval v1 exports an Atom-level
+first-loss ledger.
+
+### Evaluation baseline decision (2026-07-20)
+
+The fixed Finance source was restored from the tracked GroupMemBench selection
+artifact and passed zero-cost preflight with 2,595 source Events reduced to the
+fixed `finance-micro6-quick` input of 104 Events, seven streams, and eight
+primary Slices. The completed `source-clause-v1` Run matched four of six
+required Atoms for fact recall 0.667, produced zero leakage, and completed all
+eight primary calls plus one summary call without error, timeout, or retry.
+
+This is the best observed valid single Run on this extraction cohort. The
+project explicitly selects `source-clause-v1` and that completed artifact as
+the new Extraction Evaluation Baseline. Future extraction candidates must use
+the same fixed source/profile/scorer and compare atom recall, leakage,
+first-loss stage, provider calls, tokens, cache rate, and latency against it.
+The two remaining misses were both classified `no_state` at Event review, so
+future extraction work should target implicit-state review rather than widen
+source coverage or relax deterministic admission.
+
+Baseline selection is not a claim of statistical superiority. On 2026-07-20,
+the production candidate-strategy default was explicitly changed from
+`current` to `source-clause-v1`; an explicit runtime or build setting of
+`current` remains the rollback path. This rollout decision accepts the
+single-run evidence while retaining the earlier three-paired-seed gate for any
+claim of repeatable superiority. See the
+[baseline result](../../evals/extraction-v1/results/2026-07-20-source-clause-v1-baseline.md).
+
+### Execution-budget and implicit-state update (2026-07-20)
+
+The production execution envelope now defaults to one Slice per durable worker
+job, one 120-second provider attempt, and a three-minute worker deadline.
+Startup rejects any configuration whose maximum serial provider-attempt budget,
+including retry backoff and all Slices in the job, reaches or exceeds the
+worker deadline. This makes the provider deadline subordinate to the worker
+deadline and leaves durable queue reclaim, rather than nested provider retries,
+as the default recovery boundary.
+
+Synchronous compaction reserves three serial calls per Slice: the initial
+compaction call, one possible hard-limit fallback, and the primary extraction
+call. Background summary and compaction deadlines derive from the same provider
+attempt and retry budget plus an outcome-persistence margin instead of using an
+independent two-minute constant.
+
+One internal Extraction Execution Budget Module now owns these defaults and
+performs overflow-safe aggregate validation for production startup, runtime,
+queue workers, provider execution, and Extraction Eval. Invalid compaction,
+retry, Slice, persistence-margin, or worker-deadline arithmetic fails at
+startup rather than drifting between adapters.
+
+The first implicit-state follow-up is rejected for promotion. Its fixed-cohort
+Run recovered `user_implicit_7`, but overall fact recall regressed from 4/6 to
+3/6 because the previously matched temporal and term-ambiguity Events became
+unreviewed; admitted Notes also increased from 12 to 19. The exact prompt is
+registered as the reproducibility-only
+`source-clause-implicit-state-v1` candidate. `source-clause-v1` remains the v2
+evaluation default. See the
+[no-go result](../../evals/extraction-v1/results/2026-07-20-implicit-state-review-v1-no-go.md).
 
 ## Consequences
 

@@ -1,5 +1,7 @@
 # Claim Card v1 extraction candidate
 
+Status: Rejected after fixed extraction canary; retained only for reproducibility
+
 Date: 2026-07-19
 
 ## Decision
@@ -45,3 +47,11 @@ configuration only as a persisted-note consumer. Compare atom availability,
 temporal correctness, source identity, rejected decisions, leakage, note-body
 size, and provider cost against `current` and `typed-2`. Run the paid agent
 cohort only if extraction atom recall improves without additional leakage.
+
+## Evaluation result
+
+The fixed micro3 canary produced zero of three required atoms and three leakage
+items. It did not authorize a paid end-to-end cohort. The implementation remains
+available only to reproduce the rejected candidate and its artifacts; it is not
+an active rollout candidate. See the
+[Claim Card canary no-go](../../evals/extraction-v1/results/2026-07-19-claim-card-canary-no-go.md).

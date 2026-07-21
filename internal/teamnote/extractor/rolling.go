@@ -9,7 +9,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/pax-beehive/pax-nexus/internal/sessionlake"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote"
@@ -20,10 +19,17 @@ type eventScope struct {
 	threadRef string
 }
 
-var protocolV1 = extractionProtocol{rollingSystemPrompt, decodeResponse, decodeCandidateContent}
+var (
+	protocolV1  = extractionProtocol{rollingSystemPrompt, decodeResponse, decodeCandidateContent}
+	protocolV11 = extractionProtocol{rollingSystemPromptV11, decodeResponseV11, decodeCandidateContentV11}
+)
 
 func (e *OpenAI) extractRolling(ctx context.Context, slice sessionlake.Slice) (Result, error) {
 	return e.extractRollingWith(ctx, slice, protocolV1, nil)
+}
+
+func (e *OpenAI) extractRollingV11(ctx context.Context, slice sessionlake.Slice) (Result, error) {
+	return e.extractRollingWith(ctx, slice, protocolV11, nil)
 }
 
 func (e *OpenAI) extractRollingV2(ctx context.Context, slice sessionlake.Slice) (Result, error) {
@@ -56,6 +62,7 @@ func (e *OpenAI) extractRollingWith(ctx context.Context, slice sessionlake.Slice
 			mapResult(&groupResult, group.slice)
 		}
 		result.Candidates = append(result.Candidates, groupResult.Candidates...)
+		result.TransitionAuthorities = append(result.TransitionAuthorities, groupResult.TransitionAuthorities...)
 		result.SourceSpans = append(result.SourceSpans, groupResult.SourceSpans...)
 		mergeTraceV2(&result, groupResult.Trace)
 		addUsage(&result.Usage, groupResult.Usage)
@@ -63,7 +70,34 @@ func (e *OpenAI) extractRollingWith(ctx context.Context, slice sessionlake.Slice
 	if err := normalizeCandidates(&result, slice, e.candidateStrategy.candidateLimit); err != nil {
 		return Result{}, err
 	}
+	if e.config.ExtractionVersion == ExtractionVersionV11 {
+		applyV11Admission(&result, slice.Events)
+	}
 	return result, nil
+}
+
+func applyV11Admission(result *Result, events []teamnote.SessionEvent) {
+	kept := make([]teamnote.Candidate, 0, len(result.Candidates))
+	for _, candidate := range result.Candidates {
+		if (candidate.Kind == teamnote.KindStatus || candidate.Kind == teamnote.KindHandoff) &&
+			strings.TrimSpace(candidate.IdentityRef) == "" {
+			result.Rejections = append(result.Rejections, teamnote.CandidateRejection{
+				Candidate: candidate,
+				Reason:    "v1.1 mutable candidate requires a stable identity_ref",
+			})
+			continue
+		}
+		decisionCandidate := &DecisionCandidate{Subject: candidate.Subject, Body: candidate.Body}
+		if evidenceIsOnlyV11NonCommittalSourceLanguage(candidate.EvidenceEventIDs, events, decisionCandidate) {
+			result.Rejections = append(result.Rejections, teamnote.CandidateRejection{
+				Candidate: candidate,
+				Reason:    "v1.1 candidate is grounded only in non-committal source language",
+			})
+			continue
+		}
+		kept = append(kept, candidate)
+	}
+	result.Candidates = kept
 }
 
 // mergeTraceV2 folds one episode group's v2 trace into the slice result.
@@ -262,7 +296,7 @@ func (e *OpenAI) episodeCompatible(episode Episode) bool {
 		// shape. This preserves their warm prefix during the migration.
 		protocolVersion = ExtractionVersionV1
 	}
-	expectedProtocol := ExtractionVersionV1
+	expectedProtocol := e.config.ExtractionVersion
 	if e.config.ExtractionVersion == ExtractionVersionV2 {
 		expectedProtocol = e.candidateStrategy.protocolVersion
 	}
@@ -274,7 +308,7 @@ func (e *OpenAI) episodeProtocolVersion() string {
 	if e.config.ExtractionVersion == ExtractionVersionV2 {
 		return e.candidateStrategy.protocolVersion
 	}
-	return ExtractionVersionV1
+	return e.config.ExtractionVersion
 }
 
 func removeHistoricalEvidence(result *Result, episode Episode, slice sessionlake.Slice) {
@@ -364,7 +398,7 @@ func (e *OpenAI) startCompaction(ctx context.Context, key EpisodeKey, episode Ep
 	e.flightsMu.Unlock()
 
 	go func() {
-		background, cancel := context.WithTimeout(owned, 2*time.Minute)
+		background, cancel := context.WithTimeout(owned, backgroundProviderTimeout(e.config.ExecutionPolicy))
 		defer cancel()
 		flight.result, flight.err = e.computeCompaction(background, episode)
 		close(flight.done)
@@ -411,16 +445,21 @@ func (e *OpenAI) computeCompaction(ctx context.Context, episode Episode) (compac
 		return compactionResult{}, fmt.Errorf("build compaction context: %w", err)
 	}
 	messages = append(messages, chatMessage{Role: "user", Content: compactionPrompt})
-	body, err := e.callWithType(ctx, messages, 0, ProviderCallCompaction)
+	var checkpoint Checkpoint
+	var usage Usage
+	_, err = e.executeProvider(ctx, messages, 0, ProviderCallCompaction, func(body []byte) error {
+		decodedCheckpoint, decodedUsage, decodeErr := decodeCheckpoint(body)
+		if decodeErr != nil {
+			return decodeErr
+		}
+		if validateErr := validateCheckpoint(decodedCheckpoint, episode); validateErr != nil {
+			return errors.Join(ErrInvalidModelResponse, validateErr)
+		}
+		checkpoint, usage = decodedCheckpoint, decodedUsage
+		return nil
+	})
 	if err != nil {
 		return compactionResult{}, fmt.Errorf("compact extraction episode: %w", err)
-	}
-	checkpoint, usage, err := decodeCheckpoint(body)
-	if err != nil {
-		return compactionResult{}, err
-	}
-	if err := validateCheckpoint(checkpoint, episode); err != nil {
-		return compactionResult{}, err
 	}
 	return compactionResult{
 		checkpoint: checkpoint, usage: usage,
@@ -680,6 +719,17 @@ decision, obligation, blocker, or artifact even when a different agent reports
 the update. Prefer update or resolve over creating a parallel fact. A checkpoint
 is a lossy handoff context, not new evidence; every emitted candidate must still
 cite at least one event from the current new_event_ids.`
+
+const rollingSystemPromptV11 = rollingSystemPrompt + `
+Treat proposals, preferences, requests, suggestions, hypothetical language,
+and conditional recommendations as non-state unless a separate source clause
+explicitly commits or asserts the same fact. In particular, phrases such as
+"I'd keep", "I would keep", "we should", and "let's" do not establish current
+state by themselves.
+Every status and handoff candidate must set identity_ref to a concise semantic
+identity that remains stable across agents, sessions, wording changes, and
+updates. Reuse that exact identity_ref with action update or resolve when later
+evidence changes or supersedes the same real-world state.`
 
 const compactionPrompt = `You are performing a KNOWLEDGE CONTEXT CHECKPOINT COMPACTION.
 Create a structured handoff for another extraction LLM that will continue

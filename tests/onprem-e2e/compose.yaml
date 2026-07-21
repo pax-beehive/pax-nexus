@@ -1,0 +1,80 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_DB: team_memory
+      POSTGRES_USER: team_memory
+      POSTGRES_PASSWORD: team_memory
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U team_memory -d team_memory"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  mock-extractor:
+    build:
+      context: ../..
+      dockerfile: tests/onprem-e2e/Dockerfile
+      target: mock-extractor
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/mock-extractor", "healthcheck"]
+      interval: 1s
+      timeout: 2s
+      retries: 30
+
+  team-memory:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      args:
+        EXTRACTION_CANDIDATE_STRATEGY: source-clause-v1
+        RECALL_CANDIDATE_STRATEGY: passive-v1
+    environment:
+      TEAM_MEMORY_DATABASE_URL: postgres://team_memory:team_memory@postgres:5432/team_memory?sslmode=disable
+      TEAM_MEMORY_ADMIN_API_KEY: e2e-admin-secret
+      TEAM_MEMORY_CREDENTIAL_ROTATION_OVERLAP: 5m
+      TEAM_MEMORY_WIKI_HINT_ENABLED: "false"
+      TEAM_MEMORY_EXTRACTOR_MODE: openai
+      TEAM_MEMORY_EXTRACTOR_BASE_URL: http://mock-extractor:8081
+      TEAM_MEMORY_EXTRACTOR_API_KEY: e2e-extractor-key
+      TEAM_MEMORY_EXTRACTOR_MODEL: deterministic-e2e
+      TEAM_MEMORY_PROMPT_VERSION: e2e-v1
+      TEAM_MEMORY_EXTRACTION_CONTEXT_MODE: slice
+      TEAM_MEMORY_EXTRACTION_VERSION: v1
+      TEAM_MEMORY_EXTRACTION_COMPACTION_ENABLED: "false"
+      TEAM_MEMORY_EXTRACTION_SUMMARY_ENABLED: "false"
+      TEAM_MEMORY_EXTRACTION_PROVIDER_TIMEOUT: 5s
+      TEAM_MEMORY_EXTRACTION_PROVIDER_MAX_ATTEMPTS: 1
+      TEAM_MEMORY_EXTRACTION_PROVIDER_RETRY_BACKOFF: 100ms
+      TEAM_MEMORY_WORKER_SHARDS: 1
+      TEAM_MEMORY_WORKER_MAX_ATTEMPTS: 2
+      TEAM_MEMORY_WORKER_DEBOUNCE: 10ms
+      TEAM_MEMORY_BATCH_TIMEOUT: 1s
+      TEAM_MEMORY_WORKER_JOB_TIMEOUT: 30s
+      TEAM_MEMORY_WORKER_STOP_TIMEOUT: 5s
+      TEAM_MEMORY_SLICE_EVENT_LIMIT: 25
+      TEAM_MEMORY_SLICE_TOKEN_LIMIT: 8192
+      TEAM_MEMORY_SLICE_OVERLAP: 3
+      TEAM_MEMORY_MAX_SLICES_PER_JOB: 1
+      TEAM_MEMORY_EMBEDDING_BASE_URL: ""
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mock-extractor:
+        condition: service_healthy
+
+  e2e:
+    build:
+      context: ../..
+      dockerfile: tests/onprem-e2e/Dockerfile
+      target: e2e
+    environment:
+      TEAM_MEMORY_E2E_BASE_URL: http://team-memory:8080
+    depends_on:
+      team-memory:
+        condition: service_started
+
+volumes:
+  postgres-data:

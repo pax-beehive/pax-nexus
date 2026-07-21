@@ -240,7 +240,14 @@ func (s *NoteStore) applyRunCandidate(ctx context.Context, tx pgx.Tx, scopeID st
 	if err != nil {
 		return teamnote.Note{}, err
 	}
-	note, err := teamnote.AdmitCandidate(s.policy, s.clock.Now(), candidate, run.Evidence, current)
+	var authority *teamnote.TransitionAuthority
+	for index := range run.TransitionAuthorities {
+		if run.TransitionAuthorities[index].CandidateID == candidate.ID {
+			authority = &run.TransitionAuthorities[index]
+			break
+		}
+	}
+	note, err := teamnote.AdmitCandidateWithAuthority(s.policy, s.clock.Now(), candidate, run.Evidence, current, authority)
 	if err != nil {
 		return teamnote.Note{}, err
 	}
@@ -298,7 +305,7 @@ func (s *NoteStore) RecallNotes(ctx context.Context, scopeID string, request tea
 			}
 			continue
 		}
-		claimed, err := insertDelivery(ctx, tx, scopeID, delivery.Note, request.Actor, delivery.Tokens)
+		claimed, err := insertDelivery(ctx, tx, scopeID, delivery, request.Actor)
 		if err != nil {
 			return teamnote.NoteEnvelope{}, err
 		}
@@ -308,6 +315,7 @@ func (s *NoteStore) RecallNotes(ctx context.Context, scopeID string, request tea
 		}
 		teamnote.AppendPlannedRecall(&envelope, delivery)
 	}
+	envelope.Decision = teamnote.SummarizeRecallDecision(trace)
 	if err := saveRecallObservation(ctx, tx, scopeID, request, envelope, observationTime, time.Since(startedAt), trace); err != nil {
 		return teamnote.NoteEnvelope{}, err
 	}
@@ -660,6 +668,13 @@ VALUES ($1, $2, $3, $4)`, scopeID, note.ID, note.Revision, eventID)
 }
 
 func recallableNotes(ctx context.Context, tx pgx.Tx, scopeID string, request teamnote.RecallRequest, now time.Time, queryVector []float32, embeddingModel string) ([]teamnote.RecallCandidate, error) {
+	intent := teamnote.CompileRecallIntent(request)
+	if intent.Mode == teamnote.RecallModeAsOf && intent.ValidAt != nil {
+		return recallableRevisionAt(ctx, tx, scopeID, request, now, *intent.ValidAt)
+	}
+	if intent.Mode == teamnote.RecallModeHistory || intent.Mode == teamnote.RecallModeChangesSince {
+		return recallableRevisionHistory(ctx, tx, scopeID, request, now)
+	}
 	var vectorValue any
 	if len(queryVector) > 0 {
 		vectorValue = formatVector(queryVector)
@@ -710,6 +725,142 @@ func recallableNotes(ctx context.Context, tx pgx.Tx, scopeID string, request tea
 		return nil, fmt.Errorf("scan recallable notes: %w", err)
 	}
 	return notes, nil
+}
+
+func recallableRevisionAt(
+	ctx context.Context,
+	tx pgx.Tx,
+	scopeID string,
+	request teamnote.RecallRequest,
+	observationTime time.Time,
+	queryTime time.Time,
+) ([]teamnote.RecallCandidate, error) {
+	rows, err := tx.Query(ctx, `
+SELECT DISTINCT ON (revision.note_id)
+       revision.note_id, note.note_key, candidate.kind, candidate.subject, revision.body,
+       candidate.task_ref, candidate.thread_ref,
+       candidate.origin_user_id, candidate.origin_agent_id, candidate.origin_session_id,
+       candidate.audience_agent_ids, revision.related_subjects,
+       COALESCE((
+           SELECT array_agg(event_id ORDER BY event_id)
+           FROM note_evidence
+           WHERE scope_id = revision.scope_id
+             AND note_id = revision.note_id
+             AND note_evidence.revision = revision.revision
+       ), '{}'),
+       CASE WHEN revision.operation = 'resolve' THEN 'resolved' ELSE 'active' END,
+       revision.revision, note.soft_expires_at, note.hard_expires_at,
+       note.created_at, revision.created_at, revision.valid_at,
+       CASE WHEN revision.expired_at > $2 THEN candidate.invalid_at ELSE revision.invalid_at END,
+       COALESCE(candidate.source_occurred_at, revision.created_at),
+       CASE WHEN $7 = '' THEN 0 ELSE ts_rank_cd(
+           to_tsvector('simple', candidate.subject || ' ' || revision.body),
+           to_tsquery('simple', array_to_string(tsvector_to_array(to_tsvector('simple', $7)), ' | '))
+       ) END,
+       NULL::double precision
+FROM note_revisions revision
+JOIN note_candidates candidate
+  ON candidate.scope_id = revision.scope_id
+ AND candidate.candidate_id = revision.candidate_id
+JOIN team_notes note
+  ON note.scope_id = revision.scope_id
+ AND note.note_id = revision.note_id
+WHERE revision.scope_id = $1
+  AND revision.created_at <= $2
+  AND COALESCE(revision.valid_at, candidate.source_occurred_at, revision.created_at) <= $3
+  AND (
+      CASE WHEN revision.expired_at > $2 THEN candidate.invalid_at ELSE revision.invalid_at END IS NULL
+      OR CASE WHEN revision.expired_at > $2 THEN candidate.invalid_at ELSE revision.invalid_at END > $3
+  )
+  AND (candidate.task_ref = '' OR candidate.task_ref = $4)
+  AND (candidate.thread_ref = '' OR candidate.thread_ref = $5)
+  AND (cardinality(candidate.audience_agent_ids) = 0 OR $6 = ANY(candidate.audience_agent_ids))
+  AND NOT EXISTS (
+      SELECT 1 FROM note_deliveries delivery
+      WHERE delivery.scope_id = revision.scope_id
+        AND delivery.note_id = revision.note_id
+        AND delivery.revision = revision.revision
+        AND delivery.recipient_session_id = $8
+  )
+ORDER BY revision.note_id, revision.created_at DESC, revision.revision DESC`,
+		scopeID, observationTime, queryTime, request.TaskRef, request.ThreadRef,
+		request.Actor.AgentID, teamnote.SearchQuery(request.Query), request.Actor.SessionID)
+	if err != nil {
+		return nil, fmt.Errorf("query recallable note revisions as of %s: %w", queryTime.Format(time.RFC3339), err)
+	}
+	candidates, err := pgx.CollectRows(rows, scanRecallCandidate)
+	if err != nil {
+		return nil, fmt.Errorf("scan recallable note revisions as of %s: %w", queryTime.Format(time.RFC3339), err)
+	}
+	return candidates, nil
+}
+
+func recallableRevisionHistory(
+	ctx context.Context,
+	tx pgx.Tx,
+	scopeID string,
+	request teamnote.RecallRequest,
+	observationTime time.Time,
+) ([]teamnote.RecallCandidate, error) {
+	rows, err := tx.Query(ctx, `
+SELECT revision.note_id || ':' || revision.revision::text,
+       note.note_key, candidate.kind, candidate.subject, revision.body,
+       candidate.task_ref, candidate.thread_ref,
+       candidate.origin_user_id, candidate.origin_agent_id, candidate.origin_session_id,
+       candidate.audience_agent_ids, revision.related_subjects,
+       COALESCE((
+           SELECT array_agg(event_id ORDER BY event_id)
+           FROM note_evidence
+           WHERE scope_id = revision.scope_id
+             AND note_id = revision.note_id
+             AND note_evidence.revision = revision.revision
+       ), '{}'),
+       CASE WHEN revision.operation = 'resolve' THEN 'resolved' ELSE 'active' END,
+       revision.revision, note.soft_expires_at, note.hard_expires_at,
+       note.created_at, revision.created_at, revision.valid_at, revision.invalid_at,
+       COALESCE(candidate.source_occurred_at, revision.created_at),
+       CASE WHEN $6 = '' THEN 0 ELSE ts_rank_cd(
+           to_tsvector('simple', candidate.subject || ' ' || revision.body),
+           to_tsquery('simple', array_to_string(tsvector_to_array(to_tsvector('simple', $6)), ' | '))
+       ) END,
+       NULL::double precision,
+       revision.note_id
+FROM note_revisions revision
+JOIN note_candidates candidate
+  ON candidate.scope_id = revision.scope_id
+ AND candidate.candidate_id = revision.candidate_id
+JOIN team_notes note
+  ON note.scope_id = revision.scope_id
+ AND note.note_id = revision.note_id
+WHERE revision.scope_id = $1
+  AND revision.created_at <= $2
+  AND (candidate.task_ref = '' OR candidate.task_ref = $3)
+  AND (candidate.thread_ref = '' OR candidate.thread_ref = $4)
+  AND (cardinality(candidate.audience_agent_ids) = 0 OR $5 = ANY(candidate.audience_agent_ids))
+  AND NOT EXISTS (
+      SELECT 1 FROM note_deliveries delivery
+      WHERE delivery.scope_id = revision.scope_id
+        AND delivery.note_id = revision.note_id
+        AND delivery.revision = revision.revision
+        AND delivery.recipient_session_id = $7
+  )
+ORDER BY CASE WHEN $6 = '' THEN 0 ELSE ts_rank_cd(
+             to_tsvector('simple', candidate.subject || ' ' || revision.body),
+             to_tsquery('simple', array_to_string(tsvector_to_array(to_tsvector('simple', $6)), ' | '))
+         ) END DESC,
+         revision.created_at DESC,
+         revision.note_id,
+         revision.revision DESC`,
+		scopeID, observationTime, request.TaskRef, request.ThreadRef,
+		request.Actor.AgentID, teamnote.SearchQuery(request.Query), request.Actor.SessionID)
+	if err != nil {
+		return nil, fmt.Errorf("query recallable note revision history: %w", err)
+	}
+	candidates, err := pgx.CollectRows(rows, scanHistoricalRecallCandidate)
+	if err != nil {
+		return nil, fmt.Errorf("scan recallable note revision history: %w", err)
+	}
+	return candidates, nil
 }
 
 func (s *NoteStore) refreshEmbedding(ctx context.Context, scopeID string, note teamnote.Note) error {
@@ -886,13 +1037,24 @@ func formatVector(vector []float32) string {
 	return result.String()
 }
 
-func insertDelivery(ctx context.Context, tx pgx.Tx, scopeID string, note teamnote.Note, actor teamnote.Actor, tokens int) (bool, error) {
+func insertDelivery(
+	ctx context.Context,
+	tx pgx.Tx,
+	scopeID string,
+	planned teamnote.PlannedRecall,
+	actor teamnote.Actor,
+) (bool, error) {
+	note := planned.Note
+	noteID := planned.CanonicalNoteID
+	if noteID == "" {
+		noteID = note.ID
+	}
 	result, err := tx.Exec(ctx, `
 INSERT INTO note_deliveries (
     scope_id, note_id, revision, recipient_user_id, recipient_agent_id,
     recipient_session_id, context_tokens
 ) VALUES ($1, $2, $3, $4, $5, $6, $7)
-ON CONFLICT DO NOTHING`, scopeID, note.ID, note.Revision, actor.UserID, actor.AgentID, actor.SessionID, tokens)
+ON CONFLICT DO NOTHING`, scopeID, noteID, note.Revision, actor.UserID, actor.AgentID, actor.SessionID, planned.Tokens)
 	if err != nil {
 		return false, fmt.Errorf("save note delivery: %w", err)
 	}
@@ -954,6 +1116,23 @@ func scanRecallCandidate(row pgx.CollectableRow) (teamnote.RecallCandidate, erro
 		&ranked.AudienceAgentIDs, &ranked.RelatedSubjects, &ranked.EvidenceEventIDs, &ranked.State,
 		&ranked.Revision, &ranked.SoftExpiresAt, &ranked.HardExpiresAt, &ranked.CreatedAt, &ranked.UpdatedAt,
 		&ranked.ValidAt, &ranked.InvalidAt, &ranked.SourceOccurredAt, &ranked.LexicalScore, &ranked.SemanticScore,
+	)
+	if err != nil {
+		return teamnote.RecallCandidate{}, err
+	}
+	normalizeNoteTimes(&ranked.Note)
+	return ranked, nil
+}
+
+func scanHistoricalRecallCandidate(row pgx.CollectableRow) (teamnote.RecallCandidate, error) {
+	var ranked teamnote.RecallCandidate
+	err := row.Scan(
+		&ranked.ID, &ranked.Key, &ranked.Kind, &ranked.Subject, &ranked.Body, &ranked.TaskRef,
+		&ranked.ThreadRef, &ranked.Origin.UserID, &ranked.Origin.AgentID, &ranked.Origin.SessionID,
+		&ranked.AudienceAgentIDs, &ranked.RelatedSubjects, &ranked.EvidenceEventIDs, &ranked.State,
+		&ranked.Revision, &ranked.SoftExpiresAt, &ranked.HardExpiresAt, &ranked.CreatedAt, &ranked.UpdatedAt,
+		&ranked.ValidAt, &ranked.InvalidAt, &ranked.SourceOccurredAt, &ranked.LexicalScore, &ranked.SemanticScore,
+		&ranked.CanonicalNoteID,
 	)
 	if err != nil {
 		return teamnote.RecallCandidate{}, err

@@ -1,5 +1,7 @@
 # Claim Card v2 exact values
 
+Status: Rejected after fixed extraction canary; retained only for reproducibility
+
 Date: 2026-07-19
 
 ## Context
@@ -26,3 +28,11 @@ The candidate body remains deterministic and no recall behavior changes.
 Rerun the same fixed micro3 fixture. It must exceed v1's zero atom recall and
 avoid increasing the three observed abstention leakage items before any larger
 or paid agent cohort is authorized.
+
+## Evaluation result
+
+The fixed micro3 canary again produced zero of three required atoms. Leakage
+fell to zero only because the candidate retained no answerable state after
+validation. This closes the Claim Card schema line; the implementation remains
+available only for reproducibility. See the
+[Claim Card canary no-go](../../evals/extraction-v1/results/2026-07-19-claim-card-canary-no-go.md).

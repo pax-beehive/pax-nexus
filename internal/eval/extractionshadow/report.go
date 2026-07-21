@@ -14,43 +14,82 @@ import (
 
 // CaseReport pairs one case's stage evaluation with its shadow telemetry.
 type CaseReport struct {
-	CaseID  string           `json:"case_id"`
-	Result  stageeval.Result `json:"result"`
-	Streams int              `json:"streams"`
-	Events  int              `json:"events"`
-	Notes   int              `json:"notes"`
-	Slices  int              `json:"slices"`
+	CaseID     string               `json:"case_id"`
+	Result     stageeval.Result     `json:"result"`
+	Streams    int                  `json:"streams"`
+	Events     int                  `json:"events"`
+	Notes      int                  `json:"notes"`
+	Slices     int                  `json:"slices"`
+	AtomLosses []ExtractionAtomLoss `json:"atom_losses,omitempty"`
+}
+
+type ExtractionLossStage string
+
+const (
+	ExtractionLossSourceCoverage      ExtractionLossStage = "source_coverage"
+	ExtractionLossEventReview         ExtractionLossStage = "event_review"
+	ExtractionLossClaimValidation     ExtractionLossStage = "claim_validation"
+	ExtractionLossDecisionAdmission   ExtractionLossStage = "decision_admission"
+	ExtractionLossNoteMaterialization ExtractionLossStage = "note_materialization"
+)
+
+// ExtractionAtomLoss records the first observable extraction-stage loss for
+// one fixed required Atom. An empty LostAt means the atom reached an admitted
+// Team Note with supporting evidence.
+type ExtractionAtomLoss struct {
+	CaseID             string                  `json:"case_id"`
+	AtomID             string                  `json:"atom_id"`
+	SupportingEventIDs []string                `json:"supporting_event_ids,omitempty"`
+	SupportingEvents   []ExtractionEventStatus `json:"supporting_events,omitempty"`
+	SourceCovered      bool                    `json:"source_covered"`
+	Reviewed           bool                    `json:"reviewed"`
+	Matched            bool                    `json:"matched"`
+	LostAt             ExtractionLossStage     `json:"lost_at,omitempty"`
+	Reason             string                  `json:"reason,omitempty"`
+}
+
+type ExtractionEventStatus struct {
+	EventID       string `json:"event_id"`
+	SourceCovered bool   `json:"source_covered"`
+	Reviewed      bool   `json:"reviewed"`
 }
 
 // Telemetry aggregates extraction usage and v2 products across the cohort.
 type Telemetry struct {
-	Calls                      int                              `json:"calls"`
-	CallErrors                 int                              `json:"call_errors"`
-	InputTokens                int                              `json:"input_tokens"`
-	OutputTokens               int                              `json:"output_tokens"`
-	CacheHitTokens             int                              `json:"cache_hit_tokens"`
-	CacheMissTokens            int                              `json:"cache_miss_tokens"`
-	CacheHitRate               float64                          `json:"cache_hit_rate"`
-	MeanDurationMS             float64                          `json:"mean_duration_ms"`
-	P95DurationMS              int64                            `json:"p95_duration_ms"`
-	Slices                     int                              `json:"slices"`
-	SliceRejections            int                              `json:"slice_rejections"`
-	Claims                     int                              `json:"claims,omitempty"`
-	StateDecisions             int                              `json:"state_decisions,omitempty"`
-	ClaimRejections            int                              `json:"claim_rejections,omitempty"`
-	DecisionRejections         int                              `json:"decision_rejections,omitempty"`
-	InteractionRejections      int                              `json:"interaction_rejections,omitempty"`
-	NoStateEvents              int                              `json:"no_state_events,omitempty"`
-	UnreviewedEvents           int                              `json:"unreviewed_events,omitempty"`
-	SlicesWithUnreviewedEvents int                              `json:"slices_with_unreviewed_events,omitempty"`
-	InvalidNoStateEvents       int                              `json:"invalid_no_state_events,omitempty"`
-	OrphanClaims               int                              `json:"orphan_claims,omitempty"`
-	DecisionDist               map[string]int                   `json:"decision_distribution,omitempty"`
-	WouldVerifySlices          int                              `json:"would_verify_slices,omitempty"`
-	WouldVerifyDist            map[string]int                   `json:"would_verify_distribution,omitempty"`
-	ProviderCalls              int                              `json:"provider_calls"`
-	ProviderCallErrors         int                              `json:"provider_call_errors"`
-	ProviderCallTypes          map[string]ProviderCallTelemetry `json:"provider_call_types,omitempty"`
+	Calls                       int                              `json:"calls"`
+	CallErrors                  int                              `json:"call_errors"`
+	InputTokens                 int                              `json:"input_tokens"`
+	OutputTokens                int                              `json:"output_tokens"`
+	CacheHitTokens              int                              `json:"cache_hit_tokens"`
+	CacheMissTokens             int                              `json:"cache_miss_tokens"`
+	CacheHitRate                float64                          `json:"cache_hit_rate"`
+	MeanDurationMS              float64                          `json:"mean_duration_ms"`
+	P95DurationMS               int64                            `json:"p95_duration_ms"`
+	Slices                      int                              `json:"slices"`
+	SliceRejections             int                              `json:"slice_rejections"`
+	Claims                      int                              `json:"claims,omitempty"`
+	StateDecisions              int                              `json:"state_decisions,omitempty"`
+	ClaimRejections             int                              `json:"claim_rejections,omitempty"`
+	DecisionRejections          int                              `json:"decision_rejections,omitempty"`
+	InteractionRejections       int                              `json:"interaction_rejections,omitempty"`
+	NoStateEvents               int                              `json:"no_state_events,omitempty"`
+	UnreviewedEvents            int                              `json:"unreviewed_events,omitempty"`
+	SlicesWithUnreviewedEvents  int                              `json:"slices_with_unreviewed_events,omitempty"`
+	InvalidNoStateEvents        int                              `json:"invalid_no_state_events,omitempty"`
+	OrphanClaims                int                              `json:"orphan_claims,omitempty"`
+	DecisionDist                map[string]int                   `json:"decision_distribution,omitempty"`
+	WouldVerifySlices           int                              `json:"would_verify_slices,omitempty"`
+	WouldVerifyDist             map[string]int                   `json:"would_verify_distribution,omitempty"`
+	ProviderCalls               int                              `json:"provider_calls"`
+	ProviderCallErrors          int                              `json:"provider_call_errors"`
+	ProviderRetryAttempts       int                              `json:"provider_retry_attempts"`
+	ProviderTimeouts            int                              `json:"provider_timeouts"`
+	ProviderInvalidResponses    int                              `json:"provider_invalid_responses"`
+	ProviderRetryRate           float64                          `json:"provider_retry_rate"`
+	ProviderTimeoutRate         float64                          `json:"provider_timeout_rate"`
+	ProviderInvalidResponseRate float64                          `json:"provider_invalid_response_rate"`
+	ProviderFailureClasses      map[string]int                   `json:"provider_failure_classes,omitempty"`
+	ProviderCallTypes           map[string]ProviderCallTelemetry `json:"provider_call_types,omitempty"`
 
 	durations []int64
 }
@@ -71,14 +110,15 @@ type ProviderCallTelemetry struct {
 
 // Report is one shadow replay over the fixed cohort.
 type Report struct {
-	SchemaVersion string            `json:"schema_version"`
-	RunID         string            `json:"run_id"`
-	Arm           string            `json:"arm"`
-	Extractor     string            `json:"extractor"`
-	GeneratedAt   time.Time         `json:"generated_at"`
-	Stage         stageeval.Summary `json:"stage_summary"`
-	Telemetry     Telemetry         `json:"telemetry"`
-	Cases         []CaseReport      `json:"cases"`
+	SchemaVersion string               `json:"schema_version"`
+	RunID         string               `json:"run_id"`
+	Arm           string               `json:"arm"`
+	Extractor     string               `json:"extractor"`
+	GeneratedAt   time.Time            `json:"generated_at"`
+	Stage         stageeval.Summary    `json:"stage_summary"`
+	Telemetry     Telemetry            `json:"telemetry"`
+	Cases         []CaseReport         `json:"cases"`
+	LossLedger    []ExtractionAtomLoss `json:"-"`
 }
 
 const SchemaVersion = "pax-extraction-shadow-v1"
@@ -95,7 +135,7 @@ func BuildReport(runID, arm, extractorVersion string, fixtures stageeval.Fixture
 		SchemaVersion: SchemaVersion, RunID: runID, Arm: arm, Extractor: extractorVersion,
 		GeneratedAt: time.Now().UTC(), Telemetry: Telemetry{
 			DecisionDist: map[string]int{}, WouldVerifyDist: map[string]int{},
-			ProviderCallTypes: map[string]ProviderCallTelemetry{},
+			ProviderCallTypes: map[string]ProviderCallTelemetry{}, ProviderFailureClasses: map[string]int{},
 		},
 	}
 	runsByID := make(map[string]CaseRun, len(runs))
@@ -123,9 +163,15 @@ func BuildReport(runID, arm, extractorVersion string, fixtures stageeval.Fixture
 		if err := encoder.Encode(recall); err != nil {
 			return Report{}, fmt.Errorf("encode shadow recall observation: %w", err)
 		}
+		atomLosses, err := attributeExtractionLosses(fixture, run, extraction)
+		if err != nil {
+			return Report{}, fmt.Errorf("attribute extraction losses for case %q: %w", fixture.CaseID, err)
+		}
 		report.Cases = append(report.Cases, CaseReport{
 			CaseID: run.CaseID, Streams: run.Streams, Events: run.Events, Notes: len(run.Notes), Slices: len(run.Slices),
+			AtomLosses: atomLosses,
 		})
+		report.LossLedger = append(report.LossLedger, atomLosses...)
 		telemetryScope := run.ScopeID
 		if telemetryScope == "" {
 			telemetryScope = run.CaseID
@@ -150,6 +196,17 @@ func BuildReport(runID, arm, extractorVersion string, fixtures stageeval.Fixture
 	}
 	report.Telemetry.finalize()
 	return report, nil
+}
+
+// WriteLossLedgerJSONL writes one required Atom's extraction outcome per line.
+func WriteLossLedgerJSONL(writer interface{ Write([]byte) (int, error) }, report Report) error {
+	encoder := json.NewEncoder(writer)
+	for _, loss := range report.LossLedger {
+		if err := encoder.Encode(loss); err != nil {
+			return fmt.Errorf("encode extraction loss ledger: %w", err)
+		}
+	}
+	return nil
 }
 
 func noteItems(notes []teamnote.Note) []stageeval.Item {
@@ -250,11 +307,28 @@ func (t *Telemetry) finalize() {
 		telemetry.finalize()
 		t.ProviderCallTypes[callType] = telemetry
 	}
+	if t.ProviderCalls > 0 {
+		t.ProviderRetryRate = float64(t.ProviderRetryAttempts) / float64(t.ProviderCalls)
+		t.ProviderTimeoutRate = float64(t.ProviderTimeouts) / float64(t.ProviderCalls)
+		t.ProviderInvalidResponseRate = float64(t.ProviderInvalidResponses) / float64(t.ProviderCalls)
+	}
 }
 
 func (t *Telemetry) addProviderCalls(calls []extractor.ProviderCall) {
 	for _, call := range calls {
 		t.ProviderCalls++
+		if call.Attempt > 1 {
+			t.ProviderRetryAttempts++
+		}
+		if call.FailureClass != "" {
+			t.ProviderFailureClasses[string(call.FailureClass)]++
+		}
+		switch call.FailureClass {
+		case extractor.ProviderFailureDeadline:
+			t.ProviderTimeouts++
+		case extractor.ProviderFailureInvalidResponse:
+			t.ProviderInvalidResponses++
+		}
 		if call.Error != "" {
 			t.ProviderCallErrors++
 		}

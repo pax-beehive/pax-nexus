@@ -91,6 +91,13 @@ func (s *protocolSuite) TestValidateRejectsUnverifiedMem0ReproductionClaims() {
 	}
 }
 
+func (s *protocolSuite) TestValidateRequiresSemanticJudge() {
+	config := baseConfig()
+	config.Judge = nil
+
+	s.ErrorContains(v3.Validate(config), "judge")
+}
+
 func (s *protocolSuite) TestLoadCasesAssignsOnePairedAnswerer() {
 	directory := s.T().TempDir()
 	s.Require().NoError(os.MkdirAll(filepath.Join(directory, "domain", "producer"), 0o755))
@@ -141,7 +148,7 @@ func baseConfig() v2.Config {
 		Run:     v2.RunConfig{ID: "run", Dataset: "GroupMemBench", Manifest: "manifest.json", OutputDir: "out", Parallelism: 1},
 		Store:   v2.StoreConfig{DSNEnv: "DSN"}, BaselineArm: v3.ArmNoMemoryTeam,
 		TrialTimeout: "1m", AnswererSeed: "seed-1", Mem0ReproductionLevel: v3.ReproductionComparable,
-		Arms: architectureArms(), BeforeRun: &v2.CommandSpec{Program: "ingest-domain"},
+		Arms: architectureArms(), BeforeRun: &v2.CommandSpec{Program: "ingest-domain"}, Judge: &v2.CommandSpec{Program: "judge"},
 	}
 }
 

@@ -312,6 +312,29 @@ func (s *recallSuite) TestPlanRecallTraceRecordsStageRejections() {
 		s.True(strictRelationDrop)
 	})
 
+	s.Run("historical relation sources retain canonical note ids", func() {
+		primary := recallCandidate(
+			"note-primary:2", "alpha beta history", "alpha beta revised release state", 0.9, nil,
+		)
+		primary.CanonicalNoteID = "note-primary"
+		primary.RelatedSubjects = []string{"gamma related history"}
+		linked := recallCandidate(
+			"note-linked:3", "gamma related history", "gamma related historical evidence", 0.4, nil,
+		)
+		linked.CanonicalNoteID = "note-linked"
+		historicalRequest := request
+		historicalRequest.Query = "alpha beta revision history"
+
+		planned, _ := teamnote.PlanRecall(
+			[]teamnote.RecallCandidate{primary, linked}, historicalRequest,
+			teamnote.RecallPolicy{CandidateLimit: 10},
+		)
+
+		s.Require().NotEmpty(planned)
+		s.Equal("note-primary", planned[0].CanonicalNoteID)
+		s.Equal([]string{"note-primary", "note-linked"}, planned[0].SourceNoteIDs)
+	})
+
 	s.Run("current-state query prefers newest related fact", func() {
 		primary := recallCandidate("note-primary", "calculation logic freeze", "late-cycle source changes validation approach", 0.9, nil)
 		old := recallCandidate("note-old", "old freeze policy", "freeze all late changes", 0.8, nil)
@@ -432,6 +455,180 @@ func (s *recallSuite) TestPlanRecallTraceRecordsStageRejections() {
 	})
 }
 
+func (s *recallSuite) TestPlanRecallSelectsMoreUncoveredFactsWithinTokenBudget() {
+	request := teamnote.RecallRequest{
+		Actor: teamnote.Actor{UserID: "owner", AgentID: "consumer", SessionID: "consumer-session"},
+		Query: "Who owns the alpha rollout and what is the deadline?", TokenBudget: 4000, MaxItems: 2,
+	}
+	policy := teamnote.RecallPolicy{CandidateLimit: 10}
+	discussion := recallCandidate(
+		"a-adjacent-discussion", "alpha rollout",
+		"The alpha rollout staffing and timing remain under discussion."+
+			strings.Repeat(" Alpha rollout background context remains unchanged.", 8),
+		0.95, nil,
+	)
+	discussion.Kind = teamnote.KindStatus
+	shortOwner := recallCandidate("b-short-owner", "alpha rollout", "Alice owns the alpha rollout.", 0.8, nil)
+	shortOwner.Kind = teamnote.KindHandoff
+	deadline := recallCandidate("c-deadline", "alpha rollout", "The alpha rollout deadline is July 20.", 0.8, nil)
+	deadline.Kind = teamnote.KindStatus
+
+	sizingRequest := request
+	sizingRequest.Query = ""
+	longOnly, _ := teamnote.PlanRecall([]teamnote.RecallCandidate{discussion}, sizingRequest, policy)
+	shortOnly, _ := teamnote.PlanRecall([]teamnote.RecallCandidate{shortOwner}, sizingRequest, policy)
+	deadlineOnly, _ := teamnote.PlanRecall([]teamnote.RecallCandidate{deadline}, sizingRequest, policy)
+	s.Require().Len(longOnly, 1)
+	s.Require().Len(shortOnly, 1)
+	s.Require().Len(deadlineOnly, 1)
+	s.Less(shortOnly[0].Tokens+deadlineOnly[0].Tokens, longOnly[0].Tokens)
+	request.TokenBudget = shortOnly[0].Tokens + deadlineOnly[0].Tokens
+
+	planned, trace := teamnote.PlanRecall(
+		[]teamnote.RecallCandidate{discussion, shortOwner, deadline}, request, policy,
+	)
+
+	s.Require().Len(planned, 2)
+	s.ElementsMatch([]string{"b-short-owner", "c-deadline"}, []string{planned[0].Note.ID, planned[1].Note.ID})
+	s.Equal(
+		teamnote.RejectRelevanceGate,
+		candidateTraceByID(s, trace.CandidateTraces, discussion.ID).RejectionReason,
+	)
+}
+
+func (s *recallSuite) TestPlanRecallChoosesFinalRevisionBeforeQueryCoverage() {
+	request := teamnote.RecallRequest{
+		Actor: teamnote.Actor{UserID: "owner", AgentID: "consumer", SessionID: "consumer-session"},
+		Query: "What is the current alpha rollout deployment status?", TokenBudget: 500, MaxItems: 1,
+	}
+	stale := recallCandidate(
+		"note-alpha:1", "alpha rollout deployment status", "Alpha rollout deployment status is queued.", 0.99, nil,
+	)
+	stale.CanonicalNoteID = "note-alpha"
+	stale.Key = "alpha-rollout-state"
+	stale.Revision = 1
+	stale.SourceOccurredAt = time.Date(2026, time.July, 14, 10, 0, 0, 0, time.UTC)
+	stale.UpdatedAt = stale.SourceOccurredAt
+	final := recallCandidate("note-alpha:2", "alpha rollout", "Alpha rollout is ready.", 0.7, nil)
+	final.CanonicalNoteID = "note-alpha"
+	final.Key = stale.Key
+	final.Revision = 2
+	final.SourceOccurredAt = stale.SourceOccurredAt.Add(time.Hour)
+	final.UpdatedAt = final.SourceOccurredAt
+
+	planned, trace := teamnote.PlanRecall(
+		[]teamnote.RecallCandidate{stale, final}, request, teamnote.RecallPolicy{CandidateLimit: 10},
+	)
+
+	s.Require().Len(planned, 1)
+	s.Equal(final.ID, planned[0].Note.ID)
+	s.Equal(teamnote.RejectSupersededState, candidateTraceByID(s, trace.CandidateTraces, stale.ID).RejectionReason)
+}
+
+func (s *recallSuite) TestPlanRecallFinalStateSelectionRespectsTemporalMode() {
+	stale := recallCandidate("note-alpha:1", "alpha rollout", "Alpha rollout was queued.", 0.9, nil)
+	stale.CanonicalNoteID = "note-alpha"
+	stale.Revision = 1
+	stale.CreatedAt = time.Date(2026, time.July, 14, 10, 0, 0, 0, time.UTC)
+	stale.UpdatedAt = stale.CreatedAt
+	stale.SourceOccurredAt = stale.CreatedAt
+	final := recallCandidate("note-alpha:2", "alpha rollout", "Alpha rollout is ready.", 0.8, nil)
+	final.CanonicalNoteID = "note-alpha"
+	final.Revision = 2
+	final.CreatedAt = stale.CreatedAt
+	final.UpdatedAt = stale.CreatedAt.Add(time.Hour)
+	final.SourceOccurredAt = final.UpdatedAt
+	tests := []struct {
+		name    string
+		query   string
+		wantIDs []string
+	}{
+		{name: "current collapses family", query: "current alpha rollout status", wantIDs: []string{final.ID}},
+		{name: "history retains chain", query: "alpha rollout revision history", wantIDs: []string{stale.ID, final.ID}},
+		{name: "changes since retains chain", query: "what changed since 2026-07-13 for alpha rollout", wantIDs: []string{stale.ID, final.ID}},
+	}
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			planned, _ := teamnote.PlanRecall([]teamnote.RecallCandidate{stale, final}, teamnote.RecallRequest{
+				Actor: teamnote.Actor{UserID: "owner", AgentID: "consumer", SessionID: "consumer-session"},
+				Query: test.query, TokenBudget: 500, MaxItems: 5,
+			}, teamnote.RecallPolicy{CandidateLimit: 10, ObservationTime: final.UpdatedAt.Add(time.Hour)})
+			ids := make([]string, 0, len(planned))
+			for _, item := range planned {
+				ids = append(ids, item.Note.ID)
+			}
+			s.ElementsMatch(test.wantIDs, ids)
+		})
+	}
+}
+
+func (s *recallSuite) TestPlanRecallSelectsAnswerBearingRelationBundleBeforeAdjacentDiscussion() {
+	request := teamnote.RecallRequest{
+		Actor: teamnote.Actor{UserID: "owner", AgentID: "consumer", SessionID: "consumer-session"},
+		Query: "Who owns the alpha rollout and what is the deadline?", TokenBudget: 500, MaxItems: 2,
+	}
+	discussion := recallCandidate(
+		"adjacent-discussion", "alpha rollout",
+		"The alpha rollout staffing and timing remain under discussion.", 0.99, nil,
+	)
+	owner := recallCandidate("final-owner", "alpha rollout", "Alice owns the alpha rollout.", 0.8, nil)
+	owner.Kind = teamnote.KindHandoff
+	owner.RelatedSubjects = []string{"alpha rollout deadline"}
+	deadline := recallCandidate(
+		"final-deadline", "alpha rollout deadline", "The alpha rollout deadline is July 20.", 0.8, nil,
+	)
+	staleDeadline := recallCandidate(
+		"stale-deadline", "alpha rollout deadline", "The alpha rollout deadline was July 18.", 0.7, nil,
+	)
+	staleDeadline.CanonicalNoteID = "deadline-family"
+	staleDeadline.Revision = 1
+	deadline.CanonicalNoteID = "deadline-family"
+	deadline.Revision = 2
+
+	planned, trace := teamnote.PlanRecall(
+		[]teamnote.RecallCandidate{discussion, owner, staleDeadline, deadline}, request,
+		teamnote.RecallPolicy{CandidateLimit: 10},
+	)
+
+	s.Require().Len(planned, 1)
+	s.Equal(owner.ID, planned[0].Note.ID)
+	s.Equal([]string{owner.ID, deadline.CanonicalNoteID}, planned[0].SourceNoteIDs)
+	s.Contains(planned[0].Text, "July 20")
+	s.NotContains(planned[0].Text, "July 18")
+	s.Equal(
+		teamnote.RejectRelevanceGate,
+		candidateTraceByID(s, trace.CandidateTraces, discussion.ID).RejectionReason,
+	)
+}
+
+func (s *recallSuite) TestPlanRecallDecisionRequiresCoveredFactsConfidenceAndNoBudgetDrop() {
+	request := teamnote.RecallRequest{
+		Actor: teamnote.Actor{UserID: "owner", AgentID: "consumer", SessionID: "session"},
+		Query: "Who owns project Phoenix release and what is its date?", TokenBudget: 128,
+	}
+	owner := recallCandidate("owner", "Phoenix release owner", "Riley owns project Phoenix release work.", 1, nil)
+	deadline := recallCandidate("deadline", "Phoenix release schedule", "Project Phoenix release is 2026-07-24.", 1, nil)
+	owner.Kind = teamnote.KindHandoff
+
+	planned, trace := teamnote.PlanRecall([]teamnote.RecallCandidate{owner, deadline}, request, teamnote.RecallPolicy{
+		CandidateLimit: 4, EvidenceThreshold: 0.4, SuppressDuplicates: true,
+	})
+	decision := teamnote.SummarizeRecallDecision(trace)
+
+	s.Require().Len(planned, 2)
+	s.True(decision.EvidenceSufficient)
+	s.Empty(decision.ReasonCodes)
+
+	request.TokenBudget = planned[0].Tokens
+	_, constrainedTrace := teamnote.PlanRecall([]teamnote.RecallCandidate{owner, deadline}, request, teamnote.RecallPolicy{
+		CandidateLimit: 4, EvidenceThreshold: 0.4, SuppressDuplicates: true,
+	})
+	constrained := teamnote.SummarizeRecallDecision(constrainedTrace)
+	s.False(constrained.EvidenceSufficient)
+	s.Contains(constrained.ReasonCodes, teamnote.RecallReasonFactCoverage)
+	s.Contains(constrained.ReasonCodes, teamnote.RecallReasonBudgetDrop)
+}
+
 func (s *recallSuite) TestGeneralRecallV3ProducesAuditablePlans() {
 	request := teamnote.RecallRequest{
 		Actor: teamnote.Actor{UserID: "owner", AgentID: "consumer", SessionID: "consumer-session"},
@@ -448,7 +645,7 @@ func (s *recallSuite) TestGeneralRecallV3ProducesAuditablePlans() {
 		planned, trace := teamnote.PlanRecall(candidates, request, policy)
 
 		s.Require().Len(planned, 1)
-		s.Equal(teamnote.GeneralRecallV3RelationUtilityPlanVersion, trace.PlanVersion)
+		s.Equal(teamnote.GeneralRecallV3FinalStatePlanVersion, trace.PlanVersion)
 		s.Equal(teamnote.GeneralRecallV3ScoringVersion, trace.ScoringVersion)
 		s.Equal(teamnote.RecallModeCurrent, trace.Intent.Mode)
 		s.Contains(trace.LanesExecuted, teamnote.RecallLaneLexical)

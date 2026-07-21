@@ -10,6 +10,7 @@ import (
 	"github.com/pax-beehive/pax-nexus/internal/platform/observability"
 	"github.com/pax-beehive/pax-nexus/internal/sessionlake"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote"
+	"github.com/pax-beehive/pax-nexus/internal/teamnote/extractionbudget"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote/extractor"
 )
 
@@ -48,7 +49,7 @@ func New(lake *sessionlake.Lake, candidateExtractor extractor.Extractor, config 
 		config.SliceOverlap = 3
 	}
 	if config.MaxSlicesPerJob <= 0 {
-		config.MaxSlicesPerJob = 4
+		config.MaxSlicesPerJob = extractionbudget.DefaultMaxSlicesPerJob
 	}
 	if config.TTLPolicy == nil {
 		config.TTLPolicy = teamnote.DefaultTTLPolicy()
@@ -161,7 +162,8 @@ func (a *App) applyExtractionRun(ctx context.Context, slice sessionlake.Slice, r
 		FromSequence: slice.FromSequence, ToSequence: slice.ToSequence,
 		InputChecksum: slice.InputChecksum, Model: result.Model, PromptVersion: result.PromptVersion,
 		InputTokens: result.Usage.InputTokens, OutputTokens: result.Usage.OutputTokens,
-		Candidates: result.Candidates, Evidence: slice.Events, Rejections: result.Rejections,
+		Candidates: result.Candidates, TransitionAuthorities: result.TransitionAuthorities,
+		Evidence: slice.Events, Rejections: result.Rejections,
 	}
 	if _, err := a.config.NoteStore.ApplyExtractionRun(ctx, scopeID, run); err != nil {
 		return fmt.Errorf("apply extraction run %q: %w", run.ID, err)

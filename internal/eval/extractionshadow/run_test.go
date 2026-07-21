@@ -264,6 +264,128 @@ func (s *shadowSuite) TestTelemetryAggregatesV2Products() {
 	s.Equal(1, report.Telemetry.ProviderCallTypes[string(extractor.ProviderCallSummary)].Calls)
 }
 
+func (s *shadowSuite) TestTelemetryClassifiesProviderExecutionAttempts() {
+	fixtures := stageeval.FixtureSet{
+		SchemaVersion: stageeval.SchemaVersion,
+		Cases: []stageeval.Fixture{{
+			CaseID: "case-a", SourceRevision: strings.Repeat("ab", 32),
+			RecallContext: stageeval.RecallContext{ConsumerUserID: "owner", Query: "q", TokenBudget: 10},
+			RequiredAtoms: []stageeval.Atom{{ID: "atom", Patterns: []string{"ready"}}},
+		}},
+	}
+	run := extractionshadow.CaseRun{
+		CaseID: "case-a", ScopeID: "scope", Notes: []teamnote.Note{{ID: "note", Body: "ready"}},
+		ProviderCalls: []extractor.ProviderCall{
+			{Type: extractor.ProviderCallPrimary, Attempt: 1, Error: "deadline", FailureClass: extractor.ProviderFailureDeadline},
+			{Type: extractor.ProviderCallPrimary, Attempt: 2, Error: "invalid", FailureClass: extractor.ProviderFailureInvalidResponse},
+		},
+	}
+
+	report, err := extractionshadow.BuildReport("run", "arm", "v2", fixtures, []extractionshadow.CaseRun{run})
+
+	s.Require().NoError(err)
+	s.Equal(1, report.Telemetry.ProviderRetryAttempts)
+	s.Equal(1, report.Telemetry.ProviderTimeouts)
+	s.Equal(1, report.Telemetry.ProviderInvalidResponses)
+	s.InDelta(0.5, report.Telemetry.ProviderRetryRate, 0.0001)
+	s.InDelta(0.5, report.Telemetry.ProviderTimeoutRate, 0.0001)
+	s.InDelta(0.5, report.Telemetry.ProviderInvalidResponseRate, 0.0001)
+}
+
+func (s *shadowSuite) TestBuildReportAttributesFirstExtractionLossPerAtom() {
+	fixtures := stageeval.FixtureSet{
+		SchemaVersion: stageeval.SchemaVersion,
+		Cases: []stageeval.Fixture{{
+			CaseID: "case-a", SourceRevision: strings.Repeat("cd", 32),
+			RecallContext: stageeval.RecallContext{ConsumerUserID: "owner", Query: "q", TokenBudget: 10},
+			RequiredAtoms: []stageeval.Atom{
+				{ID: "owner", Patterns: []string{"Compliance owns"}, SupportingEventIDs: []string{"event-1"}},
+				{ID: "deadline", Patterns: []string{"Friday"}, SupportingEventIDs: []string{"event-2"}},
+			},
+		}},
+	}
+	run := extractionshadow.CaseRun{
+		CaseID: "case-a", Notes: []teamnote.Note{{ID: "owner", Body: "Compliance owns", EvidenceEventIDs: []string{"event-1"}}},
+		Slices: []extractionshadow.SliceRecord{{
+			NewEventIDs: []string{"event-1", "event-2"},
+			Trace: &extractor.TraceV2{
+				StateDecisions: []extractor.StateDecision{{
+					Decision: extractor.DecisionCreate, EvidenceEventIDs: []string{"event-1"},
+				}},
+				UnreviewedEventIDs: []string{"event-2"},
+			},
+		}},
+	}
+
+	report, err := extractionshadow.BuildReport("run", "arm", "v2", fixtures, []extractionshadow.CaseRun{run})
+
+	s.Require().NoError(err)
+	s.Require().Len(report.LossLedger, 2)
+	s.True(report.LossLedger[0].Matched)
+	s.Empty(report.LossLedger[0].LostAt)
+	s.Equal(extractionshadow.ExtractionLossEventReview, report.LossLedger[1].LostAt)
+	s.Equal("supporting_event_unreviewed", report.LossLedger[1].Reason)
+	s.False(report.LossLedger[1].Reviewed)
+}
+
+func (s *shadowSuite) TestLossLedgerRequiresEverySupportingEvent() {
+	fixtures := stageeval.FixtureSet{
+		SchemaVersion: stageeval.SchemaVersion,
+		Cases: []stageeval.Fixture{{
+			CaseID: "case-a", SourceRevision: strings.Repeat("ef", 32),
+			RecallContext: stageeval.RecallContext{ConsumerUserID: "owner", Query: "q", TokenBudget: 10},
+			RequiredAtoms: []stageeval.Atom{{
+				ID: "combined", Patterns: []string{"combined fact"},
+				SupportingEventIDs: []string{"event-1", "event-2"},
+			}},
+		}},
+	}
+	run := extractionshadow.CaseRun{CaseID: "case-a", Slices: []extractionshadow.SliceRecord{{
+		NewEventIDs: []string{"event-1"}, Trace: &extractor.TraceV2{NoStateEventIDs: []string{"event-1"}},
+	}}}
+
+	report, err := extractionshadow.BuildReport("run", "arm", "v2", fixtures, []extractionshadow.CaseRun{run})
+
+	s.Require().NoError(err)
+	s.Require().Len(report.LossLedger, 1)
+	s.False(report.LossLedger[0].SourceCovered)
+	s.False(report.LossLedger[0].Reviewed)
+	s.Equal(extractionshadow.ExtractionLossSourceCoverage, report.LossLedger[0].LostAt)
+	s.Require().Len(report.LossLedger[0].SupportingEvents, 2)
+	s.True(report.LossLedger[0].SupportingEvents[0].SourceCovered)
+	s.False(report.LossLedger[0].SupportingEvents[1].SourceCovered)
+}
+
+func (s *shadowSuite) TestLossLedgerUsesEarliestStageAcrossSupportingEvents() {
+	fixtures := stageeval.FixtureSet{
+		SchemaVersion: stageeval.SchemaVersion,
+		Cases: []stageeval.Fixture{{
+			CaseID: "case-a", SourceRevision: strings.Repeat("fa", 32),
+			RecallContext: stageeval.RecallContext{ConsumerUserID: "owner", Query: "q", TokenBudget: 10},
+			RequiredAtoms: []stageeval.Atom{{
+				ID: "combined", Patterns: []string{"combined fact"},
+				SupportingEventIDs: []string{"event-rejected", "event-unreviewed"},
+			}},
+		}},
+	}
+	run := extractionshadow.CaseRun{CaseID: "case-a", Slices: []extractionshadow.SliceRecord{{
+		NewEventIDs: []string{"event-rejected", "event-unreviewed"},
+		Trace: &extractor.TraceV2{
+			ClaimRejections: []extractor.ClaimRejection{{
+				Claim: extractor.Claim{EvidenceEventIDs: []string{"event-rejected"}}, Reason: "invalid claim",
+			}},
+			UnreviewedEventIDs: []string{"event-unreviewed"},
+		},
+	}}}
+
+	report, err := extractionshadow.BuildReport("run", "arm", "v2", fixtures, []extractionshadow.CaseRun{run})
+
+	s.Require().NoError(err)
+	s.Require().Len(report.LossLedger, 1)
+	s.Equal(extractionshadow.ExtractionLossEventReview, report.LossLedger[0].LostAt)
+	s.Equal("supporting_event_unreviewed", report.LossLedger[0].Reason)
+}
+
 func (s *shadowSuite) TestLoadManifestCases() {
 	tests := []struct {
 		name      string

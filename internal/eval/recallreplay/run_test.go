@@ -62,7 +62,7 @@ func (s *replaySuite) TestFixtureRoundTripAndRun() {
 	s.Equal(3, report.StageTotals.FusionKept)
 	s.Equal(1, report.StageTotals.Rejections["fusion_limit"])
 	s.Equal(1, report.StageTotals.Rejections["token_budget"])
-	s.Equal(2, report.StageTotals.PlanVersions[teamnote.GeneralRecallV3RelationUtilityPlanVersion])
+	s.Equal(2, report.StageTotals.PlanVersions[teamnote.GeneralRecallV3FinalStatePlanVersion])
 	s.Positive(report.StageTotals.LaneCandidateCounts[string(teamnote.RecallLaneLexical)])
 	s.Positive(report.StageTotals.LaneCandidateCounts[string(teamnote.RecallLaneTemporal)])
 	s.Positive(report.StageTotals.Dispositions[string(teamnote.RecallDispositionEvidence)])

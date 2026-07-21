@@ -10,12 +10,28 @@ A fixed input, question, expected answer, and identity scope used in an evaluati
 **Arm**:
 One product strategy or control executed for the same Case.
 
+**Evaluation Baseline**:
+A named Arm, fixed configuration, and completed artifact set selected as the
+control for future comparisons. Selecting an Evaluation Baseline does not by
+itself change a production default or prove statistical superiority.
+
 **Run**:
 A versioned collection of Cases, Arms, configuration, and artifacts.
 
 **Trial**:
-One durable execution of a Case through an Arm. A Trial is the unit of resume,
-timeout, failure reporting, and paired comparison.
+The durable final projection of a Case through an Arm. A Trial is the unit of
+resume and paired comparison.
+
+**Trial Attempt**:
+One claimed execution of a Trial. Attempts are append-only and retain their
+sequence, last entered Stage, failure class, timing, and artifact references.
+
+**Validity Report**:
+The durable Eval v3 decision that states whether one Run may support a
+comparative score. It checks the complete Trial matrix, source coverage,
+observable memory mutation, recall observations, Attempt artifacts, and
+resolved configuration provenance. Invalid Runs retain artifacts but are not
+benchmark-quality.
 
 **Stage Fixture**:
 A fixed contract for one memory stage. It names required atoms, supporting
@@ -68,12 +84,26 @@ passive evidence set within the configured call and token budgets.
 The per-Available-Atom record of the first recall stage that lost the atom and
 the observable rejection or budget reason.
 
+**Extraction Loss Ledger**:
+The per-required-atom record of the first extraction stage that lost the atom:
+source coverage, Event review, claim validation, State Decision admission, or
+admitted Team Note materialization. It is derived from fixed fixtures and
+Extraction Traces rather than inferred from recall or answer judging.
+
 ## Relationships
 
 - A **Run** contains many **Cases**.
 - Each **Case** executes one or more **Arms**.
+- Future candidate Arms compare against the selected **Evaluation Baseline**
+  on the same fixed input and scoring contract.
 - A **Run** persists the full Case-by-Arm Trial matrix before execution.
+- A **Trial** contains one or more ordered **Trial Attempts**; retries append an
+  Attempt and never replace prior execution evidence.
+- Eval v3 produces one **Validity Report** after all Trial Attempts finish and
+  before comparative artifacts are accepted.
 - A **Stage Fixture** may produce paired extraction and recall **Observations**.
+- An **Extraction Loss Ledger** entry links one required Atom to its supporting
+  Events and the first observable extraction-stage loss.
 - A **Case** pins one **Recall Consumer**, **Observation Time**, and **Query
   Time** interpretation.
 - An **Eligible Atom** is an **Available Atom** filtered by consumer access and

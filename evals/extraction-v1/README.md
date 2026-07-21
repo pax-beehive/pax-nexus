@@ -19,7 +19,9 @@ six case-level scores, rather than six duplicate replays.
 - extraction fact recall and missing atom IDs;
 - forbidden-fact leakage;
 - evidence precision and recall where reviewed supporting event IDs exist;
-- calls, errors, tokens, cache use, latency, and v2 trace counters;
+- calls, classified physical attempts, retry/timeout/invalid-response rates,
+  tokens, cache use, latency, and v2 trace counters;
+- one first-loss ledger entry per required Atom;
 - domain-level event, stream, slice, and admitted-Team-Note counts.
 
 `recall` and answer-judge metrics are intentionally absent. A missing atom here
@@ -83,7 +85,8 @@ artifact dependency.
 
 Each physical provider call is appended immediately to
 `provider-calls.jsonl`, classified as `primary`, `summary`, `compaction`, or
-`verifier`. Each completed primary slice is synced to `slices.jsonl`, and the
+`verifier`, with its attempt number, failure class, retryability, deadline,
+and response budget. Each completed primary slice is synced to `slices.jsonl`, and the
 rolling episode including raw saved responses is synced to `episodes.json`.
 Completed periodic summaries are also persisted to that episode before the
 background call is considered finished.
@@ -96,10 +99,18 @@ command can use `-resume`.
 - `cases.jsonl`: one extraction score per benchmark case;
 - `notes.jsonl`: admitted Team Notes emitted once per physical domain;
 - `slices.jsonl`: per-call usage and v2 traces emitted once per domain;
+- `provider-calls.jsonl`: one classified record per physical provider attempt;
+- `atom-losses.jsonl`: one required Atom's first observable extraction loss
+  stage and reason per line;
 - `config.resolved.json`: non-secret resolved inputs and extractor identity.
 
 ## Recorded runs
 
+- [2026-07-20 Implicit State Review v1 no-go](./results/2026-07-20-implicit-state-review-v1-no-go.md):
+  recovered the implicit-state Atom but regressed two baseline Atoms, so the
+  prompt remains a reproducibility-only candidate.
+- [2026-07-20 Source Clause v1 baseline](./results/2026-07-20-source-clause-v1-baseline.md):
+  selected extraction evaluation baseline on the fixed six-case quick cohort.
 - [2026-07-17 Finance micro6 v2 r1](./results/2026-07-17-finance-micro6-v2-r1.md):
   first full-domain baseline, including the source-cohort validity limitation
   and the deterministic defects found from its trace.

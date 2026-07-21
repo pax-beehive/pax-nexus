@@ -16,6 +16,7 @@ var (
 	ErrNoteNotFound          = errors.New("team note not found")
 	ErrInvalidRecall         = errors.New("invalid recall request")
 	ErrExtractionRunConflict = errors.New("extraction run conflicts with durable result")
+	ErrDestructiveRevision   = errors.New("revision drops protected qualifiers without source authority")
 	// ErrExtractionRunQuarantined marks a run whose candidates failed
 	// deterministic admission. The run is recorded as quarantined instead of
 	// admitted, so callers may skip the slice instead of retrying forever.
@@ -199,7 +200,8 @@ func (l *Ledger) ApplyRun(ctx context.Context, run ExtractionRun) ([]Note, error
 		if exists {
 			current = &note
 		}
-		admitted, err := AdmitCandidate(l.policy, l.clock.Now(), candidate, run.Evidence, current)
+		authority := transitionAuthorityFor(run.TransitionAuthorities, candidate.ID)
+		admitted, err := AdmitCandidateWithAuthority(l.policy, l.clock.Now(), candidate, run.Evidence, current, authority)
 		if err != nil {
 			if !ShouldQuarantineExtractionRun(err) {
 				return nil, err
@@ -270,7 +272,7 @@ func (l *Ledger) Recall(ctx context.Context, request RecallRequest) (NoteEnvelop
 		recallPolicy.CandidateLimit = len(candidates)
 	}
 	recallPolicy.ObservationTime = now
-	planned, _ := PlanRecall(candidates, request, recallPolicy)
+	planned, trace := PlanRecall(candidates, request, recallPolicy)
 	for _, item := range planned {
 		if !item.ClaimNoteDelivery {
 			if _, delivered := l.hintDeliveries[item.HintFingerprint]; delivered {
@@ -283,10 +285,22 @@ func (l *Ledger) Recall(ctx context.Context, request RecallRequest) (NoteEnvelop
 		AppendPlannedRecall(&envelope, item)
 		l.deliveries[deliveryKey(item.Note, request.Actor)] = struct{}{}
 	}
+	envelope.Decision = SummarizeRecallDecision(trace)
 	return envelope, nil
 }
 
 func AdmitCandidate(policy TTLPolicy, now time.Time, candidate Candidate, evidence []SessionEvent, current *Note) (Note, error) {
+	return AdmitCandidateWithAuthority(policy, now, candidate, evidence, current, nil)
+}
+
+func AdmitCandidateWithAuthority(
+	policy TTLPolicy,
+	now time.Time,
+	candidate Candidate,
+	evidence []SessionEvent,
+	current *Note,
+	authority *TransitionAuthority,
+) (Note, error) {
 	candidate = WithEvidenceTime(candidate, evidence)
 	candidate.RelatedSubjects = normalizeSubjects(candidate.Subject, candidate.RelatedSubjects)
 	if err := validateCandidate(candidate, policy); err != nil {
@@ -316,6 +330,13 @@ func AdmitCandidate(policy TTLPolicy, now time.Time, candidate Candidate, eviden
 		resolved.SourceOccurredAt = candidate.SourceOccurredAt
 		return resolved, nil
 	}
+	if current != nil && authority != nil {
+		if err := validateRevisionQualifiers(current.Body, candidate.Body, candidate, evidence, *authority); err != nil {
+			return Note{}, err
+		}
+		candidate.EvidenceEventIDs = mergeStrings(current.EvidenceEventIDs, candidate.EvidenceEventIDs)
+		candidate.RelatedSubjects = normalizeSubjects(candidate.Subject, mergeStrings(current.RelatedSubjects, candidate.RelatedSubjects))
+	}
 	lease := policy[candidate.Kind]
 	if current == nil {
 		return Note{
@@ -343,6 +364,28 @@ func AdmitCandidate(policy TTLPolicy, now time.Time, candidate Candidate, eviden
 	updated.InvalidAt = cloneTime(candidate.InvalidAt)
 	updated.SourceOccurredAt = candidate.SourceOccurredAt
 	return updated, nil
+}
+
+func transitionAuthorityFor(authorities []TransitionAuthority, candidateID string) *TransitionAuthority {
+	for index := range authorities {
+		if authorities[index].CandidateID == candidateID {
+			return &authorities[index]
+		}
+	}
+	return nil
+}
+
+func mergeStrings(left, right []string) []string {
+	seen := make(map[string]struct{}, len(left)+len(right))
+	merged := make([]string, 0, len(left)+len(right))
+	for _, value := range append(append([]string(nil), left...), right...) {
+		if _, exists := seen[value]; exists {
+			continue
+		}
+		seen[value] = struct{}{}
+		merged = append(merged, value)
+	}
+	return merged
 }
 
 func (l *Ledger) eligibleNotes(now time.Time, request RecallRequest) []Note {
@@ -657,19 +700,26 @@ func queryRequestsCurrentState(query string) bool {
 func slotCompatible(noteText, query string) bool {
 	noteText = strings.ToLower(noteText)
 	query = strings.ToLower(query)
+	requested := false
+	compatible := false
 	if containsAny(query, "when", " date", "deadline", " timestamp", " time") {
-		return containsDigit(noteText) || containsAny(noteText,
+		requested = true
+		compatible = compatible || containsDigit(noteText) || containsAny(noteText,
 			"january", "february", "march", "april", "may", "june", "july", "august",
 			"september", "october", "november", "december", "today", "tomorrow", "eod",
 			"before", "after", " by ", "monday", "tuesday", "wednesday", "thursday", "friday")
 	}
 	if containsAny(query, "version", " count", " number", " value", "how many") {
-		return containsDigit(noteText)
+		requested = true
+		compatible = compatible || containsDigit(noteText)
 	}
 	if containsAny(query, "who", " owner", " owns", "designated", "responsible") {
-		return containsAny(noteText, " owns ", " owner", "assigned", "responsible", "designated", "@", "user_")
+		requested = true
+		compatible = compatible || containsAny(
+			noteText, " owns ", " owner", "assigned", "responsible", "designated", "@", "user_",
+		)
 	}
-	return true
+	return !requested || compatible
 }
 
 func scalarSlotRequested(query string) bool {

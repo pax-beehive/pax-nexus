@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"log/slog"
 	"os"
 	"testing"
 	"time"
@@ -23,6 +24,7 @@ func TestConfigSuite(t *testing.T) {
 func (s *configSuite) SetupTest() {
 	for _, name := range []string{
 		"TEAM_MEMORY_DATABASE_URL", "TEAM_MEMORY_API_KEYS", "TEAM_MEMORY_LISTEN_ADDRESS",
+		"TEAM_MEMORY_ADMIN_API_KEY", "TEAM_MEMORY_CREDENTIAL_ROTATION_OVERLAP", "TEAM_MEMORY_WIKI_HINT_ENABLED",
 		"TEAM_MEMORY_EXTRACTOR_MODE", "TEAM_MEMORY_EXTRACTOR_BASE_URL",
 		"TEAM_MEMORY_EXTRACTOR_API_KEY", "TEAM_MEMORY_EXTRACTOR_MODEL", "TEAM_MEMORY_PROMPT_VERSION",
 		"TEAM_MEMORY_EXTRACTION_CONTEXT_MODE", "TEAM_MEMORY_EXTRACTION_VERSION",
@@ -31,6 +33,10 @@ func (s *configSuite) SetupTest() {
 		"TEAM_MEMORY_EXTRACTION_COMPACT_TOKENS", "TEAM_MEMORY_EXTRACTION_COMPACTION_ENABLED",
 		"TEAM_MEMORY_EXTRACTION_SUMMARY_ENABLED", "TEAM_MEMORY_EXTRACTION_SUMMARY_TRIGGER_TOKENS",
 		"TEAM_MEMORY_EXTRACTION_SUMMARY_TAIL_TOKENS",
+		"TEAM_MEMORY_EXTRACTION_PROVIDER_TIMEOUT", "TEAM_MEMORY_EXTRACTION_PROVIDER_MAX_ATTEMPTS",
+		"TEAM_MEMORY_EXTRACTION_PROVIDER_RETRY_BACKOFF", "TEAM_MEMORY_EXTRACTION_PROVIDER_MAX_RESPONSE_BYTES",
+		"TEAM_MEMORY_EXTRACTION_PRIMARY_MAX_OUTPUT_TOKENS", "TEAM_MEMORY_EXTRACTION_SUMMARY_MAX_OUTPUT_TOKENS",
+		"TEAM_MEMORY_EXTRACTION_COMPACTION_MAX_OUTPUT_TOKENS",
 		"TEAM_MEMORY_WORKER_SHARDS", "TEAM_MEMORY_WORKER_MAX_ATTEMPTS",
 		"TEAM_MEMORY_WORKER_DEBOUNCE", "TEAM_MEMORY_BATCH_TIMEOUT",
 		"TEAM_MEMORY_WORKER_JOB_TIMEOUT", "TEAM_MEMORY_WORKER_STOP_TIMEOUT",
@@ -55,7 +61,7 @@ func (s *configSuite) TestLoadsNoopConfiguration() {
 	s.Equal("scope", config.apiKeys["key"])
 	s.Equal("v1", config.promptVersion)
 	s.Equal("rolling", config.extractionContextMode)
-	s.Equal("v2", config.extractionVersion)
+	s.Equal("v1", config.extractionVersion)
 	s.Equal(extractor.DefaultCandidateStrategy(), config.extractionCandidateStrategy)
 	s.False(config.extractionCompactionEnabled)
 	s.True(config.extractionSummaryEnabled)
@@ -63,15 +69,22 @@ func (s *configSuite) TestLoadsNoopConfiguration() {
 	s.Equal(16*1024, config.extractionCompactTokens)
 	s.Equal(8*1024, config.extractionSummaryTriggerTokens)
 	s.Equal(16*1024, config.extractionSummaryTailTokens)
+	s.Equal(120*time.Second, config.extractionExecutionPolicy.AttemptTimeout)
+	s.Equal(1, config.extractionExecutionPolicy.MaxAttempts)
+	s.Equal(250*time.Millisecond, config.extractionExecutionPolicy.RetryBackoff)
+	s.Equal(int64(1<<20), config.extractionExecutionPolicy.MaxResponseBytes)
+	s.Equal(16*1024, config.extractionExecutionPolicy.PrimaryMaxOutputTokens)
 	s.Equal(16, config.workerShards)
 	s.Equal(5, config.workerMaxAttempts)
 	s.Equal(750*time.Millisecond, config.workerDebounce)
 	s.Equal(30*time.Second, config.batchTimeout)
-	s.Equal(2*time.Minute, config.workerJobTimeout)
+	s.Equal(3*time.Minute, config.workerJobTimeout)
+	s.Equal(5*time.Minute, config.credentialRotationOverlap)
+	s.False(config.wikiHintEnabled)
 	s.Equal(25, config.sliceEventLimit)
 	s.Equal(8192, config.sliceTokenLimit)
 	s.Equal(3, config.sliceOverlap)
-	s.Equal(4, config.maxSlicesPerJob)
+	s.Equal(1, config.maxSlicesPerJob)
 	s.Equal(10*time.Second, config.embeddingTimeout)
 	strategy, err := teamnote.ResolveRecallCandidateStrategy("")
 	s.Require().NoError(err)
@@ -79,6 +92,76 @@ func (s *configSuite) TestLoadsNoopConfiguration() {
 	adapter, err := buildExtractor(config)
 	s.Require().NoError(err)
 	s.IsType(extractor.Noop{}, adapter)
+}
+
+func (s *configSuite) TestLoadsOnPremConfiguration() {
+	s.T().Setenv("TEAM_MEMORY_DATABASE_URL", "postgres://database")
+	s.T().Setenv("TEAM_MEMORY_EXTRACTOR_MODE", "noop")
+	s.T().Setenv("TEAM_MEMORY_ADMIN_API_KEY", "admin-secret")
+	s.T().Setenv("TEAM_MEMORY_CREDENTIAL_ROTATION_OVERLAP", "2m")
+	s.T().Setenv("TEAM_MEMORY_WIKI_HINT_ENABLED", "true")
+
+	config, err := loadConfig()
+
+	s.Require().NoError(err)
+	s.Equal("admin-secret", config.adminAPIKey)
+	s.Empty(config.apiKeys)
+	s.Equal(2*time.Minute, config.credentialRotationOverlap)
+	s.True(config.wikiHintEnabled)
+}
+
+func (s *configSuite) TestRejectsMixedLegacyAndOnPremAuthentication() {
+	s.T().Setenv("TEAM_MEMORY_DATABASE_URL", "postgres://database")
+	s.T().Setenv("TEAM_MEMORY_EXTRACTOR_MODE", "noop")
+	s.T().Setenv("TEAM_MEMORY_API_KEYS", `{"legacy":"other-scope"}`)
+	s.T().Setenv("TEAM_MEMORY_ADMIN_API_KEY", "admin-secret")
+
+	_, err := loadConfig()
+
+	s.Require().ErrorContains(err, "mutually exclusive")
+}
+
+func (s *configSuite) TestBuildHTTPHandlerKeepsLegacyModeWithoutAdminSecret() {
+	runtime := &runtimeStub{}
+	configured, err := buildHTTPHandler(runtime, nil, applicationConfig{apiKeys: map[string]string{"key": "scope"}}, slog.New(slog.DiscardHandler))
+	s.Require().NoError(err)
+	s.NotNil(configured)
+
+	_, err = buildHTTPHandler(runtime, nil, applicationConfig{
+		apiKeys: map[string]string{"key": "scope"}, adminAPIKey: "admin", credentialRotationOverlap: time.Minute,
+	}, slog.New(slog.DiscardHandler))
+	s.Error(err)
+}
+
+func (s *configSuite) TestRejectsExtractionExecutionBudgetThatExceedsJobDeadline() {
+	tests := []struct {
+		name       string
+		maxSlices  string
+		compaction bool
+	}{
+		{name: "multiple primary calls", maxSlices: "2"},
+		{name: "compaction fallback calls", maxSlices: "1", compaction: true},
+	}
+
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			s.T().Setenv("TEAM_MEMORY_DATABASE_URL", "postgres://database")
+			s.T().Setenv("TEAM_MEMORY_API_KEYS", `{"key":"scope"}`)
+			s.T().Setenv("TEAM_MEMORY_EXTRACTOR_MODE", "noop")
+			s.T().Setenv("TEAM_MEMORY_EXTRACTION_PROVIDER_TIMEOUT", "2m")
+			s.T().Setenv("TEAM_MEMORY_MAX_SLICES_PER_JOB", test.maxSlices)
+			s.T().Setenv("TEAM_MEMORY_WORKER_JOB_TIMEOUT", "3m")
+			if test.compaction {
+				s.T().Setenv("TEAM_MEMORY_EXTRACTION_SUMMARY_ENABLED", "false")
+				s.T().Setenv("TEAM_MEMORY_EXTRACTION_COMPACTION_ENABLED", "true")
+			}
+
+			_, err := loadConfig()
+
+			s.Require().Error(err)
+			s.ErrorContains(err, "extraction execution budget")
+		})
+	}
 }
 
 func (s *configSuite) TestRuntimeCandidateStrategyOverridesBuildDefault() {
@@ -93,25 +176,25 @@ func (s *configSuite) TestRuntimeCandidateStrategyOverridesBuildDefault() {
 	s.Equal(extractor.CandidateStrategyTyped2, config.extractionCandidateStrategy)
 }
 
-func (s *configSuite) TestAllowsExtractionV1Rollback() {
+func (s *configSuite) TestAllowsExtractionV2OptIn() {
 	s.T().Setenv("TEAM_MEMORY_DATABASE_URL", "postgres://database")
 	s.T().Setenv("TEAM_MEMORY_API_KEYS", `{"key":"scope"}`)
 	s.T().Setenv("TEAM_MEMORY_EXTRACTOR_MODE", "noop")
-	s.T().Setenv("TEAM_MEMORY_EXTRACTION_VERSION", "v1")
+	s.T().Setenv("TEAM_MEMORY_EXTRACTION_VERSION", "v2")
 
 	config, err := loadConfig()
 	s.Require().NoError(err)
-	s.Equal("v1", config.extractionVersion)
+	s.Equal("v2", config.extractionVersion)
 }
 
-func (s *configSuite) TestCheckedInExtractionDefaultsUseV2() {
+func (s *configSuite) TestCheckedInExtractionProtocolDefaults() {
 	tests := []struct {
 		path string
 		want string
 	}{
-		{path: ".env.example", want: "TEAM_MEMORY_EXTRACTION_VERSION=v2"},
+		{path: ".env.example", want: "TEAM_MEMORY_EXTRACTION_VERSION=v1"},
 		{path: ".env.eval-v2.example", want: "TEAM_MEMORY_EXTRACTION_VERSION=v2"},
-		{path: "compose.yaml", want: "TEAM_MEMORY_EXTRACTION_VERSION: ${TEAM_MEMORY_EXTRACTION_VERSION:-v2}"},
+		{path: "compose.yaml", want: "TEAM_MEMORY_EXTRACTION_VERSION: ${TEAM_MEMORY_EXTRACTION_VERSION:-v1}"},
 		{path: "evals/opencode/compose.yaml", want: "TEAM_MEMORY_EXTRACTION_VERSION: ${TEAM_MEMORY_EXTRACTION_VERSION:-v2}"},
 		{path: "evals/v2/compose.yaml", want: "TEAM_MEMORY_EXTRACTION_VERSION: ${TEAM_MEMORY_EXTRACTION_VERSION:-v2}"},
 		{path: "scripts/load-eval-v2-env.sh", want: `: "${TEAM_MEMORY_EXTRACTION_VERSION:=v2}"`},
@@ -130,19 +213,19 @@ func (s *configSuite) TestCheckedInCandidateStrategyBuildInterface() {
 		path string
 		want string
 	}{
-		{path: ".env.example", want: "source-span-v1, source-span-v2, claim-card-v1, or claim-card-v2"},
+		{path: ".env.example", want: "evidence-fidelity-v1, source-clause-v1, source-clause-implicit-state-v1, typed-2"},
 		{path: ".env.example", want: "TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY="},
-		{path: ".env.eval-v2.example", want: "TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY=current"},
-		{path: "compose.yaml", want: "EXTRACTION_CANDIDATE_STRATEGY: ${TEAM_MEMORY_BUILD_EXTRACTION_CANDIDATE_STRATEGY:-current}"},
+		{path: ".env.eval-v2.example", want: "TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY=source-clause-v1"},
+		{path: "compose.yaml", want: "EXTRACTION_CANDIDATE_STRATEGY: ${TEAM_MEMORY_BUILD_EXTRACTION_CANDIDATE_STRATEGY:-source-clause-v1}"},
 		{path: "evals/v2/compose.yaml", want: "TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY: ${TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY:-}"},
 		{path: "evals/opencode/compose.yaml", want: "TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY: ${TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY:-}"},
 		{path: "evals/v2/config.example.yaml", want: "  - TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY"},
 		{path: "evals/v2/config.smoke.example.yaml", want: "  - TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY"},
 		{path: "evals/v3/config.example.yaml", want: "  - TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY"},
-		{path: "scripts/load-eval-v2-env.sh", want: `: "${TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY:=current}"`},
+		{path: "scripts/load-eval-v2-env.sh", want: `: "${TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY:=source-clause-v1}"`},
 		{path: "scripts/load-eval-v2-env.sh", want: "TEAM_MEMORY_EXTRACTION_VERSION TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY"},
-		{path: "Dockerfile", want: "ARG EXTRACTION_CANDIDATE_STRATEGY=current"},
-		{path: "Makefile", want: "EXTRACTION_CANDIDATE_STRATEGY ?= current"},
+		{path: "Dockerfile", want: "ARG EXTRACTION_CANDIDATE_STRATEGY=source-clause-v1"},
+		{path: "Makefile", want: "EXTRACTION_CANDIDATE_STRATEGY ?= source-clause-v1"},
 	}
 	for _, test := range tests {
 		s.Run(test.path, func() {
@@ -236,7 +319,7 @@ func (s *configSuite) TestRejectsInvalidConfiguration() {
 	}{
 		{name: "missing database", apiKeys: `{"key":"scope"}`},
 		{name: "malformed API keys", database: "postgres://database", apiKeys: "not-json"},
-		{name: "empty API keys", database: "postgres://database", apiKeys: `{}`},
+		{name: "empty authentication", database: "postgres://database", apiKeys: `{}`},
 	}
 	for _, test := range tests {
 		s.Run(test.name, func() {
@@ -282,6 +365,16 @@ func (s *configSuite) TestCloseExtractorDrainsLifecycleImplementations() {
 
 type lifecycleExtractor struct {
 	closed bool
+}
+
+type runtimeStub struct{}
+
+func (*runtimeStub) ObserveSession(context.Context, teamnote.SessionBatch) (teamnote.IngestReceipt, error) {
+	return teamnote.IngestReceipt{}, nil
+}
+
+func (*runtimeStub) RecallNotes(context.Context, teamnote.RecallRequest) (teamnote.NoteEnvelope, error) {
+	return teamnote.NoteEnvelope{}, nil
 }
 
 func (*lifecycleExtractor) Extract(context.Context, sessionlake.Slice) (extractor.Result, error) {

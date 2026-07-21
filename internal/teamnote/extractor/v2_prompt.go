@@ -4,8 +4,11 @@ package extractor
 // or reasoning contract changes. It is part of rolling episode compatibility,
 // independent of the operator-owned prompt version label.
 const (
-	extractionProtocolV2RevisionCurrent         = "v2-slim-4"
-	extractionProtocolV2RevisionInteractionSlim = "v2-slim-3-interaction-slim"
+	extractionProtocolV2RevisionCurrent          = "v2-slim-5-temporal-deterministic"
+	extractionProtocolV2RevisionInteractionSlim  = "v2-slim-4-interaction-slim-temporal-deterministic"
+	extractionProtocolV2RevisionEvidenceFidelity = "v2-slim-7-evidence-fidelity-v1-temporal-deterministic"
+	extractionProtocolV2RevisionSourceClause     = "v2-slim-8-source-clause-v1"
+	extractionProtocolV2RevisionImplicitState    = "v2-slim-9-source-clause-implicit-state-v1"
 )
 
 // The v2 user prompt is the same session-slice JSON as v1 (buildPrompt), so
@@ -32,6 +35,33 @@ different agent reports the update. Prefer update or resolve over creating a
 parallel fact. A checkpoint is a lossy handoff context, not new evidence;
 every emitted decision or claim must still cite at least one event from the
 current new_event_ids.`
+
+// rollingSystemPromptV2EvidenceFidelity keeps the semantic Candidate schema
+// and deterministic admission of interaction-slim while giving source fidelity
+// one explicit, candidate-local pass.
+const rollingSystemPromptV2EvidenceFidelity = systemPromptV2BeforeInteractions + interactionPromptV2Slim + evidenceFidelityPromptV2 + systemPromptV2Closing + `
+You are maintaining one cumulative knowledge state for a task or thread across
+multiple agents and sessions. Previous assistant responses are your own prior
+state decisions and exceptional claims. Reuse the same identity_ref for the
+same real-world fact, decision, obligation, blocker, or artifact even when a
+different agent reports the update. Prefer update or resolve over creating a
+parallel fact. A checkpoint is a lossy handoff context, not new evidence;
+every emitted decision or claim must still cite at least one event from the
+current new_event_ids.`
+
+const rollingSystemPromptV2SourceClause = systemPromptV2BeforeInteractions + interactionPromptV2Slim + sourceClausePromptV2 + systemPromptV2Closing + `
+You are maintaining one cumulative knowledge state for a task or thread across
+multiple agents and sessions. Previous assistant responses are your own prior
+state decisions and exceptional claims. Reuse the same identity_ref for the
+same real-world fact. Every emitted decision or claim must still cite at least
+one event from the current new_event_ids.`
+
+const rollingSystemPromptV2ImplicitState = systemPromptV2BeforeInteractions + interactionPromptV2Slim + implicitStateReviewPromptV2 + sourceClausePromptV2 + systemPromptV2Closing + `
+You are maintaining one cumulative knowledge state for a task or thread across
+multiple agents and sessions. Previous assistant responses are your own prior
+state decisions and exceptional claims. Reuse the same identity_ref for the
+same real-world fact. Every emitted decision or claim must still cite at least
+one event from the current new_event_ids.`
 
 // rollingSystemPromptClaimCardV1 keeps the v2 reasoning products, but makes
 // claims the only model-written source for persisted candidate content.
@@ -164,6 +194,54 @@ create, update, or resolve canonical state. Only emit such a transition when
 the cited source separately commits, approves, rejects, hands off, escalates,
 or directly states the factual state. Sentiment never changes factual
 confidence, authority, or temporal truth.
+
+`
+
+const evidenceFidelityPromptV2 = `Evidence fidelity pass before returning:
+- Re-read the exact source clause cited by every create, update, and resolve
+  decision, and compare it with candidate.subject and candidate.body.
+- Preserve every source detail that changes the answer: actor or role, exact
+  identifier or value, negation, temporal phrase, condition, exception,
+  ordering, scope, and contrastive qualifier.
+- Preserve concrete actions as actions. If the source requires both a targeted
+  check and a rerun of an impacted workflow, do not replace them with a broad
+  category such as validation coverage.
+- Prefer durable current state, changes, owners, blockers, deadlines, and
+  conditions over routine progress or adjacent discussion. Use no_state for
+  conversational material that contains none of those facts.
+- This pass does not relax modality. A proposal, desired owner, request, or
+  question still cannot become committed state without separate source
+  evidence that establishes the transition.
+
+`
+
+const implicitStateReviewPromptV2 = `Implicit durable-state review before no_state:
+- Observable incomplete state is durable when the Event directly says work,
+  wording, criteria, or a dependency is still moving, unresolved, blocked, not
+  locked, or cannot yet be finalized. Emit the narrow blocker or status instead
+  of classifying the whole Event as no_state.
+- Declarative role capability tied to a concrete action and deadline is a
+  qualified status even when the source uses can rather than promises will.
+  Preserve can, cannot, and not-yet modality exactly in the Candidate body; do
+  not upgrade capability, inability, or incomplete state into a commitment.
+- This rule does not apply to can you requests, should/could/would suggestions,
+  preferences, hypotheticals, or proposals. Those remain non-committal unless a
+  separate exact source clause establishes durable state.
+
+`
+
+const sourceClausePromptV2 = `Source-clause admission rules:
+- Every create, update, and resolve decision MUST include evidence_clauses.
+- Each evidence clause has exactly this shape: {"event_id":"event-id","quote":"exact source text"}.
+- quote MUST be the shortest exact contiguous text copied from that Event that
+  establishes the candidate state. Do not paraphrase, normalize whitespace,
+  join text across Events, or cite an adjacent sentence.
+- A proposal, request, question, conditional preference, or desired owner is
+  not committed state. Cite a separate exact clause that explicitly states,
+  commits, assigns, approves, or resolves the candidate, or do not emit a
+  state-changing decision.
+- evidence_event_ids remains the Event-level provenance list. Source clauses
+  narrow admission authority and do not replace Event evidence.
 
 `
 

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/server"
@@ -14,6 +15,8 @@ import (
 	"github.com/cloudwego/hertz/pkg/common/ut"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
 	"github.com/cloudwego/hertz/pkg/route"
+	"github.com/pax-beehive/pax-nexus/internal/deployment/onprem"
+	"github.com/pax-beehive/pax-nexus/internal/recall"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote/mocks"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote/transport/httpapi/handler"
@@ -29,6 +32,197 @@ type handlerSuite struct {
 	runtime    *mocks.MockRuntime
 	handler    *handler.Handler
 	logs       bytes.Buffer
+}
+
+type onPremHandlerSuite struct {
+	suite.Suite
+	controller  *gomock.Controller
+	runtime     *mocks.MockRuntime
+	credentials *credentialService
+	memory      *memoryService
+	handler     *handler.Handler
+}
+
+func TestOnPremHandlerSuite(t *testing.T) {
+	suite.Run(t, new(onPremHandlerSuite))
+}
+
+func (s *onPremHandlerSuite) SetupTest() {
+	s.controller = gomock.NewController(s.T())
+	s.runtime = mocks.NewMockRuntime(s.controller)
+	s.credentials = &credentialService{}
+	s.memory = &memoryService{}
+	configured, err := handler.NewOnPrem(
+		s.runtime,
+		s.credentials,
+		s.memory,
+		slog.New(slog.DiscardHandler),
+	)
+	s.Require().NoError(err)
+	s.handler = configured
+}
+
+func (s *onPremHandlerSuite) TestCredentialLifecycleEndpoints() {
+	created := perform(s.handler.CreateAgentEnrollment, http.MethodPost,
+		`{"user_id":"owner","agent_id":"agent-1","expires_in_seconds":300}`, "admin")
+	s.Equal(consts.StatusOK, created.Code)
+	s.Contains(created.Body.String(), `"token":"tm_enroll_token"`)
+
+	exchanged := perform(s.handler.ExchangeAgentEnrollment, http.MethodPost, `{"token":"tm_enroll_token"}`, "")
+	s.Equal(consts.StatusOK, exchanged.Code)
+	s.Contains(exchanged.Body.String(), `"api_key":"tm_key_agent"`)
+
+	identity := perform(s.handler.GetAgentIdentity, http.MethodGet, "", "agent")
+	s.Equal(consts.StatusOK, identity.Code)
+	s.Contains(identity.Body.String(), `"agent_id":"agent-1"`)
+
+	rotated := perform(s.handler.RotateAgentCredential, http.MethodPost, `{}`, "agent")
+	s.Equal(consts.StatusOK, rotated.Code)
+	s.Contains(rotated.Body.String(), `"api_key":"tm_key_rotated"`)
+
+	revoked := performWithPath(s.handler.RevokeAgentCredential, http.MethodDelete, "", "admin", "credential_id", "credential-1")
+	s.Equal(consts.StatusOK, revoked.Code)
+	s.Equal("credential-1", s.credentials.revokedID)
+}
+
+func (s *onPremHandlerSuite) TestObservationBindsActorFromCredential() {
+	s.runtime.EXPECT().ObserveSession(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, batch teamnote.SessionBatch) (teamnote.IngestReceipt, error) {
+			scopeID, err := teamnote.ScopeFromContext(ctx)
+			s.Require().NoError(err)
+			s.Equal(onprem.LocalScopeID, scopeID)
+			s.Require().Len(batch.Events, 1)
+			s.Equal("owner", batch.Events[0].Actor.UserID)
+			s.Equal("agent-1", batch.Events[0].Actor.AgentID)
+			s.Equal("session-1", batch.Events[0].Actor.SessionID)
+			return teamnote.IngestReceipt{Accepted: 1, Cursor: 1}, nil
+		},
+	)
+	body := `{"session_id":"session-1","idempotency_key":"batch-1","events":[{"id":"event-1","sequence":1,"type":"assistant","content":"Release approved.","occurred_at":"2026-07-21T08:00:00Z"}],"complete":true}`
+
+	response := perform(s.handler.ObserveBatch, http.MethodPost, body, "agent")
+
+	s.Equal(consts.StatusOK, response.Code)
+	s.Contains(response.Body.String(), `"accepted":1`)
+	s.Contains(response.Body.String(), `"idempotency_key":"batch-1"`)
+}
+
+func (s *onPremHandlerSuite) TestMemorySearchAndGetBindPrincipal() {
+	search := perform(s.handler.SearchMemory, http.MethodPost,
+		`{"intent":"passive","session_id":"session-1","query":"release","token_budget":64}`, "agent")
+	s.Equal(consts.StatusOK, search.Code)
+	s.Equal("owner", s.memory.searchRequest.Actor.UserID)
+	s.Equal("agent-1", s.memory.searchRequest.Actor.AgentID)
+	s.Contains(search.Body.String(), `"disposition":"evidence"`)
+
+	get := perform(s.handler.GetMemory, http.MethodPost,
+		`{"session_id":"session-1","ref":"wiki:release"}`, "agent")
+	s.Equal(consts.StatusOK, get.Code)
+	s.Equal("agent-1", s.memory.getRequest.Actor.AgentID)
+	s.Contains(get.Body.String(), `"text":"Full document"`)
+}
+
+func (s *onPremHandlerSuite) TestOnPremEndpointsEnforceAuthenticationAndPermission() {
+	response := perform(s.handler.ObserveBatch, http.MethodPost, `{}`, "wrong")
+	s.Equal(consts.StatusUnauthorized, response.Code)
+	response = perform(s.handler.CreateAgentEnrollment, http.MethodPost,
+		`{"user_id":"owner","agent_id":"agent-1"}`, "agent")
+	s.Equal(consts.StatusForbidden, response.Code)
+}
+
+func (s *onPremHandlerSuite) TestLegacyEndpointsAreDisabledInOnPremMode() {
+	response := perform(s.handler.RecallNotes, http.MethodPost,
+		`{"actor":{"user_id":"spoofed","agent_id":"spoofed","session_id":"session"},"token_budget":64}`, "legacy")
+
+	s.Equal(consts.StatusUnauthorized, response.Code)
+}
+
+func (s *onPremHandlerSuite) TestAuthenticationStoreFailureIsNotReportedAsBadCredentials() {
+	s.credentials.authErr = errors.New("credential store unavailable")
+
+	response := perform(s.handler.GetAgentIdentity, http.MethodGet, "", "agent")
+
+	s.Equal(consts.StatusInternalServerError, response.Code)
+}
+
+func (s *onPremHandlerSuite) TestGeneratedRoutesDispatchToConfiguredOnPremHandler() {
+	hertz := server.New()
+	hertz.Use(handler.InstanceMiddleware(s.handler))
+	router.GeneratedRegister(hertz)
+
+	response := ut.PerformRequest(hertz.Engine, http.MethodGet, "/v1/agent-identity", nil,
+		ut.Header{Key: "Authorization", Value: "Bearer agent"})
+
+	s.Equal(consts.StatusOK, response.Code)
+	s.Contains(response.Body.String(), `"credential_id":"credential-1"`)
+}
+
+type credentialService struct {
+	revokedID string
+	authErr   error
+}
+
+func (s *credentialService) Authenticate(_ context.Context, apiKey string) (onprem.Principal, error) {
+	if s.authErr != nil {
+		return onprem.Principal{}, s.authErr
+	}
+	switch apiKey {
+	case "admin":
+		return onprem.Principal{ScopeID: onprem.LocalScopeID, Permissions: []onprem.Permission{onprem.PermissionAdmin}}, nil
+	case "agent":
+		return onprem.Principal{
+			UserID: "owner", AgentID: "agent-1", ScopeID: onprem.LocalScopeID, CredentialID: "credential-1",
+			Permissions: []onprem.Permission{onprem.PermissionObserve, onprem.PermissionSearch, onprem.PermissionGet},
+		}, nil
+	default:
+		return onprem.Principal{}, onprem.ErrUnauthorized
+	}
+}
+
+func (s *credentialService) CreateEnrollment(
+	_ context.Context,
+	_ onprem.Principal,
+	request onprem.EnrollmentRequest,
+) (onprem.Enrollment, error) {
+	return onprem.Enrollment{
+		ID: "enrollment-1", Token: "tm_enroll_token", ExpiresAt: time.Now().Add(request.ExpiresIn),
+	}, nil
+}
+
+func (s *credentialService) ExchangeEnrollment(context.Context, string) (onprem.IssuedCredential, error) {
+	return onprem.IssuedCredential{CredentialID: "credential-1", APIKey: "tm_key_agent"}, nil
+}
+
+func (s *credentialService) RotateCredential(context.Context, onprem.Principal) (onprem.IssuedCredential, error) {
+	return onprem.IssuedCredential{CredentialID: "credential-2", APIKey: "tm_key_rotated"}, nil
+}
+
+func (s *credentialService) RevokeCredential(_ context.Context, _ onprem.Principal, credentialID string) error {
+	s.revokedID = credentialID
+	return nil
+}
+
+type memoryService struct {
+	searchRequest recall.SearchRequest
+	getRequest    recall.GetRequest
+}
+
+func (s *memoryService) Search(_ context.Context, request recall.SearchRequest) (recall.SearchResult, error) {
+	s.searchRequest = request
+	return recall.SearchResult{
+		Hits:               []recall.MemoryHit{{Ref: "note:1", Text: "Release approved.", Disposition: recall.DispositionEvidence}},
+		EvidenceSufficient: true,
+		Trace: recall.Trace{
+			TeamNote:   recall.PathTrace{Status: recall.PathCompleted},
+			WikiHint:   recall.PathTrace{Status: recall.PathSkipped},
+			WikiSearch: recall.PathTrace{Status: recall.PathSkipped},
+		},
+	}, nil
+}
+
+func (s *memoryService) Get(_ context.Context, request recall.GetRequest) (recall.MemoryDocument, error) {
+	s.getRequest = request
+	return recall.MemoryDocument{Ref: request.Ref, Text: "Full document"}, nil
 }
 
 func TestHandlerSuite(t *testing.T) {
@@ -206,4 +400,18 @@ func perform(handlerFunction app.HandlerFunc, method, body, apiKey string) *ut.R
 		requestBody = &ut.Body{Body: bytes.NewBufferString(body), Len: len(body)}
 	}
 	return ut.PerformRequest(engine, method, "/", requestBody, headers...)
+}
+
+func performWithPath(
+	handlerFunction app.HandlerFunc,
+	method, body, apiKey, key, value string,
+) *ut.ResponseRecorder {
+	engine := route.NewEngine(config.NewOptions([]config.Option{}))
+	engine.Handle(method, "/:"+key, handlerFunction)
+	headers := []ut.Header{{Key: "Content-Type", Value: "application/json"}, {Key: "Authorization", Value: "Bearer " + apiKey}}
+	var requestBody *ut.Body
+	if body != "" {
+		requestBody = &ut.Body{Body: bytes.NewBufferString(body), Len: len(body)}
+	}
+	return ut.PerformRequest(engine, method, "/"+value, requestBody, headers...)
 }

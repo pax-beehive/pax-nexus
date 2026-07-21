@@ -67,10 +67,11 @@ type ExtractionSummary struct {
 
 // CaseReport is one question-specific atom score over a shared domain output.
 type CaseReport struct {
-	CaseID     string                     `json:"case_id"`
-	Category   string                     `json:"category,omitempty"`
-	ScopeID    string                     `json:"scope_id"`
-	Extraction stageeval.ExtractionResult `json:"extraction"`
+	CaseID     string                                `json:"case_id"`
+	Category   string                                `json:"category,omitempty"`
+	ScopeID    string                                `json:"scope_id"`
+	Extraction stageeval.ExtractionResult            `json:"extraction"`
+	AtomLosses []extractionshadow.ExtractionAtomLoss `json:"atom_losses,omitempty"`
 }
 
 // DomainReport records one physical extraction replay and the cases scored
@@ -89,18 +90,19 @@ type DomainReport struct {
 
 // Report is the independent extraction-eval-v1 artifact.
 type Report struct {
-	SchemaVersion string                     `json:"schema_version"`
-	RunID         string                     `json:"run_id"`
-	SourceRunID   string                     `json:"source_run_id"`
-	Dataset       string                     `json:"dataset"`
-	Extractor     string                     `json:"extractor"`
-	V2Variant     string                     `json:"v2_variant,omitempty"`
-	Profile       string                     `json:"profile,omitempty"`
-	GeneratedAt   time.Time                  `json:"generated_at"`
-	Summary       ExtractionSummary          `json:"extraction_summary"`
-	Telemetry     extractionshadow.Telemetry `json:"telemetry"`
-	Domains       []DomainReport             `json:"domains"`
-	Cases         []CaseReport               `json:"cases"`
+	SchemaVersion string                                `json:"schema_version"`
+	RunID         string                                `json:"run_id"`
+	SourceRunID   string                                `json:"source_run_id"`
+	Dataset       string                                `json:"dataset"`
+	Extractor     string                                `json:"extractor"`
+	V2Variant     string                                `json:"v2_variant,omitempty"`
+	Profile       string                                `json:"profile,omitempty"`
+	GeneratedAt   time.Time                             `json:"generated_at"`
+	Summary       ExtractionSummary                     `json:"extraction_summary"`
+	Telemetry     extractionshadow.Telemetry            `json:"telemetry"`
+	Domains       []DomainReport                        `json:"domains"`
+	Cases         []CaseReport                          `json:"cases"`
+	LossLedger    []extractionshadow.ExtractionAtomLoss `json:"-"`
 }
 
 // BuildReport expands each physical domain replay into case-level scoring. A
@@ -148,6 +150,7 @@ func BuildReport(
 	report := Report{
 		SchemaVersion: SchemaVersion, RunID: runID, SourceRunID: sourceRunID, Dataset: fixtures.Dataset,
 		Extractor: extractorVersion, GeneratedAt: time.Now().UTC(), Telemetry: shadowReport.Telemetry, Domains: domains,
+		LossLedger: append([]extractionshadow.ExtractionAtomLoss(nil), shadowReport.LossLedger...),
 		Summary: ExtractionSummary{
 			Cases: shadowReport.Stage.Cases, RequiredAtoms: shadowReport.Stage.RequiredAtoms,
 			ScoredAtoms: shadowReport.Stage.ExtractionScoredAtoms, MatchedAtoms: shadowReport.Stage.ExtractionMatchedAtoms,
@@ -159,7 +162,7 @@ func BuildReport(
 	for _, scored := range shadowReport.Cases {
 		report.Cases = append(report.Cases, CaseReport{
 			CaseID: scored.CaseID, Category: scored.Result.Category, ScopeID: caseScope[scored.CaseID],
-			Extraction: scored.Result.Extraction,
+			Extraction: scored.Result.Extraction, AtomLosses: scored.AtomLosses,
 		})
 	}
 	sort.Slice(report.Cases, func(left, right int) bool { return report.Cases[left].CaseID < report.Cases[right].CaseID })

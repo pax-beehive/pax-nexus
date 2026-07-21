@@ -11,13 +11,13 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pax-beehive/pax-nexus/internal/eval/extractioneval"
 	"github.com/pax-beehive/pax-nexus/internal/eval/extractionshadow"
 	"github.com/pax-beehive/pax-nexus/internal/eval/stageeval"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote"
+	"github.com/pax-beehive/pax-nexus/internal/teamnote/extractionbudget"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote/extractor"
 )
 
@@ -47,23 +47,29 @@ type evalConfig struct {
 	resume           bool
 	preflightOnly    bool
 	sliceEventLimit  int
+	executionPolicy  extractor.ExecutionPolicy
 }
 
 type resolvedConfig struct {
-	SchemaVersion    string `json:"schema_version"`
-	RunID            string `json:"run_id"`
-	SourceRunID      string `json:"source_run_id"`
-	ManifestPath     string `json:"manifest_path"`
-	FixturesPath     string `json:"fixtures_path"`
-	ScopeSuffix      string `json:"scope_suffix,omitempty"`
-	ExtractorVersion string `json:"extractor_version"`
-	ExtractorBaseURL string `json:"extractor_base_url"`
-	ExtractorModel   string `json:"extractor_model"`
-	PromptVersion    string `json:"prompt_version"`
-	ProfilePath      string `json:"profile_path,omitempty"`
-	ProfileName      string `json:"profile_name"`
-	V2Variant        string `json:"v2_variant"`
-	SliceEventLimit  int    `json:"slice_event_limit"`
+	SchemaVersion            string `json:"schema_version"`
+	RunID                    string `json:"run_id"`
+	SourceRunID              string `json:"source_run_id"`
+	ManifestPath             string `json:"manifest_path"`
+	FixturesPath             string `json:"fixtures_path"`
+	ScopeSuffix              string `json:"scope_suffix,omitempty"`
+	ExtractorVersion         string `json:"extractor_version"`
+	ExtractorBaseURL         string `json:"extractor_base_url"`
+	ExtractorModel           string `json:"extractor_model"`
+	PromptVersion            string `json:"prompt_version"`
+	ProfilePath              string `json:"profile_path,omitempty"`
+	ProfileName              string `json:"profile_name"`
+	V2Variant                string `json:"v2_variant"`
+	SliceEventLimit          int    `json:"slice_event_limit"`
+	ProviderTimeoutMS        int64  `json:"provider_timeout_ms"`
+	ProviderMaxAttempts      int    `json:"provider_max_attempts"`
+	ProviderRetryBackoffMS   int64  `json:"provider_retry_backoff_ms"`
+	ProviderMaxResponseBytes int64  `json:"provider_max_response_bytes"`
+	PrimaryMaxOutputTokens   int    `json:"primary_max_output_tokens"`
 }
 
 func parseFlags(args []string) (evalConfig, error) {
@@ -76,7 +82,7 @@ func parseFlags(args []string) (evalConfig, error) {
 	flags.StringVar(&config.sourceRunID, "source-run-id", "", "Run identifier under which source events were persisted")
 	flags.StringVar(&config.runID, "run-id", "", "Unique extraction-eval-v1 run identifier")
 	flags.StringVar(&config.scopeSuffix, "scope-suffix", "", "Optional suffix on persisted source scopes")
-	flags.StringVar(&config.extractorVersion, "extractor", extractor.ExtractionVersionV2, "Extraction protocol version (v1 or v2)")
+	flags.StringVar(&config.extractorVersion, "extractor", extractor.ExtractionVersionV2, "Extraction protocol version (v1, v1.1, or v2)")
 	flags.StringVar(&config.baseURL, "extractor-base-url", os.Getenv("TEAM_MEMORY_EXTRACTOR_BASE_URL"), "OpenAI-compatible extractor endpoint")
 	flags.StringVar(&config.model, "extractor-model", os.Getenv("TEAM_MEMORY_EXTRACTOR_MODEL"), "Extractor model")
 	flags.StringVar(&config.promptVersion, "prompt-version", "", "Prompt version tag (defaults to extractor version)")
@@ -89,6 +95,14 @@ func parseFlags(args []string) (evalConfig, error) {
 	flags.BoolVar(&config.resume, "resume", false, "Resume an interrupted run from per-slice artifacts")
 	flags.BoolVar(&config.preflightOnly, "preflight-only", false, "Validate and size source Events without calling a model")
 	flags.IntVar(&config.sliceEventLimit, "slice-event-limit", 25, "Maximum new session events per primary extraction slice")
+	providerDefaults := extractionbudget.DefaultProviderPolicy()
+	flags.DurationVar(&config.executionPolicy.AttemptTimeout, "provider-timeout", providerDefaults.AttemptTimeout, "Deadline for one physical provider attempt")
+	flags.IntVar(&config.executionPolicy.MaxAttempts, "provider-max-attempts", providerDefaults.MaxAttempts, "Maximum physical provider attempts per logical call")
+	flags.DurationVar(&config.executionPolicy.RetryBackoff, "provider-retry-backoff", providerDefaults.RetryBackoff, "Delay between retryable provider attempts")
+	flags.Int64Var(&config.executionPolicy.MaxResponseBytes, "provider-max-response-bytes", providerDefaults.MaxResponseBytes, "Maximum provider response body size")
+	flags.IntVar(&config.executionPolicy.PrimaryMaxOutputTokens, "primary-max-output-tokens", providerDefaults.PrimaryMaxOutputTokens, "Primary extraction response token budget")
+	config.executionPolicy.SummaryMaxOutputTokens = providerDefaults.SummaryMaxOutputTokens
+	config.executionPolicy.CompactionMaxOutputTokens = providerDefaults.CompactionMaxOutputTokens
 	if err := flags.Parse(args); err != nil {
 		return evalConfig{}, fmt.Errorf("parse extraction-eval-v1 flags: %w", err)
 	}
@@ -100,6 +114,9 @@ func parseFlags(args []string) (evalConfig, error) {
 	}
 	if config.sliceEventLimit < 1 {
 		return evalConfig{}, fmt.Errorf("parse extraction-eval-v1 flags: slice-event-limit must be positive")
+	}
+	if err := config.executionPolicy.Validate(); err != nil {
+		return evalConfig{}, fmt.Errorf("parse extraction-eval-v1 flags: %w", err)
 	}
 	if config.promptVersion == "" {
 		config.promptVersion = config.extractorVersion
@@ -218,14 +235,16 @@ func runPaidEval(
 	backgroundDrained := false
 	defer func() {
 		if !backgroundDrained {
-			returnedErr = errors.Join(returnedErr, waitForBackgroundCalls(context.WithoutCancel(ctx), protocol))
+			returnedErr = errors.Join(returnedErr, waitForBackgroundCalls(
+				context.WithoutCancel(ctx), protocol, config.executionPolicy,
+			))
 		}
 	}()
 	domainRuns, err := replayDomains(ctx, protocol, prepared, journal, config.sliceEventLimit, stdout)
 	if err != nil {
 		return err
 	}
-	if err := waitForBackgroundCalls(context.WithoutCancel(ctx), protocol); err != nil {
+	if err := waitForBackgroundCalls(context.WithoutCancel(ctx), protocol, config.executionPolicy); err != nil {
 		backgroundDrained = true
 		return err
 	}
@@ -378,11 +397,16 @@ func buildExtractor(
 		PromptVersion: config.promptVersion, Client: &http.Client{}, ContextMode: extractor.ContextModeRolling,
 		EpisodeStore: episodeStore, ExtractionVersion: config.extractorVersion, V2Variant: config.v2Variant,
 		SummaryEnabled: true, ProviderCallObserver: observer,
+		ExecutionPolicy: config.executionPolicy,
 	})
 }
 
-func waitForBackgroundCalls(ctx context.Context, protocol interface{ WaitForBackground(context.Context) error }) error {
-	waitCtx, cancel := context.WithTimeout(ctx, 3*time.Minute)
+func waitForBackgroundCalls(
+	ctx context.Context,
+	protocol interface{ WaitForBackground(context.Context) error },
+	policy extractor.ExecutionPolicy,
+) error {
+	waitCtx, cancel := context.WithTimeout(ctx, policy.BackgroundCallTimeout())
 	defer cancel()
 	return protocol.WaitForBackground(waitCtx)
 }
@@ -397,7 +421,12 @@ func writeArtifacts(config evalConfig, report extractioneval.Report, runs []extr
 		ExtractorVersion: config.extractorVersion, ExtractorBaseURL: config.baseURL,
 		ExtractorModel: config.model, PromptVersion: config.promptVersion,
 		ProfilePath: config.profilePath, ProfileName: report.Profile, V2Variant: config.v2Variant,
-		SliceEventLimit: config.sliceEventLimit,
+		SliceEventLimit:          config.sliceEventLimit,
+		ProviderTimeoutMS:        config.executionPolicy.AttemptTimeout.Milliseconds(),
+		ProviderMaxAttempts:      config.executionPolicy.MaxAttempts,
+		ProviderRetryBackoffMS:   config.executionPolicy.RetryBackoff.Milliseconds(),
+		ProviderMaxResponseBytes: config.executionPolicy.MaxResponseBytes,
+		PrimaryMaxOutputTokens:   config.executionPolicy.PrimaryMaxOutputTokens,
 	}
 	writes := []struct {
 		name  string
@@ -409,6 +438,9 @@ func writeArtifacts(config evalConfig, report extractioneval.Report, runs []extr
 		{name: "notes.jsonl", write: func(writer io.Writer) error { return writeNotes(writer, runs) }},
 		{name: "slices.jsonl", write: func(writer io.Writer) error { return writeSlices(writer, runs) }},
 		{name: "provider-calls.jsonl", write: func(writer io.Writer) error { return writeProviderCalls(writer, runs) }},
+		{name: "atom-losses.jsonl", write: func(writer io.Writer) error {
+			return writeJSONL(writer, report.LossLedger)
+		}},
 	}
 	for _, artifact := range writes {
 		if err := writeFile(filepath.Join(config.outputDir, artifact.name), artifact.write); err != nil {

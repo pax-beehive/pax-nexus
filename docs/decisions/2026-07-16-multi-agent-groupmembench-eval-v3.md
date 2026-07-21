@@ -1,6 +1,6 @@
 # Multi-Agent GroupMemBench Eval v3
 
-Status: Accepted; protocol runner implemented, product-use acceptance pending
+Status: Accepted; protocol, Attempt ledger, and Validity Report implemented; no valid comparator cohort recorded yet
 
 Date: 2026-07-16
 
@@ -410,6 +410,39 @@ Eval v3 is ready for product use when:
 - semantic-judge accuracy is the primary answer metric;
 - stage traces can attribute Team Note failures without relying on end-to-end
   guesses.
+
+### Current status reason (2026-07-19)
+
+Product-use acceptance remains blocked. Completed Mem0 attempts did not provide
+a valid paired comparison because most source-bearing cases produced no memory
+mutation or failed before a recall observation. Later chunk attempts also had
+trial failures and cannot replace that comparison. The evaluator records an
+operation-context error on the final Trial result, but retry attempts previously
+overwrote the prior result rather than preserving an append-only stage history.
+
+The Eval Validity and Attempt Ledger tranche implements this accepted ADR's
+visibility requirements; it is not a separate architectural decision. The
+append-only ledger preserves every attempt's stage, timing, classified failure,
+and artifact directory. The `pax-eval-v3-validity-v1` report now rejects
+comparative scoring when the Trial matrix, source coverage, memory mutation,
+recall observation, latest-Attempt artifacts, or resolved configuration
+provenance is incomplete. Recall evidence must identify and call the provider
+required by its Arm; the no-memory Arm must expose no provider evidence. The
+latest Attempt must be completed and own its canonical raw artifacts.
+Invalid runs retain `validity.json` and available raw JSONL/provenance, remove
+stale CSV/HTML comparisons, omit derived manifest scores, and return a non-zero
+acceptance error. Judge-only recovery claims and completes a new immutable
+Attempt through the PostgreSQL Store under the Run lock. It verifies the
+durable configuration hash and treats the stored consumer result, not the
+external JSONL projection, as the answer source. A judge-stage failure retains
+the completed, unjudged Trial so recovery can be retried; the next claim marks
+an orphaned rejudge Attempt interrupted without changing that Trial. Durable
+recovery chooses the newest prior Attempt with a canonical, non-empty consumer
+artifact rather than trusting the highest Attempt number. Run verification also
+matches the dataset and dataset revision. Consumer evidence is published by
+fsync and atomic rename; malformed or truncated consumer and judge JSONL fails
+the gate. A fresh three-arm cohort must pass this gate before any Mem0 or PAX
+result is described as benchmark-quality.
 
 ## Consequences
 

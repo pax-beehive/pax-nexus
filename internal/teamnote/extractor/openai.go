@@ -39,6 +39,7 @@ type OpenAIConfig struct {
 	SummaryTriggerTokens int
 	SummaryTailTokens    int
 	ProviderCallObserver ProviderCallObserver
+	ExecutionPolicy      ExecutionPolicy
 }
 
 type OpenAI struct {
@@ -116,6 +117,9 @@ func normalizeOpenAIConfig(config *OpenAIConfig) error {
 	if config.CompactionEnabled && config.SummaryEnabled {
 		return fmt.Errorf("create OpenAI extractor: compaction and periodic summary cannot both be enabled")
 	}
+	if err := normalizeExecutionPolicy(&config.ExecutionPolicy); err != nil {
+		return fmt.Errorf("create OpenAI extractor: %w", err)
+	}
 	return nil
 }
 
@@ -123,11 +127,13 @@ func normalizeExtractionVersion(config *OpenAIConfig) error {
 	if config.ExtractionVersion == "" {
 		config.ExtractionVersion = ExtractionVersionV1
 	}
-	if config.ExtractionVersion != ExtractionVersionV1 && config.ExtractionVersion != ExtractionVersionV2 {
+	if config.ExtractionVersion != ExtractionVersionV1 &&
+		config.ExtractionVersion != ExtractionVersionV11 &&
+		config.ExtractionVersion != ExtractionVersionV2 {
 		return fmt.Errorf("create OpenAI extractor: unsupported extraction version %q", config.ExtractionVersion)
 	}
-	if config.ExtractionVersion == ExtractionVersionV2 && config.ContextMode != ContextModeRolling {
-		return fmt.Errorf("create OpenAI extractor: extraction v2 requires rolling context mode")
+	if config.ExtractionVersion != ExtractionVersionV1 && config.ContextMode != ContextModeRolling {
+		return fmt.Errorf("create OpenAI extractor: extraction %s requires rolling context mode", config.ExtractionVersion)
 	}
 	strategy, err := resolveCandidateStrategy(config.V2Variant)
 	if err != nil {
@@ -145,6 +151,9 @@ func (e *OpenAI) Extract(ctx context.Context, slice sessionlake.Slice) (Result, 
 	if e.config.ContextMode == ContextModeRolling {
 		if e.config.ExtractionVersion == ExtractionVersionV2 {
 			return e.extractRollingV2(ctx, slice)
+		}
+		if e.config.ExtractionVersion == ExtractionVersionV11 {
+			return e.extractRollingV11(ctx, slice)
 		}
 		return e.extractRolling(ctx, slice)
 	}
@@ -182,6 +191,9 @@ func (e *OpenAI) systemPrompt() string {
 	if e.config.ExtractionVersion == ExtractionVersionV2 {
 		return e.candidateStrategy.protocol.systemPrompt
 	}
+	if e.config.ExtractionVersion == ExtractionVersionV11 {
+		return rollingSystemPromptV11
+	}
 	return rollingSystemPrompt
 }
 
@@ -213,56 +225,35 @@ func (e *OpenAI) complete(ctx context.Context, messages []chatMessage) (Result, 
 // completeWith decodes one chat response with the protocol-specific decoder
 // so v1 and v2 share the transport path.
 func (e *OpenAI) completeWith(ctx context.Context, messages []chatMessage, decode func([]byte) (Result, string, error)) (Result, string, error) {
-	responseBody, err := e.call(ctx, messages)
-	if err != nil {
-		return Result{}, "", err
-	}
-	result, content, err := decode(responseBody)
-	if err != nil {
-		return Result{}, "", err
-	}
-	return result, content, nil
+	var result Result
+	var content string
+	_, err := e.executeProvider(ctx, messages, 0, ProviderCallPrimary, func(responseBody []byte) error {
+		decoded, raw, decodeErr := decode(responseBody)
+		if decodeErr != nil {
+			return decodeErr
+		}
+		result, content = decoded, raw
+		return nil
+	})
+	return result, content, err
 }
 
-func (e *OpenAI) call(ctx context.Context, messages []chatMessage) ([]byte, error) {
-	return e.callWithType(ctx, messages, 0, ProviderCallPrimary)
-}
-
-func (e *OpenAI) callWithType(
+func (e *OpenAI) providerRequest(
 	ctx context.Context,
 	messages []chatMessage,
 	maxTokens int,
-	callType ProviderCallType,
-) (responseBody []byte, returnedErr error) {
-	startedAt := time.Now()
-	status := 0
-	defer func() {
-		if e.config.ProviderCallObserver == nil {
-			return
-		}
-		record := ProviderCall{
-			Type: callType, StartedAt: startedAt.UTC(), DurationMS: time.Since(startedAt).Milliseconds(),
-			HTTPStatus: status, Usage: providerUsage(responseBody),
-		}
-		if scopeID, err := teamnote.ScopeFromContext(ctx); err == nil {
-			record.ScopeID = scopeID
-		}
-		if returnedErr != nil {
-			record.Error = returnedErr.Error()
-		}
-		e.config.ProviderCallObserver(record)
-	}()
+) ([]byte, int, error) {
 	body, err := json.Marshal(chatRequest{
 		Model: e.config.Model, Messages: messages, Temperature: 0,
 		ResponseFormat: responseFormat{Type: "json_object"},
 		MaxTokens:      maxTokens,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("encode extractor request: %w", err)
+		return nil, 0, fmt.Errorf("encode extractor request: %w", err)
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(e.config.BaseURL, "/")+"/v1/chat/completions", bytes.NewReader(body))
 	if err != nil {
-		return nil, fmt.Errorf("create extractor request: %w", err)
+		return nil, 0, fmt.Errorf("create extractor request: %w", err)
 	}
 	request.Header.Set("Content-Type", "application/json")
 	if e.config.APIKey != "" {
@@ -270,21 +261,24 @@ func (e *OpenAI) callWithType(
 	}
 	response, err := e.config.Client.Do(request)
 	if err != nil {
-		return nil, fmt.Errorf("call extractor model: %w", err)
+		return nil, 0, fmt.Errorf("call extractor model: %w", err)
 	}
-	status = response.StatusCode
-	responseBody, err = io.ReadAll(io.LimitReader(response.Body, 1<<20))
+	limit := e.config.ExecutionPolicy.MaxResponseBytes
+	responseBody, err := io.ReadAll(io.LimitReader(response.Body, limit+1))
 	closeErr := response.Body.Close()
 	if err != nil {
-		return nil, fmt.Errorf("read extractor response: %w", err)
+		return nil, response.StatusCode, fmt.Errorf("read extractor response: %w", err)
 	}
 	if closeErr != nil {
-		return nil, fmt.Errorf("close extractor response: %w", closeErr)
+		return nil, response.StatusCode, fmt.Errorf("close extractor response: %w", closeErr)
+	}
+	if int64(len(responseBody)) > limit {
+		return nil, response.StatusCode, fmt.Errorf("extractor response exceeds %d bytes: %w", limit, ErrProviderResponseTooLarge)
 	}
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		return nil, fmt.Errorf("extractor response status %d: %s", response.StatusCode, strings.TrimSpace(string(responseBody)))
+		return nil, response.StatusCode, &providerStatusError{status: response.StatusCode, body: strings.TrimSpace(string(responseBody))}
 	}
-	return responseBody, nil
+	return responseBody, response.StatusCode, nil
 }
 
 func providerUsage(body []byte) Usage {
@@ -340,6 +334,67 @@ func decodeResponse(body []byte) (Result, string, error) {
 	}, content, nil
 }
 
+func decodeResponseV11(body []byte) (Result, string, error) {
+	var response chatResponse
+	if err := json.Unmarshal(body, &response); err != nil {
+		return Result{}, "", fmt.Errorf("decode extractor response: %w", errors.Join(ErrInvalidModelResponse, err))
+	}
+	if len(response.Choices) == 0 {
+		return Result{}, "", fmt.Errorf("extractor response has no choices: %w", ErrInvalidModelResponse)
+	}
+	content := trimCodeFence(response.Choices[0].Message.Content)
+	normalized, err := normalizeV11OptionalTimes(content)
+	if err != nil {
+		return Result{}, "", err
+	}
+	var output candidateOutput
+	if err := json.Unmarshal(normalized, &output); err != nil {
+		return Result{}, "", fmt.Errorf("decode extractor candidates: %w", errors.Join(ErrInvalidModelResponse, err))
+	}
+	return Result{
+		Candidates: output.Candidates,
+		Usage: Usage{
+			InputTokens: response.Usage.PromptTokens, OutputTokens: response.Usage.CompletionTokens,
+			PromptCacheHitTokens:  response.Usage.PromptCacheHitTokens,
+			PromptCacheMissTokens: response.Usage.PromptCacheMissTokens,
+		},
+	}, content, nil
+}
+
+func decodeCandidateContentV11(content string) (Result, error) {
+	normalized, err := normalizeV11OptionalTimes(trimCodeFence(content))
+	if err != nil {
+		return Result{}, err
+	}
+	var output candidateOutput
+	if err := json.Unmarshal(normalized, &output); err != nil {
+		return Result{}, fmt.Errorf("decode saved extraction candidates: %w", errors.Join(ErrInvalidModelResponse, err))
+	}
+	return Result{Candidates: output.Candidates}, nil
+}
+
+func normalizeV11OptionalTimes(content string) ([]byte, error) {
+	var output struct {
+		Candidates []map[string]json.RawMessage `json:"candidates"`
+	}
+	if err := json.Unmarshal([]byte(content), &output); err != nil {
+		return nil, fmt.Errorf("decode extractor candidates: %w", errors.Join(ErrInvalidModelResponse, err))
+	}
+	for _, candidate := range output.Candidates {
+		for _, field := range []string{"valid_at", "invalid_at"} {
+			value, exists := candidate[field]
+			if exists && strings.TrimSpace(string(value)) == `""` {
+				candidate[field] = json.RawMessage("null")
+			}
+		}
+	}
+	normalized, err := json.Marshal(output)
+	if err != nil {
+		return nil, fmt.Errorf("encode normalized v1.1 candidates: %w", err)
+	}
+	return normalized, nil
+}
+
 func normalizeCandidates(result *Result, slice sessionlake.Slice, candidateLimit int) error {
 	checksum := slice.InputChecksum
 	if len(checksum) > 16 {
@@ -351,9 +406,15 @@ func normalizeCandidates(result *Result, slice sessionlake.Slice, candidateLimit
 	allEvents := stringSet(eventIDs(slice.Events))
 	newEvents := stringSet(slice.NewEventIDs)
 	kept := make([]teamnote.Candidate, 0, len(result.Candidates))
+	keptAuthorities := make([]teamnote.TransitionAuthority, 0, len(result.Candidates))
 	for index := range result.Candidates {
 		candidate := result.Candidates[index]
 		candidate.ID = "extract-" + checksum + "-" + strconv.Itoa(index+1)
+		var authority teamnote.TransitionAuthority
+		if index < len(result.TransitionAuthorities) {
+			authority = result.TransitionAuthorities[index]
+			authority.CandidateID = candidate.ID
+		}
 		candidate.Origin = slice.Actor
 		candidate.IdentityRef = strings.TrimSpace(candidate.IdentityRef)
 		// Audience is an authorization boundary owned by the server, not a
@@ -363,9 +424,9 @@ func normalizeCandidates(result *Result, slice sessionlake.Slice, candidateLimit
 			result.Rejections = append(result.Rejections, teamnote.CandidateRejection{Candidate: candidate, Reason: reason})
 			continue
 		}
-		if evidenceIsOnlyNonCommittalProposal(candidate.EvidenceEventIDs, slice.Events) {
+		if reason := candidateProposalRejectionReason(candidate, authority, slice.Events); reason != "" {
 			result.Rejections = append(result.Rejections, teamnote.CandidateRejection{
-				Candidate: candidate, Reason: "extractor candidate is grounded only in a non-committal proposal or request",
+				Candidate: candidate, Reason: reason,
 			})
 			continue
 		}
@@ -387,6 +448,9 @@ func normalizeCandidates(result *Result, slice sessionlake.Slice, candidateLimit
 		candidate.ThreadRef = threadRef
 		candidate.SourceOccurredAt = latestEvidenceTime(candidate.EvidenceEventIDs, slice.Events)
 		kept = append(kept, candidate)
+		if index < len(result.TransitionAuthorities) {
+			keptAuthorities = append(keptAuthorities, authority)
+		}
 	}
 	if candidateLimit == 0 {
 		candidateLimit = maxCandidatesPerSlice
@@ -398,9 +462,38 @@ func normalizeCandidates(result *Result, slice sessionlake.Slice, candidateLimit
 			})
 		}
 		kept = kept[:candidateLimit]
+		if len(keptAuthorities) > candidateLimit {
+			keptAuthorities = keptAuthorities[:candidateLimit]
+		}
 	}
 	result.Candidates = kept
+	result.TransitionAuthorities = keptAuthorities
 	return nil
+}
+
+func candidateProposalRejectionReason(
+	candidate teamnote.Candidate,
+	authority teamnote.TransitionAuthority,
+	events []teamnote.SessionEvent,
+) string {
+	if !evidenceIsOnlyNonCommittalProposal(candidate.EvidenceEventIDs, events) ||
+		transitionAuthorityContainsCommittedCandidate(authority, candidate) {
+		return ""
+	}
+	return "extractor candidate is grounded only in a non-committal proposal or request"
+}
+
+func transitionAuthorityContainsCommittedCandidate(
+	authority teamnote.TransitionAuthority,
+	candidate teamnote.Candidate,
+) bool {
+	decisionCandidate := &DecisionCandidate{Subject: candidate.Subject, Body: candidate.Body}
+	for _, clause := range authority.EvidenceClauses {
+		if committedSourceClauseSupportsCandidate(clause.Quote, decisionCandidate) {
+			return true
+		}
+	}
+	return false
 }
 
 func evidenceIsOnlyNonCommittalProposal(evidenceIDs []string, events []teamnote.SessionEvent) bool {
@@ -442,13 +535,30 @@ func evidenceIsOnlyNonCommittalSourceLanguage(
 	events []teamnote.SessionEvent,
 	candidate *DecisionCandidate,
 ) bool {
+	return evidenceIsOnlyMatchingSourceLanguage(evidenceIDs, events, candidate, isNonCommittalSourceLanguage)
+}
+
+func evidenceIsOnlyV11NonCommittalSourceLanguage(
+	evidenceIDs []string,
+	events []teamnote.SessionEvent,
+	candidate *DecisionCandidate,
+) bool {
+	return evidenceIsOnlyMatchingSourceLanguage(evidenceIDs, events, candidate, isV11NonCommittalSourceLanguage)
+}
+
+func evidenceIsOnlyMatchingSourceLanguage(
+	evidenceIDs []string,
+	events []teamnote.SessionEvent,
+	candidate *DecisionCandidate,
+	matches func(string, *DecisionCandidate) bool,
+) bool {
 	eventsByID := make(map[string]teamnote.SessionEvent, len(events))
 	for _, event := range events {
 		eventsByID[event.ID] = event
 	}
 	for _, eventID := range evidenceIDs {
 		event, exists := eventsByID[eventID]
-		if !exists || !isNonCommittalSourceLanguage(event.Content, candidate) {
+		if !exists || !matches(event.Content, candidate) {
 			return false
 		}
 	}
@@ -476,11 +586,77 @@ func isNonCommittalSourceLanguage(content string, candidate *DecisionCandidate) 
 	return false
 }
 
+func isV11NonCommittalSourceLanguage(content string, candidate *DecisionCandidate) bool {
+	normalized := normalizeSourceLanguage(content)
+	padded := " " + normalized + " "
+	index := firstMarker(padded, []string{" i'd keep ", " i would keep "})
+	if index < 0 {
+		return false
+	}
+	if candidateDependsOnNonCommittalTail(padded[:index], padded[index:], candidate) {
+		return true
+	}
+	return !committedClauseSupportsCandidate(padded[:index], candidate)
+}
+
+func firstMarker(content string, markers []string) int {
+	first := -1
+	for _, marker := range markers {
+		index := strings.Index(content, marker)
+		if index >= 0 && (first < 0 || index < first) {
+			first = index
+		}
+	}
+	return first
+}
+
+func normalizeSourceLanguage(content string) string {
+	content = strings.NewReplacer("’", "'", "‘", "'").Replace(content)
+	return strings.ToLower(strings.Join(strings.Fields(content), " "))
+}
+
+func candidateDependsOnNonCommittalTail(prefix, tail string, candidate *DecisionCandidate) bool {
+	if candidate == nil {
+		return false
+	}
+	prefixTokens := significantTokens(prefix)
+	tailTokens := significantTokens(tail)
+	candidateTokens := significantTokens(candidate.Subject + " " + candidate.Body)
+	uniqueTailMatches := 0
+	for token := range candidateTokens {
+		if _, inTail := tailTokens[token]; !inTail {
+			continue
+		}
+		if _, inPrefix := prefixTokens[token]; inPrefix {
+			continue
+		}
+		if answerChangingTailToken(token) {
+			return true
+		}
+		uniqueTailMatches++
+	}
+	return uniqueTailMatches >= 2
+}
+
+func answerChangingTailToken(token string) bool {
+	switch token {
+	case "not", "never", "exclude", "excluded", "excluding", "only", "unless", "except", "before", "after":
+		return true
+	default:
+		return false
+	}
+}
+
 func committedClauseSupportsCandidate(content string, candidate *DecisionCandidate) bool {
 	if candidate == nil {
 		return false
 	}
 	candidateTokens := significantTokens(candidate.Subject + " " + candidate.Body)
+	subjectTokens := significantTokens(candidate.Subject)
+	assertionTokens := significantTokens(candidate.Body)
+	for token := range subjectTokens {
+		delete(assertionTokens, token)
+	}
 	clauses := strings.FieldsFunc(content, func(character rune) bool {
 		return character == '.' || character == ';' || character == '!' || character == '?' || character == '\n'
 	})
@@ -491,22 +667,65 @@ func committedClauseSupportsCandidate(content string, candidate *DecisionCandida
 		}
 		clauseTokens := significantTokens(paddedClause)
 		matches := 0
+		assertionMatches := 0
 		for token := range candidateTokens {
 			if _, exists := clauseTokens[token]; exists {
 				matches++
 			}
 		}
-		if matches >= 2 {
+		for token := range assertionTokens {
+			if _, exists := clauseTokens[token]; exists {
+				assertionMatches++
+			}
+		}
+		if matches >= 2 && assertionGroundedByClause(assertionTokens, clauseTokens, assertionMatches) {
 			return true
 		}
 	}
 	return false
 }
 
+func assertionGroundedByClause(
+	assertionTokens map[string]struct{},
+	clauseTokens map[string]struct{},
+	assertionMatches int,
+) bool {
+	if assertionMatches >= 2 {
+		return true
+	}
+	for token := range assertionTokens {
+		if _, matched := clauseTokens[token]; matched && isAssertionPredicate(token) {
+			return true
+		}
+	}
+	return false
+}
+
+func isAssertionPredicate(token string) bool {
+	_, ok := map[string]struct{}{
+		"agree": {}, "agreed": {}, "approve": {}, "approved": {}, "assign": {}, "assigned": {},
+		"block": {}, "complete": {}, "confirm": {}, "cover": {}, "decide": {}, "decided": {},
+		"designate": {}, "designated": {}, "finish": {}, "freeze": {}, "include": {}, "lock": {},
+		"log": {}, "own": {}, "owner": {}, "ownership": {}, "pause": {}, "publish": {},
+		"require": {}, "resolve": {}, "send": {}, "take": {}, "update": {}, "validate": {},
+	}[token]
+	return ok
+}
+
+func committedSourceClauseSupportsCandidate(quote string, candidate *DecisionCandidate) bool {
+	quote, _ = sourceTextWithoutMarkdownFormatting(quote)
+	content := " " + strings.ToLower(strings.Join(strings.Fields(quote), " ")) + " "
+	return committedClauseSupportsCandidate(content, candidate)
+}
+
 func containsCommittedPredicate(content string) bool {
+	content, _ = sourceTextWithoutMarkdownFormatting(content)
 	for _, marker := range []string{
 		" is ", " are ", " owns ", " has ", " have ", " completed ", " finished ",
 		" approved ", " assigned ", " designated ", " decided ", " confirmed ",
+		" agreed ", " change to decision",
+		" i'll ", " i’ll ", " i will ", " we'll ", " we’ll ", " we will ",
+		" update ", " freeze ", " pause ", " lock ",
 	} {
 		if strings.Contains(content, marker) {
 			return true
@@ -527,11 +746,22 @@ func significantTokens(content string) map[string]struct{} {
 		if len(field) < 3 {
 			continue
 		}
+		field = normalizeSignificantToken(field)
 		if _, stop := stopWords[field]; !stop {
 			tokens[field] = struct{}{}
 		}
 	}
 	return tokens
+}
+
+func normalizeSignificantToken(token string) string {
+	if len(token) > 4 && strings.HasSuffix(token, "ies") {
+		return strings.TrimSuffix(token, "ies") + "y"
+	}
+	if len(token) > 3 && strings.HasSuffix(token, "s") && !strings.HasSuffix(token, "ss") {
+		return strings.TrimSuffix(token, "s")
+	}
+	return token
 }
 
 // candidateRejectionReason returns the deterministic reason one candidate can

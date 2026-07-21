@@ -1,6 +1,6 @@
 # Hint Recall v0
 
-Status: Accepted for evaluation; production default disabled
+Status: Accepted for evaluation; production default disabled after no-lift, 14.9x-token pilot
 
 Date: 2026-07-16
 
@@ -263,13 +263,21 @@ Score clears the unchanged paxm gates without score inflation.
 
 ## Implemented evaluation candidate
 
+Version mapping is explicit: this ADR names the product concept `Hint Recall
+v0`; the implemented planner candidate is
+`general-recall-v3-hint-recall-v1`; the distributed build candidate is
+`hint-v1-selective`; and the Eval v2 arm remains `hint_recall_v0` as a protocol
+compatibility identifier rather than an algorithm version.
+
 The current evaluation candidate is `general-recall-v3-hint-recall-v1` with
 scoring version `hint-utility-v1-selective-eval-only`. It is distributed as the
 build-time `hint-v1-selective` recall candidate; the `passive-v1` build remains
 the production default. `hint-v1-selective` retains passive evidence selection
 and admits at most one focused active recall only after its selectivity gates
-pass. Runtime recall-policy environment overrides are rejected so an evaluated
-candidate image cannot silently drift.
+pass. Runtime recall-policy environment overrides are allowed for isolated
+evaluation arms and compatible deployments. Eval configurations must include
+those values in resolved configuration, hashing, and runtime provenance so an
+evaluated candidate cannot silently drift.
 PostgreSQL records hint fingerprints separately from Note deliveries, so a
 hint cannot make its lead unavailable to a subsequent focused recall.
 
@@ -285,6 +293,16 @@ utility threshold `0.60` in the isolated Hint service. A lower Hint-candidate
 threshold must not widen evidence retrieval. The ordinary passive service
 remains at semantic threshold `0.50`, and production Hint Recall stays
 disabled. These are explicit eval-arm parameters, not new global defaults.
+
+## Evaluation result (2026-07-19)
+
+The 15-case real-Agent pilot scored all 45 trials. Hint Recall activated in 13
+of 15 trials and matched passive Team Note accuracy at 6 of 15, with zero paired
+wins or losses. It consumed 20,224 input tokens versus 1,359 for passive Team
+Note, or 14.9 times as many. Keep the candidate evaluation-only. The next gate
+is improved activation selectivity or focused-query utility on fixed replay;
+the hard 30-case cohort is not authorized by this result. See the
+[pilot report](../../evals/recall-v2/results/2026-07-19-hint-recall-v1-paxm-v0.2.0-pilot15.md).
 
 ## Consequences
 

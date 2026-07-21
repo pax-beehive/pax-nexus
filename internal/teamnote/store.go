@@ -13,22 +13,37 @@ type NoteStore interface {
 
 // ExtractionRun is one durable extraction decision over a bounded Session Slice.
 type ExtractionRun struct {
-	ID                string
-	Actor             Actor
-	FromSequence      int64
-	ToSequence        int64
-	InputChecksum     string
-	CandidateChecksum string
-	Model             string
-	PromptVersion     string
-	InputTokens       int
-	OutputTokens      int
-	Candidates        []Candidate
-	Evidence          []SessionEvent
+	ID                    string
+	Actor                 Actor
+	FromSequence          int64
+	ToSequence            int64
+	InputChecksum         string
+	CandidateChecksum     string
+	Model                 string
+	PromptVersion         string
+	InputTokens           int
+	OutputTokens          int
+	Candidates            []Candidate
+	TransitionAuthorities []TransitionAuthority
+	Evidence              []SessionEvent
 	// Rejections records candidates dropped before admission. Rejected
 	// candidates are not part of the admitted batch and do not affect the
 	// candidate checksum.
 	Rejections []CandidateRejection
+}
+
+// TransitionAuthority records the exact validated source clauses that may
+// authorize one candidate to replace facts in an existing note.
+type TransitionAuthority struct {
+	CandidateID     string
+	PriorStateRef   string
+	EvidenceClauses []TransitionEvidenceClause
+	ReasonCodes     []string
+}
+
+type TransitionEvidenceClause struct {
+	EventID string
+	Quote   string
 }
 
 // CandidateRejection records one candidate dropped before admission with the

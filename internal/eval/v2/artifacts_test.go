@@ -73,6 +73,10 @@ func (s *artifactSuite) TestSummaryPairwiseAndExport() {
 
 	directory := s.T().TempDir()
 	run := RunRecord{ID: "run", Dataset: "suite", DatasetRevision: "rev", ConfigHash: "hash"}
+	s.Require().NoError(ExportTrialAttempts(directory, []TrialAttempt{{
+		TrialAttemptHandle: TrialAttemptHandle{RunID: "run", CaseID: "case", Arm: "control", Number: 1},
+		Status:             "completed", Stage: TrialStageCompleted,
+	}}))
 	s.Require().NoError(ExportArtifacts(directory, run, "control", []string{"csv", "jsonl", "html"}, results, func(writer io.Writer) error {
 		_, err := io.Copy(writer, bytes.NewBufferString("<!doctype html><title>report</title>"))
 		return err
@@ -90,9 +94,10 @@ func (s *artifactSuite) TestSummaryPairwiseAndExport() {
 		Files         map[string]string `json:"files"`
 	}
 	s.Require().NoError(json.Unmarshal(manifestInput, &manifest))
-	s.Equal("pax-eval-v2.9", manifest.SchemaVersion)
+	s.Equal(ArtifactSchemaVersion, manifest.SchemaVersion)
 	s.Equal("report.html", manifest.Files["report"])
 	s.Equal("config.resolved.json", manifest.Files["resolved_config"])
+	s.Equal("attempts.jsonl", manifest.Files["trial_attempts"])
 	s.InDelta(0.06, manifest.CostSummary.TotalCost, 0.000001)
 	summaryCSV, err := os.ReadFile(filepath.Join(directory, "summary.csv"))
 	s.Require().NoError(err)
@@ -180,6 +185,7 @@ func (s *artifactSuite) TestExportLinksRecallEvalV2ProtocolArtifacts() {
 func (s *artifactSuite) TestExportLinksEvalV3FullDomainIngestReceipts() {
 	directory := s.T().TempDir()
 	s.Require().NoError(os.MkdirAll(filepath.Join(directory, "memory"), 0o755))
+	s.Require().NoError(os.WriteFile(filepath.Join(directory, "validity.json"), []byte(`{"schema_version":"pax-eval-v3-validity-v1","status":"valid","valid":true}`+"\n"), 0o600))
 	for _, name := range []string{"team-note-ingest.json", "mem0-ingest.json", "private-sqlite-ingest.json"} {
 		s.Require().NoError(os.WriteFile(filepath.Join(directory, "memory", name), []byte("{}\n"), 0o600))
 	}
@@ -221,12 +227,19 @@ func (s *artifactSuite) TestExportLinksEvalV3FullDomainIngestReceipts() {
 				ContextItems      int `json:"context_items"`
 			} `json:"retrieval_observation"`
 		} `json:"mem0_reproduction"`
+		Validity struct {
+			Status string `json:"status"`
+			Valid  bool   `json:"valid"`
+		} `json:"validity"`
 	}
 	s.Require().NoError(json.Unmarshal(encoded, &manifest))
 	s.Equal(ArtifactSchemaVersionV3, manifest.SchemaVersion)
 	s.Equal(filepath.Join("memory", "team-note-ingest.json"), manifest.Files["team_note_ingest"])
 	s.Equal(filepath.Join("memory", "mem0-ingest.json"), manifest.Files["mem0_ingest"])
 	s.Equal(filepath.Join("memory", "private-sqlite-ingest.json"), manifest.Files["private_sqlite_ingest"])
+	s.Equal("validity.json", manifest.Files["validity_report"])
+	s.Equal("valid", manifest.Validity.Status)
+	s.True(manifest.Validity.Valid)
 	s.Empty(manifest.Mem0Reproduction.Level)
 	s.Equal("native_session_batch", manifest.Mem0Reproduction.IngestionUnit)
 	s.Equal("team_collaboration_v1", manifest.Mem0Reproduction.ExtractionProfile)

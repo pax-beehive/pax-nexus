@@ -14,10 +14,10 @@ HZ_VERSION := v0.9.7
 THRIFTGO_VERSION := v0.4.3
 MOCK_VERSION := v0.6.0
 GOLANGCI_LINT_VERSION := v2.11.3
-COVERAGE_MIN := 75
+COVERAGE_MIN := 80
 OUTPUT_BIN_DIR ?= output/bin
-EXTRACTION_CANDIDATE_STRATEGY ?= current
-EXTRACTION_CANDIDATE_STRATEGIES := current interaction-slim typed-2 source-span-v1 source-span-v2 claim-card-v1 claim-card-v2
+EXTRACTION_CANDIDATE_STRATEGY ?= source-clause-v1
+EXTRACTION_CANDIDATE_STRATEGIES := current interaction-slim evidence-fidelity-v1 source-clause-v1 source-clause-implicit-state-v1 typed-2 source-span-v1 source-span-v2 claim-card-v1 claim-card-v2
 EXTRACTION_CANDIDATE_LDFLAG := -X $(MODULE)/internal/teamnote/extractor.buildDefaultCandidateStrategy=$(EXTRACTION_CANDIDATE_STRATEGY)
 RECALL_CANDIDATE_STRATEGY ?= passive-v1
 RECALL_CANDIDATE_STRATEGIES := passive-v1 hint-v1-selective
@@ -27,12 +27,12 @@ RECALL_EVAL_OUTPUT ?= runs/recall-eval-v1/current
 RECALL_EVAL_SEMANTIC_THRESHOLD ?= 0.50
 RECALL_EVAL_CANDIDATE_LIMIT ?= 16
 
-.PHONY: all build validate-extraction-candidate-strategy validate-recall-candidate-strategy tools generate-init generate mocks fmt format-check lint test test-unit test-scripts coverage integration-test recall-eval-v1 recall-eval-v2 recall-eval-v2-up recall-eval-v2-down docker-eval groupmembench-data groupmembench-eval eval-v2-prepare eval-v2-up eval-v2 eval-v2-smoke-up eval-v2-smoke eval-v2-acceptance-up eval-v2-acceptance eval-v2-down eval-v2-reset eval-v2-job-image eval-v2-job eval-v2-zep-canary eval-v3-prepare eval-v3-up eval-v3 eval-v3-down eval-v3-reset up down logs db-up db-down clean
+.PHONY: all build validate-extraction-candidate-strategy validate-recall-candidate-strategy tools generate-init generate mocks fmt format-check lint test test-unit test-scripts coverage integration-test onprem-e2e recall-eval-v1 recall-eval-v2 recall-eval-v2-up recall-eval-v2-down docker-eval groupmembench-data groupmembench-eval eval-v2-prepare eval-v2-up eval-v2 eval-v2-smoke-up eval-v2-smoke eval-v2-acceptance-up eval-v2-acceptance eval-v2-down eval-v2-reset eval-v2-job-image eval-v2-job eval-v2-zep-canary eval-v3-prepare eval-v3-up eval-v3 eval-v3-down eval-v3-reset up down logs db-up db-down clean
 
 all: lint test
 
 validate-extraction-candidate-strategy:
-	@case "$(EXTRACTION_CANDIDATE_STRATEGY)" in current|interaction-slim|typed-2|source-span-v1|source-span-v2|claim-card-v1|claim-card-v2) ;; \
+	@case "$(EXTRACTION_CANDIDATE_STRATEGY)" in current|interaction-slim|evidence-fidelity-v1|source-clause-v1|source-clause-implicit-state-v1|typed-2|source-span-v1|source-span-v2|claim-card-v1|claim-card-v2) ;; \
 		*) echo "unsupported EXTRACTION_CANDIDATE_STRATEGY=$(EXTRACTION_CANDIDATE_STRATEGY); expected one of: $(EXTRACTION_CANDIDATE_STRATEGIES)" >&2; exit 2 ;; \
 	esac
 
@@ -106,6 +106,9 @@ integration-test: db-up
 	TEAM_MEMORY_TEST_POSTGRES_DSN=postgres://team_memory:team_memory@127.0.0.1:$${TEAM_MEMORY_POSTGRES_PORT:-55432}/team_memory?sslmode=disable \
 		GOCACHE=$${GOCACHE:-/tmp/team-memory-go-cache} go test -p 1 ./internal/platform/postgres ./internal/teamnote/extractionqueue ./internal/eval/stagecapture ./internal/eval/v2/postgresstore -count=1
 
+onprem-e2e:
+	./scripts/onprem-e2e.sh
+
 recall-eval-v1:
 	GOCACHE=$${GOCACHE:-/tmp/team-memory-go-cache} go run ./cmd/team-memory-recall-replay \
 		-fixtures $(RECALL_EVAL_FIXTURE) \
@@ -129,8 +132,9 @@ db-up:
 db-down:
 	docker compose down
 
-coverage:
-	COVERAGE_MIN=$(COVERAGE_MIN) GOCACHE=$${GOCACHE:-/tmp/team-memory-go-cache} ./scripts/check-coverage.sh
+coverage: db-up
+	TEAM_MEMORY_TEST_POSTGRES_DSN=postgres://team_memory:team_memory@127.0.0.1:$${TEAM_MEMORY_POSTGRES_PORT:-55432}/team_memory?sslmode=disable \
+		COVERAGE_MIN=$(COVERAGE_MIN) GOCACHE=$${GOCACHE:-/tmp/team-memory-go-cache} ./scripts/check-coverage.sh
 
 docker-eval:
 	./scripts/docker-e2e.sh

@@ -41,7 +41,7 @@ Cases without reviewed supporting-event annotations report
 accuracy. The runner never silently relaxes an annotated case when no eligible
 Answering Agent exists.
 
-The artifact schema is `pax-eval-v3.1`. `trials.csv` and `trials.jsonl` record
+The artifact schema is `pax-eval-v3.3`. `trials.csv` and `trials.jsonl` record
 the paired answerer identity, seed, source-overlap status, strict-trial flag,
 and observed recall candidates, hits, and injected context items. `summary.csv` includes a `trial_class=strict_cross_agent` slice when
 annotated strict trials exist. `artifacts.json` links the three full-domain
@@ -53,6 +53,38 @@ extraction profile, retrieval limit and score semantics, observed retrieval
 activity, observed accuracy, published comparison targets, and known protocol deviations. The current runner rejects stronger
 reproduction labels until an official Mem0 runner and pinned artifacts are
 available.
+
+`attempts.jsonl` is the append-only execution ledger. Its artifact references
+point to retry-specific raw logs under
+`trials/<case>/<arm>/attempts/<sequence>/`.
+
+`validity.json` uses schema `pax-eval-v3-validity-v1` and is the acceptance
+decision for comparative scoring. A valid report requires:
+
+- the complete, successfully judged three-arm Trial matrix;
+- full-domain source coverage in all three ingest receipts;
+- non-zero Team Note and Mem0 mutation plus complete private-SQLite materialization;
+- successful calls to the arm-specific recall provider for both memory arms
+  and no provider type, count, or observation in the no-memory arm;
+- completed latest Attempts with canonical, non-empty consumer and judge
+  artifacts;
+- a resolved configuration whose hash matches the durable Run.
+
+The artifact manifest links and embeds this report. An invalid run exports raw
+JSONL and available provenance, removes stale CSV/HTML comparisons, and exits
+non-zero; its manifest is labeled `raw_invalid_evidence` and contains no
+derived accuracy or cost summary. Judge-only recovery claims a new Attempt
+under the Run lock, verifies the stored configuration hash, uses the durable
+consumer result as its only answer input, and writes new judge evidence into
+the canonical Attempt directory. A transient judge failure preserves the
+completed consumer result and can be retried without rerunning the Trial. A
+crashed rejudge Attempt is marked interrupted on the next claim without hiding
+or replacing that consumer result. Recovery selects the newest prior Attempt
+that actually owns a canonical, non-empty consumer artifact, so a crash before
+artifact copy does not poison later retries. Run provenance checks include
+dataset and dataset revision as well as the configuration hash. Consumer
+evidence copies use fsync plus atomic rename, and the gate rejects malformed or
+truncated consumer and judge JSONL.
 
 Eval v3 is the outer architecture comparison, not the recall-policy tuning
 loop. Before using it to validate a recall change, first improve the fixed

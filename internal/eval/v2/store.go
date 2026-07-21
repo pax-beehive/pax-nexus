@@ -8,9 +8,13 @@ type Store interface {
 	Initialize(context.Context, RunRecord, []TrialKey) error
 	ResetRunning(context.Context, string) error
 	HasRunnable(context.Context, string, bool, int) (bool, error)
-	Claim(context.Context, TrialKey, bool, int) (bool, error)
-	Complete(context.Context, TrialResult) error
-	Fail(context.Context, TrialResult) error
+	Claim(context.Context, TrialKey, bool, int) (TrialAttemptHandle, bool, error)
+	ClaimRejudge(context.Context, TrialKey) (TrialAttemptHandle, bool, error)
+	UpdateAttempt(context.Context, TrialAttemptHandle, TrialStage, map[string]string) error
+	Complete(context.Context, TrialAttemptHandle, TrialResult) error
+	CompleteRejudge(context.Context, TrialAttemptHandle, TrialResult) error
+	Fail(context.Context, TrialAttemptHandle, TrialResult) error
+	Attempts(context.Context, string) ([]TrialAttempt, error)
 	Results(context.Context, string) ([]TrialResult, error)
 	Finish(context.Context, string) error
 }

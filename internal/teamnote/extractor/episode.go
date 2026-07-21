@@ -20,6 +20,9 @@ const (
 const (
 	// ExtractionVersionV1 is the original candidate-only response protocol.
 	ExtractionVersionV1 = "v1"
+	// ExtractionVersionV11 keeps the candidate-only response schema while
+	// tightening modality and cross-agent state identity.
+	ExtractionVersionV11 = "v1.1"
 	// ExtractionVersionV2 separates claims and state decisions inside one
 	// primary model call and maps them onto candidates deterministically.
 	ExtractionVersionV2 = "v2"

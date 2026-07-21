@@ -13,11 +13,14 @@ import (
 	"time"
 
 	"github.com/cloudwego/hertz/pkg/app/server"
+	"github.com/pax-beehive/pax-nexus/internal/deployment/onprem"
 	"github.com/pax-beehive/pax-nexus/internal/platform/observability"
 	"github.com/pax-beehive/pax-nexus/internal/platform/postgres"
 	"github.com/pax-beehive/pax-nexus/internal/platform/textembedding"
+	"github.com/pax-beehive/pax-nexus/internal/recall"
 	"github.com/pax-beehive/pax-nexus/internal/sessionlake"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote"
+	"github.com/pax-beehive/pax-nexus/internal/teamnote/extractionbudget"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote/extractionqueue"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote/extractor"
 	teamruntime "github.com/pax-beehive/pax-nexus/internal/teamnote/runtime"
@@ -38,6 +41,14 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	config, err := loadConfig()
 	if err != nil {
 		return fmt.Errorf("load service config: %w", err)
+	}
+	config.providerCallObserver = func(call extractor.ProviderCall) {
+		logger.Info("extraction provider attempt",
+			"type", call.Type, "scope_id", call.ScopeID, "attempt", call.Attempt,
+			"max_attempts", call.MaxAttempts, "duration_ms", call.DurationMS,
+			"http_status", call.HTTPStatus, "failure_class", call.FailureClass,
+			"retryable", call.Retryable, "input_tokens", call.Usage.InputTokens,
+			"output_tokens", call.Usage.OutputTokens)
 	}
 	store, err := postgres.Open(ctx, config.databaseURL)
 	if err != nil {
@@ -91,9 +102,9 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	if err := sessions.ConfigureExtractionEnqueuer(queue); err != nil {
 		return fmt.Errorf("connect extraction queue: %w", err)
 	}
-	httpHandler, err := handler.New(runtime, handler.StaticAPIKeys(config.apiKeys), logger)
+	httpHandler, err := buildHTTPHandler(runtime, store, config, logger)
 	if err != nil {
-		return fmt.Errorf("configure HTTP transport: %w", err)
+		return err
 	}
 	if err := queue.Start(ctx); err != nil {
 		return fmt.Errorf("start extraction queue: %w", err)
@@ -104,6 +115,7 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	h.Use(handler.InstanceMiddleware(httpHandler))
 	register(h)
 	logger.Info("team-memory started", "listen_address", config.listenAddress, "worker_shards", config.workerShards,
+		"extraction_version", config.extractionVersion,
 		"extraction_candidate_strategy", config.extractionCandidateStrategy,
 		"recall_candidate_strategy", config.recallCandidateStrategy.Name)
 	h.Spin()
@@ -158,6 +170,9 @@ type applicationConfig struct {
 	databaseURL                    string
 	listenAddress                  string
 	apiKeys                        map[string]string
+	adminAPIKey                    string
+	credentialRotationOverlap      time.Duration
+	wikiHintEnabled                bool
 	extractorMode                  string
 	extractorBaseURL               string
 	extractorAPIKey                string
@@ -172,6 +187,8 @@ type applicationConfig struct {
 	extractionSummaryEnabled       bool
 	extractionSummaryTriggerTokens int
 	extractionSummaryTailTokens    int
+	extractionExecutionPolicy      extractor.ExecutionPolicy
+	providerCallObserver           extractor.ProviderCallObserver
 	workerShards                   int
 	workerMaxAttempts              int
 	workerDebounce                 time.Duration
@@ -199,27 +216,16 @@ func loadConfig() (applicationConfig, error) {
 		extractionCandidateStrategy: os.Getenv("TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY"),
 		embeddingBaseURL:            os.Getenv("TEAM_MEMORY_EMBEDDING_BASE_URL"),
 		embeddingModel:              os.Getenv("TEAM_MEMORY_EMBEDDING_MODEL"),
+		adminAPIKey:                 os.Getenv("TEAM_MEMORY_ADMIN_API_KEY"),
 	}
 	var err error
-	if config.workerShards, err = intEnvironment("TEAM_MEMORY_WORKER_SHARDS", 16); err != nil {
+	if err = loadWorkerConfig(&config); err != nil {
 		return applicationConfig{}, err
 	}
-	if config.workerMaxAttempts, err = intEnvironment("TEAM_MEMORY_WORKER_MAX_ATTEMPTS", 5); err != nil {
+	if err = loadOnPremConfig(&config); err != nil {
 		return applicationConfig{}, err
 	}
-	if config.workerDebounce, err = durationEnvironment("TEAM_MEMORY_WORKER_DEBOUNCE", 750*time.Millisecond); err != nil {
-		return applicationConfig{}, err
-	}
-	if config.batchTimeout, err = durationEnvironment("TEAM_MEMORY_BATCH_TIMEOUT", 30*time.Second); err != nil {
-		return applicationConfig{}, err
-	}
-	if config.workerJobTimeout, err = durationEnvironment("TEAM_MEMORY_WORKER_JOB_TIMEOUT", 2*time.Minute); err != nil {
-		return applicationConfig{}, err
-	}
-	if config.workerStopTimeout, err = durationEnvironment("TEAM_MEMORY_WORKER_STOP_TIMEOUT", 30*time.Second); err != nil {
-		return applicationConfig{}, err
-	}
-	if err = loadExtractionConfig(&config); err != nil {
+	if err = loadAndValidateExtractionConfig(&config); err != nil {
 		return applicationConfig{}, err
 	}
 	if err = loadRetrievalConfig(&config); err != nil {
@@ -238,7 +244,7 @@ func loadConfig() (applicationConfig, error) {
 		config.extractionContextMode = string(extractor.ContextModeRolling)
 	}
 	if config.extractionVersion == "" {
-		config.extractionVersion = extractor.ExtractionVersionV2
+		config.extractionVersion = extractor.ExtractionVersionV1
 	}
 	if config.extractionCandidateStrategy == "" {
 		config.extractionCandidateStrategy = extractor.DefaultCandidateStrategy()
@@ -249,13 +255,103 @@ func loadConfig() (applicationConfig, error) {
 	if strings.TrimSpace(config.databaseURL) == "" {
 		return applicationConfig{}, fmt.Errorf("TEAM_MEMORY_DATABASE_URL is required")
 	}
-	if err := json.Unmarshal([]byte(os.Getenv("TEAM_MEMORY_API_KEYS")), &config.apiKeys); err != nil {
-		return applicationConfig{}, fmt.Errorf("decode TEAM_MEMORY_API_KEYS: %w", err)
-	}
-	if len(config.apiKeys) == 0 {
-		return applicationConfig{}, fmt.Errorf("TEAM_MEMORY_API_KEYS must contain at least one key")
+	if err = loadAuthenticationConfig(&config); err != nil {
+		return applicationConfig{}, err
 	}
 	return config, nil
+}
+
+func loadWorkerConfig(config *applicationConfig) error {
+	var err error
+	if config.workerShards, err = intEnvironment("TEAM_MEMORY_WORKER_SHARDS", 16); err != nil {
+		return err
+	}
+	if config.workerMaxAttempts, err = intEnvironment("TEAM_MEMORY_WORKER_MAX_ATTEMPTS", 5); err != nil {
+		return err
+	}
+	if config.workerDebounce, err = durationEnvironment("TEAM_MEMORY_WORKER_DEBOUNCE", 750*time.Millisecond); err != nil {
+		return err
+	}
+	if config.batchTimeout, err = durationEnvironment("TEAM_MEMORY_BATCH_TIMEOUT", 30*time.Second); err != nil {
+		return err
+	}
+	if config.workerJobTimeout, err = durationEnvironment(
+		"TEAM_MEMORY_WORKER_JOB_TIMEOUT", extractionbudget.DefaultWorkerJobTimeout,
+	); err != nil {
+		return err
+	}
+	config.workerStopTimeout, err = durationEnvironment("TEAM_MEMORY_WORKER_STOP_TIMEOUT", 30*time.Second)
+	return err
+}
+
+func loadOnPremConfig(config *applicationConfig) error {
+	var err error
+	if config.credentialRotationOverlap, err = durationEnvironment(
+		"TEAM_MEMORY_CREDENTIAL_ROTATION_OVERLAP", 5*time.Minute,
+	); err != nil {
+		return err
+	}
+	config.wikiHintEnabled, err = boolEnvironment("TEAM_MEMORY_WIKI_HINT_ENABLED", false)
+	return err
+}
+
+func loadAuthenticationConfig(config *applicationConfig) error {
+	apiKeys := strings.TrimSpace(os.Getenv("TEAM_MEMORY_API_KEYS"))
+	if apiKeys == "" {
+		config.apiKeys = make(map[string]string)
+	} else if err := json.Unmarshal([]byte(apiKeys), &config.apiKeys); err != nil {
+		return fmt.Errorf("decode TEAM_MEMORY_API_KEYS: %w", err)
+	}
+	if len(config.apiKeys) > 0 && strings.TrimSpace(config.adminAPIKey) != "" {
+		return fmt.Errorf("TEAM_MEMORY_API_KEYS and TEAM_MEMORY_ADMIN_API_KEY select mutually exclusive authentication modes")
+	}
+	if len(config.apiKeys) == 0 && strings.TrimSpace(config.adminAPIKey) == "" {
+		return fmt.Errorf("TEAM_MEMORY_API_KEYS or TEAM_MEMORY_ADMIN_API_KEY is required")
+	}
+	return nil
+}
+
+func buildHTTPHandler(
+	runtime teamnote.Runtime,
+	store *postgres.Store,
+	config applicationConfig,
+	logger *slog.Logger,
+) (*handler.Handler, error) {
+	if strings.TrimSpace(config.adminAPIKey) == "" {
+		configured, err := handler.New(runtime, handler.StaticAPIKeys(config.apiKeys), logger)
+		if err != nil {
+			return nil, fmt.Errorf("configure HTTP transport: %w", err)
+		}
+		return configured, nil
+	}
+	if store == nil {
+		return nil, fmt.Errorf("configure on-prem HTTP transport: postgres store is required")
+	}
+	credentials, err := onprem.NewCredentialService(store.Credentials(), onprem.CredentialConfig{
+		AdminAPIKey: config.adminAPIKey, RotationOverlap: config.credentialRotationOverlap,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("configure on-prem credentials: %w", err)
+	}
+	memory, err := recall.NewRouter(runtime, nil, recall.Config{EnablePassiveWikiHint: config.wikiHintEnabled})
+	if err != nil {
+		return nil, fmt.Errorf("configure recall router: %w", err)
+	}
+	configured, err := handler.NewOnPrem(runtime, credentials, memory, logger)
+	if err != nil {
+		return nil, fmt.Errorf("configure on-prem HTTP transport: %w", err)
+	}
+	return configured, nil
+}
+
+func loadAndValidateExtractionConfig(config *applicationConfig) error {
+	if err := loadExtractionConfig(config); err != nil {
+		return err
+	}
+	return (extractionbudget.Envelope{
+		Provider: config.extractionExecutionPolicy, MaxSlicesPerJob: config.maxSlicesPerJob,
+		WorkerJobTimeout: config.workerJobTimeout, CompactionEnabled: config.extractionCompactionEnabled,
+	}).Validate()
 }
 
 func loadExtractionConfig(config *applicationConfig) error {
@@ -278,7 +374,9 @@ func loadExtractionConfig(config *applicationConfig) error {
 	if config.sliceOverlap, err = intEnvironment("TEAM_MEMORY_SLICE_OVERLAP", 3); err != nil {
 		return err
 	}
-	if config.maxSlicesPerJob, err = intEnvironment("TEAM_MEMORY_MAX_SLICES_PER_JOB", 4); err != nil {
+	if config.maxSlicesPerJob, err = intEnvironment(
+		"TEAM_MEMORY_MAX_SLICES_PER_JOB", extractionbudget.DefaultMaxSlicesPerJob,
+	); err != nil {
 		return err
 	}
 	if config.extractionCompactStartTokens, err = intEnvironment("TEAM_MEMORY_EXTRACTION_COMPACT_START_TOKENS", 12*1024); err != nil {
@@ -295,6 +393,46 @@ func loadExtractionConfig(config *applicationConfig) error {
 		return err
 	}
 	config.extractionSummaryTailTokens, err = intEnvironment("TEAM_MEMORY_EXTRACTION_SUMMARY_TAIL_TOKENS", 16*1024)
+	if err != nil {
+		return err
+	}
+	policy := &config.extractionExecutionPolicy
+	providerDefaults := extractionbudget.DefaultProviderPolicy()
+	if policy.AttemptTimeout, err = durationEnvironment(
+		"TEAM_MEMORY_EXTRACTION_PROVIDER_TIMEOUT", providerDefaults.AttemptTimeout,
+	); err != nil {
+		return err
+	}
+	if policy.MaxAttempts, err = intEnvironment(
+		"TEAM_MEMORY_EXTRACTION_PROVIDER_MAX_ATTEMPTS", providerDefaults.MaxAttempts,
+	); err != nil {
+		return err
+	}
+	if policy.RetryBackoff, err = durationEnvironment(
+		"TEAM_MEMORY_EXTRACTION_PROVIDER_RETRY_BACKOFF", providerDefaults.RetryBackoff,
+	); err != nil {
+		return err
+	}
+	maxResponseBytes, err := intEnvironment(
+		"TEAM_MEMORY_EXTRACTION_PROVIDER_MAX_RESPONSE_BYTES", int(providerDefaults.MaxResponseBytes),
+	)
+	if err != nil {
+		return err
+	}
+	policy.MaxResponseBytes = int64(maxResponseBytes)
+	if policy.PrimaryMaxOutputTokens, err = intEnvironment(
+		"TEAM_MEMORY_EXTRACTION_PRIMARY_MAX_OUTPUT_TOKENS", providerDefaults.PrimaryMaxOutputTokens,
+	); err != nil {
+		return err
+	}
+	if policy.SummaryMaxOutputTokens, err = intEnvironment(
+		"TEAM_MEMORY_EXTRACTION_SUMMARY_MAX_OUTPUT_TOKENS", providerDefaults.SummaryMaxOutputTokens,
+	); err != nil {
+		return err
+	}
+	policy.CompactionMaxOutputTokens, err = intEnvironment(
+		"TEAM_MEMORY_EXTRACTION_COMPACTION_MAX_OUTPUT_TOKENS", providerDefaults.CompactionMaxOutputTokens,
+	)
 	return err
 }
 
@@ -407,6 +545,8 @@ func buildExtractor(config applicationConfig, stores ...extractor.EpisodeStore) 
 			SummaryEnabled:       config.extractionSummaryEnabled,
 			SummaryTriggerTokens: config.extractionSummaryTriggerTokens,
 			SummaryTailTokens:    config.extractionSummaryTailTokens,
+			ExecutionPolicy:      config.extractionExecutionPolicy,
+			ProviderCallObserver: config.providerCallObserver,
 		})
 	default:
 		return nil, fmt.Errorf("unsupported extractor mode %q", config.extractorMode)

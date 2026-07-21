@@ -21,6 +21,9 @@ func (s *candidateStrategySuite) TestRegistryExposesStableDistributionNames() {
 	s.Equal([]string{
 		extractor.CandidateStrategyCurrent,
 		extractor.CandidateStrategyInteractionSlim,
+		extractor.CandidateStrategyEvidenceFidelity,
+		extractor.CandidateStrategySourceClause,
+		extractor.CandidateStrategyImplicitState,
 		extractor.CandidateStrategyTyped2,
 		extractor.CandidateStrategySourceSpanV1,
 		extractor.CandidateStrategySourceSpanV2,
@@ -31,6 +34,10 @@ func (s *candidateStrategySuite) TestRegistryExposesStableDistributionNames() {
 
 func (s *candidateStrategySuite) TestBuildDefaultIsARegisteredStrategy() {
 	s.Contains(extractor.CandidateStrategyNames(), extractor.DefaultCandidateStrategy())
+}
+
+func (s *candidateStrategySuite) TestSourceClauseIsReleaseDefault() {
+	s.Equal(extractor.CandidateStrategySourceClause, extractor.DefaultCandidateStrategy())
 }
 
 func (s *candidateStrategySuite) TestBuildDefaultMatchesInjectedValue() {

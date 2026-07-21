@@ -65,6 +65,22 @@ rejections, and would-verify triggers. It attributes extraction losses to
 observation coverage, claim detection, identity resolution, state transition,
 temporal validation, or admission. It never enters passive agent context.
 
+**Source Clause Citation**:
+The shortest exact, contiguous Event text that supports one State Decision.
+It narrows evidence authority inside an Event without becoming a new memory
+rendering or replacing the Event as factual evidence.
+
+**Extraction Observation Time**:
+The latest source time among the new Events in one extraction slice. It is the
+fixed instant used by deterministic temporal admission and remains unchanged
+when a saved extraction response is replayed.
+
+**Extraction Execution Envelope**:
+The validated serial budget shared by provider execution, the durable worker,
+runtime configuration, and extraction evaluation. It relates attempt timeout,
+retry backoff, calls per Slice, Slices per job, background persistence margin,
+and the worker deadline so no inner provider budget can outlive its job.
+
 **Candidate Rejection**:
 A Candidate dropped before admission with a deterministic grounding or policy
 reason, recorded so extraction evaluation can attribute lost facts without
@@ -100,12 +116,20 @@ candidate evidence.
 The current admitted revision of a short-lived collaboration fact.
 _Avoid_: Wiki page, raw memory
 
+**Historical Team Note Revision**:
+An immutable recorded revision selected only by explicit `as_of`, `history`, or
+`changes_since` Recall Intent. Its validity interval, recorded time, audience,
+task/thread scope, evidence, and delivery revision are evaluated as recorded;
+future-recorded revisions cannot leak into an earlier Recall Observation.
+
 **Delivery**:
 A recorded insertion of one Team Note revision into an agent session.
 
 ## Relationships
 
 - A **Candidate** cites one or more Session Events.
+- A **State Decision** cites both its supporting Events and, when it changes
+  state, the exact **Source Clause Citation** that authorizes that change.
 - An **Extraction Episode** consumes Session Events from multiple sessions.
 - When compaction is enabled, an **Extraction Checkpoint** resumes one
   **Extraction Episode** after compaction. Rolling extraction does not require a
@@ -114,6 +138,9 @@ A recorded insertion of one Team Note revision into an agent session.
   rolling context; summary failure never blocks episode advancement.
 - A **Candidate** creates, updates, or resolves one **Team Note**.
 - A **Team Note** may produce one **Delivery** per revision and recipient session.
+- An explicit historical **Recall Intent** selects **Historical Team Note
+  Revisions**; passive current recall continues to select only active current
+  **Team Notes**.
 
 ## Example dialogue
 

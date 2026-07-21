@@ -39,10 +39,30 @@ const (
 // NoteEnvelope carries context text plus per-item identity and origin for
 // provider attribution and evaluation.
 type NoteEnvelope struct {
-	Revision string         `json:"revision"`
-	Items    []string       `json:"items"`
-	Tokens   int            `json:"tokens"`
-	Details  []RecalledNote `json:"details,omitempty"`
+	Revision string                `json:"revision"`
+	Items    []string              `json:"items"`
+	Tokens   int                   `json:"tokens"`
+	Details  []RecalledNote        `json:"details,omitempty"`
+	Decision RecallDecisionSummary `json:"decision"`
+}
+
+// RecallReasonCode identifies a stable reason why the selected evidence is
+// not sufficient for an early return from an outer recall router.
+type RecallReasonCode string
+
+const (
+	RecallReasonNoEvidence   RecallReasonCode = "no_evidence"
+	RecallReasonFactCoverage RecallReasonCode = "fact_coverage"
+	RecallReasonConfidence   RecallReasonCode = "evidence_confidence"
+	RecallReasonBudgetDrop   RecallReasonCode = "answer_bearing_budget_drop"
+	RecallReasonHardGate     RecallReasonCode = "hard_gate"
+)
+
+// RecallDecisionSummary is the small auditable decision consumed by an outer
+// recall router. Detailed scoring and rejection evidence remains in RecallTrace.
+type RecallDecisionSummary struct {
+	EvidenceSufficient bool               `json:"evidence_sufficient"`
+	ReasonCodes        []RecallReasonCode `json:"reason_codes,omitempty"`
 }
 
 // RecalledNote carries per-item identity and origin without changing the

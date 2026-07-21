@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"maps"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sync"
 	"time"
@@ -31,6 +32,8 @@ type sharedProducerState struct {
 	output harness.AgentOutput
 	err    error
 }
+
+var errInvalidAgentOutput = errors.New("invalid agent output")
 
 func NewRunner(store Store, executor Executor, logger *slog.Logger) (*Runner, error) {
 	if store == nil || executor == nil {
@@ -113,6 +116,282 @@ func JudgeExistingRun(ctx context.Context, executor Executor, logger *slog.Logge
 	return run, judged, nil
 }
 
+// JudgeExistingRunDurable rejudges completed answers through the Store Attempt
+// seam so the durable Trial projection and append-only ledger stay consistent.
+func JudgeExistingRunDurable(
+	ctx context.Context,
+	store Store,
+	executor Executor,
+	logger *slog.Logger,
+	config Config,
+	revision string,
+	results []TrialResult,
+) (run RunRecord, judged []TrialResult, returnedErr error) {
+	if store == nil {
+		return RunRecord{}, nil, fmt.Errorf("judge existing run durably: store is required")
+	}
+	if err := validateRunnerConfig(config); err != nil {
+		return RunRecord{}, nil, fmt.Errorf("judge existing run durably: %w", err)
+	}
+	if executor == nil || config.Judge == nil {
+		return RunRecord{}, nil, fmt.Errorf("judge existing run durably: executor and judge command are required")
+	}
+	if logger == nil {
+		logger = observability.DiscardLogger()
+	}
+	var err error
+	run, err = buildRunRecord(config, revision)
+	if err != nil {
+		return RunRecord{}, nil, fmt.Errorf("judge existing run durably: %w", err)
+	}
+	acquired, err := store.Acquire(ctx, run.ID)
+	if err != nil {
+		return run, nil, fmt.Errorf("acquire durable rejudge run: %w", err)
+	}
+	if !acquired {
+		return run, nil, fmt.Errorf("acquire durable rejudge run: run %q is already active", run.ID)
+	}
+	defer func() {
+		if err := store.Release(context.Background(), run.ID); err != nil {
+			returnedErr = errors.Join(returnedErr, fmt.Errorf("release durable rejudge run: %w", err))
+		}
+	}()
+	judged, latest, err := loadDurableRejudgeState(ctx, store, run, results)
+	if err != nil {
+		return run, nil, err
+	}
+	for index := range judged {
+		result := &judged[index]
+		if result.Status != "completed" || result.Judged {
+			continue
+		}
+		if err := judgeExistingTrialDurably(ctx, store, executor, logger, run, *config.Judge, config.Run.OutputDir, latest, result); err != nil {
+			returnedErr = errors.Join(returnedErr, err)
+		}
+	}
+	returnedErr = errors.Join(returnedErr, exportDurableRejudgeAttempts(ctx, store, run.ID, config.Run.OutputDir))
+	if incomplete := countIncompleteJudgments(judged); incomplete > 0 {
+		returnedErr = errors.Join(returnedErr, fmt.Errorf("judge existing run durably: %d completed trials remain unjudged", incomplete))
+	}
+	return run, judged, returnedErr
+}
+
+func loadDurableRejudgeState(
+	ctx context.Context,
+	store Store,
+	run RunRecord,
+	requested []TrialResult,
+) ([]TrialResult, map[string]TrialAttempt, error) {
+	if err := store.Initialize(ctx, run, nil); err != nil {
+		return nil, nil, fmt.Errorf("verify durable rejudge Run: %w", err)
+	}
+	durableResults, err := store.Results(ctx, run.ID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("load durable rejudge Trials: %w", err)
+	}
+	durableByTrial := make(map[string]TrialResult, len(durableResults))
+	for _, result := range durableResults {
+		durableByTrial[result.CaseID+"\x00"+result.Arm] = result
+	}
+	judged := make([]TrialResult, 0, len(requested))
+	for _, selection := range requested {
+		durable, exists := durableByTrial[selection.CaseID+"\x00"+selection.Arm]
+		if !exists {
+			return nil, nil, fmt.Errorf("load durable rejudge Trial %s/%s: result is missing", selection.CaseID, selection.Arm)
+		}
+		judged = append(judged, durable)
+	}
+	attempts, err := store.Attempts(ctx, run.ID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("load durable rejudge Attempts: %w", err)
+	}
+	return judged, latestConsumerAttempts(attempts, run.Config.Run.OutputDir), nil
+}
+
+func exportDurableRejudgeAttempts(ctx context.Context, store Store, runID, outputDirectory string) error {
+	attempts, err := store.Attempts(ctx, runID)
+	if err != nil {
+		return fmt.Errorf("reload durable rejudge Attempts: %w", err)
+	}
+	return ExportTrialAttempts(outputDirectory, attempts)
+}
+
+func judgeExistingTrialDurably(
+	ctx context.Context,
+	store Store,
+	executor Executor,
+	logger *slog.Logger,
+	run RunRecord,
+	judge CommandSpec,
+	outputDirectory string,
+	latest map[string]TrialAttempt,
+	result *TrialResult,
+) error {
+	identity := result.CaseID + "\x00" + result.Arm
+	previous, exists := latest[identity]
+	if !exists {
+		return fmt.Errorf("rejudge Trial %s/%s: prior Attempt is required", result.CaseID, result.Arm)
+	}
+	key := TrialKey{RunID: run.ID, CaseID: result.CaseID, Arm: result.Arm}
+	attempt, claimed, err := store.ClaimRejudge(ctx, key)
+	if err != nil {
+		return fmt.Errorf("claim rejudge Trial %s/%s: %w", result.CaseID, result.Arm, err)
+	}
+	if !claimed {
+		return fmt.Errorf("claim rejudge Trial %s/%s: completed Trial is unavailable", result.CaseID, result.Arm)
+	}
+	reference := attemptArtifactReference(attempt)
+	if err := store.UpdateAttempt(ctx, attempt, TrialStageJudge, map[string]string{"artifact_dir": reference}); err != nil {
+		failure := fmt.Errorf("initialize rejudge Attempt %s/%s/%d: %w", result.CaseID, result.Arm, attempt.Number, err)
+		return failClaimedRejudge(ctx, store, attempt, result, TrialStageArtifactPublish, failure)
+	}
+	artifactDirectory := filepath.Join(outputDirectory, reference)
+	if err := copyAttemptArtifact(
+		filepath.Join(outputDirectory, previous.ArtifactRefs["artifact_dir"], "consumer.jsonl"),
+		filepath.Join(artifactDirectory, "consumer.jsonl"),
+	); err != nil {
+		failure := fmt.Errorf("copy rejudge consumer evidence for %s/%s: %w", result.CaseID, result.Arm, err)
+		return failClaimedRejudge(ctx, store, attempt, result, TrialStageArtifactPublish, failure)
+	}
+	variables := judgeExistingVariables(run, *result, outputDirectory, artifactDirectory)
+	duration, judgment, judgeErr := (&Runner{executor: executor}).runJudge(ctx, judge, variables, artifactDirectory)
+	result.JudgeDurationMS = duration.Milliseconds()
+	completed := time.Now().UTC()
+	result.CompletedAt = completed
+	if judgeErr != nil {
+		result.JudgeError = judgeErr.Error()
+		result.FailureStage = TrialStageJudge
+		result.FailureClass = classifyFailure(judgeErr)
+		result.Error = judgeErr.Error()
+		result.Status = "completed"
+		if err := store.CompleteRejudge(ctx, attempt, *result); err != nil {
+			return errors.Join(fmt.Errorf("run durable rejudge %s/%s: %w", result.CaseID, result.Arm, judgeErr), fmt.Errorf("persist failed rejudge Attempt: %w", err))
+		}
+		logger.ErrorContext(ctx, "eval rejudgment failed", "case_id", result.CaseID, "arm", result.Arm, "error", judgeErr)
+		return fmt.Errorf("run durable rejudge %s/%s: %w", result.CaseID, result.Arm, judgeErr)
+	}
+	result.Judged = true
+	result.Status = "completed"
+	result.Correct = judgment.Correct
+	result.JudgeAnswer = judgment.Text
+	result.JudgeSessionID = judgment.SessionID
+	result.JudgeInputTokens = judgment.InputTokens
+	result.JudgeOutputTokens = judgment.OutputTokens
+	result.JudgeCost = judgment.Cost
+	result.JudgeError = ""
+	result.FailureStage = ""
+	result.FailureClass = ""
+	result.Error = ""
+	if err := store.CompleteRejudge(ctx, attempt, *result); err != nil {
+		return fmt.Errorf("complete rejudge Attempt %s/%s/%d: %w", result.CaseID, result.Arm, attempt.Number, err)
+	}
+	latest[identity] = TrialAttempt{TrialAttemptHandle: attempt, Status: "completed", Stage: TrialStageCompleted, ArtifactRefs: map[string]string{"artifact_dir": reference}, CompletedAt: &completed}
+	return nil
+}
+
+func failClaimedRejudge(
+	ctx context.Context,
+	store Store,
+	attempt TrialAttemptHandle,
+	result *TrialResult,
+	stage TrialStage,
+	failure error,
+) error {
+	completed := time.Now().UTC()
+	result.Status = "completed"
+	result.CompletedAt = completed
+	result.FailureStage = stage
+	result.FailureClass = classifyFailure(failure)
+	result.Error = failure.Error()
+	if err := store.CompleteRejudge(ctx, attempt, *result); err != nil {
+		return errors.Join(failure, fmt.Errorf("persist failed rejudge Attempt: %w", err))
+	}
+	return failure
+}
+
+func judgeExistingVariables(run RunRecord, result TrialResult, outputDirectory, artifactDirectory string) map[string]string {
+	return map[string]string{
+		"run_id": run.ID, "dataset": run.Dataset, "dataset_revision": run.DatasetRevision,
+		"case_id": result.CaseID, "category": result.Category, "arm": result.Arm,
+		"question": result.Question, "expected": result.Expected, "answer": result.Answer,
+		"asking_user_id": result.AskingUserID, "answering_agent_id": result.AnsweringAgentID,
+		"answerer_seed": result.AnswererSeed, "answerer_source_overlap": result.AnswererSourceOverlap,
+		"output_dir": outputDirectory, "artifact_dir": artifactDirectory,
+	}
+}
+
+func latestConsumerAttempts(attempts []TrialAttempt, outputDirectory string) map[string]TrialAttempt {
+	latest := make(map[string]TrialAttempt, len(attempts))
+	for _, attempt := range attempts {
+		reference := attempt.ArtifactRefs["artifact_dir"]
+		if reference != attemptArtifactReference(attempt.TrialAttemptHandle) ||
+			!validJSONLinesArtifact(filepath.Join(outputDirectory, reference, "consumer.jsonl")) {
+			continue
+		}
+		key := attempt.CaseID + "\x00" + attempt.Arm
+		if current, exists := latest[key]; !exists || attempt.Number > current.Number {
+			latest[key] = attempt
+		}
+	}
+	return latest
+}
+
+func validJSONLinesArtifact(path string) bool {
+	input, err := os.ReadFile(path)
+	if err != nil || len(bytes.TrimSpace(input)) == 0 {
+		return false
+	}
+	for _, line := range bytes.Split(bytes.TrimSpace(input), []byte{'\n'}) {
+		if !json.Valid(line) {
+			return false
+		}
+	}
+	return true
+}
+
+func copyAttemptArtifact(source, destination string) (returnedErr error) {
+	input, err := os.ReadFile(source)
+	if err != nil {
+		return err
+	}
+	if !validJSONLinesArtifact(source) {
+		return fmt.Errorf("source artifact is empty or malformed")
+	}
+	directory := filepath.Dir(destination)
+	if err := os.MkdirAll(directory, 0o755); err != nil {
+		return err
+	}
+	output, err := os.CreateTemp(directory, ".consumer-*.jsonl")
+	if err != nil {
+		return err
+	}
+	temporaryPath := output.Name()
+	defer func() {
+		if err := os.Remove(temporaryPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			returnedErr = errors.Join(returnedErr, fmt.Errorf("remove temporary consumer artifact: %w", err))
+		}
+	}()
+	if _, err := output.Write(input); err != nil {
+		if closeErr := output.Close(); closeErr != nil {
+			return errors.Join(err, closeErr)
+		}
+		return err
+	}
+	if err := output.Sync(); err != nil {
+		if closeErr := output.Close(); closeErr != nil {
+			return errors.Join(err, closeErr)
+		}
+		return err
+	}
+	if err := output.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(temporaryPath, destination); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (r *Runner) Run(ctx context.Context, config Config, cases []Case, revision string) (run RunRecord, results []TrialResult, returnedErr error) {
 	if err := validateRunnerConfig(config); err != nil {
 		return RunRecord{}, nil, err
@@ -157,6 +436,13 @@ func (r *Runner) Run(ctx context.Context, config Config, cases []Case, revision 
 		return RunRecord{}, nil, fmt.Errorf("load eval results: %w", err)
 	}
 	results = HydrateResults(results, cases)
+	attempts, err := r.store.Attempts(ctx, run.ID)
+	if err != nil {
+		return RunRecord{}, nil, fmt.Errorf("load eval trial attempts: %w", err)
+	}
+	if err := ExportTrialAttempts(config.Run.OutputDir, attempts); err != nil {
+		return RunRecord{}, nil, err
+	}
 	if err := r.store.Finish(ctx, run.ID); err != nil {
 		return RunRecord{}, nil, fmt.Errorf("finish eval run: %w", err)
 	}
@@ -322,7 +608,7 @@ sendLoop:
 
 func (r *Runner) runTrial(ctx context.Context, run RunRecord, evalCase Case, arm ArmConfig, config Config, timeout time.Duration, shared *sharedProducerState) error {
 	key := TrialKey{RunID: run.ID, CaseID: evalCase.ID, Arm: arm.Name}
-	claimed, err := r.store.Claim(ctx, key, config.RetryFailed, config.MaxAttempts())
+	attempt, claimed, err := r.store.Claim(ctx, key, config.RetryFailed, config.MaxAttempts())
 	if err != nil {
 		return fmt.Errorf("claim eval trial %s/%s: %w", evalCase.ID, arm.Name, err)
 	}
@@ -332,16 +618,25 @@ func (r *Runner) runTrial(ctx context.Context, run RunRecord, evalCase Case, arm
 	started := r.now()
 	trialCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	result, runErr := r.executeTrial(trialCtx, run, evalCase, arm, config.SharedProducer, config.Judge, shared, config.Run.OutputDir, started)
+	artifactDir := attemptArtifactDirectory(config.Run.OutputDir, attempt)
+	if err := r.store.UpdateAttempt(ctx, attempt, TrialStageAnswererSelection, map[string]string{"artifact_dir": attemptArtifactReference(attempt)}); err != nil {
+		return fmt.Errorf("initialize eval trial attempt %s/%s/%d: %w", evalCase.ID, arm.Name, attempt.Number, err)
+	}
+	result, runErr := r.executeTrial(trialCtx, run, evalCase, arm, config.SharedProducer, config.Judge, shared, config.Run.OutputDir, artifactDir, started, func(stage TrialStage) error {
+		return r.store.UpdateAttempt(ctx, attempt, stage, nil)
+	})
+	if runErr != nil && trialCtx.Err() != nil {
+		runErr = errors.Join(runErr, trialCtx.Err())
+	}
 	if runErr == nil {
-		if err := r.store.Complete(ctx, result); err != nil {
+		if err := r.store.Complete(ctx, attempt, result); err != nil {
 			return fmt.Errorf("complete eval trial %s/%s: %w", evalCase.ID, arm.Name, err)
 		}
 		r.logger.InfoContext(ctx, "eval trial completed", "case_id", evalCase.ID, "arm", arm.Name, "token_f1", result.TokenF1)
 		return nil
 	}
 	failed := failureResult(result, run, evalCase, arm.Name, started, runErr)
-	if err := r.store.Fail(ctx, failed); err != nil {
+	if err := r.store.Fail(ctx, attempt, failed); err != nil {
 		return errors.Join(fmt.Errorf("run eval trial %s/%s: %w", evalCase.ID, arm.Name, runErr), fmt.Errorf("persist eval failure: %w", err))
 	}
 	r.logger.ErrorContext(ctx, "eval trial failed", "case_id", evalCase.ID, "arm", arm.Name, "error", runErr)
@@ -357,10 +652,11 @@ func (r *Runner) executeTrial(
 	judgeSpec *CommandSpec,
 	shared *sharedProducerState,
 	outputDir string,
+	artifactDir string,
 	started time.Time,
+	enterStage func(TrialStage) error,
 ) (TrialResult, error) {
-	variables := trialVariables(run, evalCase, arm.Name, outputDir)
-	artifactDir := variables["artifact_dir"]
+	variables := trialVariablesAtArtifactDirectory(run, evalCase, arm.Name, outputDir, artifactDir)
 	durations := [3]time.Duration{}
 	partial := withCaseIdentity(TrialResult{
 		RunID: run.ID, Dataset: run.Dataset, DatasetRevision: run.DatasetRevision,
@@ -368,34 +664,43 @@ func (r *Runner) executeTrial(
 		Expected: evalCase.Expected, Status: "running", CostScope: "opencode_reported", StartedAt: started,
 	}, evalCase)
 	if evalCase.AnsweringAgentID == "" && evalCase.AnswererSourceOverlap == "no_cross_agent_answerer_available" {
-		return partial, fmt.Errorf("select eval answerer: %s", evalCase.AnswererSourceOverlap)
+		return partial, stageError(TrialStageAnswererSelection, fmt.Errorf("select eval answerer: %s", evalCase.AnswererSourceOverlap))
 	}
 	var producerOutput harness.AgentOutput
 	var ingestResult memoryprobe.IngestResult
 	if arm.Ingest != nil {
+		if err := enterStage(TrialStageMemoryIngest); err != nil {
+			return partial, stageError(TrialStageMemoryIngest, fmt.Errorf("record eval attempt stage: %w", err))
+		}
 		producerDuration, ingestDuration, observedIngest, err := r.runMemoryIngest(ctx, run, evalCase, arm, sharedSpec, shared, variables, artifactDir, outputDir)
 		durations[0], durations[1] = producerDuration, ingestDuration
 		partial.ProducerDurationMS = durations[0].Milliseconds()
 		if err != nil {
-			return partial, err
+			return partial, stageError(TrialStageMemoryIngest, err)
 		}
 		ingestResult = observedIngest
 		partial = withMemoryIngest(partial, ingestResult)
 		partial.ReadinessDurationMS = durations[1].Milliseconds()
 	}
 	if arm.Producer != nil {
+		if err := enterStage(TrialStageProducer); err != nil {
+			return partial, stageError(TrialStageProducer, fmt.Errorf("record eval attempt stage: %w", err))
+		}
 		var err error
 		durations[0], producerOutput, err = r.runLegacyProducer(ctx, *arm.Producer, variables, artifactDir)
 		partial = withProducerUsage(partial, producerOutput)
 		partial.ProducerDurationMS = durations[0].Milliseconds()
 		if err != nil {
-			return partial, err
+			return partial, stageError(TrialStageProducer, err)
 		}
 	}
 	if arm.AfterProducer != nil {
+		if err := enterStage(TrialStageReadiness); err != nil {
+			return partial, stageError(TrialStageReadiness, fmt.Errorf("record eval attempt stage: %w", err))
+		}
 		readinessDuration, err := r.waitForMemory(ctx, *arm.AfterProducer, variables, artifactDir)
 		if err != nil {
-			return partial, err
+			return partial, stageError(TrialStageReadiness, err)
 		}
 		durations[1] += readinessDuration
 		partial.ReadinessDurationMS = durations[1].Milliseconds()
@@ -403,12 +708,15 @@ func (r *Runner) executeTrial(
 	var output harness.AgentOutput
 	var recallDiagnostics recallDiagnostics
 	var executeErr error
+	if err := enterStage(TrialStageConsumer); err != nil {
+		return partial, stageError(TrialStageConsumer, fmt.Errorf("record eval attempt stage: %w", err))
+	}
 	durations[2], output, recallDiagnostics, executeErr = r.runConsumer(ctx, arm.Consumer, variables, artifactDir)
 	partial = withConsumerUsage(partial, output)
 	partial = withRecallDiagnostics(partial, recallDiagnostics)
 	partial.ConsumerDurationMS = durations[2].Milliseconds()
 	if executeErr != nil {
-		return partial, executeErr
+		return partial, stageError(TrialStageConsumer, executeErr)
 	}
 	scored := withRecallDiagnostics(
 		withMemoryIngest(ScoreResult(run, evalCase, arm.Name, producerOutput, output, started, durations), ingestResult),
@@ -417,11 +725,16 @@ func (r *Runner) executeTrial(
 	if judgeSpec == nil {
 		return scored, nil
 	}
+	if err := enterStage(TrialStageJudge); err != nil {
+		return scored, stageError(TrialStageJudge, fmt.Errorf("record eval attempt stage: %w", err))
+	}
 	variables["answer"] = output.Text
 	judgeDuration, judgment, judgeErr := r.runJudge(ctx, *judgeSpec, variables, artifactDir)
 	scored.JudgeDurationMS = judgeDuration.Milliseconds()
 	if judgeErr != nil {
 		scored.JudgeError = judgeErr.Error()
+		scored.FailureStage = TrialStageJudge
+		scored.FailureClass = classifyFailure(judgeErr)
 		return scored, nil //nolint:nilerr // Judge infrastructure failures preserve the completed consumer result and fail the run through the completeness gate.
 	}
 	completed := time.Now().UTC()
@@ -678,11 +991,11 @@ func (r *Runner) runJudge(ctx context.Context, spec CommandSpec, variables map[s
 
 func parseAgentOutput(result CommandResult, label string) (harness.AgentOutput, error) {
 	if len(result.Output) == 0 {
-		return harness.AgentOutput{}, fmt.Errorf("parse %s output: OpenCode output contains no text", label)
+		return harness.AgentOutput{}, fmt.Errorf("%w: parse %s output: OpenCode output contains no text", errInvalidAgentOutput, label)
 	}
 	output, err := harness.ParseOpenCodeJSON(bytes.NewReader(result.Output))
 	if err != nil {
-		return output, fmt.Errorf("parse %s output: %w", label, err)
+		return output, fmt.Errorf("%w: parse %s output: %w", errInvalidAgentOutput, label, err)
 	}
 	return output, nil
 }
@@ -837,6 +1150,10 @@ func trialKeys(runID string, cases []Case, arms []ArmConfig) []TrialKey {
 
 func trialVariables(run RunRecord, evalCase Case, arm, outputDir string) map[string]string {
 	artifactDir := filepath.Join(outputDir, "trials", evalCase.ID, arm)
+	return trialVariablesAtArtifactDirectory(run, evalCase, arm, outputDir, artifactDir)
+}
+
+func trialVariablesAtArtifactDirectory(run RunRecord, evalCase Case, arm, outputDir, artifactDir string) map[string]string {
 	sharedArtifactDir := filepath.Join(outputDir, "trials", evalCase.ID, "shared")
 	return map[string]string{
 		"run_id": run.ID, "dataset": run.Dataset, "dataset_revision": run.DatasetRevision,
@@ -854,6 +1171,26 @@ func trialVariables(run RunRecord, evalCase Case, arm, outputDir string) map[str
 	}
 }
 
+func attemptArtifactDirectory(outputDir string, attempt TrialAttemptHandle) string {
+	return filepath.Join(outputDir, attemptArtifactReference(attempt))
+}
+
+func attemptArtifactReference(attempt TrialAttemptHandle) string {
+	return filepath.Join("trials", attempt.CaseID, attempt.Arm, "attempts", fmt.Sprintf("%03d", attempt.Number))
+}
+
+type trialStageError struct {
+	stage TrialStage
+	err   error
+}
+
+func (e *trialStageError) Error() string { return e.err.Error() }
+func (e *trialStageError) Unwrap() error { return e.err }
+
+func stageError(stage TrialStage, err error) error {
+	return &trialStageError{stage: stage, err: err}
+}
+
 func failureResult(partial TrialResult, run RunRecord, evalCase Case, arm string, started time.Time, err error) TrialResult {
 	completed := time.Now().UTC()
 	if partial.RunID == "" {
@@ -867,7 +1204,28 @@ func failureResult(partial TrialResult, run RunRecord, evalCase Case, arm string
 	partial.CompletedAt = completed
 	partial.TotalDurationMS = completed.Sub(started).Milliseconds()
 	partial.Error = err.Error()
+	var staged *trialStageError
+	if errors.As(err, &staged) {
+		partial.FailureStage = staged.stage
+	}
+	partial.FailureClass = classifyFailure(err)
 	return partial
+}
+
+func classifyFailure(err error) FailureClass {
+	var exitErr *exec.ExitError
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return FailureClassDeadline
+	case errors.Is(err, context.Canceled):
+		return FailureClassCanceled
+	case errors.As(err, &exitErr):
+		return FailureClassExit
+	case errors.Is(err, errInvalidAgentOutput):
+		return FailureClassInvalidOutput
+	default:
+		return FailureClassUnknown
+	}
 }
 
 func withCaseIdentity(result TrialResult, evalCase Case) TrialResult {

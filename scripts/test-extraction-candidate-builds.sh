@@ -5,7 +5,7 @@ repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$repo_root"
 
 package=github.com/pax-beehive/pax-nexus/internal/teamnote/extractor
-for strategy in current interaction-slim typed-2 source-span-v1 source-span-v2 claim-card-v1 claim-card-v2; do
+for strategy in current interaction-slim evidence-fidelity-v1 source-clause-v1 source-clause-implicit-state-v1 typed-2 source-span-v1 source-span-v2 claim-card-v1 claim-card-v2; do
   TEAM_MEMORY_TEST_BUILD_DEFAULT_CANDIDATE_STRATEGY="$strategy" \
     GOCACHE="${GOCACHE:-/tmp/team-memory-go-cache}" \
     go test -ldflags "-X ${package}.buildDefaultCandidateStrategy=${strategy}" \
