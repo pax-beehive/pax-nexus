@@ -337,7 +337,11 @@ func buildHTTPHandler(
 	if err != nil {
 		return nil, fmt.Errorf("configure recall router: %w", err)
 	}
-	configured, err := handler.NewOnPrem(runtime, credentials, memory, logger)
+	channel, err := onprem.NewChannelService(store.Channel())
+	if err != nil {
+		return nil, fmt.Errorf("configure on-prem channel: %w", err)
+	}
+	configured, err := handler.NewOnPrem(runtime, credentials, memory, channel, logger)
 	if err != nil {
 		return nil, fmt.Errorf("configure on-prem HTTP transport: %w", err)
 	}

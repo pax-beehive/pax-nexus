@@ -89,6 +89,26 @@ func (s *credentialStoreSuite) TestEnrollmentStateMatrix() {
 	}
 }
 
+func (s *credentialStoreSuite) TestAgentIdentityCannotBeClaimedByAnotherUser() {
+	now := time.Now().UTC()
+	service, admin := s.newService(&now)
+	agentID := uniqueCredentialValue("claimed-agent")
+
+	first, err := service.CreateEnrollment(context.Background(), admin, onprem.EnrollmentRequest{
+		UserID: uniqueCredentialValue("first-user"), AgentID: agentID,
+	})
+	s.Require().NoError(err)
+	_, err = service.ExchangeEnrollment(context.Background(), first.Token)
+	s.Require().NoError(err)
+
+	conflicting, err := service.CreateEnrollment(context.Background(), admin, onprem.EnrollmentRequest{
+		UserID: uniqueCredentialValue("second-user"), AgentID: agentID,
+	})
+	s.Require().NoError(err)
+	_, err = service.ExchangeEnrollment(context.Background(), conflicting.Token)
+	s.ErrorIs(err, onprem.ErrAgentIdentityConflict)
+}
+
 func (s *credentialStoreSuite) TestEnrollmentExchangeRollsBackConsumptionWhenCredentialInsertFails() {
 	now := time.Now().UTC()
 	service, admin := s.newService(&now)

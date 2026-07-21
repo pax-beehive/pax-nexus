@@ -197,12 +197,17 @@ func validateEnrollmentRequest(request EnrollmentRequest) ([]Permission, time.Du
 	}
 	permissions := request.Permissions
 	if len(permissions) == 0 {
-		permissions = []Permission{PermissionObserve, PermissionSearch, PermissionGet}
+		permissions = []Permission{
+			PermissionObserve,
+			PermissionSearch,
+			PermissionGet,
+		}
 	}
 	seen := make(map[Permission]struct{}, len(permissions))
 	result := make([]Permission, 0, len(permissions))
 	for _, permission := range permissions {
-		if permission != PermissionObserve && permission != PermissionSearch && permission != PermissionGet {
+		if permission != PermissionObserve && permission != PermissionSearch && permission != PermissionGet &&
+			permission != PermissionChannelSend && permission != PermissionChannelReceive {
 			return nil, 0, fmt.Errorf("create agent enrollment: unsupported permission %q", permission)
 		}
 		if _, exists := seen[permission]; exists {

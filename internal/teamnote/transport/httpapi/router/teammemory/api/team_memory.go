@@ -40,6 +40,20 @@ func Register(r *server.Hertz) {
 			_agent_enrollments.POST("/exchange", append(_exchangeagentenrollmentMw(), handler.ExchangeAgentEnrollment)...)
 		}
 		{
+			_channel := _v1.Group("/channel", _channelMw()...)
+			_channel.GET("/envelopes", append(_listchannelenvelopesMw(), handler.ListChannelEnvelopes)...)
+			_channel.POST("/envelopes", append(_sendchannelenvelopeMw(), handler.SendChannelEnvelope)...)
+			{
+				_envelopes := _channel.Group("/envelopes", _envelopesMw()...)
+				_envelopes.GET("/:envelope_id", append(_getchannelenvelopeMw(), handler.GetChannelEnvelope)...)
+				{
+					_envelope_id := _envelopes.Group("/:envelope_id", _envelope_idMw()...)
+					_envelope_id.POST("/accept", append(_acceptchannelenvelopeMw(), handler.AcceptChannelEnvelope)...)
+					_envelope_id.POST("/archive", append(_archivechannelenvelopeMw(), handler.ArchiveChannelEnvelope)...)
+				}
+			}
+		}
+		{
 			_memory := _v1.Group("/memory", _memoryMw()...)
 			_memory.POST("/get", append(_getmemoryMw(), handler.GetMemory)...)
 			_memory.POST("/search", append(_searchmemoryMw(), handler.SearchMemory)...)

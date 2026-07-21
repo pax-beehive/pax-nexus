@@ -64,6 +64,21 @@ func (s *CredentialStore) ExchangeEnrollment(
 	credential.UserID = enrollment.UserID
 	credential.AgentID = enrollment.AgentID
 	credential.Permissions = enrollment.Permissions
+	var claimedUserID string
+	err = tx.QueryRow(ctx, `
+		INSERT INTO onprem_agent_identities (agent_id, user_id, created_at)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (agent_id) DO UPDATE
+		SET agent_id = EXCLUDED.agent_id
+		WHERE onprem_agent_identities.user_id = EXCLUDED.user_id
+		RETURNING user_id
+	`, credential.AgentID, credential.UserID, credential.CreatedAt).Scan(&claimedUserID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return onprem.EnrollmentRecord{}, onprem.ErrAgentIdentityConflict
+	}
+	if err != nil {
+		return onprem.EnrollmentRecord{}, fmt.Errorf("claim postgres agent identity: %w", err)
+	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO agent_credentials (
 			credential_id, key_digest, user_id, agent_id, permissions, created_at, expires_at

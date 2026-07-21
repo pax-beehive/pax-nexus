@@ -81,9 +81,59 @@ func (s *coreFlowSuite) TestAgentObservationBecomesRecallableTeamNote() {
 	s.Equal("completed", stringField(s.T(), teamNoteTrace, "status"))
 }
 
+func (s *coreFlowSuite) TestAgentsShareKnowledgeCapsuleThroughChannel() {
+	senderKey := s.enrollAgent("channel-sender")
+	recipientKey := s.enrollAgent("channel-recipient")
+	payload := map[string]any{
+		"schema_version": "paxl.envelope_payload.knowledge_capsule.v2",
+		"capsule": map[string]any{
+			"capsule_id": "kcap-e2e", "source_session_id": "codex:e2e-source",
+			"source_agent": "codex", "keyword": "onprem", "title": "On-prem handoff",
+			"summary": "Channel delivery", "content": "The capsule crossed the on-prem channel.",
+			"status": "active", "truncated": false, "original_estimated_chars": 44,
+		},
+		"route": map[string]any{
+			"match_type": "project", "match_value": "team-memory", "target_agent": "codex",
+		},
+	}
+	request := map[string]any{
+		"to_agent_id": "channel-recipient", "payload_type": "knowledge_capsule",
+		"payload_json": payload, "message": "review", "idempotency_key": "channel-e2e-1",
+	}
+
+	created := s.request(http.MethodPost, "/v1/channel/envelopes", senderKey, request)
+	envelope := objectField(s.T(), created, "envelope")
+	envelopeID := stringField(s.T(), envelope, "envelope_id")
+	s.Equal("channel-sender", stringField(s.T(), envelope, "from_agent_id"))
+	s.Equal("channel-recipient", stringField(s.T(), envelope, "to_agent_id"))
+	s.Equal("pending", stringField(s.T(), envelope, "status"))
+
+	replayed := s.request(http.MethodPost, "/v1/channel/envelopes", senderKey, request)
+	s.Equal(envelopeID, stringField(s.T(), objectField(s.T(), replayed, "envelope"), "envelope_id"))
+
+	inbox := s.request(http.MethodGet, "/v1/channel/envelopes?status=pending", recipientKey, nil)
+	envelopes := arrayField(s.T(), inbox, "envelopes")
+	s.Require().Len(envelopes, 1)
+	inboxEnvelope, ok := envelopes[0].(map[string]any)
+	s.Require().True(ok)
+	s.Equal(envelopeID, stringField(s.T(), inboxEnvelope, "envelope_id"))
+	expectedPayload, err := json.Marshal(payload)
+	s.Require().NoError(err)
+	actualPayload, err := json.Marshal(objectField(s.T(), inboxEnvelope, "payload_json"))
+	s.Require().NoError(err)
+	s.JSONEq(string(expectedPayload), string(actualPayload))
+
+	accepted := s.request(http.MethodPost, "/v1/channel/envelopes/"+envelopeID+"/accept", recipientKey, nil)
+	s.Equal("accepted", stringField(s.T(), objectField(s.T(), accepted, "envelope"), "status"))
+
+	outbox := s.request(http.MethodGet, "/v1/channel/envelopes?direction=sent&status=accepted", senderKey, nil)
+	s.Require().Len(arrayField(s.T(), outbox, "envelopes"), 1)
+}
+
 func (s *coreFlowSuite) enrollAgent(agentID string) string {
 	enrollment := s.request(http.MethodPost, "/v1/admin/agent-enrollments", "e2e-admin-secret", map[string]any{
 		"user_id": "e2e-owner", "agent_id": agentID, "expires_in_seconds": 300,
+		"permissions": []string{"observe", "search", "get", "channel_send", "channel_receive"},
 	})
 	token := stringField(s.T(), enrollment, "token")
 	credential := s.request(http.MethodPost, "/v1/agent-enrollments/exchange", "", map[string]any{"token": token})
@@ -153,6 +203,15 @@ func boolField(t *testing.T, value map[string]any, name string) bool {
 	result, ok := value[name].(bool)
 	if !ok {
 		t.Fatalf("field %s is not a bool: %#v", name, value[name])
+	}
+	return result
+}
+
+func arrayField(t *testing.T, value map[string]any, name string) []any {
+	t.Helper()
+	result, ok := value[name].([]any)
+	if !ok {
+		t.Fatalf("field %s is not an array: %#v", name, value[name])
 	}
 	return result
 }

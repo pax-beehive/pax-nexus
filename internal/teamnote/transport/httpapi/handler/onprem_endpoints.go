@@ -196,6 +196,8 @@ func (h *Handler) writeOnPremError(ctx context.Context, c *app.RequestContext, o
 		c.String(consts.StatusForbidden, operation)
 	case errors.Is(err, onprem.ErrCredentialNotFound):
 		c.String(consts.StatusNotFound, operation)
+	case errors.Is(err, onprem.ErrAgentIdentityConflict):
+		c.String(consts.StatusConflict, operation)
 	default:
 		c.String(consts.StatusUnprocessableEntity, operation)
 	}

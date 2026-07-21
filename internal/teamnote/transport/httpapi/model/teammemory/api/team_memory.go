@@ -8967,6 +8967,3289 @@ func (p *MemoryDocument) String() string {
 
 }
 
+type KnowledgeCapsuleEnvelopeCapsule struct {
+	CapsuleID              string  `thrift:"capsule_id,1,required" form:"capsule_id,required" json:"capsule_id,required"`
+	SourceNodeID           *string `thrift:"source_node_id,2,optional" form:"source_node_id" json:"source_node_id,omitempty"`
+	SourceSessionID        string  `thrift:"source_session_id,3,required" form:"source_session_id,required" json:"source_session_id,required"`
+	SourceAgent            string  `thrift:"source_agent,4,required" form:"source_agent,required" json:"source_agent,required"`
+	Keyword                string  `thrift:"keyword,5,required" form:"keyword,required" json:"keyword,required"`
+	Title                  string  `thrift:"title,6,required" form:"title,required" json:"title,required"`
+	Summary                string  `thrift:"summary,7,required" form:"summary,required" json:"summary,required"`
+	Content                string  `thrift:"content,8,required" form:"content,required" json:"content,required"`
+	Status                 string  `thrift:"status,9,required" form:"status,required" json:"status,required"`
+	Truncated              bool    `thrift:"truncated,10,required" form:"truncated,required" json:"truncated,required"`
+	OriginalEstimatedChars int64   `thrift:"original_estimated_chars,11,required" form:"original_estimated_chars,required" json:"original_estimated_chars,required"`
+	CreatedAt              *string `thrift:"created_at,12,optional" form:"created_at" json:"created_at,omitempty"`
+	ArchivedAt             *string `thrift:"archived_at,13,optional" form:"archived_at" json:"archived_at,omitempty"`
+}
+
+func NewKnowledgeCapsuleEnvelopeCapsule() *KnowledgeCapsuleEnvelopeCapsule {
+	return &KnowledgeCapsuleEnvelopeCapsule{}
+}
+
+func (p *KnowledgeCapsuleEnvelopeCapsule) InitDefault() {
+}
+
+func (p *KnowledgeCapsuleEnvelopeCapsule) GetCapsuleID() (v string) {
+	return p.CapsuleID
+}
+
+var KnowledgeCapsuleEnvelopeCapsule_SourceNodeID_DEFAULT string
+
+func (p *KnowledgeCapsuleEnvelopeCapsule) GetSourceNodeID() (v string) {
+	if !p.IsSetSourceNodeID() {
+		return KnowledgeCapsuleEnvelopeCapsule_SourceNodeID_DEFAULT
+	}
+	return *p.SourceNodeID
+}
+
+func (p *KnowledgeCapsuleEnvelopeCapsule) GetSourceSessionID() (v string) {
+	return p.SourceSessionID
+}
+
+func (p *KnowledgeCapsuleEnvelopeCapsule) GetSourceAgent() (v string) {
+	return p.SourceAgent
+}
+
+func (p *KnowledgeCapsuleEnvelopeCapsule) GetKeyword() (v string) {
+	return p.Keyword
+}
+
+func (p *KnowledgeCapsuleEnvelopeCapsule) GetTitle() (v string) {
+	return p.Title
+}
+
+func (p *KnowledgeCapsuleEnvelopeCapsule) GetSummary() (v string) {
+	return p.Summary
+}
+
+func (p *KnowledgeCapsuleEnvelopeCapsule) GetContent() (v string) {
+	return p.Content
+}
+
+func (p *KnowledgeCapsuleEnvelopeCapsule) GetStatus() (v string) {
+	return p.Status
+}
+
+func (p *KnowledgeCapsuleEnvelopeCapsule) GetTruncated() (v bool) {
+	return p.Truncated
+}
+
+func (p *KnowledgeCapsuleEnvelopeCapsule) GetOriginalEstimatedChars() (v int64) {
+	return p.OriginalEstimatedChars
+}
+
+var KnowledgeCapsuleEnvelopeCapsule_CreatedAt_DEFAULT string
+
+func (p *KnowledgeCapsuleEnvelopeCapsule) GetCreatedAt() (v string) {
+	if !p.IsSetCreatedAt() {
+		return KnowledgeCapsuleEnvelopeCapsule_CreatedAt_DEFAULT
+	}
+	return *p.CreatedAt
+}
+
+var KnowledgeCapsuleEnvelopeCapsule_ArchivedAt_DEFAULT string
+
+func (p *KnowledgeCapsuleEnvelopeCapsule) GetArchivedAt() (v string) {
+	if !p.IsSetArchivedAt() {
+		return KnowledgeCapsuleEnvelopeCapsule_ArchivedAt_DEFAULT
+	}
+	return *p.ArchivedAt
+}
+
+var fieldIDToName_KnowledgeCapsuleEnvelopeCapsule = map[int16]string{
+	1:  "capsule_id",
+	2:  "source_node_id",
+	3:  "source_session_id",
+	4:  "source_agent",
+	5:  "keyword",
+	6:  "title",
+	7:  "summary",
+	8:  "content",
+	9:  "status",
+	10: "truncated",
+	11: "original_estimated_chars",
+	12: "created_at",
+	13: "archived_at",
+}
+
+func (p *KnowledgeCapsuleEnvelopeCapsule) IsSetSourceNodeID() bool {
+	return p.SourceNodeID != nil
+}
+
+func (p *KnowledgeCapsuleEnvelopeCapsule) IsSetCreatedAt() bool {
+	return p.CreatedAt != nil
+}
+
+func (p *KnowledgeCapsuleEnvelopeCapsule) IsSetArchivedAt() bool {
+	return p.ArchivedAt != nil
+}
+
+func (p *KnowledgeCapsuleEnvelopeCapsule) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+	var issetCapsuleID bool = false
+	var issetSourceSessionID bool = false
+	var issetSourceAgent bool = false
+	var issetKeyword bool = false
+	var issetTitle bool = false
+	var issetSummary bool = false
+	var issetContent bool = false
+	var issetStatus bool = false
+	var issetTruncated bool = false
+	var issetOriginalEstimatedChars bool = false
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 1:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField1(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetCapsuleID = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 2:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField2(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 3:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField3(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetSourceSessionID = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 4:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField4(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetSourceAgent = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 5:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField5(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetKeyword = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 6:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField6(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetTitle = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 7:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField7(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetSummary = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 8:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField8(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetContent = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 9:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField9(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetStatus = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 10:
+			if fieldTypeId == thrift.BOOL {
+				if err = p.ReadField10(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetTruncated = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 11:
+			if fieldTypeId == thrift.I64 {
+				if err = p.ReadField11(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetOriginalEstimatedChars = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 12:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField12(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 13:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField13(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	if !issetCapsuleID {
+		fieldId = 1
+		goto RequiredFieldNotSetError
+	}
+
+	if !issetSourceSessionID {
+		fieldId = 3
+		goto RequiredFieldNotSetError
+	}
+
+	if !issetSourceAgent {
+		fieldId = 4
+		goto RequiredFieldNotSetError
+	}
+
+	if !issetKeyword {
+		fieldId = 5
+		goto RequiredFieldNotSetError
+	}
+
+	if !issetTitle {
+		fieldId = 6
+		goto RequiredFieldNotSetError
+	}
+
+	if !issetSummary {
+		fieldId = 7
+		goto RequiredFieldNotSetError
+	}
+
+	if !issetContent {
+		fieldId = 8
+		goto RequiredFieldNotSetError
+	}
+
+	if !issetStatus {
+		fieldId = 9
+		goto RequiredFieldNotSetError
+	}
+
+	if !issetTruncated {
+		fieldId = 10
+		goto RequiredFieldNotSetError
+	}
+
+	if !issetOriginalEstimatedChars {
+		fieldId = 11
+		goto RequiredFieldNotSetError
+	}
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_KnowledgeCapsuleEnvelopeCapsule[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+RequiredFieldNotSetError:
+	return thrift.NewTProtocolExceptionWithType(thrift.INVALID_DATA, fmt.Errorf("required field %s is not set", fieldIDToName_KnowledgeCapsuleEnvelopeCapsule[fieldId]))
+}
+
+func (p *KnowledgeCapsuleEnvelopeCapsule) ReadField1(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.CapsuleID = _field
+	return nil
+}
+func (p *KnowledgeCapsuleEnvelopeCapsule) ReadField2(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.SourceNodeID = _field
+	return nil
+}
+func (p *KnowledgeCapsuleEnvelopeCapsule) ReadField3(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.SourceSessionID = _field
+	return nil
+}
+func (p *KnowledgeCapsuleEnvelopeCapsule) ReadField4(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.SourceAgent = _field
+	return nil
+}
+func (p *KnowledgeCapsuleEnvelopeCapsule) ReadField5(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.Keyword = _field
+	return nil
+}
+func (p *KnowledgeCapsuleEnvelopeCapsule) ReadField6(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.Title = _field
+	return nil
+}
+func (p *KnowledgeCapsuleEnvelopeCapsule) ReadField7(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.Summary = _field
+	return nil
+}
+func (p *KnowledgeCapsuleEnvelopeCapsule) ReadField8(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.Content = _field
+	return nil
+}
+func (p *KnowledgeCapsuleEnvelopeCapsule) ReadField9(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.Status = _field
+	return nil
+}
+func (p *KnowledgeCapsuleEnvelopeCapsule) ReadField10(iprot thrift.TProtocol) error {
+
+	var _field bool
+	if v, err := iprot.ReadBool(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.Truncated = _field
+	return nil
+}
+func (p *KnowledgeCapsuleEnvelopeCapsule) ReadField11(iprot thrift.TProtocol) error {
+
+	var _field int64
+	if v, err := iprot.ReadI64(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.OriginalEstimatedChars = _field
+	return nil
+}
+func (p *KnowledgeCapsuleEnvelopeCapsule) ReadField12(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.CreatedAt = _field
+	return nil
+}
+func (p *KnowledgeCapsuleEnvelopeCapsule) ReadField13(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.ArchivedAt = _field
+	return nil
+}
+
+func (p *KnowledgeCapsuleEnvelopeCapsule) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("KnowledgeCapsuleEnvelopeCapsule"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField1(oprot); err != nil {
+			fieldId = 1
+			goto WriteFieldError
+		}
+		if err = p.writeField2(oprot); err != nil {
+			fieldId = 2
+			goto WriteFieldError
+		}
+		if err = p.writeField3(oprot); err != nil {
+			fieldId = 3
+			goto WriteFieldError
+		}
+		if err = p.writeField4(oprot); err != nil {
+			fieldId = 4
+			goto WriteFieldError
+		}
+		if err = p.writeField5(oprot); err != nil {
+			fieldId = 5
+			goto WriteFieldError
+		}
+		if err = p.writeField6(oprot); err != nil {
+			fieldId = 6
+			goto WriteFieldError
+		}
+		if err = p.writeField7(oprot); err != nil {
+			fieldId = 7
+			goto WriteFieldError
+		}
+		if err = p.writeField8(oprot); err != nil {
+			fieldId = 8
+			goto WriteFieldError
+		}
+		if err = p.writeField9(oprot); err != nil {
+			fieldId = 9
+			goto WriteFieldError
+		}
+		if err = p.writeField10(oprot); err != nil {
+			fieldId = 10
+			goto WriteFieldError
+		}
+		if err = p.writeField11(oprot); err != nil {
+			fieldId = 11
+			goto WriteFieldError
+		}
+		if err = p.writeField12(oprot); err != nil {
+			fieldId = 12
+			goto WriteFieldError
+		}
+		if err = p.writeField13(oprot); err != nil {
+			fieldId = 13
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *KnowledgeCapsuleEnvelopeCapsule) writeField1(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("capsule_id", thrift.STRING, 1); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.CapsuleID); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 end error: ", p), err)
+}
+
+func (p *KnowledgeCapsuleEnvelopeCapsule) writeField2(oprot thrift.TProtocol) (err error) {
+	if p.IsSetSourceNodeID() {
+		if err = oprot.WriteFieldBegin("source_node_id", thrift.STRING, 2); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.SourceNodeID); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 2 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 2 end error: ", p), err)
+}
+
+func (p *KnowledgeCapsuleEnvelopeCapsule) writeField3(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("source_session_id", thrift.STRING, 3); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.SourceSessionID); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 end error: ", p), err)
+}
+
+func (p *KnowledgeCapsuleEnvelopeCapsule) writeField4(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("source_agent", thrift.STRING, 4); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.SourceAgent); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 4 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 4 end error: ", p), err)
+}
+
+func (p *KnowledgeCapsuleEnvelopeCapsule) writeField5(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("keyword", thrift.STRING, 5); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.Keyword); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 5 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 5 end error: ", p), err)
+}
+
+func (p *KnowledgeCapsuleEnvelopeCapsule) writeField6(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("title", thrift.STRING, 6); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.Title); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 6 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 6 end error: ", p), err)
+}
+
+func (p *KnowledgeCapsuleEnvelopeCapsule) writeField7(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("summary", thrift.STRING, 7); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.Summary); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 7 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 7 end error: ", p), err)
+}
+
+func (p *KnowledgeCapsuleEnvelopeCapsule) writeField8(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("content", thrift.STRING, 8); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.Content); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 8 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 8 end error: ", p), err)
+}
+
+func (p *KnowledgeCapsuleEnvelopeCapsule) writeField9(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("status", thrift.STRING, 9); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.Status); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 9 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 9 end error: ", p), err)
+}
+
+func (p *KnowledgeCapsuleEnvelopeCapsule) writeField10(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("truncated", thrift.BOOL, 10); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteBool(p.Truncated); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 10 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 10 end error: ", p), err)
+}
+
+func (p *KnowledgeCapsuleEnvelopeCapsule) writeField11(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("original_estimated_chars", thrift.I64, 11); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteI64(p.OriginalEstimatedChars); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 11 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 11 end error: ", p), err)
+}
+
+func (p *KnowledgeCapsuleEnvelopeCapsule) writeField12(oprot thrift.TProtocol) (err error) {
+	if p.IsSetCreatedAt() {
+		if err = oprot.WriteFieldBegin("created_at", thrift.STRING, 12); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.CreatedAt); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 12 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 12 end error: ", p), err)
+}
+
+func (p *KnowledgeCapsuleEnvelopeCapsule) writeField13(oprot thrift.TProtocol) (err error) {
+	if p.IsSetArchivedAt() {
+		if err = oprot.WriteFieldBegin("archived_at", thrift.STRING, 13); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.ArchivedAt); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 13 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 13 end error: ", p), err)
+}
+
+func (p *KnowledgeCapsuleEnvelopeCapsule) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("KnowledgeCapsuleEnvelopeCapsule(%+v)", *p)
+
+}
+
+type KnowledgeCapsuleEnvelopeRoute struct {
+	MatchType   string  `thrift:"match_type,1,required" form:"match_type,required" json:"match_type,required"`
+	MatchValue  *string `thrift:"match_value,2,optional" form:"match_value" json:"match_value,omitempty"`
+	TargetAgent *string `thrift:"target_agent,3,optional" form:"target_agent" json:"target_agent,omitempty"`
+}
+
+func NewKnowledgeCapsuleEnvelopeRoute() *KnowledgeCapsuleEnvelopeRoute {
+	return &KnowledgeCapsuleEnvelopeRoute{}
+}
+
+func (p *KnowledgeCapsuleEnvelopeRoute) InitDefault() {
+}
+
+func (p *KnowledgeCapsuleEnvelopeRoute) GetMatchType() (v string) {
+	return p.MatchType
+}
+
+var KnowledgeCapsuleEnvelopeRoute_MatchValue_DEFAULT string
+
+func (p *KnowledgeCapsuleEnvelopeRoute) GetMatchValue() (v string) {
+	if !p.IsSetMatchValue() {
+		return KnowledgeCapsuleEnvelopeRoute_MatchValue_DEFAULT
+	}
+	return *p.MatchValue
+}
+
+var KnowledgeCapsuleEnvelopeRoute_TargetAgent_DEFAULT string
+
+func (p *KnowledgeCapsuleEnvelopeRoute) GetTargetAgent() (v string) {
+	if !p.IsSetTargetAgent() {
+		return KnowledgeCapsuleEnvelopeRoute_TargetAgent_DEFAULT
+	}
+	return *p.TargetAgent
+}
+
+var fieldIDToName_KnowledgeCapsuleEnvelopeRoute = map[int16]string{
+	1: "match_type",
+	2: "match_value",
+	3: "target_agent",
+}
+
+func (p *KnowledgeCapsuleEnvelopeRoute) IsSetMatchValue() bool {
+	return p.MatchValue != nil
+}
+
+func (p *KnowledgeCapsuleEnvelopeRoute) IsSetTargetAgent() bool {
+	return p.TargetAgent != nil
+}
+
+func (p *KnowledgeCapsuleEnvelopeRoute) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+	var issetMatchType bool = false
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 1:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField1(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetMatchType = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 2:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField2(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 3:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField3(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	if !issetMatchType {
+		fieldId = 1
+		goto RequiredFieldNotSetError
+	}
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_KnowledgeCapsuleEnvelopeRoute[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+RequiredFieldNotSetError:
+	return thrift.NewTProtocolExceptionWithType(thrift.INVALID_DATA, fmt.Errorf("required field %s is not set", fieldIDToName_KnowledgeCapsuleEnvelopeRoute[fieldId]))
+}
+
+func (p *KnowledgeCapsuleEnvelopeRoute) ReadField1(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.MatchType = _field
+	return nil
+}
+func (p *KnowledgeCapsuleEnvelopeRoute) ReadField2(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.MatchValue = _field
+	return nil
+}
+func (p *KnowledgeCapsuleEnvelopeRoute) ReadField3(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.TargetAgent = _field
+	return nil
+}
+
+func (p *KnowledgeCapsuleEnvelopeRoute) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("KnowledgeCapsuleEnvelopeRoute"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField1(oprot); err != nil {
+			fieldId = 1
+			goto WriteFieldError
+		}
+		if err = p.writeField2(oprot); err != nil {
+			fieldId = 2
+			goto WriteFieldError
+		}
+		if err = p.writeField3(oprot); err != nil {
+			fieldId = 3
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *KnowledgeCapsuleEnvelopeRoute) writeField1(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("match_type", thrift.STRING, 1); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.MatchType); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 end error: ", p), err)
+}
+
+func (p *KnowledgeCapsuleEnvelopeRoute) writeField2(oprot thrift.TProtocol) (err error) {
+	if p.IsSetMatchValue() {
+		if err = oprot.WriteFieldBegin("match_value", thrift.STRING, 2); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.MatchValue); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 2 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 2 end error: ", p), err)
+}
+
+func (p *KnowledgeCapsuleEnvelopeRoute) writeField3(oprot thrift.TProtocol) (err error) {
+	if p.IsSetTargetAgent() {
+		if err = oprot.WriteFieldBegin("target_agent", thrift.STRING, 3); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.TargetAgent); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 end error: ", p), err)
+}
+
+func (p *KnowledgeCapsuleEnvelopeRoute) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("KnowledgeCapsuleEnvelopeRoute(%+v)", *p)
+
+}
+
+type KnowledgeCapsuleEnvelopePayload struct {
+	SchemaVersion string                           `thrift:"schema_version,1,required" form:"schema_version,required" json:"schema_version,required"`
+	Capsule       *KnowledgeCapsuleEnvelopeCapsule `thrift:"capsule,2,required" form:"capsule,required" json:"capsule,required"`
+	Route         *KnowledgeCapsuleEnvelopeRoute   `thrift:"route,3,optional" form:"route" json:"route,omitempty"`
+}
+
+func NewKnowledgeCapsuleEnvelopePayload() *KnowledgeCapsuleEnvelopePayload {
+	return &KnowledgeCapsuleEnvelopePayload{}
+}
+
+func (p *KnowledgeCapsuleEnvelopePayload) InitDefault() {
+}
+
+func (p *KnowledgeCapsuleEnvelopePayload) GetSchemaVersion() (v string) {
+	return p.SchemaVersion
+}
+
+var KnowledgeCapsuleEnvelopePayload_Capsule_DEFAULT *KnowledgeCapsuleEnvelopeCapsule
+
+func (p *KnowledgeCapsuleEnvelopePayload) GetCapsule() (v *KnowledgeCapsuleEnvelopeCapsule) {
+	if !p.IsSetCapsule() {
+		return KnowledgeCapsuleEnvelopePayload_Capsule_DEFAULT
+	}
+	return p.Capsule
+}
+
+var KnowledgeCapsuleEnvelopePayload_Route_DEFAULT *KnowledgeCapsuleEnvelopeRoute
+
+func (p *KnowledgeCapsuleEnvelopePayload) GetRoute() (v *KnowledgeCapsuleEnvelopeRoute) {
+	if !p.IsSetRoute() {
+		return KnowledgeCapsuleEnvelopePayload_Route_DEFAULT
+	}
+	return p.Route
+}
+
+var fieldIDToName_KnowledgeCapsuleEnvelopePayload = map[int16]string{
+	1: "schema_version",
+	2: "capsule",
+	3: "route",
+}
+
+func (p *KnowledgeCapsuleEnvelopePayload) IsSetCapsule() bool {
+	return p.Capsule != nil
+}
+
+func (p *KnowledgeCapsuleEnvelopePayload) IsSetRoute() bool {
+	return p.Route != nil
+}
+
+func (p *KnowledgeCapsuleEnvelopePayload) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+	var issetSchemaVersion bool = false
+	var issetCapsule bool = false
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 1:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField1(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetSchemaVersion = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 2:
+			if fieldTypeId == thrift.STRUCT {
+				if err = p.ReadField2(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetCapsule = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 3:
+			if fieldTypeId == thrift.STRUCT {
+				if err = p.ReadField3(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	if !issetSchemaVersion {
+		fieldId = 1
+		goto RequiredFieldNotSetError
+	}
+
+	if !issetCapsule {
+		fieldId = 2
+		goto RequiredFieldNotSetError
+	}
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_KnowledgeCapsuleEnvelopePayload[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+RequiredFieldNotSetError:
+	return thrift.NewTProtocolExceptionWithType(thrift.INVALID_DATA, fmt.Errorf("required field %s is not set", fieldIDToName_KnowledgeCapsuleEnvelopePayload[fieldId]))
+}
+
+func (p *KnowledgeCapsuleEnvelopePayload) ReadField1(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.SchemaVersion = _field
+	return nil
+}
+func (p *KnowledgeCapsuleEnvelopePayload) ReadField2(iprot thrift.TProtocol) error {
+	_field := NewKnowledgeCapsuleEnvelopeCapsule()
+	if err := _field.Read(iprot); err != nil {
+		return err
+	}
+	p.Capsule = _field
+	return nil
+}
+func (p *KnowledgeCapsuleEnvelopePayload) ReadField3(iprot thrift.TProtocol) error {
+	_field := NewKnowledgeCapsuleEnvelopeRoute()
+	if err := _field.Read(iprot); err != nil {
+		return err
+	}
+	p.Route = _field
+	return nil
+}
+
+func (p *KnowledgeCapsuleEnvelopePayload) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("KnowledgeCapsuleEnvelopePayload"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField1(oprot); err != nil {
+			fieldId = 1
+			goto WriteFieldError
+		}
+		if err = p.writeField2(oprot); err != nil {
+			fieldId = 2
+			goto WriteFieldError
+		}
+		if err = p.writeField3(oprot); err != nil {
+			fieldId = 3
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *KnowledgeCapsuleEnvelopePayload) writeField1(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("schema_version", thrift.STRING, 1); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.SchemaVersion); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 end error: ", p), err)
+}
+
+func (p *KnowledgeCapsuleEnvelopePayload) writeField2(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("capsule", thrift.STRUCT, 2); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := p.Capsule.Write(oprot); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 2 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 2 end error: ", p), err)
+}
+
+func (p *KnowledgeCapsuleEnvelopePayload) writeField3(oprot thrift.TProtocol) (err error) {
+	if p.IsSetRoute() {
+		if err = oprot.WriteFieldBegin("route", thrift.STRUCT, 3); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := p.Route.Write(oprot); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 end error: ", p), err)
+}
+
+func (p *KnowledgeCapsuleEnvelopePayload) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("KnowledgeCapsuleEnvelopePayload(%+v)", *p)
+
+}
+
+type SendChannelEnvelopeRequest struct {
+	ToAgentID      string                           `thrift:"to_agent_id,1,required" form:"to_agent_id,required" json:"to_agent_id,required"`
+	PayloadType    string                           `thrift:"payload_type,2,required" form:"payload_type,required" json:"payload_type,required"`
+	PayloadJSON    *KnowledgeCapsuleEnvelopePayload `thrift:"payload_json,3,required" form:"payload_json,required" json:"payload_json,required"`
+	Message        *string                          `thrift:"message,4,optional" form:"message" json:"message,omitempty"`
+	IdempotencyKey string                           `thrift:"idempotency_key,5,required" form:"idempotency_key,required" json:"idempotency_key,required"`
+}
+
+func NewSendChannelEnvelopeRequest() *SendChannelEnvelopeRequest {
+	return &SendChannelEnvelopeRequest{}
+}
+
+func (p *SendChannelEnvelopeRequest) InitDefault() {
+}
+
+func (p *SendChannelEnvelopeRequest) GetToAgentID() (v string) {
+	return p.ToAgentID
+}
+
+func (p *SendChannelEnvelopeRequest) GetPayloadType() (v string) {
+	return p.PayloadType
+}
+
+var SendChannelEnvelopeRequest_PayloadJSON_DEFAULT *KnowledgeCapsuleEnvelopePayload
+
+func (p *SendChannelEnvelopeRequest) GetPayloadJSON() (v *KnowledgeCapsuleEnvelopePayload) {
+	if !p.IsSetPayloadJSON() {
+		return SendChannelEnvelopeRequest_PayloadJSON_DEFAULT
+	}
+	return p.PayloadJSON
+}
+
+var SendChannelEnvelopeRequest_Message_DEFAULT string
+
+func (p *SendChannelEnvelopeRequest) GetMessage() (v string) {
+	if !p.IsSetMessage() {
+		return SendChannelEnvelopeRequest_Message_DEFAULT
+	}
+	return *p.Message
+}
+
+func (p *SendChannelEnvelopeRequest) GetIdempotencyKey() (v string) {
+	return p.IdempotencyKey
+}
+
+var fieldIDToName_SendChannelEnvelopeRequest = map[int16]string{
+	1: "to_agent_id",
+	2: "payload_type",
+	3: "payload_json",
+	4: "message",
+	5: "idempotency_key",
+}
+
+func (p *SendChannelEnvelopeRequest) IsSetPayloadJSON() bool {
+	return p.PayloadJSON != nil
+}
+
+func (p *SendChannelEnvelopeRequest) IsSetMessage() bool {
+	return p.Message != nil
+}
+
+func (p *SendChannelEnvelopeRequest) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+	var issetToAgentID bool = false
+	var issetPayloadType bool = false
+	var issetPayloadJSON bool = false
+	var issetIdempotencyKey bool = false
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 1:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField1(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetToAgentID = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 2:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField2(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetPayloadType = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 3:
+			if fieldTypeId == thrift.STRUCT {
+				if err = p.ReadField3(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetPayloadJSON = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 4:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField4(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 5:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField5(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetIdempotencyKey = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	if !issetToAgentID {
+		fieldId = 1
+		goto RequiredFieldNotSetError
+	}
+
+	if !issetPayloadType {
+		fieldId = 2
+		goto RequiredFieldNotSetError
+	}
+
+	if !issetPayloadJSON {
+		fieldId = 3
+		goto RequiredFieldNotSetError
+	}
+
+	if !issetIdempotencyKey {
+		fieldId = 5
+		goto RequiredFieldNotSetError
+	}
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_SendChannelEnvelopeRequest[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+RequiredFieldNotSetError:
+	return thrift.NewTProtocolExceptionWithType(thrift.INVALID_DATA, fmt.Errorf("required field %s is not set", fieldIDToName_SendChannelEnvelopeRequest[fieldId]))
+}
+
+func (p *SendChannelEnvelopeRequest) ReadField1(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.ToAgentID = _field
+	return nil
+}
+func (p *SendChannelEnvelopeRequest) ReadField2(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.PayloadType = _field
+	return nil
+}
+func (p *SendChannelEnvelopeRequest) ReadField3(iprot thrift.TProtocol) error {
+	_field := NewKnowledgeCapsuleEnvelopePayload()
+	if err := _field.Read(iprot); err != nil {
+		return err
+	}
+	p.PayloadJSON = _field
+	return nil
+}
+func (p *SendChannelEnvelopeRequest) ReadField4(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.Message = _field
+	return nil
+}
+func (p *SendChannelEnvelopeRequest) ReadField5(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.IdempotencyKey = _field
+	return nil
+}
+
+func (p *SendChannelEnvelopeRequest) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("SendChannelEnvelopeRequest"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField1(oprot); err != nil {
+			fieldId = 1
+			goto WriteFieldError
+		}
+		if err = p.writeField2(oprot); err != nil {
+			fieldId = 2
+			goto WriteFieldError
+		}
+		if err = p.writeField3(oprot); err != nil {
+			fieldId = 3
+			goto WriteFieldError
+		}
+		if err = p.writeField4(oprot); err != nil {
+			fieldId = 4
+			goto WriteFieldError
+		}
+		if err = p.writeField5(oprot); err != nil {
+			fieldId = 5
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *SendChannelEnvelopeRequest) writeField1(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("to_agent_id", thrift.STRING, 1); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.ToAgentID); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 end error: ", p), err)
+}
+
+func (p *SendChannelEnvelopeRequest) writeField2(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("payload_type", thrift.STRING, 2); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.PayloadType); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 2 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 2 end error: ", p), err)
+}
+
+func (p *SendChannelEnvelopeRequest) writeField3(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("payload_json", thrift.STRUCT, 3); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := p.PayloadJSON.Write(oprot); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 end error: ", p), err)
+}
+
+func (p *SendChannelEnvelopeRequest) writeField4(oprot thrift.TProtocol) (err error) {
+	if p.IsSetMessage() {
+		if err = oprot.WriteFieldBegin("message", thrift.STRING, 4); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.Message); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 4 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 4 end error: ", p), err)
+}
+
+func (p *SendChannelEnvelopeRequest) writeField5(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("idempotency_key", thrift.STRING, 5); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.IdempotencyKey); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 5 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 5 end error: ", p), err)
+}
+
+func (p *SendChannelEnvelopeRequest) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("SendChannelEnvelopeRequest(%+v)", *p)
+
+}
+
+type ListChannelEnvelopesRequest struct {
+	Status    *string `thrift:"status,1,optional" json:"status,omitempty" query:"status"`
+	Direction *string `thrift:"direction,2,optional" json:"direction,omitempty" query:"direction"`
+	Limit     *int32  `thrift:"limit,3,optional" json:"limit,omitempty" query:"limit"`
+	Cursor    *string `thrift:"cursor,4,optional" json:"cursor,omitempty" query:"cursor"`
+}
+
+func NewListChannelEnvelopesRequest() *ListChannelEnvelopesRequest {
+	return &ListChannelEnvelopesRequest{}
+}
+
+func (p *ListChannelEnvelopesRequest) InitDefault() {
+}
+
+var ListChannelEnvelopesRequest_Status_DEFAULT string
+
+func (p *ListChannelEnvelopesRequest) GetStatus() (v string) {
+	if !p.IsSetStatus() {
+		return ListChannelEnvelopesRequest_Status_DEFAULT
+	}
+	return *p.Status
+}
+
+var ListChannelEnvelopesRequest_Direction_DEFAULT string
+
+func (p *ListChannelEnvelopesRequest) GetDirection() (v string) {
+	if !p.IsSetDirection() {
+		return ListChannelEnvelopesRequest_Direction_DEFAULT
+	}
+	return *p.Direction
+}
+
+var ListChannelEnvelopesRequest_Limit_DEFAULT int32
+
+func (p *ListChannelEnvelopesRequest) GetLimit() (v int32) {
+	if !p.IsSetLimit() {
+		return ListChannelEnvelopesRequest_Limit_DEFAULT
+	}
+	return *p.Limit
+}
+
+var ListChannelEnvelopesRequest_Cursor_DEFAULT string
+
+func (p *ListChannelEnvelopesRequest) GetCursor() (v string) {
+	if !p.IsSetCursor() {
+		return ListChannelEnvelopesRequest_Cursor_DEFAULT
+	}
+	return *p.Cursor
+}
+
+var fieldIDToName_ListChannelEnvelopesRequest = map[int16]string{
+	1: "status",
+	2: "direction",
+	3: "limit",
+	4: "cursor",
+}
+
+func (p *ListChannelEnvelopesRequest) IsSetStatus() bool {
+	return p.Status != nil
+}
+
+func (p *ListChannelEnvelopesRequest) IsSetDirection() bool {
+	return p.Direction != nil
+}
+
+func (p *ListChannelEnvelopesRequest) IsSetLimit() bool {
+	return p.Limit != nil
+}
+
+func (p *ListChannelEnvelopesRequest) IsSetCursor() bool {
+	return p.Cursor != nil
+}
+
+func (p *ListChannelEnvelopesRequest) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 1:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField1(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 2:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField2(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 3:
+			if fieldTypeId == thrift.I32 {
+				if err = p.ReadField3(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 4:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField4(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_ListChannelEnvelopesRequest[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+}
+
+func (p *ListChannelEnvelopesRequest) ReadField1(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.Status = _field
+	return nil
+}
+func (p *ListChannelEnvelopesRequest) ReadField2(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.Direction = _field
+	return nil
+}
+func (p *ListChannelEnvelopesRequest) ReadField3(iprot thrift.TProtocol) error {
+
+	var _field *int32
+	if v, err := iprot.ReadI32(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.Limit = _field
+	return nil
+}
+func (p *ListChannelEnvelopesRequest) ReadField4(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.Cursor = _field
+	return nil
+}
+
+func (p *ListChannelEnvelopesRequest) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("ListChannelEnvelopesRequest"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField1(oprot); err != nil {
+			fieldId = 1
+			goto WriteFieldError
+		}
+		if err = p.writeField2(oprot); err != nil {
+			fieldId = 2
+			goto WriteFieldError
+		}
+		if err = p.writeField3(oprot); err != nil {
+			fieldId = 3
+			goto WriteFieldError
+		}
+		if err = p.writeField4(oprot); err != nil {
+			fieldId = 4
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *ListChannelEnvelopesRequest) writeField1(oprot thrift.TProtocol) (err error) {
+	if p.IsSetStatus() {
+		if err = oprot.WriteFieldBegin("status", thrift.STRING, 1); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.Status); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 end error: ", p), err)
+}
+
+func (p *ListChannelEnvelopesRequest) writeField2(oprot thrift.TProtocol) (err error) {
+	if p.IsSetDirection() {
+		if err = oprot.WriteFieldBegin("direction", thrift.STRING, 2); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.Direction); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 2 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 2 end error: ", p), err)
+}
+
+func (p *ListChannelEnvelopesRequest) writeField3(oprot thrift.TProtocol) (err error) {
+	if p.IsSetLimit() {
+		if err = oprot.WriteFieldBegin("limit", thrift.I32, 3); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteI32(*p.Limit); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 end error: ", p), err)
+}
+
+func (p *ListChannelEnvelopesRequest) writeField4(oprot thrift.TProtocol) (err error) {
+	if p.IsSetCursor() {
+		if err = oprot.WriteFieldBegin("cursor", thrift.STRING, 4); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.Cursor); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 4 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 4 end error: ", p), err)
+}
+
+func (p *ListChannelEnvelopesRequest) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ListChannelEnvelopesRequest(%+v)", *p)
+
+}
+
+type ChannelEnvelopeByIDRequest struct {
+	EnvelopeID string `thrift:"envelope_id,1,required" json:"envelope_id,required" path:"envelope_id,required"`
+}
+
+func NewChannelEnvelopeByIDRequest() *ChannelEnvelopeByIDRequest {
+	return &ChannelEnvelopeByIDRequest{}
+}
+
+func (p *ChannelEnvelopeByIDRequest) InitDefault() {
+}
+
+func (p *ChannelEnvelopeByIDRequest) GetEnvelopeID() (v string) {
+	return p.EnvelopeID
+}
+
+var fieldIDToName_ChannelEnvelopeByIDRequest = map[int16]string{
+	1: "envelope_id",
+}
+
+func (p *ChannelEnvelopeByIDRequest) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+	var issetEnvelopeID bool = false
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 1:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField1(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetEnvelopeID = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	if !issetEnvelopeID {
+		fieldId = 1
+		goto RequiredFieldNotSetError
+	}
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_ChannelEnvelopeByIDRequest[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+RequiredFieldNotSetError:
+	return thrift.NewTProtocolExceptionWithType(thrift.INVALID_DATA, fmt.Errorf("required field %s is not set", fieldIDToName_ChannelEnvelopeByIDRequest[fieldId]))
+}
+
+func (p *ChannelEnvelopeByIDRequest) ReadField1(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.EnvelopeID = _field
+	return nil
+}
+
+func (p *ChannelEnvelopeByIDRequest) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("ChannelEnvelopeByIDRequest"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField1(oprot); err != nil {
+			fieldId = 1
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *ChannelEnvelopeByIDRequest) writeField1(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("envelope_id", thrift.STRING, 1); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.EnvelopeID); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 end error: ", p), err)
+}
+
+func (p *ChannelEnvelopeByIDRequest) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ChannelEnvelopeByIDRequest(%+v)", *p)
+
+}
+
+type ChannelEnvelope struct {
+	EnvelopeID     string                           `thrift:"envelope_id,1,required" form:"envelope_id,required" json:"envelope_id,required" query:"envelope_id,required"`
+	FromUserID     string                           `thrift:"from_user_id,2,required" form:"from_user_id,required" json:"from_user_id,required" query:"from_user_id,required"`
+	FromAgentID    string                           `thrift:"from_agent_id,3,required" form:"from_agent_id,required" json:"from_agent_id,required" query:"from_agent_id,required"`
+	ToUserID       string                           `thrift:"to_user_id,4,required" form:"to_user_id,required" json:"to_user_id,required" query:"to_user_id,required"`
+	ToAgentID      string                           `thrift:"to_agent_id,5,required" form:"to_agent_id,required" json:"to_agent_id,required" query:"to_agent_id,required"`
+	PayloadType    string                           `thrift:"payload_type,6,required" form:"payload_type,required" json:"payload_type,required" query:"payload_type,required"`
+	PayloadJSON    *KnowledgeCapsuleEnvelopePayload `thrift:"payload_json,7,required" form:"payload_json,required" json:"payload_json,required" query:"payload_json,required"`
+	Message        *string                          `thrift:"message,8,optional" form:"message" json:"message,omitempty" query:"message"`
+	IdempotencyKey string                           `thrift:"idempotency_key,9,required" form:"idempotency_key,required" json:"idempotency_key,required" query:"idempotency_key,required"`
+	Status         string                           `thrift:"status,10,required" form:"status,required" json:"status,required" query:"status,required"`
+	CreatedAt      string                           `thrift:"created_at,11,required" form:"created_at,required" json:"created_at,required" query:"created_at,required"`
+	AcceptedAt     *string                          `thrift:"accepted_at,12,optional" form:"accepted_at" json:"accepted_at,omitempty" query:"accepted_at"`
+	ArchivedAt     *string                          `thrift:"archived_at,13,optional" form:"archived_at" json:"archived_at,omitempty" query:"archived_at"`
+}
+
+func NewChannelEnvelope() *ChannelEnvelope {
+	return &ChannelEnvelope{}
+}
+
+func (p *ChannelEnvelope) InitDefault() {
+}
+
+func (p *ChannelEnvelope) GetEnvelopeID() (v string) {
+	return p.EnvelopeID
+}
+
+func (p *ChannelEnvelope) GetFromUserID() (v string) {
+	return p.FromUserID
+}
+
+func (p *ChannelEnvelope) GetFromAgentID() (v string) {
+	return p.FromAgentID
+}
+
+func (p *ChannelEnvelope) GetToUserID() (v string) {
+	return p.ToUserID
+}
+
+func (p *ChannelEnvelope) GetToAgentID() (v string) {
+	return p.ToAgentID
+}
+
+func (p *ChannelEnvelope) GetPayloadType() (v string) {
+	return p.PayloadType
+}
+
+var ChannelEnvelope_PayloadJSON_DEFAULT *KnowledgeCapsuleEnvelopePayload
+
+func (p *ChannelEnvelope) GetPayloadJSON() (v *KnowledgeCapsuleEnvelopePayload) {
+	if !p.IsSetPayloadJSON() {
+		return ChannelEnvelope_PayloadJSON_DEFAULT
+	}
+	return p.PayloadJSON
+}
+
+var ChannelEnvelope_Message_DEFAULT string
+
+func (p *ChannelEnvelope) GetMessage() (v string) {
+	if !p.IsSetMessage() {
+		return ChannelEnvelope_Message_DEFAULT
+	}
+	return *p.Message
+}
+
+func (p *ChannelEnvelope) GetIdempotencyKey() (v string) {
+	return p.IdempotencyKey
+}
+
+func (p *ChannelEnvelope) GetStatus() (v string) {
+	return p.Status
+}
+
+func (p *ChannelEnvelope) GetCreatedAt() (v string) {
+	return p.CreatedAt
+}
+
+var ChannelEnvelope_AcceptedAt_DEFAULT string
+
+func (p *ChannelEnvelope) GetAcceptedAt() (v string) {
+	if !p.IsSetAcceptedAt() {
+		return ChannelEnvelope_AcceptedAt_DEFAULT
+	}
+	return *p.AcceptedAt
+}
+
+var ChannelEnvelope_ArchivedAt_DEFAULT string
+
+func (p *ChannelEnvelope) GetArchivedAt() (v string) {
+	if !p.IsSetArchivedAt() {
+		return ChannelEnvelope_ArchivedAt_DEFAULT
+	}
+	return *p.ArchivedAt
+}
+
+var fieldIDToName_ChannelEnvelope = map[int16]string{
+	1:  "envelope_id",
+	2:  "from_user_id",
+	3:  "from_agent_id",
+	4:  "to_user_id",
+	5:  "to_agent_id",
+	6:  "payload_type",
+	7:  "payload_json",
+	8:  "message",
+	9:  "idempotency_key",
+	10: "status",
+	11: "created_at",
+	12: "accepted_at",
+	13: "archived_at",
+}
+
+func (p *ChannelEnvelope) IsSetPayloadJSON() bool {
+	return p.PayloadJSON != nil
+}
+
+func (p *ChannelEnvelope) IsSetMessage() bool {
+	return p.Message != nil
+}
+
+func (p *ChannelEnvelope) IsSetAcceptedAt() bool {
+	return p.AcceptedAt != nil
+}
+
+func (p *ChannelEnvelope) IsSetArchivedAt() bool {
+	return p.ArchivedAt != nil
+}
+
+func (p *ChannelEnvelope) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+	var issetEnvelopeID bool = false
+	var issetFromUserID bool = false
+	var issetFromAgentID bool = false
+	var issetToUserID bool = false
+	var issetToAgentID bool = false
+	var issetPayloadType bool = false
+	var issetPayloadJSON bool = false
+	var issetIdempotencyKey bool = false
+	var issetStatus bool = false
+	var issetCreatedAt bool = false
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 1:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField1(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetEnvelopeID = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 2:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField2(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetFromUserID = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 3:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField3(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetFromAgentID = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 4:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField4(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetToUserID = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 5:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField5(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetToAgentID = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 6:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField6(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetPayloadType = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 7:
+			if fieldTypeId == thrift.STRUCT {
+				if err = p.ReadField7(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetPayloadJSON = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 8:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField8(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 9:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField9(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetIdempotencyKey = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 10:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField10(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetStatus = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 11:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField11(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetCreatedAt = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 12:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField12(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 13:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField13(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	if !issetEnvelopeID {
+		fieldId = 1
+		goto RequiredFieldNotSetError
+	}
+
+	if !issetFromUserID {
+		fieldId = 2
+		goto RequiredFieldNotSetError
+	}
+
+	if !issetFromAgentID {
+		fieldId = 3
+		goto RequiredFieldNotSetError
+	}
+
+	if !issetToUserID {
+		fieldId = 4
+		goto RequiredFieldNotSetError
+	}
+
+	if !issetToAgentID {
+		fieldId = 5
+		goto RequiredFieldNotSetError
+	}
+
+	if !issetPayloadType {
+		fieldId = 6
+		goto RequiredFieldNotSetError
+	}
+
+	if !issetPayloadJSON {
+		fieldId = 7
+		goto RequiredFieldNotSetError
+	}
+
+	if !issetIdempotencyKey {
+		fieldId = 9
+		goto RequiredFieldNotSetError
+	}
+
+	if !issetStatus {
+		fieldId = 10
+		goto RequiredFieldNotSetError
+	}
+
+	if !issetCreatedAt {
+		fieldId = 11
+		goto RequiredFieldNotSetError
+	}
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_ChannelEnvelope[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+RequiredFieldNotSetError:
+	return thrift.NewTProtocolExceptionWithType(thrift.INVALID_DATA, fmt.Errorf("required field %s is not set", fieldIDToName_ChannelEnvelope[fieldId]))
+}
+
+func (p *ChannelEnvelope) ReadField1(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.EnvelopeID = _field
+	return nil
+}
+func (p *ChannelEnvelope) ReadField2(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.FromUserID = _field
+	return nil
+}
+func (p *ChannelEnvelope) ReadField3(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.FromAgentID = _field
+	return nil
+}
+func (p *ChannelEnvelope) ReadField4(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.ToUserID = _field
+	return nil
+}
+func (p *ChannelEnvelope) ReadField5(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.ToAgentID = _field
+	return nil
+}
+func (p *ChannelEnvelope) ReadField6(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.PayloadType = _field
+	return nil
+}
+func (p *ChannelEnvelope) ReadField7(iprot thrift.TProtocol) error {
+	_field := NewKnowledgeCapsuleEnvelopePayload()
+	if err := _field.Read(iprot); err != nil {
+		return err
+	}
+	p.PayloadJSON = _field
+	return nil
+}
+func (p *ChannelEnvelope) ReadField8(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.Message = _field
+	return nil
+}
+func (p *ChannelEnvelope) ReadField9(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.IdempotencyKey = _field
+	return nil
+}
+func (p *ChannelEnvelope) ReadField10(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.Status = _field
+	return nil
+}
+func (p *ChannelEnvelope) ReadField11(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.CreatedAt = _field
+	return nil
+}
+func (p *ChannelEnvelope) ReadField12(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.AcceptedAt = _field
+	return nil
+}
+func (p *ChannelEnvelope) ReadField13(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.ArchivedAt = _field
+	return nil
+}
+
+func (p *ChannelEnvelope) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("ChannelEnvelope"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField1(oprot); err != nil {
+			fieldId = 1
+			goto WriteFieldError
+		}
+		if err = p.writeField2(oprot); err != nil {
+			fieldId = 2
+			goto WriteFieldError
+		}
+		if err = p.writeField3(oprot); err != nil {
+			fieldId = 3
+			goto WriteFieldError
+		}
+		if err = p.writeField4(oprot); err != nil {
+			fieldId = 4
+			goto WriteFieldError
+		}
+		if err = p.writeField5(oprot); err != nil {
+			fieldId = 5
+			goto WriteFieldError
+		}
+		if err = p.writeField6(oprot); err != nil {
+			fieldId = 6
+			goto WriteFieldError
+		}
+		if err = p.writeField7(oprot); err != nil {
+			fieldId = 7
+			goto WriteFieldError
+		}
+		if err = p.writeField8(oprot); err != nil {
+			fieldId = 8
+			goto WriteFieldError
+		}
+		if err = p.writeField9(oprot); err != nil {
+			fieldId = 9
+			goto WriteFieldError
+		}
+		if err = p.writeField10(oprot); err != nil {
+			fieldId = 10
+			goto WriteFieldError
+		}
+		if err = p.writeField11(oprot); err != nil {
+			fieldId = 11
+			goto WriteFieldError
+		}
+		if err = p.writeField12(oprot); err != nil {
+			fieldId = 12
+			goto WriteFieldError
+		}
+		if err = p.writeField13(oprot); err != nil {
+			fieldId = 13
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *ChannelEnvelope) writeField1(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("envelope_id", thrift.STRING, 1); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.EnvelopeID); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 end error: ", p), err)
+}
+
+func (p *ChannelEnvelope) writeField2(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("from_user_id", thrift.STRING, 2); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.FromUserID); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 2 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 2 end error: ", p), err)
+}
+
+func (p *ChannelEnvelope) writeField3(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("from_agent_id", thrift.STRING, 3); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.FromAgentID); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 end error: ", p), err)
+}
+
+func (p *ChannelEnvelope) writeField4(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("to_user_id", thrift.STRING, 4); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.ToUserID); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 4 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 4 end error: ", p), err)
+}
+
+func (p *ChannelEnvelope) writeField5(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("to_agent_id", thrift.STRING, 5); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.ToAgentID); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 5 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 5 end error: ", p), err)
+}
+
+func (p *ChannelEnvelope) writeField6(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("payload_type", thrift.STRING, 6); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.PayloadType); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 6 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 6 end error: ", p), err)
+}
+
+func (p *ChannelEnvelope) writeField7(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("payload_json", thrift.STRUCT, 7); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := p.PayloadJSON.Write(oprot); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 7 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 7 end error: ", p), err)
+}
+
+func (p *ChannelEnvelope) writeField8(oprot thrift.TProtocol) (err error) {
+	if p.IsSetMessage() {
+		if err = oprot.WriteFieldBegin("message", thrift.STRING, 8); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.Message); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 8 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 8 end error: ", p), err)
+}
+
+func (p *ChannelEnvelope) writeField9(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("idempotency_key", thrift.STRING, 9); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.IdempotencyKey); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 9 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 9 end error: ", p), err)
+}
+
+func (p *ChannelEnvelope) writeField10(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("status", thrift.STRING, 10); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.Status); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 10 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 10 end error: ", p), err)
+}
+
+func (p *ChannelEnvelope) writeField11(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("created_at", thrift.STRING, 11); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.CreatedAt); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 11 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 11 end error: ", p), err)
+}
+
+func (p *ChannelEnvelope) writeField12(oprot thrift.TProtocol) (err error) {
+	if p.IsSetAcceptedAt() {
+		if err = oprot.WriteFieldBegin("accepted_at", thrift.STRING, 12); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.AcceptedAt); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 12 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 12 end error: ", p), err)
+}
+
+func (p *ChannelEnvelope) writeField13(oprot thrift.TProtocol) (err error) {
+	if p.IsSetArchivedAt() {
+		if err = oprot.WriteFieldBegin("archived_at", thrift.STRING, 13); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.ArchivedAt); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 13 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 13 end error: ", p), err)
+}
+
+func (p *ChannelEnvelope) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ChannelEnvelope(%+v)", *p)
+
+}
+
+type ChannelEnvelopeResponse struct {
+	Envelope *ChannelEnvelope `thrift:"envelope,1,required" form:"envelope,required" json:"envelope,required" query:"envelope,required"`
+}
+
+func NewChannelEnvelopeResponse() *ChannelEnvelopeResponse {
+	return &ChannelEnvelopeResponse{}
+}
+
+func (p *ChannelEnvelopeResponse) InitDefault() {
+}
+
+var ChannelEnvelopeResponse_Envelope_DEFAULT *ChannelEnvelope
+
+func (p *ChannelEnvelopeResponse) GetEnvelope() (v *ChannelEnvelope) {
+	if !p.IsSetEnvelope() {
+		return ChannelEnvelopeResponse_Envelope_DEFAULT
+	}
+	return p.Envelope
+}
+
+var fieldIDToName_ChannelEnvelopeResponse = map[int16]string{
+	1: "envelope",
+}
+
+func (p *ChannelEnvelopeResponse) IsSetEnvelope() bool {
+	return p.Envelope != nil
+}
+
+func (p *ChannelEnvelopeResponse) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+	var issetEnvelope bool = false
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 1:
+			if fieldTypeId == thrift.STRUCT {
+				if err = p.ReadField1(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetEnvelope = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	if !issetEnvelope {
+		fieldId = 1
+		goto RequiredFieldNotSetError
+	}
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_ChannelEnvelopeResponse[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+RequiredFieldNotSetError:
+	return thrift.NewTProtocolExceptionWithType(thrift.INVALID_DATA, fmt.Errorf("required field %s is not set", fieldIDToName_ChannelEnvelopeResponse[fieldId]))
+}
+
+func (p *ChannelEnvelopeResponse) ReadField1(iprot thrift.TProtocol) error {
+	_field := NewChannelEnvelope()
+	if err := _field.Read(iprot); err != nil {
+		return err
+	}
+	p.Envelope = _field
+	return nil
+}
+
+func (p *ChannelEnvelopeResponse) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("ChannelEnvelopeResponse"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField1(oprot); err != nil {
+			fieldId = 1
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *ChannelEnvelopeResponse) writeField1(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("envelope", thrift.STRUCT, 1); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := p.Envelope.Write(oprot); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 end error: ", p), err)
+}
+
+func (p *ChannelEnvelopeResponse) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ChannelEnvelopeResponse(%+v)", *p)
+
+}
+
+type ListChannelEnvelopesResponse struct {
+	Envelopes []*ChannelEnvelope `thrift:"envelopes,1,required,list<ChannelEnvelope>" form:"envelopes,required" json:"envelopes,required" query:"envelopes,required"`
+}
+
+func NewListChannelEnvelopesResponse() *ListChannelEnvelopesResponse {
+	return &ListChannelEnvelopesResponse{}
+}
+
+func (p *ListChannelEnvelopesResponse) InitDefault() {
+}
+
+func (p *ListChannelEnvelopesResponse) GetEnvelopes() (v []*ChannelEnvelope) {
+	return p.Envelopes
+}
+
+var fieldIDToName_ListChannelEnvelopesResponse = map[int16]string{
+	1: "envelopes",
+}
+
+func (p *ListChannelEnvelopesResponse) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+	var issetEnvelopes bool = false
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 1:
+			if fieldTypeId == thrift.LIST {
+				if err = p.ReadField1(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetEnvelopes = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	if !issetEnvelopes {
+		fieldId = 1
+		goto RequiredFieldNotSetError
+	}
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_ListChannelEnvelopesResponse[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+RequiredFieldNotSetError:
+	return thrift.NewTProtocolExceptionWithType(thrift.INVALID_DATA, fmt.Errorf("required field %s is not set", fieldIDToName_ListChannelEnvelopesResponse[fieldId]))
+}
+
+func (p *ListChannelEnvelopesResponse) ReadField1(iprot thrift.TProtocol) error {
+	_, size, err := iprot.ReadListBegin()
+	if err != nil {
+		return err
+	}
+	_field := make([]*ChannelEnvelope, 0, size)
+	values := make([]ChannelEnvelope, size)
+	for i := 0; i < size; i++ {
+		_elem := &values[i]
+		_elem.InitDefault()
+
+		if err := _elem.Read(iprot); err != nil {
+			return err
+		}
+
+		_field = append(_field, _elem)
+	}
+	if err := iprot.ReadListEnd(); err != nil {
+		return err
+	}
+	p.Envelopes = _field
+	return nil
+}
+
+func (p *ListChannelEnvelopesResponse) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("ListChannelEnvelopesResponse"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField1(oprot); err != nil {
+			fieldId = 1
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *ListChannelEnvelopesResponse) writeField1(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("envelopes", thrift.LIST, 1); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteListBegin(thrift.STRUCT, len(p.Envelopes)); err != nil {
+		return err
+	}
+	for _, v := range p.Envelopes {
+		if err := v.Write(oprot); err != nil {
+			return err
+		}
+	}
+	if err := oprot.WriteListEnd(); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 end error: ", p), err)
+}
+
+func (p *ListChannelEnvelopesResponse) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ListChannelEnvelopesResponse(%+v)", *p)
+
+}
+
 type TeamMemoryService interface {
 	ObserveSession(ctx context.Context, request *SessionBatch) (r *IngestReceipt, err error)
 
@@ -8989,6 +12272,16 @@ type TeamMemoryService interface {
 	SearchMemory(ctx context.Context, request *MemorySearchRequest) (r *MemorySearchResponse, err error)
 
 	GetMemory(ctx context.Context, request *MemoryGetRequest) (r *MemoryDocument, err error)
+
+	SendChannelEnvelope(ctx context.Context, request *SendChannelEnvelopeRequest) (r *ChannelEnvelopeResponse, err error)
+
+	ListChannelEnvelopes(ctx context.Context, request *ListChannelEnvelopesRequest) (r *ListChannelEnvelopesResponse, err error)
+
+	GetChannelEnvelope(ctx context.Context, request *ChannelEnvelopeByIDRequest) (r *ChannelEnvelopeResponse, err error)
+
+	AcceptChannelEnvelope(ctx context.Context, request *ChannelEnvelopeByIDRequest) (r *ChannelEnvelopeResponse, err error)
+
+	ArchiveChannelEnvelope(ctx context.Context, request *ChannelEnvelopeByIDRequest) (r *ChannelEnvelopeResponse, err error)
 }
 
 type TeamMemoryServiceClient struct {
@@ -9116,6 +12409,51 @@ func (p *TeamMemoryServiceClient) GetMemory(ctx context.Context, request *Memory
 	}
 	return _result.GetSuccess(), nil
 }
+func (p *TeamMemoryServiceClient) SendChannelEnvelope(ctx context.Context, request *SendChannelEnvelopeRequest) (r *ChannelEnvelopeResponse, err error) {
+	var _args TeamMemoryServiceSendChannelEnvelopeArgs
+	_args.Request = request
+	var _result TeamMemoryServiceSendChannelEnvelopeResult
+	if err = p.Client_().Call(ctx, "SendChannelEnvelope", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+func (p *TeamMemoryServiceClient) ListChannelEnvelopes(ctx context.Context, request *ListChannelEnvelopesRequest) (r *ListChannelEnvelopesResponse, err error) {
+	var _args TeamMemoryServiceListChannelEnvelopesArgs
+	_args.Request = request
+	var _result TeamMemoryServiceListChannelEnvelopesResult
+	if err = p.Client_().Call(ctx, "ListChannelEnvelopes", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+func (p *TeamMemoryServiceClient) GetChannelEnvelope(ctx context.Context, request *ChannelEnvelopeByIDRequest) (r *ChannelEnvelopeResponse, err error) {
+	var _args TeamMemoryServiceGetChannelEnvelopeArgs
+	_args.Request = request
+	var _result TeamMemoryServiceGetChannelEnvelopeResult
+	if err = p.Client_().Call(ctx, "GetChannelEnvelope", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+func (p *TeamMemoryServiceClient) AcceptChannelEnvelope(ctx context.Context, request *ChannelEnvelopeByIDRequest) (r *ChannelEnvelopeResponse, err error) {
+	var _args TeamMemoryServiceAcceptChannelEnvelopeArgs
+	_args.Request = request
+	var _result TeamMemoryServiceAcceptChannelEnvelopeResult
+	if err = p.Client_().Call(ctx, "AcceptChannelEnvelope", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+func (p *TeamMemoryServiceClient) ArchiveChannelEnvelope(ctx context.Context, request *ChannelEnvelopeByIDRequest) (r *ChannelEnvelopeResponse, err error) {
+	var _args TeamMemoryServiceArchiveChannelEnvelopeArgs
+	_args.Request = request
+	var _result TeamMemoryServiceArchiveChannelEnvelopeResult
+	if err = p.Client_().Call(ctx, "ArchiveChannelEnvelope", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
 
 type TeamMemoryServiceProcessor struct {
 	processorMap map[string]thrift.TProcessorFunction
@@ -9148,6 +12486,11 @@ func NewTeamMemoryServiceProcessor(handler TeamMemoryService) *TeamMemoryService
 	self.AddToProcessorMap("ObserveBatch", &teamMemoryServiceProcessorObserveBatch{handler: handler})
 	self.AddToProcessorMap("SearchMemory", &teamMemoryServiceProcessorSearchMemory{handler: handler})
 	self.AddToProcessorMap("GetMemory", &teamMemoryServiceProcessorGetMemory{handler: handler})
+	self.AddToProcessorMap("SendChannelEnvelope", &teamMemoryServiceProcessorSendChannelEnvelope{handler: handler})
+	self.AddToProcessorMap("ListChannelEnvelopes", &teamMemoryServiceProcessorListChannelEnvelopes{handler: handler})
+	self.AddToProcessorMap("GetChannelEnvelope", &teamMemoryServiceProcessorGetChannelEnvelope{handler: handler})
+	self.AddToProcessorMap("AcceptChannelEnvelope", &teamMemoryServiceProcessorAcceptChannelEnvelope{handler: handler})
+	self.AddToProcessorMap("ArchiveChannelEnvelope", &teamMemoryServiceProcessorArchiveChannelEnvelope{handler: handler})
 	return self
 }
 func (p *TeamMemoryServiceProcessor) Process(ctx context.Context, iprot, oprot thrift.TProtocol) (success bool, err thrift.TException) {
@@ -9679,6 +13022,246 @@ func (p *teamMemoryServiceProcessorGetMemory) Process(ctx context.Context, seqId
 		result.Success = retval
 	}
 	if err2 = oprot.WriteMessageBegin("GetMemory", thrift.REPLY, seqId); err2 != nil {
+		err = err2
+	}
+	if err2 = result.Write(oprot); err == nil && err2 != nil {
+		err = err2
+	}
+	if err2 = oprot.WriteMessageEnd(); err == nil && err2 != nil {
+		err = err2
+	}
+	if err2 = oprot.Flush(ctx); err == nil && err2 != nil {
+		err = err2
+	}
+	if err != nil {
+		return
+	}
+	return true, err
+}
+
+type teamMemoryServiceProcessorSendChannelEnvelope struct {
+	handler TeamMemoryService
+}
+
+func (p *teamMemoryServiceProcessorSendChannelEnvelope) Process(ctx context.Context, seqId int32, iprot, oprot thrift.TProtocol) (success bool, err thrift.TException) {
+	args := TeamMemoryServiceSendChannelEnvelopeArgs{}
+	if err = args.Read(iprot); err != nil {
+		iprot.ReadMessageEnd()
+		x := thrift.NewTApplicationException(thrift.PROTOCOL_ERROR, err.Error())
+		oprot.WriteMessageBegin("SendChannelEnvelope", thrift.EXCEPTION, seqId)
+		x.Write(oprot)
+		oprot.WriteMessageEnd()
+		oprot.Flush(ctx)
+		return false, err
+	}
+
+	iprot.ReadMessageEnd()
+	var err2 error
+	result := TeamMemoryServiceSendChannelEnvelopeResult{}
+	var retval *ChannelEnvelopeResponse
+	if retval, err2 = p.handler.SendChannelEnvelope(ctx, args.Request); err2 != nil {
+		x := thrift.NewTApplicationException(thrift.INTERNAL_ERROR, "Internal error processing SendChannelEnvelope: "+err2.Error())
+		oprot.WriteMessageBegin("SendChannelEnvelope", thrift.EXCEPTION, seqId)
+		x.Write(oprot)
+		oprot.WriteMessageEnd()
+		oprot.Flush(ctx)
+		return true, err2
+	} else {
+		result.Success = retval
+	}
+	if err2 = oprot.WriteMessageBegin("SendChannelEnvelope", thrift.REPLY, seqId); err2 != nil {
+		err = err2
+	}
+	if err2 = result.Write(oprot); err == nil && err2 != nil {
+		err = err2
+	}
+	if err2 = oprot.WriteMessageEnd(); err == nil && err2 != nil {
+		err = err2
+	}
+	if err2 = oprot.Flush(ctx); err == nil && err2 != nil {
+		err = err2
+	}
+	if err != nil {
+		return
+	}
+	return true, err
+}
+
+type teamMemoryServiceProcessorListChannelEnvelopes struct {
+	handler TeamMemoryService
+}
+
+func (p *teamMemoryServiceProcessorListChannelEnvelopes) Process(ctx context.Context, seqId int32, iprot, oprot thrift.TProtocol) (success bool, err thrift.TException) {
+	args := TeamMemoryServiceListChannelEnvelopesArgs{}
+	if err = args.Read(iprot); err != nil {
+		iprot.ReadMessageEnd()
+		x := thrift.NewTApplicationException(thrift.PROTOCOL_ERROR, err.Error())
+		oprot.WriteMessageBegin("ListChannelEnvelopes", thrift.EXCEPTION, seqId)
+		x.Write(oprot)
+		oprot.WriteMessageEnd()
+		oprot.Flush(ctx)
+		return false, err
+	}
+
+	iprot.ReadMessageEnd()
+	var err2 error
+	result := TeamMemoryServiceListChannelEnvelopesResult{}
+	var retval *ListChannelEnvelopesResponse
+	if retval, err2 = p.handler.ListChannelEnvelopes(ctx, args.Request); err2 != nil {
+		x := thrift.NewTApplicationException(thrift.INTERNAL_ERROR, "Internal error processing ListChannelEnvelopes: "+err2.Error())
+		oprot.WriteMessageBegin("ListChannelEnvelopes", thrift.EXCEPTION, seqId)
+		x.Write(oprot)
+		oprot.WriteMessageEnd()
+		oprot.Flush(ctx)
+		return true, err2
+	} else {
+		result.Success = retval
+	}
+	if err2 = oprot.WriteMessageBegin("ListChannelEnvelopes", thrift.REPLY, seqId); err2 != nil {
+		err = err2
+	}
+	if err2 = result.Write(oprot); err == nil && err2 != nil {
+		err = err2
+	}
+	if err2 = oprot.WriteMessageEnd(); err == nil && err2 != nil {
+		err = err2
+	}
+	if err2 = oprot.Flush(ctx); err == nil && err2 != nil {
+		err = err2
+	}
+	if err != nil {
+		return
+	}
+	return true, err
+}
+
+type teamMemoryServiceProcessorGetChannelEnvelope struct {
+	handler TeamMemoryService
+}
+
+func (p *teamMemoryServiceProcessorGetChannelEnvelope) Process(ctx context.Context, seqId int32, iprot, oprot thrift.TProtocol) (success bool, err thrift.TException) {
+	args := TeamMemoryServiceGetChannelEnvelopeArgs{}
+	if err = args.Read(iprot); err != nil {
+		iprot.ReadMessageEnd()
+		x := thrift.NewTApplicationException(thrift.PROTOCOL_ERROR, err.Error())
+		oprot.WriteMessageBegin("GetChannelEnvelope", thrift.EXCEPTION, seqId)
+		x.Write(oprot)
+		oprot.WriteMessageEnd()
+		oprot.Flush(ctx)
+		return false, err
+	}
+
+	iprot.ReadMessageEnd()
+	var err2 error
+	result := TeamMemoryServiceGetChannelEnvelopeResult{}
+	var retval *ChannelEnvelopeResponse
+	if retval, err2 = p.handler.GetChannelEnvelope(ctx, args.Request); err2 != nil {
+		x := thrift.NewTApplicationException(thrift.INTERNAL_ERROR, "Internal error processing GetChannelEnvelope: "+err2.Error())
+		oprot.WriteMessageBegin("GetChannelEnvelope", thrift.EXCEPTION, seqId)
+		x.Write(oprot)
+		oprot.WriteMessageEnd()
+		oprot.Flush(ctx)
+		return true, err2
+	} else {
+		result.Success = retval
+	}
+	if err2 = oprot.WriteMessageBegin("GetChannelEnvelope", thrift.REPLY, seqId); err2 != nil {
+		err = err2
+	}
+	if err2 = result.Write(oprot); err == nil && err2 != nil {
+		err = err2
+	}
+	if err2 = oprot.WriteMessageEnd(); err == nil && err2 != nil {
+		err = err2
+	}
+	if err2 = oprot.Flush(ctx); err == nil && err2 != nil {
+		err = err2
+	}
+	if err != nil {
+		return
+	}
+	return true, err
+}
+
+type teamMemoryServiceProcessorAcceptChannelEnvelope struct {
+	handler TeamMemoryService
+}
+
+func (p *teamMemoryServiceProcessorAcceptChannelEnvelope) Process(ctx context.Context, seqId int32, iprot, oprot thrift.TProtocol) (success bool, err thrift.TException) {
+	args := TeamMemoryServiceAcceptChannelEnvelopeArgs{}
+	if err = args.Read(iprot); err != nil {
+		iprot.ReadMessageEnd()
+		x := thrift.NewTApplicationException(thrift.PROTOCOL_ERROR, err.Error())
+		oprot.WriteMessageBegin("AcceptChannelEnvelope", thrift.EXCEPTION, seqId)
+		x.Write(oprot)
+		oprot.WriteMessageEnd()
+		oprot.Flush(ctx)
+		return false, err
+	}
+
+	iprot.ReadMessageEnd()
+	var err2 error
+	result := TeamMemoryServiceAcceptChannelEnvelopeResult{}
+	var retval *ChannelEnvelopeResponse
+	if retval, err2 = p.handler.AcceptChannelEnvelope(ctx, args.Request); err2 != nil {
+		x := thrift.NewTApplicationException(thrift.INTERNAL_ERROR, "Internal error processing AcceptChannelEnvelope: "+err2.Error())
+		oprot.WriteMessageBegin("AcceptChannelEnvelope", thrift.EXCEPTION, seqId)
+		x.Write(oprot)
+		oprot.WriteMessageEnd()
+		oprot.Flush(ctx)
+		return true, err2
+	} else {
+		result.Success = retval
+	}
+	if err2 = oprot.WriteMessageBegin("AcceptChannelEnvelope", thrift.REPLY, seqId); err2 != nil {
+		err = err2
+	}
+	if err2 = result.Write(oprot); err == nil && err2 != nil {
+		err = err2
+	}
+	if err2 = oprot.WriteMessageEnd(); err == nil && err2 != nil {
+		err = err2
+	}
+	if err2 = oprot.Flush(ctx); err == nil && err2 != nil {
+		err = err2
+	}
+	if err != nil {
+		return
+	}
+	return true, err
+}
+
+type teamMemoryServiceProcessorArchiveChannelEnvelope struct {
+	handler TeamMemoryService
+}
+
+func (p *teamMemoryServiceProcessorArchiveChannelEnvelope) Process(ctx context.Context, seqId int32, iprot, oprot thrift.TProtocol) (success bool, err thrift.TException) {
+	args := TeamMemoryServiceArchiveChannelEnvelopeArgs{}
+	if err = args.Read(iprot); err != nil {
+		iprot.ReadMessageEnd()
+		x := thrift.NewTApplicationException(thrift.PROTOCOL_ERROR, err.Error())
+		oprot.WriteMessageBegin("ArchiveChannelEnvelope", thrift.EXCEPTION, seqId)
+		x.Write(oprot)
+		oprot.WriteMessageEnd()
+		oprot.Flush(ctx)
+		return false, err
+	}
+
+	iprot.ReadMessageEnd()
+	var err2 error
+	result := TeamMemoryServiceArchiveChannelEnvelopeResult{}
+	var retval *ChannelEnvelopeResponse
+	if retval, err2 = p.handler.ArchiveChannelEnvelope(ctx, args.Request); err2 != nil {
+		x := thrift.NewTApplicationException(thrift.INTERNAL_ERROR, "Internal error processing ArchiveChannelEnvelope: "+err2.Error())
+		oprot.WriteMessageBegin("ArchiveChannelEnvelope", thrift.EXCEPTION, seqId)
+		x.Write(oprot)
+		oprot.WriteMessageEnd()
+		oprot.Flush(ctx)
+		return true, err2
+	} else {
+		result.Success = retval
+	}
+	if err2 = oprot.WriteMessageBegin("ArchiveChannelEnvelope", thrift.REPLY, seqId); err2 != nil {
 		err = err2
 	}
 	if err2 = result.Write(oprot); err == nil && err2 != nil {
@@ -12927,5 +16510,1475 @@ func (p *TeamMemoryServiceGetMemoryResult) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("TeamMemoryServiceGetMemoryResult(%+v)", *p)
+
+}
+
+type TeamMemoryServiceSendChannelEnvelopeArgs struct {
+	Request *SendChannelEnvelopeRequest `thrift:"request,1"`
+}
+
+func NewTeamMemoryServiceSendChannelEnvelopeArgs() *TeamMemoryServiceSendChannelEnvelopeArgs {
+	return &TeamMemoryServiceSendChannelEnvelopeArgs{}
+}
+
+func (p *TeamMemoryServiceSendChannelEnvelopeArgs) InitDefault() {
+}
+
+var TeamMemoryServiceSendChannelEnvelopeArgs_Request_DEFAULT *SendChannelEnvelopeRequest
+
+func (p *TeamMemoryServiceSendChannelEnvelopeArgs) GetRequest() (v *SendChannelEnvelopeRequest) {
+	if !p.IsSetRequest() {
+		return TeamMemoryServiceSendChannelEnvelopeArgs_Request_DEFAULT
+	}
+	return p.Request
+}
+
+var fieldIDToName_TeamMemoryServiceSendChannelEnvelopeArgs = map[int16]string{
+	1: "request",
+}
+
+func (p *TeamMemoryServiceSendChannelEnvelopeArgs) IsSetRequest() bool {
+	return p.Request != nil
+}
+
+func (p *TeamMemoryServiceSendChannelEnvelopeArgs) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 1:
+			if fieldTypeId == thrift.STRUCT {
+				if err = p.ReadField1(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_TeamMemoryServiceSendChannelEnvelopeArgs[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+}
+
+func (p *TeamMemoryServiceSendChannelEnvelopeArgs) ReadField1(iprot thrift.TProtocol) error {
+	_field := NewSendChannelEnvelopeRequest()
+	if err := _field.Read(iprot); err != nil {
+		return err
+	}
+	p.Request = _field
+	return nil
+}
+
+func (p *TeamMemoryServiceSendChannelEnvelopeArgs) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("SendChannelEnvelope_args"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField1(oprot); err != nil {
+			fieldId = 1
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *TeamMemoryServiceSendChannelEnvelopeArgs) writeField1(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("request", thrift.STRUCT, 1); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := p.Request.Write(oprot); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 end error: ", p), err)
+}
+
+func (p *TeamMemoryServiceSendChannelEnvelopeArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("TeamMemoryServiceSendChannelEnvelopeArgs(%+v)", *p)
+
+}
+
+type TeamMemoryServiceSendChannelEnvelopeResult struct {
+	Success *ChannelEnvelopeResponse `thrift:"success,0,optional"`
+}
+
+func NewTeamMemoryServiceSendChannelEnvelopeResult() *TeamMemoryServiceSendChannelEnvelopeResult {
+	return &TeamMemoryServiceSendChannelEnvelopeResult{}
+}
+
+func (p *TeamMemoryServiceSendChannelEnvelopeResult) InitDefault() {
+}
+
+var TeamMemoryServiceSendChannelEnvelopeResult_Success_DEFAULT *ChannelEnvelopeResponse
+
+func (p *TeamMemoryServiceSendChannelEnvelopeResult) GetSuccess() (v *ChannelEnvelopeResponse) {
+	if !p.IsSetSuccess() {
+		return TeamMemoryServiceSendChannelEnvelopeResult_Success_DEFAULT
+	}
+	return p.Success
+}
+
+var fieldIDToName_TeamMemoryServiceSendChannelEnvelopeResult = map[int16]string{
+	0: "success",
+}
+
+func (p *TeamMemoryServiceSendChannelEnvelopeResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *TeamMemoryServiceSendChannelEnvelopeResult) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 0:
+			if fieldTypeId == thrift.STRUCT {
+				if err = p.ReadField0(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_TeamMemoryServiceSendChannelEnvelopeResult[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+}
+
+func (p *TeamMemoryServiceSendChannelEnvelopeResult) ReadField0(iprot thrift.TProtocol) error {
+	_field := NewChannelEnvelopeResponse()
+	if err := _field.Read(iprot); err != nil {
+		return err
+	}
+	p.Success = _field
+	return nil
+}
+
+func (p *TeamMemoryServiceSendChannelEnvelopeResult) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("SendChannelEnvelope_result"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField0(oprot); err != nil {
+			fieldId = 0
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *TeamMemoryServiceSendChannelEnvelopeResult) writeField0(oprot thrift.TProtocol) (err error) {
+	if p.IsSetSuccess() {
+		if err = oprot.WriteFieldBegin("success", thrift.STRUCT, 0); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := p.Success.Write(oprot); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 0 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 0 end error: ", p), err)
+}
+
+func (p *TeamMemoryServiceSendChannelEnvelopeResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("TeamMemoryServiceSendChannelEnvelopeResult(%+v)", *p)
+
+}
+
+type TeamMemoryServiceListChannelEnvelopesArgs struct {
+	Request *ListChannelEnvelopesRequest `thrift:"request,1"`
+}
+
+func NewTeamMemoryServiceListChannelEnvelopesArgs() *TeamMemoryServiceListChannelEnvelopesArgs {
+	return &TeamMemoryServiceListChannelEnvelopesArgs{}
+}
+
+func (p *TeamMemoryServiceListChannelEnvelopesArgs) InitDefault() {
+}
+
+var TeamMemoryServiceListChannelEnvelopesArgs_Request_DEFAULT *ListChannelEnvelopesRequest
+
+func (p *TeamMemoryServiceListChannelEnvelopesArgs) GetRequest() (v *ListChannelEnvelopesRequest) {
+	if !p.IsSetRequest() {
+		return TeamMemoryServiceListChannelEnvelopesArgs_Request_DEFAULT
+	}
+	return p.Request
+}
+
+var fieldIDToName_TeamMemoryServiceListChannelEnvelopesArgs = map[int16]string{
+	1: "request",
+}
+
+func (p *TeamMemoryServiceListChannelEnvelopesArgs) IsSetRequest() bool {
+	return p.Request != nil
+}
+
+func (p *TeamMemoryServiceListChannelEnvelopesArgs) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 1:
+			if fieldTypeId == thrift.STRUCT {
+				if err = p.ReadField1(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_TeamMemoryServiceListChannelEnvelopesArgs[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+}
+
+func (p *TeamMemoryServiceListChannelEnvelopesArgs) ReadField1(iprot thrift.TProtocol) error {
+	_field := NewListChannelEnvelopesRequest()
+	if err := _field.Read(iprot); err != nil {
+		return err
+	}
+	p.Request = _field
+	return nil
+}
+
+func (p *TeamMemoryServiceListChannelEnvelopesArgs) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("ListChannelEnvelopes_args"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField1(oprot); err != nil {
+			fieldId = 1
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *TeamMemoryServiceListChannelEnvelopesArgs) writeField1(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("request", thrift.STRUCT, 1); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := p.Request.Write(oprot); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 end error: ", p), err)
+}
+
+func (p *TeamMemoryServiceListChannelEnvelopesArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("TeamMemoryServiceListChannelEnvelopesArgs(%+v)", *p)
+
+}
+
+type TeamMemoryServiceListChannelEnvelopesResult struct {
+	Success *ListChannelEnvelopesResponse `thrift:"success,0,optional"`
+}
+
+func NewTeamMemoryServiceListChannelEnvelopesResult() *TeamMemoryServiceListChannelEnvelopesResult {
+	return &TeamMemoryServiceListChannelEnvelopesResult{}
+}
+
+func (p *TeamMemoryServiceListChannelEnvelopesResult) InitDefault() {
+}
+
+var TeamMemoryServiceListChannelEnvelopesResult_Success_DEFAULT *ListChannelEnvelopesResponse
+
+func (p *TeamMemoryServiceListChannelEnvelopesResult) GetSuccess() (v *ListChannelEnvelopesResponse) {
+	if !p.IsSetSuccess() {
+		return TeamMemoryServiceListChannelEnvelopesResult_Success_DEFAULT
+	}
+	return p.Success
+}
+
+var fieldIDToName_TeamMemoryServiceListChannelEnvelopesResult = map[int16]string{
+	0: "success",
+}
+
+func (p *TeamMemoryServiceListChannelEnvelopesResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *TeamMemoryServiceListChannelEnvelopesResult) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 0:
+			if fieldTypeId == thrift.STRUCT {
+				if err = p.ReadField0(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_TeamMemoryServiceListChannelEnvelopesResult[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+}
+
+func (p *TeamMemoryServiceListChannelEnvelopesResult) ReadField0(iprot thrift.TProtocol) error {
+	_field := NewListChannelEnvelopesResponse()
+	if err := _field.Read(iprot); err != nil {
+		return err
+	}
+	p.Success = _field
+	return nil
+}
+
+func (p *TeamMemoryServiceListChannelEnvelopesResult) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("ListChannelEnvelopes_result"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField0(oprot); err != nil {
+			fieldId = 0
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *TeamMemoryServiceListChannelEnvelopesResult) writeField0(oprot thrift.TProtocol) (err error) {
+	if p.IsSetSuccess() {
+		if err = oprot.WriteFieldBegin("success", thrift.STRUCT, 0); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := p.Success.Write(oprot); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 0 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 0 end error: ", p), err)
+}
+
+func (p *TeamMemoryServiceListChannelEnvelopesResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("TeamMemoryServiceListChannelEnvelopesResult(%+v)", *p)
+
+}
+
+type TeamMemoryServiceGetChannelEnvelopeArgs struct {
+	Request *ChannelEnvelopeByIDRequest `thrift:"request,1"`
+}
+
+func NewTeamMemoryServiceGetChannelEnvelopeArgs() *TeamMemoryServiceGetChannelEnvelopeArgs {
+	return &TeamMemoryServiceGetChannelEnvelopeArgs{}
+}
+
+func (p *TeamMemoryServiceGetChannelEnvelopeArgs) InitDefault() {
+}
+
+var TeamMemoryServiceGetChannelEnvelopeArgs_Request_DEFAULT *ChannelEnvelopeByIDRequest
+
+func (p *TeamMemoryServiceGetChannelEnvelopeArgs) GetRequest() (v *ChannelEnvelopeByIDRequest) {
+	if !p.IsSetRequest() {
+		return TeamMemoryServiceGetChannelEnvelopeArgs_Request_DEFAULT
+	}
+	return p.Request
+}
+
+var fieldIDToName_TeamMemoryServiceGetChannelEnvelopeArgs = map[int16]string{
+	1: "request",
+}
+
+func (p *TeamMemoryServiceGetChannelEnvelopeArgs) IsSetRequest() bool {
+	return p.Request != nil
+}
+
+func (p *TeamMemoryServiceGetChannelEnvelopeArgs) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 1:
+			if fieldTypeId == thrift.STRUCT {
+				if err = p.ReadField1(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_TeamMemoryServiceGetChannelEnvelopeArgs[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+}
+
+func (p *TeamMemoryServiceGetChannelEnvelopeArgs) ReadField1(iprot thrift.TProtocol) error {
+	_field := NewChannelEnvelopeByIDRequest()
+	if err := _field.Read(iprot); err != nil {
+		return err
+	}
+	p.Request = _field
+	return nil
+}
+
+func (p *TeamMemoryServiceGetChannelEnvelopeArgs) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("GetChannelEnvelope_args"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField1(oprot); err != nil {
+			fieldId = 1
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *TeamMemoryServiceGetChannelEnvelopeArgs) writeField1(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("request", thrift.STRUCT, 1); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := p.Request.Write(oprot); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 end error: ", p), err)
+}
+
+func (p *TeamMemoryServiceGetChannelEnvelopeArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("TeamMemoryServiceGetChannelEnvelopeArgs(%+v)", *p)
+
+}
+
+type TeamMemoryServiceGetChannelEnvelopeResult struct {
+	Success *ChannelEnvelopeResponse `thrift:"success,0,optional"`
+}
+
+func NewTeamMemoryServiceGetChannelEnvelopeResult() *TeamMemoryServiceGetChannelEnvelopeResult {
+	return &TeamMemoryServiceGetChannelEnvelopeResult{}
+}
+
+func (p *TeamMemoryServiceGetChannelEnvelopeResult) InitDefault() {
+}
+
+var TeamMemoryServiceGetChannelEnvelopeResult_Success_DEFAULT *ChannelEnvelopeResponse
+
+func (p *TeamMemoryServiceGetChannelEnvelopeResult) GetSuccess() (v *ChannelEnvelopeResponse) {
+	if !p.IsSetSuccess() {
+		return TeamMemoryServiceGetChannelEnvelopeResult_Success_DEFAULT
+	}
+	return p.Success
+}
+
+var fieldIDToName_TeamMemoryServiceGetChannelEnvelopeResult = map[int16]string{
+	0: "success",
+}
+
+func (p *TeamMemoryServiceGetChannelEnvelopeResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *TeamMemoryServiceGetChannelEnvelopeResult) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 0:
+			if fieldTypeId == thrift.STRUCT {
+				if err = p.ReadField0(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_TeamMemoryServiceGetChannelEnvelopeResult[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+}
+
+func (p *TeamMemoryServiceGetChannelEnvelopeResult) ReadField0(iprot thrift.TProtocol) error {
+	_field := NewChannelEnvelopeResponse()
+	if err := _field.Read(iprot); err != nil {
+		return err
+	}
+	p.Success = _field
+	return nil
+}
+
+func (p *TeamMemoryServiceGetChannelEnvelopeResult) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("GetChannelEnvelope_result"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField0(oprot); err != nil {
+			fieldId = 0
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *TeamMemoryServiceGetChannelEnvelopeResult) writeField0(oprot thrift.TProtocol) (err error) {
+	if p.IsSetSuccess() {
+		if err = oprot.WriteFieldBegin("success", thrift.STRUCT, 0); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := p.Success.Write(oprot); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 0 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 0 end error: ", p), err)
+}
+
+func (p *TeamMemoryServiceGetChannelEnvelopeResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("TeamMemoryServiceGetChannelEnvelopeResult(%+v)", *p)
+
+}
+
+type TeamMemoryServiceAcceptChannelEnvelopeArgs struct {
+	Request *ChannelEnvelopeByIDRequest `thrift:"request,1"`
+}
+
+func NewTeamMemoryServiceAcceptChannelEnvelopeArgs() *TeamMemoryServiceAcceptChannelEnvelopeArgs {
+	return &TeamMemoryServiceAcceptChannelEnvelopeArgs{}
+}
+
+func (p *TeamMemoryServiceAcceptChannelEnvelopeArgs) InitDefault() {
+}
+
+var TeamMemoryServiceAcceptChannelEnvelopeArgs_Request_DEFAULT *ChannelEnvelopeByIDRequest
+
+func (p *TeamMemoryServiceAcceptChannelEnvelopeArgs) GetRequest() (v *ChannelEnvelopeByIDRequest) {
+	if !p.IsSetRequest() {
+		return TeamMemoryServiceAcceptChannelEnvelopeArgs_Request_DEFAULT
+	}
+	return p.Request
+}
+
+var fieldIDToName_TeamMemoryServiceAcceptChannelEnvelopeArgs = map[int16]string{
+	1: "request",
+}
+
+func (p *TeamMemoryServiceAcceptChannelEnvelopeArgs) IsSetRequest() bool {
+	return p.Request != nil
+}
+
+func (p *TeamMemoryServiceAcceptChannelEnvelopeArgs) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 1:
+			if fieldTypeId == thrift.STRUCT {
+				if err = p.ReadField1(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_TeamMemoryServiceAcceptChannelEnvelopeArgs[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+}
+
+func (p *TeamMemoryServiceAcceptChannelEnvelopeArgs) ReadField1(iprot thrift.TProtocol) error {
+	_field := NewChannelEnvelopeByIDRequest()
+	if err := _field.Read(iprot); err != nil {
+		return err
+	}
+	p.Request = _field
+	return nil
+}
+
+func (p *TeamMemoryServiceAcceptChannelEnvelopeArgs) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("AcceptChannelEnvelope_args"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField1(oprot); err != nil {
+			fieldId = 1
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *TeamMemoryServiceAcceptChannelEnvelopeArgs) writeField1(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("request", thrift.STRUCT, 1); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := p.Request.Write(oprot); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 end error: ", p), err)
+}
+
+func (p *TeamMemoryServiceAcceptChannelEnvelopeArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("TeamMemoryServiceAcceptChannelEnvelopeArgs(%+v)", *p)
+
+}
+
+type TeamMemoryServiceAcceptChannelEnvelopeResult struct {
+	Success *ChannelEnvelopeResponse `thrift:"success,0,optional"`
+}
+
+func NewTeamMemoryServiceAcceptChannelEnvelopeResult() *TeamMemoryServiceAcceptChannelEnvelopeResult {
+	return &TeamMemoryServiceAcceptChannelEnvelopeResult{}
+}
+
+func (p *TeamMemoryServiceAcceptChannelEnvelopeResult) InitDefault() {
+}
+
+var TeamMemoryServiceAcceptChannelEnvelopeResult_Success_DEFAULT *ChannelEnvelopeResponse
+
+func (p *TeamMemoryServiceAcceptChannelEnvelopeResult) GetSuccess() (v *ChannelEnvelopeResponse) {
+	if !p.IsSetSuccess() {
+		return TeamMemoryServiceAcceptChannelEnvelopeResult_Success_DEFAULT
+	}
+	return p.Success
+}
+
+var fieldIDToName_TeamMemoryServiceAcceptChannelEnvelopeResult = map[int16]string{
+	0: "success",
+}
+
+func (p *TeamMemoryServiceAcceptChannelEnvelopeResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *TeamMemoryServiceAcceptChannelEnvelopeResult) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 0:
+			if fieldTypeId == thrift.STRUCT {
+				if err = p.ReadField0(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_TeamMemoryServiceAcceptChannelEnvelopeResult[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+}
+
+func (p *TeamMemoryServiceAcceptChannelEnvelopeResult) ReadField0(iprot thrift.TProtocol) error {
+	_field := NewChannelEnvelopeResponse()
+	if err := _field.Read(iprot); err != nil {
+		return err
+	}
+	p.Success = _field
+	return nil
+}
+
+func (p *TeamMemoryServiceAcceptChannelEnvelopeResult) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("AcceptChannelEnvelope_result"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField0(oprot); err != nil {
+			fieldId = 0
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *TeamMemoryServiceAcceptChannelEnvelopeResult) writeField0(oprot thrift.TProtocol) (err error) {
+	if p.IsSetSuccess() {
+		if err = oprot.WriteFieldBegin("success", thrift.STRUCT, 0); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := p.Success.Write(oprot); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 0 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 0 end error: ", p), err)
+}
+
+func (p *TeamMemoryServiceAcceptChannelEnvelopeResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("TeamMemoryServiceAcceptChannelEnvelopeResult(%+v)", *p)
+
+}
+
+type TeamMemoryServiceArchiveChannelEnvelopeArgs struct {
+	Request *ChannelEnvelopeByIDRequest `thrift:"request,1"`
+}
+
+func NewTeamMemoryServiceArchiveChannelEnvelopeArgs() *TeamMemoryServiceArchiveChannelEnvelopeArgs {
+	return &TeamMemoryServiceArchiveChannelEnvelopeArgs{}
+}
+
+func (p *TeamMemoryServiceArchiveChannelEnvelopeArgs) InitDefault() {
+}
+
+var TeamMemoryServiceArchiveChannelEnvelopeArgs_Request_DEFAULT *ChannelEnvelopeByIDRequest
+
+func (p *TeamMemoryServiceArchiveChannelEnvelopeArgs) GetRequest() (v *ChannelEnvelopeByIDRequest) {
+	if !p.IsSetRequest() {
+		return TeamMemoryServiceArchiveChannelEnvelopeArgs_Request_DEFAULT
+	}
+	return p.Request
+}
+
+var fieldIDToName_TeamMemoryServiceArchiveChannelEnvelopeArgs = map[int16]string{
+	1: "request",
+}
+
+func (p *TeamMemoryServiceArchiveChannelEnvelopeArgs) IsSetRequest() bool {
+	return p.Request != nil
+}
+
+func (p *TeamMemoryServiceArchiveChannelEnvelopeArgs) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 1:
+			if fieldTypeId == thrift.STRUCT {
+				if err = p.ReadField1(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_TeamMemoryServiceArchiveChannelEnvelopeArgs[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+}
+
+func (p *TeamMemoryServiceArchiveChannelEnvelopeArgs) ReadField1(iprot thrift.TProtocol) error {
+	_field := NewChannelEnvelopeByIDRequest()
+	if err := _field.Read(iprot); err != nil {
+		return err
+	}
+	p.Request = _field
+	return nil
+}
+
+func (p *TeamMemoryServiceArchiveChannelEnvelopeArgs) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("ArchiveChannelEnvelope_args"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField1(oprot); err != nil {
+			fieldId = 1
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *TeamMemoryServiceArchiveChannelEnvelopeArgs) writeField1(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("request", thrift.STRUCT, 1); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := p.Request.Write(oprot); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 end error: ", p), err)
+}
+
+func (p *TeamMemoryServiceArchiveChannelEnvelopeArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("TeamMemoryServiceArchiveChannelEnvelopeArgs(%+v)", *p)
+
+}
+
+type TeamMemoryServiceArchiveChannelEnvelopeResult struct {
+	Success *ChannelEnvelopeResponse `thrift:"success,0,optional"`
+}
+
+func NewTeamMemoryServiceArchiveChannelEnvelopeResult() *TeamMemoryServiceArchiveChannelEnvelopeResult {
+	return &TeamMemoryServiceArchiveChannelEnvelopeResult{}
+}
+
+func (p *TeamMemoryServiceArchiveChannelEnvelopeResult) InitDefault() {
+}
+
+var TeamMemoryServiceArchiveChannelEnvelopeResult_Success_DEFAULT *ChannelEnvelopeResponse
+
+func (p *TeamMemoryServiceArchiveChannelEnvelopeResult) GetSuccess() (v *ChannelEnvelopeResponse) {
+	if !p.IsSetSuccess() {
+		return TeamMemoryServiceArchiveChannelEnvelopeResult_Success_DEFAULT
+	}
+	return p.Success
+}
+
+var fieldIDToName_TeamMemoryServiceArchiveChannelEnvelopeResult = map[int16]string{
+	0: "success",
+}
+
+func (p *TeamMemoryServiceArchiveChannelEnvelopeResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *TeamMemoryServiceArchiveChannelEnvelopeResult) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 0:
+			if fieldTypeId == thrift.STRUCT {
+				if err = p.ReadField0(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_TeamMemoryServiceArchiveChannelEnvelopeResult[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+}
+
+func (p *TeamMemoryServiceArchiveChannelEnvelopeResult) ReadField0(iprot thrift.TProtocol) error {
+	_field := NewChannelEnvelopeResponse()
+	if err := _field.Read(iprot); err != nil {
+		return err
+	}
+	p.Success = _field
+	return nil
+}
+
+func (p *TeamMemoryServiceArchiveChannelEnvelopeResult) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("ArchiveChannelEnvelope_result"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField0(oprot); err != nil {
+			fieldId = 0
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *TeamMemoryServiceArchiveChannelEnvelopeResult) writeField0(oprot thrift.TProtocol) (err error) {
+	if p.IsSetSuccess() {
+		if err = oprot.WriteFieldBegin("success", thrift.STRUCT, 0); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := p.Success.Write(oprot); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 0 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 0 end error: ", p), err)
+}
+
+func (p *TeamMemoryServiceArchiveChannelEnvelopeResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("TeamMemoryServiceArchiveChannelEnvelopeResult(%+v)", *p)
 
 }
