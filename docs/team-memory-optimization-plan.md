@@ -16,8 +16,9 @@ stage-local gate improves.
 
 - `source-clause-v1` is the selected extraction evaluation baseline on
   `finance-micro6-quick`: 4/6 required Atoms, zero leakage, 61,244 output
-  tokens, and 69.3-second P95 across eight primary Slices. It is also the
-  production candidate-strategy default; `current` is the explicit rollback.
+  tokens, and 69.3-second P95 across eight primary Slices. It remains the v2
+  evaluation candidate-strategy default, while extraction v1 is the production
+  protocol default after the paired ten-case rollback decision.
 - `interaction-slim + passive-v1` is the best observed ten-case end-to-end arm
   at 3/10 Team Note judge correctness, but its 228-second mean duration and
   single-cohort scope block promotion.
@@ -35,7 +36,7 @@ they do not each require a new ADR.
 
 | Plan or candidate | Governing ADR | Current status and reason |
 | --- | --- | --- |
-| Extraction Evidence Fidelity | [Extraction v2](./decisions/2026-07-16-extraction-v2.md) | `source-clause-v1` adopted as both the production default and Extraction Evaluation Baseline after a valid 4/6, zero-leakage fixed-cohort Run. |
+| Extraction Evidence Fidelity | [Extraction v2](./decisions/2026-07-16-extraction-v2.md) | `source-clause-v1` remains the v2 Extraction Evaluation Baseline, but v1 is the production protocol default after v2 lost the paired ten-case quality gate. |
 | Extraction Execution Reliability | [Extraction v2](./decisions/2026-07-16-extraction-v2.md) | Implemented; a 120-second provider attempt fits inside a three-minute one-Slice worker job, invalid aggregate budgets fail at startup, and checksum resume remains the durable retry boundary. |
 | Implicit State Review v1 | [Extraction v2](./decisions/2026-07-16-extraction-v2.md) | Rejected for promotion; it recovered one implicit-state Atom but regressed two baseline Atoms and increased admitted Notes from 12 to 19. |
 | Atom-Level Extraction Loss Attribution | [Extraction v2](./decisions/2026-07-16-extraction-v2.md) | Implemented; extraction eval exports one first-loss entry per required Atom. |
@@ -48,7 +49,7 @@ they do not each require a new ADR.
 
 ## Tranche 1: Extraction Evidence Fidelity
 
-Status: Production and evaluation default
+Status: V2 evaluation default; not promoted to production
 
 Deepen the existing extractor Module behind the unchanged `Extractor` seam.
 Use the existing semantic Candidate schema and deterministic admission. Do not
@@ -163,7 +164,7 @@ On the fixed `finance-micro6-quick` cohort it recovered `user_implicit_7`, but
 still missed `multi_hop_1` and made the previously matched `temporal_7` and
 `term_ambiguity_11` supporting Events unreviewed. Recall fell from 4/6 to 3/6,
 leakage stayed zero, and admitted Notes rose from 12 to 19. The candidate is a
-no-go and `source-clause-v1` remains the production default. See the
+no-go and `source-clause-v1` remains the v2 evaluation default. See the
 [result](../evals/extraction-v1/results/2026-07-20-implicit-state-review-v1-no-go.md).
 
 ## Tranche 3: Eval Validity and Attempt Ledger

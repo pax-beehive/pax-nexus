@@ -82,7 +82,7 @@ func parseFlags(args []string) (evalConfig, error) {
 	flags.StringVar(&config.sourceRunID, "source-run-id", "", "Run identifier under which source events were persisted")
 	flags.StringVar(&config.runID, "run-id", "", "Unique extraction-eval-v1 run identifier")
 	flags.StringVar(&config.scopeSuffix, "scope-suffix", "", "Optional suffix on persisted source scopes")
-	flags.StringVar(&config.extractorVersion, "extractor", extractor.ExtractionVersionV2, "Extraction protocol version (v1 or v2)")
+	flags.StringVar(&config.extractorVersion, "extractor", extractor.ExtractionVersionV2, "Extraction protocol version (v1, v1.1, or v2)")
 	flags.StringVar(&config.baseURL, "extractor-base-url", os.Getenv("TEAM_MEMORY_EXTRACTOR_BASE_URL"), "OpenAI-compatible extractor endpoint")
 	flags.StringVar(&config.model, "extractor-model", os.Getenv("TEAM_MEMORY_EXTRACTOR_MODEL"), "Extractor model")
 	flags.StringVar(&config.promptVersion, "prompt-version", "", "Prompt version tag (defaults to extractor version)")

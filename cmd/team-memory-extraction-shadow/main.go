@@ -43,7 +43,7 @@ func parseFlags(args []string) (shadowConfig, error) {
 	flags.StringVar(&config.fixturesPath, "fixtures", "", "Stage fixture set JSON with gold atoms")
 	flags.StringVar(&config.runID, "run-id", "", "Eval run identifier the events were persisted under")
 	flags.StringVar(&config.arm, "arm", "team_note", "Eval arm scope suffix (team_note or team_note_hybrid)")
-	flags.StringVar(&config.extractorVersion, "extractor", extractor.ExtractionVersionV2, "Extraction protocol version (v1 or v2)")
+	flags.StringVar(&config.extractorVersion, "extractor", extractor.ExtractionVersionV2, "Extraction protocol version (v1, v1.1, or v2)")
 	flags.StringVar(&config.baseURL, "extractor-base-url", os.Getenv("TEAM_MEMORY_EXTRACTOR_BASE_URL"), "OpenAI-compatible extractor endpoint")
 	flags.StringVar(&config.model, "extractor-model", os.Getenv("TEAM_MEMORY_EXTRACTOR_MODEL"), "Extractor model")
 	flags.StringVar(&config.promptVersion, "prompt-version", "", "Prompt version tag (defaults to the extractor version)")

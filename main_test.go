@@ -59,7 +59,7 @@ func (s *configSuite) TestLoadsNoopConfiguration() {
 	s.Equal("scope", config.apiKeys["key"])
 	s.Equal("v1", config.promptVersion)
 	s.Equal("rolling", config.extractionContextMode)
-	s.Equal("v2", config.extractionVersion)
+	s.Equal("v1", config.extractionVersion)
 	s.Equal(extractor.DefaultCandidateStrategy(), config.extractionCandidateStrategy)
 	s.False(config.extractionCompactionEnabled)
 	s.True(config.extractionSummaryEnabled)
@@ -133,25 +133,25 @@ func (s *configSuite) TestRuntimeCandidateStrategyOverridesBuildDefault() {
 	s.Equal(extractor.CandidateStrategyTyped2, config.extractionCandidateStrategy)
 }
 
-func (s *configSuite) TestAllowsExtractionV1Rollback() {
+func (s *configSuite) TestAllowsExtractionV2OptIn() {
 	s.T().Setenv("TEAM_MEMORY_DATABASE_URL", "postgres://database")
 	s.T().Setenv("TEAM_MEMORY_API_KEYS", `{"key":"scope"}`)
 	s.T().Setenv("TEAM_MEMORY_EXTRACTOR_MODE", "noop")
-	s.T().Setenv("TEAM_MEMORY_EXTRACTION_VERSION", "v1")
+	s.T().Setenv("TEAM_MEMORY_EXTRACTION_VERSION", "v2")
 
 	config, err := loadConfig()
 	s.Require().NoError(err)
-	s.Equal("v1", config.extractionVersion)
+	s.Equal("v2", config.extractionVersion)
 }
 
-func (s *configSuite) TestCheckedInExtractionDefaultsUseV2() {
+func (s *configSuite) TestCheckedInExtractionProtocolDefaults() {
 	tests := []struct {
 		path string
 		want string
 	}{
-		{path: ".env.example", want: "TEAM_MEMORY_EXTRACTION_VERSION=v2"},
+		{path: ".env.example", want: "TEAM_MEMORY_EXTRACTION_VERSION=v1"},
 		{path: ".env.eval-v2.example", want: "TEAM_MEMORY_EXTRACTION_VERSION=v2"},
-		{path: "compose.yaml", want: "TEAM_MEMORY_EXTRACTION_VERSION: ${TEAM_MEMORY_EXTRACTION_VERSION:-v2}"},
+		{path: "compose.yaml", want: "TEAM_MEMORY_EXTRACTION_VERSION: ${TEAM_MEMORY_EXTRACTION_VERSION:-v1}"},
 		{path: "evals/opencode/compose.yaml", want: "TEAM_MEMORY_EXTRACTION_VERSION: ${TEAM_MEMORY_EXTRACTION_VERSION:-v2}"},
 		{path: "evals/v2/compose.yaml", want: "TEAM_MEMORY_EXTRACTION_VERSION: ${TEAM_MEMORY_EXTRACTION_VERSION:-v2}"},
 		{path: "scripts/load-eval-v2-env.sh", want: `: "${TEAM_MEMORY_EXTRACTION_VERSION:=v2}"`},

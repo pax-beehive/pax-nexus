@@ -127,11 +127,13 @@ func normalizeExtractionVersion(config *OpenAIConfig) error {
 	if config.ExtractionVersion == "" {
 		config.ExtractionVersion = ExtractionVersionV1
 	}
-	if config.ExtractionVersion != ExtractionVersionV1 && config.ExtractionVersion != ExtractionVersionV2 {
+	if config.ExtractionVersion != ExtractionVersionV1 &&
+		config.ExtractionVersion != ExtractionVersionV11 &&
+		config.ExtractionVersion != ExtractionVersionV2 {
 		return fmt.Errorf("create OpenAI extractor: unsupported extraction version %q", config.ExtractionVersion)
 	}
-	if config.ExtractionVersion == ExtractionVersionV2 && config.ContextMode != ContextModeRolling {
-		return fmt.Errorf("create OpenAI extractor: extraction v2 requires rolling context mode")
+	if config.ExtractionVersion != ExtractionVersionV1 && config.ContextMode != ContextModeRolling {
+		return fmt.Errorf("create OpenAI extractor: extraction %s requires rolling context mode", config.ExtractionVersion)
 	}
 	strategy, err := resolveCandidateStrategy(config.V2Variant)
 	if err != nil {
@@ -149,6 +151,9 @@ func (e *OpenAI) Extract(ctx context.Context, slice sessionlake.Slice) (Result, 
 	if e.config.ContextMode == ContextModeRolling {
 		if e.config.ExtractionVersion == ExtractionVersionV2 {
 			return e.extractRollingV2(ctx, slice)
+		}
+		if e.config.ExtractionVersion == ExtractionVersionV11 {
+			return e.extractRollingV11(ctx, slice)
 		}
 		return e.extractRolling(ctx, slice)
 	}
@@ -185,6 +190,9 @@ func (e *OpenAI) LifecycleStatus() LifecycleStatus {
 func (e *OpenAI) systemPrompt() string {
 	if e.config.ExtractionVersion == ExtractionVersionV2 {
 		return e.candidateStrategy.protocol.systemPrompt
+	}
+	if e.config.ExtractionVersion == ExtractionVersionV11 {
+		return rollingSystemPromptV11
 	}
 	return rollingSystemPrompt
 }
@@ -324,6 +332,67 @@ func decodeResponse(body []byte) (Result, string, error) {
 			PromptCacheMissTokens: response.Usage.PromptCacheMissTokens,
 		},
 	}, content, nil
+}
+
+func decodeResponseV11(body []byte) (Result, string, error) {
+	var response chatResponse
+	if err := json.Unmarshal(body, &response); err != nil {
+		return Result{}, "", fmt.Errorf("decode extractor response: %w", errors.Join(ErrInvalidModelResponse, err))
+	}
+	if len(response.Choices) == 0 {
+		return Result{}, "", fmt.Errorf("extractor response has no choices: %w", ErrInvalidModelResponse)
+	}
+	content := trimCodeFence(response.Choices[0].Message.Content)
+	normalized, err := normalizeV11OptionalTimes(content)
+	if err != nil {
+		return Result{}, "", err
+	}
+	var output candidateOutput
+	if err := json.Unmarshal(normalized, &output); err != nil {
+		return Result{}, "", fmt.Errorf("decode extractor candidates: %w", errors.Join(ErrInvalidModelResponse, err))
+	}
+	return Result{
+		Candidates: output.Candidates,
+		Usage: Usage{
+			InputTokens: response.Usage.PromptTokens, OutputTokens: response.Usage.CompletionTokens,
+			PromptCacheHitTokens:  response.Usage.PromptCacheHitTokens,
+			PromptCacheMissTokens: response.Usage.PromptCacheMissTokens,
+		},
+	}, content, nil
+}
+
+func decodeCandidateContentV11(content string) (Result, error) {
+	normalized, err := normalizeV11OptionalTimes(trimCodeFence(content))
+	if err != nil {
+		return Result{}, err
+	}
+	var output candidateOutput
+	if err := json.Unmarshal(normalized, &output); err != nil {
+		return Result{}, fmt.Errorf("decode saved extraction candidates: %w", errors.Join(ErrInvalidModelResponse, err))
+	}
+	return Result{Candidates: output.Candidates}, nil
+}
+
+func normalizeV11OptionalTimes(content string) ([]byte, error) {
+	var output struct {
+		Candidates []map[string]json.RawMessage `json:"candidates"`
+	}
+	if err := json.Unmarshal([]byte(content), &output); err != nil {
+		return nil, fmt.Errorf("decode extractor candidates: %w", errors.Join(ErrInvalidModelResponse, err))
+	}
+	for _, candidate := range output.Candidates {
+		for _, field := range []string{"valid_at", "invalid_at"} {
+			value, exists := candidate[field]
+			if exists && strings.TrimSpace(string(value)) == `""` {
+				candidate[field] = json.RawMessage("null")
+			}
+		}
+	}
+	normalized, err := json.Marshal(output)
+	if err != nil {
+		return nil, fmt.Errorf("encode normalized v1.1 candidates: %w", err)
+	}
+	return normalized, nil
 }
 
 func normalizeCandidates(result *Result, slice sessionlake.Slice, candidateLimit int) error {
@@ -466,13 +535,30 @@ func evidenceIsOnlyNonCommittalSourceLanguage(
 	events []teamnote.SessionEvent,
 	candidate *DecisionCandidate,
 ) bool {
+	return evidenceIsOnlyMatchingSourceLanguage(evidenceIDs, events, candidate, isNonCommittalSourceLanguage)
+}
+
+func evidenceIsOnlyV11NonCommittalSourceLanguage(
+	evidenceIDs []string,
+	events []teamnote.SessionEvent,
+	candidate *DecisionCandidate,
+) bool {
+	return evidenceIsOnlyMatchingSourceLanguage(evidenceIDs, events, candidate, isV11NonCommittalSourceLanguage)
+}
+
+func evidenceIsOnlyMatchingSourceLanguage(
+	evidenceIDs []string,
+	events []teamnote.SessionEvent,
+	candidate *DecisionCandidate,
+	matches func(string, *DecisionCandidate) bool,
+) bool {
 	eventsByID := make(map[string]teamnote.SessionEvent, len(events))
 	for _, event := range events {
 		eventsByID[event.ID] = event
 	}
 	for _, eventID := range evidenceIDs {
 		event, exists := eventsByID[eventID]
-		if !exists || !isNonCommittalSourceLanguage(event.Content, candidate) {
+		if !exists || !matches(event.Content, candidate) {
 			return false
 		}
 	}
@@ -498,6 +584,67 @@ func isNonCommittalSourceLanguage(content string, candidate *DecisionCandidate) 
 		return !committedClauseSupportsCandidate(padded[:index], candidate)
 	}
 	return false
+}
+
+func isV11NonCommittalSourceLanguage(content string, candidate *DecisionCandidate) bool {
+	normalized := normalizeSourceLanguage(content)
+	padded := " " + normalized + " "
+	index := firstMarker(padded, []string{" i'd keep ", " i would keep "})
+	if index < 0 {
+		return false
+	}
+	if candidateDependsOnNonCommittalTail(padded[:index], padded[index:], candidate) {
+		return true
+	}
+	return !committedClauseSupportsCandidate(padded[:index], candidate)
+}
+
+func firstMarker(content string, markers []string) int {
+	first := -1
+	for _, marker := range markers {
+		index := strings.Index(content, marker)
+		if index >= 0 && (first < 0 || index < first) {
+			first = index
+		}
+	}
+	return first
+}
+
+func normalizeSourceLanguage(content string) string {
+	content = strings.NewReplacer("’", "'", "‘", "'").Replace(content)
+	return strings.ToLower(strings.Join(strings.Fields(content), " "))
+}
+
+func candidateDependsOnNonCommittalTail(prefix, tail string, candidate *DecisionCandidate) bool {
+	if candidate == nil {
+		return false
+	}
+	prefixTokens := significantTokens(prefix)
+	tailTokens := significantTokens(tail)
+	candidateTokens := significantTokens(candidate.Subject + " " + candidate.Body)
+	uniqueTailMatches := 0
+	for token := range candidateTokens {
+		if _, inTail := tailTokens[token]; !inTail {
+			continue
+		}
+		if _, inPrefix := prefixTokens[token]; inPrefix {
+			continue
+		}
+		if answerChangingTailToken(token) {
+			return true
+		}
+		uniqueTailMatches++
+	}
+	return uniqueTailMatches >= 2
+}
+
+func answerChangingTailToken(token string) bool {
+	switch token {
+	case "not", "never", "exclude", "excluded", "excluding", "only", "unless", "except", "before", "after":
+		return true
+	default:
+		return false
+	}
 }
 
 func committedClauseSupportsCandidate(content string, candidate *DecisionCandidate) bool {

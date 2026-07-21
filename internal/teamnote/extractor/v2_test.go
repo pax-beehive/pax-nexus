@@ -58,6 +58,10 @@ func (s *extractionV2Suite) TestConfigValidation() {
 		name   string
 		config extractor.OpenAIConfig
 	}{
+		{name: "v1.1 requires rolling context", config: extractor.OpenAIConfig{
+			BaseURL: "http://extractor.test", Model: "model",
+			ContextMode: extractor.ContextModeSlice, ExtractionVersion: extractor.ExtractionVersionV11,
+		}},
 		{name: "v2 requires rolling context", config: extractor.OpenAIConfig{
 			BaseURL: "http://extractor.test", Model: "model",
 			ContextMode: extractor.ContextModeSlice, ExtractionVersion: extractor.ExtractionVersionV2,

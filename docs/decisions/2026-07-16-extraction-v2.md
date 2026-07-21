@@ -1,6 +1,6 @@
 # Extraction v2
 
-Status: Accepted; `source-clause-v1` is the production and extraction evaluation default
+Status: Accepted for experimentation; v1 is the production default
 
 Date: 2026-07-16
 
@@ -488,6 +488,24 @@ The remaining acceptance debt is explicit:
 - do not describe the default switch as a measured extraction-quality win;
 - roll back to v1 if the production latency or cost envelope is unacceptable.
 
+## Production rollback decision (2026-07-20)
+
+A paired ten-case shadow on the same 23-Atom GroupMemBench Finance fixture
+compared the current v1 protocol with v2 `source-clause-v1` protocol revision
+8. V1 matched 7/23 scored Atoms versus 5/23 for v2. On the 11 Atoms whose
+supporting Events were present in the persisted source, v1 matched 5/11 versus
+4/11 for v2. V1 introduced one leakage item while v2 introduced none, but it
+also used fewer output tokens and had lower mean and P95 provider latency with
+zero call errors in both arms.
+
+The quality gain required to replace v1 was therefore not demonstrated. The
+service's blank-configuration default, root Compose stack, and primary
+environment template return to `TEAM_MEMORY_EXTRACTION_VERSION=v1`. The Eval
+v2 loader, Eval v2 Compose stack, and OpenCode eval stack intentionally remain
+on v2 so the structured protocol and `source-clause-v1` stay reproducible as
+explicit experiments. See the
+[paired result](../../evals/extraction-v1/results/2026-07-20-stage10-v1-rollback.md).
+
 ## Quality acceptance (outstanding)
 
 Extraction v2 may replace the current extractor only when the paired fixed
@@ -716,8 +734,8 @@ Run recovered `user_implicit_7`, but overall fact recall regressed from 4/6 to
 3/6 because the previously matched temporal and term-ambiguity Events became
 unreviewed; admitted Notes also increased from 12 to 19. The exact prompt is
 registered as the reproducibility-only
-`source-clause-implicit-state-v1` candidate. `source-clause-v1` remains the
-production and evaluation default. See the
+`source-clause-implicit-state-v1` candidate. `source-clause-v1` remains the v2
+evaluation default. See the
 [no-go result](../../evals/extraction-v1/results/2026-07-20-implicit-state-review-v1-no-go.md).
 
 ## Consequences

@@ -133,6 +133,217 @@ func (s *openAISuite) TestV1AdmissionIgnoresAdjacentRequestMarker() {
 	s.Require().Len(result.Candidates, 1)
 }
 
+func (s *openAISuite) TestV11RejectsPreferenceAsCanonicalState() {
+	client := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		return response(http.StatusOK, `{"choices":[{"message":{"content":"{\"candidates\":[{\"action\":\"create\",\"kind\":\"status\",\"subject\":\"first-pass channel scope\",\"identity_ref\":\"scope/channel-review/first-pass\",\"body\":\"Keep assisted flow out of the first-pass gap list.\",\"evidence_event_ids\":[\"event-1\"]}]}"}}]}`), nil
+	})}
+	adapter, err := extractor.NewOpenAI(extractor.OpenAIConfig{
+		BaseURL: "http://extractor.test", Model: "model", Client: client,
+		ContextMode: extractor.ContextModeRolling, EpisodeStore: extractor.NewMemoryEpisodeStore(),
+		ExtractionVersion: extractor.ExtractionVersionV11,
+	})
+	s.Require().NoError(err)
+	slice := extractorSlice()
+	slice.Events[0].Content = "I’m aligned on locking web, email, and in-app first. I’d keep assisted flow out of the first-pass gap list."
+
+	result, err := adapter.Extract(teamnote.WithScope(context.Background(), "scope-v11-preference"), slice)
+
+	s.Require().NoError(err)
+	s.Empty(result.Candidates)
+	s.Require().Len(result.Rejections, 1)
+	s.Contains(result.Rejections[0].Reason, "non-committal")
+}
+
+func (s *openAISuite) TestV11RejectsCandidateThatMergesCommittedPrefixWithPreferenceTail() {
+	client := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		return response(http.StatusOK, `{"choices":[{"message":{"content":"{\"candidates\":[{\"action\":\"create\",\"kind\":\"status\",\"subject\":\"lock web email in-app decision\",\"identity_ref\":\"ice_priority_scope\",\"body\":\"Decision to lock web, email, and in-app against spec first, keep assisted flow out of first-pass gap list.\",\"evidence_event_ids\":[\"event-1\"]}]}"}}]}`), nil
+	})}
+	adapter, err := extractor.NewOpenAI(extractor.OpenAIConfig{
+		BaseURL: "http://extractor.test", Model: "model", Client: client,
+		ContextMode: extractor.ContextModeRolling, EpisodeStore: extractor.NewMemoryEpisodeStore(),
+		ExtractionVersion: extractor.ExtractionVersionV11,
+	})
+	s.Require().NoError(err)
+	slice := extractorSlice()
+	slice.Events[0].Content = "I’m aligned on locking web, email, and in-app against the spec first. Since assisted flow is already the control, I’d keep it out of the first-pass gap list and use it only if the core three still diverge."
+
+	result, err := adapter.Extract(teamnote.WithScope(context.Background(), "scope-v11-mixed-modality"), slice)
+
+	s.Require().NoError(err)
+	s.Empty(result.Candidates)
+	s.Require().Len(result.Rejections, 1)
+	s.Contains(result.Rejections[0].Reason, "non-committal")
+}
+
+func (s *openAISuite) TestV11KeepsCommittedPrefixIndependentFromRequestTail() {
+	client := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		return response(http.StatusOK, `{"choices":[{"message":{"content":"{\"candidates\":[{\"action\":\"create\",\"kind\":\"status\",\"subject\":\"compliance log owner\",\"identity_ref\":\"owner/compliance-log\",\"body\":\"Compliance owns the log.\",\"evidence_event_ids\":[\"event-1\"]}]}"}}]}`), nil
+	})}
+	adapter, err := extractor.NewOpenAI(extractor.OpenAIConfig{
+		BaseURL: "http://extractor.test", Model: "model", Client: client,
+		ContextMode: extractor.ContextModeRolling, EpisodeStore: extractor.NewMemoryEpisodeStore(),
+		ExtractionVersion: extractor.ExtractionVersionV11,
+	})
+	s.Require().NoError(err)
+	slice := extractorSlice()
+	slice.Events[0].Content = "Compliance owns the log and should publish it today."
+
+	result, err := adapter.Extract(teamnote.WithScope(context.Background(), "scope-v11-adjacent-request"), slice)
+
+	s.Require().NoError(err)
+	s.Require().Len(result.Candidates, 1)
+	s.Empty(result.Rejections)
+}
+
+func (s *openAISuite) TestV11RejectsMutableStateWithoutStableIdentity() {
+	client := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		return response(http.StatusOK, `{"choices":[{"message":{"content":"{\"candidates\":[{\"action\":\"create\",\"kind\":\"status\",\"subject\":\"channel review scope\",\"body\":\"Support validates all four paths together.\",\"evidence_event_ids\":[\"event-1\"]}]}"}}]}`), nil
+	})}
+	adapter, err := extractor.NewOpenAI(extractor.OpenAIConfig{
+		BaseURL: "http://extractor.test", Model: "model", Client: client,
+		ContextMode: extractor.ContextModeRolling, EpisodeStore: extractor.NewMemoryEpisodeStore(),
+		ExtractionVersion: extractor.ExtractionVersionV11,
+	})
+	s.Require().NoError(err)
+	slice := extractorSlice()
+	slice.Events[0].Content = "Support validates web, email, in-app, and assisted together."
+
+	result, err := adapter.Extract(teamnote.WithScope(context.Background(), "scope-v11-identity"), slice)
+
+	s.Require().NoError(err)
+	s.Empty(result.Candidates)
+	s.Require().Len(result.Rejections, 1)
+	s.Contains(result.Rejections[0].Reason, "stable identity_ref")
+}
+
+func (s *openAISuite) TestV11KeepsAssertedConditionalState() {
+	client := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		return response(http.StatusOK, `{"choices":[{"message":{"content":"{\"candidates\":[{\"action\":\"create\",\"kind\":\"status\",\"subject\":\"rollback evidence owner\",\"identity_ref\":\"owner/rollback-evidence\",\"body\":\"Ops Lead owns the rollback evidence pack if the July 26 milestone slips.\",\"evidence_event_ids\":[\"event-1\"]}]}"}}]}`), nil
+	})}
+	adapter, err := extractor.NewOpenAI(extractor.OpenAIConfig{
+		BaseURL: "http://extractor.test", Model: "model", Client: client,
+		ContextMode: extractor.ContextModeRolling, EpisodeStore: extractor.NewMemoryEpisodeStore(),
+		ExtractionVersion: extractor.ExtractionVersionV11,
+	})
+	s.Require().NoError(err)
+	slice := extractorSlice()
+	slice.Events[0].Content = "If the July 26 milestone slips, Ops Lead owns the rollback evidence pack."
+
+	result, err := adapter.Extract(teamnote.WithScope(context.Background(), "scope-v11-conditional-state"), slice)
+
+	s.Require().NoError(err)
+	s.Require().Len(result.Candidates, 1)
+	s.Empty(result.Rejections)
+}
+
+func (s *openAISuite) TestV1KeepsPreferenceCompatibility() {
+	client := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		return response(http.StatusOK, `{"choices":[{"message":{"content":"{\"candidates\":[{\"action\":\"create\",\"kind\":\"status\",\"subject\":\"first-pass channel scope\",\"body\":\"Keep assisted flow out of the first-pass gap list.\",\"evidence_event_ids\":[\"event-1\"]}]}"}}]}`), nil
+	})}
+	adapter, err := extractor.NewOpenAI(extractor.OpenAIConfig{
+		BaseURL: "http://extractor.test", Model: "model", Client: client,
+		ExtractionVersion: extractor.ExtractionVersionV1,
+	})
+	s.Require().NoError(err)
+	slice := extractorSlice()
+	slice.Events[0].Content = "I'm aligned on locking web, email, and in-app first. I'd keep assisted flow out of the first-pass gap list."
+
+	result, err := adapter.Extract(context.Background(), slice)
+
+	s.Require().NoError(err)
+	s.Require().Len(result.Candidates, 1)
+	s.Empty(result.Rejections)
+}
+
+func (s *openAISuite) TestV11AcceptsAssertedStateWithStableIdentity() {
+	client := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		return response(http.StatusOK, `{"choices":[{"message":{"content":"{\"candidates\":[{\"action\":\"create\",\"kind\":\"status\",\"subject\":\"channel review scope\",\"identity_ref\":\"scope/channel-review\",\"body\":\"Support validates all four paths together.\",\"evidence_event_ids\":[\"event-1\"]}]}"}}]}`), nil
+	})}
+	adapter, err := extractor.NewOpenAI(extractor.OpenAIConfig{
+		BaseURL: "http://extractor.test", Model: "model", Client: client,
+		ContextMode: extractor.ContextModeRolling, EpisodeStore: extractor.NewMemoryEpisodeStore(),
+		ExtractionVersion: extractor.ExtractionVersionV11,
+	})
+	s.Require().NoError(err)
+	slice := extractorSlice()
+	slice.Events[0].Content = "Support validates web, email, in-app, and assisted together."
+
+	result, err := adapter.Extract(teamnote.WithScope(context.Background(), "scope-v11-asserted"), slice)
+
+	s.Require().NoError(err)
+	s.Require().Len(result.Candidates, 1)
+	s.Equal("scope/channel-review", result.Candidates[0].IdentityRef)
+	s.Equal(extractor.ExtractionVersionV11, result.ExtractionVersion)
+}
+
+func (s *openAISuite) TestV11NormalizesEmptyOptionalTimes() {
+	calls := 0
+	client := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		calls++
+		return response(http.StatusOK, `{"choices":[{"message":{"content":"{\"candidates\":[{\"action\":\"create\",\"kind\":\"status\",\"subject\":\"channel review scope\",\"identity_ref\":\"scope/channel-review\",\"body\":\"Support validates all four paths together.\",\"valid_at\":\"\",\"invalid_at\":\"\",\"evidence_event_ids\":[\"event-1\"]}]}"}}]}`), nil
+	})}
+	adapter, err := extractor.NewOpenAI(extractor.OpenAIConfig{
+		BaseURL: "http://extractor.test", Model: "model", Client: client,
+		ContextMode: extractor.ContextModeRolling, EpisodeStore: extractor.NewMemoryEpisodeStore(),
+		ExtractionVersion: extractor.ExtractionVersionV11,
+	})
+	s.Require().NoError(err)
+	slice := extractorSlice()
+	slice.Events[0].Content = "Support validates web, email, in-app, and assisted together."
+
+	result, err := adapter.Extract(teamnote.WithScope(context.Background(), "scope-v11-empty-times"), slice)
+
+	s.Require().NoError(err)
+	s.Require().Len(result.Candidates, 1)
+	s.Nil(result.Candidates[0].ValidAt)
+	s.Nil(result.Candidates[0].InvalidAt)
+	replayed, err := adapter.Extract(teamnote.WithScope(context.Background(), "scope-v11-empty-times"), slice)
+	s.Require().NoError(err)
+	s.Require().Len(replayed.Candidates, 1)
+	s.Nil(replayed.Candidates[0].ValidAt)
+	s.Nil(replayed.Candidates[0].InvalidAt)
+	s.Equal(1, calls)
+}
+
+func (s *openAISuite) TestV11StartsFreshEpisodeAfterV1() {
+	store := extractor.NewMemoryEpisodeStore()
+	v1Calls := 0
+	v1Client := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		v1Calls++
+		return response(http.StatusOK, `{"choices":[{"message":{"content":"{\"candidates\":[]}"}}]}`), nil
+	})}
+	v1, err := extractor.NewOpenAI(extractor.OpenAIConfig{
+		BaseURL: "http://extractor.test", Model: "model", PromptVersion: "prompt", Client: v1Client,
+		ContextMode: extractor.ContextModeRolling, EpisodeStore: store,
+		ExtractionVersion: extractor.ExtractionVersionV1,
+	})
+	s.Require().NoError(err)
+	v11Calls := 0
+	v11Client := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		v11Calls++
+		return response(http.StatusOK, `{"choices":[{"message":{"content":"{\"candidates\":[{\"action\":\"create\",\"kind\":\"status\",\"subject\":\"channel review scope\",\"identity_ref\":\"scope/channel-review\",\"body\":\"Support validates all four paths together.\",\"evidence_event_ids\":[\"event-1\"]}]}"}}]}`), nil
+	})}
+	v11, err := extractor.NewOpenAI(extractor.OpenAIConfig{
+		BaseURL: "http://extractor.test", Model: "model", PromptVersion: "prompt", Client: v11Client,
+		ContextMode: extractor.ContextModeRolling, EpisodeStore: store,
+		ExtractionVersion: extractor.ExtractionVersionV11,
+	})
+	s.Require().NoError(err)
+	ctx := teamnote.WithScope(context.Background(), "scope-v11-protocol-change")
+	slice := extractorSlice()
+	slice.Events[0].Content = "Support validates web, email, in-app, and assisted together."
+
+	_, err = v1.Extract(ctx, slice)
+	s.Require().NoError(err)
+	result, err := v11.Extract(ctx, slice)
+
+	s.Require().NoError(err)
+	s.Equal(1, v1Calls)
+	s.Equal(1, v11Calls)
+	s.Require().Len(result.Candidates, 1)
+	s.Equal(extractor.ExtractionVersionV11, result.ExtractionVersion)
+}
+
 func (s *openAISuite) TestRejectsInvalidResponses() {
 	tests := []struct {
 		name   string

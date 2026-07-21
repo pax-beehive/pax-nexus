@@ -101,21 +101,26 @@ from the compacted prefix. Compaction is disabled by default while its retention
 and schema behavior are evaluated; set
 `TEAM_MEMORY_EXTRACTION_COMPACTION_ENABLED=true` to activate these thresholds.
 
-Extraction v2 is the service and deployment default in `rolling` mode. It emits
-atomic, evidence-cited State Decisions, exceptional Claims, explicit per-Event
-coverage, and a diagnostic Extraction Trace in one primary model call. Set
-`TEAM_MEMORY_EXTRACTION_VERSION=v1` for an explicit rollback. Changing the
-extraction protocol starts a fresh rolling episode instead of replaying an
-incompatible response history. The current v2 default is an operator rollout
-decision; the failed shadow latency and cost gates remain recorded in the ADR
-and must not be presented as a measured quality win.
+Extraction v1 is the service and deployment default in `rolling` mode. Set
+`TEAM_MEMORY_EXTRACTION_VERSION=v1.1` to run the candidate-schema-compatible
+fidelity experiment. V1.1 blocks the known `I'd keep` preference-tail leakage
+and requires model-supplied semantic identities for mutable status and handoff
+state; the server deterministically rejects missing identities, while broader
+modality classification and exact identity reuse remain extraction-protocol
+obligations. Set the version to `v2` to run the structured experiment, which
+emits atomic,
+evidence-cited State Decisions, exceptional Claims, explicit per-Event
+coverage, and a diagnostic Extraction Trace in one primary model call.
+Changing the extraction protocol starts a fresh rolling episode instead of
+replaying an incompatible response history. The paired evidence and rollout
+decisions remain recorded in the extraction ADRs.
 
 V2 extraction candidate strategies are packaged behind the same `Extractor`
 interface. `current`, `interaction-slim`, `evidence-fidelity-v1`,
 `source-clause-v1`, `source-clause-implicit-state-v1`, `typed-2`,
 `source-span-v1`, `source-span-v2`, `claim-card-v1`, and `claim-card-v2` each
 bind their prompt, response decoder, and rolling episode protocol revision in
-one registry. `source-clause-v1` is the production default. The implicit-state,
+one registry. `source-clause-v1` is the v2 evaluation default. The implicit-state,
 Evidence Fidelity, Source Span, and Claim Card candidates are retained only for
 evaluation reproducibility. Build
 a distribution with a selected default using

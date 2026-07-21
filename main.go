@@ -113,6 +113,7 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	h.Use(handler.InstanceMiddleware(httpHandler))
 	register(h)
 	logger.Info("team-memory started", "listen_address", config.listenAddress, "worker_shards", config.workerShards,
+		"extraction_version", config.extractionVersion,
 		"extraction_candidate_strategy", config.extractionCandidateStrategy,
 		"recall_candidate_strategy", config.recallCandidateStrategy.Name)
 	h.Spin()
@@ -251,7 +252,7 @@ func loadConfig() (applicationConfig, error) {
 		config.extractionContextMode = string(extractor.ContextModeRolling)
 	}
 	if config.extractionVersion == "" {
-		config.extractionVersion = extractor.ExtractionVersionV2
+		config.extractionVersion = extractor.ExtractionVersionV1
 	}
 	if config.extractionCandidateStrategy == "" {
 		config.extractionCandidateStrategy = extractor.DefaultCandidateStrategy()
