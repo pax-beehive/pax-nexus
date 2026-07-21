@@ -201,6 +201,14 @@ The two authentication environment variables are mutually exclusive.
 See [the on-prem deployment decision](docs/decisions/2026-07-21-single-team-on-prem-deployment.md)
 for the identity, credential, recall composition, and module boundaries.
 
+Run `make onprem-e2e` for the container-only core-flow test. It builds Team
+Memory, a deterministic OpenAI-compatible extractor, a black-box test runner,
+and pgvector PostgreSQL in one unique Compose project. The test enrolls two
+Agents, exchanges their credentials, writes an Observation, waits for River and
+extraction, then verifies passive recall through the public HTTP API. PostgreSQL
+uses a project-scoped temporary volume; the script runs `docker compose down -v`
+and verifies that the volume was removed on both success and failure.
+
 ## Identity assumption
 
 paxm session-event metadata supplies stable `user_id` and `agent_id` values and

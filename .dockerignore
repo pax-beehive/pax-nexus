@@ -1,5 +1,8 @@
 .build
 .git
 .tools
+output
 runs
+tmp
+*.zip
 *.log
