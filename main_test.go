@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"log/slog"
 	"os"
 	"testing"
 	"time"
@@ -23,6 +24,7 @@ func TestConfigSuite(t *testing.T) {
 func (s *configSuite) SetupTest() {
 	for _, name := range []string{
 		"TEAM_MEMORY_DATABASE_URL", "TEAM_MEMORY_API_KEYS", "TEAM_MEMORY_LISTEN_ADDRESS",
+		"TEAM_MEMORY_ADMIN_API_KEY", "TEAM_MEMORY_CREDENTIAL_ROTATION_OVERLAP", "TEAM_MEMORY_WIKI_HINT_ENABLED",
 		"TEAM_MEMORY_EXTRACTOR_MODE", "TEAM_MEMORY_EXTRACTOR_BASE_URL",
 		"TEAM_MEMORY_EXTRACTOR_API_KEY", "TEAM_MEMORY_EXTRACTOR_MODEL", "TEAM_MEMORY_PROMPT_VERSION",
 		"TEAM_MEMORY_EXTRACTION_CONTEXT_MODE", "TEAM_MEMORY_EXTRACTION_VERSION",
@@ -77,6 +79,8 @@ func (s *configSuite) TestLoadsNoopConfiguration() {
 	s.Equal(750*time.Millisecond, config.workerDebounce)
 	s.Equal(30*time.Second, config.batchTimeout)
 	s.Equal(3*time.Minute, config.workerJobTimeout)
+	s.Equal(5*time.Minute, config.credentialRotationOverlap)
+	s.False(config.wikiHintEnabled)
 	s.Equal(25, config.sliceEventLimit)
 	s.Equal(8192, config.sliceTokenLimit)
 	s.Equal(3, config.sliceOverlap)
@@ -88,6 +92,34 @@ func (s *configSuite) TestLoadsNoopConfiguration() {
 	adapter, err := buildExtractor(config)
 	s.Require().NoError(err)
 	s.IsType(extractor.Noop{}, adapter)
+}
+
+func (s *configSuite) TestLoadsOnPremConfiguration() {
+	s.T().Setenv("TEAM_MEMORY_DATABASE_URL", "postgres://database")
+	s.T().Setenv("TEAM_MEMORY_EXTRACTOR_MODE", "noop")
+	s.T().Setenv("TEAM_MEMORY_ADMIN_API_KEY", "admin-secret")
+	s.T().Setenv("TEAM_MEMORY_CREDENTIAL_ROTATION_OVERLAP", "2m")
+	s.T().Setenv("TEAM_MEMORY_WIKI_HINT_ENABLED", "true")
+
+	config, err := loadConfig()
+
+	s.Require().NoError(err)
+	s.Equal("admin-secret", config.adminAPIKey)
+	s.Empty(config.apiKeys)
+	s.Equal(2*time.Minute, config.credentialRotationOverlap)
+	s.True(config.wikiHintEnabled)
+}
+
+func (s *configSuite) TestBuildHTTPHandlerKeepsLegacyModeWithoutAdminSecret() {
+	runtime := &runtimeStub{}
+	configured, err := buildHTTPHandler(runtime, nil, applicationConfig{apiKeys: map[string]string{"key": "scope"}}, slog.New(slog.DiscardHandler))
+	s.Require().NoError(err)
+	s.NotNil(configured)
+
+	_, err = buildHTTPHandler(runtime, nil, applicationConfig{
+		apiKeys: map[string]string{"key": "scope"}, adminAPIKey: "admin", credentialRotationOverlap: time.Minute,
+	}, slog.New(slog.DiscardHandler))
+	s.Error(err)
 }
 
 func (s *configSuite) TestRejectsExtractionExecutionBudgetThatExceedsJobDeadline() {
@@ -276,7 +308,7 @@ func (s *configSuite) TestRejectsInvalidConfiguration() {
 	}{
 		{name: "missing database", apiKeys: `{"key":"scope"}`},
 		{name: "malformed API keys", database: "postgres://database", apiKeys: "not-json"},
-		{name: "empty API keys", database: "postgres://database", apiKeys: `{}`},
+		{name: "empty authentication", database: "postgres://database", apiKeys: `{}`},
 	}
 	for _, test := range tests {
 		s.Run(test.name, func() {
@@ -322,6 +354,16 @@ func (s *configSuite) TestCloseExtractorDrainsLifecycleImplementations() {
 
 type lifecycleExtractor struct {
 	closed bool
+}
+
+type runtimeStub struct{}
+
+func (*runtimeStub) ObserveSession(context.Context, teamnote.SessionBatch) (teamnote.IngestReceipt, error) {
+	return teamnote.IngestReceipt{}, nil
+}
+
+func (*runtimeStub) RecallNotes(context.Context, teamnote.RecallRequest) (teamnote.NoteEnvelope, error) {
+	return teamnote.NoteEnvelope{}, nil
 }
 
 func (*lifecycleExtractor) Extract(context.Context, sessionlake.Slice) (extractor.Result, error) {

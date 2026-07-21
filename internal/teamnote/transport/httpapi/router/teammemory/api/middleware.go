@@ -35,3 +35,68 @@ func _recallnotesMw() []app.HandlerFunc {
 	// your code...
 	return nil
 }
+
+func _getagentidentityMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _observebatchMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _adminMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _createagentenrollmentMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _agent_credentialsMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _revokeagentcredentialMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _agent_credentials0Mw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _rotateagentcredentialMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _agent_enrollmentsMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _exchangeagentenrollmentMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _memoryMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _getmemoryMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _searchmemoryMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}

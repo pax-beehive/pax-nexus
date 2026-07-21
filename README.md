@@ -172,6 +172,34 @@ permits one focused active recall when the selectivity gates pass. Leaving the
 base URL empty disables semantic recall, and embedding failures fall back to
 lexical recall.
 
+## Single-Team on-prem API
+
+The default Compose deployment represents one Team and requires
+`TEAM_MEMORY_ADMIN_API_KEY`. It does not expose a Team ID: enrolled Agent keys
+always resolve to the internal `local-team` scope, and the authenticated key
+owns the `user_id` and `agent_id` used by observation and recall requests.
+
+The Hertz HTTP surface is generated from `idl/team_memory.thrift` and provides:
+
+- `POST /v1/admin/agent-enrollments`, one-time Agent enrollment;
+- `POST /v1/agent-enrollments/exchange`, API-key exchange;
+- `GET /v1/agent-identity`, credential-bound identity;
+- `POST /v1/agent-credentials/rotate` and
+  `DELETE /v1/admin/agent-credentials/:credential_id`;
+- `POST /v1/observations`, asynchronous Session Event ingestion;
+- `POST /v1/memory/search` and `POST /v1/memory/get`.
+
+Passive search returns Team Note evidence and can speculatively run one typed
+LLM Wiki hint path under the same deadline and token budget. The hint path is
+off by default. The concrete LLM Wiki page store, index, and document resolver
+remain a separate module decision; until that adapter is installed, active
+Wiki search/get is unavailable and `TEAM_MEMORY_WIKI_HINT_ENABLED` must remain
+false. The legacy session-batch and note-recall endpoints remain available only
+when `TEAM_MEMORY_API_KEYS` selects compatibility mode without an admin secret.
+
+See [the on-prem deployment decision](docs/decisions/2026-07-21-single-team-on-prem-deployment.md)
+for the identity, credential, recall composition, and module boundaries.
+
 ## Identity assumption
 
 paxm session-event metadata supplies stable `user_id` and `agent_id` values and
@@ -200,7 +228,8 @@ a self-contained HTML report. See [the evaluation runbook](evals/README.md).
 ## Development gates
 
 The Makefile owns IDL generation, mocks, formatting, linting, tests, the
-75-percent coverage gate, and the Docker eval. Run `make generate`, `make
+80-percent handwritten-code coverage gate, and the Docker eval. Pure Hertz
+generated model, router, and handler bridge files are excluded. Run `make generate`, `make
 mocks`, and `make lint test` after changing interfaces or implementation. Run
 `make docker-eval` with the model and extractor environment described in
 `evals/opencode/README.md`. Detailed coding rules live in `AGENTS.md`.

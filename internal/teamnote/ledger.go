@@ -272,7 +272,7 @@ func (l *Ledger) Recall(ctx context.Context, request RecallRequest) (NoteEnvelop
 		recallPolicy.CandidateLimit = len(candidates)
 	}
 	recallPolicy.ObservationTime = now
-	planned, _ := PlanRecall(candidates, request, recallPolicy)
+	planned, trace := PlanRecall(candidates, request, recallPolicy)
 	for _, item := range planned {
 		if !item.ClaimNoteDelivery {
 			if _, delivered := l.hintDeliveries[item.HintFingerprint]; delivered {
@@ -285,6 +285,7 @@ func (l *Ledger) Recall(ctx context.Context, request RecallRequest) (NoteEnvelop
 		AppendPlannedRecall(&envelope, item)
 		l.deliveries[deliveryKey(item.Note, request.Actor)] = struct{}{}
 	}
+	envelope.Decision = SummarizeRecallDecision(trace)
 	return envelope, nil
 }
 

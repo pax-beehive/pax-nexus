@@ -601,6 +601,34 @@ func (s *recallSuite) TestPlanRecallSelectsAnswerBearingRelationBundleBeforeAdja
 	)
 }
 
+func (s *recallSuite) TestPlanRecallDecisionRequiresCoveredFactsConfidenceAndNoBudgetDrop() {
+	request := teamnote.RecallRequest{
+		Actor: teamnote.Actor{UserID: "owner", AgentID: "consumer", SessionID: "session"},
+		Query: "Who owns project Phoenix release and what is its date?", TokenBudget: 128,
+	}
+	owner := recallCandidate("owner", "Phoenix release owner", "Riley owns project Phoenix release work.", 1, nil)
+	deadline := recallCandidate("deadline", "Phoenix release schedule", "Project Phoenix release is 2026-07-24.", 1, nil)
+	owner.Kind = teamnote.KindHandoff
+
+	planned, trace := teamnote.PlanRecall([]teamnote.RecallCandidate{owner, deadline}, request, teamnote.RecallPolicy{
+		CandidateLimit: 4, EvidenceThreshold: 0.4, SuppressDuplicates: true,
+	})
+	decision := teamnote.SummarizeRecallDecision(trace)
+
+	s.Require().Len(planned, 2)
+	s.True(decision.EvidenceSufficient)
+	s.Empty(decision.ReasonCodes)
+
+	request.TokenBudget = planned[0].Tokens
+	_, constrainedTrace := teamnote.PlanRecall([]teamnote.RecallCandidate{owner, deadline}, request, teamnote.RecallPolicy{
+		CandidateLimit: 4, EvidenceThreshold: 0.4, SuppressDuplicates: true,
+	})
+	constrained := teamnote.SummarizeRecallDecision(constrainedTrace)
+	s.False(constrained.EvidenceSufficient)
+	s.Contains(constrained.ReasonCodes, teamnote.RecallReasonFactCoverage)
+	s.Contains(constrained.ReasonCodes, teamnote.RecallReasonBudgetDrop)
+}
+
 func (s *recallSuite) TestGeneralRecallV3ProducesAuditablePlans() {
 	request := teamnote.RecallRequest{
 		Actor: teamnote.Actor{UserID: "owner", AgentID: "consumer", SessionID: "consumer-session"},

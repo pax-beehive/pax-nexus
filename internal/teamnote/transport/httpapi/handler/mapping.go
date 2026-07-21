@@ -72,8 +72,15 @@ func noteEnvelopeToAPI(envelope teamnote.NoteEnvelope) *api.NoteEnvelope {
 			Relevance: detail.Relevance, Certainty: string(detail.Certainty),
 		}
 	}
+	reasonCodes := make([]string, len(envelope.Decision.ReasonCodes))
+	for index, reason := range envelope.Decision.ReasonCodes {
+		reasonCodes[index] = string(reason)
+	}
 	return &api.NoteEnvelope{
 		Revision: envelope.Revision, Items: envelope.Items, Tokens: int32(envelope.Tokens), Details: details,
+		Decision: &api.RecallDecisionSummary{
+			EvidenceSufficient: envelope.Decision.EvidenceSufficient, ReasonCodes: reasonCodes,
+		},
 	}
 }
 

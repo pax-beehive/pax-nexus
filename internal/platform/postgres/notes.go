@@ -315,6 +315,7 @@ func (s *NoteStore) RecallNotes(ctx context.Context, scopeID string, request tea
 		}
 		teamnote.AppendPlannedRecall(&envelope, delivery)
 	}
+	envelope.Decision = teamnote.SummarizeRecallDecision(trace)
 	if err := saveRecallObservation(ctx, tx, scopeID, request, envelope, observationTime, time.Since(startedAt), trace); err != nil {
 		return teamnote.NoteEnvelope{}, err
 	}

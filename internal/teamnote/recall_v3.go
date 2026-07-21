@@ -92,6 +92,7 @@ type RecallCandidateTrace struct {
 	RetrievalLanes     []RecallLane              `json:"retrieval_lanes,omitempty"`
 	RetrievalReasons   []string                  `json:"retrieval_reasons,omitempty"`
 	MatchedTermCount   int                       `json:"matched_term_count,omitempty"`
+	CoveredFacts       []string                  `json:"covered_facts,omitempty"`
 	RelationPath       []string                  `json:"relation_path,omitempty"`
 	HardGateResults    []RecallHardGateResult    `json:"hard_gate_results"`
 	TemporalResolution RecallTemporalResolution  `json:"temporal_resolution"`
@@ -239,6 +240,7 @@ func evaluateRecallCandidate(candidate RecallCandidate, request RecallRequest, i
 	}
 	trace := RecallCandidateTrace{
 		NoteID: candidate.ID, MatchedTermCount: len(matchedTerms),
+		CoveredFacts:       coveredRecallFacts(candidate.Note, intent),
 		HardGateResults:    recallHardGateResults(candidate.Note, intent.Mode, temporalPassed),
 		TemporalResolution: temporalRecallResolution(intent.Mode, queryTime, temporalPassed),
 		ScoreContributions: contributions, EvidenceConfidence: math.Min(total/100, 1),
@@ -247,6 +249,17 @@ func evaluateRecallCandidate(candidate RecallCandidate, request RecallRequest, i
 	}
 	trace.RetrievalLanes, trace.RetrievalReasons = recallCandidateLanes(candidate, request, intent)
 	return trace
+}
+
+func coveredRecallFacts(note Note, intent RecallIntent) []string {
+	text := strings.ToLower(note.Subject + " " + note.Body)
+	result := make([]string, 0, len(intent.RequestedFacts))
+	for _, fact := range intent.RequestedFacts {
+		if recallFactMatched(note, text, fact) {
+			result = append(result, fact)
+		}
+	}
+	return result
 }
 
 func temporalRecallResolution(mode RecallMode, queryTime *time.Time, passed bool) RecallTemporalResolution {

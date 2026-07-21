@@ -13,9 +13,11 @@ import (
 	"time"
 
 	"github.com/cloudwego/hertz/pkg/app/server"
+	"github.com/pax-beehive/pax-nexus/internal/deployment/onprem"
 	"github.com/pax-beehive/pax-nexus/internal/platform/observability"
 	"github.com/pax-beehive/pax-nexus/internal/platform/postgres"
 	"github.com/pax-beehive/pax-nexus/internal/platform/textembedding"
+	"github.com/pax-beehive/pax-nexus/internal/recall"
 	"github.com/pax-beehive/pax-nexus/internal/sessionlake"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote/extractionbudget"
@@ -100,9 +102,9 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	if err := sessions.ConfigureExtractionEnqueuer(queue); err != nil {
 		return fmt.Errorf("connect extraction queue: %w", err)
 	}
-	httpHandler, err := handler.New(runtime, handler.StaticAPIKeys(config.apiKeys), logger)
+	httpHandler, err := buildHTTPHandler(runtime, store, config, logger)
 	if err != nil {
-		return fmt.Errorf("configure HTTP transport: %w", err)
+		return err
 	}
 	if err := queue.Start(ctx); err != nil {
 		return fmt.Errorf("start extraction queue: %w", err)
@@ -168,6 +170,9 @@ type applicationConfig struct {
 	databaseURL                    string
 	listenAddress                  string
 	apiKeys                        map[string]string
+	adminAPIKey                    string
+	credentialRotationOverlap      time.Duration
+	wikiHintEnabled                bool
 	extractorMode                  string
 	extractorBaseURL               string
 	extractorAPIKey                string
@@ -211,26 +216,13 @@ func loadConfig() (applicationConfig, error) {
 		extractionCandidateStrategy: os.Getenv("TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY"),
 		embeddingBaseURL:            os.Getenv("TEAM_MEMORY_EMBEDDING_BASE_URL"),
 		embeddingModel:              os.Getenv("TEAM_MEMORY_EMBEDDING_MODEL"),
+		adminAPIKey:                 os.Getenv("TEAM_MEMORY_ADMIN_API_KEY"),
 	}
 	var err error
-	if config.workerShards, err = intEnvironment("TEAM_MEMORY_WORKER_SHARDS", 16); err != nil {
+	if err = loadWorkerConfig(&config); err != nil {
 		return applicationConfig{}, err
 	}
-	if config.workerMaxAttempts, err = intEnvironment("TEAM_MEMORY_WORKER_MAX_ATTEMPTS", 5); err != nil {
-		return applicationConfig{}, err
-	}
-	if config.workerDebounce, err = durationEnvironment("TEAM_MEMORY_WORKER_DEBOUNCE", 750*time.Millisecond); err != nil {
-		return applicationConfig{}, err
-	}
-	if config.batchTimeout, err = durationEnvironment("TEAM_MEMORY_BATCH_TIMEOUT", 30*time.Second); err != nil {
-		return applicationConfig{}, err
-	}
-	if config.workerJobTimeout, err = durationEnvironment(
-		"TEAM_MEMORY_WORKER_JOB_TIMEOUT", extractionbudget.DefaultWorkerJobTimeout,
-	); err != nil {
-		return applicationConfig{}, err
-	}
-	if config.workerStopTimeout, err = durationEnvironment("TEAM_MEMORY_WORKER_STOP_TIMEOUT", 30*time.Second); err != nil {
+	if err = loadOnPremConfig(&config); err != nil {
 		return applicationConfig{}, err
 	}
 	if err = loadAndValidateExtractionConfig(&config); err != nil {
@@ -263,13 +255,91 @@ func loadConfig() (applicationConfig, error) {
 	if strings.TrimSpace(config.databaseURL) == "" {
 		return applicationConfig{}, fmt.Errorf("TEAM_MEMORY_DATABASE_URL is required")
 	}
-	if err := json.Unmarshal([]byte(os.Getenv("TEAM_MEMORY_API_KEYS")), &config.apiKeys); err != nil {
-		return applicationConfig{}, fmt.Errorf("decode TEAM_MEMORY_API_KEYS: %w", err)
-	}
-	if len(config.apiKeys) == 0 {
-		return applicationConfig{}, fmt.Errorf("TEAM_MEMORY_API_KEYS must contain at least one key")
+	if err = loadAuthenticationConfig(&config); err != nil {
+		return applicationConfig{}, err
 	}
 	return config, nil
+}
+
+func loadWorkerConfig(config *applicationConfig) error {
+	var err error
+	if config.workerShards, err = intEnvironment("TEAM_MEMORY_WORKER_SHARDS", 16); err != nil {
+		return err
+	}
+	if config.workerMaxAttempts, err = intEnvironment("TEAM_MEMORY_WORKER_MAX_ATTEMPTS", 5); err != nil {
+		return err
+	}
+	if config.workerDebounce, err = durationEnvironment("TEAM_MEMORY_WORKER_DEBOUNCE", 750*time.Millisecond); err != nil {
+		return err
+	}
+	if config.batchTimeout, err = durationEnvironment("TEAM_MEMORY_BATCH_TIMEOUT", 30*time.Second); err != nil {
+		return err
+	}
+	if config.workerJobTimeout, err = durationEnvironment(
+		"TEAM_MEMORY_WORKER_JOB_TIMEOUT", extractionbudget.DefaultWorkerJobTimeout,
+	); err != nil {
+		return err
+	}
+	config.workerStopTimeout, err = durationEnvironment("TEAM_MEMORY_WORKER_STOP_TIMEOUT", 30*time.Second)
+	return err
+}
+
+func loadOnPremConfig(config *applicationConfig) error {
+	var err error
+	if config.credentialRotationOverlap, err = durationEnvironment(
+		"TEAM_MEMORY_CREDENTIAL_ROTATION_OVERLAP", 5*time.Minute,
+	); err != nil {
+		return err
+	}
+	config.wikiHintEnabled, err = boolEnvironment("TEAM_MEMORY_WIKI_HINT_ENABLED", false)
+	return err
+}
+
+func loadAuthenticationConfig(config *applicationConfig) error {
+	apiKeys := strings.TrimSpace(os.Getenv("TEAM_MEMORY_API_KEYS"))
+	if apiKeys == "" {
+		config.apiKeys = make(map[string]string)
+	} else if err := json.Unmarshal([]byte(apiKeys), &config.apiKeys); err != nil {
+		return fmt.Errorf("decode TEAM_MEMORY_API_KEYS: %w", err)
+	}
+	if len(config.apiKeys) == 0 && strings.TrimSpace(config.adminAPIKey) == "" {
+		return fmt.Errorf("TEAM_MEMORY_API_KEYS or TEAM_MEMORY_ADMIN_API_KEY is required")
+	}
+	return nil
+}
+
+func buildHTTPHandler(
+	runtime teamnote.Runtime,
+	store *postgres.Store,
+	config applicationConfig,
+	logger *slog.Logger,
+) (*handler.Handler, error) {
+	resolver := handler.StaticAPIKeys(config.apiKeys)
+	if strings.TrimSpace(config.adminAPIKey) == "" {
+		configured, err := handler.New(runtime, resolver, logger)
+		if err != nil {
+			return nil, fmt.Errorf("configure HTTP transport: %w", err)
+		}
+		return configured, nil
+	}
+	if store == nil {
+		return nil, fmt.Errorf("configure on-prem HTTP transport: postgres store is required")
+	}
+	credentials, err := onprem.NewCredentialService(store.Credentials(), onprem.CredentialConfig{
+		AdminAPIKey: config.adminAPIKey, RotationOverlap: config.credentialRotationOverlap,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("configure on-prem credentials: %w", err)
+	}
+	memory, err := recall.NewRouter(runtime, nil, recall.Config{EnablePassiveWikiHint: config.wikiHintEnabled})
+	if err != nil {
+		return nil, fmt.Errorf("configure recall router: %w", err)
+	}
+	configured, err := handler.NewOnPrem(runtime, resolver, credentials, memory, logger)
+	if err != nil {
+		return nil, fmt.Errorf("configure on-prem HTTP transport: %w", err)
+	}
+	return configured, nil
 }
 
 func loadAndValidateExtractionConfig(config *applicationConfig) error {
