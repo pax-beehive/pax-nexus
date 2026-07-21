@@ -91,6 +91,7 @@ func (s *routerSuite) TestPassiveSearchWaitsForWikiWhenEvidenceIsInsufficient() 
 	s.Equal(recall.DispositionHint, result.Hits[1].Disposition)
 	s.False(result.EvidenceSufficient)
 	s.Equal(recall.PathCompleted, result.Trace.WikiHint.Status)
+	s.Equal([]string{string(teamnote.RecallReasonFactCoverage)}, result.Trace.TeamNote.ReasonCodes)
 }
 
 func (s *routerSuite) TestWikiResultCannotReturnBeforeTeamNote() {
@@ -163,6 +164,39 @@ func (s *routerSuite) TestCompletedWikiHintIsDiscardedWhenTeamNoteIsSufficient()
 	s.Equal(recall.PathCompleted, result.Trace.WikiHint.Status)
 	s.Equal(1, result.Trace.WikiHint.Candidates)
 	s.Equal("discarded_sufficient_team_note_evidence", result.Trace.WikiHint.Reason)
+}
+
+func (s *routerSuite) TestDeadlineKeepsCompletedWikiHintWhenTeamNoteIsStillPending() {
+	teamRelease := make(chan struct{})
+	team := teamNotePathFunc(func(context.Context, teamnote.RecallRequest) (teamnote.NoteEnvelope, error) {
+		<-teamRelease
+		return teamnote.NoteEnvelope{}, nil
+	})
+	wikiCompleted := make(chan struct{})
+	wiki := &wikiPath{hint: func(context.Context, recall.SearchRequest) (recall.MemoryHit, error) {
+		close(wikiCompleted)
+		return recall.MemoryHit{Text: "Search the release runbook.", Tokens: 6}, nil
+	}}
+	router, err := recall.NewRouter(team, wiki, recall.Config{EnablePassiveWikiHint: true})
+	s.Require().NoError(err)
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
+	defer cancel()
+
+	done := make(chan searchOutcome, 1)
+	go func() {
+		result, searchErr := router.Search(ctx, passiveRequest())
+		done <- searchOutcome{result: result, err: searchErr}
+	}()
+	<-wikiCompleted
+	outcome := <-done
+	close(teamRelease)
+
+	s.Require().NoError(outcome.err)
+	result := outcome.result
+	s.Require().Len(result.Hits, 1)
+	s.Equal(recall.DispositionHint, result.Hits[0].Disposition)
+	s.Equal(recall.PathTimedOut, result.Trace.TeamNote.Status)
+	s.Equal(recall.PathCompleted, result.Trace.WikiHint.Status)
 }
 
 func (s *routerSuite) TestPassiveWikiFailureDegradesToTeamNoteEvidence() {

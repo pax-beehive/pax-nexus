@@ -47,16 +47,15 @@ func New(runtime teamnote.Runtime, resolver ScopeResolver, logger *slog.Logger) 
 
 func NewOnPrem(
 	runtime teamnote.Runtime,
-	resolver ScopeResolver,
 	credentials CredentialLifecycle,
 	memory recall.Service,
 	logger *slog.Logger,
 ) (*Handler, error) {
-	if runtime == nil || resolver == nil || credentials == nil || memory == nil || logger == nil {
-		return nil, fmt.Errorf("create on-prem HTTP handler: runtime, scope resolver, credentials, memory, and logger are required")
+	if runtime == nil || credentials == nil || memory == nil || logger == nil {
+		return nil, fmt.Errorf("create on-prem HTTP handler: runtime, credentials, memory, and logger are required")
 	}
 	return &Handler{
-		runtime: runtime, resolver: resolver, credentials: credentials, memory: memory, logger: logger,
+		runtime: runtime, resolver: StaticAPIKeys{}, credentials: credentials, memory: memory, logger: logger,
 	}, nil
 }
 

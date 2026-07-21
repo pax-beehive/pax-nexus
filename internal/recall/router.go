@@ -121,9 +121,23 @@ func (r *Router) searchPassive(ctx context.Context, request SearchRequest) (Sear
 			return r.finishPassive(ctx, cancel, request, team, hint, hintResults)
 		case <-ctx.Done():
 			cancel()
-			return SearchResult{Trace: Trace{
+			result := SearchResult{Trace: Trace{
 				TeamNote: timedOut(ctx.Err()), WikiHint: timedOut(ctx.Err()), WikiSearch: skipped("passive_search"),
-			}}, fmt.Errorf("search passive memory: %w", ctx.Err())
+			}}
+			if hint == nil && hintResults != nil {
+				select {
+				case current := <-hintResults:
+					hint = &current
+				default:
+				}
+			}
+			if hint != nil {
+				result = composeHint(result, *hint, request.TokenBudget)
+				if len(result.Hits) > 0 {
+					return result, nil
+				}
+			}
+			return result, fmt.Errorf("search passive memory: %w", ctx.Err())
 		}
 	}
 }
@@ -211,7 +225,10 @@ func teamNoteRequest(request SearchRequest) teamnote.RecallRequest {
 }
 
 func teamResult(outcome teamOutcome) SearchResult {
-	trace := PathTrace{DurationMS: outcome.duration.Milliseconds(), Candidates: len(outcome.envelope.Details)}
+	trace := PathTrace{
+		DurationMS: outcome.duration.Milliseconds(), Candidates: len(outcome.envelope.Details),
+		ReasonCodes: recallReasonCodes(outcome.envelope.Decision.ReasonCodes),
+	}
 	if outcome.err != nil {
 		trace.Status, trace.Error = pathFailure(context.Background(), outcome.err)
 	} else {
@@ -241,6 +258,14 @@ func teamResult(outcome teamOutcome) SearchResult {
 		Hits: hits, EvidenceSufficient: outcome.envelope.Decision.EvidenceSufficient,
 		Trace: Trace{TeamNote: trace},
 	}
+}
+
+func recallReasonCodes(values []teamnote.RecallReasonCode) []string {
+	result := make([]string, len(values))
+	for index, value := range values {
+		result[index] = string(value)
+	}
+	return result
 }
 
 func composeHint(result SearchResult, outcome hintOutcome, tokenBudget int) SearchResult {

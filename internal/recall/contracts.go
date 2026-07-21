@@ -76,6 +76,7 @@ type PathTrace struct {
 	BudgetDrops int
 	Error       string
 	Reason      string
+	ReasonCodes []string
 }
 
 type Trace struct {

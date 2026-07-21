@@ -196,6 +196,7 @@ remain a separate module decision; until that adapter is installed, active
 Wiki search/get is unavailable and `TEAM_MEMORY_WIKI_HINT_ENABLED` must remain
 false. The legacy session-batch and note-recall endpoints remain available only
 when `TEAM_MEMORY_API_KEYS` selects compatibility mode without an admin secret.
+The two authentication environment variables are mutually exclusive.
 
 See [the on-prem deployment decision](docs/decisions/2026-07-21-single-team-on-prem-deployment.md)
 for the identity, credential, recall composition, and module boundaries.
@@ -229,7 +230,8 @@ a self-contained HTML report. See [the evaluation runbook](evals/README.md).
 
 The Makefile owns IDL generation, mocks, formatting, linting, tests, the
 80-percent handwritten-code coverage gate, and the Docker eval. Pure Hertz
-generated model, router, and handler bridge files are excluded. Run `make generate`, `make
+generated model and router files are excluded; handler bridges count toward the
+gate, and PostgreSQL adapter coverage runs against PostgreSQL. Run `make generate`, `make
 mocks`, and `make lint test` after changing interfaces or implementation. Run
 `make docker-eval` with the model and extractor environment described in
 `evals/opencode/README.md`. Detailed coding rules live in `AGENTS.md`.

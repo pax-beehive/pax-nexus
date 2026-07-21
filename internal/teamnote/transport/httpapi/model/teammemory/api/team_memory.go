@@ -7324,12 +7324,13 @@ func (p *MemoryHit) String() string {
 }
 
 type RecallPathTrace struct {
-	Status      string  `thrift:"status,1,required" form:"status,required" json:"status,required" query:"status,required"`
-	DurationMs  int64   `thrift:"duration_ms,2,required" form:"duration_ms,required" json:"duration_ms,required" query:"duration_ms,required"`
-	Candidates  int32   `thrift:"candidates,3,required" form:"candidates,required" json:"candidates,required" query:"candidates,required"`
-	BudgetDrops int32   `thrift:"budget_drops,4,required" form:"budget_drops,required" json:"budget_drops,required" query:"budget_drops,required"`
-	Error       *string `thrift:"error,5,optional" form:"error" json:"error,omitempty" query:"error"`
-	Reason      *string `thrift:"reason,6,optional" form:"reason" json:"reason,omitempty" query:"reason"`
+	Status      string   `thrift:"status,1,required" form:"status,required" json:"status,required" query:"status,required"`
+	DurationMs  int64    `thrift:"duration_ms,2,required" form:"duration_ms,required" json:"duration_ms,required" query:"duration_ms,required"`
+	Candidates  int32    `thrift:"candidates,3,required" form:"candidates,required" json:"candidates,required" query:"candidates,required"`
+	BudgetDrops int32    `thrift:"budget_drops,4,required" form:"budget_drops,required" json:"budget_drops,required" query:"budget_drops,required"`
+	Error       *string  `thrift:"error,5,optional" form:"error" json:"error,omitempty" query:"error"`
+	Reason      *string  `thrift:"reason,6,optional" form:"reason" json:"reason,omitempty" query:"reason"`
+	ReasonCodes []string `thrift:"reason_codes,7,optional,list<string>" form:"reason_codes" json:"reason_codes,omitempty" query:"reason_codes"`
 }
 
 func NewRecallPathTrace() *RecallPathTrace {
@@ -7373,6 +7374,15 @@ func (p *RecallPathTrace) GetReason() (v string) {
 	return *p.Reason
 }
 
+var RecallPathTrace_ReasonCodes_DEFAULT []string
+
+func (p *RecallPathTrace) GetReasonCodes() (v []string) {
+	if !p.IsSetReasonCodes() {
+		return RecallPathTrace_ReasonCodes_DEFAULT
+	}
+	return p.ReasonCodes
+}
+
 var fieldIDToName_RecallPathTrace = map[int16]string{
 	1: "status",
 	2: "duration_ms",
@@ -7380,6 +7390,7 @@ var fieldIDToName_RecallPathTrace = map[int16]string{
 	4: "budget_drops",
 	5: "error",
 	6: "reason",
+	7: "reason_codes",
 }
 
 func (p *RecallPathTrace) IsSetError() bool {
@@ -7388,6 +7399,10 @@ func (p *RecallPathTrace) IsSetError() bool {
 
 func (p *RecallPathTrace) IsSetReason() bool {
 	return p.Reason != nil
+}
+
+func (p *RecallPathTrace) IsSetReasonCodes() bool {
+	return p.ReasonCodes != nil
 }
 
 func (p *RecallPathTrace) Read(iprot thrift.TProtocol) (err error) {
@@ -7460,6 +7475,14 @@ func (p *RecallPathTrace) Read(iprot thrift.TProtocol) (err error) {
 		case 6:
 			if fieldTypeId == thrift.STRING {
 				if err = p.ReadField6(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 7:
+			if fieldTypeId == thrift.LIST {
+				if err = p.ReadField7(iprot); err != nil {
 					goto ReadFieldError
 				}
 			} else if err = iprot.Skip(fieldTypeId); err != nil {
@@ -7581,6 +7604,29 @@ func (p *RecallPathTrace) ReadField6(iprot thrift.TProtocol) error {
 	p.Reason = _field
 	return nil
 }
+func (p *RecallPathTrace) ReadField7(iprot thrift.TProtocol) error {
+	_, size, err := iprot.ReadListBegin()
+	if err != nil {
+		return err
+	}
+	_field := make([]string, 0, size)
+	for i := 0; i < size; i++ {
+
+		var _elem string
+		if v, err := iprot.ReadString(); err != nil {
+			return err
+		} else {
+			_elem = v
+		}
+
+		_field = append(_field, _elem)
+	}
+	if err := iprot.ReadListEnd(); err != nil {
+		return err
+	}
+	p.ReasonCodes = _field
+	return nil
+}
 
 func (p *RecallPathTrace) Write(oprot thrift.TProtocol) (err error) {
 	var fieldId int16
@@ -7610,6 +7656,10 @@ func (p *RecallPathTrace) Write(oprot thrift.TProtocol) (err error) {
 		}
 		if err = p.writeField6(oprot); err != nil {
 			fieldId = 6
+			goto WriteFieldError
+		}
+		if err = p.writeField7(oprot); err != nil {
+			fieldId = 7
 			goto WriteFieldError
 		}
 	}
@@ -7734,6 +7784,33 @@ WriteFieldBeginError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 6 begin error: ", p), err)
 WriteFieldEndError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 6 end error: ", p), err)
+}
+
+func (p *RecallPathTrace) writeField7(oprot thrift.TProtocol) (err error) {
+	if p.IsSetReasonCodes() {
+		if err = oprot.WriteFieldBegin("reason_codes", thrift.LIST, 7); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteListBegin(thrift.STRING, len(p.ReasonCodes)); err != nil {
+			return err
+		}
+		for _, v := range p.ReasonCodes {
+			if err := oprot.WriteString(v); err != nil {
+				return err
+			}
+		}
+		if err := oprot.WriteListEnd(); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 7 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 7 end error: ", p), err)
 }
 
 func (p *RecallPathTrace) String() string {

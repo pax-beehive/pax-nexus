@@ -302,6 +302,9 @@ func loadAuthenticationConfig(config *applicationConfig) error {
 	} else if err := json.Unmarshal([]byte(apiKeys), &config.apiKeys); err != nil {
 		return fmt.Errorf("decode TEAM_MEMORY_API_KEYS: %w", err)
 	}
+	if len(config.apiKeys) > 0 && strings.TrimSpace(config.adminAPIKey) != "" {
+		return fmt.Errorf("TEAM_MEMORY_API_KEYS and TEAM_MEMORY_ADMIN_API_KEY select mutually exclusive authentication modes")
+	}
 	if len(config.apiKeys) == 0 && strings.TrimSpace(config.adminAPIKey) == "" {
 		return fmt.Errorf("TEAM_MEMORY_API_KEYS or TEAM_MEMORY_ADMIN_API_KEY is required")
 	}
@@ -314,9 +317,8 @@ func buildHTTPHandler(
 	config applicationConfig,
 	logger *slog.Logger,
 ) (*handler.Handler, error) {
-	resolver := handler.StaticAPIKeys(config.apiKeys)
 	if strings.TrimSpace(config.adminAPIKey) == "" {
-		configured, err := handler.New(runtime, resolver, logger)
+		configured, err := handler.New(runtime, handler.StaticAPIKeys(config.apiKeys), logger)
 		if err != nil {
 			return nil, fmt.Errorf("configure HTTP transport: %w", err)
 		}
@@ -335,7 +337,7 @@ func buildHTTPHandler(
 	if err != nil {
 		return nil, fmt.Errorf("configure recall router: %w", err)
 	}
-	configured, err := handler.NewOnPrem(runtime, resolver, credentials, memory, logger)
+	configured, err := handler.NewOnPrem(runtime, credentials, memory, logger)
 	if err != nil {
 		return nil, fmt.Errorf("configure on-prem HTTP transport: %w", err)
 	}

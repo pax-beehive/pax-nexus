@@ -128,6 +128,9 @@ func pathTraceToAPI(trace recall.PathTrace) *api.RecallPathTrace {
 	if trace.Reason != "" {
 		result.Reason = &trace.Reason
 	}
+	if len(trace.ReasonCodes) > 0 {
+		result.ReasonCodes = append([]string(nil), trace.ReasonCodes...)
+	}
 	return result
 }
 

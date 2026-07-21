@@ -42,7 +42,8 @@ func (s *dependencySuite) TestProductDependencyDirection() {
 		{name: "session lake is product independent", directory: "sessionlake", forbidden: []string{"teamnote", "eval", "llmwiki"}},
 		{name: "team note is independent", directory: "teamnote", forbidden: []string{"eval", "llmwiki", "recall", "deployment"}, excluded: []string{"transport"}},
 		{name: "HTTP transport is an outer adapter", directory: "teamnote/transport", forbidden: []string{"eval", "llmwiki"}},
-		{name: "LLM wiki is independent", directory: "llmwiki", forbidden: []string{"teamnote", "eval"}},
+		{name: "LLM wiki is independent", directory: "llmwiki", forbidden: []string{"teamnote", "eval", "recall"}},
+		{name: "recall router owns no adapters", directory: "recall", forbidden: []string{"eval", "llmwiki", "deployment", "platform", "teamnote/transport"}},
 	}
 	for _, test := range tests {
 		s.Run(test.name, func() {

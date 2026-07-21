@@ -110,6 +110,17 @@ func (s *configSuite) TestLoadsOnPremConfiguration() {
 	s.True(config.wikiHintEnabled)
 }
 
+func (s *configSuite) TestRejectsMixedLegacyAndOnPremAuthentication() {
+	s.T().Setenv("TEAM_MEMORY_DATABASE_URL", "postgres://database")
+	s.T().Setenv("TEAM_MEMORY_EXTRACTOR_MODE", "noop")
+	s.T().Setenv("TEAM_MEMORY_API_KEYS", `{"legacy":"other-scope"}`)
+	s.T().Setenv("TEAM_MEMORY_ADMIN_API_KEY", "admin-secret")
+
+	_, err := loadConfig()
+
+	s.Require().ErrorContains(err, "mutually exclusive")
+}
+
 func (s *configSuite) TestBuildHTTPHandlerKeepsLegacyModeWithoutAdminSecret() {
 	runtime := &runtimeStub{}
 	configured, err := buildHTTPHandler(runtime, nil, applicationConfig{apiKeys: map[string]string{"key": "scope"}}, slog.New(slog.DiscardHandler))

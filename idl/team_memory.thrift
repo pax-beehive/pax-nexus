@@ -165,6 +165,7 @@ struct RecallPathTrace {
   4: required i32 budget_drops
   5: optional string error
   6: optional string reason
+  7: optional list<string> reason_codes
 }
 
 struct MemorySearchTrace {

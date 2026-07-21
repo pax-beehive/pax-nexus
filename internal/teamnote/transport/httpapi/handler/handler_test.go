@@ -54,7 +54,6 @@ func (s *onPremHandlerSuite) SetupTest() {
 	s.memory = &memoryService{}
 	configured, err := handler.NewOnPrem(
 		s.runtime,
-		handler.StaticAPIKeys{"legacy": "legacy-scope"},
 		s.credentials,
 		s.memory,
 		slog.New(slog.DiscardHandler),
@@ -129,6 +128,13 @@ func (s *onPremHandlerSuite) TestOnPremEndpointsEnforceAuthenticationAndPermissi
 	response = perform(s.handler.CreateAgentEnrollment, http.MethodPost,
 		`{"user_id":"owner","agent_id":"agent-1"}`, "agent")
 	s.Equal(consts.StatusForbidden, response.Code)
+}
+
+func (s *onPremHandlerSuite) TestLegacyEndpointsAreDisabledInOnPremMode() {
+	response := perform(s.handler.RecallNotes, http.MethodPost,
+		`{"actor":{"user_id":"spoofed","agent_id":"spoofed","session_id":"session"},"token_budget":64}`, "legacy")
+
+	s.Equal(consts.StatusUnauthorized, response.Code)
 }
 
 func (s *onPremHandlerSuite) TestAuthenticationStoreFailureIsNotReportedAsBadCredentials() {
