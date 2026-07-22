@@ -277,6 +277,11 @@ struct EmptyResponse {
   1: required bool ok
 }
 
+struct ErrorResponse {
+  1: required string code
+  2: required string message
+}
+
 struct BootstrapClaimRequest {}
 
 struct HumanMeRequest {}
@@ -607,6 +612,7 @@ service TeamMemoryService {
   ListAgentProfilesResponse ListAdminAgents(1: ListAdminAgentsRequest request) (api.get="/v1/admin/agents")
   AgentProfileResponse GetAdminAgent(1: AdminAgentByIDRequest request) (api.get="/v1/admin/agents/:agent_id")
   AgentProfileResponse UpdateAdminAgent(1: UpdateAgentProfileRequest request) (api.patch="/v1/admin/agents/:agent_id")
+  AgentProfileResponse RetireAdminAgent(1: RetireAgentProfileRequest request) (api.delete="/v1/admin/agents/:agent_id")
   AgentProfileResponse TransferAdminAgent(1: TransferAgentRequest request) (api.post="/v1/admin/agents/:agent_id/transfer")
   ListAgentEnrollmentsResponse ListAdminAgentEnrollments(1: ListAgentArtifactsRequest request) (api.get="/v1/admin/agents/:agent_id/enrollments")
   AgentEnrollmentMetadataResponse RevokeAdminAgentEnrollment(1: AgentEnrollmentByIDRequest request) (api.delete="/v1/admin/agents/:agent_id/enrollments/:enrollment_id")

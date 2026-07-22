@@ -61,3 +61,19 @@ These rules apply to all handwritten Go code in this repository.
 - Split orchestration from decisions before adding linter suppressions.
 - `//nolint` requires the exact linter name and a concrete justification.
 - Run `make lint test` before handing off code.
+
+## Web frontend
+
+`web/` is a self-contained React + TypeScript + Vite app (the Human Portal);
+it has its own `package.json`, `tsconfig`, and build, and no Go code depends
+on it. The API contract is `docs/on-prem-identity-frontend-integration.md`.
+
+- Develop: `cd web && npm install && npm run dev` (proxies `/v1` to
+  `http://localhost:58080`, override with `VITE_API_ORIGIN`).
+- Test: `cd web && npm test` (vitest).
+- Build: `cd web && npm run build` (`tsc --noEmit` + `vite build`).
+- All mutations go through `web/src/api/actions.ts` (Idempotency-Key,
+  `resource_version` + `If-Match`, CSRF header); one-time secrets never touch
+  durable storage, server-visible URL components, or logs. Invitation tokens
+  may transit an immediately erased URL fragment and tab-scoped
+  `sessionStorage` solely to survive the OIDC round trip.

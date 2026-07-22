@@ -38,6 +38,7 @@ func Register(r *server.Hertz) {
 			}
 			{
 				_agents := _admin.Group("/agents", _agentsMw()...)
+				_agents.DELETE("/:agent_id", append(_retireadminagentMw(), handler.RetireAdminAgent)...)
 				_agents.GET("/:agent_id", append(_getadminagentMw(), handler.GetAdminAgent)...)
 				_agents.PATCH("/:agent_id", append(_updateadminagentMw(), handler.UpdateAdminAgent)...)
 				{

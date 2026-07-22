@@ -12765,6 +12765,207 @@ func (p *EmptyResponse) String() string {
 
 }
 
+type ErrorResponse struct {
+	Code    string `thrift:"code,1,required" form:"code,required" json:"code,required" query:"code,required"`
+	Message string `thrift:"message,2,required" form:"message,required" json:"message,required" query:"message,required"`
+}
+
+func NewErrorResponse() *ErrorResponse {
+	return &ErrorResponse{}
+}
+
+func (p *ErrorResponse) InitDefault() {
+}
+
+func (p *ErrorResponse) GetCode() (v string) {
+	return p.Code
+}
+
+func (p *ErrorResponse) GetMessage() (v string) {
+	return p.Message
+}
+
+var fieldIDToName_ErrorResponse = map[int16]string{
+	1: "code",
+	2: "message",
+}
+
+func (p *ErrorResponse) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+	var issetCode bool = false
+	var issetMessage bool = false
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 1:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField1(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetCode = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 2:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField2(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetMessage = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	if !issetCode {
+		fieldId = 1
+		goto RequiredFieldNotSetError
+	}
+
+	if !issetMessage {
+		fieldId = 2
+		goto RequiredFieldNotSetError
+	}
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_ErrorResponse[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+RequiredFieldNotSetError:
+	return thrift.NewTProtocolExceptionWithType(thrift.INVALID_DATA, fmt.Errorf("required field %s is not set", fieldIDToName_ErrorResponse[fieldId]))
+}
+
+func (p *ErrorResponse) ReadField1(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.Code = _field
+	return nil
+}
+func (p *ErrorResponse) ReadField2(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.Message = _field
+	return nil
+}
+
+func (p *ErrorResponse) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("ErrorResponse"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField1(oprot); err != nil {
+			fieldId = 1
+			goto WriteFieldError
+		}
+		if err = p.writeField2(oprot); err != nil {
+			fieldId = 2
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *ErrorResponse) writeField1(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("code", thrift.STRING, 1); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.Code); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 end error: ", p), err)
+}
+
+func (p *ErrorResponse) writeField2(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("message", thrift.STRING, 2); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.Message); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 2 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 2 end error: ", p), err)
+}
+
+func (p *ErrorResponse) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("ErrorResponse(%+v)", *p)
+
+}
+
 type BootstrapClaimRequest struct {
 }
 
@@ -25787,6 +25988,8 @@ type TeamMemoryService interface {
 
 	UpdateAdminAgent(ctx context.Context, request *UpdateAgentProfileRequest) (r *AgentProfileResponse, err error)
 
+	RetireAdminAgent(ctx context.Context, request *RetireAgentProfileRequest) (r *AgentProfileResponse, err error)
+
 	TransferAdminAgent(ctx context.Context, request *TransferAgentRequest) (r *AgentProfileResponse, err error)
 
 	ListAdminAgentEnrollments(ctx context.Context, request *ListAgentArtifactsRequest) (r *ListAgentEnrollmentsResponse, err error)
@@ -26194,6 +26397,15 @@ func (p *TeamMemoryServiceClient) UpdateAdminAgent(ctx context.Context, request 
 	}
 	return _result.GetSuccess(), nil
 }
+func (p *TeamMemoryServiceClient) RetireAdminAgent(ctx context.Context, request *RetireAgentProfileRequest) (r *AgentProfileResponse, err error) {
+	var _args TeamMemoryServiceRetireAdminAgentArgs
+	_args.Request = request
+	var _result TeamMemoryServiceRetireAdminAgentResult
+	if err = p.Client_().Call(ctx, "RetireAdminAgent", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
 func (p *TeamMemoryServiceClient) TransferAdminAgent(ctx context.Context, request *TransferAgentRequest) (r *AgentProfileResponse, err error) {
 	var _args TeamMemoryServiceTransferAdminAgentArgs
 	_args.Request = request
@@ -26345,6 +26557,7 @@ func NewTeamMemoryServiceProcessor(handler TeamMemoryService) *TeamMemoryService
 	self.AddToProcessorMap("ListAdminAgents", &teamMemoryServiceProcessorListAdminAgents{handler: handler})
 	self.AddToProcessorMap("GetAdminAgent", &teamMemoryServiceProcessorGetAdminAgent{handler: handler})
 	self.AddToProcessorMap("UpdateAdminAgent", &teamMemoryServiceProcessorUpdateAdminAgent{handler: handler})
+	self.AddToProcessorMap("RetireAdminAgent", &teamMemoryServiceProcessorRetireAdminAgent{handler: handler})
 	self.AddToProcessorMap("TransferAdminAgent", &teamMemoryServiceProcessorTransferAdminAgent{handler: handler})
 	self.AddToProcessorMap("ListAdminAgentEnrollments", &teamMemoryServiceProcessorListAdminAgentEnrollments{handler: handler})
 	self.AddToProcessorMap("RevokeAdminAgentEnrollment", &teamMemoryServiceProcessorRevokeAdminAgentEnrollment{handler: handler})
@@ -28278,6 +28491,54 @@ func (p *teamMemoryServiceProcessorUpdateAdminAgent) Process(ctx context.Context
 		result.Success = retval
 	}
 	if err2 = oprot.WriteMessageBegin("UpdateAdminAgent", thrift.REPLY, seqId); err2 != nil {
+		err = err2
+	}
+	if err2 = result.Write(oprot); err == nil && err2 != nil {
+		err = err2
+	}
+	if err2 = oprot.WriteMessageEnd(); err == nil && err2 != nil {
+		err = err2
+	}
+	if err2 = oprot.Flush(ctx); err == nil && err2 != nil {
+		err = err2
+	}
+	if err != nil {
+		return
+	}
+	return true, err
+}
+
+type teamMemoryServiceProcessorRetireAdminAgent struct {
+	handler TeamMemoryService
+}
+
+func (p *teamMemoryServiceProcessorRetireAdminAgent) Process(ctx context.Context, seqId int32, iprot, oprot thrift.TProtocol) (success bool, err thrift.TException) {
+	args := TeamMemoryServiceRetireAdminAgentArgs{}
+	if err = args.Read(iprot); err != nil {
+		iprot.ReadMessageEnd()
+		x := thrift.NewTApplicationException(thrift.PROTOCOL_ERROR, err.Error())
+		oprot.WriteMessageBegin("RetireAdminAgent", thrift.EXCEPTION, seqId)
+		x.Write(oprot)
+		oprot.WriteMessageEnd()
+		oprot.Flush(ctx)
+		return false, err
+	}
+
+	iprot.ReadMessageEnd()
+	var err2 error
+	result := TeamMemoryServiceRetireAdminAgentResult{}
+	var retval *AgentProfileResponse
+	if retval, err2 = p.handler.RetireAdminAgent(ctx, args.Request); err2 != nil {
+		x := thrift.NewTApplicationException(thrift.INTERNAL_ERROR, "Internal error processing RetireAdminAgent: "+err2.Error())
+		oprot.WriteMessageBegin("RetireAdminAgent", thrift.EXCEPTION, seqId)
+		x.Write(oprot)
+		oprot.WriteMessageEnd()
+		oprot.Flush(ctx)
+		return true, err2
+	} else {
+		result.Success = retval
+	}
+	if err2 = oprot.WriteMessageBegin("RetireAdminAgent", thrift.REPLY, seqId); err2 != nil {
 		err = err2
 	}
 	if err2 = result.Write(oprot); err == nil && err2 != nil {
@@ -40532,6 +40793,300 @@ func (p *TeamMemoryServiceUpdateAdminAgentResult) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("TeamMemoryServiceUpdateAdminAgentResult(%+v)", *p)
+
+}
+
+type TeamMemoryServiceRetireAdminAgentArgs struct {
+	Request *RetireAgentProfileRequest `thrift:"request,1"`
+}
+
+func NewTeamMemoryServiceRetireAdminAgentArgs() *TeamMemoryServiceRetireAdminAgentArgs {
+	return &TeamMemoryServiceRetireAdminAgentArgs{}
+}
+
+func (p *TeamMemoryServiceRetireAdminAgentArgs) InitDefault() {
+}
+
+var TeamMemoryServiceRetireAdminAgentArgs_Request_DEFAULT *RetireAgentProfileRequest
+
+func (p *TeamMemoryServiceRetireAdminAgentArgs) GetRequest() (v *RetireAgentProfileRequest) {
+	if !p.IsSetRequest() {
+		return TeamMemoryServiceRetireAdminAgentArgs_Request_DEFAULT
+	}
+	return p.Request
+}
+
+var fieldIDToName_TeamMemoryServiceRetireAdminAgentArgs = map[int16]string{
+	1: "request",
+}
+
+func (p *TeamMemoryServiceRetireAdminAgentArgs) IsSetRequest() bool {
+	return p.Request != nil
+}
+
+func (p *TeamMemoryServiceRetireAdminAgentArgs) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 1:
+			if fieldTypeId == thrift.STRUCT {
+				if err = p.ReadField1(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_TeamMemoryServiceRetireAdminAgentArgs[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+}
+
+func (p *TeamMemoryServiceRetireAdminAgentArgs) ReadField1(iprot thrift.TProtocol) error {
+	_field := NewRetireAgentProfileRequest()
+	if err := _field.Read(iprot); err != nil {
+		return err
+	}
+	p.Request = _field
+	return nil
+}
+
+func (p *TeamMemoryServiceRetireAdminAgentArgs) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("RetireAdminAgent_args"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField1(oprot); err != nil {
+			fieldId = 1
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *TeamMemoryServiceRetireAdminAgentArgs) writeField1(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("request", thrift.STRUCT, 1); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := p.Request.Write(oprot); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 end error: ", p), err)
+}
+
+func (p *TeamMemoryServiceRetireAdminAgentArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("TeamMemoryServiceRetireAdminAgentArgs(%+v)", *p)
+
+}
+
+type TeamMemoryServiceRetireAdminAgentResult struct {
+	Success *AgentProfileResponse `thrift:"success,0,optional"`
+}
+
+func NewTeamMemoryServiceRetireAdminAgentResult() *TeamMemoryServiceRetireAdminAgentResult {
+	return &TeamMemoryServiceRetireAdminAgentResult{}
+}
+
+func (p *TeamMemoryServiceRetireAdminAgentResult) InitDefault() {
+}
+
+var TeamMemoryServiceRetireAdminAgentResult_Success_DEFAULT *AgentProfileResponse
+
+func (p *TeamMemoryServiceRetireAdminAgentResult) GetSuccess() (v *AgentProfileResponse) {
+	if !p.IsSetSuccess() {
+		return TeamMemoryServiceRetireAdminAgentResult_Success_DEFAULT
+	}
+	return p.Success
+}
+
+var fieldIDToName_TeamMemoryServiceRetireAdminAgentResult = map[int16]string{
+	0: "success",
+}
+
+func (p *TeamMemoryServiceRetireAdminAgentResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *TeamMemoryServiceRetireAdminAgentResult) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 0:
+			if fieldTypeId == thrift.STRUCT {
+				if err = p.ReadField0(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_TeamMemoryServiceRetireAdminAgentResult[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+}
+
+func (p *TeamMemoryServiceRetireAdminAgentResult) ReadField0(iprot thrift.TProtocol) error {
+	_field := NewAgentProfileResponse()
+	if err := _field.Read(iprot); err != nil {
+		return err
+	}
+	p.Success = _field
+	return nil
+}
+
+func (p *TeamMemoryServiceRetireAdminAgentResult) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("RetireAdminAgent_result"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField0(oprot); err != nil {
+			fieldId = 0
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *TeamMemoryServiceRetireAdminAgentResult) writeField0(oprot thrift.TProtocol) (err error) {
+	if p.IsSetSuccess() {
+		if err = oprot.WriteFieldBegin("success", thrift.STRUCT, 0); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := p.Success.Write(oprot); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 0 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 0 end error: ", p), err)
+}
+
+func (p *TeamMemoryServiceRetireAdminAgentResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("TeamMemoryServiceRetireAdminAgentResult(%+v)", *p)
 
 }
 

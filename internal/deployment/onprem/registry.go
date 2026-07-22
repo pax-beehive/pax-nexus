@@ -252,7 +252,7 @@ func (s *RegistryService) UpdateOwnedAgent(
 		return AgentProfile{}, err
 	}
 	if request.ResourceVersion <= 0 || request.ResourceVersion != profile.ResourceVersion {
-		return AgentProfile{}, ErrAgentConflict
+		return AgentProfile{}, ErrResourceVersionConflict
 	}
 	if err := applyAgentUpdate(&profile, request, s.clock().UTC()); err != nil {
 		return AgentProfile{}, err
@@ -275,7 +275,7 @@ func (s *RegistryService) RetireOwnedAgent(
 		return AgentProfile{}, ErrAgentNotFound
 	}
 	if resourceVersion <= 0 {
-		return AgentProfile{}, ErrAgentConflict
+		return AgentProfile{}, ErrResourceVersionConflict
 	}
 	return s.store.RetireOwnedAgent(
 		ctx, principal.MembershipID, principal, agentID, resourceVersion,
@@ -476,7 +476,7 @@ func (s *RegistryService) UpdateAdminAgent(
 		return AgentProfile{}, err
 	}
 	if request.ResourceVersion <= 0 || request.ResourceVersion != profile.ResourceVersion {
-		return AgentProfile{}, ErrAgentConflict
+		return AgentProfile{}, ErrResourceVersionConflict
 	}
 	if principal.Role == RoleAdmin {
 		if request.Status == nil || *request.Status != AgentStatusSuspended ||
@@ -491,6 +491,32 @@ func (s *RegistryService) UpdateAdminAgent(
 	return s.store.UpdateOwnedAgent(ctx, profile.OwnerMembershipID, principal, profile)
 }
 
+func (s *RegistryService) RetireAdminAgent(
+	ctx context.Context,
+	principal HumanPrincipal,
+	agentID string,
+	resourceVersion int64,
+	idempotencyKey string,
+) (AgentProfile, error) {
+	if principal.Role != RoleOwner {
+		if err := authorizeHumanAdmin(principal); err != nil {
+			return AgentProfile{}, err
+		}
+		return AgentProfile{}, ErrForbidden
+	}
+	profile, err := s.GetAdminAgent(ctx, principal, agentID)
+	if err != nil {
+		return AgentProfile{}, err
+	}
+	if resourceVersion <= 0 {
+		return AgentProfile{}, ErrResourceVersionConflict
+	}
+	return s.store.RetireOwnedAgent(
+		ctx, profile.OwnerMembershipID, principal, profile.AgentID, resourceVersion,
+		strings.TrimSpace(idempotencyKey), s.clock().UTC(),
+	)
+}
+
 func (s *RegistryService) TransferAgent(
 	ctx context.Context,
 	principal HumanPrincipal,
@@ -503,12 +529,26 @@ func (s *RegistryService) TransferAgent(
 	if principal.Role != RoleOwner {
 		return AgentProfile{}, ErrForbidden
 	}
-	if strings.TrimSpace(agentID) == "" || strings.TrimSpace(request.TargetMembershipID) == "" ||
-		request.ResourceVersion <= 0 {
-		return AgentProfile{}, ErrAgentConflict
+	agentID = strings.TrimSpace(agentID)
+	targetMembershipID := strings.TrimSpace(request.TargetMembershipID)
+	if agentID == "" {
+		return AgentProfile{}, ErrAgentNotFound
+	}
+	if targetMembershipID == "" {
+		return AgentProfile{}, ErrInvalidIdentityInput
+	}
+	profile, err := s.GetAdminAgent(ctx, principal, agentID)
+	if err != nil {
+		return AgentProfile{}, err
+	}
+	if request.ResourceVersion <= 0 || request.ResourceVersion != profile.ResourceVersion {
+		return AgentProfile{}, ErrResourceVersionConflict
+	}
+	if profile.Status == AgentStatusRetired {
+		return AgentProfile{}, ErrInvalidStateTransition
 	}
 	return s.store.TransferAgent(
-		ctx, principal, strings.TrimSpace(agentID), strings.TrimSpace(request.TargetMembershipID),
+		ctx, principal, agentID, targetMembershipID,
 		request.ResourceVersion, s.clock().UTC(),
 	)
 }
@@ -662,19 +702,17 @@ func applyAgentUpdate(profile *AgentProfile, request UpdateAgentRequest, now tim
 		profile.DirectoryVisible = *request.DirectoryVisible
 	}
 	if request.Status != nil {
-		if *request.Status != AgentStatusActive && *request.Status != AgentStatusSuspended &&
-			*request.Status != AgentStatusRetired {
+		if *request.Status == AgentStatusRetired {
+			return ErrInvalidStateTransition
+		}
+		if *request.Status != AgentStatusActive && *request.Status != AgentStatusSuspended {
 			return fmt.Errorf("%w: unsupported agent status %q", ErrInvalidIdentityInput, *request.Status)
 		}
 		if profile.Status == AgentStatusRetired ||
 			(profile.Status != AgentStatusSuspended && *request.Status == AgentStatusActive) {
-			return ErrAgentConflict
+			return ErrInvalidStateTransition
 		}
 		profile.Status = *request.Status
-		if *request.Status == AgentStatusRetired {
-			retiredAt := now
-			profile.RetiredAt = &retiredAt
-		}
 	}
 	profile.UpdatedAt = now
 	profile.ResourceVersion++

@@ -50,3 +50,5 @@ tmp/
 .env.eval-v2
 .env.extraction-eval-v1
 evals/v2/config.local.yaml
+web/node_modules/
+web/dist/

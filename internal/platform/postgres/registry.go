@@ -49,7 +49,7 @@ func (s *RegistryStore) CreateAgent(
 		if profile.CreationIdempotencyKey != "" {
 			return s.resolveIdempotentAgentCreate(ctx, profile)
 		}
-		return onprem.AgentProfile{}, onprem.ErrAgentConflict
+		return onprem.AgentProfile{}, onprem.ErrAgentIDConflict
 	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		return onprem.AgentProfile{}, onprem.ErrForbidden
@@ -81,7 +81,7 @@ func (s *RegistryStore) resolveIdempotentAgentCreate(
 		WHERE agents.owner_membership_id = $1 AND agents.creation_idempotency_key = $2
 	`, requested.OwnerMembershipID, requested.CreationIdempotencyKey))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return onprem.AgentProfile{}, onprem.ErrAgentConflict
+		return onprem.AgentProfile{}, onprem.ErrAgentIDConflict
 	}
 	if err != nil {
 		return onprem.AgentProfile{}, fmt.Errorf("resolve idempotent agent creation: %w", err)
@@ -166,7 +166,7 @@ func (s *RegistryStore) UpdateOwnedAgent(
 	`, profile.AgentID, membershipID, profile.DisplayName, profile.Description, profile.AgentType,
 		profile.Status, profile.DirectoryVisible, profile.UpdatedAt, profile.RetiredAt, profile.ResourceVersion))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return onprem.AgentProfile{}, onprem.ErrAgentConflict
+		return onprem.AgentProfile{}, onprem.ErrResourceVersionConflict
 	}
 	if err != nil {
 		return onprem.AgentProfile{}, fmt.Errorf("update postgres owned agent: %w", err)
@@ -244,7 +244,7 @@ func (s *RegistryStore) RetireOwnedAgent(
 		          created_at, updated_at, retired_at, resource_version
 	`, agentID, membershipID, resourceVersion, idempotencyKey, now))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return onprem.AgentProfile{}, onprem.ErrAgentConflict
+		return onprem.AgentProfile{}, onprem.ErrResourceVersionConflict
 	}
 	if isUniqueViolation(err) {
 		return onprem.AgentProfile{}, onprem.ErrIdempotencyConflict
@@ -302,7 +302,9 @@ func (s *RegistryStore) TransferAgent(
 		          agents.retired_at, agents.resource_version
 	`, agentID, targetMembershipID, resourceVersion, now))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return onprem.AgentProfile{}, onprem.ErrAgentConflict
+		return onprem.AgentProfile{}, classifyTransferAgentConflict(
+			ctx, tx, agentID, targetMembershipID, resourceVersion,
+		)
 	}
 	if err != nil {
 		return onprem.AgentProfile{}, fmt.Errorf("transfer postgres agent ownership: %w", err)
@@ -327,6 +329,47 @@ func (s *RegistryStore) TransferAgent(
 		return onprem.AgentProfile{}, fmt.Errorf("commit agent transfer: %w", err)
 	}
 	return updated, nil
+}
+
+func classifyTransferAgentConflict(
+	ctx context.Context,
+	tx pgx.Tx,
+	agentID string,
+	targetMembershipID string,
+	resourceVersion int64,
+) error {
+	var currentVersion int64
+	var currentStatus onprem.AgentStatus
+	err := tx.QueryRow(ctx, `
+		SELECT resource_version, status FROM onprem_agents WHERE agent_id = $1
+	`, agentID).Scan(&currentVersion, &currentStatus)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return onprem.ErrAgentNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("classify agent transfer conflict: %w", err)
+	}
+	if currentVersion != resourceVersion {
+		return onprem.ErrResourceVersionConflict
+	}
+	if currentStatus == onprem.AgentStatusRetired {
+		return onprem.ErrInvalidStateTransition
+	}
+	var targetActive bool
+	if err := tx.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM onprem_memberships memberships
+			JOIN onprem_users users ON users.user_id = memberships.user_id
+			WHERE memberships.membership_id = $1 AND memberships.status = 'active'
+			  AND users.identity_status = 'active'
+		)
+	`, targetMembershipID).Scan(&targetActive); err != nil {
+		return fmt.Errorf("classify agent transfer target: %w", err)
+	}
+	if !targetActive {
+		return onprem.ErrMembershipConflict
+	}
+	return onprem.ErrAgentConflict
 }
 
 func (s *RegistryStore) CreateOwnedEnrollment(
