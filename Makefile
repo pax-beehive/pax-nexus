@@ -7,6 +7,7 @@ HZ := $(TOOLS_DIR)/hz
 MOCKGEN := $(TOOLS_DIR)/mockgen
 GOLANGCI_LINT := $(TOOLS_DIR)/golangci-lint
 GOLANGCI_LINT_CACHE ?= /tmp/team-memory-golangci-cache
+TEAM_MEMORY_TEST_POSTGRES_DSN ?= postgres://team_memory:team_memory@127.0.0.1:$${TEAM_MEMORY_POSTGRES_PORT:-55432}/team_memory?sslmode=disable
 
 # hz is versioned as the github.com/cloudwego/hertz/cmd/hz submodule. Its
 # releases do not use the Hertz runtime's version number.
@@ -103,8 +104,8 @@ test-scripts:
 	./scripts/test-zep-native-acceptance.sh
 
 integration-test: db-up
-	TEAM_MEMORY_TEST_POSTGRES_DSN=postgres://team_memory:team_memory@127.0.0.1:$${TEAM_MEMORY_POSTGRES_PORT:-55432}/team_memory?sslmode=disable \
-		GOCACHE=$${GOCACHE:-/tmp/team-memory-go-cache} go test -p 1 ./internal/platform/postgres ./internal/teamnote/extractionqueue ./internal/eval/stagecapture ./internal/eval/v2/postgresstore -count=1
+	TEAM_MEMORY_TEST_POSTGRES_DSN='$(TEAM_MEMORY_TEST_POSTGRES_DSN)' \
+		GOCACHE=$${GOCACHE:-/tmp/team-memory-go-cache} go test -p 1 ./internal/platform/postgres ./internal/teamnote/extractionqueue ./internal/teamnote/transport/httpapi/handler ./internal/eval/stagecapture ./internal/eval/v2/postgresstore -count=1
 
 onprem-e2e:
 	./scripts/onprem-e2e.sh
@@ -133,7 +134,7 @@ db-down:
 	docker compose down
 
 coverage: db-up
-	TEAM_MEMORY_TEST_POSTGRES_DSN=postgres://team_memory:team_memory@127.0.0.1:$${TEAM_MEMORY_POSTGRES_PORT:-55432}/team_memory?sslmode=disable \
+	TEAM_MEMORY_TEST_POSTGRES_DSN='$(TEAM_MEMORY_TEST_POSTGRES_DSN)' \
 		COVERAGE_MIN=$(COVERAGE_MIN) GOCACHE=$${GOCACHE:-/tmp/team-memory-go-cache} ./scripts/check-coverage.sh
 
 docker-eval:

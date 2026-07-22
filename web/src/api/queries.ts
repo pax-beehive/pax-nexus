@@ -163,3 +163,113 @@ export async function listAuditEvents(
   );
   return { items: res.audit_events, nextCursor: res.next_cursor };
 }
+
+export async function getAuditEvent(auditEventId: number): Promise<AuditEvent> {
+  const res = await humanFetch<{ audit_event: AuditEvent }>(
+    `/v1/admin/audit-events/${encodeURIComponent(auditEventId)}`,
+  );
+  return res.audit_event;
+}
+
+// ---- Admin: operations console (read-only, operations doc section 6) ----
+// Kept in a separate import so concurrent edits to the sections above never
+// conflict with this block.
+
+import type {
+  OperationEvent,
+  OperationKind,
+  OperationOutcome,
+  OperationsStorageSnapshot,
+  OperationsSummary,
+  RecallDiagnostic,
+} from "./types";
+
+export interface OperationsTimeFilter {
+  from?: string;
+  to?: string;
+  agent_id?: string;
+}
+
+export interface OperationEventFilter extends OperationsTimeFilter {
+  operation_kind?: OperationKind;
+  outcome?: OperationOutcome;
+  limit?: number;
+  cursor?: string;
+}
+
+export async function getOperationsSummary(
+  filter: OperationsTimeFilter,
+  signal?: AbortSignal,
+): Promise<OperationsSummary> {
+  return humanFetch<OperationsSummary>(
+    `/v1/admin/operations/summary${query({
+      from: filter.from,
+      to: filter.to,
+      agent_id: filter.agent_id,
+    })}`,
+    { signal },
+  );
+}
+
+export async function listOperationEvents(
+  filter: OperationEventFilter,
+  signal?: AbortSignal,
+): Promise<{ items: OperationEvent[]; nextCursor?: string; generatedAt: string }> {
+  const res = await humanFetch<{
+    events: OperationEvent[];
+    next_cursor?: string;
+    generated_at: string;
+  }>(
+    `/v1/admin/operations/events${query({
+      from: filter.from,
+      to: filter.to,
+      agent_id: filter.agent_id,
+      operation_kind: filter.operation_kind,
+      outcome: filter.outcome,
+      limit: filter.limit,
+      cursor: filter.cursor,
+    })}`,
+    { signal },
+  );
+  return { items: res.events, nextCursor: res.next_cursor, generatedAt: res.generated_at };
+}
+
+export async function getRecallDiagnostic(
+  observationId: number,
+  signal?: AbortSignal,
+): Promise<RecallDiagnostic> {
+  const res = await humanFetch<{ recall: RecallDiagnostic }>(
+    `/v1/admin/operations/recalls/${encodeURIComponent(String(observationId))}`,
+    { signal },
+  );
+  return res.recall;
+}
+
+export async function getOperationsStorage(
+  signal?: AbortSignal,
+): Promise<OperationsStorageSnapshot> {
+  const res = await humanFetch<{ storage: OperationsStorageSnapshot }>(
+    "/v1/admin/operations/storage",
+    { signal },
+  );
+  return res.storage;
+}
+
+export async function listOperationsStorageHistory(
+  filter: { from?: string; to?: string; limit?: number; cursor?: string },
+  signal?: AbortSignal,
+): Promise<{ items: OperationsStorageSnapshot[]; nextCursor?: string }> {
+  const res = await humanFetch<{
+    snapshots: OperationsStorageSnapshot[];
+    next_cursor?: string;
+  }>(
+    `/v1/admin/operations/storage/history${query({
+      from: filter.from,
+      to: filter.to,
+      limit: filter.limit,
+      cursor: filter.cursor,
+    })}`,
+    { signal },
+  );
+  return { items: res.snapshots, nextCursor: res.next_cursor };
+}

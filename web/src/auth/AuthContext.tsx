@@ -40,13 +40,20 @@ function classify(me: HumanMe): AuthState {
   return { kind: "active", me };
 }
 
+// Rolling upgrades may omit `capabilities` from /v1/me; normalize to an
+// empty list so the Operations console stays hidden instead of the UI
+// guessing access from the role (operations doc section 2.1).
+function withCapabilities(me: HumanMe): HumanMe {
+  return Array.isArray(me.capabilities) ? me : { ...me, capabilities: [] };
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>({ kind: "loading" });
 
   const refresh = useCallback(async () => {
     try {
       const me = await getMe();
-      setState(classify(me));
+      setState(classify(withCapabilities(me)));
     } catch (err) {
       if (err instanceof ApiError && err.status === 501) {
         setState({ kind: "not-configured" });

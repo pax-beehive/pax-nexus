@@ -174,6 +174,10 @@ lexical recall.
 
 ## Single-Team on-prem API
 
+For a workstation installation, follow the operator/agent runbook in
+[deployment-instruction.md](deployment-instruction.md); its checked-in
+loopback-port and Portal gateway configuration is under `deploy/workstation/`.
+
 The default Compose deployment represents one Team. Legacy headless setup uses
 `TEAM_MEMORY_ADMIN_API_KEY`; the human control plane instead requires
 `TEAM_MEMORY_BOOTSTRAP_SECRET` plus the complete `TEAM_MEMORY_OIDC_*` setting
@@ -221,9 +225,15 @@ for the envelope protocol and CLI integration boundary.
 [The accepted on-prem identity and Agent Registry decision](docs/decisions/2026-07-21-on-prem-identity-and-agent-registry.md)
 defines human invitations, roles, Agent ownership, self-service enrollment, and
 the Agent list/get directory APIs.
+[The accepted Operations monitor and storage accounting decision](docs/decisions/2026-07-22-on-prem-operations-monitor-and-storage.md)
+defines write/recall counters, recent activity, privacy-safe recall diagnostics,
+Session Lake and Team Memory sizing, and storage-history semantics.
 [The frontend integration guide](docs/on-prem-identity-frontend-integration.md)
 turns that contract into Portal user journeys, request rules, role behavior,
 one-time-secret handling, and edge-case acceptance scenarios.
+[The Operations frontend integration guide](docs/on-prem-operations-frontend-integration.md)
+defines the dashboard flow, typed API models, polling and pagination rules,
+privacy-safe recall detail, storage states, and frontend acceptance cases.
 
 Run `make onprem-e2e` for the container-only core-flow test. It builds Team
 Memory, a deterministic OpenAI-compatible extractor, a black-box test runner,

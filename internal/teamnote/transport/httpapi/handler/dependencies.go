@@ -9,6 +9,7 @@ import (
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/pax-beehive/pax-nexus/internal/deployment/onprem"
+	"github.com/pax-beehive/pax-nexus/internal/operations"
 	"github.com/pax-beehive/pax-nexus/internal/recall"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote"
 )
@@ -31,6 +32,8 @@ type Handler struct {
 	identity     HumanIdentityLifecycle
 	oidc         OIDCLifecycle
 	registry     AgentRegistryLifecycle
+	operations   OperationsLifecycle
+	recorder     operations.Recorder
 	portalURL    string
 	cookieSecure bool
 	logger       *slog.Logger
@@ -97,6 +100,14 @@ type AgentRegistryLifecycle interface {
 	RevokeAdminCredential(context.Context, onprem.HumanPrincipal, string, string, string) (onprem.AgentCredentialMetadata, error)
 }
 
+type OperationsLifecycle interface {
+	Summary(context.Context, onprem.HumanPrincipal, operations.TimeFilter) (operations.Summary, error)
+	ListEvents(context.Context, onprem.HumanPrincipal, operations.EventFilter) ([]operations.Event, error)
+	GetRecallDiagnostic(context.Context, onprem.HumanPrincipal, int64) (operations.RecallDiagnostic, error)
+	LatestStorage(context.Context, onprem.HumanPrincipal) (operations.StorageSnapshot, error)
+	ListStorage(context.Context, onprem.HumanPrincipal, operations.StorageFilter) ([]operations.StorageSnapshot, error)
+}
+
 type OnPremOption func(*Handler) error
 
 func WithAgentRegistry(registry AgentRegistryLifecycle) OnPremOption {
@@ -105,6 +116,17 @@ func WithAgentRegistry(registry AgentRegistryLifecycle) OnPremOption {
 			return fmt.Errorf("configure agent registry: registry is required")
 		}
 		configured.registry = registry
+		return nil
+	}
+}
+
+func WithOperations(service OperationsLifecycle, recorder operations.Recorder) OnPremOption {
+	return func(configured *Handler) error {
+		if service == nil || recorder == nil {
+			return fmt.Errorf("configure operations: service and recorder are required")
+		}
+		configured.operations = service
+		configured.recorder = recorder
 		return nil
 	}
 }

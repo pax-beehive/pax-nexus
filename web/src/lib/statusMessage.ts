@@ -1,7 +1,7 @@
 // Central HTTP status -> UI behavior mapping (integration doc section 9).
 // Stable error codes select precise recovery; the diagnostic message is never
-// string-matched. 429/Retry-After tolerance is
-// reserved here for a future rate limiter.
+// string-matched. A 429 surfaces the Retry-After hint parsed by the client;
+// automatic retries stay forbidden.
 
 import { ApiError } from "../api/client";
 
@@ -26,6 +26,9 @@ export function noticeForError(err: unknown, opts?: { conflict?: string }): Noti
     if (err.code === "invalid_state_transition") {
       return { kind: "warn", message: "当前状态不允许执行此操作，请刷新后确认" };
     }
+    if (err.code === "storage_not_available") {
+      return { kind: "warn", message: "Storage 统计暂不可用，请稍后重试" };
+    }
     switch (err.status) {
       case 400:
         return { kind: "warn", message: "请求格式有误，请检查输入后重试" };
@@ -42,11 +45,19 @@ export function noticeForError(err: unknown, opts?: { conflict?: string }): Noti
       case 422:
         return { kind: "warn", message: "输入不合法，请修正后重试" };
       case 429:
-        return { kind: "warn", message: "请求过于频繁，请稍后重试" };
+        return {
+          kind: "warn",
+          message:
+            err.retryAfterSeconds !== undefined
+              ? `请求过于频繁，请 ${err.retryAfterSeconds} 秒后重试`
+              : "请求过于频繁，请稍后重试",
+        };
       case 500:
         return { kind: "bad", message: "服务端错误，请稍后重试" };
       case 501:
         return { kind: "bad", message: "Human Identity 未配置，请联系运维检查安装配置" };
+      case 503:
+        return { kind: "bad", message: "服务暂时不可用，请稍后重试" };
       default:
         return { kind: "bad", message: `请求失败（HTTP ${err.status}）` };
     }

@@ -395,3 +395,43 @@ func _retireadminagentMw() []app.HandlerFunc {
 	// your code...
 	return nil
 }
+
+func _operationsMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _listoperationeventsMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _getoperationsstorageMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _getoperationssummaryMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _recallsMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _getrecalldiagnosticMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _storageMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _listoperationsstoragehistoryMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}

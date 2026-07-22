@@ -17,6 +17,7 @@ import (
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
 	"github.com/cloudwego/hertz/pkg/route"
 	"github.com/pax-beehive/pax-nexus/internal/deployment/onprem"
+	"github.com/pax-beehive/pax-nexus/internal/operations"
 	"github.com/pax-beehive/pax-nexus/internal/recall"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote/mocks"
@@ -42,6 +43,7 @@ type onPremHandlerSuite struct {
 	credentials *credentialService
 	memory      *memoryService
 	channel     *channelService
+	recorder    *operationsRecorder
 	handler     *handler.Handler
 }
 
@@ -55,12 +57,14 @@ func (s *onPremHandlerSuite) SetupTest() {
 	s.credentials = &credentialService{}
 	s.memory = &memoryService{}
 	s.channel = &channelService{}
+	s.recorder = &operationsRecorder{}
 	configured, err := handler.NewOnPrem(
 		s.runtime,
 		s.credentials,
 		s.memory,
 		s.channel,
 		slog.New(slog.DiscardHandler),
+		handler.WithOperations(&operationsLifecycle{now: time.Now().UTC()}, s.recorder),
 	)
 	s.Require().NoError(err)
 	s.handler = configured
@@ -109,6 +113,11 @@ func (s *onPremHandlerSuite) TestObservationBindsActorFromCredential() {
 	s.Equal(consts.StatusOK, response.Code)
 	s.Contains(response.Body.String(), `"accepted":1`)
 	s.Contains(response.Body.String(), `"idempotency_key":"batch-1"`)
+	s.Require().Len(s.recorder.events, 1)
+	s.Equal(operations.KindObservationObserve, s.recorder.events[0].Kind)
+	s.Equal(int64(1), s.recorder.events[0].AcceptedItems)
+	s.Equal("session-1", s.recorder.events[0].SessionID)
+	s.Equal("membership-1", s.recorder.events[0].Actor.MembershipID)
 }
 
 func (s *onPremHandlerSuite) TestMemorySearchAndGetBindPrincipal() {
@@ -124,6 +133,21 @@ func (s *onPremHandlerSuite) TestMemorySearchAndGetBindPrincipal() {
 	s.Equal(consts.StatusOK, get.Code)
 	s.Equal("agent-1", s.memory.getRequest.Actor.AgentID)
 	s.Contains(get.Body.String(), `"text":"Full document"`)
+	s.Require().Len(s.recorder.events, 2)
+	s.Equal(operations.KindMemorySearch, s.recorder.events[0].Kind)
+	s.Equal("recall_observation", s.recorder.events[0].DetailKind)
+	s.Equal("41", s.recorder.events[0].DetailID)
+	s.Equal(operations.KindMemoryGet, s.recorder.events[1].Kind)
+}
+
+func (s *onPremHandlerSuite) TestOperationRecordingFailureDoesNotChangeBusinessResponse() {
+	s.recorder.err = errors.New("operations database unavailable")
+
+	response := perform(s.handler.SearchMemory, http.MethodPost,
+		`{"intent":"passive","session_id":"session-1","query":"release","token_budget":64}`, "agent")
+
+	s.Equal(consts.StatusOK, response.Code)
+	s.Contains(response.Body.String(), `"disposition":"evidence"`)
 }
 
 func (s *onPremHandlerSuite) TestChannelEndpointsBindPrincipalAndPreservePayload() {
@@ -170,6 +194,10 @@ func (s *onPremHandlerSuite) TestChannelEndpointsBindPrincipalAndPreservePayload
 	)
 	s.Equal(consts.StatusOK, accepted.Code)
 	s.Equal("tm_env_1", s.channel.acceptedID)
+	s.Require().Len(s.recorder.events, 2)
+	s.Equal(operations.KindChannelSend, s.recorder.events[0].Kind)
+	s.Equal("tm_env_1", s.recorder.events[0].DetailID)
+	s.Equal(operations.KindChannelAccept, s.recorder.events[1].Kind)
 }
 
 func (s *onPremHandlerSuite) TestOnPremEndpointsEnforceAuthenticationAndPermission() {
@@ -180,6 +208,12 @@ func (s *onPremHandlerSuite) TestOnPremEndpointsEnforceAuthenticationAndPermissi
 	s.Equal(consts.StatusForbidden, response.Code)
 	response = perform(s.handler.SendChannelEnvelope, http.MethodPost, `{}`, "memory-only")
 	s.Equal(consts.StatusForbidden, response.Code)
+	response = perform(s.handler.SearchMemory, http.MethodPost, `{}`, "memory-only")
+	s.Equal(consts.StatusForbidden, response.Code)
+	s.Require().Len(s.recorder.events, 2)
+	s.Equal(operations.KindChannelSend, s.recorder.events[0].Kind)
+	s.Equal(operations.OutcomeRejected, s.recorder.events[1].Outcome)
+	s.Equal("forbidden", s.recorder.events[1].ErrorCode)
 }
 
 func (s *onPremHandlerSuite) TestLegacyEndpointsAreDisabledInOnPremMode() {
@@ -217,6 +251,35 @@ func (s *onPremHandlerSuite) TestGeneratedRoutesDispatchToConfiguredOnPremHandle
 	s.Contains(response.Body.String(), `"credential_id":"credential-1"`)
 }
 
+func (s *onPremHandlerSuite) TestCompatibleTeamNoteRecallUsesAgentIdentityAndRecordsOperation() {
+	s.runtime.EXPECT().RecallNotes(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, request teamnote.RecallRequest) (teamnote.NoteEnvelope, error) {
+			scopeID, err := teamnote.ScopeFromContext(ctx)
+			s.Require().NoError(err)
+			s.Equal(onprem.LocalScopeID, scopeID)
+			s.Equal("owner", request.Actor.UserID)
+			s.Equal("agent-1", request.Actor.AgentID)
+			s.Equal("compat-session", request.Actor.SessionID)
+			return teamnote.NoteEnvelope{
+				ObservationID: 41,
+				Details:       []teamnote.RecalledNote{{NoteID: "note-1", Text: "safe for the agent"}},
+			}, nil
+		},
+	)
+	body := `{"actor":{"user_id":"spoofed","agent_id":"spoofed","session_id":"compat-session"},"query":"status","token_budget":64}`
+
+	response := perform(s.handler.RecallNotes, http.MethodPost, body, "agent")
+
+	s.Equal(consts.StatusOK, response.Code)
+	s.Require().Len(s.recorder.events, 1)
+	event := s.recorder.events[0]
+	s.Equal(operations.KindTeamNoteRecall, event.Kind)
+	s.Equal(operations.OutcomeSucceeded, event.Outcome)
+	s.Equal("recall_observation", event.DetailKind)
+	s.Equal("41", event.DetailID)
+	s.Equal(int64(1), event.DeliveredItems)
+}
+
 type credentialService struct {
 	revokedID   string
 	authErr     error
@@ -232,7 +295,8 @@ func (s *credentialService) Authenticate(_ context.Context, apiKey string) (onpr
 		return onprem.Principal{ScopeID: onprem.LocalScopeID, Permissions: []onprem.Permission{onprem.PermissionAdmin}}, nil
 	case "agent":
 		return onprem.Principal{
-			UserID: "owner", AgentID: "agent-1", ScopeID: onprem.LocalScopeID, CredentialID: "credential-1",
+			UserID: "owner", MembershipID: "membership-1", AgentID: "agent-1",
+			ScopeID: onprem.LocalScopeID, CredentialID: "credential-1",
 			Permissions: []onprem.Permission{
 				onprem.PermissionObserve,
 				onprem.PermissionSearch,
@@ -366,10 +430,10 @@ func (s *memoryService) Search(_ context.Context, request recall.SearchRequest) 
 		Hits:               []recall.MemoryHit{{Ref: "note:1", Text: "Release approved.", Disposition: recall.DispositionEvidence}},
 		EvidenceSufficient: true,
 		Trace: recall.Trace{
-			TeamNote:   recall.PathTrace{Status: recall.PathCompleted},
+			TeamNote:   recall.PathTrace{Status: recall.PathCompleted, Candidates: 1},
 			WikiHint:   recall.PathTrace{Status: recall.PathSkipped},
 			WikiSearch: recall.PathTrace{Status: recall.PathSkipped},
-		},
+		}, ObservationID: 41,
 	}, nil
 }
 
@@ -422,6 +486,11 @@ func TestGeneratedBridgesRequireAHandlerInstance(t *testing.T) {
 		{name: "get channel envelope", bridge: handler.GetChannelEnvelope},
 		{name: "accept channel envelope", bridge: handler.AcceptChannelEnvelope},
 		{name: "archive channel envelope", bridge: handler.ArchiveChannelEnvelope},
+		{name: "operations summary", bridge: handler.GetOperationsSummary},
+		{name: "operation events", bridge: handler.ListOperationEvents},
+		{name: "recall diagnostic", bridge: handler.GetRecallDiagnostic},
+		{name: "operations storage", bridge: handler.GetOperationsStorage},
+		{name: "operations storage history", bridge: handler.ListOperationsStorageHistory},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()

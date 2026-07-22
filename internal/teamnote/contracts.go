@@ -44,6 +44,9 @@ type NoteEnvelope struct {
 	Tokens   int                   `json:"tokens"`
 	Details  []RecalledNote        `json:"details,omitempty"`
 	Decision RecallDecisionSummary `json:"decision"`
+	// ObservationID links successful durable recalls to an administrative
+	// diagnostic without exposing the identifier in product JSON responses.
+	ObservationID int64 `json:"-"`
 }
 
 // RecallReasonCode identifies a stable reason why the selected evidence is

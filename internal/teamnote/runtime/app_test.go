@@ -220,7 +220,14 @@ func (s *appSuite) TestProcessExtractionFiltersInadmissibleCandidates() {
 }
 
 func (s *appSuite) TestProcessExtractionCommitsQuarantinedRun() {
-	app := s.app
+	observations := make([]teamruntime.ExtractionObservation, 0, 1)
+	app, err := teamruntime.New(sessionlake.New(s.repository), s.extractor, teamruntime.Config{
+		Logger: slog.New(slog.NewJSONHandler(&s.logs, nil)),
+		ExtractionObserver: func(_ context.Context, observation teamruntime.ExtractionObservation) {
+			observations = append(observations, observation)
+		},
+	})
+	s.Require().NoError(err)
 	ctx := teamnote.WithScope(context.Background(), "scope-quarantine")
 	actor := teamnote.Actor{UserID: "owner", AgentID: "producer", SessionID: "producer-session"}
 	event := runtimeEvent("event-quarantine", actor)
@@ -229,7 +236,7 @@ func (s *appSuite) TestProcessExtractionCommitsQuarantinedRun() {
 		Subject: "never created", TaskRef: "release-42",
 		Origin: actor, EvidenceEventIDs: []string{event.ID},
 	}}}
-	_, err := app.ObserveSession(ctx, teamnote.SessionBatch{Events: []teamnote.SessionEvent{event}, Complete: true})
+	_, err = app.ObserveSession(ctx, teamnote.SessionBatch{Events: []teamnote.SessionEvent{event}, Complete: true})
 	s.Require().NoError(err)
 
 	more, err := app.ProcessExtraction(ctx, actor, 1, false)
@@ -238,6 +245,10 @@ func (s *appSuite) TestProcessExtractionCommitsQuarantinedRun() {
 	s.Equal(int64(1), s.repository.cursors[runtimeStreamKey("scope-quarantine", actor)])
 	s.Contains(s.logs.String(), `"msg":"extraction run quarantined"`)
 	s.Contains(s.logs.String(), `"quarantined":true`)
+	s.Require().Len(observations, 1)
+	s.Equal(teamruntime.ExtractionQuarantined, observations[0].Status)
+	s.NotEmpty(observations[0].RunID)
+	s.Equal(int64(1), observations[0].InputEvents)
 
 	envelope, err := app.RecallNotes(ctx, teamnote.RecallRequest{
 		Actor:   teamnote.Actor{UserID: "owner", AgentID: "consumer", SessionID: "consumer-session"},

@@ -888,6 +888,7 @@ func mutationResourceVersion(c *app.RequestContext, bodyVersion int64) (int64, e
 func humanPrincipalToAPI(principal onprem.HumanPrincipal) *api.HumanMeResponse {
 	response := &api.HumanMeResponse{
 		UserID: principal.UserID, EmailVerified: principal.EmailVerified,
+		Capabilities: humanCapabilitiesToAPI(principal.Capabilities()),
 	}
 	if principal.Email != "" {
 		response.Email = &principal.Email
@@ -900,6 +901,14 @@ func humanPrincipalToAPI(principal onprem.HumanPrincipal) *api.HumanMeResponse {
 		response.MembershipStatus = &status
 	}
 	return response
+}
+
+func humanCapabilitiesToAPI(capabilities []onprem.HumanCapability) []string {
+	result := make([]string, 0, len(capabilities))
+	for _, capability := range capabilities {
+		result = append(result, string(capability))
+	}
+	return result
 }
 
 func invitationToAPI(invitation onprem.Invitation) *api.InvitationResponse {

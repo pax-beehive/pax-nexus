@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { can, canManageTargetRole, canRevokeInvitation, type Capability } from "../src/lib/capabilities";
-import type { Role } from "../src/api/types";
+import {
+  can,
+  canManageTargetRole,
+  canRevokeInvitation,
+  hasServerCapability,
+  type Capability,
+} from "../src/lib/capabilities";
+import type { HumanMe, Role } from "../src/api/types";
 
 // Expectations transcribed from the capability matrix (doc section 2.2).
 const MATRIX: Record<Capability, Record<Role, boolean>> = {
@@ -54,5 +60,57 @@ describe("target-aware helpers", () => {
     expect(canRevokeInvitation("admin", "member")).toBe(true);
     expect(canRevokeInvitation("admin", "admin")).toBe(false);
     expect(canRevokeInvitation("owner", "admin")).toBe(true);
+  });
+});
+
+// Server-issued capabilities gate the Operations console (operations doc 2.1).
+describe("hasServerCapability", () => {
+  const me = (over: Partial<HumanMe>): HumanMe => ({
+    user_id: "usr_01",
+    email_verified: true,
+    membership_id: "mbr_01",
+    membership_status: "active",
+    capabilities: [],
+    ...over,
+  });
+
+  it("grants an active membership that lists the capability", () => {
+    expect(hasServerCapability(me({ capabilities: ["view.operations"] }), "view.operations")).toBe(
+      true,
+    );
+  });
+
+  it("denies a suspended or removed membership even when the capability is listed", () => {
+    expect(
+      hasServerCapability(
+        me({ membership_status: "suspended", capabilities: ["view.operations"] }),
+        "view.operations",
+      ),
+    ).toBe(false);
+    expect(
+      hasServerCapability(
+        me({ membership_status: "removed", capabilities: ["view.operations"] }),
+        "view.operations",
+      ),
+    ).toBe(false);
+  });
+
+  it("denies when the capability is absent or unknown", () => {
+    expect(hasServerCapability(me({}), "view.operations")).toBe(false);
+    expect(hasServerCapability(me({ capabilities: ["something.else"] }), "view.operations")).toBe(
+      false,
+    );
+  });
+
+  it("ignores unknown capabilities instead of granting anything", () => {
+    expect(hasServerCapability(me({ capabilities: ["view.operations"] }), "view.future")).toBe(
+      false,
+    );
+  });
+
+  it("treats a missing capabilities field (rolling upgrade) as an empty list", () => {
+    const legacy = me({});
+    delete (legacy as { capabilities?: string[] }).capabilities;
+    expect(hasServerCapability(legacy, "view.operations")).toBe(false);
   });
 });

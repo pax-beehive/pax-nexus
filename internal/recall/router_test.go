@@ -27,7 +27,9 @@ func (s *routerSuite) TestPassiveSearchStartsBothPathsAndCancelsWikiAfterSuffici
 	team := teamNotePathFunc(func(context.Context, teamnote.RecallRequest) (teamnote.NoteEnvelope, error) {
 		close(teamStarted)
 		<-wikiStarted
-		return sufficientEnvelope("The release is Friday."), nil
+		envelope := sufficientEnvelope("The release is Friday.")
+		envelope.ObservationID = 41
+		return envelope, nil
 	})
 	wiki := &wikiPath{
 		hint: func(ctx context.Context, _ recall.SearchRequest) (recall.MemoryHit, error) {
@@ -46,6 +48,7 @@ func (s *routerSuite) TestPassiveSearchStartsBothPathsAndCancelsWikiAfterSuffici
 	s.Require().Len(result.Hits, 1)
 	s.Equal(recall.DispositionEvidence, result.Hits[0].Disposition)
 	s.True(result.EvidenceSufficient)
+	s.Equal(int64(41), result.ObservationID)
 	s.Equal(recall.PathCompleted, result.Trace.TeamNote.Status)
 	s.Equal(recall.PathCancelled, result.Trace.WikiHint.Status)
 	s.Eventually(func() bool {

@@ -13,22 +13,30 @@ const listenAddress = ":8081"
 
 func main() {
 	if len(os.Args) == 2 && os.Args[1] == "healthcheck" {
-		if err := checkHealth(); err != nil {
+		if err := checkHealth(&http.Client{Timeout: time.Second}, "http://127.0.0.1:8081/healthz"); err != nil {
 			log.Print(err)
 			os.Exit(1)
 		}
 		return
 	}
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", health)
-	mux.HandleFunc("POST /v1/chat/completions", complete)
-	server := &http.Server{
-		Addr: listenAddress, Handler: mux,
-		ReadHeaderTimeout: 2 * time.Second, ReadTimeout: 2 * time.Second, WriteTimeout: 2 * time.Second,
-	}
+	server := newServer()
 	if err := server.ListenAndServe(); err != nil {
 		log.Fatalf("serve deterministic extractor: %v", err)
 	}
+}
+
+func newServer() *http.Server {
+	return &http.Server{
+		Addr: listenAddress, Handler: newHandler(),
+		ReadHeaderTimeout: 2 * time.Second, ReadTimeout: 2 * time.Second, WriteTimeout: 2 * time.Second,
+	}
+}
+
+func newHandler() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /healthz", health)
+	mux.HandleFunc("POST /v1/chat/completions", complete)
+	return mux
 }
 
 func health(response http.ResponseWriter, _ *http.Request) {
@@ -50,9 +58,8 @@ func complete(response http.ResponseWriter, request *http.Request) {
 	}
 }
 
-func checkHealth() error {
-	client := &http.Client{Timeout: time.Second}
-	response, err := client.Get("http://127.0.0.1:8081/healthz")
+func checkHealth(client *http.Client, endpoint string) error {
+	response, err := client.Get(endpoint)
 	if err != nil {
 		return fmt.Errorf("check deterministic extractor health: %w", err)
 	}

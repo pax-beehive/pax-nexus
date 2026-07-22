@@ -15,6 +15,10 @@ const (
 	RoleMember Role = "member"
 )
 
+type HumanCapability string
+
+const CapabilityViewOperations HumanCapability = "view.operations"
+
 type HumanPrincipal struct {
 	UserID           string
 	MembershipID     string
@@ -23,6 +27,25 @@ type HumanPrincipal struct {
 	Email            string
 	EmailVerified    bool
 	SessionID        string
+}
+
+func (p HumanPrincipal) HasCapability(capability HumanCapability) bool {
+	if p.MembershipStatus != MembershipStatusActive {
+		return false
+	}
+	switch capability {
+	case CapabilityViewOperations:
+		return p.Role == RoleOwner || p.Role == RoleAdmin
+	default:
+		return false
+	}
+}
+
+func (p HumanPrincipal) Capabilities() []HumanCapability {
+	if p.HasCapability(CapabilityViewOperations) {
+		return []HumanCapability{CapabilityViewOperations}
+	}
+	return []HumanCapability{}
 }
 
 type AgentStatus string

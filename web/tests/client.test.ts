@@ -19,6 +19,7 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -110,5 +111,60 @@ describe("humanFetch", () => {
 
     stubFetch(async () => new Response(null, { status: 200 }));
     await expect(humanFetch("/v1/x", { method: "DELETE" })).resolves.toBeUndefined();
+  });
+
+  it("exposes Retry-After delay-seconds on a 429 ApiError", async () => {
+    stubDocument("tm_csrf=tok");
+    stubFetch(
+      async () =>
+        new Response(JSON.stringify({ code: "rate_limited", message: "slow down" }), {
+          status: 429,
+          headers: { "Content-Type": "application/json", "Retry-After": "30" },
+        }),
+    );
+    const err = await humanFetch("/v1/me").catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect((err as ApiError).status).toBe(429);
+    expect((err as ApiError).code).toBe("rate_limited");
+    expect((err as ApiError).retryAfterSeconds).toBe(30);
+  });
+
+  it("supports the HTTP-date form of Retry-After", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-22T12:00:00Z"));
+    stubDocument("tm_csrf=tok");
+    stubFetch(
+      async () =>
+        new Response("slow down", {
+          status: 429,
+          headers: { "Retry-After": new Date("2026-07-22T12:00:45Z").toUTCString() },
+        }),
+    );
+    const err = await humanFetch("/v1/me").catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect((err as ApiError).retryAfterSeconds).toBe(45);
+  });
+
+  it("leaves retryAfterSeconds undefined without a usable Retry-After header", async () => {
+    stubDocument("tm_csrf=tok");
+    stubFetch(async () => new Response("slow down", { status: 429 }));
+    let err = await humanFetch("/v1/me").catch((e: unknown) => e);
+    expect((err as ApiError).retryAfterSeconds).toBeUndefined();
+
+    stubFetch(
+      async () => new Response("slow down", { status: 429, headers: { "Retry-After": "soon" } }),
+    );
+    err = await humanFetch("/v1/me").catch((e: unknown) => e);
+    expect((err as ApiError).retryAfterSeconds).toBeUndefined();
+  });
+
+  it("ignores Retry-After on non-429 responses", async () => {
+    stubDocument("tm_csrf=tok");
+    stubFetch(
+      async () => new Response("boom", { status: 500, headers: { "Retry-After": "10" } }),
+    );
+    const err = await humanFetch("/v1/me").catch((e: unknown) => e);
+    expect((err as ApiError).status).toBe(500);
+    expect((err as ApiError).retryAfterSeconds).toBeUndefined();
   });
 });
