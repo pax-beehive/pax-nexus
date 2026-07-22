@@ -231,6 +231,9 @@ Session Lake and Team Memory sizing, and storage-history semantics.
 [The frontend integration guide](docs/on-prem-identity-frontend-integration.md)
 turns that contract into Portal user journeys, request rules, role behavior,
 one-time-secret handling, and edge-case acceptance scenarios.
+[The Operations frontend integration guide](docs/on-prem-operations-frontend-integration.md)
+defines the dashboard flow, typed API models, polling and pagination rules,
+privacy-safe recall detail, storage states, and frontend acceptance cases.
 
 Run `make onprem-e2e` for the container-only core-flow test. It builds Team
 Memory, a deterministic OpenAI-compatible extractor, a black-box test runner,

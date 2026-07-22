@@ -2,7 +2,7 @@
 
 状态：基于 `idl/team_memory.thrift` 和当前 Hertz handler 的已实现契约。
 
-本文面向 Human Portal 前端，覆盖首次安装、OIDC 登录、邀请加入、成员治理、个人 Agent 注册、一次性 Enrollment、Agent Credential 元数据和管理员审计。架构原因与数据模型见 [On-prem Identity and Agent Registry ADR](./decisions/2026-07-21-on-prem-identity-and-agent-registry.md)。
+本文面向 Human Portal 前端，覆盖首次安装、OIDC 登录、邀请加入、成员治理、个人 Agent 注册、一次性 Enrollment、Agent Credential 元数据和管理员审计。架构原因与数据模型见 [On-prem Identity and Agent Registry ADR](./decisions/2026-07-21-on-prem-identity-and-agent-registry.md)。Operations 管理页另见 [On-prem Operations 前端接入指南](./on-prem-operations-frontend-integration.md)。
 
 ## 1. 当前接入边界
 
@@ -34,6 +34,7 @@
 | 邀请 Member | 是 | 是 | 否 |
 | 邀请 Admin | 是 | 否 | 否 |
 | 查看成员和审计 | 是 | 是 | 否 |
+| 查看 Operations | 是 | 是 | 否 |
 | 管理 Member | 是 | 是 | 否 |
 | 管理 Owner/Admin | 是 | 否 | 否 |
 | 管理自己的 Agent | 是 | 是 | 是 |
@@ -221,9 +222,14 @@ flowchart TD
   "email_verified": true,
   "membership_id": "mbr_01",
   "role": "member",
-  "membership_status": "active"
+  "membership_status": "active",
+  "capabilities": []
 }
 ```
+
+`capabilities` 是 required string list。当前显式发布 `view.operations`；新增 Operations
+入口应按该服务端 capability 判断，未知值忽略。其他既有入口暂时仍使用角色 matrix，但任何
+前端判定都不能覆盖后端逐请求授权。
 
 建议路由判定：
 

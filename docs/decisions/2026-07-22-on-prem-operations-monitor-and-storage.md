@@ -266,8 +266,9 @@ GET /v1/admin/operations/storage/history
   同一个精确瞬间。
 
 summary 的 response 使用写入、extraction、recall、latency 分组字段，不返回通用
-`write_count`。latency 只统计 `memory.search` 和兼容 `team_note.recall`；v1 在至少 2 个样本时
-返回 p50、至少 20 个样本时返回 p95，样本不足返回 null 和 sample count。
+`write_count`。latency 统计 `memory.search`、`memory.get` 和兼容 `team_note.recall`；v1 在至少
+2 个样本时返回 p50、至少 20 个样本时返回 p95，样本不足时 optional percentile 字段缺失，
+同时返回 sample count。
 
 ### 8. Portal 增加 Operations 页面，Audit 保持独立
 
