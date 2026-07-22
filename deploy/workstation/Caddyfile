@@ -1,0 +1,18 @@
+https://{$TEAM_MEMORY_PORTAL_HOST} {
+	tls internal
+	encode zstd gzip
+
+	handle /v1/* {
+		reverse_proxy team-memory:8080
+	}
+
+	handle /healthz {
+		reverse_proxy team-memory:8080
+	}
+
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+}

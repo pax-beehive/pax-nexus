@@ -174,6 +174,10 @@ lexical recall.
 
 ## Single-Team on-prem API
 
+For a workstation installation, follow the operator/agent runbook in
+[deployment-instruction.md](deployment-instruction.md); its checked-in
+loopback-port and Portal gateway configuration is under `deploy/workstation/`.
+
 The default Compose deployment represents one Team. Legacy headless setup uses
 `TEAM_MEMORY_ADMIN_API_KEY`; the human control plane instead requires
 `TEAM_MEMORY_BOOTSTRAP_SECRET` plus the complete `TEAM_MEMORY_OIDC_*` setting

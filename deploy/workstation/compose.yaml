@@ -1,0 +1,32 @@
+services:
+  postgres:
+    environment:
+      POSTGRES_PASSWORD: ${TEAM_MEMORY_POSTGRES_PASSWORD:?set TEAM_MEMORY_POSTGRES_PASSWORD}
+    ports: !override
+      - "127.0.0.1:${TEAM_MEMORY_POSTGRES_PORT:-55432}:5432"
+
+  team-memory:
+    environment:
+      TEAM_MEMORY_DATABASE_URL: postgres://team_memory:${TEAM_MEMORY_POSTGRES_PASSWORD:?set TEAM_MEMORY_POSTGRES_PASSWORD}@postgres:5432/team_memory?sslmode=disable
+    ports: !override
+      - "127.0.0.1:${TEAM_MEMORY_HTTP_PORT:-58080}:8080"
+
+  caddy:
+    image: caddy:2.10-alpine
+    environment:
+      TEAM_MEMORY_PORTAL_HOST: ${TEAM_MEMORY_PORTAL_HOST:?set TEAM_MEMORY_PORTAL_HOST}
+    ports:
+      - "${TEAM_MEMORY_PORTAL_HTTP_PORT:-80}:80"
+      - "${TEAM_MEMORY_PORTAL_HTTPS_PORT:-443}:443"
+    volumes:
+      - ./deploy/workstation/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./web/dist:/srv:ro
+      - team-memory-caddy-data:/data
+      - team-memory-caddy-config:/config
+    depends_on:
+      - team-memory
+    restart: unless-stopped
+
+volumes:
+  team-memory-caddy-data:
+  team-memory-caddy-config:
