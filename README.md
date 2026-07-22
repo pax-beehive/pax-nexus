@@ -218,9 +218,12 @@ See [the on-prem deployment decision](docs/decisions/2026-07-21-single-team-on-p
 for the identity, credential, recall composition, and module boundaries. See
 [the paxl on-prem Capsule Channel decision](docs/decisions/2026-07-21-paxl-onprem-capsule-channel.md)
 for the envelope protocol and CLI integration boundary.
-[The proposed on-prem identity and Agent Registry decision](docs/decisions/2026-07-21-on-prem-identity-and-agent-registry.md)
+[The accepted on-prem identity and Agent Registry decision](docs/decisions/2026-07-21-on-prem-identity-and-agent-registry.md)
 defines human invitations, roles, Agent ownership, self-service enrollment, and
 the Agent list/get directory APIs.
+[The frontend integration guide](docs/on-prem-identity-frontend-integration.md)
+turns that contract into Portal user journeys, request rules, role behavior,
+one-time-secret handling, and edge-case acceptance scenarios.
 
 Run `make onprem-e2e` for the container-only core-flow test. It builds Team
 Memory, a deterministic OpenAI-compatible extractor, a black-box test runner,

@@ -18,3 +18,6 @@
 
 The implementation boundary and extension rules are documented in the
 [Session Lake processor guide](./docs/session-lake-processors.md).
+The Human Portal contract, role-aware user journeys, and frontend edge cases
+are documented in the
+[on-prem identity frontend integration guide](./docs/on-prem-identity-frontend-integration.md).
