@@ -173,17 +173,23 @@ func (s *registrySuite) TestOptimisticConcurrencyAndLifecycleValidation() {
 
 	name := "Updated"
 	active := onprem.AgentStatusActive
+	retired := onprem.AgentStatusRetired
 	tests := []struct {
 		name    string
 		request onprem.UpdateAgentRequest
 	}{
 		{name: "stale resource version", request: onprem.UpdateAgentRequest{DisplayName: &name, ResourceVersion: 2}},
 		{name: "invalid active transition", request: onprem.UpdateAgentRequest{Status: &active, ResourceVersion: 1}},
+		{name: "retire requires delete", request: onprem.UpdateAgentRequest{Status: &retired, ResourceVersion: 1}},
 	}
 	for _, test := range tests {
 		s.Run(test.name, func() {
 			_, updateErr := s.service.UpdateOwnedAgent(context.Background(), principal, created.AgentID, test.request)
-			s.Require().ErrorIs(updateErr, onprem.ErrAgentConflict)
+			if test.name == "stale resource version" {
+				s.Require().ErrorIs(updateErr, onprem.ErrResourceVersionConflict)
+			} else {
+				s.Require().ErrorIs(updateErr, onprem.ErrInvalidStateTransition)
+			}
 		})
 	}
 }
@@ -240,11 +246,39 @@ func (s *registrySuite) TestAdminSuspensionAndOwnerTransferPolicy() {
 	s.Require().ErrorIs(err, onprem.ErrForbidden)
 	owner := admin
 	owner.Role = onprem.RoleOwner
+	_, err = s.service.TransferAgent(context.Background(), owner, created.AgentID, onprem.TransferAgentRequest{
+		TargetMembershipID: "new-owner", ResourceVersion: updated.ResourceVersion + 1,
+	})
+	s.Require().ErrorIs(err, onprem.ErrResourceVersionConflict)
 	transferred, err := s.service.TransferAgent(context.Background(), owner, created.AgentID, onprem.TransferAgentRequest{
 		TargetMembershipID: "new-owner", ResourceVersion: updated.ResourceVersion,
 	})
 	s.Require().NoError(err)
 	s.Equal("new-owner", transferred.OwnerMembershipID)
+}
+
+func (s *registrySuite) TestOnlyOwnerCanRetireAdminAgent() {
+	member := activeMember()
+	created, err := s.service.CreateAgent(context.Background(), member, onprem.CreateAgentRequest{
+		AgentID: "governed-agent", DisplayName: "Governed Agent",
+	})
+	s.Require().NoError(err)
+	admin := member
+	admin.MembershipID = "admin-membership"
+	admin.Role = onprem.RoleAdmin
+	_, err = s.service.RetireAdminAgent(
+		context.Background(), admin, created.AgentID, created.ResourceVersion, "retire-admin-1",
+	)
+	s.Require().ErrorIs(err, onprem.ErrForbidden)
+
+	owner := admin
+	owner.Role = onprem.RoleOwner
+	retired, err := s.service.RetireAdminAgent(
+		context.Background(), owner, created.AgentID, created.ResourceVersion, "retire-admin-1",
+	)
+	s.Require().NoError(err)
+	s.Equal(onprem.AgentStatusRetired, retired.Status)
+	s.Equal(member.MembershipID, retired.OwnerMembershipID)
 }
 
 func (s *registrySuite) TestAdminAgentArtifactGovernanceAndOwnerFilter() {
@@ -428,7 +462,7 @@ func (s *registryStore) RetireOwnedAgent(
 			return profile, nil
 		}
 	}
-	return onprem.AgentProfile{}, onprem.ErrAgentConflict
+	return onprem.AgentProfile{}, onprem.ErrResourceVersionConflict
 }
 
 func (s *registryStore) TransferAgent(

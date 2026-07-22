@@ -89,6 +89,7 @@ type AgentRegistryLifecycle interface {
 	ListAdminAgents(context.Context, onprem.HumanPrincipal, onprem.AgentFilter) ([]onprem.AgentProfile, error)
 	GetAdminAgent(context.Context, onprem.HumanPrincipal, string) (onprem.AgentProfile, error)
 	UpdateAdminAgent(context.Context, onprem.HumanPrincipal, string, onprem.UpdateAgentRequest) (onprem.AgentProfile, error)
+	RetireAdminAgent(context.Context, onprem.HumanPrincipal, string, int64, string) (onprem.AgentProfile, error)
 	TransferAgent(context.Context, onprem.HumanPrincipal, string, onprem.TransferAgentRequest) (onprem.AgentProfile, error)
 	ListAdminEnrollments(context.Context, onprem.HumanPrincipal, string, onprem.AgentArtifactFilter) ([]onprem.AgentEnrollmentMetadata, error)
 	RevokeAdminEnrollment(context.Context, onprem.HumanPrincipal, string, string, string) (onprem.AgentEnrollmentMetadata, error)

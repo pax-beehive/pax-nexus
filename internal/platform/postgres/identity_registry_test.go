@@ -222,6 +222,10 @@ func (s *identityRegistryStoreSuite) TestInvitationToAgentDirectoryFlow() {
 	})
 	s.Require().NoError(err)
 	s.Equal(onprem.AgentStatusSuspended, governed.Status)
+	_, err = s.store.Registry().TransferAgent(
+		ctx, owner, receiverID, owner.MembershipID, governed.ResourceVersion+1, time.Now().UTC(),
+	)
+	s.Require().ErrorIs(err, onprem.ErrResourceVersionConflict)
 	transferred, err := registry.TransferAgent(ctx, owner, receiverID, onprem.TransferAgentRequest{
 		TargetMembershipID: owner.MembershipID, ResourceVersion: governed.ResourceVersion,
 	})
@@ -250,6 +254,73 @@ func (s *identityRegistryStoreSuite) TestInvitationToAgentDirectoryFlow() {
 	)
 	s.Require().NoError(err)
 	s.Equal(retired.ResourceVersion, replayedRetirement.ResourceVersion)
+
+	adminRetiredAgentID := uniqueCredentialValue("admin-retire-agent")
+	createdForAdminRetirement, err := registry.CreateAgent(ctx, member, onprem.CreateAgentRequest{
+		AgentID: adminRetiredAgentID, DisplayName: "Admin Retire Agent",
+	})
+	s.Require().NoError(err)
+	activeAdminRetirementEnrollment, err := registry.CreateEnrollment(
+		ctx, member, adminRetiredAgentID, onprem.OwnerEnrollmentRequest{
+			CredentialLabel: "active", Permissions: []onprem.Permission{onprem.PermissionChannelReceive},
+		},
+	)
+	s.Require().NoError(err)
+	activeAdminRetirementCredential, err := credentials.ExchangeEnrollment(
+		ctx, activeAdminRetirementEnrollment.Token,
+	)
+	s.Require().NoError(err)
+	pendingAdminRetirementEnrollment, err := registry.CreateEnrollment(
+		ctx, member, adminRetiredAgentID, onprem.OwnerEnrollmentRequest{
+			CredentialLabel: "pending", Permissions: []onprem.Permission{onprem.PermissionChannelReceive},
+		},
+	)
+	s.Require().NoError(err)
+	adminRetired, err := registry.RetireAdminAgent(
+		ctx, owner, adminRetiredAgentID, createdForAdminRetirement.ResourceVersion, "admin-retire-once",
+	)
+	s.Require().NoError(err)
+	s.Equal(onprem.AgentStatusRetired, adminRetired.Status)
+	s.NotNil(adminRetired.RetiredAt)
+	replayedAdminRetirement, err := registry.RetireAdminAgent(
+		ctx, owner, adminRetiredAgentID, createdForAdminRetirement.ResourceVersion, "admin-retire-once",
+	)
+	s.Require().NoError(err)
+	s.Equal(adminRetired.ResourceVersion, replayedAdminRetirement.ResourceVersion)
+	_, err = credentials.Authenticate(ctx, activeAdminRetirementCredential.APIKey)
+	s.Require().ErrorIs(err, onprem.ErrUnauthorized)
+	_, err = credentials.ExchangeEnrollment(ctx, pendingAdminRetirementEnrollment.Token)
+	s.Require().ErrorIs(err, onprem.ErrEnrollmentInvalid)
+	adminRetirementAudit, err := identity.ListAuditEvents(ctx, owner, onprem.AuditFilter{
+		Action: "identity.agent.retired", TargetKind: "agent", TargetID: adminRetiredAgentID,
+	})
+	s.Require().NoError(err)
+	s.Require().Len(adminRetirementAudit, 1)
+
+	staleRetirementAgentID := uniqueCredentialValue("stale-admin-retire-agent")
+	createdForStaleRetirement, err := registry.CreateAgent(ctx, member, onprem.CreateAgentRequest{
+		AgentID: staleRetirementAgentID, DisplayName: "Stale Admin Retire Agent",
+	})
+	s.Require().NoError(err)
+	stalePendingEnrollment, err := registry.CreateEnrollment(
+		ctx, member, staleRetirementAgentID, onprem.OwnerEnrollmentRequest{
+			CredentialLabel: "pending", Permissions: []onprem.Permission{onprem.PermissionChannelReceive},
+		},
+	)
+	s.Require().NoError(err)
+	_, err = registry.RetireAdminAgent(
+		ctx, owner, staleRetirementAgentID, createdForStaleRetirement.ResourceVersion+1, "stale-admin-retire",
+	)
+	s.Require().ErrorIs(err, onprem.ErrResourceVersionConflict)
+	staleRetirementProfile, err := registry.GetAdminAgent(ctx, owner, staleRetirementAgentID)
+	s.Require().NoError(err)
+	s.Equal(onprem.AgentStatusActive, staleRetirementProfile.Status)
+	stalePending, err := registry.ListAdminEnrollments(
+		ctx, owner, staleRetirementAgentID, onprem.AgentArtifactFilter{Status: "pending"},
+	)
+	s.Require().NoError(err)
+	s.Require().Len(stalePending, 1)
+	s.Equal(stalePendingEnrollment.ID, stalePending[0].EnrollmentID)
 
 	concurrentAgentID := uniqueCredentialValue("concurrent-suspend-agent")
 	_, err = registry.CreateAgent(ctx, owner, onprem.CreateAgentRequest{

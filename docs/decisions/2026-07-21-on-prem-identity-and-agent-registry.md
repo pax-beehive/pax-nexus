@@ -1,6 +1,6 @@
 # On-prem Human Identity and Agent Registry
 
-状态：已接受
+状态：已接受（2026-07-22 更新：Portal 前端反馈已收口，见文末）
 
 日期：2026-07-21
 
@@ -604,6 +604,7 @@ Credential，而不是 Human Session。
 GET   /v1/admin/agents?owner_membership_id=&status=&q=&limit=&cursor=
 GET   /v1/admin/agents/:agent_id
 PATCH /v1/admin/agents/:agent_id
+DELETE /v1/admin/agents/:agent_id
 POST  /v1/admin/agents/:agent_id/transfer
 GET   /v1/admin/agents/:agent_id/enrollments
 DELETE /v1/admin/agents/:agent_id/enrollments/:enrollment_id
@@ -615,17 +616,25 @@ GET   /v1/admin/audit-events/:audit_event_id
 ```
 
 Admin list/get 可返回 owner、Agent 状态和 Credential metadata，但仍不得返回 Key 或 digest。
-transfer 仅允许 Owner role，并在同一事务撤销旧 Credential。Audit read 允许 Owner/Admin，
-但 response 继续执行 secret redaction 和 metadata size limit。
+Admin 可通过 PATCH 暂停 Agent；Owner 可通过 PATCH 编辑或恢复 Agent。retire 不接受 PATCH
+`status=retired`，Owner 必须调用 `DELETE /v1/admin/agents/:agent_id`。该 DELETE 与 owner-side
+retire 使用同一个事务语义：设置 `retired_at`、吊销全部 Credential 和 pending Enrollment、
+写入 `identity.agent.retired` audit，并接受 `resource_version`、`If-Match` 和
+`Idempotency-Key`。transfer 仅允许 Owner role，并在同一事务撤销旧 Credential。Audit read
+允许 Owner/Admin，但 response 继续执行 secret redaction 和 metadata size limit。
 
 ### Response and error conventions
 
 - 所有 list 使用 opaque cursor；默认 `limit=50`，最大 `100`；
 - create response 返回 server-generated ID、状态和时间戳；
+- Human API 非 2xx 响应使用 JSON `{"code":"<stable_code>","message":"<safe_message>"}`；
 - `401`：缺少或无效认证；
 - `403`：Principal 有效但 role/permission 不足；
 - `404`：资源不存在或调用方不可见；
-- `409`：Agent ID 冲突、最后 Owner invariant、重复 claim 或非法状态转换；
+- `409`：Agent ID 冲突、最后 Owner invariant、resource version、重复 claim、幂等冲突或
+  非法状态转换。对应稳定 code 至少包括 `agent_id_conflict`、`last_active_owner`、
+  `resource_version_conflict`、`idempotency_conflict`、`bootstrap_closed` 和
+  `invalid_state_transition`；
 - `410`：调用方已持有的 Invitation/Enrollment token 已过期、消费或撤销；
 - `422`：结构合法但违反字段/permission policy；
 - `429`：login、Invitation accept、Enrollment exchange 或 Key authentication 限流。
@@ -704,3 +713,18 @@ Credential authentication 按来源与 token/key digest 双维度限流。Human 
   数据；
 - v1 仍是单 Installation、单 Team，不增加 Team CRUD、外部 Friend、跨实例 federation、
   本地密码数据库或多 Owner Agent。
+
+## Portal 前端反馈收口（2026-07-22）
+
+Human Portal 实现期间暴露的三个契约问题已完成收口：
+
+1. **Admin 侧 retire 使用独立 DELETE**。新增 Owner-only
+   `DELETE /v1/admin/agents/:agent_id`；Admin PATCH 不接受 `status=retired`。两个 retire
+   入口共享幂等、级联吊销、终态和审计语义。
+2. **Human API 使用机器可读错误 envelope**。IDL 增加 `ErrorResponse`，handler 返回稳定
+   `code` 与安全 `message`。Portal 只按 code 分支，不匹配 message；只有
+   `resource_version_conflict` 触发资源 refetch，`last_active_owner`、
+   `agent_id_conflict` 和 `idempotency_conflict` 给出各自操作提示。
+3. **最后 Owner 只由服务端权威判定**。Members 页不再根据当前已加载分页计算或禁用
+   “最后一个 active Owner”。前端允许有权限的用户提交，服务端在事务内校验 invariant；
+   收到 `last_active_owner` 后提示先提升另一位 active Owner。

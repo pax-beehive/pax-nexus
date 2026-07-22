@@ -462,7 +462,7 @@ func (s *IdentityService) UpdateMember(
 	}
 	if request.Role != nil {
 		if *request.Role != RoleOwner && *request.Role != RoleAdmin && *request.Role != RoleMember {
-			return Member{}, ErrMembershipConflict
+			return Member{}, ErrInvalidIdentityInput
 		}
 		if principal.Role != RoleOwner {
 			return Member{}, ErrForbidden
@@ -472,15 +472,15 @@ func (s *IdentityService) UpdateMember(
 	if request.Status != nil {
 		if *request.Status != MembershipStatusActive && *request.Status != MembershipStatusSuspended &&
 			*request.Status != MembershipStatusRemoved {
-			return Member{}, ErrMembershipConflict
+			return Member{}, ErrInvalidIdentityInput
 		}
 		if target.Status == MembershipStatusRemoved {
-			return Member{}, ErrMembershipConflict
+			return Member{}, ErrInvalidStateTransition
 		}
 		target.Status = *request.Status
 	}
 	if request.ResourceVersion <= 0 || request.ResourceVersion != target.ResourceVersion {
-		return Member{}, ErrMembershipConflict
+		return Member{}, ErrResourceVersionConflict
 	}
 	target.ResourceVersion++
 	target.UpdatedAt = s.clock().UTC()

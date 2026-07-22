@@ -390,3 +390,8 @@ func _enrollments0Mw() []app.HandlerFunc {
 	// your code...
 	return nil
 }
+
+func _retireadminagentMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}

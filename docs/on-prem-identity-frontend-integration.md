@@ -12,7 +12,7 @@
 - Human API 使用 OIDC 登录后的 Cookie Session，不使用 Agent API key。
 - Agent Directory 和 Capsule Channel 使用 Agent API key，不是 Human Portal 接口。
 - Invitation token、Enrollment token 和 Agent API key 都是 secret。前两个只在创建响应中出现一次；API key 只在 Agent 客户端交换 Enrollment token 时返回，Portal 永远不应读取或保存它。
-- 当前错误响应是 `text/plain`，不是稳定的 JSON error envelope。前端以 HTTP status 做流程分支，response body 仅用于诊断，不应按文案匹配。
+- Human API 错误响应是稳定 JSON envelope：`{"code":"<stable_code>","message":"<safe_message>"}`。前端按 status + code 做流程分支，不得按 message 文案匹配。
 - 当前实现没有 rate limiter，不能依赖 `429`；但统一请求层应保留对 `429 Retry-After` 的兼容处理。
 
 如果环境只配置了旧的 `TEAM_MEMORY_ADMIN_API_KEY`，Human Identity API 会返回 `501 Not Implemented`。Portal 上线前必须完整配置 `TEAM_MEMORY_BOOTSTRAP_SECRET`、`TEAM_MEMORY_OIDC_*`、`TEAM_MEMORY_SECRET_PEPPER` 和 `TEAM_MEMORY_PORTAL_URL`。
@@ -39,7 +39,7 @@
 | 管理自己的 Agent | 是 | 是 | 是 |
 | 查看全部 Agent | 是 | 是 | 否 |
 | 暂停任意 Agent | 是 | 是 | 否 |
-| 编辑、恢复、转移任意 Agent | 是 | 否 | 否 |
+| 编辑、恢复、retire、转移任意 Agent | 是 | 否 | 否 |
 | Claim 首个 Owner | 仅首次安装 | 否 | 否 |
 
 系统必须始终保留至少一个 active Owner。最后一个 active Owner 不能被降级、暂停或移除。
@@ -103,6 +103,7 @@ class ApiError extends Error {
   constructor(
     readonly status: number,
     readonly diagnostic: string,
+    readonly code?: string,
   ) {
     super(`API request failed with ${status}`);
   }
@@ -136,7 +137,16 @@ async function humanFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   });
 
   if (!response.ok) {
-    throw new ApiError(response.status, await response.text());
+    const body = await response.text();
+    try {
+      const parsed = JSON.parse(body) as { code?: unknown; message?: unknown };
+      if (typeof parsed.code === "string" && typeof parsed.message === "string") {
+        throw new ApiError(response.status, parsed.message, parsed.code);
+      }
+    } catch (err) {
+      if (err instanceof ApiError) throw err;
+    }
+    throw new ApiError(response.status, body);
   }
   return (await response.json()) as T;
 }
@@ -151,6 +161,7 @@ async function humanFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
 - `POST /v1/invitations/accept`
 - `POST /v1/me/agents`
 - `DELETE /v1/me/agents/:agent_id`
+- `DELETE /v1/admin/agents/:agent_id`
 - Human/Admin 下的 Enrollment 和 Credential revoke
 
 每次用户动作生成一个 `crypto.randomUUID()`，网络重试复用同一个 key；用户重新发起的新动作使用新 key。同一个 key 对应不同请求意图会返回 `409`。
@@ -166,7 +177,9 @@ Content-Type: application/json
 {"status":"suspended","resource_version":7}
 ```
 
-`If-Match` 支持 `7`、`"7"` 和 `W/"7"`。header 与 body 不一致返回 `400`；版本过期返回 `409`。遇到 `409` 时重新 GET，显示“内容已被其他管理员修改”，不要静默覆盖。
+`If-Match` 支持 `7`、`"7"` 和 `W/"7"`。header 与 body 不一致返回 `400`；版本过期返回
+`409 resource_version_conflict`。只有该 code 表示应重新 GET 并显示“内容已被其他管理员
+修改”；其他 409 应按 code 给出对应提示，不要一律 refetch，也不要静默覆盖。
 
 ### 3.4 分页
 
@@ -453,14 +466,17 @@ Owner 可以管理所有角色；Admin 只能管理 Member，不能修改 Owner/
 
 暂停或移除 Membership 会撤销该用户的 Human Sessions、Agent Credentials 和 pending Enrollments。恢复 suspended Membership 不会恢复旧 Credential，用户需要为 Agent 重新签发 Enrollment。
 
-最后一个 active Owner 的降级、暂停或移除返回 `409`。前端应明确显示“必须先提升另一位 Owner”。
+最后一个 active Owner 的降级、暂停或移除返回 `409 last_active_owner`。前端应明确显示
+“必须先提升另一位 active Owner”。不要根据当前已加载的分页预判并禁用按钮：当前页可能
+不是全量数据，服务端事务内校验才是唯一权威判定。
 
 ### 5.7 管理全部 Agent
 
 Owner/Admin 可使用 `/v1/admin/agents` 查看所有 Agent，并按 owner、status、query 过滤。
 
 - Admin 只能把 Agent 设为 `suspended`，不能改资料、恢复、retire 或 transfer。
-- Owner 可以编辑资料、暂停/恢复/retire 和 transfer。
+- Owner 可以编辑资料、暂停/恢复、通过 `DELETE /v1/admin/agents/:agent_id` retire，以及 transfer。
+- PATCH 只处理资料和 `active`/`suspended` 状态；不得用 PATCH `status=retired` 代替 DELETE。
 - Transfer 只允许转给 active Membership，且目标 Agent 不能已 retired。
 - Transfer 会吊销旧 Owner 下的所有 Credential 和 pending Enrollment。新 Owner 必须重新签发 Enrollment。
 - Owner/Admin 都可以查看并吊销任意 Agent 的 Enrollment/Credential。
@@ -528,6 +544,7 @@ Enrollment status filter：`pending|consumed|revoked|expired`。Credential statu
 | GET | `/v1/admin/agents?owner_membership_id=&status=&q=&limit=&cursor=` | 全部 Agent 列表 |
 | GET | `/v1/admin/agents/:agent_id` | Agent 详情 |
 | PATCH | `/v1/admin/agents/:agent_id` | 治理 Agent，需 version |
+| DELETE | `/v1/admin/agents/:agent_id?resource_version=` | Owner retire Agent，需 version 与 Idempotency-Key |
 | POST | `/v1/admin/agents/:agent_id/transfer` | Owner 转移 Agent，需 version |
 | GET | `/v1/admin/agents/:agent_id/enrollments?status=&limit=&cursor=` | Enrollment 列表 |
 | DELETE | `/v1/admin/agents/:agent_id/enrollments/:enrollment_id` | 吊销 Enrollment |
@@ -565,7 +582,8 @@ Agent transfer：
 }
 ```
 
-Agent retire 的 `resource_version` 当前由 query 传入，并同时推荐发送 `If-Match`：
+Agent retire 的 `resource_version` 由 query 传入，并同时发送 `If-Match`。自己的 Agent 使用
+`/v1/me/agents/...`；Owner 从治理入口 retire 任意 Agent 时将 `me` 替换为 `admin`：
 
 ```http
 DELETE /v1/me/agents/alice-codex?resource_version=5
@@ -573,6 +591,8 @@ If-Match: "5"
 Idempotency-Key: <uuid>
 X-CSRF-Token: <tm_csrf>
 ```
+
+Admin retire 具有相同的终态、幂等、Credential/pending Enrollment 级联吊销和 audit 语义。
 
 Invitation、Enrollment 和 Credential revoke 不需要 JSON body；不要为了统一 wrapper 发送虚构字段。
 
@@ -649,20 +669,34 @@ List response 的顶层集合字段分别为 `members`、`invitations`、`agents
 
 ## 9. HTTP 状态与 UI 行为
 
-| Status | 典型含义 | 推荐 UI 行为 |
+| Status | 常见 code | 推荐 UI 行为 |
 | --- | --- | --- |
-| 400 | body/query/If-Match/RFC3339 格式错误 | 保留表单，提示校正；记录 diagnostic |
-| 401 | Session 缺失、过期或已撤销 | 清空身份缓存，保留安全 continuation 后重新登录 |
-| 403 | CSRF、角色、Membership 状态或资源操作不允许 | 刷新 `/v1/me`；显示无权限，不重试 |
-| 404 | Agent/Audit/Credential 不存在或目录对象不可路由 | 返回列表；不要区分隐藏与不存在 |
-| 409 | bootstrap 已关闭、版本冲突、重复 ID、最后 Owner、Member 目标已不存在、幂等冲突 | 重新读取当前资源，给出上下文操作 |
-| 410 | Invitation/Enrollment token 已不可用 | 清除本地 token，要求重新签发 |
-| 422 | 字段或权限策略不合法 | 映射到表单；body 仍仅作诊断 |
-| 429 | 为未来限流保留 | 遵循 `Retry-After`，避免自动风暴式重试 |
-| 500 | 服务端失败 | 保留非 secret 表单状态，提供 retry；不要上报 token |
-| 501 | Human Identity/Agent Registry 未配置 | 显示安装配置问题，不当作用户权限错误 |
+| 400 | `invalid_request` | 保留表单并提示检查 body/query/If-Match/RFC3339 |
+| 401 | `unauthorized` | 清空身份缓存，保留安全 continuation 后重新登录 |
+| 403 | `forbidden`, `csrf_invalid`, `membership_required` | 刷新 `/v1/me`；显示无权限，不自动重试 |
+| 404 | `agent_not_found`, `audit_event_not_found`, `credential_not_found` | 返回列表；不要区分隐藏与不存在 |
+| 409 | 见下表 | 按 code 精确恢复，不能一律 refetch |
+| 410 | `invitation_gone`, `enrollment_gone` | 清除本地 token，要求重新签发 |
+| 422 | `invalid_input` | 映射到表单字段或权限策略提示 |
+| 429 | 未来限流 code | 遵循 `Retry-After`，避免自动风暴式重试 |
+| 500 | `internal_error` | 保留非 secret 表单状态，提供 retry；不要上报 token |
+| 501 | `not_configured` | 显示安装配置问题，不当作用户权限错误 |
 
-当前 API 没有机器可读 error code。前端不能通过 `diagnostic.includes(...)` 区分最后 Owner、版本冲突等细分原因；第一版可用 status + 当前页面上下文给出安全通用提示。需要精确行内错误时，应另行扩展 IDL 中的结构化 error envelope。
+409 的恢复策略：
+
+| code | 含义 | Portal 行为 |
+| --- | --- | --- |
+| `resource_version_conflict` | 客户端版本已过期 | GET 当前资源、重置草稿并提示已刷新 |
+| `last_active_owner` | 变更会移除最后一个 active Owner | 保留表单，提示先提升另一位 Owner；不靠分页预判 |
+| `agent_id_conflict` | 全局 `agent_id` 已存在 | 在 Agent ID 字段显示冲突，要求换 ID |
+| `idempotency_conflict` | 同一 key 被用于不同请求意图 | 停止重试；用户重新发起动作并生成新 key |
+| `invalid_state_transition` | 当前状态不允许该变更 | 刷新状态并说明终态/专用操作入口 |
+| `bootstrap_closed` | bootstrap 已被其他请求或历史 claim 关闭 | 刷新 `/v1/me`，无 Membership 时联系 Owner |
+| `membership_conflict`, `agent_conflict` | 其他并发或状态冲突 | 保守刷新相关资源并显示通用冲突提示 |
+
+`message` 是安全诊断文案，可以显示或记录，但不能参与流程控制；前端不得使用
+`diagnostic.includes(...)`。为兼容滚动升级，API wrapper 在收到旧的非 JSON 错误时保留
+status + diagnostic fallback，此时采用对应 status 的保守行为。
 
 ## 10. 必测边际场景
 
@@ -674,10 +708,13 @@ List response 的顶层集合字段分别为 `members`、`invitations`、`agents
 4. Invitation/Enrollment 创建响应丢失时不自动重试；可以从列表发现 pending 记录并吊销。
 5. 邀请 email 大小写差异可接受；不同 email、未验证 email、过期/撤销 token 显示统一无效态。
 6. 重放 Invitation accept、Agent create 和 revoke 时复用 Idempotency-Key，不产生重复副作用。
-7. 两个管理员同时编辑 Member/Agent，较晚的旧版本更新收到 `409` 并触发 refetch。
-8. 最后一个 Owner 不能被降级、暂停或移除。
+7. 两个管理员同时编辑 Member/Agent，较晚的旧版本更新收到
+   `409 resource_version_conflict`，且只有这个 code 触发 refetch。
+8. 最后一个 Owner 不能被降级、暂停或移除；即使该 Owner 不在已加载分页中，Portal 仍按
+   `last_active_owner` 正确提示。
 9. Membership suspended/removed 后，已打开页面下一次请求收到 `401` 并清空敏感缓存。
-10. Agent suspended/retired/transfer 后，pending Enrollment 与 Credential 立即失效；恢复 active 不恢复旧 key。
+10. owner-side 和 admin-side DELETE retire、suspend、transfer 后，pending Enrollment 与
+    Credential 立即失效；Admin 不能 retire，Owner 的 PATCH `status=retired` 被拒绝。
 11. Enrollment consumed 后 Portal 只显示 Credential metadata，任何响应和日志都没有 API key。
 12. hidden、无 `channel_receive` key、inactive owner 或 inactive Agent 不出现在 Agent Directory；Human Cookie 不能调用 Directory。
 13. cursor 分页中途切换 filter 时从第一页重新加载，不混合旧结果。
@@ -692,7 +729,8 @@ List response 的顶层集合字段分别为 `members`、`invitations`、`agents
 - 一次性 secret 的创建请求不做盲目自动重试。
 - 支持 Idempotency-Key 的动作按“同一动作同一 key”实现。
 - PATCH/retire/transfer 使用最新 `resource_version` 和 `If-Match`。
-- 页面按钮按角色隐藏，同时正确处理后端 `401/403/409/410`。
+- 页面按钮按角色隐藏，同时按稳定 error code 正确处理后端 `401/403/409/410`。
+- Members 页不根据当前分页猜测最后一个 Owner；`last_active_owner` 由服务端权威返回。
 - 所有 list 接口原样透传 cursor，并在 filter 变化时重置分页。
 - suspended/removed/retired 等终态和 Credential revocation 在 UI 上不可误解为可恢复。
 - 测试环境覆盖 Secure Cookie、OIDC callback、邀请 continuation 和一次性 token 擦除。

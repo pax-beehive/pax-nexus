@@ -76,4 +76,5 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: Run PostgreSQL adapter and River worker tests
-        run: go test ./internal/platform/postgres ./internal/teamnote/extractionqueue -count=1
+        # Both packages intentionally exercise migrations against the same service database.
+        run: go test -p 1 ./internal/platform/postgres ./internal/teamnote/extractionqueue -count=1

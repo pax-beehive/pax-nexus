@@ -537,31 +537,8 @@ func (s *IdentityStore) UpdateMember(
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('onprem.active-owner'))`); err != nil {
 		return onprem.Member{}, fmt.Errorf("lock active owner invariant: %w", err)
 	}
-	var currentRole onprem.Role
-	var currentStatus onprem.MembershipStatus
-	err = tx.QueryRow(ctx, `
-		SELECT role, status FROM onprem_memberships
-		WHERE membership_id = $1 FOR UPDATE
-	`, member.MembershipID).Scan(&currentRole, &currentStatus)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return onprem.Member{}, onprem.ErrMembershipConflict
-	}
-	if err != nil {
-		return onprem.Member{}, fmt.Errorf("lock member update: %w", err)
-	}
-	removesActiveOwner := currentRole == onprem.RoleOwner && currentStatus == onprem.MembershipStatusActive &&
-		(member.Role != onprem.RoleOwner || member.Status != onprem.MembershipStatusActive)
-	if removesActiveOwner {
-		var activeOwners int
-		if err := tx.QueryRow(ctx, `
-			SELECT count(*) FROM onprem_memberships
-			WHERE role = 'owner' AND status = 'active'
-		`).Scan(&activeOwners); err != nil {
-			return onprem.Member{}, fmt.Errorf("count active owners: %w", err)
-		}
-		if activeOwners <= 1 {
-			return onprem.Member{}, onprem.ErrMembershipConflict
-		}
+	if err := validateMemberUpdateInvariant(ctx, tx, member); err != nil {
+		return onprem.Member{}, err
 	}
 	updated, err = scanMember(tx.QueryRow(ctx, `
 		UPDATE onprem_memberships memberships
@@ -576,7 +553,7 @@ func (s *IdentityStore) UpdateMember(
 		          memberships.joined_at, memberships.updated_at, memberships.resource_version
 	`, member.MembershipID, member.Role, member.Status, now, member.ResourceVersion))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return onprem.Member{}, onprem.ErrMembershipConflict
+		return onprem.Member{}, onprem.ErrResourceVersionConflict
 	}
 	if err != nil {
 		return onprem.Member{}, fmt.Errorf("update postgres member: %w", err)
@@ -609,6 +586,41 @@ func (s *IdentityStore) UpdateMember(
 		return onprem.Member{}, fmt.Errorf("commit member update: %w", err)
 	}
 	return updated, nil
+}
+
+func validateMemberUpdateInvariant(ctx context.Context, tx pgx.Tx, member onprem.Member) error {
+	var currentRole onprem.Role
+	var currentStatus onprem.MembershipStatus
+	var currentResourceVersion int64
+	err := tx.QueryRow(ctx, `
+		SELECT role, status, resource_version FROM onprem_memberships
+		WHERE membership_id = $1 FOR UPDATE
+	`, member.MembershipID).Scan(&currentRole, &currentStatus, &currentResourceVersion)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return onprem.ErrMembershipConflict
+	}
+	if err != nil {
+		return fmt.Errorf("lock member update: %w", err)
+	}
+	if currentResourceVersion != member.ResourceVersion-1 {
+		return onprem.ErrResourceVersionConflict
+	}
+	removesActiveOwner := currentRole == onprem.RoleOwner && currentStatus == onprem.MembershipStatusActive &&
+		(member.Role != onprem.RoleOwner || member.Status != onprem.MembershipStatusActive)
+	if !removesActiveOwner {
+		return nil
+	}
+	var activeOwners int
+	if err := tx.QueryRow(ctx, `
+		SELECT count(*) FROM onprem_memberships
+		WHERE role = 'owner' AND status = 'active'
+	`).Scan(&activeOwners); err != nil {
+		return fmt.Errorf("count active owners: %w", err)
+	}
+	if activeOwners <= 1 {
+		return onprem.ErrLastActiveOwner
+	}
+	return nil
 }
 
 func (s *IdentityStore) ListAuditEvents(

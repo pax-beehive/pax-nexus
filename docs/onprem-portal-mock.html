@@ -1,0 +1,980 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Team Memory Portal — 交互设计 Mock</title>
+<style>
+  :root{
+    --bg:#f6f4ef;          /* ambient warm white */
+    --surface:#fdfcf8;
+    --surface-2:#f1eee6;
+    --border:#e5e0d4;
+    --border-strong:#d6d0c0;
+    --text:#2b2822;
+    --muted:#7a7364;
+    --faint:#a39b8a;
+    --accent:#c15f3c;      /* claude terracotta */
+    --accent-hover:#a94e2e;
+    --accent-soft:#f7e9e2;
+    --ok:#3d7a52; --ok-bg:#e4efe6;
+    --warn:#8a6d1f; --warn-bg:#f6edd6;
+    --bad:#9c3d2e; --bad-bg:#f3e6e2;
+    --info:#2f5d9e; --info-bg:#e6edf8;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    --serif:"Charter","Bitstream Charter",Georgia,"Times New Roman",serif;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB",sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);font-size:14px;line-height:1.55}
+  h1,h2,h3{font-family:var(--serif);font-weight:600;letter-spacing:.01em}
+  h1{font-size:26px;margin:0 0 4px}
+  h2{font-size:19px;margin:0 0 12px}
+  h3{font-size:15px;margin:18px 0 8px}
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+  code,.mono{font-family:var(--mono);font-size:12.5px;background:var(--surface-2);border:1px solid var(--border);border-radius:5px;padding:1px 5px}
+  .muted{color:var(--muted)} .faint{color:var(--faint)} .small{font-size:12.5px}
+  .danger-text{color:var(--bad)}
+
+  /* layout */
+  .shell{display:flex;min-height:100vh}
+  .side{width:228px;flex:none;border-right:1px solid var(--border);background:var(--surface);padding:22px 14px;position:sticky;top:0;height:100vh}
+  .brand{font-family:var(--serif);font-size:17px;font-weight:600;padding:0 10px 16px;border-bottom:1px solid var(--border);margin-bottom:14px}
+  .brand span{color:var(--accent)}
+  .nav-label{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--faint);padding:12px 10px 4px}
+  .nav a{display:block;color:var(--text);padding:7px 10px;border-radius:8px;margin:1px 0}
+  .nav a:hover{background:var(--surface-2);text-decoration:none}
+  .nav a.active{background:var(--accent-soft);color:var(--accent-hover);font-weight:600}
+  .side-foot{position:absolute;bottom:16px;left:14px;right:14px;border-top:1px solid var(--border);padding-top:12px}
+  .main{flex:1;padding:34px 40px 120px;max-width:1000px}
+  .page-head{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;gap:16px}
+
+  /* components */
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px 20px;margin-bottom:14px}
+  .card.flat{background:transparent;border-style:dashed}
+  .btn{display:inline-flex;align-items:center;gap:6px;font:inherit;font-size:13.5px;font-weight:600;border:1px solid var(--border-strong);background:var(--surface);color:var(--text);border-radius:9px;padding:7px 14px;cursor:pointer}
+  .btn:hover{background:var(--surface-2)}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  .btn.primary:hover{background:var(--accent-hover)}
+  .btn.danger{color:var(--bad);border-color:#dfc4bc}
+  .btn.danger:hover{background:var(--bad-bg)}
+  .btn.ghost{border-color:transparent;background:transparent;color:var(--muted);font-weight:500}
+  .btn.ghost:hover{background:var(--surface-2);color:var(--text)}
+  .btn.sm{padding:4px 10px;font-size:12.5px;border-radius:7px}
+  .btn:disabled{opacity:.45;cursor:not-allowed;background:var(--surface)}
+  input[type=text],input[type=email],input[type=password],input[type=datetime-local],select,textarea{
+    font:inherit;font-size:13.5px;width:100%;padding:8px 10px;border:1px solid var(--border-strong);border-radius:8px;background:#fff;color:var(--text)}
+  input:focus,select:focus,textarea:focus{outline:2px solid var(--accent-soft);border-color:var(--accent)}
+  label{display:block;font-size:12.5px;font-weight:600;color:var(--muted);margin:12px 0 4px}
+  label.ck{display:flex;align-items:center;gap:7px;font-weight:500;color:var(--text);margin:6px 0}
+  .field-row{display:flex;gap:14px}.field-row>div{flex:1}
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th{text-align:left;font-size:11.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--faint);font-weight:600;padding:6px 10px;border-bottom:1px solid var(--border)}
+  td{padding:9px 10px;border-bottom:1px solid var(--border);vertical-align:middle}
+  tr:last-child td{border-bottom:none}
+  .badge{display:inline-block;font-size:11.5px;font-weight:600;border-radius:99px;padding:2px 10px}
+  .b-active{background:var(--ok-bg);color:var(--ok)}
+  .b-pending{background:var(--info-bg);color:var(--info)}
+  .b-suspended{background:var(--warn-bg);color:var(--warn)}
+  .b-retired,.b-removed,.b-revoked{background:var(--bad-bg);color:var(--bad)}
+  .b-expired,.b-consumed,.b-accepted{background:var(--surface-2);color:var(--muted)}
+  .b-role{background:var(--surface-2);color:var(--text);border:1px solid var(--border)}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:14px}
+  .agent-card{cursor:pointer;transition:border-color .15s}
+  .agent-card:hover{border-color:var(--accent)}
+  .row{display:flex;align-items:center;gap:10px}
+  .between{justify-content:space-between}
+  .wrap{flex-wrap:wrap}
+  .note{font-size:12.5px;color:var(--muted);background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:8px 12px;margin:10px 0}
+  .note.warn{background:var(--warn-bg);border-color:#e3d3a6;color:var(--warn)}
+  .note.bad{background:var(--bad-bg);border-color:#e0bfb6;color:var(--bad)}
+  .secret-card{border:1.5px solid var(--accent);background:#fffaf6;border-radius:12px;padding:16px 18px;margin-bottom:16px}
+  .secret-val{font-family:var(--mono);font-size:13px;background:var(--surface-2);border:1px dashed var(--border-strong);border-radius:8px;padding:8px 10px;word-break:break-all;margin:8px 0}
+  .countdown{font-family:var(--mono);font-weight:600;color:var(--accent-hover)}
+  .tabs{display:flex;gap:4px;margin-bottom:14px;border-bottom:1px solid var(--border)}
+  .tabs button{font:inherit;font-size:13px;border:none;background:none;padding:8px 12px;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px}
+  .tabs button.on{color:var(--accent-hover);border-bottom-color:var(--accent);font-weight:600}
+  .center-page{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
+  .center-box{width:420px;max-width:100%}
+  .divider{border:none;border-top:1px solid var(--border);margin:18px 0}
+
+  /* modal */
+  .modal-backdrop{position:fixed;inset:0;background:rgba(43,40,34,.35);display:flex;align-items:center;justify-content:center;z-index:50}
+  .modal{background:var(--surface);border-radius:14px;width:480px;max-width:92vw;max-height:86vh;overflow:auto;padding:22px 24px;box-shadow:0 18px 50px rgba(43,40,34,.22)}
+
+  /* toast */
+  #toasts{position:fixed;right:18px;bottom:86px;display:flex;flex-direction:column;gap:8px;z-index:80}
+  .toast{background:var(--text);color:#fdfcf8;border-radius:10px;padding:10px 16px;font-size:13px;max-width:380px;box-shadow:0 8px 24px rgba(0,0,0,.25);animation:tin .2s ease}
+  .toast.ok{background:var(--ok)} .toast.bad{background:var(--bad)} .toast.warn{background:#7a5f14}
+  @keyframes tin{from{opacity:0;transform:translateY(6px)}to{opacity:1}}
+
+  /* request inspector */
+  #inspector{position:fixed;left:0;right:0;bottom:0;background:#211e19;color:#d8d2c4;font-family:var(--mono);font-size:12px;z-index:60;border-top:1px solid #3a352b}
+  #inspector .bar{display:flex;justify-content:space-between;padding:6px 14px;cursor:pointer;color:#a89f8c}
+  #inspector .log{max-height:170px;overflow:auto;padding:0 14px 10px;display:none}
+  #inspector.open .log{display:block}
+  #inspector .entry{padding:5px 0;border-top:1px solid #353026;white-space:pre-wrap;word-break:break-all}
+  .st-2{color:#8fce9f}.st-4{color:#e8b06b}.st-5{color:#e07a5f}
+  .hdr{color:#8a8271}
+
+  /* dev panel */
+  #devpanel{position:fixed;top:14px;right:14px;z-index:70;background:var(--surface);border:1px solid var(--border-strong);border-radius:12px;padding:10px 12px;font-size:12px;width:212px;box-shadow:0 6px 20px rgba(43,40,34,.12)}
+  #devpanel h4{margin:0 0 6px;font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--faint)}
+  #devpanel select,#devpanel label{font-size:12px;margin:4px 0;width:100%}
+  #devpanel label{display:flex;align-items:center;gap:6px;color:var(--text);font-weight:500}
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<div id="devpanel">
+  <h4>演示状态（模拟 /v1/me）</h4>
+  <label><input type="checkbox" id="dv-config" checked onchange="devChange()"> Identity 已配置</label>
+  <label><input type="checkbox" id="dv-login" checked onchange="devChange()"> 已登录</label>
+  <label>Membership
+    <select id="dv-mbr" onchange="devChange()">
+      <option value="active" selected>active</option>
+      <option value="none">无</option>
+      <option value="suspended">suspended</option>
+    </select></label>
+  <label>Role
+    <select id="dv-role" onchange="devChange()">
+      <option value="owner" selected>owner</option>
+      <option value="admin">admin</option>
+      <option value="member">member</option>
+    </select></label>
+</div>
+
+<div id="inspector">
+  <div class="bar" onclick="this.parentElement.classList.toggle('open')">
+    <span>▸ 请求检查器（Action Layer 输出：CSRF / Idempotency-Key / If-Match）</span><span id="insp-count"></span>
+  </div>
+  <div class="log" id="insp-log"></div>
+</div>
+
+<div id="toasts"></div>
+<div id="modal-root"></div>
+
+<script>
+/* ================= 模拟服务端状态 ================= */
+const now = () => new Date().toISOString();
+const isoPlus = (sec) => new Date(Date.now() + sec*1000).toISOString();
+let seq = 100;
+const nid = (p) => p + "_" + String(++seq).padStart(2,"0");
+const rand = () => Math.random().toString(36).slice(2,10);
+
+const S = {
+  identityConfigured: true,
+  loggedIn: true,
+  membership: "active",          // none | active | suspended
+  role: "owner",                 // 当前用户角色（与 members[0] 同步）
+  me: { user_id:"usr_01", email:"alice@example.com", membership_id:"mbr_01" },
+  pendingInvitation: null,       // sessionStorage 模拟
+  returnUrl: null,
+  members: [
+    {membership_id:"mbr_01", user_id:"usr_01", email:"alice@example.com", role:"owner",  status:"active",    resource_version:3},
+    {membership_id:"mbr_02", user_id:"usr_02", email:"bob@example.com",   role:"admin",  status:"active",    resource_version:1},
+    {membership_id:"mbr_03", user_id:"usr_03", email:"carol@example.com", role:"member", status:"active",    resource_version:1},
+    {membership_id:"mbr_04", user_id:"usr_04", email:"dave@example.com",  role:"member", status:"suspended", resource_version:2},
+  ],
+  invitations: [
+    {invitation_id:"inv_01", target_email:"eve@example.com", role:"member", status:"pending",  created_at:"2026-07-21T18:00:00Z", expires_at:isoPlus(72000)},
+    {invitation_id:"inv_02", target_email:"carol@example.com", role:"member", status:"accepted", created_at:"2026-07-19T10:00:00Z", expires_at:"2026-07-20T10:00:00Z"},
+  ],
+  agents: [
+    {agent_id:"alice-codex", display_name:"Alice Codex", description:"Reviews Go changes", agent_type:"codex", status:"active", directory_visible:true, resource_version:3, owner_membership_id:"mbr_01", created_at:"2026-07-18T09:12:00Z", updated_at:"2026-07-21T18:00:00Z"},
+    {agent_id:"alice-research", display_name:"Alice Research", description:" digs papers", agent_type:"claude", status:"suspended", directory_visible:false, resource_version:2, owner_membership_id:"mbr_01", created_at:"2026-07-15T11:00:00Z", updated_at:"2026-07-20T08:30:00Z"},
+    {agent_id:"bob-linter", display_name:"Bob Linter", description:"CI lint bot", agent_type:"custom", status:"active", directory_visible:true, resource_version:1, owner_membership_id:"mbr_02", created_at:"2026-07-19T14:00:00Z", updated_at:"2026-07-19T14:00:00Z"},
+  ],
+  enrollments: {
+    "alice-codex": [
+      {enrollment_id:"enr_01", credential_label:"Alice MacBook", permissions:["observe","search","get"], status:"consumed", created_at:"2026-07-21T18:00:00Z", expires_at:"2026-07-21T18:15:00Z", credential_expires_at:"2026-10-21T18:00:00Z"},
+    ],
+  },
+  credentials: {
+    "alice-codex": [
+      {credential_id:"cred_01", label:"Alice MacBook", permissions:["observe","search","get"], created_at:"2026-07-21T18:03:00Z", expires_at:"2026-10-21T18:00:00Z", last_used_at:"2026-07-21T18:05:00Z", revoked_at:null},
+    ],
+  },
+  audit: [
+    {audit_event_id:"aud_05", actor:"mbr_02", action:"member.suspend", target:"mbr_04", created_at:"2026-07-20T09:00:00Z"},
+    {audit_event_id:"aud_04", actor:"mbr_01", action:"agent.create", target:"alice-codex", created_at:"2026-07-18T09:12:00Z"},
+    {audit_event_id:"aud_03", actor:"mbr_01", action:"member.remove", target:"mbr_99", created_at:"2026-07-17T16:40:00Z"},
+    {audit_event_id:"aud_02", actor:"usr_01", action:"invitation.accept", target:"inv_02", created_at:"2026-07-19T10:20:00Z"},
+    {audit_event_id:"aud_01", actor:"usr_01", action:"bootstrap.claim", target:"mbr_01", created_at:"2026-07-14T08:00:00Z"},
+  ],
+  lastInviteSecret: null,   // {token, url}
+  lastEnrollSecret: null,   // {agentId, token, expires_at}
+  inviteFilter: "all",
+  auditFilter: "all",
+};
+
+/* ================= 基础设施 ================= */
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const fmt = (iso) => iso ? new Date(iso).toLocaleString("zh-CN",{hour12:false}) : "—";
+
+function toast(msg, kind="") {
+  const t = document.createElement("div");
+  t.className = "toast " + kind;
+  t.textContent = msg;
+  $("toasts").appendChild(t);
+  setTimeout(() => t.remove(), 4200);
+}
+
+let inspCount = 0;
+function logReq(method, path, headers, status) {
+  inspCount++;
+  $("insp-count").textContent = inspCount + " 条";
+  const e = document.createElement("div");
+  e.className = "entry";
+  const cls = status < 300 ? "st-2" : status < 500 ? "st-4" : "st-5";
+  const hs = Object.entries(headers||{}).map(([k,v]) => `\n  <span class="hdr">${k}: ${v}</span>`).join("");
+  e.innerHTML = `<span class="${cls}">● ${status}</span>  ${method} ${path}${hs}`;
+  $("insp-log").prepend(e);
+  $("inspector").classList.add("open");
+}
+
+function openModal(html) { $("modal-root").innerHTML = `<div class="modal-backdrop" onclick="if(event.target===this)closeModal()"><div class="modal">${html}</div></div>`; }
+function closeModal() { $("modal-root").innerHTML = ""; }
+function go(h) { location.hash = h; }
+function copyText(txt, what) {
+  (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(
+    () => toast(what + " 已复制", "ok"),
+    () => { prompt("手动复制：", txt); });
+}
+
+/* 倒计时刷新 */
+setInterval(() => {
+  document.querySelectorAll("[data-cd]").forEach(el => {
+    const left = new Date(el.dataset.cd).getTime() - Date.now();
+    if (left <= 0) { el.textContent = "已过期"; el.classList.add("danger-text"); return; }
+    const m = Math.floor(left/60000), s = Math.floor(left%60000/1000);
+    el.textContent = `${m}:${String(s).padStart(2,"0")}`;
+  });
+}, 1000);
+
+/* ================= 鉴权工具 ================= */
+function audit(actor, action, target) {
+  S.audit.unshift({audit_event_id:nid("aud"), actor, action, target, created_at:now()});
+}
+function myMember() { return S.members.find(m => m.membership_id === "mbr_01"); }
+function isAdminLike() { return S.role === "owner" || S.role === "admin"; }
+function nameFor(id) {
+  const m = S.members.find(m => m.membership_id === id);
+  if (m) return esc(m.email);
+  const a = S.agents.find(a => a.agent_id === id);
+  if (a) return esc(a.display_name) + ' <span class="faint">(' + esc(id) + ")</span>";
+  if (id === "usr_01") return esc(S.me.email);
+  return '<code>' + esc(id) + "</code>";   // 对象已删除：保留原始 ID
+}
+function badge(status) { return `<span class="badge b-${status}">${status}</span>`; }
+function credStatus(c) {
+  if (c.revoked_at) return "revoked";
+  if (c.expires_at && new Date(c.expires_at) < new Date()) return "expired";
+  return "active";
+}
+
+/* ================= 路由守卫 ================= */
+function route() {
+  const raw = location.hash || "#/";
+  // join token：从 fragment 读取后立即擦除地址栏，仅暂存当前 tab
+  if (raw.startsWith("#/join")) {
+    const q = raw.split("?")[1];
+    if (q) {
+      const t = new URLSearchParams(q).get("invite");
+      if (t) {
+        S.pendingInvitation = t;
+        history.replaceState(null, "", location.pathname + location.search + "#/join");
+        logReq("—", "fragment 已擦除，token 存入 sessionStorage(pending_invitation)", {}, 200);
+      }
+    }
+  }
+  let page;
+  if (!S.identityConfigured) page = pgNotConfigured();
+  else if (!S.loggedIn) page = pgLogin();
+  else if (S.membership === "none") {
+    if (raw.startsWith("#/bootstrap")) page = pgBootstrap();
+    else if (raw.startsWith("#/join") && S.pendingInvitation) page = pgJoin();
+    else page = pgEntry();
+  }
+  else if (S.membership === "suspended") page = pgSuspended();
+  else page = pgApp(raw);
+  $("app").innerHTML = page;
+  window.scrollTo(0,0);
+}
+window.addEventListener("hashchange", route);
+
+function devChange() {
+  S.identityConfigured = $("dv-config").checked;
+  S.loggedIn = $("dv-login").checked;
+  S.membership = $("dv-mbr").value;
+  S.role = $("dv-role").value;
+  myMember().role = S.role;
+  myMember().status = S.membership === "none" ? "active" : S.membership;
+  route();
+}
+function syncDev() {
+  $("dv-config").checked = S.identityConfigured;
+  $("dv-login").checked = S.loggedIn;
+  $("dv-mbr").value = S.membership;
+  $("dv-role").value = S.role;
+}
+
+/* ================= 独立页面 ================= */
+function pgNotConfigured() {
+  return `<div class="center-page"><div class="center-box card">
+    <h1>Human Identity 未启用</h1>
+    <p class="muted">服务端返回 <code>501 Not Implemented</code>。当前环境仅配置了旧的 <code>TEAM_MEMORY_ADMIN_API_KEY</code>。</p>
+    <div class="note warn">运维提示：需配置 <code>TEAM_MEMORY_BOOTSTRAP_SECRET</code>、<code>TEAM_MEMORY_OIDC_*</code>、<code>TEAM_MEMORY_SECRET_PEPPER</code> 与 <code>TEAM_MEMORY_PORTAL_URL</code>。这是安装配置问题，不是用户权限错误。</div>
+  </div></div>`;
+}
+
+function pgLogin() {
+  const cont = S.pendingInvitation
+    ? `<div class="note">已保留邀请 continuation（sessionStorage），登录后会回到接受邀请流程。</div>` : "";
+  return `<div class="center-page"><div class="center-box card" style="text-align:center">
+    <h1>Team Memory Portal</h1>
+    <p class="muted">使用组织 OIDC 账号登录</p>
+    ${cont}
+    <button class="btn primary" style="width:100%;justify-content:center;padding:10px" onclick="doLogin()">Continue with OIDC →</button>
+    <p class="small faint" style="margin-top:14px">顶层跳转 <code>GET /v1/auth/login</code>（302 → OIDC Provider），非 fetch 调用</p>
+  </div></div>`;
+}
+function doLogin() {
+  logReq("GET", "/v1/auth/login  →  302 → OIDC callback → Set-Cookie: tm_human_session / tm_csrf", {}, 302);
+  S.loggedIn = true; syncDev();
+  toast("OIDC 登录成功，已设置 Session Cookie", "ok");
+  go(S.pendingInvitation ? "#/join" : (S.returnUrl || "#/"));
+  S.returnUrl = null;
+  route();
+}
+function doLogout() {
+  logReq("POST", "/v1/auth/logout", {"X-CSRF-Token":"<tm_csrf>"}, 200);
+  S.loggedIn = false; S.membership = "active"; syncDev();
+  go("#/"); route();
+}
+
+function pgEntry() {
+  return `<div class="center-page"><div class="center-box">
+    <h1 style="text-align:center">欢迎，${esc(S.me.email)}</h1>
+    <p class="muted" style="text-align:center">你的账号还没有 Membership。选择一种方式加入：</p>
+    <div class="card">
+      <h3>我有邀请链接 / token</h3>
+      <label>Invitation token</label>
+      <input type="text" id="entry-token" placeholder="tm_invite_inv_01.xxxxxxxx">
+      <div style="margin-top:10px"><button class="btn primary" onclick="entryUseToken()">继续</button></div>
+    </div>
+    <div class="card">
+      <h3>首次安装</h3>
+      <p class="small muted">部署后第一位用户可 claim 首个 Owner。</p>
+      <button class="btn" onclick="go('#/bootstrap')">Claim Bootstrap Owner</button>
+    </div>
+  </div></div>`;
+}
+function entryUseToken() {
+  const t = $("entry-token").value.trim();
+  if (!t) return toast("请输入 token", "warn");
+  S.pendingInvitation = t;
+  go("#/join"); route();
+}
+
+function pgBootstrap() {
+  return `<div class="center-page"><div class="center-box card">
+    <h1>Claim 首个 Owner</h1>
+    <p class="muted">输入运维提供的 bootstrap secret。secret 不会进入 URL、日志或持久存储。</p>
+    <label>Bootstrap secret</label>
+    <input type="password" id="bs-secret" placeholder="operator-provided secret">
+    <div style="margin-top:14px" class="row">
+      <button class="btn primary" onclick="doClaim()">Claim Owner</button>
+      <button class="btn ghost" onclick="go('#/')">返回</button>
+    </div>
+    <p class="small faint">提示：输入 <code>wrong</code> 可演示 403；成功后 bootstrap 永久关闭。</p>
+  </div></div>`;
+}
+function doClaim() {
+  const v = $("bs-secret").value;
+  if (v === "wrong") {
+    logReq("POST", "/v1/bootstrap/claim", {"X-PAX-Bootstrap-Secret":"•••","X-CSRF-Token":"<tm_csrf>"}, 403);
+    return toast("403：secret 错误或当前用户已有 Membership", "bad");
+  }
+  logReq("POST", "/v1/bootstrap/claim", {"X-PAX-Bootstrap-Secret":"•••","X-CSRF-Token":"<tm_csrf>"}, 200);
+  S.membership = "active"; S.role = "owner"; myMember().role = "owner"; syncDev();
+  audit("usr_01", "bootstrap.claim", "mbr_01");
+  $("bs-secret").value = "";   // 立即清空输入框状态
+  toast("已成为首个 Owner，bootstrap 已关闭", "ok");
+  go("#/"); route();
+}
+
+function pgJoin() {
+  const inv = findInviteByToken(S.pendingInvitation);
+  const usable = inv && inv.status === "pending" &&
+    inv.target_email.toLowerCase() === S.me.email.toLowerCase();
+  return `<div class="center-page"><div class="center-box card">
+    <h1>接受邀请</h1>
+    <p class="muted">以 <code>${esc(S.me.email)}</code> 的身份加入 Team。</p>
+    <div class="secret-val">${esc(S.pendingInvitation)}</div>
+    ${usable
+      ? `<p class="small">邀请来自管理员，角色：<span class="badge b-role">${inv.role}</span>，邮箱匹配 ✓</p>
+         <button class="btn primary" onclick="acceptInvite()">接受邀请</button>`
+      : `<div class="note bad">410：邀请无效（已过期 / 已撤销 / 已使用 / 邮箱不匹配）。为避免泄漏邀请详情，所有失败统一显示此状态。请联系管理员重新邀请。</div>`}
+    <div style="margin-top:10px"><button class="btn ghost" onclick="cancelJoin()">取消并清除本地 token</button></div>
+  </div></div>`;
+}
+function findInviteByToken(token) {
+  if (!token) return null;
+  const m = token.match(/^tm_invite_(inv_\d+)\./);
+  return m ? S.invitations.find(i => i.invitation_id === m[1]) : null;
+}
+function acceptInvite() {
+  const inv = findInviteByToken(S.pendingInvitation);
+  const key = crypto.randomUUID();
+  logReq("POST", "/v1/invitations/accept", {"Idempotency-Key":key,"X-CSRF-Token":"<tm_csrf>"}, 200);
+  inv.status = "accepted";
+  S.membership = "active"; S.role = inv.role; myMember().role = inv.role; syncDev();
+  audit("usr_01", "invitation.accept", inv.invitation_id);
+  S.pendingInvitation = null;   // 成功后删除 sessionStorage token
+  toast("已加入 Team（Idempotency-Key: " + key.slice(0,8) + "…）", "ok");
+  go("#/"); route();
+}
+function cancelJoin() { S.pendingInvitation = null; go("#/"); route(); }
+
+function pgSuspended() {
+  return `<div class="center-page"><div class="center-box card" style="text-align:center">
+    <h1>账号已被暂停</h1>
+    <p class="muted">你的 Membership 处于 <code>suspended</code> 状态，所有 Human Session 已被撤销。</p>
+    <p class="small muted">恢复账号不会还原旧 Agent Credential——恢复后需为 Agent 重新签发 Enrollment。如有疑问请联系管理员。</p>
+  </div></div>`;
+}
+
+/* ================= 主应用框架 ================= */
+function pgApp(raw) {
+  let inner, navKey;
+  if (raw.startsWith("#/agents/")) { inner = pgAgentDetail(raw.split("/")[2].split("?")[0]); navKey = "agents"; }
+  else if (raw.startsWith("#/admin/members")) { inner = pgMembers(); navKey = "members"; }
+  else if (raw.startsWith("#/admin/invitations")) { inner = pgInvitations(); navKey = "inv"; }
+  else if (raw.startsWith("#/admin/agents")) { inner = pgAdminAgents(); navKey = "aagents"; }
+  else if (raw.startsWith("#/admin/audit")) { inner = pgAudit(); navKey = "audit"; }
+  else { inner = pgMyAgents(); navKey = "agents"; }
+
+  const adminNav = isAdminLike() ? `
+    <div class="nav-label">Admin Console</div>
+    <a href="#/admin/members" class="${navKey==="members"?"active":""}">Members</a>
+    <a href="#/admin/invitations" class="${navKey==="inv"?"active":""}">Invitations</a>
+    <a href="#/admin/agents" class="${navKey==="aagents"?"active":""}">All Agents</a>
+    <a href="#/admin/audit" class="${navKey==="audit"?"active":""}">Audit Events</a>` : "";
+
+  return `<div class="shell">
+    <aside class="side">
+      <div class="brand">Team Memory <span>Portal</span></div>
+      <nav class="nav">
+        <div class="nav-label">Personal</div>
+        <a href="#/agents" class="${navKey==="agents"?"active":""}">My Agents</a>
+        ${adminNav}
+      </nav>
+      <div class="side-foot">
+        <div class="small">${esc(S.me.email)}</div>
+        <div class="row between" style="margin-top:4px">
+          <span class="badge b-role">${S.role}</span>
+          <button class="btn ghost sm" onclick="doLogout()">退出</button>
+        </div>
+      </div>
+    </aside>
+    <main class="main">${inner}</main>
+  </div>`;
+}
+
+/* ================= My Agents ================= */
+function pgMyAgents() {
+  const mine = S.agents.filter(a => a.owner_membership_id === "mbr_01");
+  const cards = mine.map(a => `
+    <div class="card agent-card" onclick="go('#/agents/${esc(a.agent_id)}')">
+      <div class="row between">
+        <strong>${esc(a.display_name)}</strong>${badge(a.status)}
+      </div>
+      <div class="small mono muted" style="margin:6px 0">${esc(a.agent_id)}</div>
+      <div class="small muted">${esc(a.description)}</div>
+      <div class="small faint" style="margin-top:8px">${esc(a.agent_type)} · ${a.directory_visible?"目录可见":"目录隐藏"} · v${a.resource_version}</div>
+    </div>`).join("");
+  return `<div class="page-head">
+      <div><h1>My Agents</h1><p class="muted" style="margin:0">注册并管理你拥有的 Agent 身份</p></div>
+      <button class="btn primary" onclick="openCreateAgent()">+ Create Agent</button>
+    </div>
+    ${mine.length ? `<div class="grid">${cards}</div>` : '<div class="card flat muted">还没有 Agent，点击右上角创建。</div>'}`;
+}
+
+let createAgentKey = null;   // 同一动作同一 key；网络重试复用
+function openCreateAgent() {
+  createAgentKey = crypto.randomUUID();
+  openModal(`
+    <h2>Create Agent</h2>
+    <label>agent_id（创建后不可修改，全局唯一）</label>
+    <input type="text" id="ca-id" placeholder="alice-codex" maxlength="128">
+    <label>display_name</label>
+    <input type="text" id="ca-name" placeholder="Alice Codex" maxlength="200">
+    <label>description</label>
+    <textarea id="ca-desc" rows="2"></textarea>
+    <div class="field-row">
+      <div><label>agent_type</label>
+        <select id="ca-type"><option>codex</option><option>claude</option><option>custom</option></select></div>
+      <div><label>&nbsp;</label>
+        <label class="ck"><input type="checkbox" id="ca-vis" checked> directory_visible（可被目录发现）</label></div>
+    </div>
+    <div class="note small">本次动作 Idempotency-Key：<code>${createAgentKey.slice(0,13)}…</code>。网络重试复用同一 key；重新打开表单 = 新 key。</div>
+    <div class="row" style="margin-top:8px;justify-content:flex-end">
+      <button class="btn ghost" onclick="closeModal()">取消</button>
+      <button class="btn primary" onclick="createAgent()">创建</button>
+    </div>`);
+}
+function createAgent() {
+  const id = $("ca-id").value.trim(), name = $("ca-name").value.trim();
+  if (!id || !name) return toast("422：agent_id 与 display_name 必填", "warn");
+  if (/[\/\\\x00-\x1f]/.test(id)) return toast("422：agent_id 不能含 /、\\ 或控制字符", "warn");
+  if (S.agents.some(a => a.agent_id === id)) {
+    logReq("POST","/v1/me/agents",{"Idempotency-Key":createAgentKey,"X-CSRF-Token":"<tm_csrf>"},409);
+    return toast("409：agent_id 已存在", "bad");
+  }
+  logReq("POST","/v1/me/agents",{"Idempotency-Key":createAgentKey,"X-CSRF-Token":"<tm_csrf>"},200);
+  S.agents.push({agent_id:id, display_name:name, description:$("ca-desc").value, agent_type:$("ca-type").value,
+    status:"active", directory_visible:$("ca-vis").checked, resource_version:1, owner_membership_id:"mbr_01",
+    created_at:now(), updated_at:now()});
+  S.enrollments[id] = []; S.credentials[id] = [];
+  audit("mbr_01","agent.create",id);
+  closeModal(); toast("Agent 已创建", "ok");
+  go("#/agents/" + id); route();
+}
+
+/* ================= Agent 详情 ================= */
+function pgAgentDetail(id) {
+  const a = S.agents.find(x => x.agent_id === id);
+  if (!a) return `<div class="card"><h2>404</h2><p class="muted">Agent 不存在或不可路由。<a href="#/agents">返回列表</a></p></div>`;
+  const mine = a.owner_membership_id === "mbr_01";
+  const retired = a.status === "retired";
+  const ens = (S.enrollments[id] || []);
+  const creds = (S.credentials[id] || []);
+
+  const secret = (S.lastEnrollSecret && S.lastEnrollSecret.agentId === id) ? `
+    <div class="secret-card">
+      <div class="row between"><strong>一次性 Enrollment token（仅此一次显示）</strong>
+        <span class="small">过期倒计时 <span class="countdown" data-cd="${S.lastEnrollSecret.expires_at}"></span></span></div>
+      <div class="secret-val">${esc(S.lastEnrollSecret.token)}</div>
+      <div class="row wrap">
+        <button class="btn sm primary" onclick="copyText('${esc(S.lastEnrollSecret.token)}','Enrollment token')">复制 token</button>
+        <button class="btn sm" onclick="copyText('paxl enroll --token ${esc(S.lastEnrollSecret.token)}','接入命令')">复制客户端命令</button>
+        <button class="btn sm ghost" onclick="S.lastEnrollSecret=null;route()">我已保存，关闭</button>
+      </div>
+      <div class="note warn small" style="margin-bottom:0">token 不会写入持久存储、日志或埋点。丢失请吊销后重新签发；exchange 由客户端完成，Portal 永远看不到 API key。</div>
+    </div>` : "";
+
+  const enRows = ens.map(e => `
+    <tr><td>${esc(e.credential_label)}</td>
+      <td class="small mono">${e.permissions.join(", ")}</td>
+      <td>${badge(e.status)}</td>
+      <td class="small">${e.status==="pending" ? `<span class="countdown" data-cd="${e.expires_at}"></span>` : fmt(e.created_at)}</td>
+      <td class="row">
+        ${e.status==="pending" ? `<button class="btn sm" onclick="exchangeEnroll('${id}','${e.enrollment_id}')">模拟客户端 exchange</button>
+          <button class="btn sm danger" onclick="revokeEnroll('${id}','${e.enrollment_id}')">吊销</button>` : ""}
+      </td></tr>`).join("");
+
+  const credRows = creds.map(c => `
+    <tr><td>${esc(c.label)}</td>
+      <td class="small mono">${c.permissions.join(", ")}</td>
+      <td>${badge(credStatus(c))}</td>
+      <td class="small">${fmt(c.last_used_at)}</td>
+      <td>${credStatus(c)==="active" ? `<button class="btn sm danger" onclick="revokeCred('${id}','${c.credential_id}')">吊销</button>` : ""}</td></tr>`).join("");
+
+  return `
+    <div class="page-head">
+      <div><h1>${esc(a.display_name)}</h1>
+        <div class="row small muted"><code>${esc(a.agent_id)}</code> ${badge(a.status)} <span>owner: ${nameFor(a.owner_membership_id)}</span></div></div>
+      <button class="btn ghost" onclick="go('#/agents')">← 返回</button>
+    </div>
+    ${secret}
+    <div class="card">
+      <div class="row between"><h2 style="margin:0">资料</h2>
+        <button class="btn sm ghost" title="模拟另一个浏览器窗口修改了此 Agent" onclick="bumpAgent('${id}')">⚡ 模拟并发修改</button></div>
+      <div class="field-row">
+        <div><label>display_name</label><input type="text" id="ed-name" value="${esc(a.display_name)}" ${retired?"disabled":""}></div>
+        <div><label>agent_type</label><input type="text" id="ed-type" value="${esc(a.agent_type)}" ${retired?"disabled":""}></div>
+      </div>
+      <label>description</label>
+      <textarea id="ed-desc" rows="2" ${retired?"disabled":""}>${esc(a.description)}</textarea>
+      <label class="ck"><input type="checkbox" id="ed-vis" ${a.directory_visible?"checked":""} ${retired?"disabled":""}> directory_visible</label>
+      <div class="row between" style="margin-top:10px">
+        <span class="small muted">resource_version: <code id="ed-rv">${a.resource_version}</code>（提交时 body + <code>If-Match</code> 双发）</span>
+        ${retired ? "" : `<button class="btn primary sm" onclick="saveAgent('${id}')">保存</button>`}
+      </div>
+      <hr class="divider">
+      <div class="row wrap">
+        ${!retired && mine ? (a.status === "active"
+          ? `<button class="btn sm danger" onclick="setAgentStatus('${id}','suspended')">暂停 Agent</button>`
+          : `<button class="btn sm" onclick="setAgentStatus('${id}','active')">恢复 active</button>`) : ""}
+        ${!retired && mine ? `<button class="btn sm danger" onclick="retireAgent('${id}')">Retire（不可逆）</button>` : ""}
+        ${retired ? '<span class="badge b-retired">retired 为终态，不可恢复</span>' : ""}
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="row between"><h2 style="margin:0">Enrollments</h2>
+        ${(!retired && a.status==="active" && mine) ? `<button class="btn primary sm" onclick="openCreateEnroll('${id}')">+ 签发一次性 Enrollment</button>` : ""}
+      </div>
+      ${a.status!=="active" ? '<div class="note warn small">Agent 非 active：暂停 / retire 会立即吊销全部 Credential 和 pending Enrollment，恢复 active 不会还原旧 key。</div>' : ""}
+      ${ens.length ? `<table><thead><tr><th>Label</th><th>Permissions</th><th>Status</th><th>过期/创建</th><th></th></tr></thead><tbody>${enRows}</tbody></table>`
+        : '<p class="muted small">暂无 Enrollment。</p>'}
+    </div>
+
+    <div class="card">
+      <h2 style="margin:0 0 8px">Credentials（仅元数据，永不含 API key）</h2>
+      ${creds.length ? `<table><thead><tr><th>Label</th><th>Permissions</th><th>Status</th><th>Last used</th><th></th></tr></thead><tbody>${credRows}</tbody></table>`
+        : '<p class="muted small">暂无 Credential。</p>'}
+    </div>`;
+}
+
+function saveAgent(id) {
+  const a = S.agents.find(x => x.agent_id === id);
+  const rv = Number($("ed-rv").textContent);
+  const headers = {"If-Match":`"${rv}"`,"X-CSRF-Token":"<tm_csrf>"};
+  if (rv !== a.resource_version) {
+    logReq("PATCH", `/v1/me/agents/${id}`, headers, 409);
+    toast("409：内容已被其他管理员修改，已刷新最新数据", "warn");
+    return route();   // refetch：丢弃本地编辑副本
+  }
+  logReq("PATCH", `/v1/me/agents/${id}`, headers, 200);
+  a.display_name = $("ed-name").value.trim() || a.display_name;
+  a.agent_type = $("ed-type").value.trim();
+  a.description = $("ed-desc").value;
+  a.directory_visible = $("ed-vis").checked;
+  a.resource_version++; a.updated_at = now();
+  audit("mbr_01","agent.update",id);
+  toast("已保存（v" + a.resource_version + "）", "ok");
+  route();
+}
+function bumpAgent(id) {
+  const a = S.agents.find(x => x.agent_id === id);
+  a.resource_version++; a.updated_at = now(); a.description = a.description + " [edited elsewhere]";
+  toast("另一窗口已修改此 Agent（server v" + a.resource_version + "），本地表单仍持有旧版本", "warn");
+}
+function cascadeAgent(a) {
+  (S.credentials[a.agent_id]||[]).forEach(c => { if (!c.revoked_at) c.revoked_at = now(); });
+  (S.enrollments[a.agent_id]||[]).forEach(e => { if (e.status === "pending") e.status = "revoked"; });
+}
+function setAgentStatus(id, st) {
+  const a = S.agents.find(x => x.agent_id === id);
+  if (st === "suspended" && !confirm("暂停将立即吊销该 Agent 的全部 Credential 和 pending Enrollment，且恢复后不会还原旧 key。继续？")) return;
+  logReq("PATCH", `/v1/me/agents/${id}`, {"If-Match":`"${a.resource_version}"`,"X-CSRF-Token":"<tm_csrf>"}, 200);
+  a.status = st; a.resource_version++; a.updated_at = now();
+  if (st === "suspended") cascadeAgent(a);
+  audit("mbr_01", "agent." + (st==="suspended"?"suspend":"resume"), id);
+  toast(st === "suspended" ? "已暂停，Credential 与 pending Enrollment 已吊销" : "已恢复 active（旧 key 不会还原）", st==="suspended"?"warn":"ok");
+  route();
+}
+function retireAgent(id, scope = "me") {
+  const a = S.agents.find(x => x.agent_id === id);
+  if (!confirm("Retire 是终态、不可逆：全部 Credential 与 Enrollment 立即吊销，Agent 不可恢复。确认 retire？")) return;
+  const key = crypto.randomUUID();
+  logReq("DELETE", `/v1/${scope}/agents/${id}?resource_version=${a.resource_version}`, {"If-Match":`"${a.resource_version}"`,"Idempotency-Key":key,"X-CSRF-Token":"<tm_csrf>"}, 200);
+  a.status = "retired"; a.resource_version++; a.updated_at = now();
+  cascadeAgent(a);
+  audit("mbr_01","agent.retire",id);
+  toast("Agent 已 retire（终态）", "warn");
+  route();
+}
+
+/* ---- Enrollment ---- */
+function openCreateEnroll(agentId) {
+  openModal(`
+    <h2>签发一次性 Enrollment</h2>
+    <label>credential_label（必填）</label>
+    <input type="text" id="en-label" placeholder="Alice MacBook">
+    <label>permissions（显式选择，受部署 grantable 限制）</label>
+    ${["observe","search","get","channel_send","channel_receive"].map(p =>
+      `<label class="ck"><input type="checkbox" class="en-perm" value="${p}" ${p==="observe"||p==="search"?"checked":""}> ${p}</label>`).join("")}
+    <div class="field-row">
+      <div><label>token 有效期</label>
+        <select id="en-exp"><option value="300">5 分钟</option><option value="900" selected>15 分钟</option><option value="1800">30 分钟</option></select></div>
+      <div><label>credential 过期时间（可选）</label>
+        <input type="datetime-local" id="en-credexp"></div>
+    </div>
+    <div class="note small">此接口返回一次性 secret 且<b>不支持 Idempotency-Key</b>：网络超时不会自动重试，先刷新 pending 列表确认。</div>
+    <div class="row" style="justify-content:flex-end;gap:8px">
+      <button class="btn ghost" onclick="closeModal()">取消</button>
+      <button class="btn" onclick="createEnroll('${agentId}',true)" title="演示：请求超时但服务端实际已创建">模拟超时</button>
+      <button class="btn primary" onclick="createEnroll('${agentId}',false)">签发</button>
+    </div>`);
+}
+function createEnroll(agentId, simulateTimeout) {
+  const label = $("en-label").value.trim();
+  const perms = [...document.querySelectorAll(".en-perm:checked")].map(x => x.value);
+  if (!label) return toast("422：credential_label 必填", "warn");
+  if (!perms.length) return toast("422：permissions 必须显式且非空", "warn");
+  const expSec = Number($("en-exp").value);
+  const credExp = $("en-credexp").value ? new Date($("en-credexp").value).toISOString() : null;
+  if (credExp && new Date(credExp) <= new Date()) return toast("422：credential_expires_at 必须是未来时间", "warn");
+
+  const enr = {enrollment_id:nid("enr"), credential_label:label, permissions:perms, status:"pending",
+    created_at:now(), expires_at:isoPlus(expSec), credential_expires_at:credExp};
+  S.enrollments[agentId].unshift(enr);
+  audit("mbr_01","enrollment.create",agentId);
+
+  if (simulateTimeout) {
+    logReq("POST", `/v1/me/agents/${agentId}/enrollments`, {"X-CSRF-Token":"<tm_csrf>"}, 500);
+    closeModal(); route();
+    toast("请求超时——未自动重试。已刷新列表：发现 1 条 pending 记录（服务端实际已创建），可直接使用或吊销重建", "warn");
+    return;
+  }
+  logReq("POST", `/v1/me/agents/${agentId}/enrollments`, {"X-CSRF-Token":"<tm_csrf>"}, 200);
+  S.lastEnrollSecret = {agentId, token:`tm_enroll_${enr.enrollment_id}.${rand()}`, expires_at:enr.expires_at};
+  closeModal(); route();
+}
+function exchangeEnroll(agentId, enrId) {
+  const e = S.enrollments[agentId].find(x => x.enrollment_id === enrId);
+  logReq("POST", "/v1/agent-enrollments/exchange  （paxl 客户端，非 Portal）", {}, 200);
+  e.status = "consumed";
+  S.credentials[agentId].unshift({credential_id:nid("cred"), label:e.credential_label, permissions:e.permissions,
+    created_at:now(), expires_at:e.credential_expires_at, last_used_at:null, revoked_at:null});
+  audit("agent:"+agentId, "enrollment.exchange", enrId);
+  toast("exchange 成功：api_key 仅下发给客户端；Portal 侧 pending → consumed，Credential 列表已出现元数据", "ok");
+  route();
+}
+function revokeEnroll(agentId, enrId) {
+  const key = crypto.randomUUID();
+  logReq("DELETE", `/v1/me/agents/${agentId}/enrollments/${enrId}`, {"Idempotency-Key":key,"X-CSRF-Token":"<tm_csrf>"}, 200);
+  S.enrollments[agentId].find(x => x.enrollment_id === enrId).status = "revoked";
+  audit("mbr_01","enrollment.revoke",enrId);
+  toast("Enrollment 已吊销", "ok"); route();
+}
+function revokeCred(agentId, credId) {
+  if (!confirm("吊销后该 API key 立即失效，不可恢复。继续？")) return;
+  const key = crypto.randomUUID();
+  logReq("DELETE", `/v1/me/agents/${agentId}/credentials/${credId}`, {"Idempotency-Key":key,"X-CSRF-Token":"<tm_csrf>"}, 200);
+  S.credentials[agentId].find(x => x.credential_id === credId).revoked_at = now();
+  audit("mbr_01","credential.revoke",credId);
+  toast("Credential 已吊销", "ok"); route();
+}
+
+/* ================= Admin: Members ================= */
+function activeOwners() { return S.members.filter(m => m.role === "owner" && m.status === "active"); }
+function canManage(m) {
+  if (S.role === "owner") return true;
+  if (S.role === "admin") return m.role === "member";
+  return false;
+}
+function pgMembers() {
+  const rows = S.members.map(m => {
+    return `<tr>
+      <td>${esc(m.email)}${m.membership_id==="mbr_01"?' <span class="faint small">(你)</span>':""}</td>
+      <td><span class="badge b-role">${m.role}</span></td>
+      <td>${badge(m.status)}</td>
+      <td class="small mono">v${m.resource_version}</td>
+      <td class="row">
+        ${m.status !== "removed" && canManage(m)
+          ? `<button class="btn sm" onclick="openEditMember('${m.membership_id}')">编辑</button>
+             <button class="btn sm ghost" title="模拟另一窗口修改" onclick="bumpMember('${m.membership_id}')">⚡</button>`
+          : '<span class="faint small">' + (m.status==="removed"?"终态":"无权限") + "</span>"}
+      </td></tr>`;
+  }).join("");
+  return `<div class="page-head"><div><h1>Members</h1><p class="muted" style="margin:0">Owner 可管理所有角色；Admin 只能管理 Member</p></div></div>
+    <div class="card"><table>
+      <thead><tr><th>Email</th><th>Role</th><th>Status</th><th>Version</th><th></th></tr></thead>
+      <tbody>${rows}</tbody></table></div>
+    <div class="note small">系统始终保留至少一个 active Owner；服务端以 <code>last_active_owner</code> 权威拒绝破坏该约束的变更。removed 为终态，需重新邀请。</div>`;
+}
+function openEditMember(id) {
+  const m = S.members.find(x => x.membership_id === id);
+  const roleOpts = ["owner","admin","member"].map(r =>
+    `<option ${m.role===r?"selected":""} ${(S.role==="admin"&&r!=="member")?"disabled":""}>${r}</option>`).join("");
+  openModal(`
+    <h2>编辑 ${esc(m.email)}</h2>
+    <div class="field-row">
+      <div><label>role</label><select id="em-role">${roleOpts}</select></div>
+      <div><label>status</label><select id="em-status">
+        ${["active","suspended","removed"].map(s => `<option ${m.status===s?"selected":""}>${s}</option>`).join("")}
+      </select></div>
+    </div>
+    <div class="note small">resource_version: <code>${m.resource_version}</code>（body + If-Match 双发）。
+      暂停/移除会撤销该用户的 Human Session、全部 Agent Credential 与 pending Enrollment；恢复不还原旧 key。removed 为终态。</div>
+    <div class="row" style="justify-content:flex-end">
+      <button class="btn ghost" onclick="closeModal()">取消</button>
+      <button class="btn primary" onclick="saveMember('${id}')">保存</button>
+    </div>`);
+}
+function saveMember(id) {
+  const m = S.members.find(x => x.membership_id === id);
+  const role = $("em-role").value, status = $("em-status").value;
+  if (m.role === "owner" && m.status === "active" && activeOwners().length === 1 &&
+      (role !== "owner" || status !== "active")) {
+    logReq("PATCH", `/v1/admin/members/${id}`, {"If-Match":`"${m.resource_version}"`}, 409);
+    return toast("last_active_owner：必须先提升另一位 active Owner", "bad");
+  }
+  logReq("PATCH", `/v1/admin/members/${id}`, {"If-Match":`"${m.resource_version}"`,"X-CSRF-Token":"<tm_csrf>"}, 200);
+  const wasActive = m.status === "active";
+  m.role = role; m.status = status; m.resource_version++;
+  if (wasActive && status !== "active") {
+    S.agents.filter(a => a.owner_membership_id === id).forEach(cascadeAgent);
+    if (id === "mbr_01") { S.membership = status; syncDev(); }
+    toast("已更新；该用户的 Session 与 Agent key 已级联撤销", "warn");
+  } else toast("已更新 Member", "ok");
+  audit("mbr_01", status==="removed"?"member.remove":(status==="suspended"?"member.suspend":"member.update"), id);
+  closeModal(); route();
+}
+function bumpMember(id) {
+  const m = S.members.find(x => x.membership_id === id);
+  m.resource_version++;
+  toast("另一窗口已修改 " + m.email + "（server v" + m.resource_version + "）", "warn");
+}
+
+/* ================= Admin: Invitations ================= */
+function pgInvitations() {
+  const f = S.inviteFilter;
+  const list = S.invitations.filter(i => f === "all" || i.status === f);
+  const secret = S.lastInviteSecret ? `
+    <div class="secret-card">
+      <strong>邀请已创建——token 仅此一次显示</strong>
+      <div class="secret-val">${esc(S.lastInviteSecret.url)}</div>
+      <div class="row wrap">
+        <button class="btn sm primary" onclick="copyText('${esc(S.lastInviteSecret.url)}','Join URL')">复制 Join URL</button>
+        <button class="btn sm" onclick="go('#/join?invite=${esc(S.lastInviteSecret.token)}')">在演示中打开链接</button>
+        <button class="btn sm ghost" onclick="S.lastInviteSecret=null;route()">我已发送，关闭</button>
+      </div>
+      <div class="note warn small" style="margin-bottom:0">token 位于 URL fragment（<code>#invite=</code>），不会进入服务端 access log 或 Referer。token 丢失只能 revoke 后重新邀请。</div>
+    </div>` : "";
+  const rows = list.map(i => `
+    <tr><td>${esc(i.target_email)}</td>
+      <td><span class="badge b-role">${i.role}</span></td>
+      <td>${badge(i.status)}</td>
+      <td class="small">${i.status==="pending"?`<span class="countdown" data-cd="${i.expires_at}"></span>`:fmt(i.created_at)}</td>
+      <td>${i.status==="pending" && (S.role==="owner" || i.role==="member")
+        ? `<button class="btn sm danger" onclick="revokeInvite('${i.invitation_id}')">吊销</button>` : ""}</td></tr>`).join("");
+  return `<div class="page-head"><div><h1>Invitations</h1><p class="muted" style="margin:0">Owner 可邀请 admin/member；Admin 只能邀请 member</p></div>
+      <button class="btn primary" onclick="openCreateInvite()">+ 创建邀请</button></div>
+    ${secret}
+    <div class="tabs">${["all","pending","accepted","revoked","expired"].map(s =>
+      `<button class="${f===s?"on":""}" onclick="S.inviteFilter='${s}';route()">${s}</button>`).join("")}</div>
+    <div class="card">${list.length
+      ? `<table><thead><tr><th>Email</th><th>Role</th><th>Status</th><th>过期/创建</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
+      : '<p class="muted small">无匹配记录。</p>'}</div>`;
+}
+function openCreateInvite() {
+  openModal(`
+    <h2>创建邀请</h2>
+    <label>target_email</label><input type="email" id="iv-email" placeholder="bob@example.com">
+    <div class="field-row">
+      <div><label>role</label><select id="iv-role">
+        <option>member</option>${S.role==="owner"?"<option>admin</option>":""}
+      </select></div>
+      <div><label>有效期</label><select id="iv-exp">
+        <option value="86400" selected>24 小时</option><option value="172800">2 天</option><option value="604800">7 天（最大）</option>
+      </select></div>
+    </div>
+    <div class="note small">创建响应包含一次性 token，且<b>不支持 Idempotency-Key</b>：超时不会自动重试，先刷新列表确认是否已产生 pending 记录。</div>
+    <div class="row" style="justify-content:flex-end">
+      <button class="btn ghost" onclick="closeModal()">取消</button>
+      <button class="btn primary" onclick="createInvite()">创建</button>
+    </div>`);
+}
+function createInvite() {
+  const email = $("iv-email").value.trim();
+  if (!/^[^@\s]+@[^@\s]+$/.test(email)) return toast("422：邮箱格式不正确", "warn");
+  const role = $("iv-role").value, exp = Number($("iv-exp").value);
+  logReq("POST", "/v1/admin/invitations", {"X-CSRF-Token":"<tm_csrf>"}, 200);
+  const inv = {invitation_id:nid("inv"), target_email:email, role, status:"pending", created_at:now(), expires_at:isoPlus(exp)};
+  S.invitations.unshift(inv);
+  const token = `tm_invite_${inv.invitation_id}.${rand()}`;
+  S.lastInviteSecret = {token, url:`https://portal.example/join#invite=${token}`};
+  audit("mbr_01","invitation.create",inv.invitation_id);
+  closeModal(); route();
+}
+function revokeInvite(id) {
+  logReq("DELETE", `/v1/admin/invitations/${id}`, {"X-CSRF-Token":"<tm_csrf>"}, 200);
+  S.invitations.find(i => i.invitation_id === id).status = "revoked";
+  audit("mbr_01","invitation.revoke",id);
+  toast("邀请已吊销", "ok"); route();
+}
+
+/* ================= Admin: All Agents ================= */
+function pgAdminAgents() {
+  const rows = S.agents.map(a => {
+    const retired = a.status === "retired";
+    return `<tr>
+      <td><a href="#/agents/${esc(a.agent_id)}">${esc(a.display_name)}</a><div class="small mono faint">${esc(a.agent_id)}</div></td>
+      <td>${nameFor(a.owner_membership_id)}</td>
+      <td>${badge(a.status)}</td>
+      <td class="row wrap">
+        ${retired ? '<span class="faint small">终态</span>' : `
+          ${a.status==="active" ? `<button class="btn sm danger" onclick="adminSuspend('${a.agent_id}')">暂停</button>` : ""}
+          ${S.role==="owner" && a.status==="suspended" ? `<button class="btn sm" onclick="adminResume('${a.agent_id}')">恢复</button>` : ""}
+          ${S.role==="owner" ? `<button class="btn sm danger" onclick="retireAgent('${a.agent_id}','admin')">Retire</button>` : ""}
+          ${S.role==="owner" ? `<button class="btn sm" onclick="openTransfer('${a.agent_id}')">转移</button>` : ""}`}
+      </td></tr>`;
+  }).join("");
+  return `<div class="page-head"><div><h1>All Agents</h1>
+    <p class="muted" style="margin:0">Admin 只能暂停；编辑、恢复、retire、转移仅 Owner</p></div></div>
+    <div class="card"><table>
+      <thead><tr><th>Agent</th><th>Owner</th><th>Status</th><th>治理操作</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>`;
+}
+function adminSuspend(id) {
+  const a = S.agents.find(x => x.agent_id === id);
+  if (!confirm("暂停将立即吊销该 Agent 的全部 Credential 和 pending Enrollment。继续？")) return;
+  logReq("PATCH", `/v1/admin/agents/${id}`, {"If-Match":`"${a.resource_version}"`,"X-CSRF-Token":"<tm_csrf>"}, 200);
+  a.status = "suspended"; a.resource_version++; cascadeAgent(a);
+  audit("mbr_01","agent.suspend",id);
+  toast("已暂停并级联吊销", "warn"); route();
+}
+function adminResume(id) {
+  const a = S.agents.find(x => x.agent_id === id);
+  logReq("PATCH", `/v1/admin/agents/${id}`, {"If-Match":`"${a.resource_version}"`,"X-CSRF-Token":"<tm_csrf>"}, 200);
+  a.status = "active"; a.resource_version++;
+  audit("mbr_01","agent.resume",id);
+  toast("已恢复 active（旧 Credential 不会还原，需要新 Enrollment）", "ok"); route();
+}
+function openTransfer(id) {
+  const a = S.agents.find(x => x.agent_id === id);
+  const targets = S.members.filter(m => m.status === "active" && m.membership_id !== a.owner_membership_id);
+  openModal(`
+    <h2>转移 ${esc(a.display_name)}</h2>
+    <label>目标 Owner（仅 active Membership）</label>
+    <select id="tf-target">${targets.map(m => `<option value="${m.membership_id}">${esc(m.email)}</option>`).join("")}</select>
+    <div class="note warn small">Transfer 会吊销旧 Owner 下的全部 Credential 与 pending Enrollment；新 Owner 必须重新签发 Enrollment。</div>
+    <div class="row" style="justify-content:flex-end">
+      <button class="btn ghost" onclick="closeModal()">取消</button>
+      <button class="btn danger" onclick="doTransfer('${id}')">确认转移</button>
+    </div>`);
+}
+function doTransfer(id) {
+  const a = S.agents.find(x => x.agent_id === id);
+  const target = $("tf-target").value;
+  logReq("POST", `/v1/admin/agents/${id}/transfer`, {"If-Match":`"${a.resource_version}"`,"X-CSRF-Token":"<tm_csrf>"}, 200);
+  a.owner_membership_id = target; a.resource_version++; a.updated_at = now();
+  cascadeAgent(a);
+  audit("mbr_01","agent.transfer",id);
+  toast("已转移；旧 Credential 与 Enrollment 已吊销", "ok");
+  closeModal(); route();
+}
+
+/* ================= Admin: Audit ================= */
+function pgAudit() {
+  const f = S.auditFilter;
+  const actions = ["all", ...new Set(S.audit.map(e => e.action))];
+  const list = S.audit.filter(e => f === "all" || e.action === f);
+  const rows = list.map(e => `
+    <tr><td class="small">${fmt(e.created_at)}</td>
+      <td>${nameFor(e.actor)}</td>
+      <td class="mono small">${esc(e.action)}</td>
+      <td>${nameFor(e.target)}</td></tr>`).join("");
+  return `<div class="page-head"><div><h1>Audit Events</h1>
+    <p class="muted" style="margin:0">immutable 审计；label enrichment 为前端非权威映射，对象删除后保留原始 ID（如 <code>mbr_99</code>）</p></div>
+    <select style="width:220px" onchange="S.auditFilter=this.value;route()">
+      ${actions.map(a => `<option ${f===a?"selected":""}>${a}</option>`).join("")}
+    </select></div>
+    <div class="card"><table>
+      <thead><tr><th>时间</th><th>Actor</th><th>Action</th><th>Target</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>`;
+}
+
+/* ================= 启动 ================= */
+route();
+</script>
+</body>
+</html>

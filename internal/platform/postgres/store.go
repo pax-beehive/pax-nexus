@@ -3,14 +3,18 @@ package postgres
 import (
 	"context"
 	"embed"
+	"errors"
 	"fmt"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 //go:embed migrations/001_init.sql migrations/002_temporal_notes.sql migrations/003_note_relations.sql migrations/004_extraction_latency.sql migrations/005_note_embeddings.sql migrations/006_note_identity.sql migrations/007_extraction_run_actor.sql migrations/008_extraction_run_candidates.sql migrations/009_extraction_run_result.sql migrations/010_note_identity_ref.sql migrations/011_recall_observations.sql migrations/012_extraction_episodes.sql migrations/013_recall_trace.sql migrations/014_recall_hint_deliveries.sql migrations/015_onprem_credentials.sql migrations/016_onprem_channel_envelopes.sql migrations/017_onprem_identity_registry.sql
 var migrations embed.FS
+
+const migrationAdvisoryLockName = "pax-nexus.platform-postgres.migrate"
 
 type Store struct {
 	pool        *pgxpool.Pool
@@ -81,7 +85,22 @@ func (s *Store) Registry() *RegistryStore {
 	return s.registry
 }
 
-func (s *Store) Migrate(ctx context.Context) error {
+func (s *Store) Migrate(ctx context.Context) (resultErr error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin postgres migration transaction: %w", err)
+	}
+	defer func() {
+		rollbackErr := tx.Rollback(context.WithoutCancel(ctx))
+		if rollbackErr != nil && !errors.Is(rollbackErr, pgx.ErrTxClosed) {
+			resultErr = errors.Join(resultErr, fmt.Errorf("rollback postgres migration transaction: %w", rollbackErr))
+		}
+	}()
+
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, migrationAdvisoryLockName); err != nil {
+		return fmt.Errorf("acquire postgres migration lock: %w", err)
+	}
+
 	for _, path := range []string{
 		"migrations/001_init.sql",
 		"migrations/002_temporal_notes.sql",
@@ -105,9 +124,12 @@ func (s *Store) Migrate(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("read postgres migration %q: %w", path, err)
 		}
-		if _, err := s.pool.Exec(ctx, string(migration)); err != nil {
+		if _, err := tx.Exec(ctx, string(migration)); err != nil {
 			return fmt.Errorf("apply postgres migration %q: %w", path, err)
 		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit postgres migrations: %w", err)
 	}
 	return nil
 }

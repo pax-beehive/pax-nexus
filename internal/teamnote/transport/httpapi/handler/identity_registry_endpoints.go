@@ -45,7 +45,7 @@ func (h *Handler) CompleteHumanLogin(ctx context.Context, c *app.RequestContext)
 	}
 	var request api.AuthCallbackRequest
 	if err := c.BindAndValidate(&request); err != nil {
-		c.String(consts.StatusBadRequest, "invalid OIDC callback")
+		writeHumanAPIError(c, consts.StatusBadRequest, "invalid_request", "the request is invalid")
 		return
 	}
 	identity, err := h.oidc.CompleteLogin(
@@ -73,7 +73,7 @@ func (h *Handler) CompleteHumanLogin(ctx context.Context, c *app.RequestContext)
 func (h *Handler) LogoutHuman(ctx context.Context, c *app.RequestContext) {
 	if !h.requireHumanIdentity(c) || !validateCSRF(c) {
 		if h.identity != nil {
-			c.String(consts.StatusForbidden, "invalid CSRF token")
+			writeHumanAPIError(c, consts.StatusForbidden, "csrf_invalid", "the CSRF token is invalid")
 		}
 		return
 	}
@@ -116,7 +116,7 @@ func (h *Handler) ListMembers(ctx context.Context, c *app.RequestContext) {
 	}
 	limit, err := queryLimit(c)
 	if err != nil {
-		c.String(consts.StatusBadRequest, "invalid member limit")
+		writeHumanAPIError(c, consts.StatusBadRequest, "invalid_request", "the request is invalid")
 		return
 	}
 	members, err := h.identity.ListMembers(ctx, principal, onprem.MemberFilter{
@@ -150,12 +150,12 @@ func (h *Handler) UpdateMember(ctx context.Context, c *app.RequestContext) {
 	}
 	var request api.UpdateMemberRequest
 	if err := c.BindAndValidate(&request); err != nil {
-		c.String(consts.StatusBadRequest, "invalid member update")
+		writeHumanAPIError(c, consts.StatusBadRequest, "invalid_request", "the request is invalid")
 		return
 	}
 	resourceVersion, err := mutationResourceVersion(c, request.ResourceVersion)
 	if err != nil {
-		c.String(consts.StatusBadRequest, "invalid If-Match")
+		writeHumanAPIError(c, consts.StatusBadRequest, "invalid_request", "the request is invalid")
 		return
 	}
 	var role *onprem.Role
@@ -185,7 +185,7 @@ func (h *Handler) ListAuditEvents(ctx context.Context, c *app.RequestContext) {
 	}
 	limit, err := queryLimit(c)
 	if err != nil {
-		c.String(consts.StatusBadRequest, "invalid audit limit")
+		writeHumanAPIError(c, consts.StatusBadRequest, "invalid_request", "the request is invalid")
 		return
 	}
 	events, err := h.identity.ListAuditEvents(ctx, principal, onprem.AuditFilter{
@@ -207,7 +207,7 @@ func (h *Handler) GetAuditEvent(ctx context.Context, c *app.RequestContext) {
 	}
 	auditEventID, err := strconv.ParseInt(c.Param("audit_event_id"), 10, 64)
 	if err != nil || auditEventID <= 0 {
-		c.String(consts.StatusBadRequest, "invalid audit event ID")
+		writeHumanAPIError(c, consts.StatusBadRequest, "invalid_request", "the request is invalid")
 		return
 	}
 	event, err := h.identity.GetAuditEvent(ctx, principal, auditEventID)
@@ -225,7 +225,7 @@ func (h *Handler) CreateMembershipInvitation(ctx context.Context, c *app.Request
 	}
 	var request api.CreateInvitationRequest
 	if err := c.BindAndValidate(&request); err != nil {
-		c.String(consts.StatusBadRequest, "invalid membership invitation")
+		writeHumanAPIError(c, consts.StatusBadRequest, "invalid_request", "the request is invalid")
 		return
 	}
 	invitation, err := h.identity.CreateInvitation(ctx, principal, onprem.InvitationRequest{
@@ -246,7 +246,7 @@ func (h *Handler) ListMembershipInvitations(ctx context.Context, c *app.RequestC
 	}
 	limit, err := queryLimit(c)
 	if err != nil {
-		c.String(consts.StatusBadRequest, "invalid invitation limit")
+		writeHumanAPIError(c, consts.StatusBadRequest, "invalid_request", "the request is invalid")
 		return
 	}
 	invitations, err := h.identity.ListInvitations(ctx, principal, onprem.InvitationFilter{
@@ -279,7 +279,7 @@ func (h *Handler) AcceptMembershipInvitation(ctx context.Context, c *app.Request
 	}
 	var request api.AcceptInvitationRequest
 	if err := c.BindAndValidate(&request); err != nil {
-		c.String(consts.StatusBadRequest, "invalid membership invitation acceptance")
+		writeHumanAPIError(c, consts.StatusBadRequest, "invalid_request", "the request is invalid")
 		return
 	}
 	accepted, err := h.identity.AcceptInvitation(
@@ -299,7 +299,7 @@ func (h *Handler) ListOwnedAgents(ctx context.Context, c *app.RequestContext) {
 	}
 	limit, err := queryLimit(c)
 	if err != nil {
-		c.String(consts.StatusBadRequest, "invalid agent limit")
+		writeHumanAPIError(c, consts.StatusBadRequest, "invalid_request", "the request is invalid")
 		return
 	}
 	agents, err := h.registry.ListOwnedAgents(ctx, principal, onprem.AgentFilter{
@@ -319,7 +319,7 @@ func (h *Handler) CreateOwnedAgent(ctx context.Context, c *app.RequestContext) {
 	}
 	var request api.CreateAgentProfileRequest
 	if err := c.BindAndValidate(&request); err != nil {
-		c.String(consts.StatusBadRequest, "invalid agent profile")
+		writeHumanAPIError(c, consts.StatusBadRequest, "invalid_request", "the request is invalid")
 		return
 	}
 	directoryVisible := true
@@ -359,12 +359,12 @@ func (h *Handler) UpdateOwnedAgent(ctx context.Context, c *app.RequestContext) {
 	}
 	var request api.UpdateAgentProfileRequest
 	if err := c.BindAndValidate(&request); err != nil {
-		c.String(consts.StatusBadRequest, "invalid agent profile update")
+		writeHumanAPIError(c, consts.StatusBadRequest, "invalid_request", "the request is invalid")
 		return
 	}
 	resourceVersion, err := mutationResourceVersion(c, request.ResourceVersion)
 	if err != nil {
-		c.String(consts.StatusBadRequest, "invalid If-Match")
+		writeHumanAPIError(c, consts.StatusBadRequest, "invalid_request", "the request is invalid")
 		return
 	}
 	var status *onprem.AgentStatus
@@ -390,12 +390,12 @@ func (h *Handler) RetireOwnedAgent(ctx context.Context, c *app.RequestContext) {
 	}
 	var request api.RetireAgentProfileRequest
 	if err := c.BindAndValidate(&request); err != nil {
-		c.String(consts.StatusBadRequest, "invalid agent retirement")
+		writeHumanAPIError(c, consts.StatusBadRequest, "invalid_request", "the request is invalid")
 		return
 	}
 	resourceVersion, err := mutationResourceVersion(c, request.ResourceVersion)
 	if err != nil {
-		c.String(consts.StatusBadRequest, "invalid If-Match")
+		writeHumanAPIError(c, consts.StatusBadRequest, "invalid_request", "the request is invalid")
 		return
 	}
 	agent, err := h.registry.RetireOwnedAgent(
@@ -416,7 +416,7 @@ func (h *Handler) CreateOwnedAgentEnrollment(ctx context.Context, c *app.Request
 	}
 	var request api.CreateOwnedEnrollmentRequest
 	if err := c.BindAndValidate(&request); err != nil {
-		c.String(consts.StatusBadRequest, "invalid owned agent enrollment")
+		writeHumanAPIError(c, consts.StatusBadRequest, "invalid_request", "the request is invalid")
 		return
 	}
 	permissions := make([]onprem.Permission, len(request.Permissions))
@@ -427,7 +427,7 @@ func (h *Handler) CreateOwnedAgentEnrollment(ctx context.Context, c *app.Request
 	if request.IsSetCredentialExpiresAt() {
 		parsed, err := time.Parse(time.RFC3339Nano, request.GetCredentialExpiresAt())
 		if err != nil {
-			c.String(consts.StatusBadRequest, "invalid credential expiry")
+			writeHumanAPIError(c, consts.StatusBadRequest, "invalid_request", "the request is invalid")
 			return
 		}
 		credentialExpiresAt = &parsed
@@ -451,7 +451,7 @@ func (h *Handler) ListOwnedAgentEnrollments(ctx context.Context, c *app.RequestC
 	}
 	limit, err := queryLimit(c)
 	if err != nil {
-		c.String(consts.StatusBadRequest, "invalid enrollment limit")
+		writeHumanAPIError(c, consts.StatusBadRequest, "invalid_request", "the request is invalid")
 		return
 	}
 	enrollments, err := h.registry.ListEnrollments(ctx, principal, c.Param("agent_id"), onprem.AgentArtifactFilter{
@@ -487,7 +487,7 @@ func (h *Handler) ListOwnedAgentCredentials(ctx context.Context, c *app.RequestC
 	}
 	limit, err := queryLimit(c)
 	if err != nil {
-		c.String(consts.StatusBadRequest, "invalid credential limit")
+		writeHumanAPIError(c, consts.StatusBadRequest, "invalid_request", "the request is invalid")
 		return
 	}
 	credentials, err := h.registry.ListCredentials(ctx, principal, c.Param("agent_id"), onprem.AgentArtifactFilter{
@@ -564,7 +564,7 @@ func (h *Handler) ListAdminAgents(ctx context.Context, c *app.RequestContext) {
 	}
 	limit, err := queryLimit(c)
 	if err != nil {
-		c.String(consts.StatusBadRequest, "invalid admin agent limit")
+		writeHumanAPIError(c, consts.StatusBadRequest, "invalid_request", "the request is invalid")
 		return
 	}
 	agents, err := h.registry.ListAdminAgents(ctx, principal, onprem.AgentFilter{
@@ -598,12 +598,12 @@ func (h *Handler) UpdateAdminAgent(ctx context.Context, c *app.RequestContext) {
 	}
 	var request api.UpdateAgentProfileRequest
 	if err := c.BindAndValidate(&request); err != nil {
-		c.String(consts.StatusBadRequest, "invalid admin agent update")
+		writeHumanAPIError(c, consts.StatusBadRequest, "invalid_request", "the request is invalid")
 		return
 	}
 	resourceVersion, err := mutationResourceVersion(c, request.ResourceVersion)
 	if err != nil {
-		c.String(consts.StatusBadRequest, "invalid If-Match")
+		writeHumanAPIError(c, consts.StatusBadRequest, "invalid_request", "the request is invalid")
 		return
 	}
 	var status *onprem.AgentStatus
@@ -622,6 +622,32 @@ func (h *Handler) UpdateAdminAgent(ctx context.Context, c *app.RequestContext) {
 	c.JSON(consts.StatusOK, &api.AgentProfileResponse{Agent: agentProfileToAPI(agent)})
 }
 
+func (h *Handler) RetireAdminAgent(ctx context.Context, c *app.RequestContext) {
+	principal, ok := h.authorizeHumanMember(ctx, c, true)
+	if !ok {
+		return
+	}
+	var request api.RetireAgentProfileRequest
+	if err := c.BindAndValidate(&request); err != nil {
+		writeHumanAPIError(c, consts.StatusBadRequest, "invalid_request", "the request is invalid")
+		return
+	}
+	resourceVersion, err := mutationResourceVersion(c, request.ResourceVersion)
+	if err != nil {
+		writeHumanAPIError(c, consts.StatusBadRequest, "invalid_request", "the request is invalid")
+		return
+	}
+	agent, err := h.registry.RetireAdminAgent(
+		ctx, principal, request.AgentID, resourceVersion,
+		strings.TrimSpace(string(c.GetHeader("Idempotency-Key"))),
+	)
+	if err != nil {
+		h.writeHumanError(c, "retire admin agent", err)
+		return
+	}
+	c.JSON(consts.StatusOK, &api.AgentProfileResponse{Agent: agentProfileToAPI(agent)})
+}
+
 func (h *Handler) TransferAdminAgent(ctx context.Context, c *app.RequestContext) {
 	principal, ok := h.authorizeHumanMember(ctx, c, true)
 	if !ok {
@@ -629,12 +655,12 @@ func (h *Handler) TransferAdminAgent(ctx context.Context, c *app.RequestContext)
 	}
 	var request api.TransferAgentRequest
 	if err := c.BindAndValidate(&request); err != nil {
-		c.String(consts.StatusBadRequest, "invalid agent transfer")
+		writeHumanAPIError(c, consts.StatusBadRequest, "invalid_request", "the request is invalid")
 		return
 	}
 	resourceVersion, err := mutationResourceVersion(c, request.ResourceVersion)
 	if err != nil {
-		c.String(consts.StatusBadRequest, "invalid If-Match")
+		writeHumanAPIError(c, consts.StatusBadRequest, "invalid_request", "the request is invalid")
 		return
 	}
 	agent, err := h.registry.TransferAgent(ctx, principal, request.AgentID, onprem.TransferAgentRequest{
@@ -654,7 +680,7 @@ func (h *Handler) ListAdminAgentEnrollments(ctx context.Context, c *app.RequestC
 	}
 	limit, err := queryLimit(c)
 	if err != nil {
-		c.String(consts.StatusBadRequest, "invalid enrollment limit")
+		writeHumanAPIError(c, consts.StatusBadRequest, "invalid_request", "the request is invalid")
 		return
 	}
 	enrollments, err := h.registry.ListAdminEnrollments(
@@ -692,7 +718,7 @@ func (h *Handler) ListAdminAgentCredentials(ctx context.Context, c *app.RequestC
 	}
 	limit, err := queryLimit(c)
 	if err != nil {
-		c.String(consts.StatusBadRequest, "invalid credential limit")
+		writeHumanAPIError(c, consts.StatusBadRequest, "invalid_request", "the request is invalid")
 		return
 	}
 	credentials, err := h.registry.ListAdminCredentials(
@@ -732,7 +758,7 @@ func (h *Handler) authorizeHuman(
 		return onprem.HumanPrincipal{}, false
 	}
 	if mutation && !validateCSRF(c) {
-		c.String(consts.StatusForbidden, "invalid CSRF token")
+		writeHumanAPIError(c, consts.StatusForbidden, "csrf_invalid", "the CSRF token is invalid")
 		return onprem.HumanPrincipal{}, false
 	}
 	principal, err := h.identity.AuthenticateSession(ctx, string(c.Cookie(humanSessionCookieName)))
@@ -753,7 +779,7 @@ func (h *Handler) authorizeHumanMember(
 		return onprem.HumanPrincipal{}, false
 	}
 	if principal.MembershipID == "" || principal.MembershipStatus != onprem.MembershipStatusActive {
-		c.String(consts.StatusForbidden, "membership required")
+		writeHumanAPIError(c, consts.StatusForbidden, "membership_required", "an active membership is required")
 		return onprem.HumanPrincipal{}, false
 	}
 	return principal, true
@@ -761,7 +787,7 @@ func (h *Handler) authorizeHumanMember(
 
 func (h *Handler) requireHumanIdentity(c *app.RequestContext) bool {
 	if h.identity == nil || h.oidc == nil {
-		c.String(consts.StatusNotImplemented, "human identity is not configured")
+		writeHumanAPIError(c, consts.StatusNotImplemented, "not_configured", "human identity is not configured")
 		return false
 	}
 	return true
@@ -775,24 +801,45 @@ func (h *Handler) clearHumanCookies(c *app.RequestContext) {
 func (h *Handler) writeHumanError(c *app.RequestContext, operation string, err error) {
 	switch {
 	case errors.Is(err, onprem.ErrUnauthorized):
-		c.String(consts.StatusUnauthorized, operation)
+		writeHumanAPIError(c, consts.StatusUnauthorized, "unauthorized", "authentication is required")
 	case errors.Is(err, onprem.ErrForbidden):
-		c.String(consts.StatusForbidden, operation)
-	case errors.Is(err, onprem.ErrAgentNotFound), errors.Is(err, onprem.ErrAuditEventNotFound):
-		c.String(consts.StatusNotFound, operation)
+		writeHumanAPIError(c, consts.StatusForbidden, "forbidden", "the operation is not permitted")
+	case errors.Is(err, onprem.ErrAgentNotFound):
+		writeHumanAPIError(c, consts.StatusNotFound, "agent_not_found", "the requested resource was not found")
+	case errors.Is(err, onprem.ErrAuditEventNotFound):
+		writeHumanAPIError(c, consts.StatusNotFound, "audit_event_not_found", "the requested resource was not found")
 	case errors.Is(err, onprem.ErrCredentialNotFound):
-		c.String(consts.StatusNotFound, operation)
-	case errors.Is(err, onprem.ErrBootstrapClosed), errors.Is(err, onprem.ErrMembershipConflict),
-		errors.Is(err, onprem.ErrAgentConflict), errors.Is(err, onprem.ErrIdempotencyConflict):
-		c.String(consts.StatusConflict, operation)
-	case errors.Is(err, onprem.ErrInvitationInvalid), errors.Is(err, onprem.ErrEnrollmentInvalid):
-		c.String(consts.StatusGone, operation)
+		writeHumanAPIError(c, consts.StatusNotFound, "credential_not_found", "the requested resource was not found")
+	case errors.Is(err, onprem.ErrLastActiveOwner):
+		writeHumanAPIError(c, consts.StatusConflict, "last_active_owner", "the requested change conflicts with current state")
+	case errors.Is(err, onprem.ErrResourceVersionConflict):
+		writeHumanAPIError(c, consts.StatusConflict, "resource_version_conflict", "the requested change conflicts with current state")
+	case errors.Is(err, onprem.ErrAgentIDConflict):
+		writeHumanAPIError(c, consts.StatusConflict, "agent_id_conflict", "the requested change conflicts with current state")
+	case errors.Is(err, onprem.ErrIdempotencyConflict):
+		writeHumanAPIError(c, consts.StatusConflict, "idempotency_conflict", "the requested change conflicts with current state")
+	case errors.Is(err, onprem.ErrInvalidStateTransition):
+		writeHumanAPIError(c, consts.StatusConflict, "invalid_state_transition", "the requested change conflicts with current state")
+	case errors.Is(err, onprem.ErrBootstrapClosed):
+		writeHumanAPIError(c, consts.StatusConflict, "bootstrap_closed", "the requested change conflicts with current state")
+	case errors.Is(err, onprem.ErrMembershipConflict):
+		writeHumanAPIError(c, consts.StatusConflict, "membership_conflict", "the requested change conflicts with current state")
+	case errors.Is(err, onprem.ErrAgentConflict):
+		writeHumanAPIError(c, consts.StatusConflict, "agent_conflict", "the requested change conflicts with current state")
+	case errors.Is(err, onprem.ErrInvitationInvalid):
+		writeHumanAPIError(c, consts.StatusGone, "invitation_gone", "the requested credential is no longer valid")
+	case errors.Is(err, onprem.ErrEnrollmentInvalid):
+		writeHumanAPIError(c, consts.StatusGone, "enrollment_gone", "the requested credential is no longer valid")
 	case errors.Is(err, onprem.ErrInvalidIdentityInput):
-		c.String(consts.StatusUnprocessableEntity, operation)
+		writeHumanAPIError(c, consts.StatusUnprocessableEntity, "invalid_input", "the request input is invalid")
 	default:
 		h.logger.Error("human identity request failed", "operation", operation, "error", err)
-		c.String(consts.StatusInternalServerError, operation)
+		writeHumanAPIError(c, consts.StatusInternalServerError, "internal_error", "the request could not be completed")
 	}
+}
+
+func writeHumanAPIError(c *app.RequestContext, status int, code, message string) {
+	c.JSON(status, &api.ErrorResponse{Code: code, Message: message})
 }
 
 func validateCSRF(c *app.RequestContext) bool {

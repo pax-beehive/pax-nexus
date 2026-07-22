@@ -119,7 +119,7 @@ func (s *identitySuite) TestMemberAdministrationLifecycle() {
 	}{
 		{name: "promote member", request: onprem.UpdateMemberRequest{Role: &adminRole, ResourceVersion: 1}, wantRole: onprem.RoleAdmin, wantStatus: onprem.MembershipStatusActive},
 		{name: "suspend member", request: onprem.UpdateMemberRequest{Status: &suspended, ResourceVersion: 1}, wantRole: onprem.RoleMember, wantStatus: onprem.MembershipStatusSuspended},
-		{name: "reject stale version", request: onprem.UpdateMemberRequest{Status: &suspended, ResourceVersion: 2}, wantErr: onprem.ErrMembershipConflict},
+		{name: "reject stale version", request: onprem.UpdateMemberRequest{Status: &suspended, ResourceVersion: 2}, wantErr: onprem.ErrResourceVersionConflict},
 	}
 	for _, test := range tests {
 		s.Run(test.name, func() {

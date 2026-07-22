@@ -68,6 +68,57 @@ func (s *identityRegistryHandlerSuite) TestHumanMutationRejectsMissingCSRF() {
 	s.Equal(consts.StatusForbidden, response.Code)
 }
 
+func (s *identityRegistryHandlerSuite) TestHumanConflictErrorsHaveStableCodes() {
+	headers := []ut.Header{
+		{Key: "Cookie", Value: "tm_human_session=session; tm_csrf=csrf"},
+		{Key: "X-CSRF-Token", Value: "csrf"},
+	}
+	tests := []struct {
+		name     string
+		err      error
+		wantCode string
+	}{
+		{name: "last active owner", err: onprem.ErrLastActiveOwner, wantCode: "last_active_owner"},
+		{name: "stale resource version", err: onprem.ErrResourceVersionConflict, wantCode: "resource_version_conflict"},
+	}
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			s.identity.updateMemberErr = test.err
+			response := s.performGenerated(http.MethodPatch, "/v1/admin/members/member-membership",
+				`{"status":"suspended","resource_version":1}`, headers...)
+			s.Equal(consts.StatusConflict, response.Code)
+			s.Contains(response.Header().Get("Content-Type"), "application/json")
+			s.JSONEq(`{"code":"`+test.wantCode+`","message":"the requested change conflicts with current state"}`,
+				response.Body.String())
+		})
+	}
+}
+
+func (s *identityRegistryHandlerSuite) TestAgentCreationConflictErrorsHaveStableCodes() {
+	headers := []ut.Header{
+		{Key: "Cookie", Value: "tm_human_session=session; tm_csrf=csrf"},
+		{Key: "X-CSRF-Token", Value: "csrf"},
+	}
+	tests := []struct {
+		name     string
+		err      error
+		wantCode string
+	}{
+		{name: "agent ID already exists", err: onprem.ErrAgentIDConflict, wantCode: "agent_id_conflict"},
+		{name: "idempotency key reused", err: onprem.ErrIdempotencyConflict, wantCode: "idempotency_conflict"},
+	}
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			s.registry.createAgentErr = test.err
+			response := s.performGenerated(http.MethodPost, "/v1/me/agents",
+				`{"agent_id":"reviewer","display_name":"Reviewer"}`, headers...)
+			s.Equal(consts.StatusConflict, response.Code)
+			s.JSONEq(`{"code":"`+test.wantCode+`","message":"the requested change conflicts with current state"}`,
+				response.Body.String())
+		})
+	}
+}
+
 func (s *identityRegistryHandlerSuite) TestAgentListsAndGetsDirectoryProfiles() {
 	list := s.performGenerated(http.MethodGet, "/v1/channel/agents", "",
 		ut.Header{Key: "Authorization", Value: "Bearer agent"})
@@ -214,6 +265,10 @@ func (s *identityRegistryHandlerSuite) TestOwnedAndAdminAgentLifecycleRoutes() {
 	adminUpdate := s.performGenerated(http.MethodPatch, "/v1/admin/agents/reviewer",
 		`{"status":"suspended","resource_version":1}`, headers...)
 	s.Equal(consts.StatusOK, adminUpdate.Code)
+	adminRetire := s.performGenerated(http.MethodDelete,
+		"/v1/admin/agents/reviewer?resource_version=2", "", headers...)
+	s.Equal(consts.StatusOK, adminRetire.Code)
+	s.Contains(adminRetire.Body.String(), `"status":"retired"`)
 	transfer := s.performGenerated(http.MethodPost, "/v1/admin/agents/reviewer/transfer",
 		`{"target_membership_id":"other-membership","resource_version":1}`, headers...)
 	s.Equal(consts.StatusOK, transfer.Code)
@@ -262,6 +317,7 @@ type humanIdentityService struct {
 	principal              onprem.HumanPrincipal
 	loggedOut              bool
 	acceptedIdempotencyKey string
+	updateMemberErr        error
 }
 
 func (s *humanIdentityService) Login(
@@ -362,6 +418,9 @@ func (s *humanIdentityService) UpdateMember(
 	string,
 	onprem.UpdateMemberRequest,
 ) (onprem.Member, error) {
+	if s.updateMemberErr != nil {
+		return onprem.Member{}, s.updateMemberErr
+	}
 	return testMember(onprem.MembershipStatusSuspended), nil
 }
 
@@ -417,6 +476,7 @@ type agentRegistryService struct {
 	created            onprem.CreateAgentRequest
 	adminFilter        onprem.AgentFilter
 	lastIdempotencyKey string
+	createAgentErr     error
 }
 
 func testAgent(status onprem.AgentStatus, displayName string, version int64) onprem.AgentProfile {
@@ -433,6 +493,9 @@ func (s *agentRegistryService) CreateAgent(
 	_ onprem.HumanPrincipal,
 	request onprem.CreateAgentRequest,
 ) (onprem.AgentProfile, error) {
+	if s.createAgentErr != nil {
+		return onprem.AgentProfile{}, s.createAgentErr
+	}
 	s.created = request
 	return onprem.AgentProfile{
 		AgentID: request.AgentID, DisplayName: request.DisplayName, Description: request.Description,
@@ -587,6 +650,17 @@ func (s *agentRegistryService) UpdateAdminAgent(
 		displayName = *request.DisplayName
 	}
 	return testAgent(onprem.AgentStatusSuspended, displayName, request.ResourceVersion+1), nil
+}
+
+func (s *agentRegistryService) RetireAdminAgent(
+	_ context.Context,
+	_ onprem.HumanPrincipal,
+	_ string,
+	resourceVersion int64,
+	idempotencyKey string,
+) (onprem.AgentProfile, error) {
+	s.lastIdempotencyKey = idempotencyKey
+	return testAgent(onprem.AgentStatusRetired, "Reviewer", resourceVersion+1), nil
 }
 
 func (s *agentRegistryService) TransferAgent(
