@@ -14,6 +14,7 @@ import (
 
 	"github.com/cloudwego/hertz/pkg/app/server"
 	"github.com/pax-beehive/pax-nexus/internal/deployment/onprem"
+	"github.com/pax-beehive/pax-nexus/internal/operations"
 	"github.com/pax-beehive/pax-nexus/internal/platform/observability"
 	"github.com/pax-beehive/pax-nexus/internal/platform/postgres"
 	"github.com/pax-beehive/pax-nexus/internal/platform/textembedding"
@@ -81,10 +82,20 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	if backfilled > 0 {
 		logger.Info("team note embeddings backfilled", "notes", backfilled, "model", config.embeddingModel)
 	}
-	runtime, err := teamruntime.New(sessionlake.New(sessions), candidateExtractor, teamruntime.Config{
+	var operationRecorder operations.Recorder
+	runtimeConfig := teamruntime.Config{
 		NoteStore: noteStore, Logger: logger, SliceEventLimit: config.sliceEventLimit, SliceTokenLimit: config.sliceTokenLimit,
 		SliceOverlap: config.sliceOverlap, MaxSlicesPerJob: config.maxSlicesPerJob,
-	})
+	}
+	if len(config.apiKeys) == 0 {
+		dropCountingRecorder, recorderErr := operations.NewDropCountingRecorder(store.Operations())
+		if recorderErr != nil {
+			return fmt.Errorf("initialize operations recorder: %w", recorderErr)
+		}
+		operationRecorder = dropCountingRecorder
+		runtimeConfig.ExtractionObserver = onprem.NewExtractionObserver(operationRecorder, logger)
+	}
+	runtime, err := teamruntime.New(sessionlake.New(sessions), candidateExtractor, runtimeConfig)
 	if err != nil {
 		return fmt.Errorf("initialize runtime: %w", err)
 	}
@@ -102,12 +113,16 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	if err := sessions.ConfigureExtractionEnqueuer(queue); err != nil {
 		return fmt.Errorf("connect extraction queue: %w", err)
 	}
-	httpHandler, err := buildHTTPHandler(ctx, runtime, store, config, logger)
+	httpHandler, err := buildHTTPHandler(ctx, runtime, store, operationRecorder, config, logger)
 	if err != nil {
 		return err
 	}
 	if err := queue.Start(ctx); err != nil {
 		return fmt.Errorf("start extraction queue: %w", err)
+	}
+	stopOperations := func() {}
+	if len(config.apiKeys) == 0 {
+		stopOperations = startOperationsMaintenance(ctx, store.Operations(), operationRecorder, config, logger)
 	}
 	go continueEmbeddingBackfill(ctx, noteStore, logger)
 
@@ -119,6 +134,7 @@ func run(ctx context.Context, logger *slog.Logger) error {
 		"extraction_candidate_strategy", config.extractionCandidateStrategy,
 		"recall_candidate_strategy", config.recallCandidateStrategy.Name)
 	h.Spin()
+	stopOperations()
 	queueStopContext, cancelQueueStop := context.WithTimeout(context.Background(), config.workerStopTimeout)
 	queueErr := queue.Stop(queueStopContext)
 	cancelQueueStop()
@@ -182,6 +198,10 @@ type applicationConfig struct {
 	portalURL                      string
 	humanCookieSecure              bool
 	credentialRotationOverlap      time.Duration
+	operationsEventRetention       time.Duration
+	operationsStorageRetention     time.Duration
+	operationsSnapshotInterval     time.Duration
+	operationsMaintenanceTimeout   time.Duration
 	wikiHintEnabled                bool
 	extractorMode                  string
 	extractorBaseURL               string
@@ -312,6 +332,29 @@ func loadOnPremConfig(config *applicationConfig) error {
 	if config.wikiHintEnabled, err = boolEnvironment("TEAM_MEMORY_WIKI_HINT_ENABLED", false); err != nil {
 		return err
 	}
+	if config.operationsEventRetention, err = durationEnvironment(
+		"TEAM_MEMORY_OPERATIONS_EVENT_RETENTION", 7*24*time.Hour,
+	); err != nil {
+		return err
+	}
+	if config.operationsStorageRetention, err = durationEnvironment(
+		"TEAM_MEMORY_OPERATIONS_STORAGE_RETENTION", 90*24*time.Hour,
+	); err != nil {
+		return err
+	}
+	if config.operationsSnapshotInterval, err = durationEnvironment(
+		"TEAM_MEMORY_OPERATIONS_SNAPSHOT_INTERVAL", time.Hour,
+	); err != nil {
+		return err
+	}
+	if config.operationsMaintenanceTimeout, err = durationEnvironment(
+		"TEAM_MEMORY_OPERATIONS_MAINTENANCE_TIMEOUT", 15*time.Second,
+	); err != nil {
+		return err
+	}
+	if err := validateOperationsConfig(*config); err != nil {
+		return err
+	}
 	config.humanCookieSecure, err = boolEnvironment("TEAM_MEMORY_HUMAN_COOKIE_SECURE", true)
 	if err != nil {
 		return err
@@ -327,6 +370,26 @@ func loadOnPremConfig(config *applicationConfig) error {
 		config.portalURL = "/"
 	}
 	return err
+}
+
+func validateOperationsConfig(config applicationConfig) error {
+	tests := []struct {
+		name    string
+		value   time.Duration
+		minimum time.Duration
+		maximum time.Duration
+	}{
+		{name: "TEAM_MEMORY_OPERATIONS_EVENT_RETENTION", value: config.operationsEventRetention, minimum: 24 * time.Hour, maximum: 90 * 24 * time.Hour},
+		{name: "TEAM_MEMORY_OPERATIONS_STORAGE_RETENTION", value: config.operationsStorageRetention, minimum: 7 * 24 * time.Hour, maximum: 365 * 24 * time.Hour},
+		{name: "TEAM_MEMORY_OPERATIONS_SNAPSHOT_INTERVAL", value: config.operationsSnapshotInterval, minimum: 5 * time.Minute, maximum: 24 * time.Hour},
+		{name: "TEAM_MEMORY_OPERATIONS_MAINTENANCE_TIMEOUT", value: config.operationsMaintenanceTimeout, minimum: time.Second, maximum: 5 * time.Minute},
+	}
+	for _, test := range tests {
+		if test.value < test.minimum || test.value > test.maximum {
+			return fmt.Errorf("%s must be between %s and %s", test.name, test.minimum, test.maximum)
+		}
+	}
+	return nil
 }
 
 func loadAuthenticationConfig(config *applicationConfig) error {
@@ -401,6 +464,7 @@ func buildHTTPHandler(
 	ctx context.Context,
 	runtime teamnote.Runtime,
 	store *postgres.Store,
+	operationRecorder operations.Recorder,
 	config applicationConfig,
 	logger *slog.Logger,
 ) (*handler.Handler, error) {
@@ -416,6 +480,9 @@ func buildHTTPHandler(
 	}
 	if store == nil {
 		return nil, fmt.Errorf("configure on-prem HTTP transport: postgres store is required")
+	}
+	if operationRecorder == nil {
+		return nil, fmt.Errorf("configure on-prem HTTP transport: operations recorder is required")
 	}
 	credentials, err := onprem.NewCredentialService(store.Credentials(), onprem.CredentialConfig{
 		AdminAPIKey: config.adminAPIKey, RotationOverlap: config.credentialRotationOverlap,
@@ -438,7 +505,15 @@ func buildHTTPHandler(
 	if err != nil {
 		return nil, fmt.Errorf("configure on-prem agent registry: %w", err)
 	}
-	options := []handler.OnPremOption{handler.WithAgentRegistry(registry)}
+	operationsService, err := onprem.NewOperationsService(store.Operations(), onprem.OperationsConfig{
+		EventRetention: config.operationsEventRetention, StorageRetention: config.operationsStorageRetention,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("configure on-prem operations: %w", err)
+	}
+	options := []handler.OnPremOption{
+		handler.WithAgentRegistry(registry), handler.WithOperations(operationsService, operationRecorder),
+	}
 	if config.humanIdentityConfigured() {
 		identity, err := onprem.NewIdentityService(store.Identity(), onprem.IdentityConfig{
 			BootstrapSecret: config.bootstrapSecret, SessionTTL: 12 * time.Hour,
@@ -464,6 +539,90 @@ func buildHTTPHandler(
 		return nil, fmt.Errorf("configure on-prem HTTP transport: %w", err)
 	}
 	return configured, nil
+}
+
+type operationsMaintenanceStore interface {
+	operations.Recorder
+	CaptureStorage(context.Context, time.Time) (operations.StorageSnapshot, error)
+	DeleteBefore(context.Context, time.Time, time.Time) (int64, int64, error)
+}
+
+func startOperationsMaintenance(
+	ctx context.Context,
+	store operationsMaintenanceStore,
+	recorder operations.Recorder,
+	config applicationConfig,
+	logger *slog.Logger,
+) func() {
+	maintenanceContext, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		maintainOperations(maintenanceContext, store, recorder, config, logger, time.Now().UTC())
+		ticker := time.NewTicker(config.operationsSnapshotInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-maintenanceContext.Done():
+				return
+			case now := <-ticker.C:
+				maintainOperations(maintenanceContext, store, recorder, config, logger, now.UTC())
+			}
+		}
+	}()
+	return func() {
+		cancel()
+		<-done
+	}
+}
+
+func maintainOperations(
+	ctx context.Context,
+	store operationsMaintenanceStore,
+	recorder operations.Recorder,
+	config applicationConfig,
+	logger *slog.Logger,
+	now time.Time,
+) {
+	captureContext, cancelCapture := context.WithTimeout(ctx, config.operationsMaintenanceTimeout)
+	_, captureErr := store.CaptureStorage(captureContext, now)
+	cancelCapture()
+	if captureErr != nil {
+		logger.ErrorContext(ctx, "capture operations storage snapshot failed", "error", captureErr)
+	}
+	retentionContext, cancelRetention := context.WithTimeout(ctx, config.operationsMaintenanceTimeout)
+	defer cancelRetention()
+	deletedEvents, deletedSnapshots, err := store.DeleteBefore(
+		retentionContext,
+		now.Add(-config.operationsEventRetention),
+		now.Add(-config.operationsStorageRetention),
+	)
+	if err != nil {
+		logger.ErrorContext(ctx, "delete expired operations data failed", "error", err)
+		return
+	}
+	if deletedEvents+deletedSnapshots == 0 {
+		return
+	}
+	attemptID, err := operations.NewAttemptID()
+	if err != nil {
+		logger.ErrorContext(ctx, "create operations retention attempt ID failed", "error", err)
+		return
+	}
+	completedAt := time.Now().UTC()
+	if completedAt.Before(now) {
+		completedAt = now
+	}
+	_, err = recorder.Record(retentionContext, operations.Event{
+		AttemptID: attemptID, Kind: operations.KindSystemRetention, Outcome: operations.OutcomeSucceeded,
+		Actor: operations.Actor{Kind: "system"}, StartedAt: now, CompletedAt: completedAt,
+		DurationMS: completedAt.Sub(now).Milliseconds(),
+		InputItems: deletedEvents + deletedSnapshots, AcceptedItems: deletedEvents + deletedSnapshots,
+	})
+	if err != nil {
+		logger.ErrorContext(ctx, "record operations retention event failed", "error", err,
+			"dropped_observations", operations.DroppedObservations(recorder))
+	}
 }
 
 func loadAndValidateExtractionConfig(config *applicationConfig) error {

@@ -5,38 +5,64 @@ import (
 	"errors"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
 	"github.com/pax-beehive/pax-nexus/internal/deployment/onprem"
+	"github.com/pax-beehive/pax-nexus/internal/operations"
 	api "github.com/pax-beehive/pax-nexus/internal/teamnote/transport/httpapi/model/teammemory/api"
 )
 
 func (h *Handler) SendChannelEnvelope(ctx context.Context, c *app.RequestContext) {
-	principal, ok := h.authorize(ctx, c, onprem.PermissionChannelSend)
+	startedAt := time.Now().UTC()
+	principal, ok, authorizationCode := h.authorizeAgent(ctx, c, onprem.PermissionChannelSend)
 	if !ok {
+		h.recordAuthorizationRejection(ctx, principal, operations.KindChannelSend, startedAt, authorizationCode)
 		return
 	}
 	var request api.SendChannelEnvelopeRequest
 	if err := c.BindAndValidate(&request); err != nil {
+		h.recordAgentOperation(ctx, principal, operations.Event{
+			Kind: operations.KindChannelSend, Outcome: operations.OutcomeRejected,
+			StartedAt: startedAt, InputItems: 1, ErrorCode: "invalid_request",
+		})
 		c.String(consts.StatusBadRequest, "invalid channel envelope")
 		return
 	}
 	domainRequest, err := channelSendRequestToDomain(&request)
 	if err != nil {
+		h.recordAgentOperation(ctx, principal, operations.Event{
+			Kind: operations.KindChannelSend, Outcome: operations.OutcomeRejected,
+			StartedAt: startedAt, InputItems: 1, ErrorCode: "invalid_request",
+		})
 		c.String(consts.StatusBadRequest, "invalid channel envelope")
 		return
 	}
 	envelope, err := h.channel.Send(ctx, principal, domainRequest)
 	if err != nil {
+		outcome, errorCode := channelOperationFailure(err)
+		h.recordAgentOperation(ctx, principal, operations.Event{
+			Kind: operations.KindChannelSend, Outcome: outcome, StartedAt: startedAt,
+			InputItems: 1, ErrorCode: errorCode,
+		})
 		h.writeChannelError(ctx, c, "send channel envelope", err)
 		return
 	}
 	response, err := channelEnvelopeResponseToAPI(envelope)
 	if err != nil {
+		h.recordAgentOperation(ctx, principal, operations.Event{
+			Kind: operations.KindChannelSend, Outcome: operations.OutcomeFailed,
+			StartedAt: startedAt, InputItems: 1, ErrorCode: "response_encoding_failed",
+		})
 		h.writeChannelError(ctx, c, "encode channel envelope", err)
 		return
 	}
+	h.recordAgentOperation(ctx, principal, operations.Event{
+		Kind: operations.KindChannelSend, Outcome: operations.OutcomeSucceeded,
+		StartedAt: startedAt, InputItems: 1, AcceptedItems: 1,
+		DetailKind: "channel_envelope", DetailID: envelope.ID,
+	})
 	c.JSON(consts.StatusOK, response)
 }
 
@@ -90,7 +116,7 @@ func (h *Handler) GetChannelEnvelope(ctx context.Context, c *app.RequestContext)
 }
 
 func (h *Handler) AcceptChannelEnvelope(ctx context.Context, c *app.RequestContext) {
-	h.updateChannelEnvelope(ctx, c, "accept", func(
+	h.updateChannelEnvelope(ctx, c, "accept", operations.KindChannelAccept, func(
 		ctx context.Context,
 		principal onprem.Principal,
 		envelopeID string,
@@ -100,7 +126,7 @@ func (h *Handler) AcceptChannelEnvelope(ctx context.Context, c *app.RequestConte
 }
 
 func (h *Handler) ArchiveChannelEnvelope(ctx context.Context, c *app.RequestContext) {
-	h.updateChannelEnvelope(ctx, c, "archive", func(
+	h.updateChannelEnvelope(ctx, c, "archive", operations.KindChannelArchive, func(
 		ctx context.Context,
 		principal onprem.Principal,
 		envelopeID string,
@@ -113,23 +139,52 @@ func (h *Handler) updateChannelEnvelope(
 	ctx context.Context,
 	c *app.RequestContext,
 	action string,
+	kind operations.Kind,
 	update func(context.Context, onprem.Principal, string) (onprem.ChannelEnvelope, error),
 ) {
-	principal, ok := h.authorize(ctx, c, onprem.PermissionChannelReceive)
+	startedAt := time.Now().UTC()
+	principal, ok, authorizationCode := h.authorizeAgent(ctx, c, onprem.PermissionChannelReceive)
 	if !ok {
+		h.recordAuthorizationRejection(ctx, principal, kind, startedAt, authorizationCode)
 		return
 	}
 	envelope, err := update(ctx, principal, c.Param("envelope_id"))
 	if err != nil {
+		outcome, errorCode := channelOperationFailure(err)
+		h.recordAgentOperation(ctx, principal, operations.Event{
+			Kind: kind, Outcome: outcome, StartedAt: startedAt, InputItems: 1, ErrorCode: errorCode,
+		})
 		h.writeChannelError(ctx, c, action+" channel envelope", err)
 		return
 	}
 	response, err := channelEnvelopeResponseToAPI(envelope)
 	if err != nil {
+		h.recordAgentOperation(ctx, principal, operations.Event{
+			Kind: kind, Outcome: operations.OutcomeFailed, StartedAt: startedAt,
+			InputItems: 1, ErrorCode: "response_encoding_failed",
+		})
 		h.writeChannelError(ctx, c, "encode channel envelope", err)
 		return
 	}
+	h.recordAgentOperation(ctx, principal, operations.Event{
+		Kind: kind, Outcome: operations.OutcomeSucceeded, StartedAt: startedAt,
+		InputItems: 1, AcceptedItems: 1, DetailKind: "channel_envelope", DetailID: envelope.ID,
+	})
 	c.JSON(consts.StatusOK, response)
+}
+
+func channelOperationFailure(err error) (operations.Outcome, string) {
+	switch {
+	case errors.Is(err, onprem.ErrInvalidChannelRequest):
+		return operations.OutcomeRejected, "invalid_request"
+	case errors.Is(err, onprem.ErrEnvelopeState), errors.Is(err, onprem.ErrIdempotencyConflict),
+		errors.Is(err, onprem.ErrAgentIdentityConflict):
+		return operations.OutcomeRejected, "conflict"
+	case errors.Is(err, onprem.ErrTargetAgentNotFound), errors.Is(err, onprem.ErrEnvelopeNotFound):
+		return operations.OutcomeRejected, "not_found"
+	default:
+		return operationFailure(err)
+	}
 }
 
 func channelQueryLimit(c *app.RequestContext) (int, error) {

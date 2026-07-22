@@ -256,7 +256,7 @@ func teamResult(outcome teamOutcome) SearchResult {
 	}
 	return SearchResult{
 		Hits: hits, EvidenceSufficient: outcome.envelope.Decision.EvidenceSufficient,
-		Trace: Trace{TeamNote: trace},
+		Trace: Trace{TeamNote: trace}, ObservationID: outcome.envelope.ObservationID,
 	}
 }
 

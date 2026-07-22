@@ -72,6 +72,7 @@ func (s *noteStoreSuite) TestLifecycleDeliveryAndPersistence() {
 	request := teamnote.RecallRequest{Actor: consumer, TaskRef: "task-1", TokenBudget: 100}
 	first, err := notes.RecallNotes(ctx, scopeID, request)
 	s.Require().NoError(err)
+	s.Positive(first.ObservationID)
 	s.Equal([]string{"[status certainty=confirmed] work started"}, first.Items)
 	s.Require().Len(first.Details, 1)
 	s.Equal(producer, first.Details[0].Origin)

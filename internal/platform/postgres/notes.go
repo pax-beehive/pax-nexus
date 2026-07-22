@@ -316,9 +316,11 @@ func (s *NoteStore) RecallNotes(ctx context.Context, scopeID string, request tea
 		teamnote.AppendPlannedRecall(&envelope, delivery)
 	}
 	envelope.Decision = teamnote.SummarizeRecallDecision(trace)
-	if err := saveRecallObservation(ctx, tx, scopeID, request, envelope, observationTime, time.Since(startedAt), trace); err != nil {
+	observationID, err := saveRecallObservation(ctx, tx, scopeID, request, envelope, observationTime, time.Since(startedAt), trace)
+	if err != nil {
 		return teamnote.NoteEnvelope{}, err
 	}
+	envelope.ObservationID = observationID
 	if err := tx.Commit(ctx); err != nil {
 		return teamnote.NoteEnvelope{}, fmt.Errorf("commit note delivery: %w", err)
 	}
@@ -366,48 +368,50 @@ func saveRecallObservation(
 	observationTime time.Time,
 	duration time.Duration,
 	trace teamnote.RecallTrace,
-) error {
+) (int64, error) {
 	encoded, err := json.Marshal(envelope)
 	if err != nil {
-		return fmt.Errorf("encode recall observation: %w", err)
+		return 0, fmt.Errorf("encode recall observation: %w", err)
 	}
 	encodedTrace, err := json.Marshal(trace)
 	if err != nil {
-		return fmt.Errorf("encode recall trace: %w", err)
+		return 0, fmt.Errorf("encode recall trace: %w", err)
 	}
 	snapshot, err := loadRecallSnapshot(ctx, tx, scopeID, observationTime)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	encodedSnapshot, err := json.Marshal(snapshot)
 	if err != nil {
-		return fmt.Errorf("encode recall extraction snapshot: %w", err)
+		return 0, fmt.Errorf("encode recall extraction snapshot: %w", err)
 	}
 	provenance, err := loadRecallProvenance(ctx, tx, scopeID, observationTime)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	encodedProvenance, err := json.Marshal(provenance)
 	if err != nil {
-		return fmt.Errorf("encode recall extraction provenance: %w", err)
+		return 0, fmt.Errorf("encode recall extraction provenance: %w", err)
 	}
 	queryDigest := sha256.Sum256([]byte(request.Query))
-	if _, err := tx.Exec(ctx, `
+	var observationID int64
+	if err := tx.QueryRow(ctx, `
 INSERT INTO team_note_recall_observations (
     scope_id, recipient_user_id, recipient_agent_id, recipient_session_id,
     task_ref, thread_ref, query_digest, token_budget, max_items,
     extraction_snapshot, extraction_provenance, envelope, trace, duration_ms, created_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11::jsonb, $12::jsonb, $13::jsonb, $14, $15)`,
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11::jsonb, $12::jsonb, $13::jsonb, $14, $15)
+RETURNING observation_id`,
 		scopeID, request.Actor.UserID, request.Actor.AgentID, request.Actor.SessionID,
 		request.TaskRef, request.ThreadRef, queryDigest[:], request.TokenBudget, request.MaxItems,
 		string(encodedSnapshot), string(encodedProvenance), string(encoded), string(encodedTrace), duration.Milliseconds(), observationTime,
-	); err != nil {
-		return fmt.Errorf("save recall observation: %w", err)
+	).Scan(&observationID); err != nil {
+		return 0, fmt.Errorf("save recall observation: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `DELETE FROM team_note_recall_observations WHERE expires_at <= NOW()`); err != nil {
-		return fmt.Errorf("delete expired recall observations: %w", err)
+		return 0, fmt.Errorf("delete expired recall observations: %w", err)
 	}
-	return nil
+	return observationID, nil
 }
 
 func loadRecallProvenance(

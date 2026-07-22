@@ -90,6 +90,7 @@ type SearchResult struct {
 	Hits               []MemoryHit
 	EvidenceSufficient bool
 	Trace              Trace
+	ObservationID      int64
 }
 
 type TeamNotePath interface {

@@ -148,12 +148,23 @@ func (s *identityRegistryHandlerSuite) TestHumanLoginMeAndLogoutRoutes() {
 		ut.Header{Key: "Cookie", Value: "tm_human_session=session"})
 	s.Equal(consts.StatusOK, me.Code)
 	s.Contains(me.Body.String(), `"membership_id":"member-membership"`)
+	s.Contains(me.Body.String(), `"capabilities":[]`)
 
 	logout := s.performGenerated(http.MethodPost, "/v1/auth/logout", `{}`,
 		ut.Header{Key: "Cookie", Value: "tm_human_session=session; tm_csrf=csrf"},
 		ut.Header{Key: "X-CSRF-Token", Value: "csrf"})
 	s.Equal(consts.StatusOK, logout.Code)
 	s.True(s.identity.loggedOut)
+}
+
+func (s *identityRegistryHandlerSuite) TestHumanMePublishesOperationsCapabilityForAdmin() {
+	s.identity.principal.Role = onprem.RoleAdmin
+
+	response := s.performGenerated(http.MethodGet, "/v1/me", "",
+		ut.Header{Key: "Cookie", Value: "tm_human_session=session"})
+
+	s.Equal(consts.StatusOK, response.Code)
+	s.Contains(response.Body.String(), `"capabilities":["view.operations"]`)
 }
 
 func (s *identityRegistryHandlerSuite) TestInvitationAndMemberAdministrationRoutes() {

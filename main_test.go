@@ -8,14 +8,51 @@ import (
 	"time"
 
 	"github.com/pax-beehive/pax-nexus/internal/deployment/onprem"
+	"github.com/pax-beehive/pax-nexus/internal/operations"
 	"github.com/pax-beehive/pax-nexus/internal/sessionlake"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote/extractor"
+	teamruntime "github.com/pax-beehive/pax-nexus/internal/teamnote/runtime"
 	"github.com/stretchr/testify/suite"
 )
 
 type configSuite struct {
 	suite.Suite
+}
+
+type operationsMaintenanceStoreFake struct {
+	capturedAt       time.Time
+	eventCutoff      time.Time
+	storageCutoff    time.Time
+	deletedEvents    int64
+	deletedSnapshots int64
+	recorded         *operations.Event
+}
+
+func (s *operationsMaintenanceStoreFake) CaptureStorage(
+	_ context.Context,
+	capturedAt time.Time,
+) (operations.StorageSnapshot, error) {
+	s.capturedAt = capturedAt
+	return operations.StorageSnapshot{CapturedAt: capturedAt}, nil
+}
+
+func (s *operationsMaintenanceStoreFake) DeleteBefore(
+	_ context.Context,
+	eventCutoff time.Time,
+	storageCutoff time.Time,
+) (int64, int64, error) {
+	s.eventCutoff = eventCutoff
+	s.storageCutoff = storageCutoff
+	return s.deletedEvents, s.deletedSnapshots, nil
+}
+
+func (s *operationsMaintenanceStoreFake) Record(
+	_ context.Context,
+	event operations.Event,
+) (operations.Event, error) {
+	s.recorded = &event
+	return event, nil
 }
 
 func TestConfigSuite(t *testing.T) {
@@ -26,6 +63,8 @@ func (s *configSuite) SetupTest() {
 	for _, name := range []string{
 		"TEAM_MEMORY_DATABASE_URL", "TEAM_MEMORY_API_KEYS", "TEAM_MEMORY_LISTEN_ADDRESS",
 		"TEAM_MEMORY_ADMIN_API_KEY", "TEAM_MEMORY_CREDENTIAL_ROTATION_OVERLAP", "TEAM_MEMORY_WIKI_HINT_ENABLED",
+		"TEAM_MEMORY_OPERATIONS_EVENT_RETENTION", "TEAM_MEMORY_OPERATIONS_STORAGE_RETENTION",
+		"TEAM_MEMORY_OPERATIONS_SNAPSHOT_INTERVAL", "TEAM_MEMORY_OPERATIONS_MAINTENANCE_TIMEOUT",
 		"TEAM_MEMORY_BOOTSTRAP_SECRET", "TEAM_MEMORY_OIDC_ISSUER", "TEAM_MEMORY_OIDC_CLIENT_ID",
 		"TEAM_MEMORY_OIDC_CLIENT_SECRET", "TEAM_MEMORY_OIDC_REDIRECT_URL", "TEAM_MEMORY_OIDC_FLOW_SECRET",
 		"TEAM_MEMORY_PORTAL_URL", "TEAM_MEMORY_HUMAN_COOKIE_SECURE",
@@ -114,9 +153,94 @@ func (s *configSuite) TestLoadsOnPremConfiguration() {
 	s.Equal("admin-secret", config.adminAPIKey)
 	s.Empty(config.apiKeys)
 	s.Equal(2*time.Minute, config.credentialRotationOverlap)
+	s.Equal(7*24*time.Hour, config.operationsEventRetention)
+	s.Equal(90*24*time.Hour, config.operationsStorageRetention)
+	s.Equal(time.Hour, config.operationsSnapshotInterval)
+	s.Equal(15*time.Second, config.operationsMaintenanceTimeout)
 	s.True(config.wikiHintEnabled)
 	s.True(config.humanCookieSecure)
 	s.Equal([]onprem.Permission{onprem.PermissionSearch, onprem.PermissionChannelSend}, config.memberGrantablePermissions)
+}
+
+func (s *configSuite) TestRejectsOperationsConfigurationOutsideSafeBounds() {
+	tests := []struct {
+		name  string
+		env   string
+		value string
+	}{
+		{name: "event retention", env: "TEAM_MEMORY_OPERATIONS_EVENT_RETENTION", value: "23h"},
+		{name: "storage retention", env: "TEAM_MEMORY_OPERATIONS_STORAGE_RETENTION", value: "8761h"},
+		{name: "snapshot interval", env: "TEAM_MEMORY_OPERATIONS_SNAPSHOT_INTERVAL", value: "4m"},
+		{name: "maintenance timeout", env: "TEAM_MEMORY_OPERATIONS_MAINTENANCE_TIMEOUT", value: "500ms"},
+	}
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			s.T().Setenv("TEAM_MEMORY_DATABASE_URL", "postgres://database")
+			s.T().Setenv("TEAM_MEMORY_EXTRACTOR_MODE", "noop")
+			s.T().Setenv("TEAM_MEMORY_ADMIN_API_KEY", "admin-secret")
+			s.T().Setenv("TEAM_MEMORY_SECRET_PEPPER", "0123456789abcdef0123456789abcdef")
+			s.T().Setenv(test.env, test.value)
+
+			_, err := loadConfig()
+
+			s.ErrorContains(err, test.env)
+		})
+	}
+}
+
+func (s *configSuite) TestOperationsMaintenanceCapturesCleansAndRecords() {
+	now := time.Now().UTC().Add(-time.Second)
+	store := &operationsMaintenanceStoreFake{deletedEvents: 2, deletedSnapshots: 3}
+	config := applicationConfig{
+		operationsEventRetention: 7 * 24 * time.Hour, operationsStorageRetention: 90 * 24 * time.Hour,
+		operationsMaintenanceTimeout: time.Second,
+	}
+
+	maintainOperations(context.Background(), store, store, config, slog.New(slog.DiscardHandler), now)
+
+	s.Equal(now, store.capturedAt)
+	s.Equal(now.Add(-config.operationsEventRetention), store.eventCutoff)
+	s.Equal(now.Add(-config.operationsStorageRetention), store.storageCutoff)
+	s.Require().NotNil(store.recorded)
+	s.Equal(operations.KindSystemRetention, store.recorded.Kind)
+	s.Equal(operations.OutcomeSucceeded, store.recorded.Outcome)
+	s.Equal(int64(5), store.recorded.AcceptedItems)
+	s.NoError(store.recorded.Validate())
+}
+
+func (s *configSuite) TestExtractionObserverRecordsEverySliceOutcome() {
+	tests := []struct {
+		name        string
+		status      teamruntime.ExtractionStatus
+		wantOutcome operations.Outcome
+		wantCode    string
+	}{
+		{name: "success", status: teamruntime.ExtractionCompleted, wantOutcome: operations.OutcomeSucceeded},
+		{name: "quarantine", status: teamruntime.ExtractionQuarantined, wantOutcome: operations.OutcomeRejected, wantCode: "extraction_quarantined"},
+		{name: "deadline", status: teamruntime.ExtractionTimedOut, wantOutcome: operations.OutcomeTimedOut, wantCode: "deadline_exceeded"},
+		{name: "failure", status: teamruntime.ExtractionFailed, wantOutcome: operations.OutcomeFailed, wantCode: "operation_failed"},
+	}
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			store := &operationsMaintenanceStoreFake{}
+			observer := onprem.NewExtractionObserver(store, slog.New(slog.DiscardHandler))
+			startedAt := time.Now().UTC().Add(-time.Second)
+			observer(context.Background(), teamruntime.ExtractionObservation{
+				Actor: teamnote.Actor{UserID: "owner", AgentID: "agent-1", SessionID: "session-1"},
+				RunID: "run-1", StartedAt: startedAt, CompletedAt: startedAt.Add(time.Second),
+				Status: test.status, InputEvents: 3, Candidates: 2, InputTokens: 11, OutputTokens: 7,
+			})
+
+			s.Require().NotNil(store.recorded)
+			s.Equal(operations.KindExtractionRun, store.recorded.Kind)
+			s.Equal(test.wantOutcome, store.recorded.Outcome)
+			s.Equal(test.wantCode, store.recorded.ErrorCode)
+			s.Equal(int64(3), store.recorded.InputItems)
+			s.Equal(int64(2), store.recorded.ResultItems)
+			s.Equal("run-1", store.recorded.DetailID)
+			s.NoError(store.recorded.Validate())
+		})
+	}
 }
 
 func (s *configSuite) TestRejectsPartialOIDCConfiguration() {
@@ -143,12 +267,12 @@ func (s *configSuite) TestRejectsMixedLegacyAndOnPremAuthentication() {
 
 func (s *configSuite) TestBuildHTTPHandlerKeepsLegacyModeWithoutAdminSecret() {
 	runtime := &runtimeStub{}
-	configured, err := buildHTTPHandler(context.Background(), runtime, nil,
+	configured, err := buildHTTPHandler(context.Background(), runtime, nil, nil,
 		applicationConfig{apiKeys: map[string]string{"key": "scope"}}, slog.New(slog.DiscardHandler))
 	s.Require().NoError(err)
 	s.NotNil(configured)
 
-	_, err = buildHTTPHandler(context.Background(), runtime, nil, applicationConfig{
+	_, err = buildHTTPHandler(context.Background(), runtime, nil, nil, applicationConfig{
 		apiKeys: map[string]string{"key": "scope"}, adminAPIKey: "admin", credentialRotationOverlap: time.Minute,
 	}, slog.New(slog.DiscardHandler))
 	s.Error(err)

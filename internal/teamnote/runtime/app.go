@@ -15,14 +15,37 @@ import (
 )
 
 type Config struct {
-	SliceEventLimit int
-	SliceTokenLimit int
-	SliceOverlap    int
-	MaxSlicesPerJob int
-	TTLPolicy       teamnote.TTLPolicy
-	Clock           teamnote.Clock
-	NoteStore       teamnote.NoteStore
-	Logger          *slog.Logger
+	SliceEventLimit    int
+	SliceTokenLimit    int
+	SliceOverlap       int
+	MaxSlicesPerJob    int
+	TTLPolicy          teamnote.TTLPolicy
+	Clock              teamnote.Clock
+	NoteStore          teamnote.NoteStore
+	Logger             *slog.Logger
+	ExtractionObserver func(context.Context, ExtractionObservation)
+}
+
+type ExtractionStatus string
+
+const (
+	ExtractionCompleted   ExtractionStatus = "completed"
+	ExtractionQuarantined ExtractionStatus = "quarantined"
+	ExtractionFailed      ExtractionStatus = "failed"
+	ExtractionTimedOut    ExtractionStatus = "timed_out"
+	ExtractionCancelled   ExtractionStatus = "cancelled"
+)
+
+type ExtractionObservation struct {
+	Actor        teamnote.Actor
+	RunID        string
+	StartedAt    time.Time
+	CompletedAt  time.Time
+	Status       ExtractionStatus
+	InputEvents  int64
+	Candidates   int64
+	InputTokens  int64
+	OutputTokens int64
 }
 
 type App struct {
@@ -99,12 +122,19 @@ func (a *App) ProcessExtraction(ctx context.Context, actor teamnote.Actor, throu
 		startedAt := time.Now()
 		result, extractErr := a.extractor.Extract(ctx, slice)
 		if extractErr != nil {
+			a.observeExtraction(ctx, extractionObservation(
+				actor, slice, result, startedAt, extractionFailureStatus(extractErr), "",
+			))
 			return false, fmt.Errorf("extract candidates: %w", extractErr)
 		}
 		result = a.filterAdmissible(result)
+		runID := extractionRunID(slice.InputChecksum, result.ExtractionVersion)
 		quarantined := false
 		if applyErr := a.applyExtractionRun(ctx, slice, result); applyErr != nil {
 			if !errors.Is(applyErr, teamnote.ErrExtractionRunQuarantined) {
+				a.observeExtraction(ctx, extractionObservation(
+					actor, slice, result, startedAt, extractionFailureStatus(applyErr), runID,
+				))
 				return false, applyErr
 			}
 			quarantined = true
@@ -115,6 +145,9 @@ func (a *App) ProcessExtraction(ctx context.Context, actor teamnote.Actor, throu
 			)
 		}
 		if commitErr := a.lake.CommitSlice(ctx, slice); commitErr != nil {
+			a.observeExtraction(ctx, extractionObservation(
+				actor, slice, result, startedAt, extractionFailureStatus(commitErr), runID,
+			))
 			return false, commitErr
 		}
 		attrs := []any{
@@ -136,12 +169,49 @@ func (a *App) ProcessExtraction(ctx context.Context, actor teamnote.Actor, throu
 			)
 		}
 		a.logger.InfoContext(ctx, "extraction slice completed", attrs...)
+		status := ExtractionCompleted
+		if quarantined {
+			status = ExtractionQuarantined
+		}
+		a.observeExtraction(ctx, extractionObservation(actor, slice, result, startedAt, status, runID))
 	}
 	next, err := a.lake.NextSlice(ctx, actor, policy)
 	if err != nil {
 		return false, fmt.Errorf("check extraction backlog: %w", err)
 	}
 	return len(next.NewEventIDs) > 0, nil
+}
+
+func extractionObservation(
+	actor teamnote.Actor,
+	slice sessionlake.Slice,
+	result extractor.Result,
+	startedAt time.Time,
+	status ExtractionStatus,
+	runID string,
+) ExtractionObservation {
+	return ExtractionObservation{
+		Actor: actor, RunID: runID, StartedAt: startedAt.UTC(), CompletedAt: time.Now().UTC(),
+		Status: status, InputEvents: int64(len(slice.Events)), Candidates: int64(len(result.Candidates)),
+		InputTokens: int64(result.Usage.InputTokens), OutputTokens: int64(result.Usage.OutputTokens),
+	}
+}
+
+func extractionFailureStatus(err error) ExtractionStatus {
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return ExtractionTimedOut
+	case errors.Is(err, context.Canceled):
+		return ExtractionCancelled
+	default:
+		return ExtractionFailed
+	}
+}
+
+func (a *App) observeExtraction(ctx context.Context, observation ExtractionObservation) {
+	if a.config.ExtractionObserver != nil {
+		a.config.ExtractionObserver(ctx, observation)
+	}
 }
 
 func (a *App) RecallNotes(ctx context.Context, request teamnote.RecallRequest) (teamnote.NoteEnvelope, error) {

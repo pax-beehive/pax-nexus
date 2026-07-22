@@ -24,7 +24,7 @@ cleanup() {
   exit_status="$1"
   trap - EXIT INT TERM
   if [ "${exit_status}" -ne 0 ]; then
-    run_compose logs --no-color team-memory mock-extractor postgres >&2 || true
+    run_compose logs --no-color team-memory mock-extractor mock-oidc postgres >&2 || true
   fi
   if ! run_compose down -v --remove-orphans >/dev/null 2>&1; then
     echo "failed to remove on-prem E2E containers and volumes" >&2
@@ -46,8 +46,8 @@ fi
 trap 'cleanup $?' EXIT
 trap 'exit 130' INT TERM
 
-run_compose build team-memory mock-extractor e2e
-run_compose up -d postgres mock-extractor team-memory
+run_compose build team-memory mock-extractor mock-oidc e2e
+run_compose up -d postgres mock-extractor mock-oidc team-memory
 
 if ! docker volume inspect "${volume_name}" >/dev/null 2>&1; then
   echo "temporary PostgreSQL volume was not created: ${volume_name}" >&2

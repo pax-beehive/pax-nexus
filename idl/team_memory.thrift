@@ -293,6 +293,7 @@ struct HumanMeResponse {
   4: optional string membership_id
   5: optional string role
   6: optional string membership_status
+  7: required list<string> capabilities
 }
 
 struct ListMembersRequest {
@@ -571,6 +572,174 @@ struct AdminAgentByIDRequest {
   1: required string agent_id (api.path="agent_id")
 }
 
+struct OperationsSummaryRequest {
+  1: optional string from_time (api.query="from")
+  2: optional string to_time (api.query="to")
+  3: optional string agent_id (api.query="agent_id")
+}
+
+struct OperationsLatency {
+  1: required i64 sample_count
+  2: optional i64 p50_ms
+  3: optional i64 p95_ms
+}
+
+struct ObservationOperationsSummary {
+  1: required i64 requests
+  2: required i64 succeeded
+  3: required i64 input_events
+  4: required i64 events_written
+  5: required i64 duplicate_events
+}
+
+struct ExtractionOperationsSummary {
+  1: required i64 runs
+  2: required i64 completed
+  3: required i64 quarantined
+  4: required i64 failed
+  5: required i64 admitted_revisions
+  6: required i64 unextracted_events
+  7: optional string oldest_unextracted_at
+}
+
+struct RecallOperationsSummary {
+  1: required i64 requests
+  2: required i64 succeeded
+  3: required i64 with_evidence
+  4: required i64 empty
+  5: required i64 memory_hits
+  6: required i64 team_notes_delivered
+  7: required i64 memory_search_requests
+  8: required i64 memory_get_requests
+  9: required i64 team_note_recall_requests
+  10: required i64 evidence_hits
+  11: required i64 hint_hits
+  12: required i64 reference_hits
+}
+
+struct OperationsSummaryResponse {
+  1: required string from_time
+  2: required string to_time
+  3: required string generated_at
+  4: required ObservationOperationsSummary observations
+  5: required ExtractionOperationsSummary extraction
+  6: required RecallOperationsSummary recalls
+  7: required OperationsLatency latency
+  8: required i64 errors
+}
+
+struct ListOperationEventsRequest {
+  1: optional string operation_kind (api.query="operation_kind")
+  2: optional string outcome (api.query="outcome")
+  3: optional string agent_id (api.query="agent_id")
+  4: optional string from_time (api.query="from")
+  5: optional string to_time (api.query="to")
+  6: optional i32 limit (api.query="limit")
+  7: optional string cursor (api.query="cursor")
+}
+
+struct OperationEvent {
+  1: required i64 operation_event_id
+  2: required string attempt_id
+  3: required string operation_kind
+  4: required string outcome
+  5: optional string actor_user_id
+  6: optional string actor_membership_id
+  7: optional string actor_agent_id
+  8: optional string session_id
+  9: required string started_at
+  10: required string completed_at
+  11: required i64 duration_ms
+  12: required i64 input_items
+  13: required i64 accepted_items
+  14: required i64 duplicate_items
+  15: required i64 result_items
+  16: required i64 delivered_items
+  17: required i64 evidence_items
+  18: required i64 hint_items
+  19: required i64 reference_items
+  20: optional i64 input_tokens
+  21: optional i64 output_tokens
+  22: optional string detail_kind
+  23: optional string detail_id
+  24: optional string error_code
+}
+
+struct ListOperationEventsResponse {
+  1: required list<OperationEvent> events
+  2: optional string next_cursor
+  3: required string generated_at
+}
+
+struct RecallDiagnosticByIDRequest {
+  1: required i64 observation_id (api.path="observation_id")
+}
+
+struct RecallDiagnostic {
+  1: required i64 observation_id
+  2: required string occurred_at
+  3: required string agent_id
+  4: required string session_id
+  5: required i64 duration_ms
+  6: required i64 token_budget
+  7: required i64 max_items
+  8: required bool evidence_sufficient
+  9: required list<string> reason_codes
+  10: required list<string> lanes_executed
+  11: required i64 candidates
+  12: required i64 fusion_kept
+  13: required i64 planned_notes
+  14: required i64 planned_tokens
+  15: required i64 delivered_items
+  16: required map<string, i64> disposition_counts
+  17: required map<string, i64> rejection_counts
+  18: required map<string, i64> budget_drop_counts
+  19: required map<string, i64> hard_gate_failure_counts
+}
+
+struct RecallDiagnosticResponse {
+  1: required RecallDiagnostic recall
+}
+
+struct OperationsStorageRequest {}
+
+struct ListOperationsStorageHistoryRequest {
+  1: optional string from_time (api.query="from")
+  2: optional string to_time (api.query="to")
+  3: optional i32 limit (api.query="limit")
+  4: optional string cursor (api.query="cursor")
+}
+
+struct StorageComponent {
+  1: required string component
+  2: required map<string, i64> counts
+  3: required i64 logical_bytes
+  4: required i64 physical_bytes
+  5: optional i64 estimated_reclaimable_bytes
+  6: optional string oldest_at
+  7: optional string newest_at
+}
+
+struct OperationsStorageSnapshot {
+  1: required i64 snapshot_id
+  2: required i32 schema_version
+  3: required string captured_at
+  4: required string status
+  5: required list<string> warning_codes
+  6: required i64 database_physical_bytes
+  7: required i64 other_physical_bytes
+  8: required list<StorageComponent> components
+}
+
+struct OperationsStorageResponse {
+  1: required OperationsStorageSnapshot storage
+}
+
+struct ListOperationsStorageHistoryResponse {
+  1: required list<OperationsStorageSnapshot> snapshots
+  2: optional string next_cursor
+}
+
 service TeamMemoryService {
   IngestReceipt ObserveSession(1: SessionBatch request) (api.post="/v1/session-batches")
   NoteEnvelope RecallNotes(1: RecallRequest request) (api.post="/v1/notes/recall")
@@ -623,4 +792,9 @@ service TeamMemoryService {
   MemberResponse UpdateMember(1: UpdateMemberRequest request) (api.patch="/v1/admin/members/:membership_id")
   ListAuditEventsResponse ListAuditEvents(1: ListAuditEventsRequest request) (api.get="/v1/admin/audit-events")
   AuditEventResponse GetAuditEvent(1: AuditEventByIDRequest request) (api.get="/v1/admin/audit-events/:audit_event_id")
+  OperationsSummaryResponse GetOperationsSummary(1: OperationsSummaryRequest request) (api.get="/v1/admin/operations/summary")
+  ListOperationEventsResponse ListOperationEvents(1: ListOperationEventsRequest request) (api.get="/v1/admin/operations/events")
+  RecallDiagnosticResponse GetRecallDiagnostic(1: RecallDiagnosticByIDRequest request) (api.get="/v1/admin/operations/recalls/:observation_id")
+  OperationsStorageResponse GetOperationsStorage(1: OperationsStorageRequest request) (api.get="/v1/admin/operations/storage")
+  ListOperationsStorageHistoryResponse ListOperationsStorageHistory(1: ListOperationsStorageHistoryRequest request) (api.get="/v1/admin/operations/storage/history")
 }

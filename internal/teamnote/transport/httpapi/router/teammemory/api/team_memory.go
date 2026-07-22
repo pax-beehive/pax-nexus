@@ -69,6 +69,20 @@ func Register(r *server.Hertz) {
 				_members.GET("/:membership_id", append(_getmemberMw(), handler.GetMember)...)
 				_members.PATCH("/:membership_id", append(_updatememberMw(), handler.UpdateMember)...)
 			}
+			{
+				_operations := _admin.Group("/operations", _operationsMw()...)
+				_operations.GET("/events", append(_listoperationeventsMw(), handler.ListOperationEvents)...)
+				_operations.GET("/storage", append(_getoperationsstorageMw(), handler.GetOperationsStorage)...)
+				_operations.GET("/summary", append(_getoperationssummaryMw(), handler.GetOperationsSummary)...)
+				{
+					_recalls := _operations.Group("/recalls", _recallsMw()...)
+					_recalls.GET("/:observation_id", append(_getrecalldiagnosticMw(), handler.GetRecallDiagnostic)...)
+				}
+				{
+					_storage := _operations.Group("/storage", _storageMw()...)
+					_storage.GET("/history", append(_listoperationsstoragehistoryMw(), handler.ListOperationsStorageHistory)...)
+				}
+			}
 		}
 		{
 			_agent_credentials0 := _v1.Group("/agent-credentials", _agent_credentials0Mw()...)

@@ -11,19 +11,21 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-//go:embed migrations/001_init.sql migrations/002_temporal_notes.sql migrations/003_note_relations.sql migrations/004_extraction_latency.sql migrations/005_note_embeddings.sql migrations/006_note_identity.sql migrations/007_extraction_run_actor.sql migrations/008_extraction_run_candidates.sql migrations/009_extraction_run_result.sql migrations/010_note_identity_ref.sql migrations/011_recall_observations.sql migrations/012_extraction_episodes.sql migrations/013_recall_trace.sql migrations/014_recall_hint_deliveries.sql migrations/015_onprem_credentials.sql migrations/016_onprem_channel_envelopes.sql migrations/017_onprem_identity_registry.sql
+//go:embed migrations/001_init.sql migrations/002_temporal_notes.sql migrations/003_note_relations.sql migrations/004_extraction_latency.sql migrations/005_note_embeddings.sql migrations/006_note_identity.sql migrations/007_extraction_run_actor.sql migrations/008_extraction_run_candidates.sql migrations/009_extraction_run_result.sql migrations/010_note_identity_ref.sql migrations/011_recall_observations.sql migrations/012_extraction_episodes.sql migrations/013_recall_trace.sql migrations/014_recall_hint_deliveries.sql migrations/015_onprem_credentials.sql migrations/016_onprem_channel_envelopes.sql migrations/017_onprem_identity_registry.sql migrations/018_onprem_operations.sql
 var migrations embed.FS
 
 const migrationAdvisoryLockName = "pax-nexus.platform-postgres.migrate"
 
 type Store struct {
-	pool        *pgxpool.Pool
-	sessions    *SessionRepository
-	episodes    *EpisodeStore
-	credentials *CredentialStore
-	channel     *ChannelStore
-	identity    *IdentityStore
-	registry    *RegistryStore
+	pool           *pgxpool.Pool
+	operationsPool *pgxpool.Pool
+	sessions       *SessionRepository
+	episodes       *EpisodeStore
+	credentials    *CredentialStore
+	channel        *ChannelStore
+	identity       *IdentityStore
+	registry       *RegistryStore
+	operations     *OperationsStore
 }
 
 func Open(ctx context.Context, dsn string) (*Store, error) {
@@ -38,7 +40,31 @@ func Open(ctx context.Context, dsn string) (*Store, error) {
 		pool.Close()
 		return nil, fmt.Errorf("ping postgres: %w", err)
 	}
-	return newStore(pool), nil
+	operationsConfig, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("parse operations postgres pool config: %w", err)
+	}
+	operationsConfig.MaxConns = 1
+	operationsConfig.MinConns = 0
+	operationsConfig.ConnConfig.RuntimeParams["application_name"] = "team-memory-operations-collector"
+	operationsConfig.ConnConfig.RuntimeParams["default_transaction_read_only"] = "on"
+	operationsConfig.ConnConfig.RuntimeParams["statement_timeout"] = "1000"
+	operationsConfig.ConnConfig.RuntimeParams["lock_timeout"] = "250"
+	operationsPool, err := pgxpool.NewWithConfig(ctx, operationsConfig)
+	if err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("open operations postgres pool: %w", err)
+	}
+	if err := operationsPool.Ping(ctx); err != nil {
+		operationsPool.Close()
+		pool.Close()
+		return nil, fmt.Errorf("ping operations postgres pool: %w", err)
+	}
+	store := newStore(pool)
+	store.operationsPool = operationsPool
+	store.operations.readPool = operationsPool
+	return store, nil
 }
 
 func newStore(pool *pgxpool.Pool) *Store {
@@ -50,10 +76,14 @@ func newStore(pool *pgxpool.Pool) *Store {
 		channel:     &ChannelStore{pool: pool},
 		identity:    &IdentityStore{pool: pool},
 		registry:    &RegistryStore{pool: pool},
+		operations:  &OperationsStore{pool: pool},
 	}
 }
 
 func (s *Store) Close() {
+	if s.operationsPool != nil {
+		s.operationsPool.Close()
+	}
 	s.pool.Close()
 }
 
@@ -83,6 +113,10 @@ func (s *Store) Identity() *IdentityStore {
 
 func (s *Store) Registry() *RegistryStore {
 	return s.registry
+}
+
+func (s *Store) Operations() *OperationsStore {
+	return s.operations
 }
 
 func (s *Store) Migrate(ctx context.Context) (resultErr error) {
@@ -119,6 +153,7 @@ func (s *Store) Migrate(ctx context.Context) (resultErr error) {
 		"migrations/015_onprem_credentials.sql",
 		"migrations/016_onprem_channel_envelopes.sql",
 		"migrations/017_onprem_identity_registry.sql",
+		"migrations/018_onprem_operations.sql",
 	} {
 		migration, err := migrations.ReadFile(path)
 		if err != nil {

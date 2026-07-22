@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/cookiejar"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
@@ -21,6 +23,7 @@ type coreFlowSuite struct {
 	suite.Suite
 	baseURL string
 	client  *http.Client
+	ownerID string
 }
 
 func TestCoreFlowSuite(t *testing.T) {
@@ -32,7 +35,9 @@ func (s *coreFlowSuite) SetupSuite() {
 	if s.baseURL == "" {
 		s.T().Skip("TEAM_MEMORY_E2E_BASE_URL is not set")
 	}
-	s.client = &http.Client{Timeout: 3 * time.Second}
+	jar, err := cookiejar.New(nil)
+	s.Require().NoError(err)
+	s.client = &http.Client{Timeout: 3 * time.Second, Jar: jar}
 	s.Require().Eventually(func() bool {
 		response, err := s.client.Get(s.baseURL + "/healthz")
 		if err != nil {
@@ -40,6 +45,15 @@ func (s *coreFlowSuite) SetupSuite() {
 		}
 		return response.Body.Close() == nil && response.StatusCode == http.StatusOK
 	}, 30*time.Second, 100*time.Millisecond, "team-memory did not become healthy")
+	login, err := s.client.Get(s.baseURL + "/v1/auth/login")
+	s.Require().NoError(err)
+	s.Require().NoError(login.Body.Close())
+	claimed := s.humanRequest(http.MethodPost, "/v1/bootstrap/claim", nil, map[string]string{
+		"X-PAX-Bootstrap-Secret": "e2e-bootstrap-secret",
+	})
+	s.ownerID = stringField(s.T(), claimed, "user_id")
+	s.Equal("owner", stringField(s.T(), claimed, "role"))
+	s.Contains(arrayField(s.T(), claimed, "capabilities"), "view.operations")
 }
 
 func (s *coreFlowSuite) TestAgentObservationBecomesRecallableTeamNote() {
@@ -47,7 +61,7 @@ func (s *coreFlowSuite) TestAgentObservationBecomesRecallableTeamNote() {
 	consumerKey := s.enrollAgent("consumer")
 
 	identity := s.request(http.MethodGet, "/v1/agent-identity", consumerKey, nil)
-	s.Equal("e2e-owner", stringField(s.T(), identity, "user_id"))
+	s.Equal(s.ownerID, stringField(s.T(), identity, "user_id"))
 	s.Equal("consumer", stringField(s.T(), identity, "agent_id"))
 	s.NotContains(identity, "scope_id")
 
@@ -79,6 +93,8 @@ func (s *coreFlowSuite) TestAgentObservationBecomesRecallableTeamNote() {
 	trace := objectField(s.T(), result, "trace")
 	teamNoteTrace := objectField(s.T(), trace, "team_note")
 	s.Equal("completed", stringField(s.T(), teamNoteTrace, "status"))
+
+	s.assertOperationsFlow()
 }
 
 func (s *coreFlowSuite) TestKnowledgeCapsuleChannelEndToEnd() {
@@ -166,13 +182,97 @@ func (s *coreFlowSuite) enrollAgent(agentID string) string {
 }
 
 func (s *coreFlowSuite) enrollAgentWithPermissions(agentID string, permissions []string) string {
-	enrollment := s.request(http.MethodPost, "/v1/admin/agent-enrollments", "e2e-admin-secret", map[string]any{
-		"user_id": "e2e-owner", "agent_id": agentID, "expires_in_seconds": 300,
-		"permissions": permissions,
-	})
+	s.humanRequest(http.MethodPost, "/v1/me/agents", map[string]any{
+		"agent_id": agentID, "display_name": agentID, "description": "on-prem E2E agent",
+		"agent_type": "test", "directory_visible": true,
+	}, map[string]string{"Idempotency-Key": "create-" + agentID})
+	enrollment := s.humanRequest(http.MethodPost, "/v1/me/agents/"+agentID+"/enrollments", map[string]any{
+		"credential_label": "e2e", "permissions": permissions, "expires_in_seconds": 300,
+	}, nil)
 	token := stringField(s.T(), enrollment, "token")
 	credential := s.request(http.MethodPost, "/v1/agent-enrollments/exchange", "", map[string]any{"token": token})
 	return stringField(s.T(), credential, "api_key")
+}
+
+func (s *coreFlowSuite) assertOperationsFlow() {
+	s.T().Helper()
+	summary := s.humanRequest(http.MethodGet, "/v1/admin/operations/summary", nil, nil)
+	s.GreaterOrEqual(intField(s.T(), objectField(s.T(), summary, "observations"), "requests"), int64(1))
+	s.GreaterOrEqual(intField(s.T(), objectField(s.T(), summary, "recalls"), "memory_search_requests"), int64(1))
+	s.GreaterOrEqual(intField(s.T(), objectField(s.T(), summary, "extraction"), "completed"), int64(1))
+
+	extractions := s.humanRequest(http.MethodGet, "/v1/admin/operations/events?operation_kind=extraction.run", nil, nil)
+	extractionEvents := arrayField(s.T(), extractions, "events")
+	s.NotEmpty(extractionEvents)
+	for _, value := range extractionEvents {
+		event, ok := value.(map[string]any)
+		s.Require().True(ok)
+		s.Equal("extraction.run", stringField(s.T(), event, "operation_kind"))
+		s.Equal("extraction_run", stringField(s.T(), event, "detail_kind"))
+	}
+	searches := s.humanRequest(http.MethodGet, "/v1/admin/operations/events?operation_kind=memory.search", nil, nil)
+	diagnosticID := operationDetailID(s.T(), arrayField(s.T(), searches, "events"), "memory.search", "recall_observation")
+	diagnostic := s.humanRequest(http.MethodGet, "/v1/admin/operations/recalls/"+diagnosticID, nil, nil)
+	encoded, err := json.Marshal(diagnostic)
+	s.Require().NoError(err)
+	s.NotContains(string(encoded), approvalCode)
+	s.Contains(string(encoded), `"candidates"`)
+
+	storage := objectField(s.T(), s.humanRequest(http.MethodGet, "/v1/admin/operations/storage", nil, nil), "storage")
+	s.NotEmpty(arrayField(s.T(), storage, "components"))
+}
+
+func (s *coreFlowSuite) humanRequest(method, path string, body any, headers map[string]string) map[string]any {
+	s.T().Helper()
+	statusCode, responseBody := s.performHumanRequest(method, path, body, headers)
+	s.Require().GreaterOrEqual(statusCode, http.StatusOK, string(responseBody))
+	s.Require().Less(statusCode, http.StatusMultipleChoices, string(responseBody))
+	result := make(map[string]any)
+	s.Require().NoError(json.Unmarshal(responseBody, &result), "decode %s %s response", method, path)
+	return result
+}
+
+func (s *coreFlowSuite) performHumanRequest(
+	method string,
+	path string,
+	body any,
+	headers map[string]string,
+) (int, []byte) {
+	s.T().Helper()
+	var requestBody io.Reader
+	if body != nil {
+		encoded, err := json.Marshal(body)
+		s.Require().NoError(err)
+		requestBody = bytes.NewReader(encoded)
+	}
+	request, err := http.NewRequestWithContext(context.Background(), method, s.baseURL+path, requestBody)
+	s.Require().NoError(err)
+	request.Header.Set("Content-Type", "application/json")
+	if method != http.MethodGet && method != http.MethodHead {
+		request.Header.Set("X-CSRF-Token", s.cookieValue("tm_csrf"))
+	}
+	for key, value := range headers {
+		request.Header.Set(key, value)
+	}
+	response, err := s.client.Do(request)
+	s.Require().NoError(err)
+	responseBody, err := io.ReadAll(response.Body)
+	s.Require().NoError(err)
+	s.Require().NoError(response.Body.Close())
+	return response.StatusCode, responseBody
+}
+
+func (s *coreFlowSuite) cookieValue(name string) string {
+	s.T().Helper()
+	parsed, err := url.Parse(s.baseURL)
+	s.Require().NoError(err)
+	for _, cookie := range s.client.Jar.Cookies(parsed) {
+		if cookie.Name == name {
+			return cookie.Value
+		}
+	}
+	s.T().Fatalf("cookie %s is missing", name)
+	return ""
 }
 
 func (s *coreFlowSuite) request(method, path, apiKey string, body any) map[string]any {
@@ -254,6 +354,15 @@ func boolField(t *testing.T, value map[string]any, name string) bool {
 	return result
 }
 
+func intField(t *testing.T, value map[string]any, name string) int64 {
+	t.Helper()
+	result, ok := value[name].(float64)
+	if !ok {
+		t.Fatalf("field %s is not a number: %#v", name, value[name])
+	}
+	return int64(result)
+}
+
 func arrayField(t *testing.T, value map[string]any, name string) []any {
 	t.Helper()
 	result, ok := value[name].([]any)
@@ -261,4 +370,16 @@ func arrayField(t *testing.T, value map[string]any, name string) []any {
 		t.Fatalf("field %s is not an array: %#v", name, value[name])
 	}
 	return result
+}
+
+func operationDetailID(t *testing.T, events []any, operationKind string, detailKind string) string {
+	t.Helper()
+	for _, value := range events {
+		event, ok := value.(map[string]any)
+		if ok && event["operation_kind"] == operationKind && event["detail_kind"] == detailKind && fmt.Sprint(event["detail_id"]) != "" {
+			return fmt.Sprint(event["detail_id"])
+		}
+	}
+	t.Fatalf("%s operation events have no %s detail: %#v", operationKind, detailKind, events)
+	return ""
 }

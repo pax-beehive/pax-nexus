@@ -225,6 +225,9 @@ for the envelope protocol and CLI integration boundary.
 [The accepted on-prem identity and Agent Registry decision](docs/decisions/2026-07-21-on-prem-identity-and-agent-registry.md)
 defines human invitations, roles, Agent ownership, self-service enrollment, and
 the Agent list/get directory APIs.
+[The accepted Operations monitor and storage accounting decision](docs/decisions/2026-07-22-on-prem-operations-monitor-and-storage.md)
+defines write/recall counters, recent activity, privacy-safe recall diagnostics,
+Session Lake and Team Memory sizing, and storage-history semantics.
 [The frontend integration guide](docs/on-prem-identity-frontend-integration.md)
 turns that contract into Portal user journeys, request rules, role behavior,
 one-time-secret handling, and edge-case acceptance scenarios.
