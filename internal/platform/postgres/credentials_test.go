@@ -58,6 +58,26 @@ func (s *credentialStoreSuite) TestCredentialLifecycleIncludesRotationOverlapAnd
 	s.Require().ErrorIs(err, onprem.ErrUnauthorized)
 }
 
+func (s *credentialStoreSuite) TestLegacyKeyWithoutPublicCredentialIDRemainsValid() {
+	now := time.Now().UTC()
+	service, admin := s.newService(&now)
+	issued := s.issueCredential(service, admin, time.Minute)
+	legacyKey := "tm_key_" + uniqueCredentialValue("legacy-secret")
+	legacyDigest := credentialDigest(legacyKey)
+	_, err := s.store.Pool().Exec(context.Background(), `
+		UPDATE agent_credentials
+		SET key_digest = $1, digest_key_version = 0
+		WHERE credential_id = $2
+	`, legacyDigest[:], issued.CredentialID)
+	s.Require().NoError(err)
+
+	principal, err := service.Authenticate(context.Background(), legacyKey)
+
+	s.Require().NoError(err)
+	s.Equal(issued.CredentialID, principal.CredentialID)
+	s.Equal("postgres-agent", principal.AgentID)
+}
+
 func (s *credentialStoreSuite) TestEnrollmentStateMatrix() {
 	tests := []struct {
 		name    string
@@ -104,9 +124,47 @@ func (s *credentialStoreSuite) TestAgentIdentityCannotBeClaimedByAnotherUser() {
 	conflicting, err := service.CreateEnrollment(context.Background(), admin, onprem.EnrollmentRequest{
 		UserID: uniqueCredentialValue("second-user"), AgentID: agentID,
 	})
+	s.Require().ErrorIs(err, onprem.ErrAgentIdentityConflict)
+	s.Empty(conflicting.Token)
+}
+
+func (s *credentialStoreSuite) TestHumanPlaneLegacyAdminCannotCreateAgentProfile() {
+	adminKey := uniqueCredentialValue("migration-admin")
+	service, err := onprem.NewCredentialService(s.credentials, onprem.CredentialConfig{
+		AdminAPIKey: adminKey, RotationOverlap: time.Minute,
+		SecretPepper: "0123456789abcdef0123456789abcdef",
+	})
 	s.Require().NoError(err)
-	_, err = service.ExchangeEnrollment(context.Background(), conflicting.Token)
-	s.ErrorIs(err, onprem.ErrAgentIdentityConflict)
+	admin, err := service.Authenticate(context.Background(), adminKey)
+	s.Require().NoError(err)
+	_, err = service.CreateEnrollment(context.Background(), admin, onprem.EnrollmentRequest{
+		UserID: uniqueCredentialValue("missing-owner"), AgentID: uniqueCredentialValue("missing-agent"),
+	})
+	s.Require().ErrorIs(err, onprem.ErrAgentIdentityConflict)
+}
+
+func (s *credentialStoreSuite) TestBootstrapClaimDisablesStaticAdminKey() {
+	ctx := context.Background()
+	_, err := s.store.Pool().Exec(ctx, `
+		UPDATE onprem_installation_state SET bootstrap_claimed_at = now() WHERE singleton_id = 1
+	`)
+	s.Require().NoError(err)
+	s.T().Cleanup(func() {
+		_, cleanupErr := s.store.Pool().Exec(context.Background(), `
+			UPDATE onprem_installation_state
+			SET bootstrap_claimed_at = NULL, bootstrap_claimed_by_membership_id = NULL
+			WHERE singleton_id = 1
+		`)
+		s.Require().NoError(cleanupErr)
+	})
+	adminKey := uniqueCredentialValue("closed-admin")
+	service, err := onprem.NewCredentialService(s.credentials, onprem.CredentialConfig{
+		AdminAPIKey: adminKey, RotationOverlap: time.Minute,
+		SecretPepper: "0123456789abcdef0123456789abcdef", AllowLegacyAgentCreation: true,
+	})
+	s.Require().NoError(err)
+	_, err = service.Authenticate(ctx, adminKey)
+	s.Require().ErrorIs(err, onprem.ErrUnauthorized)
 }
 
 func (s *credentialStoreSuite) TestEnrollmentExchangeRollsBackConsumptionWhenCredentialInsertFails() {
@@ -118,16 +176,16 @@ func (s *credentialStoreSuite) TestEnrollmentExchangeRollsBackConsumptionWhenCre
 	s.Require().NoError(s.credentials.SaveEnrollment(context.Background(), onprem.EnrollmentRecord{
 		ID: uniqueCredentialValue("enrollment"), TokenDigest: tokenDigest,
 		UserID: "postgres-user", AgentID: "postgres-agent", Permissions: []onprem.Permission{onprem.PermissionSearch},
-		CreatedAt: now, ExpiresAt: now.Add(time.Minute),
+		CreatedAt: now, ExpiresAt: now.Add(time.Minute), AllowLegacyAgentCreation: true,
 	}))
 	replacement := onprem.CredentialRecord{
 		ID: existing.CredentialID, KeyDigest: credentialDigest(uniqueCredentialValue("failed-key")), CreatedAt: now,
 	}
-	_, err := s.credentials.ExchangeEnrollment(context.Background(), tokenDigest, replacement, now)
+	_, err := s.credentials.ExchangeEnrollment(context.Background(), "", tokenDigest, replacement, now)
 	s.Require().Error(err)
 	replacement.ID = uniqueCredentialValue("replacement")
 	replacement.KeyDigest = credentialDigest(uniqueCredentialValue("replacement-key"))
-	_, err = s.credentials.ExchangeEnrollment(context.Background(), tokenDigest, replacement, now)
+	_, err = s.credentials.ExchangeEnrollment(context.Background(), "", tokenDigest, replacement, now)
 	s.Require().NoError(err, "failed insert must not consume the enrollment")
 }
 
@@ -157,6 +215,7 @@ func (s *credentialStoreSuite) newService(now *time.Time) (*onprem.CredentialSer
 	adminKey := uniqueCredentialValue("postgres-admin")
 	service, err := onprem.NewCredentialService(s.credentials, onprem.CredentialConfig{
 		AdminAPIKey: adminKey, RotationOverlap: time.Minute,
+		SecretPepper: "0123456789abcdef0123456789abcdef", AllowLegacyAgentCreation: true,
 	}, onprem.WithClock(func() time.Time { return *now }))
 	s.Require().NoError(err)
 	admin, err := service.Authenticate(context.Background(), adminKey)

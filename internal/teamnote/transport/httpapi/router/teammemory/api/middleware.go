@@ -140,3 +140,253 @@ func _archivechannelenvelopeMw() []app.HandlerFunc {
 	// your code...
 	return nil
 }
+
+func _gethumanmeMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _createmembershipinvitationMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _authMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _completehumanloginMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _beginhumanloginMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _logouthumanMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _bootstrapMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _claimbootstrapMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _listdirectoryagentsMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _agentsMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _getdirectoryagentMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _invitationsMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _acceptmembershipinvitationMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _meMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _listownedagentsMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _createownedagentMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _agents0Mw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _retireownedagentMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _getownedagentMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _updateownedagentMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _agent_idMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _createownedagentenrollmentMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _listadminagentsMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _getadminagentMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _agents1Mw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _listmembersMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _membersMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _getmemberMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _updatememberMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _listmembershipinvitationsMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _revokemembershipinvitationMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _invitations0Mw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _listownedagentcredentialsMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _listownedagentenrollmentsMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _credentialsMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _revokeownedagentcredentialMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _enrollmentsMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _revokeownedagentenrollmentMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _updateadminagentMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _transferadminagentMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _agent_id0Mw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _listauditeventsMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _audit_eventsMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _getauditeventMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _listadminagentcredentialsMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _listadminagentenrollmentsMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _revokeadminagentcredentialMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _revokeadminagentenrollmentMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _credentials0Mw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _enrollments0Mw() []app.HandlerFunc {
+	// your code...
+	return nil
+}

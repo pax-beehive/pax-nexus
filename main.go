@@ -102,7 +102,7 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	if err := sessions.ConfigureExtractionEnqueuer(queue); err != nil {
 		return fmt.Errorf("connect extraction queue: %w", err)
 	}
-	httpHandler, err := buildHTTPHandler(runtime, store, config, logger)
+	httpHandler, err := buildHTTPHandler(ctx, runtime, store, config, logger)
 	if err != nil {
 		return err
 	}
@@ -171,6 +171,16 @@ type applicationConfig struct {
 	listenAddress                  string
 	apiKeys                        map[string]string
 	adminAPIKey                    string
+	bootstrapSecret                string
+	oidcIssuer                     string
+	oidcClientID                   string
+	oidcClientSecret               string
+	oidcRedirectURL                string
+	oidcFlowSecret                 string
+	secretPepper                   string
+	memberGrantablePermissions     []onprem.Permission
+	portalURL                      string
+	humanCookieSecure              bool
 	credentialRotationOverlap      time.Duration
 	wikiHintEnabled                bool
 	extractorMode                  string
@@ -217,6 +227,14 @@ func loadConfig() (applicationConfig, error) {
 		embeddingBaseURL:            os.Getenv("TEAM_MEMORY_EMBEDDING_BASE_URL"),
 		embeddingModel:              os.Getenv("TEAM_MEMORY_EMBEDDING_MODEL"),
 		adminAPIKey:                 os.Getenv("TEAM_MEMORY_ADMIN_API_KEY"),
+		bootstrapSecret:             os.Getenv("TEAM_MEMORY_BOOTSTRAP_SECRET"),
+		oidcIssuer:                  os.Getenv("TEAM_MEMORY_OIDC_ISSUER"),
+		oidcClientID:                os.Getenv("TEAM_MEMORY_OIDC_CLIENT_ID"),
+		oidcClientSecret:            os.Getenv("TEAM_MEMORY_OIDC_CLIENT_SECRET"),
+		oidcRedirectURL:             os.Getenv("TEAM_MEMORY_OIDC_REDIRECT_URL"),
+		oidcFlowSecret:              os.Getenv("TEAM_MEMORY_OIDC_FLOW_SECRET"),
+		secretPepper:                os.Getenv("TEAM_MEMORY_SECRET_PEPPER"),
+		portalURL:                   os.Getenv("TEAM_MEMORY_PORTAL_URL"),
 	}
 	var err error
 	if err = loadWorkerConfig(&config); err != nil {
@@ -291,7 +309,23 @@ func loadOnPremConfig(config *applicationConfig) error {
 	); err != nil {
 		return err
 	}
-	config.wikiHintEnabled, err = boolEnvironment("TEAM_MEMORY_WIKI_HINT_ENABLED", false)
+	if config.wikiHintEnabled, err = boolEnvironment("TEAM_MEMORY_WIKI_HINT_ENABLED", false); err != nil {
+		return err
+	}
+	config.humanCookieSecure, err = boolEnvironment("TEAM_MEMORY_HUMAN_COOKIE_SECURE", true)
+	if err != nil {
+		return err
+	}
+	config.memberGrantablePermissions, err = permissionListEnvironment(
+		"TEAM_MEMORY_MEMBER_GRANTABLE_PERMISSIONS",
+		"observe,search,get,channel_send,channel_receive",
+	)
+	if err != nil {
+		return err
+	}
+	if config.portalURL == "" {
+		config.portalURL = "/"
+	}
 	return err
 }
 
@@ -302,22 +336,78 @@ func loadAuthenticationConfig(config *applicationConfig) error {
 	} else if err := json.Unmarshal([]byte(apiKeys), &config.apiKeys); err != nil {
 		return fmt.Errorf("decode TEAM_MEMORY_API_KEYS: %w", err)
 	}
-	if len(config.apiKeys) > 0 && strings.TrimSpace(config.adminAPIKey) != "" {
-		return fmt.Errorf("TEAM_MEMORY_API_KEYS and TEAM_MEMORY_ADMIN_API_KEY select mutually exclusive authentication modes")
+	identityConfigured := config.humanIdentityConfigured()
+	if config.humanIdentitySettingCount() > 0 && !identityConfigured {
+		return fmt.Errorf("all TEAM_MEMORY_BOOTSTRAP_SECRET and TEAM_MEMORY_OIDC_* settings are required together")
 	}
-	if len(config.apiKeys) == 0 && strings.TrimSpace(config.adminAPIKey) == "" {
-		return fmt.Errorf("TEAM_MEMORY_API_KEYS or TEAM_MEMORY_ADMIN_API_KEY is required")
+	if len(config.apiKeys) > 0 && (strings.TrimSpace(config.adminAPIKey) != "" || identityConfigured) {
+		return fmt.Errorf("TEAM_MEMORY_API_KEYS and on-prem identity settings select mutually exclusive authentication modes")
+	}
+	if len(config.apiKeys) == 0 && strings.TrimSpace(config.adminAPIKey) == "" && !identityConfigured {
+		return fmt.Errorf("TEAM_MEMORY_API_KEYS, TEAM_MEMORY_ADMIN_API_KEY, or complete OIDC identity settings are required")
+	}
+	if len(config.apiKeys) == 0 && len(strings.TrimSpace(config.secretPepper)) < 32 {
+		return fmt.Errorf("TEAM_MEMORY_SECRET_PEPPER must contain at least 32 characters in on-prem mode")
 	}
 	return nil
 }
 
+func permissionListEnvironment(name string, fallback string) ([]onprem.Permission, error) {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		raw = fallback
+	}
+	seen := make(map[onprem.Permission]struct{})
+	result := make([]onprem.Permission, 0)
+	for _, value := range strings.Split(raw, ",") {
+		permission := onprem.Permission(strings.TrimSpace(value))
+		switch permission {
+		case onprem.PermissionObserve, onprem.PermissionSearch, onprem.PermissionGet,
+			onprem.PermissionChannelSend, onprem.PermissionChannelReceive:
+		default:
+			return nil, fmt.Errorf("%s contains unsupported permission %q", name, permission)
+		}
+		if _, exists := seen[permission]; exists {
+			continue
+		}
+		seen[permission] = struct{}{}
+		result = append(result, permission)
+	}
+	if len(result) == 0 {
+		return nil, fmt.Errorf("%s must not be empty", name)
+	}
+	return result, nil
+}
+
+func (config applicationConfig) humanIdentityConfigured() bool {
+	return config.humanIdentitySettingCount() == 6
+}
+
+func (config applicationConfig) humanIdentitySettingCount() int {
+	values := []string{
+		config.bootstrapSecret, config.oidcIssuer, config.oidcClientID,
+		config.oidcClientSecret, config.oidcRedirectURL, config.oidcFlowSecret,
+	}
+	configured := 0
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			configured++
+		}
+	}
+	return configured
+}
+
 func buildHTTPHandler(
+	ctx context.Context,
 	runtime teamnote.Runtime,
 	store *postgres.Store,
 	config applicationConfig,
 	logger *slog.Logger,
 ) (*handler.Handler, error) {
-	if strings.TrimSpace(config.adminAPIKey) == "" {
+	if len(config.apiKeys) > 0 && (strings.TrimSpace(config.adminAPIKey) != "" || config.humanIdentityConfigured()) {
+		return nil, fmt.Errorf("configure HTTP transport: legacy and on-prem authentication are mutually exclusive")
+	}
+	if len(config.apiKeys) > 0 {
 		configured, err := handler.New(runtime, handler.StaticAPIKeys(config.apiKeys), logger)
 		if err != nil {
 			return nil, fmt.Errorf("configure HTTP transport: %w", err)
@@ -329,6 +419,7 @@ func buildHTTPHandler(
 	}
 	credentials, err := onprem.NewCredentialService(store.Credentials(), onprem.CredentialConfig{
 		AdminAPIKey: config.adminAPIKey, RotationOverlap: config.credentialRotationOverlap,
+		SecretPepper: config.secretPepper, AllowLegacyAgentCreation: !config.humanIdentityConfigured(),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("configure on-prem credentials: %w", err)
@@ -341,7 +432,34 @@ func buildHTTPHandler(
 	if err != nil {
 		return nil, fmt.Errorf("configure on-prem channel: %w", err)
 	}
-	configured, err := handler.NewOnPrem(runtime, credentials, memory, channel, logger)
+	registry, err := onprem.NewRegistryService(store.Registry(), onprem.RegistryConfig{
+		SecretPepper: config.secretPepper, MemberGrantablePermissions: config.memberGrantablePermissions,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("configure on-prem agent registry: %w", err)
+	}
+	options := []handler.OnPremOption{handler.WithAgentRegistry(registry)}
+	if config.humanIdentityConfigured() {
+		identity, err := onprem.NewIdentityService(store.Identity(), onprem.IdentityConfig{
+			BootstrapSecret: config.bootstrapSecret, SessionTTL: 12 * time.Hour,
+			InvitationTTL: 24 * time.Hour, SecretPepper: config.secretPepper,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("configure on-prem human identity: %w", err)
+		}
+		oidcAuthenticator, err := onprem.NewOIDCAuthenticator(ctx, onprem.OIDCConfig{
+			Issuer: config.oidcIssuer, ClientID: config.oidcClientID,
+			ClientSecret: config.oidcClientSecret, RedirectURL: config.oidcRedirectURL,
+			FlowSecret: config.oidcFlowSecret,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("configure on-prem OIDC: %w", err)
+		}
+		options = append(options, handler.WithHumanIdentity(
+			identity, oidcAuthenticator, config.portalURL, config.humanCookieSecure,
+		))
+	}
+	configured, err := handler.NewOnPrem(runtime, credentials, memory, channel, logger, options...)
 	if err != nil {
 		return nil, fmt.Errorf("configure on-prem HTTP transport: %w", err)
 	}

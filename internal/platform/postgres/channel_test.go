@@ -38,6 +38,7 @@ func (s *channelStoreSuite) SetupSuite() {
 	adminKey := uniqueCredentialValue("channel-admin")
 	credentials, err := onprem.NewCredentialService(store.Credentials(), onprem.CredentialConfig{
 		AdminAPIKey: adminKey, RotationOverlap: time.Minute,
+		SecretPepper: "0123456789abcdef0123456789abcdef", AllowLegacyAgentCreation: true,
 	}, onprem.WithClock(func() time.Time { return s.now }))
 	s.Require().NoError(err)
 	s.credentials = credentials

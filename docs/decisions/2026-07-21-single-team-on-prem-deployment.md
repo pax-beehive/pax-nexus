@@ -11,6 +11,7 @@
 - [General Recall v3](./2026-07-16-general-recall-v3-optimization.md)
 - [Hint Recall v0](./2026-07-16-hint-recall-v0.md)
 - [paxl on-prem Knowledge Capsule Channel](./2026-07-21-paxl-onprem-capsule-channel.md)
+- [On-prem Human Identity and Agent Registry（提议）](./2026-07-21-on-prem-identity-and-agent-registry.md)
 
 ## 背景
 

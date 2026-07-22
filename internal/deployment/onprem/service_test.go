@@ -2,6 +2,7 @@ package onprem_test
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"sync"
 	"testing"
@@ -32,6 +33,7 @@ func (s *serviceSuite) SetupTest() {
 	}}
 	service, err := onprem.NewCredentialService(s.store, onprem.CredentialConfig{
 		AdminAPIKey: "bootstrap-admin", RotationOverlap: 5 * time.Minute,
+		SecretPepper: "0123456789abcdef0123456789abcdef", AllowLegacyAgentCreation: true,
 	}, onprem.WithClock(func() time.Time { return s.now }), onprem.WithTokenSource(tokens.next))
 	s.Require().NoError(err)
 	s.service = service
@@ -48,11 +50,11 @@ func (s *serviceSuite) TestEnrollmentExchangeAuthenticationRotationAndRevocation
 		UserID: "owner", AgentID: "agent-1", ExpiresIn: time.Hour,
 	})
 	s.Require().NoError(err)
-	s.Equal("tm_enroll_enrollment-secret", enrollment.Token)
+	s.Equal("tm_enroll_enrollment-id.enrollment-secret", enrollment.Token)
 
 	issued, err := s.service.ExchangeEnrollment(ctx, enrollment.Token)
 	s.Require().NoError(err)
-	s.Equal("tm_key_credential-secret", issued.APIKey)
+	s.Equal("tm_key_credential-id.credential-secret", issued.APIKey)
 	s.Equal("credential-id", issued.CredentialID)
 	_, err = s.service.ExchangeEnrollment(ctx, enrollment.Token)
 	s.Require().ErrorIs(err, onprem.ErrEnrollmentInvalid)
@@ -68,7 +70,7 @@ func (s *serviceSuite) TestEnrollmentExchangeAuthenticationRotationAndRevocation
 
 	rotated, err := s.service.RotateCredential(ctx, principal)
 	s.Require().NoError(err)
-	s.Equal("tm_key_rotated-secret", rotated.APIKey)
+	s.Equal("tm_key_rotated-id.rotated-secret", rotated.APIKey)
 	_, err = s.service.Authenticate(ctx, issued.APIKey)
 	s.Require().NoError(err, "old key remains valid during overlap")
 	s.now = s.now.Add(6 * time.Minute)
@@ -111,10 +113,25 @@ func (s *serviceSuite) TestAuthenticationPreservesStoreFailures() {
 	storeFailure := errors.New("credential store unavailable")
 	s.store.resolveErr = storeFailure
 
-	_, err := s.service.Authenticate(context.Background(), "tm_key_candidate")
+	_, err := s.service.Authenticate(context.Background(), "tm_key_candidate.secret")
 
 	s.Require().ErrorIs(err, storeFailure)
 	s.Require().NotErrorIs(err, onprem.ErrUnauthorized)
+}
+
+func (s *serviceSuite) TestAuthenticationAcceptsLegacyKeyWithoutPublicCredentialID() {
+	legacyKey := "tm_key_legacy-secret"
+	legacyDigest := sha256.Sum256([]byte(legacyKey))
+	s.store.credentials[legacyDigest] = onprem.CredentialRecord{
+		ID: "legacy-credential", KeyDigest: legacyDigest, UserID: "owner", AgentID: "legacy-agent",
+		Permissions: []onprem.Permission{onprem.PermissionSearch}, CreatedAt: s.now,
+	}
+
+	principal, err := s.service.Authenticate(context.Background(), legacyKey)
+
+	s.Require().NoError(err)
+	s.Equal("legacy-credential", principal.CredentialID)
+	s.Equal("legacy-agent", principal.AgentID)
 }
 
 type tokenSequence struct {
@@ -141,6 +158,10 @@ type memoryCredentialStore struct {
 	resolveErr  error
 }
 
+func (s *memoryCredentialStore) LegacyAdminEnabled(context.Context) (bool, error) {
+	return true, nil
+}
+
 func newMemoryCredentialStore() *memoryCredentialStore {
 	return &memoryCredentialStore{
 		enrollments: make(map[onprem.Digest]onprem.EnrollmentRecord),
@@ -158,6 +179,7 @@ func (s *memoryCredentialStore) SaveEnrollment(_ context.Context, record onprem.
 
 func (s *memoryCredentialStore) ExchangeEnrollment(
 	_ context.Context,
+	_ string,
 	digest onprem.Digest,
 	credential onprem.CredentialRecord,
 	now time.Time,
@@ -180,6 +202,7 @@ func (s *memoryCredentialStore) ExchangeEnrollment(
 
 func (s *memoryCredentialStore) ResolveCredential(
 	_ context.Context,
+	_ string,
 	digest onprem.Digest,
 	now time.Time,
 ) (onprem.CredentialRecord, error) {

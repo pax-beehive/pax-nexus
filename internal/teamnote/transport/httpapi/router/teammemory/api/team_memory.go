@@ -21,14 +21,52 @@ func Register(r *server.Hertz) {
 	{
 		_v1 := root.Group("/v1", _v1Mw()...)
 		_v1.GET("/agent-identity", append(_getagentidentityMw(), handler.GetAgentIdentity)...)
+		_v1.GET("/me", append(_gethumanmeMw(), handler.GetHumanMe)...)
 		_v1.POST("/observations", append(_observebatchMw(), handler.ObserveBatch)...)
 		_v1.POST("/session-batches", append(_observesessionMw(), handler.ObserveSession)...)
 		{
 			_admin := _v1.Group("/admin", _adminMw()...)
 			_admin.POST("/agent-enrollments", append(_createagentenrollmentMw(), handler.CreateAgentEnrollment)...)
+			_admin.GET("/agents", append(_listadminagentsMw(), handler.ListAdminAgents)...)
+			_admin.GET("/audit-events", append(_listauditeventsMw(), handler.ListAuditEvents)...)
+			_admin.GET("/invitations", append(_listmembershipinvitationsMw(), handler.ListMembershipInvitations)...)
+			_admin.POST("/invitations", append(_createmembershipinvitationMw(), handler.CreateMembershipInvitation)...)
+			_admin.GET("/members", append(_listmembersMw(), handler.ListMembers)...)
 			{
 				_agent_credentials := _admin.Group("/agent-credentials", _agent_credentialsMw()...)
 				_agent_credentials.DELETE("/:credential_id", append(_revokeagentcredentialMw(), handler.RevokeAgentCredential)...)
+			}
+			{
+				_agents := _admin.Group("/agents", _agentsMw()...)
+				_agents.GET("/:agent_id", append(_getadminagentMw(), handler.GetAdminAgent)...)
+				_agents.PATCH("/:agent_id", append(_updateadminagentMw(), handler.UpdateAdminAgent)...)
+				{
+					_agent_id := _agents.Group("/:agent_id", _agent_idMw()...)
+					_agent_id.GET("/credentials", append(_listadminagentcredentialsMw(), handler.ListAdminAgentCredentials)...)
+					_agent_id.GET("/enrollments", append(_listadminagentenrollmentsMw(), handler.ListAdminAgentEnrollments)...)
+					_agent_id.POST("/transfer", append(_transferadminagentMw(), handler.TransferAdminAgent)...)
+					{
+						_credentials := _agent_id.Group("/credentials", _credentialsMw()...)
+						_credentials.DELETE("/:credential_id", append(_revokeadminagentcredentialMw(), handler.RevokeAdminAgentCredential)...)
+					}
+					{
+						_enrollments := _agent_id.Group("/enrollments", _enrollmentsMw()...)
+						_enrollments.DELETE("/:enrollment_id", append(_revokeadminagentenrollmentMw(), handler.RevokeAdminAgentEnrollment)...)
+					}
+				}
+			}
+			{
+				_audit_events := _admin.Group("/audit-events", _audit_eventsMw()...)
+				_audit_events.GET("/:audit_event_id", append(_getauditeventMw(), handler.GetAuditEvent)...)
+			}
+			{
+				_invitations := _admin.Group("/invitations", _invitationsMw()...)
+				_invitations.DELETE("/:invitation_id", append(_revokemembershipinvitationMw(), handler.RevokeMembershipInvitation)...)
+			}
+			{
+				_members := _admin.Group("/members", _membersMw()...)
+				_members.GET("/:membership_id", append(_getmemberMw(), handler.GetMember)...)
+				_members.PATCH("/:membership_id", append(_updatememberMw(), handler.UpdateMember)...)
 			}
 		}
 		{
@@ -40,9 +78,24 @@ func Register(r *server.Hertz) {
 			_agent_enrollments.POST("/exchange", append(_exchangeagentenrollmentMw(), handler.ExchangeAgentEnrollment)...)
 		}
 		{
+			_auth := _v1.Group("/auth", _authMw()...)
+			_auth.GET("/callback", append(_completehumanloginMw(), handler.CompleteHumanLogin)...)
+			_auth.GET("/login", append(_beginhumanloginMw(), handler.BeginHumanLogin)...)
+			_auth.POST("/logout", append(_logouthumanMw(), handler.LogoutHuman)...)
+		}
+		{
+			_bootstrap := _v1.Group("/bootstrap", _bootstrapMw()...)
+			_bootstrap.POST("/claim", append(_claimbootstrapMw(), handler.ClaimBootstrap)...)
+		}
+		{
 			_channel := _v1.Group("/channel", _channelMw()...)
+			_channel.GET("/agents", append(_listdirectoryagentsMw(), handler.ListDirectoryAgents)...)
 			_channel.GET("/envelopes", append(_listchannelenvelopesMw(), handler.ListChannelEnvelopes)...)
 			_channel.POST("/envelopes", append(_sendchannelenvelopeMw(), handler.SendChannelEnvelope)...)
+			{
+				_agents0 := _channel.Group("/agents", _agents0Mw()...)
+				_agents0.GET("/:agent_id", append(_getdirectoryagentMw(), handler.GetDirectoryAgent)...)
+			}
 			{
 				_envelopes := _channel.Group("/envelopes", _envelopesMw()...)
 				_envelopes.GET("/:envelope_id", append(_getchannelenvelopeMw(), handler.GetChannelEnvelope)...)
@@ -50,6 +103,35 @@ func Register(r *server.Hertz) {
 					_envelope_id := _envelopes.Group("/:envelope_id", _envelope_idMw()...)
 					_envelope_id.POST("/accept", append(_acceptchannelenvelopeMw(), handler.AcceptChannelEnvelope)...)
 					_envelope_id.POST("/archive", append(_archivechannelenvelopeMw(), handler.ArchiveChannelEnvelope)...)
+				}
+			}
+		}
+		{
+			_invitations0 := _v1.Group("/invitations", _invitations0Mw()...)
+			_invitations0.POST("/accept", append(_acceptmembershipinvitationMw(), handler.AcceptMembershipInvitation)...)
+		}
+		{
+			_me := _v1.Group("/me", _meMw()...)
+			_me.GET("/agents", append(_listownedagentsMw(), handler.ListOwnedAgents)...)
+			_me.POST("/agents", append(_createownedagentMw(), handler.CreateOwnedAgent)...)
+			{
+				_agents1 := _me.Group("/agents", _agents1Mw()...)
+				_agents1.DELETE("/:agent_id", append(_retireownedagentMw(), handler.RetireOwnedAgent)...)
+				_agents1.GET("/:agent_id", append(_getownedagentMw(), handler.GetOwnedAgent)...)
+				_agents1.PATCH("/:agent_id", append(_updateownedagentMw(), handler.UpdateOwnedAgent)...)
+				{
+					_agent_id0 := _agents1.Group("/:agent_id", _agent_id0Mw()...)
+					_agent_id0.GET("/credentials", append(_listownedagentcredentialsMw(), handler.ListOwnedAgentCredentials)...)
+					_agent_id0.GET("/enrollments", append(_listownedagentenrollmentsMw(), handler.ListOwnedAgentEnrollments)...)
+					_agent_id0.POST("/enrollments", append(_createownedagentenrollmentMw(), handler.CreateOwnedAgentEnrollment)...)
+					{
+						_credentials0 := _agent_id0.Group("/credentials", _credentials0Mw()...)
+						_credentials0.DELETE("/:credential_id", append(_revokeownedagentcredentialMw(), handler.RevokeOwnedAgentCredential)...)
+					}
+					{
+						_enrollments0 := _agent_id0.Group("/enrollments", _enrollments0Mw()...)
+						_enrollments0.DELETE("/:enrollment_id", append(_revokeownedagentenrollmentMw(), handler.RevokeOwnedAgentEnrollment)...)
+					}
 				}
 			}
 		}

@@ -34,6 +34,7 @@ services:
     environment:
       TEAM_MEMORY_DATABASE_URL: postgres://team_memory:team_memory@postgres:5432/team_memory?sslmode=disable
       TEAM_MEMORY_ADMIN_API_KEY: e2e-admin-secret
+      TEAM_MEMORY_SECRET_PEPPER: e2e-secret-pepper-0123456789abcdef
       TEAM_MEMORY_CREDENTIAL_ROTATION_OVERLAP: 5m
       TEAM_MEMORY_WIKI_HINT_ENABLED: "false"
       TEAM_MEMORY_EXTRACTOR_MODE: openai
