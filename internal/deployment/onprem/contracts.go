@@ -14,12 +14,19 @@ var (
 	ErrForbidden             = errors.New("forbidden")
 	ErrEnrollmentInvalid     = errors.New("enrollment is invalid or expired")
 	ErrCredentialNotFound    = errors.New("credential not found")
+	ErrAgentNotFound         = errors.New("agent not found")
+	ErrAgentConflict         = errors.New("agent already exists or version conflicts")
+	ErrBootstrapClosed       = errors.New("bootstrap is closed")
+	ErrInvitationInvalid     = errors.New("invitation is invalid or expired")
+	ErrMembershipConflict    = errors.New("membership state conflicts with the operation")
 	ErrTargetAgentNotFound   = errors.New("target agent not found")
 	ErrAgentIdentityConflict = errors.New("agent identity is ambiguous")
 	ErrEnvelopeNotFound      = errors.New("channel envelope not found")
 	ErrEnvelopeState         = errors.New("channel envelope state does not allow the operation")
 	ErrIdempotencyConflict   = errors.New("idempotency key was already used for a different envelope")
 	ErrInvalidChannelRequest = errors.New("invalid channel request")
+	ErrInvalidIdentityInput  = errors.New("invalid identity or agent input")
+	ErrAuditEventNotFound    = errors.New("audit event not found")
 )
 
 type Permission string
@@ -34,11 +41,13 @@ const (
 )
 
 type Principal struct {
-	UserID       string
-	AgentID      string
-	ScopeID      string
-	CredentialID string
-	Permissions  []Permission
+	UserID          string
+	MembershipID    string
+	AgentID         string
+	ScopeID         string
+	CredentialID    string
+	CredentialLabel string
+	Permissions     []Permission
 }
 
 func (p Principal) HasPermission(permission Permission) bool {
@@ -72,32 +81,42 @@ type IssuedCredential struct {
 type Digest [32]byte
 
 type EnrollmentRecord struct {
-	ID          string
-	TokenDigest Digest
-	UserID      string
-	AgentID     string
-	Permissions []Permission
-	CreatedAt   time.Time
-	ExpiresAt   time.Time
-	ConsumedAt  *time.Time
+	ID                       string
+	TokenDigest              Digest
+	DigestKeyVersion         int16
+	UserID                   string
+	MembershipID             string
+	AgentID                  string
+	CredentialLabel          string
+	Permissions              []Permission
+	CreatedAt                time.Time
+	ExpiresAt                time.Time
+	CredentialExpiresAt      *time.Time
+	ConsumedAt               *time.Time
+	AllowLegacyAgentCreation bool
 }
 
 type CredentialRecord struct {
-	ID          string
-	KeyDigest   Digest
-	UserID      string
-	AgentID     string
-	Permissions []Permission
-	CreatedAt   time.Time
-	ExpiresAt   *time.Time
-	RevokedAt   *time.Time
-	LastUsedAt  *time.Time
+	ID                      string
+	KeyDigest               Digest
+	DigestKeyVersion        int16
+	UserID                  string
+	MembershipID            string
+	AgentID                 string
+	Label                   string
+	Permissions             []Permission
+	CreatedAt               time.Time
+	ExpiresAt               *time.Time
+	RevokedAt               *time.Time
+	LastUsedAt              *time.Time
+	RotatedFromCredentialID string
 }
 
 type CredentialStore interface {
+	LegacyAdminEnabled(context.Context) (bool, error)
 	SaveEnrollment(context.Context, EnrollmentRecord) error
-	ExchangeEnrollment(context.Context, Digest, CredentialRecord, time.Time) (EnrollmentRecord, error)
-	ResolveCredential(context.Context, Digest, time.Time) (CredentialRecord, error)
+	ExchangeEnrollment(context.Context, string, Digest, CredentialRecord, time.Time) (EnrollmentRecord, error)
+	ResolveCredential(context.Context, string, Digest, time.Time) (CredentialRecord, error)
 	RotateCredential(context.Context, string, CredentialRecord, time.Time) error
 	RevokeCredential(context.Context, string, time.Time) error
 }

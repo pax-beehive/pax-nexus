@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pax-beehive/pax-nexus/internal/deployment/onprem"
 	"github.com/pax-beehive/pax-nexus/internal/sessionlake"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote/extractor"
@@ -25,6 +26,10 @@ func (s *configSuite) SetupTest() {
 	for _, name := range []string{
 		"TEAM_MEMORY_DATABASE_URL", "TEAM_MEMORY_API_KEYS", "TEAM_MEMORY_LISTEN_ADDRESS",
 		"TEAM_MEMORY_ADMIN_API_KEY", "TEAM_MEMORY_CREDENTIAL_ROTATION_OVERLAP", "TEAM_MEMORY_WIKI_HINT_ENABLED",
+		"TEAM_MEMORY_BOOTSTRAP_SECRET", "TEAM_MEMORY_OIDC_ISSUER", "TEAM_MEMORY_OIDC_CLIENT_ID",
+		"TEAM_MEMORY_OIDC_CLIENT_SECRET", "TEAM_MEMORY_OIDC_REDIRECT_URL", "TEAM_MEMORY_OIDC_FLOW_SECRET",
+		"TEAM_MEMORY_PORTAL_URL", "TEAM_MEMORY_HUMAN_COOKIE_SECURE",
+		"TEAM_MEMORY_SECRET_PEPPER", "TEAM_MEMORY_MEMBER_GRANTABLE_PERMISSIONS",
 		"TEAM_MEMORY_EXTRACTOR_MODE", "TEAM_MEMORY_EXTRACTOR_BASE_URL",
 		"TEAM_MEMORY_EXTRACTOR_API_KEY", "TEAM_MEMORY_EXTRACTOR_MODEL", "TEAM_MEMORY_PROMPT_VERSION",
 		"TEAM_MEMORY_EXTRACTION_CONTEXT_MODE", "TEAM_MEMORY_EXTRACTION_VERSION",
@@ -98,6 +103,8 @@ func (s *configSuite) TestLoadsOnPremConfiguration() {
 	s.T().Setenv("TEAM_MEMORY_DATABASE_URL", "postgres://database")
 	s.T().Setenv("TEAM_MEMORY_EXTRACTOR_MODE", "noop")
 	s.T().Setenv("TEAM_MEMORY_ADMIN_API_KEY", "admin-secret")
+	s.T().Setenv("TEAM_MEMORY_SECRET_PEPPER", "0123456789abcdef0123456789abcdef")
+	s.T().Setenv("TEAM_MEMORY_MEMBER_GRANTABLE_PERMISSIONS", "search,channel_send")
 	s.T().Setenv("TEAM_MEMORY_CREDENTIAL_ROTATION_OVERLAP", "2m")
 	s.T().Setenv("TEAM_MEMORY_WIKI_HINT_ENABLED", "true")
 
@@ -108,6 +115,19 @@ func (s *configSuite) TestLoadsOnPremConfiguration() {
 	s.Empty(config.apiKeys)
 	s.Equal(2*time.Minute, config.credentialRotationOverlap)
 	s.True(config.wikiHintEnabled)
+	s.True(config.humanCookieSecure)
+	s.Equal([]onprem.Permission{onprem.PermissionSearch, onprem.PermissionChannelSend}, config.memberGrantablePermissions)
+}
+
+func (s *configSuite) TestRejectsPartialOIDCConfiguration() {
+	s.T().Setenv("TEAM_MEMORY_DATABASE_URL", "postgres://database")
+	s.T().Setenv("TEAM_MEMORY_EXTRACTOR_MODE", "noop")
+	s.T().Setenv("TEAM_MEMORY_ADMIN_API_KEY", "admin-secret")
+	s.T().Setenv("TEAM_MEMORY_OIDC_ISSUER", "https://identity.example")
+
+	_, err := loadConfig()
+
+	s.Require().ErrorContains(err, "required together")
 }
 
 func (s *configSuite) TestRejectsMixedLegacyAndOnPremAuthentication() {
@@ -123,11 +143,12 @@ func (s *configSuite) TestRejectsMixedLegacyAndOnPremAuthentication() {
 
 func (s *configSuite) TestBuildHTTPHandlerKeepsLegacyModeWithoutAdminSecret() {
 	runtime := &runtimeStub{}
-	configured, err := buildHTTPHandler(runtime, nil, applicationConfig{apiKeys: map[string]string{"key": "scope"}}, slog.New(slog.DiscardHandler))
+	configured, err := buildHTTPHandler(context.Background(), runtime, nil,
+		applicationConfig{apiKeys: map[string]string{"key": "scope"}}, slog.New(slog.DiscardHandler))
 	s.Require().NoError(err)
 	s.NotNil(configured)
 
-	_, err = buildHTTPHandler(runtime, nil, applicationConfig{
+	_, err = buildHTTPHandler(context.Background(), runtime, nil, applicationConfig{
 		apiKeys: map[string]string{"key": "scope"}, adminAPIKey: "admin", credentialRotationOverlap: time.Minute,
 	}, slog.New(slog.DiscardHandler))
 	s.Error(err)

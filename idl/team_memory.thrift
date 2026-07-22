@@ -264,6 +264,308 @@ struct ListChannelEnvelopesResponse {
   1: required list<ChannelEnvelope> envelopes
 }
 
+struct AuthLoginRequest {}
+
+struct AuthCallbackRequest {
+  1: required string code (api.query="code")
+  2: required string state (api.query="state")
+}
+
+struct AuthLogoutRequest {}
+
+struct EmptyResponse {
+  1: required bool ok
+}
+
+struct BootstrapClaimRequest {}
+
+struct HumanMeRequest {}
+
+struct HumanMeResponse {
+  1: required string user_id
+  2: optional string email
+  3: required bool email_verified
+  4: optional string membership_id
+  5: optional string role
+  6: optional string membership_status
+}
+
+struct ListMembersRequest {
+  1: optional string role (api.query="role")
+  2: optional string status (api.query="status")
+  3: optional i32 limit (api.query="limit")
+  4: optional string cursor (api.query="cursor")
+}
+
+struct MemberByIDRequest {
+  1: required string membership_id (api.path="membership_id")
+}
+
+struct UpdateMemberRequest {
+  1: required string membership_id (api.path="membership_id")
+  2: optional string role (api.body="role")
+  3: optional string status (api.body="status")
+  4: required i64 resource_version (api.body="resource_version")
+}
+
+struct Member {
+  1: required string membership_id
+  2: required string user_id
+  3: optional string email
+  4: required bool email_verified
+  5: required string display_name
+  6: required string role
+  7: required string status
+  8: required string joined_at
+  9: required string updated_at
+  10: required i64 resource_version
+}
+
+struct MemberResponse {
+  1: required Member member
+}
+
+struct ListMembersResponse {
+  1: required list<Member> members
+  2: optional string next_cursor
+}
+
+struct ListAuditEventsRequest {
+  1: optional string actor_kind (api.query="actor_kind")
+  2: optional string action (api.query="action")
+  3: optional string target_kind (api.query="target_kind")
+  4: optional string target_id (api.query="target_id")
+  5: optional i32 limit (api.query="limit")
+  6: optional string cursor (api.query="cursor")
+}
+
+struct AuditEventByIDRequest {
+  1: required i64 audit_event_id (api.path="audit_event_id")
+}
+
+struct AuditEvent {
+  1: required i64 audit_event_id
+  2: required string actor_kind
+  3: optional string actor_user_id
+  4: optional string actor_membership_id
+  5: optional string actor_agent_id
+  6: optional string actor_credential_id
+  7: required string action
+  8: required string target_kind
+  9: required string target_id
+  10: required string occurred_at
+}
+
+struct AuditEventResponse {
+  1: required AuditEvent audit_event
+}
+
+struct ListAuditEventsResponse {
+  1: required list<AuditEvent> audit_events
+  2: optional string next_cursor
+}
+
+struct CreateInvitationRequest {
+  1: required string target_email (api.body="target_email")
+  2: required string role (api.body="role")
+  3: optional i64 expires_in_seconds (api.body="expires_in_seconds")
+}
+
+struct InvitationResponse {
+  1: required string invitation_id
+  2: optional string token
+  3: required string target_email
+  4: required string role
+  5: required string status
+  6: required string created_at
+  7: required string expires_at
+}
+
+struct ListInvitationsRequest {
+  1: optional string status (api.query="status")
+  2: optional i32 limit (api.query="limit")
+  3: optional string cursor (api.query="cursor")
+}
+
+struct ListInvitationsResponse {
+  1: required list<InvitationResponse> invitations
+  2: optional string next_cursor
+}
+
+struct InvitationByIDRequest {
+  1: required string invitation_id (api.path="invitation_id")
+}
+
+struct AcceptInvitationRequest {
+  1: required string token (api.body="token")
+}
+
+struct CreateAgentProfileRequest {
+  1: required string agent_id (api.body="agent_id")
+  2: required string display_name (api.body="display_name")
+  3: optional string description (api.body="description")
+  4: optional string agent_type (api.body="agent_type")
+  5: optional bool directory_visible (api.body="directory_visible")
+}
+
+struct UpdateAgentProfileRequest {
+  1: required string agent_id (api.path="agent_id")
+  2: optional string display_name (api.body="display_name")
+  3: optional string description (api.body="description")
+  4: optional string agent_type (api.body="agent_type")
+  5: optional bool directory_visible (api.body="directory_visible")
+  6: optional string status (api.body="status")
+  7: required i64 resource_version (api.body="resource_version")
+}
+
+struct AgentProfileByIDRequest {
+  1: required string agent_id (api.path="agent_id")
+}
+
+struct RetireAgentProfileRequest {
+  1: required string agent_id (api.path="agent_id")
+  2: required i64 resource_version (api.query="resource_version")
+}
+
+struct TransferAgentRequest {
+  1: required string agent_id (api.path="agent_id")
+  2: required string target_membership_id (api.body="target_membership_id")
+  3: required i64 resource_version (api.body="resource_version")
+}
+
+struct ListAgentProfilesRequest {
+  1: optional string status (api.query="status")
+  2: optional i32 limit (api.query="limit")
+  3: optional string cursor (api.query="cursor")
+}
+
+struct AgentProfile {
+  1: required string agent_id
+  2: required string display_name
+  3: required string description
+  4: required string agent_type
+  5: required string status
+  6: required bool directory_visible
+  7: required string created_at
+  8: required string updated_at
+  9: optional string retired_at
+  10: required i64 resource_version
+  11: optional string owner_membership_id
+  12: optional string owner_user_id
+}
+
+struct AgentProfileResponse {
+  1: required AgentProfile agent
+}
+
+struct ListAgentProfilesResponse {
+  1: required list<AgentProfile> agents
+  2: optional string next_cursor
+}
+
+struct CreateOwnedEnrollmentRequest {
+  1: required string agent_id (api.path="agent_id")
+  2: required string credential_label (api.body="credential_label")
+  3: required list<string> permissions (api.body="permissions")
+  4: optional i64 expires_in_seconds (api.body="expires_in_seconds")
+  5: optional string credential_expires_at (api.body="credential_expires_at")
+}
+
+struct ListAgentArtifactsRequest {
+  1: required string agent_id (api.path="agent_id")
+  2: optional string status (api.query="status")
+  3: optional i32 limit (api.query="limit")
+  4: optional string cursor (api.query="cursor")
+}
+
+struct AgentEnrollmentByIDRequest {
+  1: required string agent_id (api.path="agent_id")
+  2: required string enrollment_id (api.path="enrollment_id")
+}
+
+struct AgentCredentialByIDRequest {
+  1: required string agent_id (api.path="agent_id")
+  2: required string credential_id (api.path="credential_id")
+}
+
+struct AgentEnrollmentMetadata {
+  1: required string enrollment_id
+  2: required string agent_id
+  3: required string credential_label
+  4: required list<string> permissions
+  5: required string status
+  6: required string created_at
+  7: required string expires_at
+  8: optional string credential_expires_at
+}
+
+struct AgentEnrollmentMetadataResponse {
+  1: required AgentEnrollmentMetadata enrollment
+}
+
+struct ListAgentEnrollmentsResponse {
+  1: required list<AgentEnrollmentMetadata> enrollments
+  2: optional string next_cursor
+}
+
+struct AgentCredentialMetadata {
+  1: required string credential_id
+  2: required string agent_id
+  3: required string label
+  4: required list<string> permissions
+  5: required string created_at
+  6: optional string expires_at
+  7: optional string revoked_at
+  8: optional string last_used_at
+}
+
+struct AgentCredentialMetadataResponse {
+  1: required AgentCredentialMetadata credential
+}
+
+struct ListAgentCredentialsResponse {
+  1: required list<AgentCredentialMetadata> credentials
+  2: optional string next_cursor
+}
+
+struct ListDirectoryAgentsRequest {
+  1: optional string q (api.query="q")
+  2: optional i32 limit (api.query="limit")
+  3: optional string cursor (api.query="cursor")
+}
+
+struct DirectoryAgentByIDRequest {
+  1: required string agent_id (api.path="agent_id")
+}
+
+struct DirectoryAgent {
+  1: required string agent_id
+  2: required string display_name
+  3: required string description
+  4: required string agent_type
+}
+
+struct DirectoryAgentResponse {
+  1: required DirectoryAgent agent
+}
+
+struct ListDirectoryAgentsResponse {
+  1: required list<DirectoryAgent> agents
+  2: optional string next_cursor
+}
+
+struct ListAdminAgentsRequest {
+  1: optional string owner_membership_id (api.query="owner_membership_id")
+  2: optional string status (api.query="status")
+  3: optional string q (api.query="q")
+  4: optional i32 limit (api.query="limit")
+  5: optional string cursor (api.query="cursor")
+}
+
+struct AdminAgentByIDRequest {
+  1: required string agent_id (api.path="agent_id")
+}
+
 service TeamMemoryService {
   IngestReceipt ObserveSession(1: SessionBatch request) (api.post="/v1/session-batches")
   NoteEnvelope RecallNotes(1: RecallRequest request) (api.post="/v1/notes/recall")
@@ -281,4 +583,38 @@ service TeamMemoryService {
   ChannelEnvelopeResponse GetChannelEnvelope(1: ChannelEnvelopeByIDRequest request) (api.get="/v1/channel/envelopes/:envelope_id")
   ChannelEnvelopeResponse AcceptChannelEnvelope(1: ChannelEnvelopeByIDRequest request) (api.post="/v1/channel/envelopes/:envelope_id/accept")
   ChannelEnvelopeResponse ArchiveChannelEnvelope(1: ChannelEnvelopeByIDRequest request) (api.post="/v1/channel/envelopes/:envelope_id/archive")
+  EmptyResponse BeginHumanLogin(1: AuthLoginRequest request) (api.get="/v1/auth/login")
+  EmptyResponse CompleteHumanLogin(1: AuthCallbackRequest request) (api.get="/v1/auth/callback")
+  EmptyResponse LogoutHuman(1: AuthLogoutRequest request) (api.post="/v1/auth/logout")
+  HumanMeResponse ClaimBootstrap(1: BootstrapClaimRequest request) (api.post="/v1/bootstrap/claim")
+  HumanMeResponse GetHumanMe(1: HumanMeRequest request) (api.get="/v1/me")
+  InvitationResponse CreateMembershipInvitation(1: CreateInvitationRequest request) (api.post="/v1/admin/invitations")
+  ListInvitationsResponse ListMembershipInvitations(1: ListInvitationsRequest request) (api.get="/v1/admin/invitations")
+  InvitationResponse RevokeMembershipInvitation(1: InvitationByIDRequest request) (api.delete="/v1/admin/invitations/:invitation_id")
+  HumanMeResponse AcceptMembershipInvitation(1: AcceptInvitationRequest request) (api.post="/v1/invitations/accept")
+  ListAgentProfilesResponse ListOwnedAgents(1: ListAgentProfilesRequest request) (api.get="/v1/me/agents")
+  AgentProfileResponse CreateOwnedAgent(1: CreateAgentProfileRequest request) (api.post="/v1/me/agents")
+  AgentProfileResponse GetOwnedAgent(1: AgentProfileByIDRequest request) (api.get="/v1/me/agents/:agent_id")
+  AgentProfileResponse UpdateOwnedAgent(1: UpdateAgentProfileRequest request) (api.patch="/v1/me/agents/:agent_id")
+  AgentProfileResponse RetireOwnedAgent(1: RetireAgentProfileRequest request) (api.delete="/v1/me/agents/:agent_id")
+  AgentEnrollmentResponse CreateOwnedAgentEnrollment(1: CreateOwnedEnrollmentRequest request) (api.post="/v1/me/agents/:agent_id/enrollments")
+  ListAgentEnrollmentsResponse ListOwnedAgentEnrollments(1: ListAgentArtifactsRequest request) (api.get="/v1/me/agents/:agent_id/enrollments")
+  AgentEnrollmentMetadataResponse RevokeOwnedAgentEnrollment(1: AgentEnrollmentByIDRequest request) (api.delete="/v1/me/agents/:agent_id/enrollments/:enrollment_id")
+  ListAgentCredentialsResponse ListOwnedAgentCredentials(1: ListAgentArtifactsRequest request) (api.get="/v1/me/agents/:agent_id/credentials")
+  AgentCredentialMetadataResponse RevokeOwnedAgentCredential(1: AgentCredentialByIDRequest request) (api.delete="/v1/me/agents/:agent_id/credentials/:credential_id")
+  ListDirectoryAgentsResponse ListDirectoryAgents(1: ListDirectoryAgentsRequest request) (api.get="/v1/channel/agents")
+  DirectoryAgentResponse GetDirectoryAgent(1: DirectoryAgentByIDRequest request) (api.get="/v1/channel/agents/:agent_id")
+  ListAgentProfilesResponse ListAdminAgents(1: ListAdminAgentsRequest request) (api.get="/v1/admin/agents")
+  AgentProfileResponse GetAdminAgent(1: AdminAgentByIDRequest request) (api.get="/v1/admin/agents/:agent_id")
+  AgentProfileResponse UpdateAdminAgent(1: UpdateAgentProfileRequest request) (api.patch="/v1/admin/agents/:agent_id")
+  AgentProfileResponse TransferAdminAgent(1: TransferAgentRequest request) (api.post="/v1/admin/agents/:agent_id/transfer")
+  ListAgentEnrollmentsResponse ListAdminAgentEnrollments(1: ListAgentArtifactsRequest request) (api.get="/v1/admin/agents/:agent_id/enrollments")
+  AgentEnrollmentMetadataResponse RevokeAdminAgentEnrollment(1: AgentEnrollmentByIDRequest request) (api.delete="/v1/admin/agents/:agent_id/enrollments/:enrollment_id")
+  ListAgentCredentialsResponse ListAdminAgentCredentials(1: ListAgentArtifactsRequest request) (api.get="/v1/admin/agents/:agent_id/credentials")
+  AgentCredentialMetadataResponse RevokeAdminAgentCredential(1: AgentCredentialByIDRequest request) (api.delete="/v1/admin/agents/:agent_id/credentials/:credential_id")
+  ListMembersResponse ListMembers(1: ListMembersRequest request) (api.get="/v1/admin/members")
+  MemberResponse GetMember(1: MemberByIDRequest request) (api.get="/v1/admin/members/:membership_id")
+  MemberResponse UpdateMember(1: UpdateMemberRequest request) (api.patch="/v1/admin/members/:membership_id")
+  ListAuditEventsResponse ListAuditEvents(1: ListAuditEventsRequest request) (api.get="/v1/admin/audit-events")
+  AuditEventResponse GetAuditEvent(1: AuditEventByIDRequest request) (api.get="/v1/admin/audit-events/:audit_event_id")
 }

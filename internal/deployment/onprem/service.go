@@ -2,6 +2,7 @@ package onprem
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -14,9 +15,20 @@ import (
 
 const defaultEnrollmentTTL = 15 * time.Minute
 
+const currentDigestKeyVersion int16 = 1
+
+const (
+	credentialDigestDomain = "agent-credential"
+	enrollmentDigestDomain = "agent-enrollment"
+	sessionDigestDomain    = "human-session"
+	invitationDigestDomain = "membership-invitation"
+)
+
 type CredentialConfig struct {
-	AdminAPIKey     string
-	RotationOverlap time.Duration
+	AdminAPIKey              string
+	RotationOverlap          time.Duration
+	SecretPepper             string
+	AllowLegacyAgentCreation bool
 }
 
 type serviceOptions struct {
@@ -39,6 +51,7 @@ type CredentialService struct {
 	config      CredentialConfig
 	clock       func() time.Time
 	tokenSource func() (string, error)
+	digester    secretDigester
 }
 
 func NewCredentialService(
@@ -46,11 +59,15 @@ func NewCredentialService(
 	config CredentialConfig,
 	options ...ServiceOption,
 ) (*CredentialService, error) {
-	if store == nil || strings.TrimSpace(config.AdminAPIKey) == "" {
-		return nil, fmt.Errorf("create on-prem credential service: store and admin API key are required")
+	if store == nil {
+		return nil, fmt.Errorf("create on-prem credential service: store is required")
 	}
 	if config.RotationOverlap <= 0 {
 		return nil, fmt.Errorf("create on-prem credential service: rotation overlap must be positive")
+	}
+	digester, err := newSecretDigester(config.SecretPepper)
+	if err != nil {
+		return nil, fmt.Errorf("create on-prem credential service: %w", err)
 	}
 	configured := serviceOptions{clock: time.Now, tokenSource: randomToken}
 	for _, option := range options {
@@ -60,7 +77,7 @@ func NewCredentialService(
 		return nil, fmt.Errorf("create on-prem credential service: clock and token source are required")
 	}
 	return &CredentialService{
-		store: store, config: config, clock: configured.clock, tokenSource: configured.tokenSource,
+		store: store, config: config, clock: configured.clock, tokenSource: configured.tokenSource, digester: digester,
 	}, nil
 }
 
@@ -69,13 +86,30 @@ func (s *CredentialService) Authenticate(ctx context.Context, apiKey string) (Pr
 	if apiKey == "" {
 		return Principal{}, ErrUnauthorized
 	}
-	if constantTimeEqual(apiKey, s.config.AdminAPIKey) {
+	if s.config.AdminAPIKey != "" && constantTimeEqual(apiKey, s.config.AdminAPIKey) {
+		enabled, err := s.store.LegacyAdminEnabled(ctx)
+		if err != nil {
+			return Principal{}, fmt.Errorf("check legacy admin credential: %w", err)
+		}
+		if !enabled {
+			return Principal{}, ErrUnauthorized
+		}
 		return Principal{ScopeID: LocalScopeID, Permissions: []Permission{PermissionAdmin}}, nil
 	}
 	if !strings.HasPrefix(apiKey, "tm_key_") {
 		return Principal{}, ErrUnauthorized
 	}
-	record, err := s.store.ResolveCredential(ctx, digest(apiKey), s.clock().UTC())
+	credentialID, ok := secretPublicID(apiKey, "tm_key_")
+	var record CredentialRecord
+	var err error
+	if ok {
+		record, err = s.store.ResolveCredential(
+			ctx, credentialID, s.digester.Digest(credentialDigestDomain, apiKey), s.clock().UTC(),
+		)
+	}
+	if !ok || errors.Is(err, ErrUnauthorized) || errors.Is(err, ErrCredentialNotFound) {
+		record, err = s.store.ResolveCredential(ctx, credentialID, digest(apiKey), s.clock().UTC())
+	}
 	if err != nil {
 		if errors.Is(err, ErrUnauthorized) || errors.Is(err, ErrCredentialNotFound) {
 			return Principal{}, fmt.Errorf("authenticate agent credential: %w", ErrUnauthorized)
@@ -83,8 +117,9 @@ func (s *CredentialService) Authenticate(ctx context.Context, apiKey string) (Pr
 		return Principal{}, fmt.Errorf("authenticate agent credential: %w", err)
 	}
 	return Principal{
-		UserID: record.UserID, AgentID: record.AgentID, ScopeID: LocalScopeID,
-		CredentialID: record.ID, Permissions: append([]Permission(nil), record.Permissions...),
+		UserID: record.UserID, MembershipID: record.MembershipID, AgentID: record.AgentID, ScopeID: LocalScopeID,
+		CredentialID: record.ID, CredentialLabel: record.Label,
+		Permissions: append([]Permission(nil), record.Permissions...),
 	}, nil
 }
 
@@ -109,11 +144,13 @@ func (s *CredentialService) CreateEnrollment(
 		return Enrollment{}, fmt.Errorf("create enrollment secret: %w", err)
 	}
 	now := s.clock().UTC()
-	token := "tm_enroll_" + secret
+	token := "tm_enroll_" + id + "." + secret
 	record := EnrollmentRecord{
-		ID: id, TokenDigest: digest(token), UserID: strings.TrimSpace(request.UserID),
+		ID: id, TokenDigest: s.digester.Digest(enrollmentDigestDomain, token),
+		DigestKeyVersion: currentDigestKeyVersion, UserID: strings.TrimSpace(request.UserID),
 		AgentID: strings.TrimSpace(request.AgentID), Permissions: permissions,
 		CreatedAt: now, ExpiresAt: now.Add(expiresIn),
+		AllowLegacyAgentCreation: s.config.AllowLegacyAgentCreation,
 	}
 	if err := s.store.SaveEnrollment(ctx, record); err != nil {
 		return Enrollment{}, fmt.Errorf("save agent enrollment: %w", err)
@@ -126,15 +163,21 @@ func (s *CredentialService) ExchangeEnrollment(ctx context.Context, token string
 	if !strings.HasPrefix(token, "tm_enroll_") {
 		return IssuedCredential{}, ErrEnrollmentInvalid
 	}
+	enrollmentID, _ := secretPublicID(token, "tm_enroll_")
 	id, apiKey, record, err := s.newCredential(CredentialRecord{})
 	if err != nil {
 		return IssuedCredential{}, err
 	}
-	_, err = s.store.ExchangeEnrollment(ctx, digest(token), record, s.clock().UTC())
+	exchanged, err := s.store.ExchangeEnrollment(
+		ctx, enrollmentID, s.digester.Digest(enrollmentDigestDomain, token), record, s.clock().UTC(),
+	)
+	if errors.Is(err, ErrEnrollmentInvalid) {
+		exchanged, err = s.store.ExchangeEnrollment(ctx, enrollmentID, digest(token), record, s.clock().UTC())
+	}
 	if err != nil {
 		return IssuedCredential{}, fmt.Errorf("exchange agent enrollment: %w", err)
 	}
-	return IssuedCredential{CredentialID: id, APIKey: apiKey}, nil
+	return IssuedCredential{CredentialID: id, APIKey: apiKey, ExpiresAt: exchanged.CredentialExpiresAt}, nil
 }
 
 func (s *CredentialService) RotateCredential(ctx context.Context, principal Principal) (IssuedCredential, error) {
@@ -142,8 +185,9 @@ func (s *CredentialService) RotateCredential(ctx context.Context, principal Prin
 		return IssuedCredential{}, ErrUnauthorized
 	}
 	id, apiKey, replacement, err := s.newCredential(CredentialRecord{
-		UserID: principal.UserID, AgentID: principal.AgentID,
-		Permissions: append([]Permission(nil), principal.Permissions...),
+		UserID: principal.UserID, MembershipID: principal.MembershipID, AgentID: principal.AgentID,
+		Label: principal.CredentialLabel, Permissions: append([]Permission(nil), principal.Permissions...),
+		RotatedFromCredentialID: principal.CredentialID,
 	})
 	if err != nil {
 		return IssuedCredential{}, err
@@ -177,9 +221,10 @@ func (s *CredentialService) newCredential(base CredentialRecord) (string, string
 	if err != nil {
 		return "", "", CredentialRecord{}, fmt.Errorf("create credential secret: %w", err)
 	}
-	apiKey := "tm_key_" + secret
+	apiKey := "tm_key_" + id + "." + secret
 	base.ID = id
-	base.KeyDigest = digest(apiKey)
+	base.KeyDigest = s.digester.Digest(credentialDigestDomain, apiKey)
+	base.DigestKeyVersion = currentDigestKeyVersion
 	base.CreatedAt = s.clock().UTC()
 	return id, apiKey, base, nil
 }
@@ -223,6 +268,42 @@ func digest(value string) Digest {
 	return sha256.Sum256([]byte(value))
 }
 
+func secretPublicID(value string, prefix string) (string, bool) {
+	remainder, found := strings.CutPrefix(value, prefix)
+	if !found {
+		return "", false
+	}
+	publicID, secret, found := strings.Cut(remainder, ".")
+	if !found || strings.TrimSpace(publicID) == "" || strings.TrimSpace(secret) == "" {
+		return "", false
+	}
+	return publicID, true
+}
+
+type secretDigester struct {
+	key []byte
+}
+
+func newSecretDigester(secret string) (secretDigester, error) {
+	secret = strings.TrimSpace(secret)
+	if len(secret) < 32 {
+		return secretDigester{}, fmt.Errorf("secret pepper must contain at least 32 characters")
+	}
+	return secretDigester{key: []byte(secret)}, nil
+}
+
+func (d secretDigester) Digest(domain string, value string) Digest {
+	mac := hmac.New(sha256.New, d.key)
+	payload := []byte(domain + "\x00" + value)
+	written, err := mac.Write(payload)
+	if err != nil || written != len(payload) {
+		panic("HMAC digest write failed")
+	}
+	var result Digest
+	copy(result[:], mac.Sum(nil))
+	return result
+}
+
 func constantTimeEqual(left, right string) bool {
 	if len(left) != len(right) {
 		return false
@@ -231,7 +312,7 @@ func constantTimeEqual(left, right string) bool {
 }
 
 func randomToken() (string, error) {
-	buffer := make([]byte, 24)
+	buffer := make([]byte, 32)
 	if _, err := rand.Read(buffer); err != nil {
 		return "", fmt.Errorf("read random token: %w", err)
 	}

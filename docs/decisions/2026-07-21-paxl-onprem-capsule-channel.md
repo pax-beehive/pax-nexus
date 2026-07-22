@@ -7,6 +7,7 @@
 相关文档：
 
 - [单团队本地部署与 PAX Memory 接口边界](./2026-07-21-single-team-on-prem-deployment.md)
+- [On-prem Human Identity and Agent Registry（提议）](./2026-07-21-on-prem-identity-and-agent-registry.md)
 
 ## 背景
 

@@ -27,13 +27,20 @@ func (s *ChannelStore) ResolveActiveAgent(
 	now time.Time,
 ) (onprem.AgentIdentity, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT DISTINCT user_id
-		FROM agent_credentials
-		WHERE agent_id = $1
-		  AND revoked_at IS NULL
-		  AND (expires_at IS NULL OR expires_at > $2)
-		  AND $3 = ANY(permissions)
-		ORDER BY user_id
+		SELECT DISTINCT memberships.user_id
+		FROM onprem_agents agents
+		JOIN onprem_memberships memberships ON memberships.membership_id = agents.owner_membership_id
+		JOIN onprem_users users ON users.user_id = memberships.user_id
+		JOIN agent_credentials credentials
+		  ON credentials.agent_id = agents.agent_id
+		 AND credentials.owner_membership_id = agents.owner_membership_id
+		WHERE agents.agent_id = $1
+		  AND agents.status = 'active' AND memberships.status = 'active'
+		  AND users.identity_status IN ('active', 'unclaimed')
+		  AND credentials.revoked_at IS NULL
+		  AND (credentials.expires_at IS NULL OR credentials.expires_at > $2)
+		  AND $3 = ANY(credentials.permissions)
+		ORDER BY memberships.user_id
 		LIMIT 2
 	`, agentID, now, string(onprem.PermissionChannelReceive))
 	if err != nil {

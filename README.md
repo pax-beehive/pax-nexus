@@ -174,14 +174,27 @@ lexical recall.
 
 ## Single-Team on-prem API
 
-The default Compose deployment represents one Team and requires
-`TEAM_MEMORY_ADMIN_API_KEY`. It does not expose a Team ID: enrolled Agent keys
+The default Compose deployment represents one Team. Legacy headless setup uses
+`TEAM_MEMORY_ADMIN_API_KEY`; the human control plane instead requires
+`TEAM_MEMORY_BOOTSTRAP_SECRET` plus the complete `TEAM_MEMORY_OIDC_*` setting
+group. Every on-prem mode also requires a unique, high-entropy
+`TEAM_MEMORY_SECRET_PEPPER` of at least 32 characters; it domain-separates the
+HMAC digests stored for Sessions, Invitations, Enrollments, and Agent keys.
+`TEAM_MEMORY_MEMBER_GRANTABLE_PERMISSIONS` is the comma-separated allowlist for
+self-service Agent credentials. Both admin and OIDC settings may be present
+during migration; the static Admin key stops authenticating after bootstrap is
+claimed. The service does not expose a Team ID: enrolled Agent keys
 always resolve to the internal `local-team` scope, and the authenticated key
 owns the `user_id` and `agent_id` used by observation and recall requests.
 
 The Hertz HTTP surface is generated from `idl/team_memory.thrift` and provides:
 
 - `POST /v1/admin/agent-enrollments`, one-time Agent enrollment;
+- `/v1/auth/*`, OIDC-backed Human Sessions, and `POST /v1/bootstrap/claim`;
+- invitation and Member administration under `/v1/admin`;
+- Agent Profile and self-service enrollment under `/v1/me/agents`;
+- `GET /v1/channel/agents` and `GET /v1/channel/agents/:agent_id`, the minimal
+  routable Agent Directory;
 - `POST /v1/agent-enrollments/exchange`, API-key exchange;
 - `GET /v1/agent-identity`, credential-bound identity;
 - `POST /v1/agent-credentials/rotate` and
@@ -198,12 +211,16 @@ remain a separate module decision; until that adapter is installed, active
 Wiki search/get is unavailable and `TEAM_MEMORY_WIKI_HINT_ENABLED` must remain
 false. The legacy session-batch and note-recall endpoints remain available only
 when `TEAM_MEMORY_API_KEYS` selects compatibility mode without an admin secret.
-The two authentication environment variables are mutually exclusive.
+`TEAM_MEMORY_API_KEYS` compatibility mode remains mutually exclusive with all
+on-prem identity settings.
 
 See [the on-prem deployment decision](docs/decisions/2026-07-21-single-team-on-prem-deployment.md)
 for the identity, credential, recall composition, and module boundaries. See
 [the paxl on-prem Capsule Channel decision](docs/decisions/2026-07-21-paxl-onprem-capsule-channel.md)
 for the envelope protocol and CLI integration boundary.
+[The proposed on-prem identity and Agent Registry decision](docs/decisions/2026-07-21-on-prem-identity-and-agent-registry.md)
+defines human invitations, roles, Agent ownership, self-service enrollment, and
+the Agent list/get directory APIs.
 
 Run `make onprem-e2e` for the container-only core-flow test. It builds Team
 Memory, a deterministic OpenAI-compatible extractor, a black-box test runner,

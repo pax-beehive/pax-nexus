@@ -85,6 +85,16 @@ func (s *coreFlowSuite) TestKnowledgeCapsuleChannelEndToEnd() {
 	senderKey := s.enrollAgentWithPermissions("channel-sender", []string{"channel_send"})
 	recipientKey := s.enrollAgentWithPermissions("channel-recipient", []string{"channel_receive"})
 	otherRecipientKey := s.enrollAgentWithPermissions("channel-other", []string{"channel_receive"})
+	directory := s.request(http.MethodGet, "/v1/channel/agents?q=channel-recipient", senderKey, nil)
+	directoryAgents := arrayField(s.T(), directory, "agents")
+	s.Require().Len(directoryAgents, 1)
+	directoryAgent, ok := directoryAgents[0].(map[string]any)
+	s.Require().True(ok)
+	s.Equal("channel-recipient", stringField(s.T(), directoryAgent, "agent_id"))
+	s.NotContains(directoryAgent, "owner_user_id")
+	fetchedAgent := s.request(http.MethodGet, "/v1/channel/agents/channel-recipient", senderKey, nil)
+	s.Equal("channel-recipient", stringField(s.T(), objectField(s.T(), fetchedAgent, "agent"), "agent_id"))
+	s.expectStatus(http.StatusForbidden, http.MethodGet, "/v1/channel/agents", recipientKey, nil)
 	payload := map[string]any{
 		"schema_version": "paxl.envelope_payload.knowledge_capsule.v2",
 		"capsule": map[string]any{
