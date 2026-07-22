@@ -1,6 +1,7 @@
-import { NavLink, Navigate, Route, Routes, useNavigate } from "react-router-dom";
+import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
-import { can, type Capability } from "../lib/capabilities";
+import { can, hasServerCapability, type Capability } from "../lib/capabilities";
+import { peekPendingInvitation, peekReturnUrl } from "../lib/continuations";
 import { RoleBadge } from "../components/Badge";
 import { useToast } from "../components/Toasts";
 import type { HumanMe } from "../api/types";
@@ -11,6 +12,7 @@ import { AdminInvitationsPage } from "./AdminInvitationsPage";
 import { AdminAgentsPage } from "./AdminAgentsPage";
 import { AdminAgentDetailPage } from "./AdminAgentDetailPage";
 import { AdminAuditPage } from "./AdminAuditPage";
+import { AdminOperationsPage } from "./AdminOperationsPage";
 
 function navClass({ isActive }: { isActive: boolean }): string {
   return isActive ? "active" : "";
@@ -27,6 +29,40 @@ function RequireCapability({
   children: JSX.Element;
 }) {
   if (!can(me.role, cap)) return <Navigate to="/agents" replace />;
+  return children;
+}
+
+/**
+ * Default redirect for unmatched paths. When a login continuation is still
+ * pending (return_url about to be restored, or an invitation moving the user
+ * to /join), ContinuationRedirect performs that navigation in the same commit;
+ * this catch-all must stay out of the way or its effect would overwrite the
+ * restored target (identity doc section 4).
+ */
+function DefaultRedirect() {
+  const location = useLocation();
+  if (peekPendingInvitation()) return null;
+  const here = location.pathname + location.search;
+  const target = peekReturnUrl();
+  if (target && target !== here) return null;
+  return <Navigate to="/agents" replace />;
+}
+
+/**
+ * Operations routes key off server-issued capabilities, not the client role
+ * matrix (operations doc section 2.1); without the capability the route
+ * redirects and the page never mounts, so no Operations request is fired.
+ */
+function RequireServerCapability({
+  me,
+  capability,
+  children,
+}: {
+  me: HumanMe;
+  capability: string;
+  children: JSX.Element;
+}) {
+  if (!hasServerCapability(me, capability)) return <Navigate to="/agents" replace />;
   return children;
 }
 
@@ -68,6 +104,11 @@ export function PortalShell({ me }: { me: HumanMe }) {
               <NavLink to="/admin/audit" className={navClass}>
                 Audit Events
               </NavLink>
+              {hasServerCapability(me, "view.operations") && (
+                <NavLink to="/admin/operations" className={navClass}>
+                  Operations
+                </NavLink>
+              )}
             </>
           )}
         </nav>
@@ -125,7 +166,15 @@ export function PortalShell({ me }: { me: HumanMe }) {
               </RequireCapability>
             }
           />
-          <Route path="*" element={<Navigate to="/agents" replace />} />
+          <Route
+            path="/admin/operations"
+            element={
+              <RequireServerCapability me={me} capability="view.operations">
+                <AdminOperationsPage />
+              </RequireServerCapability>
+            }
+          />
+          <Route path="*" element={<DefaultRedirect />} />
         </Routes>
       </main>
     </div>

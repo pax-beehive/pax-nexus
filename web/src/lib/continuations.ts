@@ -29,6 +29,15 @@ export function takeReturnUrl(): string | undefined {
   return value !== null && isInternalPath(value) ? value : undefined;
 }
 
+/**
+ * Non-consuming read for components that must yield to ContinuationRedirect
+ * while a restore is pending. Re-validates the stored value.
+ */
+export function peekReturnUrl(): string | undefined {
+  const value = sessionStorage.getItem(RETURN_URL_KEY);
+  return value !== null && isInternalPath(value) ? value : undefined;
+}
+
 export function savePendingInvitation(token: string): void {
   sessionStorage.setItem(PENDING_INVITATION_KEY, token);
 }

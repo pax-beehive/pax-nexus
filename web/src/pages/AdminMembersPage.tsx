@@ -11,6 +11,7 @@ import { Modal } from "../components/Modal";
 import { useToast } from "../components/Toasts";
 
 const STATUS_FILTERS = ["all", "active", "suspended", "removed"] as const;
+const ROLE_FILTERS = ["all", "owner", "admin", "member"] as const;
 const ROLES: Role[] = ["owner", "admin", "member"];
 const STATUSES: MembershipStatus[] = ["active", "suspended", "removed"];
 
@@ -106,10 +107,16 @@ function EditMemberModal({
 export function AdminMembersPage({ me }: { me: HumanMe }) {
   const handleError = useErrorHandler();
   const [filter, setFilter] = useState<string>("all");
+  const [roleFilter, setRoleFilter] = useState<string>("all");
   const [editing, setEditing] = useState<Member | undefined>();
   const list = usePagedList(
-    (cursor) => listMembers({ status: filter === "all" ? undefined : filter, cursor }),
-    [filter],
+    (cursor) =>
+      listMembers({
+        role: roleFilter === "all" ? undefined : roleFilter,
+        status: filter === "all" ? undefined : filter,
+        cursor,
+      }),
+    [filter, roleFilter],
   );
 
   useEffect(() => {
@@ -132,6 +139,13 @@ export function AdminMembersPage({ me }: { me: HumanMe }) {
         {STATUS_FILTERS.map((s) => (
           <button key={s} className={s === filter ? "on" : ""} onClick={() => setFilter(s)}>
             {s}
+          </button>
+        ))}
+      </div>
+      <div className="tabs">
+        {ROLE_FILTERS.map((r) => (
+          <button key={r} className={r === roleFilter ? "on" : ""} onClick={() => setRoleFilter(r)}>
+            {r}
           </button>
         ))}
       </div>

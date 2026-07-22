@@ -2,7 +2,7 @@
 // convenience for hiding buttons; the backend enforces per request, so a
 // hidden button is never the only line of defense.
 
-import type { Role } from "../api/types";
+import type { HumanMe, Role } from "../api/types";
 
 export type Capability =
   | "invite.member"
@@ -36,6 +36,15 @@ const MATRIX: Record<Capability, ReadonlySet<Role>> = {
 
 export function can(role: Role | undefined, capability: Capability): boolean {
   return role !== undefined && MATRIX[capability].has(role);
+}
+
+/**
+ * Server-issued capability check (operations doc section 2.1): only active
+ * memberships count, unknown capabilities are ignored, and a missing field
+ * (rolling upgrade) is treated as an empty list so Operations stays hidden.
+ */
+export function hasServerCapability(me: HumanMe, capability: string): boolean {
+  return me.membership_status === "active" && (me.capabilities ?? []).includes(capability);
 }
 
 /** Owner manages everyone; Admin manages only Member-role memberships. */
