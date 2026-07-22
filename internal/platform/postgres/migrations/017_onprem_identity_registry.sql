@@ -50,6 +50,7 @@ BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM pg_constraint
         WHERE conname = 'onprem_installation_state_bootstrap_membership_fk'
+          AND conrelid = 'onprem_installation_state'::regclass
     ) THEN
         ALTER TABLE onprem_installation_state
             ADD CONSTRAINT onprem_installation_state_bootstrap_membership_fk
@@ -259,6 +260,7 @@ BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM pg_constraint
         WHERE conname = 'agent_enrollments_consumed_credential_fk'
+          AND conrelid = 'agent_enrollments'::regclass
     ) THEN
         ALTER TABLE agent_enrollments
             ADD CONSTRAINT agent_enrollments_consumed_credential_fk
@@ -268,6 +270,7 @@ BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM pg_constraint
         WHERE conname = 'agent_credentials_rotated_from_fk'
+          AND conrelid = 'agent_credentials'::regclass
     ) THEN
         ALTER TABLE agent_credentials
             ADD CONSTRAINT agent_credentials_rotated_from_fk

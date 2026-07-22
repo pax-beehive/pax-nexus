@@ -9,7 +9,7 @@ combined_profile="${output_dir}/coverage.combined.out"
 profile="${output_dir}/coverage.out"
 
 mkdir -p "${output_dir}"
-go test ./... -count=1 -covermode=atomic -coverprofile="${raw_profile}"
+go test -p 1 ./... -count=1 -covermode=atomic -coverprofile="${raw_profile}"
 : "${TEAM_MEMORY_TEST_POSTGRES_DSN:?TEAM_MEMORY_TEST_POSTGRES_DSN is required}"
 go test ./internal/platform/postgres -count=1 -covermode=atomic -coverprofile="${postgres_profile}"
 
