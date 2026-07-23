@@ -1,16 +1,16 @@
 import type { ReactNode } from "react";
 import { useToast } from "./Toasts";
 import { Countdown } from "./Countdown";
+import { copyTextToClipboard } from "../lib/clipboard";
 
 async function copyText(text: string, what: string, toast: (k: "ok" | "warn", m: string) => void) {
-  try {
-    await navigator.clipboard.writeText(text);
+  if (await copyTextToClipboard(text)) {
     toast("ok", `${what} 已复制`);
-  } catch {
-    // Clipboard API unavailable (permissions or non-secure context): fall
-    // back to a manual-copy prompt. The secret still never hits storage.
-    window.prompt("手动复制：", text);
+    return;
   }
+  // Clipboard unavailable (permissions or non-secure context): fall back to
+  // a manual-copy prompt. The secret still never hits storage.
+  window.prompt("手动复制：", text);
 }
 
 /**

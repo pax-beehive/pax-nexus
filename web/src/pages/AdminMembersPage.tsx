@@ -135,29 +135,37 @@ export function AdminMembersPage({ me }: { me: HumanMe }) {
           </p>
         </div>
       </div>
-      <div className="tabs" role="group" aria-label="member status">
-        {STATUS_FILTERS.map((s) => (
-          <button
-            key={s}
-            className={s === filter ? "on" : ""}
-            aria-pressed={s === filter}
-            onClick={() => setFilter(s)}
-          >
-            {s}
-          </button>
-        ))}
-      </div>
-      <div className="tabs" role="group" aria-label="member role">
-        {ROLE_FILTERS.map((r) => (
-          <button
-            key={r}
-            className={r === roleFilter ? "on" : ""}
-            aria-pressed={r === roleFilter}
-            onClick={() => setRoleFilter(r)}
-          >
-            {r}
-          </button>
-        ))}
+      <div className="row wrap" style={{ gap: 10, marginBottom: 14, alignItems: "center" }}>
+        <label className="filter-label" htmlFor="member-status-filter">
+          状态
+        </label>
+        <select
+          id="member-status-filter"
+          style={{ width: 150 }}
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+        >
+          {STATUS_FILTERS.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </select>
+        <label className="filter-label" htmlFor="member-role-filter">
+          角色
+        </label>
+        <select
+          id="member-role-filter"
+          style={{ width: 150 }}
+          value={roleFilter}
+          onChange={(e) => setRoleFilter(e.target.value)}
+        >
+          {ROLE_FILTERS.map((r) => (
+            <option key={r} value={r}>
+              {r}
+            </option>
+          ))}
+        </select>
       </div>
       <div className="card">
         {list.loading ? (

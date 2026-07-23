@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -29,6 +30,7 @@ type CredentialConfig struct {
 	RotationOverlap          time.Duration
 	SecretPepper             string
 	AllowLegacyAgentCreation bool
+	PortalURL                string
 }
 
 type serviceOptions struct {
@@ -144,9 +146,9 @@ func (s *CredentialService) CreateEnrollment(
 		return Enrollment{}, fmt.Errorf("create enrollment secret: %w", err)
 	}
 	now := s.clock().UTC()
-	token := "tm_enroll_" + id + "." + secret
+	token, verifiableToken := enrollmentToken(id, secret, s.config.PortalURL)
 	record := EnrollmentRecord{
-		ID: id, TokenDigest: s.digester.Digest(enrollmentDigestDomain, token),
+		ID: id, TokenDigest: s.digester.Digest(enrollmentDigestDomain, verifiableToken),
 		DigestKeyVersion: currentDigestKeyVersion, UserID: strings.TrimSpace(request.UserID),
 		AgentID: strings.TrimSpace(request.AgentID), Permissions: permissions,
 		CreatedAt: now, ExpiresAt: now.Add(expiresIn),
@@ -158,26 +160,57 @@ func (s *CredentialService) CreateEnrollment(
 	return Enrollment{ID: id, Token: token, ExpiresAt: record.ExpiresAt}, nil
 }
 
+func enrollmentToken(id string, secret string, portalURL string) (string, string) {
+	verifiableToken := "tm_enroll_" + id + "." + secret
+	portalURL = strings.TrimSpace(portalURL)
+	parsed, err := url.Parse(portalURL)
+	if err != nil ||
+		(parsed.Scheme != "http" && parsed.Scheme != "https") ||
+		parsed.Hostname() == "" ||
+		parsed.User != nil ||
+		(parsed.Path != "" && parsed.Path != "/") ||
+		parsed.RawQuery != "" ||
+		parsed.Fragment != "" {
+		return verifiableToken, verifiableToken
+	}
+	originHint := base64.RawURLEncoding.EncodeToString([]byte(portalURL))
+	return verifiableToken + "." + originHint, verifiableToken
+}
+
 func (s *CredentialService) ExchangeEnrollment(ctx context.Context, token string) (IssuedCredential, error) {
-	token = strings.TrimSpace(token)
-	if !strings.HasPrefix(token, "tm_enroll_") {
+	verifiableToken, enrollmentID, ok := parseEnrollmentToken(token)
+	if !ok {
 		return IssuedCredential{}, ErrEnrollmentInvalid
 	}
-	enrollmentID, _ := secretPublicID(token, "tm_enroll_")
 	id, apiKey, record, err := s.newCredential(CredentialRecord{})
 	if err != nil {
 		return IssuedCredential{}, err
 	}
 	exchanged, err := s.store.ExchangeEnrollment(
-		ctx, enrollmentID, s.digester.Digest(enrollmentDigestDomain, token), record, s.clock().UTC(),
+		ctx, enrollmentID, s.digester.Digest(enrollmentDigestDomain, verifiableToken), record, s.clock().UTC(),
 	)
 	if errors.Is(err, ErrEnrollmentInvalid) {
-		exchanged, err = s.store.ExchangeEnrollment(ctx, enrollmentID, digest(token), record, s.clock().UTC())
+		exchanged, err = s.store.ExchangeEnrollment(
+			ctx, enrollmentID, digest(verifiableToken), record, s.clock().UTC(),
+		)
 	}
 	if err != nil {
 		return IssuedCredential{}, fmt.Errorf("exchange agent enrollment: %w", err)
 	}
 	return IssuedCredential{CredentialID: id, APIKey: apiKey, ExpiresAt: exchanged.CredentialExpiresAt}, nil
+}
+
+func parseEnrollmentToken(value string) (string, string, bool) {
+	remainder, found := strings.CutPrefix(strings.TrimSpace(value), "tm_enroll_")
+	if !found {
+		return "", "", false
+	}
+	parts := strings.Split(remainder, ".")
+	if len(parts) < 2 || len(parts) > 3 ||
+		strings.TrimSpace(parts[0]) == "" || strings.TrimSpace(parts[1]) == "" {
+		return "", "", false
+	}
+	return "tm_enroll_" + parts[0] + "." + parts[1], parts[0], true
 }
 
 func (s *CredentialService) RotateCredential(ctx context.Context, principal Principal) (IssuedCredential, error) {

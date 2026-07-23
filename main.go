@@ -487,6 +487,7 @@ func buildHTTPHandler(
 	credentials, err := onprem.NewCredentialService(store.Credentials(), onprem.CredentialConfig{
 		AdminAPIKey: config.adminAPIKey, RotationOverlap: config.credentialRotationOverlap,
 		SecretPepper: config.secretPepper, AllowLegacyAgentCreation: !config.humanIdentityConfigured(),
+		PortalURL: config.portalURL,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("configure on-prem credentials: %w", err)
@@ -501,6 +502,7 @@ func buildHTTPHandler(
 	}
 	registry, err := onprem.NewRegistryService(store.Registry(), onprem.RegistryConfig{
 		SecretPepper: config.secretPepper, MemberGrantablePermissions: config.memberGrantablePermissions,
+		PortalURL: config.portalURL,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("configure on-prem agent registry: %w", err)
