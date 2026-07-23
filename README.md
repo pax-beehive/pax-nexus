@@ -177,6 +177,9 @@ lexical recall.
 For a workstation installation, follow the operator/agent runbook in
 [deployment-instruction.md](deployment-instruction.md); its checked-in
 loopback-port and Portal gateway configuration is under `deploy/workstation/`.
+Before starting a persistent installation, run `make workstation-config-check`;
+it rejects direct backend/PostgreSQL exposure, non-DNS Portal hosts, missing
+gateway listeners, insecure Human Session cookies, and Portal/OIDC URL drift.
 
 The default Compose deployment represents one Team. Legacy headless setup uses
 `TEAM_MEMORY_ADMIN_API_KEY`; the human control plane instead requires

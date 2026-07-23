@@ -92,8 +92,8 @@ OIDC callback:https://memory.example.internal/v1/auth/callback
 ```
 
 Expose only the TLS gateway to the network. Always include
-`deploy/workstation/compose.yaml`; it replaces the checked-in development port
-bindings with `127.0.0.1` bindings for PostgreSQL port `55432` and backend port
+`deploy/workstation/compose.yaml`; it adds the TLS gateway and retains the
+checked-in `127.0.0.1` bindings for PostgreSQL port `55432` and backend port
 `58080`. Verify the rendered bindings before startup. Do not run persistent
 deployment commands with only the base `compose.yaml`.
 
@@ -173,18 +173,21 @@ TEAM_MEMORY_OPERATIONS_MAINTENANCE_TIMEOUT=15s
 Do not set `TEAM_MEMORY_API_KEYS` in this mode. Compatibility API keys and the
 on-prem identity settings are mutually exclusive.
 
-Validate only the Compose syntax and interpolation without printing resolved
-secrets:
+Validate syntax, interpolation, loopback bindings, the canonical HTTPS origin,
+OIDC callback alignment, Secure cookies, and gateway listeners without printing
+the rendered configuration or resolved secrets:
 
 ```sh
-docker compose \
-  -f compose.yaml \
-  -f deploy/workstation/compose.yaml \
-  config --quiet
+make workstation-config-check
 ```
 
-This does not validate Team Memory's authentication invariants. The startup and
-bounded log checks in step 4 are the application-configuration validation.
+If the deployment environment is not the repository-root `.env`, run
+`./scripts/check-workstation-compose.sh /path/to/workstation.env`. The validator
+rejects an IP address or URL in `TEAM_MEMORY_PORTAL_HOST`; persistent browser
+access requires a stable DNS hostname so Caddy can provide the canonical HTTPS
+origin. This check does not validate Team Memory's remaining authentication
+invariants. The startup and bounded log checks in step 4 are the
+application-configuration validation.
 
 ## 3. Configure the OIDC client
 
@@ -397,7 +400,7 @@ remote envelope is accepted.
 
 Run and record non-secret evidence for all applicable checks:
 
-- the two-file `docker compose ... config --quiet` command succeeds;
+- `make workstation-config-check` succeeds without printing resolved secrets;
 - `docker compose ps` reports healthy dependencies, a running backend, and
   PostgreSQL/backend published addresses on `127.0.0.1` only;
 - the internal and external `/healthz` URLs succeed.

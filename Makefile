@@ -28,7 +28,7 @@ RECALL_EVAL_OUTPUT ?= runs/recall-eval-v1/current
 RECALL_EVAL_SEMANTIC_THRESHOLD ?= 0.50
 RECALL_EVAL_CANDIDATE_LIMIT ?= 16
 
-.PHONY: all build validate-extraction-candidate-strategy validate-recall-candidate-strategy tools generate-init generate mocks fmt format-check lint test test-unit test-scripts coverage integration-test onprem-e2e recall-eval-v1 recall-eval-v2 recall-eval-v2-up recall-eval-v2-down docker-eval groupmembench-data groupmembench-eval eval-v2-prepare eval-v2-up eval-v2 eval-v2-smoke-up eval-v2-smoke eval-v2-acceptance-up eval-v2-acceptance eval-v2-down eval-v2-reset eval-v2-job-image eval-v2-job eval-v2-zep-canary eval-v3-prepare eval-v3-up eval-v3 eval-v3-down eval-v3-reset up down logs db-up db-down clean
+.PHONY: all build validate-extraction-candidate-strategy validate-recall-candidate-strategy tools generate-init generate mocks fmt format-check lint test test-unit test-scripts coverage integration-test onprem-e2e workstation-config-check recall-eval-v1 recall-eval-v2 recall-eval-v2-up recall-eval-v2-down docker-eval groupmembench-data groupmembench-eval eval-v2-prepare eval-v2-up eval-v2 eval-v2-smoke-up eval-v2-smoke eval-v2-acceptance-up eval-v2-acceptance eval-v2-down eval-v2-reset eval-v2-job-image eval-v2-job eval-v2-zep-canary eval-v3-prepare eval-v3-up eval-v3 eval-v3-down eval-v3-reset up down logs db-up db-down clean
 
 all: lint test
 
@@ -98,6 +98,7 @@ test-unit:
 	GOCACHE=$${GOCACHE:-/tmp/team-memory-go-cache} go test ./... -count=1
 
 test-scripts:
+	node --test scripts/workstation-compose-validator.test.mjs
 	./scripts/test-eval-v2-job.sh
 	./scripts/test-extraction-candidate-builds.sh
 	./scripts/test-recall-candidate-builds.sh
@@ -109,6 +110,9 @@ integration-test: db-up
 
 onprem-e2e:
 	./scripts/onprem-e2e.sh
+
+workstation-config-check:
+	./scripts/check-workstation-compose.sh
 
 recall-eval-v1:
 	GOCACHE=$${GOCACHE:-/tmp/team-memory-go-cache} go run ./cmd/team-memory-recall-replay \
