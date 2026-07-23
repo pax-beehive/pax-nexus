@@ -53,10 +53,12 @@ code, .mono { font-family: var(--mono); font-size: 12.5px; background: var(--sur
 .btn.primary:hover { background: var(--accent-hover); }
 .btn.danger { color: var(--bad); border-color: #dfc4bc; }
 .btn.danger:hover { background: var(--bad-bg); }
-.btn.ghost { border-color: transparent; background: transparent; color: var(--muted); font-weight: 500; }
-.btn.ghost:hover { background: var(--surface-2); color: var(--text); }
+.btn.ghost { border-color: transparent; background: transparent; color: var(--text); font-weight: 500; }
+.btn.ghost:hover { background: var(--surface-2); }
 .btn.sm { padding: 4px 10px; font-size: 12.5px; border-radius: 7px; }
-.btn:disabled { opacity: .45; cursor: not-allowed; background: var(--surface); }
+/* Dim only via opacity: forcing background to surface would render primary's
+   white label invisible on the light surface while disabled. */
+.btn:disabled { opacity: .45; cursor: not-allowed; }
 input[type=text], input[type=email], input[type=password], input[type=datetime-local], select, textarea {
   font: inherit; font-size: 13.5px; width: 100%; padding: 8px 10px; border: 1px solid var(--border-strong); border-radius: 8px; background: #fff; color: var(--text); }
 input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }

@@ -3,6 +3,7 @@ import { useAuth } from "../auth/AuthContext";
 import { can, hasServerCapability, type Capability } from "../lib/capabilities";
 import { peekPendingInvitation, peekReturnUrl } from "../lib/continuations";
 import { RoleBadge } from "../components/Badge";
+import { ErrorBoundary } from "../components/ErrorBoundary";
 import { useToast } from "../components/Toasts";
 import type { HumanMe } from "../api/types";
 import { MyAgentsPage } from "./MyAgentsPage";
@@ -70,6 +71,7 @@ export function PortalShell({ me }: { me: HumanMe }) {
   const { logout } = useAuth();
   const toast = useToast();
   const navigate = useNavigate();
+  const location = useLocation();
   const adminLike = can(me.role, "view.members");
 
   const onLogout = async () => {
@@ -123,59 +125,69 @@ export function PortalShell({ me }: { me: HumanMe }) {
         </div>
       </aside>
       <main className="main">
-        <Routes>
-          <Route path="/agents" element={<MyAgentsPage />} />
-          <Route path="/agents/:agentId" element={<AgentDetailPage />} />
-          <Route
-            path="/admin/members"
-            element={
-              <RequireCapability me={me} cap="view.members">
-                <AdminMembersPage me={me} />
-              </RequireCapability>
-            }
-          />
-          <Route
-            path="/admin/invitations"
-            element={
-              <RequireCapability me={me} cap="invite.member">
-                <AdminInvitationsPage me={me} />
-              </RequireCapability>
-            }
-          />
-          <Route
-            path="/admin/agents"
-            element={
-              <RequireCapability me={me} cap="view.all-agents">
-                <AdminAgentsPage me={me} />
-              </RequireCapability>
-            }
-          />
-          <Route
-            path="/admin/agents/:agentId"
-            element={
-              <RequireCapability me={me} cap="view.all-agents">
-                <AdminAgentDetailPage me={me} />
-              </RequireCapability>
-            }
-          />
-          <Route
-            path="/admin/audit"
-            element={
-              <RequireCapability me={me} cap="view.audit">
-                <AdminAuditPage />
-              </RequireCapability>
-            }
-          />
-          <Route
-            path="/admin/operations"
-            element={
-              <RequireServerCapability me={me} capability="view.operations">
-                <AdminOperationsPage />
-              </RequireServerCapability>
-            }
-          />
-          <Route path="*" element={<DefaultRedirect />} />
-        </Routes>
+        {/* Route-level boundary: a failing route keeps the shell and nav
+            usable. Keying by pathname remounts the boundary on navigation,
+            so moving to another route always recovers the content area. */}
+        <ErrorBoundary
+          key={location.pathname}
+          region="route"
+          escapeLabel="返回 My Agents"
+          onEscape={() => navigate("/agents")}
+        >
+          <Routes>
+            <Route path="/agents" element={<MyAgentsPage />} />
+            <Route path="/agents/:agentId" element={<AgentDetailPage />} />
+            <Route
+              path="/admin/members"
+              element={
+                <RequireCapability me={me} cap="view.members">
+                  <AdminMembersPage me={me} />
+                </RequireCapability>
+              }
+            />
+            <Route
+              path="/admin/invitations"
+              element={
+                <RequireCapability me={me} cap="invite.member">
+                  <AdminInvitationsPage me={me} />
+                </RequireCapability>
+              }
+            />
+            <Route
+              path="/admin/agents"
+              element={
+                <RequireCapability me={me} cap="view.all-agents">
+                  <AdminAgentsPage me={me} />
+                </RequireCapability>
+              }
+            />
+            <Route
+              path="/admin/agents/:agentId"
+              element={
+                <RequireCapability me={me} cap="view.all-agents">
+                  <AdminAgentDetailPage me={me} />
+                </RequireCapability>
+              }
+            />
+            <Route
+              path="/admin/audit"
+              element={
+                <RequireCapability me={me} cap="view.audit">
+                  <AdminAuditPage />
+                </RequireCapability>
+              }
+            />
+            <Route
+              path="/admin/operations"
+              element={
+                <RequireServerCapability me={me} capability="view.operations">
+                  <AdminOperationsPage />
+                </RequireServerCapability>
+              }
+            />
+            <Route path="*" element={<DefaultRedirect />} />
+          </Routes>
+        </ErrorBoundary>
       </main>
     </div>
   );

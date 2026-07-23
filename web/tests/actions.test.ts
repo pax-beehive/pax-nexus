@@ -54,6 +54,35 @@ describe("beginAction / idempotency", () => {
     expect(a).toMatch(/^[0-9a-f-]{36}$/);
   });
 
+  it("prefers the native crypto.randomUUID when available", () => {
+    const randomUUID = vi.fn(() => "11111111-2222-4333-8444-555555555555");
+    vi.stubGlobal("crypto", { randomUUID });
+    expect(beginAction()).toBe("11111111-2222-4333-8444-555555555555");
+    expect(randomUUID).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to crypto.getRandomValues when randomUUID is absent", () => {
+    // Plain-HTTP non-localhost origins expose crypto but not randomUUID;
+    // the key must stay opaque, unique and UUID-shaped without throwing.
+    vi.stubGlobal("crypto", {
+      getRandomValues: (arr: Uint8Array) => arr.fill(7),
+    });
+    const a = beginAction();
+    const b = beginAction();
+    expect(a).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    expect(b).toMatch(/^[0-9a-f-]{36}$/);
+    expect(a).not.toBe(b); // counter guarantees uniqueness even with constant entropy
+  });
+
+  it("falls back to Math.random + timestamp + counter when crypto is gone", () => {
+    vi.stubGlobal("crypto", undefined);
+    const keys = new Set(Array.from({ length: 50 }, () => beginAction()));
+    expect(keys.size).toBe(50);
+    for (const key of keys) {
+      expect(key).toMatch(/^[0-9a-f-]{36}$/);
+    }
+  });
+
   it("reuses the same key across retries of one accept action", async () => {
     stubFetchOk();
     const key = beginAction();

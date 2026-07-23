@@ -135,16 +135,26 @@ export function AdminMembersPage({ me }: { me: HumanMe }) {
           </p>
         </div>
       </div>
-      <div className="tabs">
+      <div className="tabs" role="group" aria-label="member status">
         {STATUS_FILTERS.map((s) => (
-          <button key={s} className={s === filter ? "on" : ""} onClick={() => setFilter(s)}>
+          <button
+            key={s}
+            className={s === filter ? "on" : ""}
+            aria-pressed={s === filter}
+            onClick={() => setFilter(s)}
+          >
             {s}
           </button>
         ))}
       </div>
-      <div className="tabs">
+      <div className="tabs" role="group" aria-label="member role">
         {ROLE_FILTERS.map((r) => (
-          <button key={r} className={r === roleFilter ? "on" : ""} onClick={() => setRoleFilter(r)}>
+          <button
+            key={r}
+            className={r === roleFilter ? "on" : ""}
+            aria-pressed={r === roleFilter}
+            onClick={() => setRoleFilter(r)}
+          >
             {r}
           </button>
         ))}

@@ -192,7 +192,12 @@ export function AdminAgentsPage({ me }: { me: HumanMe }) {
         <button className="btn sm" onClick={() => setQ(qInput.trim())}>
           搜索
         </button>
-        <select style={{ width: 220 }} value={ownerFilter} onChange={(e) => setOwnerFilter(e.target.value)}>
+        <select
+          style={{ width: 220 }}
+          aria-label="Owner 过滤"
+          value={ownerFilter}
+          onChange={(e) => setOwnerFilter(e.target.value)}
+        >
           <option value="">全部 Owner</option>
           {members.map((m) => (
             <option key={m.membership_id} value={m.membership_id}>
@@ -201,9 +206,14 @@ export function AdminAgentsPage({ me }: { me: HumanMe }) {
           ))}
         </select>
       </div>
-      <div className="tabs">
+      <div className="tabs" role="group" aria-label="agent status">
         {STATUS_FILTERS.map((s) => (
-          <button key={s} className={s === status ? "on" : ""} onClick={() => setStatus(s)}>
+          <button
+            key={s}
+            className={s === status ? "on" : ""}
+            aria-pressed={s === status}
+            onClick={() => setStatus(s)}
+          >
             {s}
           </button>
         ))}

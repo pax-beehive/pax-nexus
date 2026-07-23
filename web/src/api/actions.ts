@@ -28,9 +28,54 @@ import type {
 /** "me" = owner's own-agent endpoints, "admin" = governance endpoints. */
 export type AgentScope = "me" | "admin";
 
+// Idempotency keys are opaque strings; the backend stores them as TEXT
+// without a format check. All paths below return UUID-shaped keys so keys
+// look uniform in logs and in the create-agent form hint.
+let actionKeyCounter = 0;
+
+/** Join 32 lowercase hex characters as an 8-4-4-4-12 string. */
+function uuidShape(hex: string): string {
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+}
+
+/**
+ * Fallback for origins where crypto.randomUUID is absent (plain-HTTP,
+ * non-localhost deployments): an unguarded call there throws and crashes the
+ * whole render. Prefer crypto.getRandomValues; the last resort is
+ * Math.random seeded with the current time and a per-session counter, which
+ * is enough because only uniqueness per action instance matters.
+ */
+function fallbackActionKey(): string {
+  actionKeyCounter += 1;
+  const cryptoObj: Crypto | undefined = globalThis.crypto;
+  if (cryptoObj && typeof cryptoObj.getRandomValues === "function") {
+    const bytes = new Uint8Array(16);
+    cryptoObj.getRandomValues(bytes);
+    // Mix in the counter so keys stay unique even behind a broken entropy
+    // source, then set the version 4 / variant 1 bits.
+    bytes[0] ^= actionKeyCounter & 0xff;
+    bytes[1] ^= (actionKeyCounter >> 8) & 0xff;
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+    return uuidShape(hex);
+  }
+  const time = Date.now().toString(16).padStart(12, "0");
+  const counter = (actionKeyCounter % 0xffff).toString(16).padStart(4, "0");
+  let random = "";
+  for (let i = 0; i < 16; i += 1) {
+    random += Math.floor(Math.random() * 16).toString(16);
+  }
+  return uuidShape(`${time}${counter}${random}`);
+}
+
 /** Generate the Idempotency-Key for one user action instance. */
 export function beginAction(): string {
-  return crypto.randomUUID();
+  const cryptoObj: Crypto | undefined = globalThis.crypto;
+  if (cryptoObj && typeof cryptoObj.randomUUID === "function") {
+    return cryptoObj.randomUUID();
+  }
+  return fallbackActionKey();
 }
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
