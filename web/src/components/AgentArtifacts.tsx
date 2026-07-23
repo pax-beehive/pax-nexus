@@ -15,6 +15,8 @@ import { ApiError } from "../api/client";
 import type { CredentialMetadata, EnrollmentSecret } from "../api/types";
 import { GRANTABLE_PERMISSIONS } from "../api/types";
 import { deriveCredentialStatus } from "../lib/credentials";
+import { copyTextToClipboard } from "../lib/clipboard";
+import { enrollmentConnectCommand, isSelfDescribingEnrollmentToken } from "../lib/enrollment";
 import { usePagedList } from "../lib/usePagedList";
 import { useErrorHandler } from "../lib/useErrorHandler";
 import { formatTime } from "../lib/format";
@@ -263,15 +265,20 @@ export function AgentArtifacts({
           value={secret.token}
           valueLabel=" token"
           expiresAt={secret.expires_at}
-          note="token 不会写入持久存储、日志或埋点。丢失请吊销后重新签发；exchange 由客户端完成，Portal 永远看不到 API key。"
+          note={
+            isSelfDescribingEnrollmentToken(secret.token)
+              ? "token 不会写入持久存储、日志或埋点。丢失请吊销后重新签发；token 已内嵌接入地址，客户端可直接解析；exchange 由客户端完成，Portal 永远看不到 API key。"
+              : "token 不会写入持久存储、日志或埋点。丢失请吊销后重新签发；exchange 由客户端完成，Portal 永远看不到 API key。"
+          }
           extraActions={
             <button
               className="btn sm"
               onClick={() => {
-                void navigator.clipboard
-                  .writeText(`paxl enroll --token ${secret.token}`)
-                  .then(() => toast("ok", "接入命令 已复制"))
-                  .catch(() => window.prompt("手动复制：", `paxl enroll --token ${secret.token}`));
+                const command = enrollmentConnectCommand(secret.token, window.location.origin);
+                void copyTextToClipboard(command).then((ok) => {
+                  if (ok) toast("ok", "接入命令 已复制");
+                  else window.prompt("手动复制：", command);
+                });
               }}
             >
               复制客户端命令

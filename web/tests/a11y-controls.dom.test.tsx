@@ -21,31 +21,30 @@ function expectPressed(button: HTMLElement, pressed: boolean) {
   expect(button.getAttribute("aria-pressed")).toBe(String(pressed));
 }
 
-describe("Members: status and role filter groups are labeled and pressed-aware", () => {
+describe("Members: status and role filters are labeled selects", () => {
   const membersFetch: FetchHandler = (path, init) => {
     if (path.startsWith("/v1/admin/members")) return jsonResponse({ members: [] });
     throw new Error(`unexpected fetch: ${init.method ?? "GET"} ${path}`);
   };
 
-  it("both groups are labeled, their all buttons are distinct and expose state", async () => {
+  it("both selects have visible labels and filter independently", async () => {
     const { user } = await renderApp({ route: "/admin/members", me: makeMe(), fetch: membersFetch });
     await screen.findByRole("heading", { name: "Members" });
 
-    const statusGroup = screen.getByRole("group", { name: "member status" });
-    const roleGroup = screen.getByRole("group", { name: "member role" });
+    const statusFilter = screen.getByLabelText("状态");
+    const roleFilter = screen.getByLabelText("角色");
+    expect(statusFilter.tagName).toBe("SELECT");
+    expect(roleFilter.tagName).toBe("SELECT");
+    expect((statusFilter as HTMLSelectElement).value).toBe("all");
+    expect((roleFilter as HTMLSelectElement).value).toBe("all");
 
-    // The two "all" buttons are scoped to their own labeled groups.
-    const statusAll = within(statusGroup).getByRole("button", { name: "all" });
-    const roleAll = within(roleGroup).getByRole("button", { name: "all" });
-    expect(statusAll).not.toBe(roleAll);
-    expectPressed(statusAll, true);
-    expectPressed(roleAll, true);
-
-    // Clicking a filter moves the pressed state within that group only.
-    await user.click(within(statusGroup).getByRole("button", { name: "active" }));
-    expectPressed(within(statusGroup).getByRole("button", { name: "active" }), true);
-    expectPressed(statusAll, false);
-    expectPressed(roleAll, true);
+    // Changing one filter leaves the other untouched.
+    await user.selectOptions(statusFilter, "active");
+    expect((statusFilter as HTMLSelectElement).value).toBe("active");
+    expect((roleFilter as HTMLSelectElement).value).toBe("all");
+    await user.selectOptions(roleFilter, "owner");
+    expect((statusFilter as HTMLSelectElement).value).toBe("active");
+    expect((roleFilter as HTMLSelectElement).value).toBe("owner");
   });
 });
 

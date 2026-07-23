@@ -90,6 +90,7 @@ tr:last-child td { border-bottom: none; }
 .secret-val { font-family: var(--mono); font-size: 13px; background: var(--surface-2); border: 1px dashed var(--border-strong); border-radius: 8px; padding: 8px 10px; word-break: break-all; margin: 8px 0; }
 .countdown { font-family: var(--mono); font-weight: 600; color: var(--accent-hover); }
 .tabs { display: flex; gap: 4px; margin-bottom: 14px; border-bottom: 1px solid var(--border); }
+.filter-label { font-size: 12px; font-weight: 600; color: var(--muted); flex: none; margin: 0; }
 .tabs button { font: inherit; font-size: 13px; border: none; background: none; padding: 8px 12px; cursor: pointer; color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -1px; }
 .tabs button.on { color: var(--accent-hover); border-bottom-color: var(--accent); font-weight: 600; }
 .center-page { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
