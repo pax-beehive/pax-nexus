@@ -85,8 +85,10 @@ Verification completed on 2026-07-22:
 The currently observed workstation remains on
 `http://100.125.72.76:58080` until the operator rolls out this configuration.
 SSH deployment could not be performed from this session because the host
-rejected the available public-key authentication. Do not mark the issue closed
-until the following live checks pass:
+rejected the available public-key authentication. The local Docker daemon is
+attached to a different Tailscale workstation (`100.78.51.20`), so its similarly
+named Compose project is not the deployment target and was left unchanged. Do
+not mark the issue closed until the following live checks pass:
 
 - [ ] choose and resolve the stable Portal DNS hostname;
 - [ ] deploy with `compose.yaml` plus `deploy/workstation/compose.yaml` after
