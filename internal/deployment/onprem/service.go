@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -161,10 +162,12 @@ func (s *CredentialService) CreateEnrollment(
 
 func enrollmentToken(id string, secret string, portalURL string) (string, string) {
 	verifiableToken := "tm_enroll_" + id + "." + secret
-	originHint := base64.RawURLEncoding.EncodeToString([]byte(strings.TrimSpace(portalURL)))
-	if originHint == "" {
+	portalURL = strings.TrimSpace(portalURL)
+	parsed, err := url.Parse(portalURL)
+	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
 		return verifiableToken, verifiableToken
 	}
+	originHint := base64.RawURLEncoding.EncodeToString([]byte(portalURL))
 	return verifiableToken + "." + originHint, verifiableToken
 }
 

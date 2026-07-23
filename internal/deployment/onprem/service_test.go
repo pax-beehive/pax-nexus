@@ -89,40 +89,66 @@ func (s *serviceSuite) TestEnrollmentExchangeAuthenticationRotationAndRevocation
 	s.Require().ErrorIs(err, onprem.ErrUnauthorized)
 }
 
-func (s *serviceSuite) TestEnrollmentExchangeIgnoresOriginHint() {
-	ctx := context.Background()
-	admin, err := s.service.Authenticate(ctx, "bootstrap-admin")
-	s.Require().NoError(err)
-	_, err = s.service.CreateEnrollment(ctx, admin, onprem.EnrollmentRequest{
-		UserID: "owner", AgentID: "agent-1", ExpiresIn: time.Hour,
-	})
-	s.Require().NoError(err)
+func (s *serviceSuite) TestEnrollmentExchangeTokenCompatibility() {
+	tests := []struct {
+		name  string
+		token string
+	}{
+		{
+			name:  "origin hint is ignored",
+			token: "tm_enroll_enrollment-id.enrollment-secret.aHR0cHM6Ly9hdHRhY2tlci5leGFtcGxlLw",
+		},
+		{
+			name:  "legacy two segment token is accepted",
+			token: "tm_enroll_enrollment-id.enrollment-secret",
+		},
+	}
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			store := newMemoryCredentialStore()
+			tokens := &tokenSequence{values: []string{
+				"enrollment-id", "enrollment-secret", "credential-id", "credential-secret",
+			}}
+			service, err := onprem.NewCredentialService(store, onprem.CredentialConfig{
+				AdminAPIKey: "bootstrap-admin", RotationOverlap: 5 * time.Minute,
+				SecretPepper: "0123456789abcdef0123456789abcdef", AllowLegacyAgentCreation: true,
+				PortalURL: "https://memory.example.internal/",
+			}, onprem.WithClock(func() time.Time { return s.now }), onprem.WithTokenSource(tokens.next))
+			s.Require().NoError(err)
+			ctx := context.Background()
+			admin, err := service.Authenticate(ctx, "bootstrap-admin")
+			s.Require().NoError(err)
+			_, err = service.CreateEnrollment(ctx, admin, onprem.EnrollmentRequest{
+				UserID: "owner", AgentID: "agent-1", ExpiresIn: time.Hour,
+			})
+			s.Require().NoError(err)
 
-	issued, err := s.service.ExchangeEnrollment(
-		ctx,
-		"tm_enroll_enrollment-id.enrollment-secret.aHR0cHM6Ly9hdHRhY2tlci5leGFtcGxlLw",
-	)
+			issued, err := service.ExchangeEnrollment(ctx, test.token)
 
-	s.Require().NoError(err)
-	s.Equal("tm_key_credential-id.credential-secret", issued.APIKey)
+			s.Require().NoError(err)
+			s.Equal("tm_key_credential-id.credential-secret", issued.APIKey)
+		})
+	}
 }
 
-func (s *serviceSuite) TestEnrollmentExchangeAcceptsLegacyTwoSegmentToken() {
-	ctx := context.Background()
-	admin, err := s.service.Authenticate(ctx, "bootstrap-admin")
+func (s *serviceSuite) TestEnrollmentWithoutAbsolutePortalURLUsesLegacyToken() {
+	store := newMemoryCredentialStore()
+	tokens := &tokenSequence{values: []string{"enrollment-id", "enrollment-secret"}}
+	service, err := onprem.NewCredentialService(store, onprem.CredentialConfig{
+		AdminAPIKey: "bootstrap-admin", RotationOverlap: 5 * time.Minute,
+		SecretPepper: "0123456789abcdef0123456789abcdef", AllowLegacyAgentCreation: true,
+		PortalURL: "/",
+	}, onprem.WithClock(func() time.Time { return s.now }), onprem.WithTokenSource(tokens.next))
 	s.Require().NoError(err)
-	_, err = s.service.CreateEnrollment(ctx, admin, onprem.EnrollmentRequest{
+	admin, err := service.Authenticate(context.Background(), "bootstrap-admin")
+	s.Require().NoError(err)
+
+	enrollment, err := service.CreateEnrollment(context.Background(), admin, onprem.EnrollmentRequest{
 		UserID: "owner", AgentID: "agent-1", ExpiresIn: time.Hour,
 	})
-	s.Require().NoError(err)
-
-	issued, err := s.service.ExchangeEnrollment(
-		ctx,
-		"tm_enroll_enrollment-id.enrollment-secret",
-	)
 
 	s.Require().NoError(err)
-	s.Equal("tm_key_credential-id.credential-secret", issued.APIKey)
+	s.Equal("tm_enroll_enrollment-id.enrollment-secret", enrollment.Token)
 }
 
 func (s *serviceSuite) TestAuthorizationAndValidationFailures() {

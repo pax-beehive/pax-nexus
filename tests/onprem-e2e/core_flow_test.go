@@ -3,6 +3,7 @@ package onpreme2e_test
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -190,6 +191,11 @@ func (s *coreFlowSuite) enrollAgentWithPermissions(agentID string, permissions [
 		"credential_label": "e2e", "permissions": permissions, "expires_in_seconds": 300,
 	}, nil)
 	token := stringField(s.T(), enrollment, "token")
+	segments := strings.Split(token, ".")
+	s.Require().Len(segments, 3)
+	origin, err := base64.RawURLEncoding.DecodeString(segments[2])
+	s.Require().NoError(err)
+	s.Equal("http://team-memory:8080/", string(origin))
 	credential := s.request(http.MethodPost, "/v1/agent-enrollments/exchange", "", map[string]any{"token": token})
 	return stringField(s.T(), credential, "api_key")
 }

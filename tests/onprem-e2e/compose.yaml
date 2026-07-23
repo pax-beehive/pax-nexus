@@ -51,7 +51,7 @@ services:
       TEAM_MEMORY_OIDC_CLIENT_SECRET: team-memory-e2e-secret
       TEAM_MEMORY_OIDC_REDIRECT_URL: http://team-memory:8080/v1/auth/callback
       TEAM_MEMORY_OIDC_FLOW_SECRET: e2e-flow-secret-0123456789abcdef
-      TEAM_MEMORY_PORTAL_URL: /
+      TEAM_MEMORY_PORTAL_URL: http://team-memory:8080/
       TEAM_MEMORY_HUMAN_COOKIE_SECURE: "false"
       TEAM_MEMORY_CREDENTIAL_ROTATION_OVERLAP: 5m
       TEAM_MEMORY_WIKI_HINT_ENABLED: "false"
