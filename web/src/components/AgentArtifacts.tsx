@@ -35,18 +35,26 @@ const ENROLLMENT_EXPIRY_OPTIONS = [
 ] as const;
 
 function Tabs({
+  label,
   options,
   value,
   onChange,
 }: {
+  /** Accessible group name, e.g. "enrollment status". */
+  label: string;
   options: readonly string[];
   value: string;
   onChange: (v: string) => void;
 }) {
   return (
-    <div className="tabs">
+    <div className="tabs" role="group" aria-label={label}>
       {options.map((o) => (
-        <button key={o} className={o === value ? "on" : ""} onClick={() => onChange(o)}>
+        <button
+          key={o}
+          className={o === value ? "on" : ""}
+          aria-pressed={o === value}
+          onClick={() => onChange(o)}
+        >
           {o}
         </button>
       ))}
@@ -287,7 +295,12 @@ export function AgentArtifacts({
             Agent 非 active：暂停 / retire 会立即吊销全部 Credential 和 pending Enrollment，恢复 active 不会还原旧 key。
           </div>
         )}
-        <Tabs options={ENROLLMENT_STATUSES} value={enrollmentFilter} onChange={setEnrollmentFilter} />
+        <Tabs
+          label="enrollment status"
+          options={ENROLLMENT_STATUSES}
+          value={enrollmentFilter}
+          onChange={setEnrollmentFilter}
+        />
         {enrollments.loading ? (
           <p className="muted small">加载中…</p>
         ) : enrollments.items.length === 0 ? (
@@ -340,7 +353,12 @@ export function AgentArtifacts({
 
       <div className="card">
         <h2 style={{ margin: "0 0 8px" }}>Credentials（仅元数据，永不含 API key）</h2>
-        <Tabs options={CREDENTIAL_STATUSES} value={credentialFilter} onChange={setCredentialFilter} />
+        <Tabs
+          label="credential status"
+          options={CREDENTIAL_STATUSES}
+          value={credentialFilter}
+          onChange={setCredentialFilter}
+        />
         {credentials.loading ? (
           <p className="muted small">加载中…</p>
         ) : credentials.items.length === 0 ? (

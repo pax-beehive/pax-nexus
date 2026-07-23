@@ -162,9 +162,14 @@ export function AdminInvitationsPage({ me }: { me: HumanMe }) {
         />
       )}
 
-      <div className="tabs">
+      <div className="tabs" role="group" aria-label="invitation status">
         {STATUS_FILTERS.map((s) => (
-          <button key={s} className={s === filter ? "on" : ""} onClick={() => setFilter(s)}>
+          <button
+            key={s}
+            className={s === filter ? "on" : ""}
+            aria-pressed={s === filter}
+            onClick={() => setFilter(s)}
+          >
             {s}
           </button>
         ))}

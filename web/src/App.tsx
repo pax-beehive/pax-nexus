@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { BrowserRouter, Route, Routes, useNavigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./auth/AuthContext";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ToastProvider } from "./components/Toasts";
 import { peekPendingInvitation, takeReturnUrl } from "./lib/continuations";
 import { LoginPage } from "./pages/LoginPage";
@@ -72,14 +73,19 @@ function AppRoutes() {
 }
 
 export default function App() {
+  // Outermost boundary: even a shell-level render failure leaves a safe
+  // recovery page instead of a blank document (narrower boundaries live in
+  // PortalShell and Modal).
   return (
-    <ToastProvider>
-      <AuthProvider>
-        <BrowserRouter>
-          <ContinuationRedirect />
-          <AppRoutes />
-        </BrowserRouter>
-      </AuthProvider>
-    </ToastProvider>
+    <ErrorBoundary region="app" fullPage>
+      <ToastProvider>
+        <AuthProvider>
+          <BrowserRouter>
+            <ContinuationRedirect />
+            <AppRoutes />
+          </BrowserRouter>
+        </AuthProvider>
+      </ToastProvider>
+    </ErrorBoundary>
   );
 }

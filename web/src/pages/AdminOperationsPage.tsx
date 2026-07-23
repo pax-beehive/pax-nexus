@@ -889,11 +889,12 @@ export function AdminOperationsPage() {
       </div>
 
       <div className="row wrap" style={{ marginBottom: 14, gap: 10 }}>
-        <div className="tabs" style={{ marginBottom: 0 }}>
+        <div className="tabs" style={{ marginBottom: 0 }} role="group" aria-label="time window">
           {(["1h", "24h", "7d"] as TimeWindowPreset[]).map((p) => (
             <button
               key={p}
               className={preset === p ? "on" : ""}
+              aria-pressed={preset === p}
               onClick={() => setPreset(p)}
               title="超出部署 retention 的窗口会被后端拒绝"
             >
@@ -952,7 +953,7 @@ export function AdminOperationsPage() {
           <button className="btn ghost sm" onClick={toggleHistory}>
             {historyOpen ? "收起历史趋势" : "历史趋势"}
           </button>
-          <button className="btn sm" onClick={storage.refresh}>
+          <button className="btn sm" aria-label="刷新存储" onClick={storage.refresh}>
             刷新
           </button>
         </div>
@@ -998,6 +999,7 @@ export function AdminOperationsPage() {
         <div className="row">
           <select
             style={{ width: 190 }}
+            aria-label="按 operation 过滤"
             value={kind}
             onChange={(e) => setKind(e.target.value as "" | OperationKind)}
           >
@@ -1010,6 +1012,7 @@ export function AdminOperationsPage() {
           </select>
           <select
             style={{ width: 150 }}
+            aria-label="按 outcome 过滤"
             value={outcome}
             onChange={(e) => setOutcome(e.target.value as "" | OperationOutcome)}
           >
@@ -1020,7 +1023,7 @@ export function AdminOperationsPage() {
               </option>
             ))}
           </select>
-          <button className="btn sm" onClick={events.backToFirstPage}>
+          <button className="btn sm" aria-label="刷新最近活动" onClick={events.backToFirstPage}>
             刷新
           </button>
         </div>
