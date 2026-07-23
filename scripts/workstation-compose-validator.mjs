@@ -1,7 +1,14 @@
 import { pathToFileURL } from "node:url";
 
-function findPublishedPort(service, target) {
-  return (service?.ports ?? []).find((port) => Number(port.target) === target);
+function publishedPorts(service, target) {
+  return (service?.ports ?? []).filter((port) => Number(port.target) === target);
+}
+
+function hasCanonicalGatewayPort(service, target) {
+  return publishedPorts(service, target).some((port) =>
+    Number(port.published) === target
+      && (!port.host_ip || port.host_ip === "0.0.0.0" || port.host_ip === "::"),
+  );
 }
 
 function isStableDNSHostname(value) {
@@ -15,13 +22,13 @@ function isStableDNSHostname(value) {
 }
 
 export function validateWorkstationCompose(config) {
-  const backendPort = findPublishedPort(config?.services?.["team-memory"], 8080);
-  if (!backendPort || backendPort.host_ip !== "127.0.0.1") {
+  const backendPorts = publishedPorts(config?.services?.["team-memory"], 8080);
+  if (backendPorts.length === 0 || backendPorts.some((port) => port.host_ip !== "127.0.0.1")) {
     throw new Error("team-memory port 8080 must be published on 127.0.0.1 only");
   }
 
-  const postgresPort = findPublishedPort(config?.services?.postgres, 5432);
-  if (!postgresPort || postgresPort.host_ip !== "127.0.0.1") {
+  const postgresPorts = publishedPorts(config?.services?.postgres, 5432);
+  if (postgresPorts.length === 0 || postgresPorts.some((port) => port.host_ip !== "127.0.0.1")) {
     throw new Error("postgres port 5432 must be published on 127.0.0.1 only");
   }
 
@@ -30,11 +37,18 @@ export function validateWorkstationCompose(config) {
     throw new Error("TEAM_MEMORY_PORTAL_HOST must be a stable DNS hostname, not an IP address or URL");
   }
 
-  if (!findPublishedPort(config?.services?.caddy, 443)) {
+  const caddy = config?.services?.caddy;
+  if (publishedPorts(caddy, 443).length === 0) {
     throw new Error("caddy must publish HTTPS port 443");
   }
-  if (!findPublishedPort(config?.services?.caddy, 80)) {
+  if (!hasCanonicalGatewayPort(caddy, 443)) {
+    throw new Error("caddy must be externally reachable on host port 443");
+  }
+  if (publishedPorts(caddy, 80).length === 0) {
     throw new Error("caddy must publish HTTP port 80 for canonical HTTPS redirects");
+  }
+  if (!hasCanonicalGatewayPort(caddy, 80)) {
+    throw new Error("caddy must be externally reachable on host port 80 for canonical HTTPS redirects");
   }
 
   const backendEnvironment = config?.services?.["team-memory"]?.environment ?? {};

@@ -92,8 +92,8 @@ OIDC callback:https://memory.example.internal/v1/auth/callback
 ```
 
 Expose only the TLS gateway to the network. Always include
-`deploy/workstation/compose.yaml`; it adds the TLS gateway and retains the
-checked-in `127.0.0.1` bindings for PostgreSQL port `55432` and backend port
+`deploy/workstation/compose.yaml`; it replaces the checked-in development port
+bindings with `127.0.0.1` bindings for PostgreSQL port `55432` and backend port
 `58080`. Verify the rendered bindings before startup. Do not run persistent
 deployment commands with only the base `compose.yaml`.
 

@@ -55,26 +55,25 @@ a confirmed handler or storage failure.
 
 Implemented in the repository:
 
-- the base Compose file now binds PostgreSQL and Team Memory to `127.0.0.1`,
-  so omitting the workstation override no longer exposes either listener to the
-  network;
+- the workstation Compose override binds PostgreSQL and Team Memory to
+  `127.0.0.1` without changing the base development Compose behavior;
 - `make workstation-config-check` renders the two-file workstation Compose
   configuration without printing it and rejects:
   - backend or PostgreSQL bindings outside `127.0.0.1`;
   - an IP address, URL, or `localhost` as the persistent Portal host;
-  - missing Caddy ports 80 or 443;
+  - missing, remapped, or loopback-only Caddy host ports 80 or 443;
   - a Portal URL or OIDC callback that differs from the canonical HTTPS host;
   - non-Secure Human Session cookies;
 - the deployment runbook now requires this validator before startup and in the
   acceptance checklist;
-- the validator is covered by ten Node tests and is included in
+- the validator is covered by fifteen Node tests and is included in
   `make test-scripts`.
 
 Verification completed on 2026-07-22:
 
 - `make workstation-config-check` passed against a rendered two-file Compose
   fixture with dummy, non-secret values;
-- rendered base Compose ports were confirmed as
+- rendered two-file workstation Compose ports were confirmed as
   `127.0.0.1:55432 -> postgres:5432` and
   `127.0.0.1:58080 -> team-memory:8080`;
 - Caddy validation passed and reported automatic HTTP-to-HTTPS redirects;

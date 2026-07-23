@@ -48,9 +48,37 @@ test("rejects a network-exposed backend listener", () => {
   );
 });
 
+test("rejects any additional network-exposed backend listener", () => {
+  const config = validConfig();
+  config.services["team-memory"].ports.push({
+    target: 8080,
+    published: "58081",
+    host_ip: "0.0.0.0",
+  });
+
+  assert.throws(
+    () => validateWorkstationCompose(config),
+    /team-memory.*127\.0\.0\.1/,
+  );
+});
+
 test("rejects a network-exposed PostgreSQL listener", () => {
   const config = validConfig();
   config.services.postgres.ports[0].host_ip = "0.0.0.0";
+
+  assert.throws(
+    () => validateWorkstationCompose(config),
+    /postgres.*127\.0\.0\.1/,
+  );
+});
+
+test("rejects any additional network-exposed PostgreSQL listener", () => {
+  const config = validConfig();
+  config.services.postgres.ports.push({
+    target: 5432,
+    published: "55433",
+    host_ip: "0.0.0.0",
+  });
 
   assert.throws(
     () => validateWorkstationCompose(config),
@@ -110,6 +138,26 @@ test("requires the TLS gateway to publish HTTPS", () => {
   );
 });
 
+test("requires the TLS gateway to use the canonical host HTTPS port", () => {
+  const config = validConfig();
+  config.services.caddy.ports[1].published = "8443";
+
+  assert.throws(
+    () => validateWorkstationCompose(config),
+    /caddy.*host port 443/,
+  );
+});
+
+test("rejects a loopback-only HTTPS gateway", () => {
+  const config = validConfig();
+  config.services.caddy.ports[1].host_ip = "127.0.0.1";
+
+  assert.throws(
+    () => validateWorkstationCompose(config),
+    /caddy.*externally reachable.*443/,
+  );
+});
+
 test("requires the gateway HTTP listener for canonical HTTPS redirects", () => {
   const config = validConfig();
   config.services.caddy.ports = [{ target: 443, published: "443" }];
@@ -117,6 +165,16 @@ test("requires the gateway HTTP listener for canonical HTTPS redirects", () => {
   assert.throws(
     () => validateWorkstationCompose(config),
     /caddy.*80.*redirect/,
+  );
+});
+
+test("requires the gateway to use the canonical host HTTP port", () => {
+  const config = validConfig();
+  config.services.caddy.ports[0].published = "8080";
+
+  assert.throws(
+    () => validateWorkstationCompose(config),
+    /caddy.*host port 80/,
   );
 });
 
