@@ -27,6 +27,7 @@ func (s *registrySuite) SetupTest() {
 		s.store,
 		onprem.RegistryConfig{
 			SecretPepper: "0123456789abcdef0123456789abcdef",
+			PortalURL:    "https://memory.example.internal/",
 			MemberGrantablePermissions: []onprem.Permission{
 				onprem.PermissionObserve, onprem.PermissionSearch, onprem.PermissionGet,
 				onprem.PermissionChannelSend, onprem.PermissionChannelReceive,
@@ -79,7 +80,11 @@ func (s *registrySuite) TestOwnerEnrollmentRequiresExplicitPermissions() {
 		CredentialExpiresAt: &credentialExpiresAt,
 	})
 	s.Require().NoError(err)
-	s.Equal("tm_enroll_enrollment-id.enrollment-secret", enrollment.Token)
+	s.Equal(
+		"tm_enroll_enrollment-id.enrollment-secret."+
+			"aHR0cHM6Ly9tZW1vcnkuZXhhbXBsZS5pbnRlcm5hbC8",
+		enrollment.Token,
+	)
 	s.Require().Len(s.store.enrollments, 1)
 	s.Equal("reviewer", s.store.enrollments[0].AgentID)
 	s.Equal("user-1", s.store.enrollments[0].UserID)

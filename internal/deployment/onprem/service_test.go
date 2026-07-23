@@ -34,6 +34,7 @@ func (s *serviceSuite) SetupTest() {
 	service, err := onprem.NewCredentialService(s.store, onprem.CredentialConfig{
 		AdminAPIKey: "bootstrap-admin", RotationOverlap: 5 * time.Minute,
 		SecretPepper: "0123456789abcdef0123456789abcdef", AllowLegacyAgentCreation: true,
+		PortalURL: "https://memory.example.internal/",
 	}, onprem.WithClock(func() time.Time { return s.now }), onprem.WithTokenSource(tokens.next))
 	s.Require().NoError(err)
 	s.service = service
@@ -50,7 +51,11 @@ func (s *serviceSuite) TestEnrollmentExchangeAuthenticationRotationAndRevocation
 		UserID: "owner", AgentID: "agent-1", ExpiresIn: time.Hour,
 	})
 	s.Require().NoError(err)
-	s.Equal("tm_enroll_enrollment-id.enrollment-secret", enrollment.Token)
+	s.Equal(
+		"tm_enroll_enrollment-id.enrollment-secret."+
+			"aHR0cHM6Ly9tZW1vcnkuZXhhbXBsZS5pbnRlcm5hbC8",
+		enrollment.Token,
+	)
 
 	issued, err := s.service.ExchangeEnrollment(ctx, enrollment.Token)
 	s.Require().NoError(err)
@@ -82,6 +87,42 @@ func (s *serviceSuite) TestEnrollmentExchangeAuthenticationRotationAndRevocation
 	s.Require().NoError(s.service.RevokeCredential(ctx, admin, rotatedPrincipal.CredentialID))
 	_, err = s.service.Authenticate(ctx, rotated.APIKey)
 	s.Require().ErrorIs(err, onprem.ErrUnauthorized)
+}
+
+func (s *serviceSuite) TestEnrollmentExchangeIgnoresOriginHint() {
+	ctx := context.Background()
+	admin, err := s.service.Authenticate(ctx, "bootstrap-admin")
+	s.Require().NoError(err)
+	_, err = s.service.CreateEnrollment(ctx, admin, onprem.EnrollmentRequest{
+		UserID: "owner", AgentID: "agent-1", ExpiresIn: time.Hour,
+	})
+	s.Require().NoError(err)
+
+	issued, err := s.service.ExchangeEnrollment(
+		ctx,
+		"tm_enroll_enrollment-id.enrollment-secret.aHR0cHM6Ly9hdHRhY2tlci5leGFtcGxlLw",
+	)
+
+	s.Require().NoError(err)
+	s.Equal("tm_key_credential-id.credential-secret", issued.APIKey)
+}
+
+func (s *serviceSuite) TestEnrollmentExchangeAcceptsLegacyTwoSegmentToken() {
+	ctx := context.Background()
+	admin, err := s.service.Authenticate(ctx, "bootstrap-admin")
+	s.Require().NoError(err)
+	_, err = s.service.CreateEnrollment(ctx, admin, onprem.EnrollmentRequest{
+		UserID: "owner", AgentID: "agent-1", ExpiresIn: time.Hour,
+	})
+	s.Require().NoError(err)
+
+	issued, err := s.service.ExchangeEnrollment(
+		ctx,
+		"tm_enroll_enrollment-id.enrollment-secret",
+	)
+
+	s.Require().NoError(err)
+	s.Equal("tm_key_credential-id.credential-secret", issued.APIKey)
 }
 
 func (s *serviceSuite) TestAuthorizationAndValidationFailures() {

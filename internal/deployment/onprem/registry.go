@@ -141,6 +141,7 @@ type AgentArtifactFilter struct {
 type RegistryConfig struct {
 	SecretPepper               string
 	MemberGrantablePermissions []Permission
+	PortalURL                  string
 }
 
 type RegistryStore interface {
@@ -188,6 +189,7 @@ type RegistryService struct {
 	tokenSource func() (string, error)
 	digester    secretDigester
 	grantable   map[Permission]struct{}
+	portalURL   string
 }
 
 func NewRegistryService(store RegistryStore, config RegistryConfig, options ...RegistryOption) (*RegistryService, error) {
@@ -211,7 +213,7 @@ func NewRegistryService(store RegistryStore, config RegistryConfig, options ...R
 	}
 	return &RegistryService{
 		store: store, clock: configured.clock, idSource: configured.idSource, tokenSource: configured.tokenSource,
-		digester: digester, grantable: grantable,
+		digester: digester, grantable: grantable, portalURL: strings.TrimSpace(config.PortalURL),
 	}, nil
 }
 
@@ -344,9 +346,9 @@ func (s *RegistryService) CreateEnrollment(
 		return Enrollment{}, fmt.Errorf("create enrollment secret: %w", err)
 	}
 	now := s.clock().UTC()
-	token := "tm_enroll_" + id + "." + secret
+	token, verifiableToken := enrollmentToken(id, secret, s.portalURL)
 	record := EnrollmentRecord{
-		ID: id, TokenDigest: s.digester.Digest(enrollmentDigestDomain, token),
+		ID: id, TokenDigest: s.digester.Digest(enrollmentDigestDomain, verifiableToken),
 		DigestKeyVersion: currentDigestKeyVersion, UserID: principal.UserID, MembershipID: principal.MembershipID,
 		AgentID: profile.AgentID, CredentialLabel: strings.TrimSpace(request.CredentialLabel),
 		Permissions: permissions, CreatedAt: now, ExpiresAt: now.Add(expiresIn),
