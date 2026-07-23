@@ -164,7 +164,13 @@ func enrollmentToken(id string, secret string, portalURL string) (string, string
 	verifiableToken := "tm_enroll_" + id + "." + secret
 	portalURL = strings.TrimSpace(portalURL)
 	parsed, err := url.Parse(portalURL)
-	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+	if err != nil ||
+		(parsed.Scheme != "http" && parsed.Scheme != "https") ||
+		parsed.Hostname() == "" ||
+		parsed.User != nil ||
+		(parsed.Path != "" && parsed.Path != "/") ||
+		parsed.RawQuery != "" ||
+		parsed.Fragment != "" {
 		return verifiableToken, verifiableToken
 	}
 	originHint := base64.RawURLEncoding.EncodeToString([]byte(portalURL))

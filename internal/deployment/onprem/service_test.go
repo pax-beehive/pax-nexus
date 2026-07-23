@@ -131,24 +131,39 @@ func (s *serviceSuite) TestEnrollmentExchangeTokenCompatibility() {
 	}
 }
 
-func (s *serviceSuite) TestEnrollmentWithoutAbsolutePortalURLUsesLegacyToken() {
-	store := newMemoryCredentialStore()
-	tokens := &tokenSequence{values: []string{"enrollment-id", "enrollment-secret"}}
-	service, err := onprem.NewCredentialService(store, onprem.CredentialConfig{
-		AdminAPIKey: "bootstrap-admin", RotationOverlap: 5 * time.Minute,
-		SecretPepper: "0123456789abcdef0123456789abcdef", AllowLegacyAgentCreation: true,
-		PortalURL: "/",
-	}, onprem.WithClock(func() time.Time { return s.now }), onprem.WithTokenSource(tokens.next))
-	s.Require().NoError(err)
-	admin, err := service.Authenticate(context.Background(), "bootstrap-admin")
-	s.Require().NoError(err)
+func (s *serviceSuite) TestEnrollmentWithoutAuthoritativeOriginUsesLegacyToken() {
+	tests := []struct {
+		name      string
+		portalURL string
+	}{
+		{name: "relative URL", portalURL: "/"},
+		{name: "path", portalURL: "https://memory.example.internal/app"},
+		{name: "query", portalURL: "https://memory.example.internal/?tenant=one"},
+		{name: "fragment", portalURL: "https://memory.example.internal/#setup"},
+		{name: "userinfo", portalURL: "https://operator:secret@memory.example.internal/"},
+		{name: "malformed host", portalURL: "https://:443/"},
+	}
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			store := newMemoryCredentialStore()
+			tokens := &tokenSequence{values: []string{"enrollment-id", "enrollment-secret"}}
+			service, err := onprem.NewCredentialService(store, onprem.CredentialConfig{
+				AdminAPIKey: "bootstrap-admin", RotationOverlap: 5 * time.Minute,
+				SecretPepper: "0123456789abcdef0123456789abcdef", AllowLegacyAgentCreation: true,
+				PortalURL: test.portalURL,
+			}, onprem.WithClock(func() time.Time { return s.now }), onprem.WithTokenSource(tokens.next))
+			s.Require().NoError(err)
+			admin, err := service.Authenticate(context.Background(), "bootstrap-admin")
+			s.Require().NoError(err)
 
-	enrollment, err := service.CreateEnrollment(context.Background(), admin, onprem.EnrollmentRequest{
-		UserID: "owner", AgentID: "agent-1", ExpiresIn: time.Hour,
-	})
+			enrollment, err := service.CreateEnrollment(context.Background(), admin, onprem.EnrollmentRequest{
+				UserID: "owner", AgentID: "agent-1", ExpiresIn: time.Hour,
+			})
 
-	s.Require().NoError(err)
-	s.Equal("tm_enroll_enrollment-id.enrollment-secret", enrollment.Token)
+			s.Require().NoError(err)
+			s.Equal("tm_enroll_enrollment-id.enrollment-secret", enrollment.Token)
+		})
+	}
 }
 
 func (s *serviceSuite) TestAuthorizationAndValidationFailures() {
