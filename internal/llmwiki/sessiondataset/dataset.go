@@ -56,11 +56,15 @@ type session struct {
 }
 
 type turn struct {
-	DiaID   string `json:"dia_id"`
-	Speaker string `json:"speaker"`
-	Text    string `json:"text"`
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	DiaID       string   `json:"dia_id"`
+	Speaker     string   `json:"speaker"`
+	Text        string   `json:"text"`
+	Role        string   `json:"role"`
+	Content     string   `json:"content"`
+	BlipCaption string   `json:"blip_caption"`
+	ImageURLs   []string `json:"img_url"`
+	ImageQuery  string   `json:"query"`
+	Redownload  bool     `json:"re-download"`
 }
 
 func Build(ctx context.Context, config Config) (Result, error) {
@@ -263,6 +267,12 @@ func convertTurn(
 		}
 		converted.ID = strings.TrimSpace(raw.DiaID)
 		content := strings.TrimSpace(raw.Speaker) + ": " + strings.TrimSpace(raw.Text)
+		if strings.TrimSpace(raw.BlipCaption) != "" {
+			content += "\n\nImage caption: " + strings.TrimSpace(raw.BlipCaption)
+		}
+		if len(raw.ImageURLs) > 0 {
+			content += "\n\nImage references: " + strings.Join(raw.ImageURLs, ", ")
+		}
 		switch raw.Speaker {
 		case dataset.Participants[0]:
 			converted.User = content
