@@ -181,7 +181,8 @@ func ensureScaffold(root string) error {
 		}
 	}
 	files := map[string]string{
-		"AGENTS.md": agentsInstructions,
+		"AGENTS.md":  agentsInstructions,
+		".gitignore": ".pax/base.json\n",
 		"wiki/index.md": "# Wiki\n\n" +
 			"This topic tree is maintained from immutable Session sources.\n",
 		"wiki/log.md":    "# Maintenance log\n",
