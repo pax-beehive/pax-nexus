@@ -740,6 +740,43 @@ struct ListOperationsStorageHistoryResponse {
   2: optional string next_cursor
 }
 
+struct OperationsAgentStatsRequest {
+  1: optional string from_time (api.query="from")
+  2: optional string to_time (api.query="to")
+}
+
+struct OperationsAgentRecentNote {
+  1: required string note_id
+  2: required string kind
+  3: required string subject
+  4: required string created_at
+}
+
+struct OperationsAgentStats {
+  1: required string agent_id
+  2: required string display_name
+  3: required i64 observation_requests
+  4: required i64 events_written
+  5: required i64 extraction_runs
+  6: required i64 extraction_input_tokens
+  7: required i64 extraction_output_tokens
+  8: required i64 recall_requests
+  9: required i64 recall_delivered_items
+  10: required i64 recall_empty
+  11: required i64 channel_sent
+  12: required i64 channel_received_accepted
+  13: required i64 notes_authored
+  14: required list<OperationsAgentRecentNote> recent_notes
+  15: optional string last_active_at
+}
+
+struct OperationsAgentStatsResponse {
+  1: required list<OperationsAgentStats> agents
+  2: required string from_time
+  3: required string to_time
+  4: required string generated_at
+}
+
 service TeamMemoryService {
   IngestReceipt ObserveSession(1: SessionBatch request) (api.post="/v1/session-batches")
   NoteEnvelope RecallNotes(1: RecallRequest request) (api.post="/v1/notes/recall")
@@ -797,4 +834,5 @@ service TeamMemoryService {
   RecallDiagnosticResponse GetRecallDiagnostic(1: RecallDiagnosticByIDRequest request) (api.get="/v1/admin/operations/recalls/:observation_id")
   OperationsStorageResponse GetOperationsStorage(1: OperationsStorageRequest request) (api.get="/v1/admin/operations/storage")
   ListOperationsStorageHistoryResponse ListOperationsStorageHistory(1: ListOperationsStorageHistoryRequest request) (api.get="/v1/admin/operations/storage/history")
+  OperationsAgentStatsResponse ListOperationsAgentStats(1: OperationsAgentStatsRequest request) (api.get="/v1/admin/operations/agents")
 }

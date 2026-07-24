@@ -12,6 +12,7 @@
 
 import type {
   OperationEvent,
+  OperationsAgentStats,
   OperationsStorageSnapshot,
   OperationsSummary,
   RecallDiagnostic,
@@ -164,6 +165,47 @@ export function eventsPage(
   };
 }
 
+/**
+ * Per-agent aggregate for the Team Pulse page. last_active_at defaults to a
+ * fresh timestamp so the status dot renders "active"; tests pass an explicit
+ * value (or "") to pin the freshness class.
+ */
+export function makeAgentStats(
+  overrides: Partial<OperationsAgentStats> = {},
+): OperationsAgentStats {
+  return {
+    agent_id: "agent-1",
+    display_name: "Alice Codex",
+    observation_requests: 12,
+    events_written: 48,
+    extraction_runs: 6,
+    extraction_input_tokens: 9012,
+    extraction_output_tokens: 2048,
+    recall_requests: 7,
+    recall_delivered_items: 11,
+    recall_empty: 1,
+    channel_sent: 3,
+    channel_received_accepted: 2,
+    notes_authored: 5,
+    recent_notes: [
+      {
+        note_id: "note-1",
+        kind: "decision",
+        subject: "Postgres is the only metadata store",
+        created_at: "2026-07-22T11:58:00Z",
+      },
+    ],
+    last_active_at: new Date().toISOString(),
+    ...overrides,
+  };
+}
+
+export function agentStatsPage(
+  agents: OperationsAgentStats[],
+): Record<string, unknown> {
+  return { agents, from_time: FROM_TIME, to_time: TO_TIME, generated_at: GEN_AT };
+}
+
 export interface OperationsEndpoints {
   summary?: () => Response;
   /** Receives the full path so tests can branch on cursor/filters. */
@@ -173,6 +215,8 @@ export interface OperationsEndpoints {
   /** Receives the raw observation id segment from the URL. */
   recall?: (observationId: string) => Response;
   agents?: () => Response;
+  /** Per-agent activity aggregate for the Team Pulse page. */
+  agentStats?: () => Response;
 }
 
 /**
@@ -197,6 +241,9 @@ export function operationsFetch(endpoints: OperationsEndpoints = {}): FetchHandl
     if (path.startsWith("/v1/admin/operations/recalls/")) {
       const id = path.slice("/v1/admin/operations/recalls/".length);
       return endpoints.recall?.(id) ?? jsonResponse({ recall: makeRecall() });
+    }
+    if (path.startsWith("/v1/admin/operations/agents")) {
+      return endpoints.agentStats?.() ?? jsonResponse(agentStatsPage([makeAgentStats()]));
     }
     if (path.startsWith("/v1/admin/agents")) {
       return endpoints.agents?.() ?? jsonResponse({ agents: [] });
@@ -230,4 +277,18 @@ export async function renderOperationsPage(endpoints: OperationsEndpoints = {}) 
 /** The Recent activity table (the only table with an Operation header). */
 export function eventsTable(): HTMLElement {
   return screen.getByText("Operation").closest("table") as HTMLElement;
+}
+
+/**
+ * Mount the portal at /admin/pulse with the Operations capability and wait
+ * for the first agent-stats cycle to settle.
+ */
+export async function renderPulsePage(endpoints: OperationsEndpoints = {}) {
+  const app = await renderApp({
+    route: "/admin/pulse",
+    me: opsMe(),
+    fetch: operationsFetch(endpoints),
+  });
+  await screen.findByRole("heading", { name: "Team Pulse" });
+  return app;
 }

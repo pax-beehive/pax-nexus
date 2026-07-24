@@ -14,6 +14,7 @@ import { AdminAgentsPage } from "./AdminAgentsPage";
 import { AdminAgentDetailPage } from "./AdminAgentDetailPage";
 import { AdminAuditPage } from "./AdminAuditPage";
 import { AdminOperationsPage } from "./AdminOperationsPage";
+import { AdminPulsePage } from "./AdminPulsePage";
 
 function navClass({ isActive }: { isActive: boolean }): string {
   return isActive ? "active" : "";
@@ -107,9 +108,14 @@ export function PortalShell({ me }: { me: HumanMe }) {
                 Audit Events
               </NavLink>
               {hasServerCapability(me, "view.operations") && (
-                <NavLink to="/admin/operations" className={navClass}>
-                  Operations
-                </NavLink>
+                <>
+                  <NavLink to="/admin/operations" className={navClass}>
+                    Operations
+                  </NavLink>
+                  <NavLink to="/admin/pulse" className={navClass}>
+                    Pulse
+                  </NavLink>
+                </>
               )}
             </>
           )}
@@ -182,6 +188,14 @@ export function PortalShell({ me }: { me: HumanMe }) {
               element={
                 <RequireServerCapability me={me} capability="view.operations">
                   <AdminOperationsPage />
+                </RequireServerCapability>
+              }
+            />
+            <Route
+              path="/admin/pulse"
+              element={
+                <RequireServerCapability me={me} capability="view.operations">
+                  <AdminPulsePage />
                 </RequireServerCapability>
               }
             />

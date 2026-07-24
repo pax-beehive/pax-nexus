@@ -120,6 +120,27 @@ func (s *OperationsService) GetRecallDiagnostic(
 	return result, nil
 }
 
+func (s *OperationsService) AgentStats(
+	ctx context.Context,
+	principal HumanPrincipal,
+	filter operations.TimeFilter,
+) (operations.AgentStatsReport, error) {
+	if err := authorizeHumanCapability(principal, CapabilityViewOperations); err != nil {
+		return operations.AgentStatsReport{}, err
+	}
+	filter, err := s.normalizeTimeFilter(filter, s.config.EventRetention, defaultOperationsWindow)
+	if err != nil {
+		return operations.AgentStatsReport{}, err
+	}
+	agents, err := s.repository.AgentStats(ctx, filter)
+	if err != nil {
+		return operations.AgentStatsReport{}, fmt.Errorf("get operations agent stats: %w", err)
+	}
+	return operations.AgentStatsReport{
+		From: filter.From, To: filter.To, GeneratedAt: s.clock().UTC(), Agents: agents,
+	}, nil
+}
+
 func (s *OperationsService) LatestStorage(
 	ctx context.Context,
 	principal HumanPrincipal,

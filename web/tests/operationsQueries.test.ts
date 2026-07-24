@@ -4,6 +4,7 @@ import {
   getOperationsSummary,
   getRecallDiagnostic,
   listOperationEvents,
+  listOperationsAgentStats,
   listOperationsStorageHistory,
 } from "../src/api/queries";
 
@@ -92,8 +93,49 @@ describe("operations query wrappers (operations doc section 6)", () => {
     expect(recall).toEqual({ observation_id: 41 });
   });
 
-  it("getOperationsStorage unwraps the storage envelope", async () => {
-    const fetchMock = stubFetch({ storage: { snapshot_id: 91 } });
+  it("listOperationsAgentStats forwards the window, the signal and maps the envelope", async () => {
+    const fetchMock = stubFetch({
+      agents: [{ agent_id: "agent-1", events_written: 48 }],
+      from_time: "2026-07-22T11:00:00Z",
+      to_time: "2026-07-22T12:00:00Z",
+      generated_at: "2026-07-22T12:00:01Z",
+    });
+    const controller = new AbortController();
+
+    const page = await listOperationsAgentStats(
+      { from: "2026-07-22T11:00:00Z", to: "2026-07-22T12:00:00Z" },
+      controller.signal,
+    );
+
+    const [path, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const params = new URLSearchParams(path.split("?")[1]);
+    expect(path.startsWith("/v1/admin/operations/agents?")).toBe(true);
+    expect(params.get("from")).toBe("2026-07-22T11:00:00Z");
+    expect(params.get("to")).toBe("2026-07-22T12:00:00Z");
+    expect(init.signal).toBe(controller.signal);
+    expect(page).toEqual({
+      items: [{ agent_id: "agent-1", events_written: 48 }],
+      fromTime: "2026-07-22T11:00:00Z",
+      toTime: "2026-07-22T12:00:00Z",
+      generatedAt: "2026-07-22T12:00:01Z",
+    });
+  });
+
+  it("listOperationsAgentStats omits an empty window", async () => {
+    const fetchMock = stubFetch({
+      agents: [],
+      from_time: "",
+      to_time: "",
+      generated_at: "2026-07-22T12:00:01Z",
+    });
+
+    await listOperationsAgentStats({});
+
+    const [path] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(path).toBe("/v1/admin/operations/agents");
+  });
+
+  it("getOperationsStorage unwraps the storage envelope", async () => {    const fetchMock = stubFetch({ storage: { snapshot_id: 91 } });
 
     const snapshot = await getOperationsStorage();
 

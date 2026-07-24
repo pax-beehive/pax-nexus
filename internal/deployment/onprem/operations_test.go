@@ -55,6 +55,14 @@ func (s *operationsServiceSuite) TestOwnerAndAdminCanReadNormalizedOperations() 
 			s.Equal(50, s.repository.storageFilter.Limit)
 			s.Equal(s.now.Add(-90*24*time.Hour), s.repository.storageFilter.From)
 
+			report, err := s.service.AgentStats(context.Background(), principal, operations.TimeFilter{})
+			s.Require().NoError(err)
+			s.Equal(s.now.Add(-24*time.Hour), s.repository.agentFilter.From)
+			s.Equal(s.now, s.repository.agentFilter.To)
+			s.Equal(s.now.Add(-24*time.Hour), report.From)
+			s.Equal(s.now, report.To)
+			s.Equal(s.now, report.GeneratedAt)
+
 			_, err = s.service.GetRecallDiagnostic(context.Background(), principal, 1)
 			s.Require().NoError(err)
 			s.Equal([]onprem.HumanCapability{onprem.CapabilityViewOperations}, principal.Capabilities())
@@ -75,6 +83,8 @@ func (s *operationsServiceSuite) TestMemberAndInactiveMembershipAreForbidden() {
 			_, err := s.service.Summary(context.Background(), test.principal, operations.TimeFilter{})
 			s.Require().ErrorIs(err, onprem.ErrForbidden)
 			_, err = s.service.ListStorage(context.Background(), test.principal, operations.StorageFilter{})
+			s.Require().ErrorIs(err, onprem.ErrForbidden)
+			_, err = s.service.AgentStats(context.Background(), test.principal, operations.TimeFilter{})
 			s.Require().ErrorIs(err, onprem.ErrForbidden)
 			s.Empty(test.principal.Capabilities())
 		})
@@ -108,6 +118,10 @@ func (s *operationsServiceSuite) TestRepositoryErrorsKeepCauseAndOperationContex
 		}},
 		{name: "storage history", context: "list operations storage", call: func() error {
 			_, err := s.service.ListStorage(context.Background(), principal, operations.StorageFilter{})
+			return err
+		}},
+		{name: "agent stats", context: "get operations agent stats", call: func() error {
+			_, err := s.service.AgentStats(context.Background(), principal, operations.TimeFilter{})
 			return err
 		}},
 	}
@@ -174,6 +188,7 @@ type operationsRepository struct {
 	summaryFilter operations.TimeFilter
 	eventFilter   operations.EventFilter
 	storageFilter operations.StorageFilter
+	agentFilter   operations.TimeFilter
 	err           error
 }
 
@@ -245,4 +260,15 @@ func (r *operationsRepository) DeleteBefore(
 	time.Time,
 ) (int64, int64, error) {
 	return 0, 0, nil
+}
+
+func (r *operationsRepository) AgentStats(
+	_ context.Context,
+	filter operations.TimeFilter,
+) ([]operations.AgentStats, error) {
+	r.agentFilter = filter
+	if r.err != nil {
+		return nil, r.err
+	}
+	return nil, nil
 }

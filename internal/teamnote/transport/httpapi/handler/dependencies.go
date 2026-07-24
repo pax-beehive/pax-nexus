@@ -106,6 +106,7 @@ type OperationsLifecycle interface {
 	GetRecallDiagnostic(context.Context, onprem.HumanPrincipal, int64) (operations.RecallDiagnostic, error)
 	LatestStorage(context.Context, onprem.HumanPrincipal) (operations.StorageSnapshot, error)
 	ListStorage(context.Context, onprem.HumanPrincipal, operations.StorageFilter) ([]operations.StorageSnapshot, error)
+	AgentStats(context.Context, onprem.HumanPrincipal, operations.TimeFilter) (operations.AgentStatsReport, error)
 }
 
 type OnPremOption func(*Handler) error

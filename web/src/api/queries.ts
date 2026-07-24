@@ -179,6 +179,7 @@ import type {
   OperationEvent,
   OperationKind,
   OperationOutcome,
+  OperationsAgentStats,
   OperationsStorageSnapshot,
   OperationsSummary,
   RecallDiagnostic,
@@ -243,6 +244,32 @@ export async function getRecallDiagnostic(
     { signal },
   );
   return res.recall;
+}
+
+export async function listOperationsAgentStats(
+  filter: { from?: string; to?: string },
+  signal?: AbortSignal,
+): Promise<{
+  items: OperationsAgentStats[];
+  fromTime: string;
+  toTime: string;
+  generatedAt: string;
+}> {
+  const res = await humanFetch<{
+    agents: OperationsAgentStats[];
+    from_time: string;
+    to_time: string;
+    generated_at: string;
+  }>(
+    `/v1/admin/operations/agents${query({ from: filter.from, to: filter.to })}`,
+    { signal },
+  );
+  return {
+    items: res.agents,
+    fromTime: res.from_time,
+    toTime: res.to_time,
+    generatedAt: res.generated_at,
+  };
 }
 
 export async function getOperationsStorage(
