@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -234,6 +235,92 @@ func (s *agentSuite) TestFilesystemToolMatrixIsBoundedAndComposable() {
 	s.Contains(joined, "sources/")
 	s.Contains(joined, "read_file requires a file")
 	s.Contains(joined, "unknown tool")
+}
+
+func (s *agentSuite) TestRejectsInvalidAgentConfigurationAndToolInputs() {
+	tests := []struct {
+		name    string
+		config  workspace.AgentConfig
+		request workspace.AgentRequest
+		message string
+	}{
+		{
+			name: "root", config: workspace.AgentConfig{Client: &scriptedChatClient{}},
+			request: workspace.AgentRequest{RunID: "run", Instruction: "work"},
+			message: "root",
+		},
+		{
+			name: "client", config: workspace.AgentConfig{Root: s.root},
+			request: workspace.AgentRequest{RunID: "run", Instruction: "work"},
+			message: "client",
+		},
+		{
+			name: "run ID", config: workspace.AgentConfig{
+				Root: s.root, Client: &scriptedChatClient{},
+			},
+			request: workspace.AgentRequest{RunID: "../bad", Instruction: "work"},
+			message: "run ID",
+		},
+		{
+			name: "instruction", config: workspace.AgentConfig{
+				Root: s.root, Client: &scriptedChatClient{},
+			},
+			request: workspace.AgentRequest{RunID: "run"},
+			message: "instruction",
+		},
+	}
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			_, err := workspace.RunAgent(
+				context.Background(), test.config, test.request,
+			)
+			s.Require().ErrorContains(err, test.message)
+		})
+	}
+
+	large := strings.Repeat("x", 2<<20+1)
+	s.Require().NoError(os.WriteFile(
+		filepath.Join(s.root, "wiki/log.md"), []byte(large), 0o644,
+	))
+	outside := s.T().TempDir()
+	s.Require().NoError(os.Symlink(outside, filepath.Join(s.root, "wiki/link")))
+	client := &scriptedChatClient{responses: []workspace.ChatResponse{
+		{
+			Message: workspace.ChatMessage{
+				Role: "assistant",
+				ToolCalls: []workspace.ToolCall{
+					call("grep", `{"query":""}`),
+					call("read_file", `{"path":"wiki/log.md"}`),
+					call("write_file", `{"path":"/tmp/escape.md","content":"x"}`),
+					call("write_file", `{"path":"wiki/link/escape.md","content":"x"}`),
+					call("move_file", `{"from":"wiki/missing.md","to":"wiki/new.md"}`),
+					call("delete_file", `{"path":"wiki/missing.md"}`),
+					call("list_files", `{"path":"../"}`),
+					call("read_file", `{bad json}`),
+				},
+			},
+		},
+		{Message: workspace.ChatMessage{Role: "assistant", Content: "Done."}},
+	}}
+	result, err := workspace.RunAgent(context.Background(), workspace.AgentConfig{
+		Root: s.root, Client: client,
+	}, workspace.AgentRequest{RunID: "tool-errors", Instruction: "Inspect."})
+	s.Require().NoError(err)
+	s.True(result.Validation.Valid, result.Validation.String())
+	var joined string
+	for _, message := range client.requests[1].Messages {
+		if message.Role == "tool" {
+			joined += message.Content
+		}
+	}
+	s.Contains(joined, "grep query is required")
+	s.Contains(joined, "exceeds 2 MiB")
+	s.Contains(joined, "absolute tool paths")
+	s.Contains(joined, "symlinks are forbidden")
+	s.Contains(joined, "move wiki file")
+	s.Contains(joined, "delete wiki file")
+	s.Contains(joined, "escapes workspace")
+	s.Contains(joined, "decode tool arguments")
 }
 
 type scriptedChatClient struct {

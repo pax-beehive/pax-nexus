@@ -132,6 +132,20 @@ func (s *snapshotSuite) TestCheckoutPreservesSourceBytesAndWritesPrivateBase() {
 	status, err := workspace.Status(s.ctx, checkout)
 	s.Require().NoError(err)
 	s.Empty(status)
+
+	noChange, err := workspace.Commit(s.ctx, checkout, "no changes")
+	s.Require().NoError(err)
+	s.Equal(s.base, noChange)
+	_, err = workspace.Commit(s.ctx, checkout, "")
+	s.Require().ErrorContains(err, "message")
+	err = workspace.Publish(s.ctx, s.store, checkout, s.base, "wrong-revision")
+	s.Require().ErrorContains(err, "does not match")
+	err = workspace.Rollback(s.ctx, s.store, "wrong-head", s.base)
+	s.Require().ErrorIs(err, workspace.ErrStaleBase)
+	err = workspace.Checkout(s.ctx, s.store, "")
+	s.Require().ErrorContains(err, "destination")
+	_, err = workspace.InitStore(s.ctx, s.store, s.seed)
+	s.Require().ErrorContains(err, "already exists")
 }
 
 func (s *snapshotSuite) TestRefusesInvalidSnapshotAndNonAncestorRollback() {
@@ -146,6 +160,16 @@ func (s *snapshotSuite) TestRefusesInvalidSnapshotAndNonAncestorRollback() {
 	err = workspace.Rollback(s.ctx, s.store, s.base, "deadbeef")
 	s.Require().Error(err)
 	s.False(errors.Is(err, workspace.ErrStaleBase))
+}
+
+func (s *snapshotSuite) TestRejectsSymlinkWhenSeedingSnapshotStore() {
+	s.Require().NoError(os.Symlink(
+		s.T().TempDir(),
+		filepath.Join(s.seed, "untrusted-link"),
+	))
+	otherStore := filepath.Join(s.T().TempDir(), "other.git")
+	_, err := workspace.InitStore(s.ctx, otherStore, s.seed)
+	s.Require().ErrorContains(err, "unsupported symlink")
 }
 
 func (s *snapshotSuite) writeIndex(root, content string) {

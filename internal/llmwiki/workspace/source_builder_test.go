@@ -131,6 +131,8 @@ func (s *sourceBuilderSuite) TestStableAnchorDoesNotDependOnSlicePosition() {
 func (s *sourceBuilderSuite) TestRejectsInvalidOrOverlappingSlices() {
 	encoded, err := json.Marshal(s.exported)
 	s.Require().NoError(err)
+	_, err = workspace.Build(context.Background(), workspace.BuildConfig{}, workspace.BuildRequest{})
+	s.Require().ErrorContains(err, "root")
 
 	tests := []struct {
 		name    string
@@ -165,4 +167,60 @@ func (s *sourceBuilderSuite) TestRejectsInvalidOrOverlappingSlices() {
 			s.Require().ErrorContains(decodeErr, test.message)
 		})
 	}
+}
+
+func (s *sourceBuilderSuite) TestDefaultPaxmReaderAndAdditionalDecodeFailures() {
+	encoded, err := json.Marshal(s.exported)
+	s.Require().NoError(err)
+	exportPath := filepath.Join(s.T().TempDir(), "export.json")
+	s.Require().NoError(os.WriteFile(exportPath, encoded, 0o600))
+	binary := filepath.Join(s.T().TempDir(), "fake-paxm")
+	script := "#!/bin/sh\n/bin/cat " + exportPath + "\n"
+	s.Require().NoError(os.WriteFile(binary, []byte(script), 0o700))
+
+	result, err := workspace.Build(context.Background(), workspace.BuildConfig{
+		Root: s.root, PaxmBinary: binary,
+	}, workspace.BuildRequest{
+		SessionID: "session-123", TurnStart: 0, TurnEnd: 1,
+	})
+	s.Require().NoError(err)
+	s.Equal(workspace.StableMessageAnchor("turn-a", "user"), result.Source.Anchors[0].ID)
+
+	_, err = workspace.DecodeSessionPart([]byte(`not-json`), workspace.BuildRequest{})
+	s.Require().ErrorContains(err, "decode")
+	wrongSchema := s.exported
+	wrongSchema.SchemaVersion = "wrong"
+	wrongEncoded, marshalErr := json.Marshal(wrongSchema)
+	s.Require().NoError(marshalErr)
+	_, err = workspace.DecodeSessionPart(wrongEncoded, workspace.BuildRequest{
+		SessionID: "session-123", TurnStart: 0, TurnEnd: 1,
+	})
+	s.Require().ErrorContains(err, "unsupported")
+
+	missingTurn := s.exported
+	missingTurn.Turns[0].ID = ""
+	missingEncoded, marshalErr := json.Marshal(missingTurn)
+	s.Require().NoError(marshalErr)
+	_, err = workspace.DecodeSessionPart(missingEncoded, workspace.BuildRequest{
+		SessionID: "session-123", TurnStart: 0, TurnEnd: 1,
+	})
+	s.Require().ErrorContains(err, "without an ID")
+}
+
+func (s *sourceBuilderSuite) TestRejectsOverlappingImportedRanges() {
+	encoded, err := json.Marshal(s.exported)
+	s.Require().NoError(err)
+	reader := func(context.Context, string) ([]byte, error) { return encoded, nil }
+	_, err = workspace.Build(context.Background(), workspace.BuildConfig{
+		Root: s.root, ReadSession: reader,
+	}, workspace.BuildRequest{
+		SessionID: "session-123", TurnStart: 0, TurnEnd: 2,
+	})
+	s.Require().NoError(err)
+	_, err = workspace.Build(context.Background(), workspace.BuildConfig{
+		Root: s.root, ReadSession: reader,
+	}, workspace.BuildRequest{
+		SessionID: "session-123", TurnStart: 1, TurnEnd: 2,
+	})
+	s.Require().ErrorContains(err, "overlaps")
 }

@@ -89,6 +89,33 @@ func (s *viewerSuite) TestRejectsTraversalAndMissingFiles() {
 	recorder := httptest.NewRecorder()
 	s.handler.ServeHTTP(recorder, method)
 	s.Equal(http.StatusMethodNotAllowed, recorder.Code)
+
+	unknown := s.request("/unknown")
+	s.Equal(http.StatusBadRequest, unknown.Code)
+	nonMarkdown := s.request("/wiki/index.txt")
+	s.Equal(http.StatusBadRequest, nonMarkdown.Code)
+
+	headRequest := httptest.NewRequest(http.MethodHead, "/", nil)
+	head := httptest.NewRecorder()
+	s.handler.ServeHTTP(head, headRequest)
+	s.Equal(http.StatusOK, head.Code)
+	s.Empty(head.Body.String())
+}
+
+func (s *viewerSuite) TestRendersListsCodeSubheadingsAndExternalLinksSafely() {
+	s.write(
+		"wiki/pages/architecture.md",
+		"# Architecture\n\n### Details\n\n- One\n- [External](https://example.com)\n\n"+
+			"```go\nif left < right {\n}\n```\n\n<script>alert(1)</script>\n",
+	)
+	page := s.request("/wiki/pages/architecture.md")
+	s.Equal(http.StatusOK, page.Code)
+	s.Contains(page.Body.String(), "<h3>Details</h3>")
+	s.Contains(page.Body.String(), "<ul><li>One</li>")
+	s.Contains(page.Body.String(), `href="https://example.com"`)
+	s.Contains(page.Body.String(), "<pre><code>")
+	s.Contains(page.Body.String(), "&lt;script&gt;")
+	s.NotContains(page.Body.String(), "<script>")
 }
 
 func (s *viewerSuite) request(target string) *httptest.ResponseRecorder {
