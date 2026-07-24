@@ -37,6 +37,11 @@ The shortest complete LoCoMo train world was selected:
 No reader questions, gold answers, generated summaries, or evaluator evidence
 were placed in the maintainer workspace.
 
+The evaluator contains 152 scored questions for this world. Eighty-one have
+all annotated evidence inside phase 1 and can form a phase-1 reader slice
+without relying on unseen later Sessions. Questions and gold must still be
+joined only after maintenance; they must not be merged into the Wiki workspace.
+
 ### Phase 1
 
 `deepseek-v4-pro` produced a valid Wiki:
