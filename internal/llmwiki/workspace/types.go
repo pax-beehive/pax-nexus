@@ -77,9 +77,9 @@ type Manifest struct {
 }
 
 type BuildResult struct {
-	Source       SourceRecord
-	TurnCount    int
-	MessageCount int
+	Source       SourceRecord `json:"source"`
+	TurnCount    int          `json:"turn_count"`
+	MessageCount int          `json:"message_count"`
 }
 
 type ValidationIssue struct {
