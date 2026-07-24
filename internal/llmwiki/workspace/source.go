@@ -337,6 +337,10 @@ func messageAnchor(turnID, role string) string {
 	return "msg-" + hex.EncodeToString(digest[:8])
 }
 
+func StableMessageAnchor(turnID, role string) string {
+	return messageAnchor(turnID, role)
+}
+
 func sanitizeName(value string) string {
 	result := strings.Trim(safeNamePattern.ReplaceAllString(value, "-"), "-.")
 	if result == "" {
