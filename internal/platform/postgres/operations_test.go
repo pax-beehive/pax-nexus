@@ -50,7 +50,7 @@ func (s *operationsStoreSuite) SetupSuite() {
 	s.Require().NoError(store.Migrate(ctx))
 	s.store = store
 	s.operations = store.Operations()
-	s.now = time.Date(2026, time.July, 22, 10, 0, 0, 0, time.UTC)
+	s.now = time.Now().UTC()
 }
 
 func (s *operationsStoreSuite) TearDownSuite() {

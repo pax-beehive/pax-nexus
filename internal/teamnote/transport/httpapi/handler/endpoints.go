@@ -15,35 +15,64 @@ import (
 )
 
 func (h *Handler) ObserveSession(ctx context.Context, c *app.RequestContext) {
-	startedAt := time.Now()
+	startedAt := time.Now().UTC()
+	var principal onprem.Principal
+	if h.credentials != nil {
+		var ok bool
+		var authorizationCode string
+		principal, ok, authorizationCode = h.authorizeAgent(ctx, c, onprem.PermissionObserve)
+		if !ok {
+			h.recordAuthorizationRejection(ctx, principal, operations.KindObservationObserve, startedAt, authorizationCode)
+			return
+		}
+	}
 	var req api.SessionBatch
 	if err := c.BindAndValidate(&req); err != nil {
+		if principal.AgentID != "" {
+			h.recordAgentOperation(ctx, principal, operations.Event{
+				Kind: operations.KindObservationObserve, Outcome: operations.OutcomeRejected,
+				StartedAt: startedAt, ErrorCode: "invalid_request",
+			})
+		}
 		h.logger.WarnContext(ctx, "session batch rejected", "stage", "bind", "error", err)
 		c.String(consts.StatusBadRequest, "invalid session batch")
 		return
 	}
-	scopeID, err := h.resolver.ResolveScope(c)
-	if errors.Is(err, ErrUnauthorized) {
-		h.logger.WarnContext(ctx, "session batch rejected", "stage", "authorize")
-		c.String(consts.StatusUnauthorized, "unauthorized")
-		return
-	}
-	if err != nil {
-		h.logger.ErrorContext(ctx, "resolve session scope failed", "error", err)
-		c.String(consts.StatusInternalServerError, "resolve scope")
-		return
-	}
 	batch, err := sessionBatchToDomain(&req)
 	if err != nil {
+		if principal.AgentID != "" {
+			h.recordAgentOperation(ctx, principal, operations.Event{
+				Kind: operations.KindObservationObserve, Outcome: operations.OutcomeRejected,
+				StartedAt: startedAt, InputItems: int64(len(req.Events)), ErrorCode: "invalid_request",
+			})
+		}
 		h.logger.WarnContext(ctx, "session batch rejected", "stage", "map", "error", err)
 		c.String(consts.StatusBadRequest, "invalid session batch")
 		return
 	}
+	scopeID, ok := h.resolveObserveScope(ctx, c, principal, &batch)
+	if !ok {
+		return
+	}
 	receipt, err := h.runtime.ObserveSession(teamnote.WithScope(ctx, scopeID), batch)
 	if err != nil {
+		if principal.AgentID != "" {
+			outcome, errorCode := operationFailure(err)
+			h.recordAgentOperation(ctx, principal, operations.Event{
+				Kind: operations.KindObservationObserve, Outcome: outcome, StartedAt: startedAt,
+				SessionID: observeSessionID(batch), InputItems: int64(len(batch.Events)), ErrorCode: errorCode,
+			})
+		}
 		h.logger.ErrorContext(ctx, "observe session failed", "scope_id", scopeID, "error", err)
 		c.String(consts.StatusUnprocessableEntity, "observe session")
 		return
+	}
+	if principal.AgentID != "" {
+		h.recordAgentOperation(ctx, principal, operations.Event{
+			Kind: operations.KindObservationObserve, Outcome: operations.OutcomeSucceeded,
+			StartedAt: startedAt, SessionID: observeSessionID(batch), InputItems: int64(len(batch.Events)),
+			AcceptedItems: int64(receipt.Accepted), DuplicateItems: int64(receipt.Duplicate),
+		})
 	}
 	actor := batch.Events[0].Actor
 	h.logger.InfoContext(ctx, "session batch observed",
@@ -52,6 +81,40 @@ func (h *Handler) ObserveSession(ctx context.Context, c *app.RequestContext) {
 		"cursor", receipt.Cursor, "run_id", receipt.RunID, "duration_ms", time.Since(startedAt).Milliseconds(),
 	)
 	c.JSON(consts.StatusOK, ingestReceiptToAPI(receipt))
+}
+
+func (h *Handler) resolveObserveScope(
+	ctx context.Context,
+	c *app.RequestContext,
+	principal onprem.Principal,
+	batch *teamnote.SessionBatch,
+) (string, bool) {
+	if principal.AgentID != "" {
+		for index := range batch.Events {
+			batch.Events[index].Actor.UserID = principal.UserID
+			batch.Events[index].Actor.AgentID = principal.AgentID
+		}
+		return principal.ScopeID, true
+	}
+	scopeID, err := h.resolver.ResolveScope(c)
+	if errors.Is(err, ErrUnauthorized) {
+		h.logger.WarnContext(ctx, "session batch rejected", "stage", "authorize")
+		c.String(consts.StatusUnauthorized, "unauthorized")
+		return "", false
+	}
+	if err != nil {
+		h.logger.ErrorContext(ctx, "resolve session scope failed", "error", err)
+		c.String(consts.StatusInternalServerError, "resolve scope")
+		return "", false
+	}
+	return scopeID, true
+}
+
+func observeSessionID(batch teamnote.SessionBatch) string {
+	if len(batch.Events) == 0 {
+		return ""
+	}
+	return batch.Events[0].Actor.SessionID
 }
 
 func (h *Handler) RecallNotes(ctx context.Context, c *app.RequestContext) {
