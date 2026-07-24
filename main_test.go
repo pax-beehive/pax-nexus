@@ -76,7 +76,7 @@ func (s *configSuite) SetupTest() {
 		"TEAM_MEMORY_EXTRACTION_COMPACT_START_TOKENS",
 		"TEAM_MEMORY_EXTRACTION_COMPACT_TOKENS", "TEAM_MEMORY_EXTRACTION_COMPACTION_ENABLED",
 		"TEAM_MEMORY_EXTRACTION_SUMMARY_ENABLED", "TEAM_MEMORY_EXTRACTION_SUMMARY_TRIGGER_TOKENS",
-		"TEAM_MEMORY_EXTRACTION_SUMMARY_TAIL_TOKENS",
+		"TEAM_MEMORY_EXTRACTION_SUMMARY_TAIL_TOKENS", "TEAM_MEMORY_EXTRACTION_MAX_PROMPT_TOKENS",
 		"TEAM_MEMORY_EXTRACTION_PROVIDER_TIMEOUT", "TEAM_MEMORY_EXTRACTION_PROVIDER_MAX_ATTEMPTS",
 		"TEAM_MEMORY_EXTRACTION_PROVIDER_RETRY_BACKOFF", "TEAM_MEMORY_EXTRACTION_PROVIDER_MAX_RESPONSE_BYTES",
 		"TEAM_MEMORY_EXTRACTION_PRIMARY_MAX_OUTPUT_TOKENS", "TEAM_MEMORY_EXTRACTION_SUMMARY_MAX_OUTPUT_TOKENS",
@@ -113,6 +113,7 @@ func (s *configSuite) TestLoadsNoopConfiguration() {
 	s.Equal(16*1024, config.extractionCompactTokens)
 	s.Equal(8*1024, config.extractionSummaryTriggerTokens)
 	s.Equal(16*1024, config.extractionSummaryTailTokens)
+	s.Equal(128*1024, config.extractionMaxPromptTokens)
 	s.Equal(120*time.Second, config.extractionExecutionPolicy.AttemptTimeout)
 	s.Equal(1, config.extractionExecutionPolicy.MaxAttempts)
 	s.Equal(250*time.Millisecond, config.extractionExecutionPolicy.RetryBackoff)
@@ -332,6 +333,17 @@ func (s *configSuite) TestAllowsExtractionV2OptIn() {
 	s.Equal("v2", config.extractionVersion)
 }
 
+func (s *configSuite) TestOverridesExtractionMaxPromptTokens() {
+	s.T().Setenv("TEAM_MEMORY_DATABASE_URL", "postgres://database")
+	s.T().Setenv("TEAM_MEMORY_API_KEYS", `{"key":"scope"}`)
+	s.T().Setenv("TEAM_MEMORY_EXTRACTOR_MODE", "noop")
+	s.T().Setenv("TEAM_MEMORY_EXTRACTION_MAX_PROMPT_TOKENS", "65536")
+
+	config, err := loadConfig()
+	s.Require().NoError(err)
+	s.Equal(65536, config.extractionMaxPromptTokens)
+}
+
 func (s *configSuite) TestCheckedInExtractionProtocolDefaults() {
 	tests := []struct {
 		path string
@@ -437,6 +449,7 @@ func (s *configSuite) TestRejectsInvalidWorkerConfiguration() {
 		{name: "TEAM_MEMORY_EXTRACTION_SUMMARY_ENABLED", value: "sometimes"},
 		{name: "TEAM_MEMORY_EXTRACTION_SUMMARY_TRIGGER_TOKENS", value: "0"},
 		{name: "TEAM_MEMORY_EXTRACTION_SUMMARY_TAIL_TOKENS", value: "0"},
+		{name: "TEAM_MEMORY_EXTRACTION_MAX_PROMPT_TOKENS", value: "0"},
 		{name: "TEAM_MEMORY_EMBEDDING_TIMEOUT", value: "0s"},
 		{name: "TEAM_MEMORY_SEMANTIC_THRESHOLD", value: "high"},
 		{name: "TEAM_MEMORY_RETRIEVAL_CANDIDATE_LIMIT", value: "0"},

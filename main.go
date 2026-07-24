@@ -217,6 +217,7 @@ type applicationConfig struct {
 	extractionSummaryEnabled       bool
 	extractionSummaryTriggerTokens int
 	extractionSummaryTailTokens    int
+	extractionMaxPromptTokens      int
 	extractionExecutionPolicy      extractor.ExecutionPolicy
 	providerCallObserver           extractor.ProviderCallObserver
 	workerShards                   int
@@ -679,6 +680,14 @@ func loadExtractionConfig(config *applicationConfig) error {
 	if err != nil {
 		return err
 	}
+	if config.extractionMaxPromptTokens, err = intEnvironment("TEAM_MEMORY_EXTRACTION_MAX_PROMPT_TOKENS", 128*1024); err != nil {
+		return err
+	}
+	return loadExtractionExecutionPolicy(config)
+}
+
+func loadExtractionExecutionPolicy(config *applicationConfig) error {
+	var err error
 	policy := &config.extractionExecutionPolicy
 	providerDefaults := extractionbudget.DefaultProviderPolicy()
 	if policy.AttemptTimeout, err = durationEnvironment(
@@ -828,6 +837,7 @@ func buildExtractor(config applicationConfig, stores ...extractor.EpisodeStore) 
 			SummaryEnabled:       config.extractionSummaryEnabled,
 			SummaryTriggerTokens: config.extractionSummaryTriggerTokens,
 			SummaryTailTokens:    config.extractionSummaryTailTokens,
+			MaxPromptTokens:      config.extractionMaxPromptTokens,
 			ExecutionPolicy:      config.extractionExecutionPolicy,
 			ProviderCallObserver: config.providerCallObserver,
 		})
