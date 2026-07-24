@@ -83,6 +83,31 @@ func (s *commandSuite) TestBuildValidateAndRunFailureAudit() {
 	s.Contains(output, `"valid": false`)
 }
 
+func (s *commandSuite) TestBuildsOneAnswerBlindDatasetWorld() {
+	ingest := filepath.Join(s.T().TempDir(), "ingest.jsonl")
+	s.Require().NoError(os.WriteFile(
+		ingest,
+		[]byte(`{"schema_version":"pax-session-dataset/v1","case_id":"world-one","source_kind":"chat-session-history","sessions":[{"session_id":"public-session","occurred_at":"2023/05/20 (Sat) 07:46","turns":[{"role":"user","content":"A public benchmark fact."}]}]}`+"\n"),
+		0o600,
+	))
+	output, err := s.execute(
+		"dataset-build",
+		"--ingest", ingest,
+		"--workspace", s.root,
+		"--case", "world-one",
+		"--start-session", "0",
+		"--end-session", "1",
+	)
+	s.Require().NoError(err)
+	s.Contains(output, `"case_id": "world-one"`)
+	s.Contains(output, `"sessions": 1`)
+	s.FileExists(filepath.Join(
+		s.root,
+		"sources",
+		"public-session-turns-0001-0001.md",
+	))
+}
+
 func (s *commandSuite) TestSnapshotPublishDiffAndRollbackCommands() {
 	_, err := s.execute(
 		"build", "--workspace", s.root, "--session", "cli-session",

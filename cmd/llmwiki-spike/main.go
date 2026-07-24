@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/pax-beehive/pax-nexus/internal/llmwiki/effecteval"
+	"github.com/pax-beehive/pax-nexus/internal/llmwiki/sessiondataset"
 	"github.com/pax-beehive/pax-nexus/internal/llmwiki/workspace"
 )
 
@@ -35,6 +36,8 @@ func execute(ctx context.Context, arguments []string, output io.Writer) error {
 	switch arguments[0] {
 	case "build":
 		return buildCommand(ctx, arguments[1:], output)
+	case "dataset-build":
+		return datasetBuildCommand(ctx, arguments[1:], output)
 	case "init-store":
 		return initStoreCommand(ctx, arguments[1:], output)
 	case "checkout":
@@ -89,6 +92,38 @@ func buildCommand(ctx context.Context, arguments []string, output io.Writer) err
 	}
 	result, err := workspace.Build(ctx, config, workspace.BuildRequest{
 		SessionID: *sessionID, TurnStart: *start, TurnEnd: *end,
+	})
+	if err != nil {
+		return err
+	}
+	return writeJSON(output, result)
+}
+
+func datasetBuildCommand(
+	ctx context.Context,
+	arguments []string,
+	output io.Writer,
+) error {
+	flags := newFlags("dataset-build")
+	ingest := flags.String("ingest", "", "answer-blind maintainer ingest JSONL")
+	root := flags.String("workspace", "", "private workspace path")
+	caseID := flags.String("case", "", "single dataset world/case ID")
+	start := flags.Int("start-session", 0, "zero-based inclusive Session index")
+	end := flags.Int("end-session", 0, "zero-based exclusive Session index")
+	if err := flags.Parse(arguments); err != nil {
+		return err
+	}
+	if err := requireFlags(map[string]string{
+		"ingest": *ingest, "workspace": *root, "case": *caseID,
+	}); err != nil {
+		return err
+	}
+	result, err := sessiondataset.Build(ctx, sessiondataset.Config{
+		IngestPath: *ingest,
+		Root:       *root,
+		CaseID:     *caseID,
+		Start:      *start,
+		End:        *end,
 	})
 	if err != nil {
 		return err
