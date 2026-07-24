@@ -27,7 +27,7 @@ type ToolCall struct {
 
 type ChatMessage struct {
 	Role       string     `json:"role"`
-	Content    string     `json:"content,omitempty"`
+	Content    string     `json:"content"`
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string     `json:"tool_call_id,omitempty"`
 }
@@ -595,12 +595,15 @@ func rejectSymlinkComponents(root, relative string) error {
 
 func agentTools() []ToolDefinition {
 	object := func(properties map[string]any, required ...string) map[string]any {
-		return map[string]any{
+		result := map[string]any{
 			"type":                 "object",
 			"properties":           properties,
-			"required":             required,
 			"additionalProperties": false,
 		}
+		if len(required) > 0 {
+			result["required"] = required
+		}
+		return result
 	}
 	stringProperty := func(description string) map[string]any {
 		return map[string]any{"type": "string", "description": description}
