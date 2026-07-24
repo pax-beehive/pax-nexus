@@ -113,7 +113,11 @@ platform.
 
 ## Verification
 
-- `make lint`: zero issues.
+- The spike packages pass `golangci-lint` with zero issues. An earlier full
+  `make lint` also passed before a separate, gitignored benchmark dashboard was
+  installed in the worktree. The final full invocation scans that dashboard's
+  `node_modules/flatted/golang` and reports three third-party issues; those
+  ignored user files were not modified or removed.
 - New-package coverage:
   - `internal/llmwiki/workspace`: 80.0%
   - `internal/llmwiki/effecteval`: 82.9%
@@ -123,4 +127,3 @@ platform.
 - The existing `make integration-test` target does not honor the overridden
   PostgreSQL port because its shell expression is single-quoted; the equivalent
   explicit package command passed against the isolated database.
-
