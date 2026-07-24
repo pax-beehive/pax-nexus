@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -31,6 +32,7 @@ func Validate(root string) ValidationReport {
 	sourceAnchors := validateSources(root, manifest, &report)
 	pages, links := validateWikiLinks(root, sourceAnchors, &report)
 	validateReachability(pages, links, &report)
+	validateGitChangeBudget(root, &report)
 	report.Valid = len(report.Errors) == 0
 	return report
 }
@@ -316,6 +318,76 @@ func validateReachability(
 	sort.Strings(orphans)
 	for _, orphan := range orphans {
 		report.add(orphan, "is not reachable from wiki/index.md")
+	}
+}
+
+func validateGitChangeBudget(root string, report *ValidationReport) {
+	if _, err := os.Stat(filepath.Join(root, ".git")); errors.Is(err, os.ErrNotExist) {
+		return
+	} else if err != nil {
+		report.add(".git", fmt.Sprintf("inspect Git workspace: %v", err))
+		return
+	}
+	output, err := runGit(
+		context.Background(),
+		root,
+		"ls-tree",
+		"-r",
+		"--name-only",
+		"HEAD",
+		"--",
+		"wiki/pages",
+		"wiki/topics",
+	)
+	if err != nil {
+		report.add(".git", fmt.Sprintf("inspect base Wiki pages: %v", err))
+		return
+	}
+	var tracked []string
+	if strings.TrimSpace(output) != "" {
+		tracked = strings.Split(output, "\n")
+	}
+	deleted := 0
+	for _, relative := range tracked {
+		base, showErr := runGit(
+			context.Background(),
+			root,
+			"show",
+			"HEAD:"+relative,
+		)
+		if showErr != nil {
+			report.add(relative, fmt.Sprintf("read base Wiki page: %v", showErr))
+			continue
+		}
+		current, readErr := os.ReadFile(filepath.Join(root, filepath.FromSlash(relative)))
+		if errors.Is(readErr, os.ErrNotExist) {
+			deleted++
+			continue
+		}
+		if readErr != nil {
+			report.add(relative, fmt.Sprintf("read current Wiki page: %v", readErr))
+			continue
+		}
+		if len(base) >= 256 && len(current)*3 < len(base) {
+			report.add(
+				relative,
+				fmt.Sprintf(
+					"destructive page shrink from %d to %d bytes requires explicit approval",
+					len(base),
+					len(current),
+				),
+			)
+		}
+	}
+	if deleted >= 2 && deleted*4 >= len(tracked) {
+		report.add(
+			"wiki",
+			fmt.Sprintf(
+				"bulk deletion of %d/%d existing major pages requires explicit approval",
+				deleted,
+				len(tracked),
+			),
+		)
 	}
 }
 

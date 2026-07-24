@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/pax-beehive/pax-nexus/internal/llmwiki/workspace"
@@ -106,6 +107,57 @@ func (s *validatorSuite) TestRejectsMalformedCitationSyntaxAndAnchorPunctuation(
 	s.False(report.Valid)
 	s.Contains(report.String(), "malformed source citation")
 	s.Contains(report.String(), "malformed source citation anchor")
+}
+
+func (s *validatorSuite) TestRejectsDestructiveShrinkAgainstGitBase() {
+	s.writeWiki("index.md", "# Wiki\n\n- [Profile](pages/profile.md)\n")
+	s.writeWiki(
+		"pages/profile.md",
+		"# Profile\n\n"+strings.Repeat(
+			"Durable, cited knowledge that must not be silently discarded. ",
+			12,
+		)+"\n",
+	)
+	store := filepath.Join(s.T().TempDir(), "wiki.git")
+	_, err := workspace.InitStore(context.Background(), store, s.root)
+	s.Require().NoError(err)
+	checkout := filepath.Join(s.T().TempDir(), "checkout")
+	s.Require().NoError(workspace.Checkout(context.Background(), store, checkout))
+	s.T().Cleanup(func() {
+		s.Require().NoError(os.Chmod(filepath.Join(checkout, "sources"), 0o755))
+	})
+	s.Require().NoError(os.WriteFile(
+		filepath.Join(checkout, "wiki/pages/profile.md"),
+		[]byte("# Profile test\n\nTest.\n"),
+		0o644,
+	))
+
+	report := workspace.Validate(checkout)
+	s.False(report.Valid)
+	s.Contains(report.String(), "destructive page shrink")
+}
+
+func (s *validatorSuite) TestRejectsBulkDeletionAgainstGitBase() {
+	s.writeWiki(
+		"index.md",
+		"# Wiki\n\n- [One](pages/one.md)\n- [Two](pages/two.md)\n",
+	)
+	s.writeWiki("pages/one.md", "# One\n\nDurable page one.\n")
+	s.writeWiki("pages/two.md", "# Two\n\nDurable page two.\n")
+	store := filepath.Join(s.T().TempDir(), "wiki.git")
+	_, err := workspace.InitStore(context.Background(), store, s.root)
+	s.Require().NoError(err)
+	checkout := filepath.Join(s.T().TempDir(), "checkout")
+	s.Require().NoError(workspace.Checkout(context.Background(), store, checkout))
+	s.T().Cleanup(func() {
+		s.Require().NoError(os.Chmod(filepath.Join(checkout, "sources"), 0o755))
+	})
+	s.Require().NoError(os.Remove(filepath.Join(checkout, "wiki/pages/one.md")))
+	s.Require().NoError(os.Remove(filepath.Join(checkout, "wiki/pages/two.md")))
+
+	report := workspace.Validate(checkout)
+	s.False(report.Valid)
+	s.Contains(report.String(), "bulk deletion")
 }
 
 func (s *validatorSuite) writeWiki(relative, content string) {
