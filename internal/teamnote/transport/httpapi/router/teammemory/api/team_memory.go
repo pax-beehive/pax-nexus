@@ -71,6 +71,7 @@ func Register(r *server.Hertz) {
 			}
 			{
 				_operations := _admin.Group("/operations", _operationsMw()...)
+				_operations.GET("/agents", append(_listoperationsagentstatsMw(), handler.ListOperationsAgentStats)...)
 				_operations.GET("/events", append(_listoperationeventsMw(), handler.ListOperationEvents)...)
 				_operations.GET("/storage", append(_getoperationsstorageMw(), handler.GetOperationsStorage)...)
 				_operations.GET("/summary", append(_getoperationssummaryMw(), handler.GetOperationsSummary)...)

@@ -78,6 +78,19 @@ func (s *operationsHandlerSuite) TestAdminReadsAllOperationsViewsThroughGenerate
 	history := s.perform(http.MethodGet, "/v1/admin/operations/storage/history?limit=1")
 	s.Equal(consts.StatusOK, history.Code)
 	s.Contains(history.Body.String(), `"next_cursor":`)
+
+	agents := s.perform(http.MethodGet,
+		"/v1/admin/operations/agents?from=2026-07-22T10:00:00Z&to=2026-07-22T12:00:00Z")
+	s.Equal(consts.StatusOK, agents.Code)
+	s.Contains(agents.Body.String(), `"agent_id":"agent-1"`)
+	s.Contains(agents.Body.String(), `"display_name":"Codex"`)
+	s.Contains(agents.Body.String(), `"recall_empty":1`)
+	s.Contains(agents.Body.String(), `"channel_received_accepted":1`)
+	s.Contains(agents.Body.String(), `"note_id":"note-1","kind":"fact","subject":"release plan"`)
+	s.Contains(agents.Body.String(), `"last_active_at":`)
+	s.Contains(agents.Body.String(), `"from_time":"2026-07-22T10:00:00Z"`)
+	s.Contains(agents.Body.String(), `"generated_at":`)
+	s.Equal(time.Date(2026, time.July, 22, 10, 0, 0, 0, time.UTC), s.operations.agentFilter.From)
 }
 
 func (s *operationsHandlerSuite) TestExpiredRecallDiagnosticUsesStableGoneResponse() {
@@ -98,6 +111,7 @@ func (s *operationsHandlerSuite) TestOperationsRoutesValidateFiltersAndRole() {
 		path string
 	}{
 		{name: "invalid time", path: "/v1/admin/operations/summary?from=tomorrow"},
+		{name: "invalid agent stats time", path: "/v1/admin/operations/agents?to=yesterday"},
 		{name: "unknown kind", path: "/v1/admin/operations/events?operation_kind=memory.erase"},
 		{name: "unknown outcome", path: "/v1/admin/operations/events?outcome=partial"},
 		{name: "invalid limit", path: "/v1/admin/operations/storage/history?limit=101"},
@@ -138,6 +152,7 @@ type operationsLifecycle struct {
 	now           time.Time
 	summaryFilter operations.TimeFilter
 	eventFilter   operations.EventFilter
+	agentFilter   operations.TimeFilter
 	recallErr     error
 }
 
@@ -217,6 +232,31 @@ func (s *operationsLifecycle) ListStorage(
 	}
 	return []operations.StorageSnapshot{
 		operationsTestStorage(7, s.now), operationsTestStorage(6, s.now.Add(-time.Hour)),
+	}, nil
+}
+
+func (s *operationsLifecycle) AgentStats(
+	_ context.Context,
+	principal onprem.HumanPrincipal,
+	filter operations.TimeFilter,
+) (operations.AgentStatsReport, error) {
+	if !operationsRoleAllowed(principal) {
+		return operations.AgentStatsReport{}, onprem.ErrForbidden
+	}
+	s.agentFilter = filter
+	lastActive := s.now.Add(-time.Minute)
+	return operations.AgentStatsReport{
+		From: filter.From, To: filter.To, GeneratedAt: s.now,
+		Agents: []operations.AgentStats{{
+			AgentID: "agent-1", DisplayName: "Codex", ObservationRequests: 2, EventsWritten: 3,
+			ExtractionRuns: 1, ExtractionInputTokens: 10, ExtractionOutputTokens: 4,
+			RecallRequests: 5, RecallDeliveredItems: 2, RecallEmpty: 1,
+			ChannelSent: 1, ChannelReceivedAccepted: 1, NotesAuthored: 2,
+			RecentNotes: []operations.AgentRecentNote{{
+				NoteID: "note-1", Kind: "fact", Subject: "release plan", CreatedAt: s.now,
+			}},
+			LastActiveAt: &lastActive,
+		}},
 	}, nil
 }
 

@@ -742,3 +742,82 @@ total 和原始 component 名称，同时提示版本不匹配。
 - Recall drawer 仅展示安全 projection，不补查正文。
 - Operations response 不进入 localStorage、URL、埋点、console 或错误上报附件。
 - 前端测试覆盖权限、分页、轮询取消、样本不足、过期诊断和 partial storage。
+
+## 14. Per-agent activity 接口（Team Pulse）
+
+`GET /v1/admin/operations/agents` 是只读聚合端点，按 agent 分组返回窗口内的活动统计，
+供 Team Pulse 页面一次拉取全部 agent 卡片数据，避免逐 agent 调用 summary。
+
+```http
+GET /v1/admin/operations/agents?from=2026-07-22T10:00:00Z&to=2026-07-22T12:00:00Z
+```
+
+- `from`/`to` 均可选，RFC3339；默认窗口为最近 24 小时，最大窗口等于事件保留期
+  （默认 7 天），校验失败返回 400 `invalid_request`。本接口没有 `agent_id` 过滤参数；
+  页面在前端按 `agent_id` 定位卡片。
+- 授权与 Operations 其他端点一致：需要 `view.operations` capability（Owner/Admin），
+  Member 得到 403 `forbidden`，agent credential 得到 401。
+- 窗口内出现过 operation event、或窗口内产出过 Team Note 的 agent 才会出现在
+  `agents[]`；从未活动的 agent 不返回。结果按 `agent_id` 字典序排列，无分页。
+
+示例响应：
+
+```json
+{
+  "agents": [
+    {
+      "agent_id": "agent-1",
+      "display_name": "Codex Agent",
+      "observation_requests": 4,
+      "events_written": 12,
+      "extraction_runs": 2,
+      "extraction_input_tokens": 18300,
+      "extraction_output_tokens": 2400,
+      "recall_requests": 9,
+      "recall_delivered_items": 6,
+      "recall_empty": 2,
+      "channel_sent": 1,
+      "channel_received_accepted": 3,
+      "notes_authored": 5,
+      "recent_notes": [
+        {
+          "note_id": "note-42",
+          "kind": "decision",
+          "subject": "发布窗口改到周四",
+          "created_at": "2026-07-22T11:58:00Z"
+        }
+      ],
+      "last_active_at": "2026-07-22T11:59:30Z"
+    }
+  ],
+  "from_time": "2026-07-22T10:00:00Z",
+  "to_time": "2026-07-22T12:00:00Z",
+  "generated_at": "2026-07-22T12:00:01Z"
+}
+```
+
+字段语义（前端按原义展示，不重新命名）：
+
+- `observation_requests` / `events_written`：该 agent 的 `observation.observe` 次数与
+  实际写入事件数（accepted，不含幂等 duplicate）。
+- `extraction_runs` 与 `extraction_input_tokens` / `extraction_output_tokens`：来自
+  `extraction.run` 事件，token 为零值时显示 `0`，不误判为"未运行"。
+- `recall_requests` 统计 `memory.search | memory.get | team_note.recall` 外部调用；
+  `recall_delivered_items` 只统计 `memory.search` 和 `team_note.recall` 的 delivered；
+  `recall_empty` 是成功但零结果的 recall，与 failed 含义不同，不能用同一种颜色。
+- `channel_sent` / `channel_received_accepted`：仅统计 `succeeded` 的 `channel.send`
+  和 `channel.accept`；rejected/failed 不计入。
+- `notes_authored`：窗口内以该 agent 为 origin 的 Team Note 数。
+- `recent_notes`：该 agent 最新的 5 条 note（`note_id`/`kind`/`subject`/`created_at`），
+  按 `created_at` 倒序；不受窗口限制，窗口内无新 note 时仍展示历史产出。`subject`
+  是 note 标题，可直接展示；本接口不返回 note body。
+- `display_name` 来自 agent registry；agent 未注册或已删除时为空字符串，UI 回退展示
+  raw `agent_id`。
+- `last_active_at` 是窗口内该 agent 最后一个 operation event 的 `started_at`；窗口内
+  无事件时字段缺失，卡片显示静止态，不能显示 `0` 或 NaN。
+- `agents[]` 为空数组是健康空态（尚无 agent 活动），应展示引导文案（前往 Agents 页
+  注册并接入 agent），不是错误。
+
+轮询约定：与 Operations 其他视图一致，页面按 10s 轮询本端点即可；轮询必须可取消、
+不重叠、页面 hidden 时暂停；响应只留在 React 内存，不进入 URL、localStorage、
+console 或埋点。

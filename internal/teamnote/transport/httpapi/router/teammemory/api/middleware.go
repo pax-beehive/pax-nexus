@@ -435,3 +435,8 @@ func _listoperationsstoragehistoryMw() []app.HandlerFunc {
 	// your code...
 	return nil
 }
+
+func _listoperationsagentstatsMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}

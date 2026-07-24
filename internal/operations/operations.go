@@ -268,6 +268,38 @@ type StorageFilter struct {
 	Cursor string
 }
 
+type AgentRecentNote struct {
+	NoteID    string
+	Kind      string
+	Subject   string
+	CreatedAt time.Time
+}
+
+type AgentStats struct {
+	AgentID                 string
+	DisplayName             string
+	ObservationRequests     int64
+	EventsWritten           int64
+	ExtractionRuns          int64
+	ExtractionInputTokens   int64
+	ExtractionOutputTokens  int64
+	RecallRequests          int64
+	RecallDeliveredItems    int64
+	RecallEmpty             int64
+	ChannelSent             int64
+	ChannelReceivedAccepted int64
+	NotesAuthored           int64
+	RecentNotes             []AgentRecentNote
+	LastActiveAt            *time.Time
+}
+
+type AgentStatsReport struct {
+	From        time.Time
+	To          time.Time
+	GeneratedAt time.Time
+	Agents      []AgentStats
+}
+
 type Repository interface {
 	Record(context.Context, Event) (Event, error)
 	Summary(context.Context, TimeFilter, time.Time) (Summary, error)
@@ -276,6 +308,7 @@ type Repository interface {
 	CaptureStorage(context.Context, time.Time) (StorageSnapshot, error)
 	LatestStorage(context.Context) (StorageSnapshot, error)
 	ListStorage(context.Context, StorageFilter) ([]StorageSnapshot, error)
+	AgentStats(context.Context, TimeFilter) ([]AgentStats, error)
 	DeleteBefore(context.Context, time.Time, time.Time) (int64, int64, error)
 }
 

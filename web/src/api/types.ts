@@ -234,6 +234,41 @@ export interface StorageComponent {
   newest_at?: string;
 }
 
+/** A note summary inside OperationsAgentStats.recent_notes (max 5 per agent). */
+export interface OperationsAgentNote {
+  note_id: string;
+  kind: string;
+  subject: string;
+  created_at: string;
+}
+
+/** Per-agent activity aggregate from GET /v1/admin/operations/agents. */
+export interface OperationsAgentStats {
+  agent_id: string;
+  display_name: string;
+  observation_requests: number;
+  events_written: number;
+  extraction_runs: number;
+  extraction_input_tokens: number;
+  extraction_output_tokens: number;
+  recall_requests: number;
+  recall_delivered_items: number;
+  recall_empty: number;
+  channel_sent: number;
+  channel_received_accepted: number;
+  notes_authored: number;
+  recent_notes: OperationsAgentNote[];
+  /** RFC3339; empty string when the agent has no recorded activity. */
+  last_active_at: string;
+}
+
+export interface OperationsAgentStatsResponse {
+  agents: OperationsAgentStats[];
+  from_time: string;
+  to_time: string;
+  generated_at: string;
+}
+
 export interface OperationsStorageSnapshot {
   snapshot_id: number;
   schema_version: number;

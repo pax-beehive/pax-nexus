@@ -68,6 +68,24 @@ func (h *Handler) GetRecallDiagnostic(ctx context.Context, c *app.RequestContext
 	c.JSON(consts.StatusOK, &api.RecallDiagnosticResponse{Recall: recallDiagnosticToAPI(diagnostic)})
 }
 
+func (h *Handler) ListOperationsAgentStats(ctx context.Context, c *app.RequestContext) {
+	principal, ok := h.authorizeOperations(ctx, c)
+	if !ok {
+		return
+	}
+	filter, err := operationsTimeFilter(c.Query("from"), c.Query("to"), "")
+	if err != nil {
+		h.writeOperationsError(c, "list operations agent stats", err)
+		return
+	}
+	report, err := h.operations.AgentStats(ctx, principal, filter)
+	if err != nil {
+		h.writeOperationsError(c, "list operations agent stats", err)
+		return
+	}
+	c.JSON(consts.StatusOK, agentStatsReportToAPI(report))
+}
+
 func (h *Handler) GetOperationsStorage(ctx context.Context, c *app.RequestContext) {
 	principal, ok := h.authorizeOperations(ctx, c)
 	if !ok {
@@ -278,6 +296,41 @@ func recallDiagnosticToAPI(diagnostic operations.RecallDiagnostic) *api.RecallDi
 		RejectionCounts:       nonNilOperationsMap(diagnostic.RejectionCounts),
 		BudgetDropCounts:      nonNilOperationsMap(diagnostic.BudgetDropCounts),
 		HardGateFailureCounts: nonNilOperationsMap(diagnostic.HardGateFailureCounts),
+	}
+}
+
+func agentStatsReportToAPI(report operations.AgentStatsReport) *api.OperationsAgentStatsResponse {
+	response := &api.OperationsAgentStatsResponse{
+		Agents:      make([]*api.OperationsAgentStats, 0, len(report.Agents)),
+		FromTime:    report.From.Format(time.RFC3339Nano),
+		ToTime:      report.To.Format(time.RFC3339Nano),
+		GeneratedAt: report.GeneratedAt.Format(time.RFC3339Nano),
+	}
+	for _, stats := range report.Agents {
+		response.Agents = append(response.Agents, agentStatsToAPI(stats))
+	}
+	return response
+}
+
+func agentStatsToAPI(stats operations.AgentStats) *api.OperationsAgentStats {
+	recentNotes := make([]*api.OperationsAgentRecentNote, 0, len(stats.RecentNotes))
+	for _, note := range stats.RecentNotes {
+		recentNotes = append(recentNotes, &api.OperationsAgentRecentNote{
+			NoteID: note.NoteID, Kind: note.Kind, Subject: note.Subject,
+			CreatedAt: note.CreatedAt.Format(time.RFC3339Nano),
+		})
+	}
+	return &api.OperationsAgentStats{
+		AgentID: stats.AgentID, DisplayName: stats.DisplayName,
+		ObservationRequests: stats.ObservationRequests, EventsWritten: stats.EventsWritten,
+		ExtractionRuns:         stats.ExtractionRuns,
+		ExtractionInputTokens:  stats.ExtractionInputTokens,
+		ExtractionOutputTokens: stats.ExtractionOutputTokens,
+		RecallRequests:         stats.RecallRequests,
+		RecallDeliveredItems:   stats.RecallDeliveredItems, RecallEmpty: stats.RecallEmpty,
+		ChannelSent: stats.ChannelSent, ChannelReceivedAccepted: stats.ChannelReceivedAccepted,
+		NotesAuthored: stats.NotesAuthored, RecentNotes: recentNotes,
+		LastActiveAt: optionalOperationsTimeString(stats.LastActiveAt),
 	}
 }
 

@@ -167,6 +167,142 @@ SELECT
 	return nil
 }
 
+func (s *OperationsStore) AgentStats(
+	ctx context.Context,
+	filter operations.TimeFilter,
+) ([]operations.AgentStats, error) {
+	stats, err := s.scanAgentStats(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.attachAgentRecentNotes(ctx, stats); err != nil {
+		return nil, err
+	}
+	return stats, nil
+}
+
+func (s *OperationsStore) scanAgentStats(
+	ctx context.Context,
+	filter operations.TimeFilter,
+) ([]operations.AgentStats, error) {
+	rows, err := s.pool.Query(ctx, `
+WITH event_stats AS (
+    SELECT
+        actor_agent_id AS agent_id,
+        count(*) FILTER (WHERE operation_kind = 'observation.observe') AS observation_requests,
+        COALESCE(sum(accepted_items) FILTER (WHERE operation_kind = 'observation.observe'), 0) AS events_written,
+        count(*) FILTER (WHERE operation_kind = 'extraction.run') AS extraction_runs,
+        COALESCE(sum(input_tokens) FILTER (WHERE operation_kind = 'extraction.run'), 0) AS extraction_input_tokens,
+        COALESCE(sum(output_tokens) FILTER (WHERE operation_kind = 'extraction.run'), 0) AS extraction_output_tokens,
+        count(*) FILTER (WHERE operation_kind IN ('memory.search', 'memory.get', 'team_note.recall')) AS recall_requests,
+        COALESCE(sum(delivered_items) FILTER (WHERE operation_kind IN ('memory.search', 'team_note.recall')), 0) AS recall_delivered_items,
+        count(*) FILTER (WHERE operation_kind IN ('memory.search', 'team_note.recall')
+                          AND outcome = 'succeeded' AND result_items = 0 AND delivered_items = 0) AS recall_empty,
+        count(*) FILTER (WHERE operation_kind = 'channel.send' AND outcome = 'succeeded') AS channel_sent,
+        count(*) FILTER (WHERE operation_kind = 'channel.accept' AND outcome = 'succeeded') AS channel_received_accepted,
+        max(started_at) AS last_active_at
+    FROM onprem_operation_events
+    WHERE started_at >= $1 AND started_at < $2
+      AND actor_agent_id IS NOT NULL AND actor_agent_id <> ''
+    GROUP BY actor_agent_id
+),
+note_stats AS (
+    SELECT origin_agent_id AS agent_id, count(*) AS notes_authored
+    FROM team_notes
+    WHERE created_at >= $1 AND created_at < $2 AND origin_agent_id <> ''
+    GROUP BY origin_agent_id
+),
+agent_ids AS (
+    SELECT agent_id FROM event_stats
+    UNION
+    SELECT agent_id FROM note_stats
+)
+SELECT
+    ids.agent_id,
+    COALESCE(agents.display_name, ''),
+    COALESCE(events.observation_requests, 0),
+    COALESCE(events.events_written, 0),
+    COALESCE(events.extraction_runs, 0),
+    COALESCE(events.extraction_input_tokens, 0),
+    COALESCE(events.extraction_output_tokens, 0),
+    COALESCE(events.recall_requests, 0),
+    COALESCE(events.recall_delivered_items, 0),
+    COALESCE(events.recall_empty, 0),
+    COALESCE(events.channel_sent, 0),
+    COALESCE(events.channel_received_accepted, 0),
+    COALESCE(notes.notes_authored, 0),
+    events.last_active_at
+FROM agent_ids ids
+LEFT JOIN onprem_agents agents ON agents.agent_id = ids.agent_id
+LEFT JOIN event_stats events ON events.agent_id = ids.agent_id
+LEFT JOIN note_stats notes ON notes.agent_id = ids.agent_id
+ORDER BY ids.agent_id`, filter.From, filter.To)
+	if err != nil {
+		return nil, fmt.Errorf("list postgres agent stats: %w", err)
+	}
+	defer rows.Close()
+	result := make([]operations.AgentStats, 0)
+	for rows.Next() {
+		var stats operations.AgentStats
+		if err := rows.Scan(
+			&stats.AgentID, &stats.DisplayName, &stats.ObservationRequests, &stats.EventsWritten,
+			&stats.ExtractionRuns, &stats.ExtractionInputTokens, &stats.ExtractionOutputTokens,
+			&stats.RecallRequests, &stats.RecallDeliveredItems, &stats.RecallEmpty,
+			&stats.ChannelSent, &stats.ChannelReceivedAccepted, &stats.NotesAuthored,
+			&stats.LastActiveAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan postgres agent stats: %w", err)
+		}
+		result = append(result, stats)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate postgres agent stats: %w", err)
+	}
+	return result, nil
+}
+
+func (s *OperationsStore) attachAgentRecentNotes(
+	ctx context.Context,
+	stats []operations.AgentStats,
+) error {
+	if len(stats) == 0 {
+		return nil
+	}
+	rows, err := s.pool.Query(ctx, `
+SELECT agent_id, note_id, kind, subject, created_at
+FROM (
+    SELECT origin_agent_id AS agent_id, note_id, kind, subject, created_at,
+           row_number() OVER (PARTITION BY origin_agent_id ORDER BY created_at DESC, note_id DESC) AS position
+    FROM team_notes
+    WHERE origin_agent_id <> ''
+) ranked
+WHERE position <= 5
+ORDER BY agent_id, created_at DESC, note_id DESC`)
+	if err != nil {
+		return fmt.Errorf("list postgres agent recent notes: %w", err)
+	}
+	defer rows.Close()
+	recentByAgent := make(map[string][]operations.AgentRecentNote, len(stats))
+	for rows.Next() {
+		var agentID string
+		var note operations.AgentRecentNote
+		if err := rows.Scan(&agentID, &note.NoteID, &note.Kind, &note.Subject, &note.CreatedAt); err != nil {
+			return fmt.Errorf("scan postgres agent recent note: %w", err)
+		}
+		recentByAgent[agentID] = append(recentByAgent[agentID], note)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate postgres agent recent notes: %w", err)
+	}
+	for index := range stats {
+		stats[index].RecentNotes = recentByAgent[stats[index].AgentID]
+		if stats[index].RecentNotes == nil {
+			stats[index].RecentNotes = []operations.AgentRecentNote{}
+		}
+	}
+	return nil
+}
+
 func (s *OperationsStore) ListEvents(
 	ctx context.Context,
 	filter operations.EventFilter,

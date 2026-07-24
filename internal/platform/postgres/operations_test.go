@@ -311,6 +311,149 @@ func (s *operationsStoreSuite) TestStorageSnapshotPersistsPartialResultAfterComp
 	s.Equal(snapshot.SnapshotID, latest.SnapshotID)
 }
 
+func (s *operationsStoreSuite) TestAgentStatsAggregatesEventsNotesAndIdentity() {
+	ctx := context.Background()
+	agentID := uniqueCredentialValue("stats-agent")
+	userID := uniqueCredentialValue("stats-user")
+	membershipID := uniqueCredentialValue("stats-membership")
+	_, err := s.store.Pool().Exec(ctx, `
+INSERT INTO onprem_users (user_id, display_name, identity_status, created_at, updated_at)
+VALUES ($1, 'Stats Owner', 'active', $2, $2)`, userID, s.now)
+	s.Require().NoError(err)
+	_, err = s.store.Pool().Exec(ctx, `
+INSERT INTO onprem_memberships (membership_id, user_id, role, status, joined_at, updated_at)
+VALUES ($1, $2, 'owner', 'active', $3, $3)`, membershipID, userID, s.now)
+	s.Require().NoError(err)
+	_, err = s.store.Pool().Exec(ctx, `
+INSERT INTO onprem_agents (agent_id, owner_membership_id, display_name, agent_type, status, created_at, updated_at)
+VALUES ($1, $2, 'Codex Agent', 'codex', 'active', $3, $3)`, agentID, membershipID, s.now)
+	s.Require().NoError(err)
+
+	inputTokens, outputTokens := int64(120), int64(45)
+	s.recordEvent(operations.Event{
+		AttemptID: uniqueCredentialValue("stats-observe"), Kind: operations.KindObservationObserve,
+		Outcome: operations.OutcomeSucceeded, Actor: operations.Actor{Kind: "agent", AgentID: agentID},
+		StartedAt: s.now, CompletedAt: s.now, InputItems: 2, AcceptedItems: 2,
+	})
+	s.recordEvent(operations.Event{
+		AttemptID: uniqueCredentialValue("stats-search"), Kind: operations.KindMemorySearch,
+		Outcome: operations.OutcomeSucceeded, Actor: operations.Actor{Kind: "agent", AgentID: agentID},
+		StartedAt: s.now.Add(time.Minute), CompletedAt: s.now.Add(time.Minute),
+		ResultItems: 2, DeliveredItems: 1,
+	})
+	s.recordEvent(operations.Event{
+		AttemptID: uniqueCredentialValue("stats-empty-recall"), Kind: operations.KindTeamNoteRecall,
+		Outcome: operations.OutcomeSucceeded, Actor: operations.Actor{Kind: "agent", AgentID: agentID},
+		StartedAt: s.now.Add(2 * time.Minute), CompletedAt: s.now.Add(2 * time.Minute),
+	})
+	s.recordEvent(operations.Event{
+		AttemptID: uniqueCredentialValue("stats-extraction"), Kind: operations.KindExtractionRun,
+		Outcome: operations.OutcomeSucceeded, Actor: operations.Actor{Kind: "agent", AgentID: agentID},
+		StartedAt: s.now.Add(3 * time.Minute), CompletedAt: s.now.Add(3 * time.Minute),
+		InputTokens: &inputTokens, OutputTokens: &outputTokens,
+	})
+	s.recordEvent(operations.Event{
+		AttemptID: uniqueCredentialValue("stats-send"), Kind: operations.KindChannelSend,
+		Outcome: operations.OutcomeSucceeded, Actor: operations.Actor{Kind: "agent", AgentID: agentID},
+		StartedAt: s.now.Add(4 * time.Minute), CompletedAt: s.now.Add(4 * time.Minute),
+	})
+	s.recordEvent(operations.Event{
+		AttemptID: uniqueCredentialValue("stats-accept"), Kind: operations.KindChannelAccept,
+		Outcome: operations.OutcomeSucceeded, Actor: operations.Actor{Kind: "agent", AgentID: agentID},
+		StartedAt: s.now.Add(5 * time.Minute), CompletedAt: s.now.Add(5 * time.Minute),
+	})
+	s.recordEvent(operations.Event{
+		AttemptID: uniqueCredentialValue("stats-rejected-send"), Kind: operations.KindChannelSend,
+		Outcome: operations.OutcomeRejected, Actor: operations.Actor{Kind: "agent", AgentID: agentID},
+		StartedAt: s.now.Add(6 * time.Minute), CompletedAt: s.now.Add(6 * time.Minute),
+	})
+	s.recordEvent(operations.Event{
+		AttemptID: uniqueCredentialValue("stats-other"), Kind: operations.KindObservationObserve,
+		Outcome: operations.OutcomeSucceeded, Actor: operations.Actor{Kind: "agent", AgentID: "stats-outside-agent"},
+		StartedAt: s.now.Add(time.Minute), CompletedAt: s.now.Add(time.Minute), InputItems: 9, AcceptedItems: 9,
+	})
+	s.recordEvent(operations.Event{
+		AttemptID: uniqueCredentialValue("stats-stale"), Kind: operations.KindObservationObserve,
+		Outcome: operations.OutcomeSucceeded, Actor: operations.Actor{Kind: "agent", AgentID: agentID},
+		StartedAt: s.now.Add(-2 * time.Hour), CompletedAt: s.now.Add(-2 * time.Hour),
+		InputItems: 7, AcceptedItems: 7,
+	})
+
+	scope := uniqueScope("operations-stats")
+	for index := 0; index < 7; index++ {
+		s.insertStatsNote(scope, fmt.Sprintf("%s-note-%d", agentID, index), agentID,
+			fmt.Sprintf("stats subject %d", index), s.now.Add(time.Duration(index)*time.Minute))
+	}
+	s.insertStatsNote(scope, agentID+"-old-note", agentID, "old subject", s.now.Add(-2*time.Hour))
+
+	stats, err := s.operations.AgentStats(ctx, operations.TimeFilter{
+		From: s.now.Add(-time.Hour), To: s.now.Add(time.Hour),
+	})
+	s.Require().NoError(err)
+	byAgent := make(map[string]operations.AgentStats)
+	for _, entry := range stats {
+		byAgent[entry.AgentID] = entry
+	}
+	s.Contains(byAgent, "stats-outside-agent")
+	agent, ok := byAgent[agentID]
+	s.Require().True(ok)
+	s.Equal("Codex Agent", agent.DisplayName)
+	s.Equal(int64(1), agent.ObservationRequests)
+	s.Equal(int64(2), agent.EventsWritten)
+	s.Equal(int64(1), agent.ExtractionRuns)
+	s.Equal(int64(120), agent.ExtractionInputTokens)
+	s.Equal(int64(45), agent.ExtractionOutputTokens)
+	s.Equal(int64(2), agent.RecallRequests)
+	s.Equal(int64(1), agent.RecallDeliveredItems)
+	s.Equal(int64(1), agent.RecallEmpty)
+	s.Equal(int64(1), agent.ChannelSent)
+	s.Equal(int64(1), agent.ChannelReceivedAccepted)
+	s.Equal(int64(7), agent.NotesAuthored)
+	s.Require().NotNil(agent.LastActiveAt)
+	s.Equal(s.now.Add(6*time.Minute), agent.LastActiveAt.UTC())
+	s.Require().Len(agent.RecentNotes, 5)
+	s.Equal(agentID+"-note-6", agent.RecentNotes[0].NoteID)
+	s.Equal("fact", agent.RecentNotes[0].Kind)
+	s.Equal("stats subject 6", agent.RecentNotes[0].Subject)
+	s.Equal(s.now.Add(6*time.Minute), agent.RecentNotes[0].CreatedAt.UTC())
+	s.NotEqual(agentID+"-old-note", agent.RecentNotes[4].NoteID)
+
+	outside := byAgent["stats-outside-agent"]
+	s.Empty(outside.DisplayName)
+	s.Equal(int64(9), outside.EventsWritten)
+	s.Empty(outside.RecentNotes)
+
+	stale, err := s.operations.AgentStats(ctx, operations.TimeFilter{
+		From: s.now.Add(-3 * time.Hour), To: s.now.Add(-90 * time.Minute),
+	})
+	s.Require().NoError(err)
+	staleByAgent := make(map[string]operations.AgentStats)
+	for _, entry := range stale {
+		staleByAgent[entry.AgentID] = entry
+	}
+	staleAgent, ok := staleByAgent[agentID]
+	s.Require().True(ok)
+	s.Equal(int64(7), staleAgent.EventsWritten)
+	s.Equal(int64(1), staleAgent.NotesAuthored)
+	s.Equal(s.now.Add(-2*time.Hour), staleAgent.LastActiveAt.UTC())
+}
+
+func (s *operationsStoreSuite) insertStatsNote(
+	scope, noteID, agentID, subject string,
+	createdAt time.Time,
+) {
+	_, err := s.store.Pool().Exec(context.Background(), `
+INSERT INTO team_notes (
+    scope_id, note_id, note_key, kind, subject, body,
+    origin_user_id, origin_agent_id, origin_session_id,
+    state, current_revision, soft_expires_at, hard_expires_at, created_at, updated_at
+) VALUES ($1, $2, $3, 'fact', $4, 'stats body', 'stats-user', $5, 'session',
+          'active', 1, $6, $7, $8, $8)`,
+		scope, noteID, "key-"+noteID, subject, agentID,
+		createdAt.Add(24*time.Hour), createdAt.Add(30*24*time.Hour), createdAt)
+	s.Require().NoError(err)
+}
+
 func (s *operationsStoreSuite) recordEvent(event operations.Event) operations.Event {
 	recorded, err := s.operations.Record(context.Background(), event)
 	s.Require().NoError(err)
