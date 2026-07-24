@@ -49,13 +49,14 @@ The checkpoint `abdba93` was inspected read-only. Two narrow assets were useful:
 
 - the `paxm backfill export` native completed-turn schema and its stable native
   turn IDs informed the Source importer;
-- the five-case `pax-gold-v1` fixture was migrated as isolated effect-eval data.
+- its pinned public Session dataset preparation and role-separated
+  `maintainer/reader/evaluator` contract informed the public dataset adapter.
 
 None of the old PageRevision, maintenance proposal, typed page, PostgreSQL
 editing, organizer, embedding, or per-page publication code was migrated.
-Evaluator questions and patterns stay in the fixture outside the maintainer
-workspace. `eval-prepare` exports only immutable Session Sources, and
-`eval-score` reads evaluator data only after maintenance.
+The public adapter reads only `maintainer/ingest.jsonl`, rejects unknown fields
+such as evaluator answers, and requires one explicit dataset `case_id` per
+workspace.
 
 ## Commands
 
@@ -74,6 +75,22 @@ Export the first part of a native Session into a seed workspace:
   --start 0 \
   --end 30
 ```
+
+For repeatable experiments, prefer one isolated world from the prepared public
+Session datasets:
+
+```bash
+/tmp/llmwiki-spike dataset-build \
+  --ingest .build/datasets/llmwiki/prepared/train/locomo/maintainer/ingest.jsonl \
+  --workspace /tmp/wiki-locomo-conv-26 \
+  --case conv-26 \
+  --start-session 0 \
+  --end-session 10
+```
+
+Do not combine different LoCoMo conversations or different LongMemEval cases
+into one Wiki. Multiple topics inside one continuous conversation world are
+expected and are precisely what the Wiki should organize.
 
 Create the canonical store and a private checkout:
 
@@ -162,26 +179,13 @@ The Agent tool sandbox independently forbids writes outside `wiki/*.md`,
 absolute paths, path traversal, and symlink escapes. The validator then checks
 the completed filesystem state rather than trusting the model's final message.
 
-## Minimal isolated effect comparison
+## Evaluation boundary
 
-Prepare the old checkpoint's `pax-gold-v1` sample without exposing its evaluator
-fields:
+The maintainer receives only public `maintainer/ingest.jsonl`. Query-time
+readers receive `reader/query.jsonl` after Wiki maintenance. Only the evaluator
+process can read `evaluator/gold.jsonl`.
 
-```bash
-/tmp/llmwiki-spike eval-prepare \
-  --fixture evals/llmwiki/pax-gold-v1.json \
-  --workspace /tmp/wiki-eval
-```
-
-Run the maintainer against `/tmp/wiki-eval`, then score:
-
-```bash
-/tmp/llmwiki-spike eval-score \
-  --fixture evals/llmwiki/pax-gold-v1.json \
-  --workspace /tmp/wiki-eval
-```
-
-The report compares answer-bearing pattern coverage in complete raw Sources
-with coverage in the smaller Wiki and separately requires exact supporting
-message citations for `grounded_wiki_hits`. It is a small diagnostic, not a
-leaderboard claim.
+The old five-pattern local scorer is retained only as unit-tested plumbing. It
+is not an effect benchmark. Product claims must come from the prepared LoCoMo,
+LongMemEval, or LongMemEval-V2 train/holdout protocols and their official
+reader/evaluator semantics.
