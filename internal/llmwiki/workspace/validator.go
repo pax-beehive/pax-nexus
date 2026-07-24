@@ -15,8 +15,10 @@ import (
 )
 
 var (
-	markdownLinkPattern = regexp.MustCompile(`\[[^\]]*\]\(([^)\s]+)(?:\s+[^)]*)?\)`)
-	htmlAnchorPattern   = regexp.MustCompile(`<a\s+id=["']([^"']+)["']\s*></a>`)
+	markdownLinkPattern        = regexp.MustCompile(`\[[^\]]*\]\(([^)\s]+)(?:\s+[^)]*)?\)`)
+	sourceCitationStartPattern = regexp.MustCompile(`\[[^\]]*\]\([^)\n]*/sources/`)
+	htmlAnchorPattern          = regexp.MustCompile(`<a\s+id=["']([^"']+)["']\s*></a>`)
+	messageAnchorPattern       = regexp.MustCompile(`^msg-[a-f0-9]{16}$`)
 )
 
 func Validate(root string) ValidationReport {
@@ -145,7 +147,12 @@ func validateMarkdownLinks(
 	report *ValidationReport,
 	links map[string][]string,
 ) {
+	expectedSourceCitations := len(sourceCitationStartPattern.FindAll(content, -1))
+	parsedSourceCitations := 0
 	for _, match := range markdownLinkPattern.FindAllSubmatch(content, -1) {
+		if strings.Contains(string(match[1]), "sources/") {
+			parsedSourceCitations++
+		}
 		validateMarkdownLink(
 			root,
 			target,
@@ -155,6 +162,9 @@ func validateMarkdownLinks(
 			report,
 			links,
 		)
+	}
+	if parsedSourceCitations != expectedSourceCitations {
+		report.add(relativeRoot, "malformed source citation")
 	}
 }
 
@@ -219,6 +229,10 @@ func validateCitation(
 		report.add(relativeRoot, "source citation has no message anchor")
 		return
 	}
+	if !messageAnchorPattern.MatchString(anchor) {
+		report.add(relativeRoot, "malformed source citation anchor "+anchor)
+		return
+	}
 	known, exists := sourceAnchors[resolved]
 	if !exists {
 		report.add(relativeRoot, "citation targets an unregistered source")
@@ -227,6 +241,44 @@ func validateCitation(
 	if _, exists := known[anchor]; !exists {
 		report.add(relativeRoot, "unknown source anchor "+anchor)
 	}
+}
+
+func validateCandidateCitations(
+	root,
+	target,
+	relative string,
+	content []byte,
+) error {
+	manifest, err := readManifest(root)
+	if err != nil {
+		return err
+	}
+	sourceAnchors := make(map[string]map[string]struct{}, len(manifest.Sources))
+	for _, source := range manifest.Sources {
+		anchors := make(map[string]struct{}, len(source.Anchors))
+		for _, anchor := range source.Anchors {
+			anchors[anchor.ID] = struct{}{}
+		}
+		sourceAnchors[filepath.ToSlash(filepath.Clean(source.Path))] = anchors
+	}
+	report := ValidationReport{Valid: true}
+	validateMarkdownLinks(
+		root,
+		target,
+		relative,
+		content,
+		sourceAnchors,
+		&report,
+		make(map[string][]string),
+	)
+	for _, issue := range report.Errors {
+		if strings.Contains(issue.Message, "source citation") ||
+			strings.Contains(issue.Message, "source anchor") ||
+			strings.Contains(issue.Message, "unregistered source") {
+			return errors.New(issue.Message)
+		}
+	}
+	return nil
 }
 
 func validateReachability(

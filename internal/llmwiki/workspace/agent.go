@@ -420,6 +420,14 @@ func toolWriteFile(root, arguments string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if err := validateCandidateCitations(
+		root,
+		target,
+		relative,
+		[]byte(input.Content),
+	); err != nil {
+		return "", fmt.Errorf("reject invalid Wiki write: %w", err)
+	}
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return "", fmt.Errorf("create wiki directory: %w", err)
 	}

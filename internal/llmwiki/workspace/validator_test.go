@@ -66,7 +66,7 @@ func (s *validatorSuite) TestAcceptsReachablePagesLinksAndExactCitations() {
 func (s *validatorSuite) TestRejectsMutatedSourcesBrokenLinksAndOrphanPages() {
 	s.writeWiki("index.md", "# Wiki\n\n- [Broken](topics/missing.md)\n")
 	s.writeWiki("pages/orphan.md",
-		"# Orphan\n\n([bad source](../../"+s.source.Path+"#missing-anchor)).\n")
+		"# Orphan\n\n([bad source](../../"+s.source.Path+"#msg-0000000000000000)).\n")
 
 	sourcePath := filepath.Join(s.root, s.source.Path)
 	s.Require().NoError(os.Chmod(sourcePath, 0o644))
@@ -91,6 +91,21 @@ func (s *validatorSuite) TestRequiresTopicTreeToReachEveryMajorPage() {
 	report := workspace.Validate(s.root)
 	s.False(report.Valid)
 	s.Contains(report.String(), "is not reachable from wiki/index.md")
+}
+
+func (s *validatorSuite) TestRejectsMalformedCitationSyntaxAndAnchorPunctuation() {
+	anchor := s.source.Anchors[0].ID
+	s.writeWiki(
+		"index.md",
+		"# Wiki\n\n"+
+			"Unclosed [source](../"+s.source.Path+"#"+anchor+"].\n\n"+
+			"Punctuated [source](../"+s.source.Path+"#"+anchor+"].).\n",
+	)
+
+	report := workspace.Validate(s.root)
+	s.False(report.Valid)
+	s.Contains(report.String(), "malformed source citation")
+	s.Contains(report.String(), "malformed source citation anchor")
 }
 
 func (s *validatorSuite) writeWiki(relative, content string) {

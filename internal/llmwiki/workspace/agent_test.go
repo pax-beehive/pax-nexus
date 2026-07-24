@@ -180,6 +180,61 @@ func (s *agentSuite) TestAgentFeedsValidationFailureBackForRepair() {
 	)
 }
 
+func (s *agentSuite) TestWriteToolRejectsMalformedCitationBeforeReplacingPage() {
+	valid := "# Cited\n\nA grounded fact ([source](../../" +
+		s.sourcePath + "#" + s.anchor + ")).\n"
+	malformed := "# Cited\n\nA broken fact [source](../../" +
+		s.sourcePath + "#" + s.anchor + "].\n"
+	client := &scriptedChatClient{responses: []workspace.ChatResponse{
+		{
+			Message: workspace.ChatMessage{
+				Role: "assistant",
+				ToolCalls: []workspace.ToolCall{
+					call("write_file", `{"path":"wiki/index.md","content":"# Wiki\n\n- [Cited](pages/cited.md)\n"}`),
+					call("write_file", mustArguments(map[string]string{
+						"path": "wiki/pages/cited.md", "content": valid,
+					})),
+					call("write_file", mustArguments(map[string]string{
+						"path": "wiki/pages/cited.md", "content": malformed,
+					})),
+				},
+			},
+		},
+		{Message: workspace.ChatMessage{Role: "assistant", Content: "Done."}},
+		{
+			Message: workspace.ChatMessage{
+				Role: "assistant",
+				ToolCalls: []workspace.ToolCall{
+					call("write_file", mustArguments(map[string]string{
+						"path": "wiki/pages/cited.md", "content": valid,
+					})),
+				},
+			},
+		},
+		{Message: workspace.ChatMessage{Role: "assistant", Content: "Repaired."}},
+	}}
+
+	result, err := workspace.RunAgent(context.Background(), workspace.AgentConfig{
+		Root: s.root, Client: client,
+	}, workspace.AgentRequest{
+		RunID: "citation-preflight", Instruction: "Maintain Wiki.",
+	})
+	s.Require().NoError(err)
+	s.True(result.Validation.Valid, result.Validation.String())
+	s.Require().Len(client.requests, 2)
+
+	var toolResults string
+	for _, message := range client.requests[1].Messages {
+		if message.Role == "tool" {
+			toolResults += message.Content
+		}
+	}
+	s.Contains(toolResults, "malformed source citation")
+	rendered, err := os.ReadFile(filepath.Join(s.root, "wiki/pages/cited.md"))
+	s.Require().NoError(err)
+	s.Equal(valid, string(rendered))
+}
+
 func (s *agentSuite) TestRecordsClientFailureReason() {
 	client := &scriptedChatClient{err: errors.New("provider unavailable")}
 	_, err := workspace.RunAgent(context.Background(), workspace.AgentConfig{
