@@ -120,6 +120,107 @@ func (s *onPremHandlerSuite) TestObservationBindsActorFromCredential() {
 	s.Equal("membership-1", s.recorder.events[0].Actor.MembershipID)
 }
 
+func (s *onPremHandlerSuite) TestObserveSessionBindsPrincipalFromCredential() {
+	s.runtime.EXPECT().ObserveSession(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, batch teamnote.SessionBatch) (teamnote.IngestReceipt, error) {
+			scopeID, err := teamnote.ScopeFromContext(ctx)
+			s.Require().NoError(err)
+			s.Equal(onprem.LocalScopeID, scopeID)
+			s.Require().Len(batch.Events, 2)
+			for _, event := range batch.Events {
+				s.Equal("owner", event.Actor.UserID)
+				s.Equal("agent-1", event.Actor.AgentID)
+			}
+			s.Equal("session-1", batch.Events[0].Actor.SessionID)
+			s.Equal("session-2", batch.Events[1].Actor.SessionID)
+			return teamnote.IngestReceipt{Accepted: 2, Cursor: 2}, nil
+		},
+	)
+	body := `{"events":[` +
+		`{"id":"event-1","actor":{"user_id":"spoofed","agent_id":"spoofed","session_id":"session-1"},"sequence":1,"type":"user","content":"Start release.","occurred_at":"2026-07-21T08:00:00Z"},` +
+		`{"id":"event-2","actor":{"user_id":"spoofed","agent_id":"spoofed","session_id":"session-2"},"sequence":2,"type":"assistant","content":"Release approved.","occurred_at":"2026-07-21T08:01:00Z"}` +
+		`],"complete":true}`
+
+	response := perform(s.handler.ObserveSession, http.MethodPost, body, "agent")
+
+	s.Equal(consts.StatusOK, response.Code)
+	s.Contains(response.Body.String(), `"accepted":2`)
+	s.Require().Len(s.recorder.events, 1)
+	event := s.recorder.events[0]
+	s.Equal(operations.KindObservationObserve, event.Kind)
+	s.Equal(operations.OutcomeSucceeded, event.Outcome)
+	s.Equal(int64(2), event.InputItems)
+	s.Equal(int64(2), event.AcceptedItems)
+	s.Equal("session-1", event.SessionID)
+	s.Equal("agent-1", event.Actor.AgentID)
+	s.Equal("membership-1", event.Actor.MembershipID)
+}
+
+func (s *onPremHandlerSuite) TestObserveSessionCredentialFailures() {
+	validBody := `{"events":[{"id":"event-1","actor":{"user_id":"owner","agent_id":"agent-1","session_id":"session-1"},"sequence":1,"type":"assistant","content":"Tests fail.","occurred_at":"2026-07-21T08:00:00Z"}],"complete":true}`
+	for _, test := range []struct {
+		name           string
+		body           string
+		apiKey         string
+		wantStatus     int
+		wantEvent      bool
+		wantOutcome    operations.Outcome
+		wantErrorCode  string
+		wantInputItems int64
+	}{
+		{name: "missing observe permission", body: validBody, apiKey: "search-only",
+			wantStatus: consts.StatusForbidden, wantEvent: true,
+			wantOutcome: operations.OutcomeRejected, wantErrorCode: "forbidden"},
+		{name: "unknown credential", body: validBody, apiKey: "wrong",
+			wantStatus: consts.StatusUnauthorized},
+		{name: "missing credential", body: validBody, apiKey: "",
+			wantStatus: consts.StatusUnauthorized},
+		{name: "malformed body", body: `{`, apiKey: "agent",
+			wantStatus: consts.StatusBadRequest, wantEvent: true,
+			wantOutcome: operations.OutcomeRejected, wantErrorCode: "invalid_request"},
+		{name: "unmappable event", body: `{"events":[{"id":"event-1","actor":{"user_id":"owner","agent_id":"agent-1","session_id":"session-1"},"sequence":1,"type":"assistant","content":"Tests fail.","occurred_at":"not-a-time"}],"complete":true}`,
+			apiKey: "agent", wantStatus: consts.StatusBadRequest, wantEvent: true,
+			wantOutcome: operations.OutcomeRejected, wantErrorCode: "invalid_request", wantInputItems: 1},
+	} {
+		s.Run(test.name, func() {
+			recordedBefore := len(s.recorder.events)
+
+			response := perform(s.handler.ObserveSession, http.MethodPost, test.body, test.apiKey)
+
+			s.Equal(test.wantStatus, response.Code)
+			recorded := s.recorder.events[recordedBefore:]
+			if !test.wantEvent {
+				s.Empty(recorded)
+				return
+			}
+			s.Require().Len(recorded, 1)
+			s.Equal(operations.KindObservationObserve, recorded[0].Kind)
+			s.Equal(test.wantOutcome, recorded[0].Outcome)
+			s.Equal(test.wantErrorCode, recorded[0].ErrorCode)
+			s.Equal(test.wantInputItems, recorded[0].InputItems)
+			s.Equal("agent-1", recorded[0].Actor.AgentID)
+		})
+	}
+}
+
+func (s *onPremHandlerSuite) TestObserveSessionRecordsRuntimeFailureWithCredential() {
+	s.runtime.EXPECT().ObserveSession(gomock.Any(), gomock.Any()).Return(
+		teamnote.IngestReceipt{}, errors.New("session lake unavailable"),
+	)
+	body := `{"events":[{"id":"event-1","actor":{"user_id":"owner","agent_id":"agent-1","session_id":"session-1"},"sequence":1,"type":"assistant","content":"Tests fail.","occurred_at":"2026-07-21T08:00:00Z"}],"complete":true}`
+
+	response := perform(s.handler.ObserveSession, http.MethodPost, body, "agent")
+
+	s.Equal(consts.StatusUnprocessableEntity, response.Code)
+	s.Require().Len(s.recorder.events, 1)
+	event := s.recorder.events[0]
+	s.Equal(operations.KindObservationObserve, event.Kind)
+	s.Equal(operations.OutcomeFailed, event.Outcome)
+	s.Equal("operation_failed", event.ErrorCode)
+	s.Equal(int64(1), event.InputItems)
+	s.Equal("session-1", event.SessionID)
+}
+
 func (s *onPremHandlerSuite) TestMemorySearchAndGetBindPrincipal() {
 	search := perform(s.handler.SearchMemory, http.MethodPost,
 		`{"intent":"passive","session_id":"session-1","query":"release","token_budget":64}`, "agent")
@@ -309,6 +410,12 @@ func (s *credentialService) Authenticate(_ context.Context, apiKey string) (onpr
 		return onprem.Principal{
 			UserID: "owner", AgentID: "agent-1", ScopeID: onprem.LocalScopeID,
 			Permissions: []onprem.Permission{onprem.PermissionObserve},
+		}, nil
+	case "search-only":
+		return onprem.Principal{
+			UserID: "owner", MembershipID: "membership-1", AgentID: "agent-1",
+			ScopeID: onprem.LocalScopeID, CredentialID: "credential-2",
+			Permissions: []onprem.Permission{onprem.PermissionSearch},
 		}, nil
 	default:
 		return onprem.Principal{}, onprem.ErrUnauthorized
@@ -576,8 +683,18 @@ func (s *handlerSuite) TestRuntimeErrorIsLoggedButNotExposed() {
 
 func (s *handlerSuite) TestUnauthorizedRequestIsRejected() {
 	body := `{"events":[],"complete":true}`
-	response := perform(s.handler.ObserveSession, http.MethodPost, body, "wrong")
-	s.Equal(consts.StatusUnauthorized, response.Code)
+	for _, test := range []struct {
+		name   string
+		apiKey string
+	}{
+		{name: "unknown static key", apiKey: "wrong"},
+		{name: "missing authorization header", apiKey: ""},
+	} {
+		s.Run(test.name, func() {
+			response := perform(s.handler.ObserveSession, http.MethodPost, body, test.apiKey)
+			s.Equal(consts.StatusUnauthorized, response.Code)
+		})
+	}
 }
 
 func (s *handlerSuite) TestMalformedRequestsAreRejected() {
