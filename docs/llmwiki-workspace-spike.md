@@ -174,10 +174,15 @@ immutable Source pages and jump to the exact native message anchor.
 - a Source citation omits an anchor or points to an unknown anchor;
 - a major Markdown page is not reachable from `wiki/index.md`;
 - the topic tree itself is missing.
+- an existing major page shrinks by more than the configured destructive-change
+  threshold relative to Git HEAD;
+- a run deletes a bulk fraction of existing major pages.
 
 The Agent tool sandbox independently forbids writes outside `wiki/*.md`,
 absolute paths, path traversal, and symlink escapes. The validator then checks
 the completed filesystem state rather than trusting the model's final message.
+`write_file` also rejects malformed or non-resolving Source citations before
+they can replace the last valid page.
 
 ## Evaluation boundary
 

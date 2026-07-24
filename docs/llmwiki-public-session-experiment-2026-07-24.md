@@ -87,6 +87,37 @@ on phase 1. A citation-only DeepSeek repair run used another 10 model calls and
 40 tool calls. It fixed one error but still left 17, so it was also rejected.
 Codex did not repair the Markdown manually.
 
+### Guarded retry
+
+The experiment exposed two missing deterministic boundaries:
+
+1. malformed citations were accepted by `write_file` and discovered only at
+   final validation;
+2. the validator checked links and citations but did not reject severe content
+   deletion relative to the Git base.
+
+Citation preflight was added so a malformed or unknown Source reference cannot
+replace the last valid page. A clean phase-2 retry then reached link/citation
+validity:
+
+| Metric | Value |
+| --- | ---: |
+| Model calls | 30 |
+| Tool calls | 50 |
+| Duration | 318,019 ms |
+| Input tokens | 1,861,564 |
+| Output tokens | 32,786 |
+| Syntactically valid citations | 128 |
+
+Human diff inspection still found unacceptable degeneration: `caroline.md`
+became a 105-byte test placeholder and `melanie.md` became a 267-byte A/B/C
+placeholder. They had been 3,456 and 4,003 bytes at the published base.
+
+A Git-base destructive-change gate was therefore added. It rejects major-page
+shrink greater than two thirds and bulk deletion of existing major pages. With
+that gate, the guarded retry is invalid and remains unpublished. All 19 public
+Source files retained their original hashes throughout.
+
 ## Conclusion
 
 The concern about train-wide mixing is correct. Evaluation must be aggregated
@@ -94,8 +125,12 @@ across isolated Wiki worlds, never implemented as one Wiki containing the
 whole train split.
 
 Multi-topic Sessions inside one world are appropriate. Phase 1 demonstrated
-that the Agent can create a coherent topic tree from them. Phase 2 demonstrated
-that it updates the existing tree, but also exposed a scaling problem in the
-current citation-writing and repair loop. The next engineering slice should
-make citation creation structural or provide a dedicated citation tool, then
-run query-time LoCoMo/LongMemEval readers against holdout gold.
+that the Agent can create a coherent topic tree from them. Phase 2 attempted
+updates to the existing tree, but exposed both citation-writing failure and
+content degeneration under a long edit loop. Citation preflight and
+destructive-change gates now fail closed; no phase-2 candidate was published.
+
+The next engineering slice should make incremental maintenance preserve page
+content by construction, then run query-time LoCoMo/LongMemEval readers against
+isolated holdout gold. A validator passing structural checks alone is not an
+effectiveness result.
