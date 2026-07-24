@@ -125,51 +125,108 @@ func validateWikiLinks(
 			report.add(relativeRoot, fmt.Sprintf("read wiki page: %v", err))
 			return nil
 		}
-		for _, match := range markdownLinkPattern.FindAllSubmatch(content, -1) {
-			raw := string(match[1])
-			if isExternalLink(raw) {
-				continue
-			}
-			pathPart, anchor, _ := strings.Cut(raw, "#")
-			resolved, resolveErr := resolveLink(root, target, pathPart)
-			if resolveErr != nil {
-				report.add(relativeRoot, resolveErr.Error())
-				continue
-			}
-			if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(resolved))); err != nil {
-				if errors.Is(err, os.ErrNotExist) {
-					report.add(relativeRoot, "broken internal link "+raw)
-				} else {
-					report.add(relativeRoot, fmt.Sprintf("inspect link %s: %v", raw, err))
-				}
-				continue
-			}
-			if strings.HasPrefix(resolved, "sources/") {
-				report.Citations++
-				if anchor == "" {
-					report.add(relativeRoot, "source citation has no message anchor")
-					continue
-				}
-				known, exists := sourceAnchors[resolved]
-				if !exists {
-					report.add(relativeRoot, "citation targets an unregistered source")
-					continue
-				}
-				if _, exists := known[anchor]; !exists {
-					report.add(relativeRoot, "unknown source anchor "+anchor)
-				}
-				continue
-			}
-			if strings.HasPrefix(resolved, "wiki/") {
-				links[relativeRoot] = append(links[relativeRoot], resolved)
-			}
-		}
+		validateMarkdownLinks(
+			root, target, relativeRoot, content, sourceAnchors, report, links,
+		)
 		return nil
 	})
 	if walkErr != nil {
 		report.add("wiki", fmt.Sprintf("walk wiki: %v", walkErr))
 	}
 	return pages, links
+}
+
+func validateMarkdownLinks(
+	root,
+	target,
+	relativeRoot string,
+	content []byte,
+	sourceAnchors map[string]map[string]struct{},
+	report *ValidationReport,
+	links map[string][]string,
+) {
+	for _, match := range markdownLinkPattern.FindAllSubmatch(content, -1) {
+		validateMarkdownLink(
+			root,
+			target,
+			relativeRoot,
+			string(match[1]),
+			sourceAnchors,
+			report,
+			links,
+		)
+	}
+}
+
+func validateMarkdownLink(
+	root,
+	target,
+	relativeRoot,
+	raw string,
+	sourceAnchors map[string]map[string]struct{},
+	report *ValidationReport,
+	links map[string][]string,
+) {
+	if isExternalLink(raw) {
+		return
+	}
+	pathPart, anchor, _ := strings.Cut(raw, "#")
+	resolved, err := resolveLink(root, target, pathPart)
+	if err != nil {
+		report.add(relativeRoot, err.Error())
+		return
+	}
+	if !linkTargetExists(root, relativeRoot, raw, resolved, report) {
+		return
+	}
+	if strings.HasPrefix(resolved, "sources/") {
+		validateCitation(relativeRoot, resolved, anchor, sourceAnchors, report)
+		return
+	}
+	if strings.HasPrefix(resolved, "wiki/") {
+		links[relativeRoot] = append(links[relativeRoot], resolved)
+	}
+}
+
+func linkTargetExists(
+	root,
+	relativeRoot,
+	raw,
+	resolved string,
+	report *ValidationReport,
+) bool {
+	_, err := os.Stat(filepath.Join(root, filepath.FromSlash(resolved)))
+	if err == nil {
+		return true
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		report.add(relativeRoot, "broken internal link "+raw)
+	} else {
+		report.add(relativeRoot, fmt.Sprintf("inspect link %s: %v", raw, err))
+	}
+	return false
+}
+
+func validateCitation(
+	relativeRoot,
+	resolved,
+	anchor string,
+	sourceAnchors map[string]map[string]struct{},
+	report *ValidationReport,
+) {
+	report.Citations++
+	if anchor == "" {
+		report.add(relativeRoot, "source citation has no message anchor")
+		return
+	}
+	known, exists := sourceAnchors[resolved]
+	if !exists {
+		report.add(relativeRoot, "citation targets an unregistered source")
+		return
+	}
+	if _, exists := known[anchor]; !exists {
+		report.add(relativeRoot, "unknown source anchor "+anchor)
+	}
 }
 
 func validateReachability(

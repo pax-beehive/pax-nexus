@@ -169,56 +169,64 @@ func renderMarkdown(root, current string, content []byte) template.HTML {
 			rendered.WriteByte('\n')
 			continue
 		}
-		if match := sourceAnchorLinePattern.FindStringSubmatch(trimmed); len(match) == 2 {
-			rendered.WriteString(`<a id="`)
-			rendered.WriteString(match[1])
-			rendered.WriteString(`"></a>`)
-			continue
-		}
-		if strings.HasPrefix(trimmed, "# ") {
-			closeList(&rendered, &inList)
-			rendered.WriteString("<h1>")
-			rendered.WriteString(renderInline(root, current, strings.TrimPrefix(trimmed, "# ")))
-			rendered.WriteString("</h1>")
-			continue
-		}
-		if strings.HasPrefix(trimmed, "## ") {
-			closeList(&rendered, &inList)
-			rendered.WriteString("<h2>")
-			rendered.WriteString(renderInline(root, current, strings.TrimPrefix(trimmed, "## ")))
-			rendered.WriteString("</h2>")
-			continue
-		}
-		if strings.HasPrefix(trimmed, "### ") {
-			closeList(&rendered, &inList)
-			rendered.WriteString("<h3>")
-			rendered.WriteString(renderInline(root, current, strings.TrimPrefix(trimmed, "### ")))
-			rendered.WriteString("</h3>")
-			continue
-		}
-		if strings.HasPrefix(trimmed, "- ") {
-			if !inList {
-				rendered.WriteString("<ul>")
-				inList = true
-			}
-			rendered.WriteString("<li>")
-			rendered.WriteString(renderInline(root, current, strings.TrimPrefix(trimmed, "- ")))
-			rendered.WriteString("</li>")
-			continue
-		}
-		closeList(&rendered, &inList)
-		if trimmed == "" {
-			continue
-		}
-		rendered.WriteString("<p>")
-		rendered.WriteString(renderInline(root, current, trimmed))
-		rendered.WriteString("</p>")
+		renderMarkdownLine(root, current, trimmed, &rendered, &inList)
 	}
 	closeList(&rendered, &inList)
 	if inCode {
 		rendered.WriteString("</code></pre>")
 	}
 	return template.HTML(rendered.String()) //nolint:gosec // All source text is escaped above.
+}
+
+func renderMarkdownLine(
+	root,
+	current,
+	line string,
+	rendered *strings.Builder,
+	inList *bool,
+) {
+	if match := sourceAnchorLinePattern.FindStringSubmatch(line); len(match) == 2 {
+		rendered.WriteString(`<a id="`)
+		rendered.WriteString(match[1])
+		rendered.WriteString(`"></a>`)
+		return
+	}
+	for _, heading := range []struct {
+		Prefix string
+		Open   string
+		Close  string
+	}{
+		{Prefix: "### ", Open: "<h3>", Close: "</h3>"},
+		{Prefix: "## ", Open: "<h2>", Close: "</h2>"},
+		{Prefix: "# ", Open: "<h1>", Close: "</h1>"},
+	} {
+		if strings.HasPrefix(line, heading.Prefix) {
+			closeList(rendered, inList)
+			rendered.WriteString(heading.Open)
+			rendered.WriteString(renderInline(
+				root, current, strings.TrimPrefix(line, heading.Prefix),
+			))
+			rendered.WriteString(heading.Close)
+			return
+		}
+	}
+	if strings.HasPrefix(line, "- ") {
+		if !*inList {
+			rendered.WriteString("<ul>")
+			*inList = true
+		}
+		rendered.WriteString("<li>")
+		rendered.WriteString(renderInline(root, current, strings.TrimPrefix(line, "- ")))
+		rendered.WriteString("</li>")
+		return
+	}
+	closeList(rendered, inList)
+	if line == "" {
+		return
+	}
+	rendered.WriteString("<p>")
+	rendered.WriteString(renderInline(root, current, line))
+	rendered.WriteString("</p>")
 }
 
 func closeList(rendered *strings.Builder, inList *bool) {

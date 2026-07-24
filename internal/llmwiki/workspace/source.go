@@ -202,7 +202,10 @@ func ensureScaffold(root string) error {
 	return nil
 }
 
-func writeSource(root string, part SessionPart) (SourceRecord, error) {
+func writeSource(root string, part SessionPart) (
+	record SourceRecord,
+	resultErr error,
+) {
 	var rendered strings.Builder
 	fmt.Fprintf(
 		&rendered,
@@ -255,7 +258,9 @@ func writeSource(root string, part SessionPart) (SourceRecord, error) {
 		return SourceRecord{}, fmt.Errorf("unlock sources directory: %w", err)
 	}
 	defer func() {
-		_ = os.Chmod(filepath.Dir(target), 0o555)
+		if err := os.Chmod(filepath.Dir(target), 0o555); err != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("protect sources directory: %w", err))
+		}
 	}()
 	if existing, err := os.ReadFile(target); err == nil {
 		if string(existing) != string(content) {

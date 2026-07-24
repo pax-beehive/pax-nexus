@@ -74,10 +74,13 @@ func (c *DeepSeekClient) Complete(
 	if err != nil {
 		return ChatResponse{}, fmt.Errorf("call DeepSeek: %w", err)
 	}
-	defer response.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(response.Body, 4<<20))
+	closeErr := response.Body.Close()
 	if err != nil {
 		return ChatResponse{}, fmt.Errorf("read DeepSeek response: %w", err)
+	}
+	if closeErr != nil {
+		return ChatResponse{}, fmt.Errorf("close DeepSeek response: %w", closeErr)
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return ChatResponse{}, fmt.Errorf(

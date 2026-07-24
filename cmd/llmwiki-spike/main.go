@@ -296,7 +296,9 @@ func serveCommand(arguments []string, output io.Writer) error {
 	if err := requireFlags(map[string]string{"workspace": *root}); err != nil {
 		return err
 	}
-	_, _ = fmt.Fprintf(output, "PAX Wiki viewer: http://%s/\n", *address)
+	if _, err := fmt.Fprintf(output, "PAX Wiki viewer: http://%s/\n", *address); err != nil {
+		return fmt.Errorf("write viewer address: %w", err)
+	}
 	server := &http.Server{
 		Addr:              *address,
 		Handler:           workspace.NewViewer(*root),

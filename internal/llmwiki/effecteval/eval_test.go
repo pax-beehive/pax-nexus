@@ -24,7 +24,10 @@ func TestEvalSuite(t *testing.T) {
 func (s *evalSuite) SetupTest() {
 	s.root = s.T().TempDir()
 	s.T().Cleanup(func() {
-		_ = os.Chmod(filepath.Join(s.root, "sources"), 0o755)
+		err := os.Chmod(filepath.Join(s.root, "sources"), 0o755)
+		if err != nil && !os.IsNotExist(err) {
+			s.NoError(err)
+		}
 	})
 	s.fixture = filepath.Join(s.T().TempDir(), "fixture.json")
 	fixture := effecteval.Fixture{

@@ -15,7 +15,11 @@ import (
 
 var ErrStaleBase = errors.New("stale base revision")
 
-func InitStore(ctx context.Context, store, seedWorkspace string) (string, error) {
+func InitStore(
+	ctx context.Context,
+	store,
+	seedWorkspace string,
+) (revision string, resultErr error) {
 	if report := Validate(seedWorkspace); !report.Valid {
 		return "", fmt.Errorf("seed workspace validator failed: %s", report.String())
 	}
@@ -33,8 +37,7 @@ func InitStore(ctx context.Context, store, seedWorkspace string) (string, error)
 		return "", fmt.Errorf("create seed staging directory: %w", err)
 	}
 	defer func() {
-		_ = os.Chmod(filepath.Join(staging, "sources"), 0o755)
-		_ = os.RemoveAll(staging)
+		resultErr = errors.Join(resultErr, cleanupSeedStaging(staging))
 	}()
 	if err := copyWorkspace(seedWorkspace, staging); err != nil {
 		return "", err
@@ -54,7 +57,7 @@ func InitStore(ctx context.Context, store, seedWorkspace string) (string, error)
 	); err != nil {
 		return "", err
 	}
-	revision, err := gitRevision(ctx, staging, "HEAD")
+	revision, err = gitRevision(ctx, staging, "HEAD")
 	if err != nil {
 		return "", err
 	}
@@ -69,6 +72,18 @@ func InitStore(ctx context.Context, store, seedWorkspace string) (string, error)
 		return "", err
 	}
 	return revision, nil
+}
+
+func cleanupSeedStaging(staging string) error {
+	var resultErr error
+	if err := os.Chmod(filepath.Join(staging, "sources"), 0o755); err != nil &&
+		!errors.Is(err, os.ErrNotExist) {
+		resultErr = errors.Join(resultErr, fmt.Errorf("unlock seed Sources: %w", err))
+	}
+	if err := os.RemoveAll(staging); err != nil {
+		resultErr = errors.Join(resultErr, fmt.Errorf("remove seed staging: %w", err))
+	}
+	return resultErr
 }
 
 func Checkout(ctx context.Context, store, destination string) error {
@@ -338,24 +353,24 @@ func copyWorkspace(sourceRoot, destinationRoot string) error {
 		if info.Mode()&os.ModeSymlink != 0 {
 			return fmt.Errorf("workspace contains unsupported symlink %s", relative)
 		}
-		input, err := os.Open(sourcePath)
-		if err != nil {
-			return err
-		}
-		defer input.Close()
-		output, err := os.OpenFile(destination, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, info.Mode().Perm())
-		if err != nil {
-			return err
-		}
-		if _, err := io.Copy(output, input); err != nil {
-			_ = output.Close()
-			return err
-		}
-		if err := output.Close(); err != nil {
-			return err
-		}
-		return nil
+		return copyRegularFile(sourcePath, destination, info.Mode().Perm())
 	})
+}
+
+func copyRegularFile(source, destination string, mode fs.FileMode) error {
+	input, err := os.Open(source)
+	if err != nil {
+		return err
+	}
+	output, err := os.OpenFile(destination, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode)
+	if err != nil {
+		closeErr := input.Close()
+		return errors.Join(err, closeErr)
+	}
+	_, copyErr := io.Copy(output, input)
+	outputCloseErr := output.Close()
+	inputCloseErr := input.Close()
+	return errors.Join(copyErr, outputCloseErr, inputCloseErr)
 }
 
 type gitCommandError struct {

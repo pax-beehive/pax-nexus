@@ -3,7 +3,6 @@ package workspace_test
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -159,7 +158,7 @@ func (s *snapshotSuite) TestRefusesInvalidSnapshotAndNonAncestorRollback() {
 
 	err = workspace.Rollback(s.ctx, s.store, s.base, "deadbeef")
 	s.Require().Error(err)
-	s.False(errors.Is(err, workspace.ErrStaleBase))
+	s.NotErrorIs(err, workspace.ErrStaleBase)
 }
 
 func (s *snapshotSuite) TestRejectsSymlinkWhenSeedingSnapshotStore() {
@@ -182,5 +181,8 @@ func (s *snapshotSuite) writeIndex(root, content string) {
 }
 
 func chmodSources(root string) {
-	_ = os.Chmod(filepath.Join(root, "sources"), 0o755)
+	err := os.Chmod(filepath.Join(root, "sources"), 0o755)
+	if err != nil && !os.IsNotExist(err) {
+		panic(err)
+	}
 }

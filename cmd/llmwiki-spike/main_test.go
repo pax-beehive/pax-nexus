@@ -29,7 +29,10 @@ func (s *commandSuite) SetupTest() {
 	s.ctx = context.Background()
 	s.root = s.T().TempDir()
 	s.T().Cleanup(func() {
-		_ = os.Chmod(filepath.Join(s.root, "sources"), 0o755)
+		err := os.Chmod(filepath.Join(s.root, "sources"), 0o755)
+		if err != nil && !os.IsNotExist(err) {
+			s.NoError(err)
+		}
 	})
 	exported := workspace.SessionExport{
 		SchemaVersion: workspace.PaxmSessionSchema,
@@ -98,7 +101,10 @@ func (s *commandSuite) TestSnapshotPublishDiffAndRollbackCommands() {
 	_, err = s.execute("checkout", "--store", store, "--workspace", checkout)
 	s.Require().NoError(err)
 	s.T().Cleanup(func() {
-		_ = os.Chmod(filepath.Join(checkout, "sources"), 0o755)
+		chmodErr := os.Chmod(filepath.Join(checkout, "sources"), 0o755)
+		if chmodErr != nil && !os.IsNotExist(chmodErr) {
+			s.NoError(chmodErr)
+		}
 	})
 	s.Require().NoError(os.WriteFile(
 		filepath.Join(checkout, "wiki/index.md"),
@@ -168,6 +174,12 @@ func (s *commandSuite) TestEvalCommandsAndArgumentErrors() {
 	s.Require().Error(err)
 	_, err = s.execute("serve", "--workspace", s.root, "--addr", "127.0.0.1:-1")
 	s.Require().Error(err)
+	err = execute(
+		s.ctx,
+		[]string{"serve", "--workspace", s.root},
+		failingWriter{},
+	)
+	s.Require().ErrorContains(err, "write viewer address")
 }
 
 func (s *commandSuite) execute(arguments ...string) (string, error) {
@@ -175,4 +187,10 @@ func (s *commandSuite) execute(arguments ...string) (string, error) {
 	var output bytes.Buffer
 	err := execute(s.ctx, arguments, &output)
 	return output.String(), err
+}
+
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) {
+	return 0, os.ErrClosed
 }

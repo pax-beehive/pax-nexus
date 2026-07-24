@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -133,6 +134,13 @@ func (s *sourceBuilderSuite) TestRejectsInvalidOrOverlappingSlices() {
 	s.Require().NoError(err)
 	_, err = workspace.Build(context.Background(), workspace.BuildConfig{}, workspace.BuildRequest{})
 	s.Require().ErrorContains(err, "root")
+	_, err = workspace.Build(context.Background(), workspace.BuildConfig{
+		Root: s.root,
+		ReadSession: func(context.Context, string) ([]byte, error) {
+			return nil, errors.New("reader failed")
+		},
+	}, workspace.BuildRequest{SessionID: "session-123"})
+	s.Require().ErrorContains(err, "reader failed")
 
 	tests := []struct {
 		name    string

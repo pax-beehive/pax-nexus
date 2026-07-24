@@ -366,41 +366,46 @@ func toolGrep(root, arguments string) ([]string, error) {
 		if info.Size() > 2<<20 {
 			return nil
 		}
-		file, openErr := os.Open(path)
-		if openErr != nil {
-			return openErr
-		}
-		defer file.Close()
-		scanner := bufio.NewScanner(file)
-		scanner.Buffer(make([]byte, 64<<10), 2<<20)
-		line := 0
-		for scanner.Scan() {
-			line++
-			if strings.Contains(strings.ToLower(scanner.Text()), query) {
-				relative, relErr := filepath.Rel(root, path)
-				if relErr != nil {
-					return relErr
-				}
-				matches = append(matches, fmt.Sprintf(
-					"%s:%d:%s",
-					filepath.ToSlash(relative),
-					line,
-					scanner.Text(),
-				))
-				if len(matches) >= 200 {
-					return fs.SkipAll
-				}
-			}
-		}
-		if scanErr := scanner.Err(); scanErr != nil {
-			return scanErr
-		}
-		return nil
+		return grepFile(root, path, query, &matches)
 	})
 	if err != nil && !errors.Is(err, fs.SkipAll) {
 		return nil, fmt.Errorf("grep workspace: %w", err)
 	}
 	return matches, nil
+}
+
+func grepFile(root, path, query string, matches *[]string) error {
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 64<<10), 2<<20)
+	line := 0
+	for scanner.Scan() {
+		line++
+		if !strings.Contains(strings.ToLower(scanner.Text()), query) {
+			continue
+		}
+		relative, relErr := filepath.Rel(root, path)
+		if relErr != nil {
+			closeErr := file.Close()
+			return errors.Join(relErr, closeErr)
+		}
+		*matches = append(*matches, fmt.Sprintf(
+			"%s:%d:%s",
+			filepath.ToSlash(relative),
+			line,
+			scanner.Text(),
+		))
+		if len(*matches) >= 200 {
+			closeErr := file.Close()
+			return errors.Join(fs.SkipAll, closeErr)
+		}
+	}
+	scanErr := scanner.Err()
+	closeErr := file.Close()
+	return errors.Join(scanErr, closeErr)
 }
 
 func toolWriteFile(root, arguments string) (string, error) {
