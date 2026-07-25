@@ -171,8 +171,14 @@ func ensureScaffold(root string) error {
 	for _, directory := range []string{
 		"sources",
 		"wiki",
+		"wiki/portals",
 		"wiki/topics",
 		"wiki/pages",
+		"wiki/pages/people",
+		"wiki/pages/journeys",
+		"wiki/pages/projects",
+		"wiki/events",
+		"wiki/timelines",
 		".pax",
 		".pax/runs",
 	} {
@@ -183,10 +189,11 @@ func ensureScaffold(root string) error {
 	files := map[string]string{
 		"AGENTS.md":  agentsInstructions,
 		".gitignore": ".pax/base.json\n",
-		"wiki/index.md": "# Wiki\n\n" +
-			"This topic tree is maintained from immutable Session sources.\n",
-		"wiki/log.md":    "# Maintenance log\n",
-		".pax/base.json": "{\n  \"revision\": \"\"\n}\n",
+		"wiki/index.md": "---\ntype: portal\n---\n\n# Wiki\n\n" +
+			"Start here to browse people, ongoing stories, themes, and meaningful changes.\n",
+		"wiki/log.md":            "# Maintenance log\n",
+		".pax/base.json":         "{\n  \"revision\": \"\"\n}\n",
+		".pax/editorial-profile": "article-first-v1\n",
 	}
 	for relative, content := range files {
 		target := filepath.Join(root, filepath.FromSlash(relative))
@@ -360,24 +367,78 @@ const agentsInstructions = `# LLM Wiki workspace
 
 This is a private maintenance workspace. Read this file before editing.
 
-## Contract
+## Authority and safety
 
 - Treat every file under sources/ as immutable evidence. Never edit, move, delete,
   rename, chmod, or replace a Source.
 - Edit only Markdown files under wiki/.
-- Maintain wiki/index.md as the human topic tree. It must link to every major page.
-- Organize durable knowledge by topic, not by Session chronology.
 - Freely split, merge, rename, move, and delete wiki pages when that improves the
   whole Wiki. Repair every affected internal link.
 - Prefer updating an existing page over creating a duplicate page.
-- Put topic navigation under wiki/topics/ and substantive pages under wiki/pages/.
 - Cite claims precisely with Markdown links to a message anchor, for example:
   [source](../../sources/<source-file>.md#msg-0123456789abcdef).
 - Never invent a citation. Read the cited Source message and make sure it supports
   the nearby claim.
-- Keep wiki/log.md as a concise maintenance summary. Do not turn it into a Session
-  transcript.
 - Do not read or expose evaluator answers, gold labels, or private scoring data.
+
+## Editorial mission
+
+Build an article-first living Wiki, not a collection of Session summaries or
+topic buckets. Every substantive page must have one stable subject and answer a
+clear reader question. Synthesize repeated evidence; do not copy a conversation
+or collect near-duplicate quotations.
+
+- Person pages explain who someone is, their current state, relationships, and
+  durable life threads.
+- Journey and project pages explain a changing goal through current status,
+  milestones, support, blockers, and meaningful development over time.
+- Topic and concept pages synthesize a subject across people and events.
+- Event pages exist only for consequential events referenced from several pages.
+- Timeline pages carry chronology so ordinary articles do not use Session order.
+- Portal pages orient readers with a short mental model and curated entry paths;
+  they are not exhaustive file listings.
+
+Create a page only when its subject recurs across Sources, represents an important
+ongoing thread, or acts as a useful bridge among several pages. Otherwise keep it
+as a section of an existing article.
+
+## Article contract
+
+Every page except wiki/log.md begins with minimal frontmatter:
+
+---
+type: portal | person | topic | concept | journey | project | event | timeline | place | organization
+aliases: [optional names]
+---
+
+Then write:
+
+1. exactly one H1;
+2. a two-to-four sentence prose lead before the first H2 that identifies the
+   subject, significance, and current state where applicable;
+3. sections organized by reader meaning, never headings such as "Session 1";
+4. contextual links in the relevant prose, not only a generic related-pages list;
+5. precise Source citations for substantive claims.
+
+Use summary style: keep an overview readable and move substantial subtopics into
+standalone articles only when they satisfy the page-creation rule. Separate
+current state from historical development. Avoid repeating the same prose across
+person, journey, and topic pages.
+
+## Navigation and evolution
+
+- Maintain wiki/index.md as a real home page with curated paths for people,
+  ongoing stories, themes, timeline, and recently changed knowledge as relevant.
+- Use portal pages for a stable primary tree no deeper than three clicks.
+- Use inline links and backlinks for cross-cutting relationships.
+- Keep wiki/log.md as a concise append-only maintenance summary, never a Source
+  transcript.
+- Read an established page before editing it. Use replace_text for precise
+  changes so unrelated sections survive. Use write_file for new pages and small
+  scaffolds.
+- When new Sources arrive, update current snapshots and existing journeys before
+  creating pages. Preserve still-supported prose and explicitly reconcile changed
+  or contradictory evidence.
 
 Before finishing, run the validator through the provided validate tool and resolve
 every reported error.

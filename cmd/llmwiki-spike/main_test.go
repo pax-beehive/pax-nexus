@@ -133,7 +133,8 @@ func (s *commandSuite) TestSnapshotPublishDiffAndRollbackCommands() {
 	})
 	s.Require().NoError(os.WriteFile(
 		filepath.Join(checkout, "wiki/index.md"),
-		[]byte("# Wiki\n\nCLI snapshot.\n"),
+		[]byte("---\ntype: portal\n---\n\n# Wiki\n\n"+
+			"This article-first home page records the changed CLI snapshot.\n"),
 		0o644,
 	))
 	revision, err := s.execute(

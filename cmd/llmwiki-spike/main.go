@@ -20,8 +20,11 @@ import (
 
 const defaultInstruction = `Maintain the whole human Wiki from every immutable
 Source in this workspace. Integrate new evidence into existing knowledge instead
-of generating a Session transcript or a duplicate Wiki. Create a coherent topic
-tree, durable pages, cross-links, and exact message-anchor citations.`
+of generating a Session transcript, broad topic dossier, or duplicate Wiki.
+Create article-first person, journey, topic, timeline, and portal pages with
+strong leads, current state, summary-style subtopics, contextual cross-links,
+and exact message-anchor citations. Use precise edits on established pages and
+preserve unrelated supported content.`
 
 func main() {
 	if err := execute(context.Background(), os.Args[1:], os.Stdout); err != nil {

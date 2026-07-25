@@ -20,6 +20,8 @@ var (
 	sourceCitationStartPattern = regexp.MustCompile(`\[[^\]]*\]\([^)\n]*/sources/`)
 	htmlAnchorPattern          = regexp.MustCompile(`<a\s+id=["']([^"']+)["']\s*></a>`)
 	messageAnchorPattern       = regexp.MustCompile(`^msg-[a-f0-9]{16}$`)
+	h1Pattern                  = regexp.MustCompile(`(?m)^# [^\n]+$`)
+	sessionHeadingPattern      = regexp.MustCompile(`(?mi)^#{2,6}\s+(?:source\s+)?session\s+\d+\b`)
 )
 
 func Validate(root string) ValidationReport {
@@ -30,8 +32,9 @@ func Validate(root string) ValidationReport {
 		return report
 	}
 	sourceAnchors := validateSources(root, manifest, &report)
-	pages, links := validateWikiLinks(root, sourceAnchors, &report)
+	pages, links, contents := validateWikiLinks(root, sourceAnchors, &report)
 	validateReachability(pages, links, &report)
+	validateArticleFirst(root, pages, links, contents, &report)
 	validateGitChangeBudget(root, &report)
 	report.Valid = len(report.Errors) == 0
 	return report
@@ -104,9 +107,10 @@ func validateWikiLinks(
 	root string,
 	sourceAnchors map[string]map[string]struct{},
 	report *ValidationReport,
-) (map[string]struct{}, map[string][]string) {
+) (map[string]struct{}, map[string][]string, map[string][]byte) {
 	pages := make(map[string]struct{})
 	links := make(map[string][]string)
+	contents := make(map[string][]byte)
 	wikiRoot := filepath.Join(root, "wiki")
 	walkErr := filepath.WalkDir(wikiRoot, func(target string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -129,6 +133,7 @@ func validateWikiLinks(
 			report.add(relativeRoot, fmt.Sprintf("read wiki page: %v", err))
 			return nil
 		}
+		contents[relativeRoot] = content
 		validateMarkdownLinks(
 			root, target, relativeRoot, content, sourceAnchors, report, links,
 		)
@@ -137,7 +142,7 @@ func validateWikiLinks(
 	if walkErr != nil {
 		report.add("wiki", fmt.Sprintf("walk wiki: %v", walkErr))
 	}
-	return pages, links
+	return pages, links, contents
 }
 
 func validateMarkdownLinks(
@@ -321,6 +326,202 @@ func validateReachability(
 	}
 }
 
+func validateArticleFirst(
+	root string,
+	pages map[string]struct{},
+	links map[string][]string,
+	contents map[string][]byte,
+	report *ValidationReport,
+) {
+	profile, err := os.ReadFile(filepath.Join(root, ".pax", "editorial-profile"))
+	if errors.Is(err, os.ErrNotExist) {
+		return
+	}
+	if err != nil {
+		report.add(".pax/editorial-profile", fmt.Sprintf("read editorial profile: %v", err))
+		return
+	}
+	if strings.TrimSpace(string(profile)) != "article-first-v1" {
+		report.add(".pax/editorial-profile", "unsupported editorial profile")
+		return
+	}
+
+	paths := make([]string, 0, len(pages))
+	for path := range pages {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	for _, path := range paths {
+		validateArticlePage(path, contents[path], links[path], report)
+	}
+	validateDuplicateArticleProse(paths, contents, report)
+	validateArticleNavigationDepth(pages, links, report)
+}
+
+func validateArticlePage(
+	path string,
+	content []byte,
+	links []string,
+	report *ValidationReport,
+) {
+	pageType, body, err := parseArticleFrontmatter(content)
+	if err != nil {
+		report.add(path, err.Error())
+		return
+	}
+	if !validArticlePageType(pageType) {
+		report.add(path, "unsupported article type "+pageType)
+	}
+	if count := len(h1Pattern.FindAll(body, -1)); count != 1 {
+		report.add(path, fmt.Sprintf("article must contain exactly one H1; found %d", count))
+	}
+	if !hasArticleLead(body) {
+		report.add(path, "article needs a prose lead before its first H2")
+	}
+	if pageType != "timeline" && sessionHeadingPattern.Match(body) {
+		report.add(path, "Session chronology heading is forbidden outside timeline and log views")
+	}
+	if pageType == "portal" {
+		return
+	}
+	if len(sourceCitationStartPattern.FindAll(body, -1)) == 0 {
+		report.add(path, "article has no precise Source citation")
+	}
+	if len(links) == 0 {
+		report.add(path, "article has no contextual link to another Wiki page")
+	}
+}
+
+func validateDuplicateArticleProse(
+	paths []string,
+	contents map[string][]byte,
+	report *ValidationReport,
+) {
+	paragraphOwners := make(map[string]string)
+	for _, path := range paths {
+		_, body, err := parseArticleFrontmatter(contents[path])
+		if err != nil {
+			continue
+		}
+		for _, paragraph := range substantialParagraphs(body) {
+			normalized := strings.Join(strings.Fields(strings.ToLower(paragraph)), " ")
+			if owner, duplicate := paragraphOwners[normalized]; duplicate && owner != path {
+				report.add(path, "duplicates substantial prose from "+owner)
+				continue
+			}
+			paragraphOwners[normalized] = path
+		}
+	}
+}
+
+func parseArticleFrontmatter(content []byte) (string, []byte, error) {
+	const delimiter = "---\n"
+	if !strings.HasPrefix(string(content), delimiter) {
+		return "", nil, errors.New("article is missing frontmatter with a type")
+	}
+	remainder := string(content[len(delimiter):])
+	end := strings.Index(remainder, "\n---\n")
+	if end < 0 {
+		return "", nil, errors.New("article frontmatter is not closed")
+	}
+	var pageType string
+	for _, line := range strings.Split(remainder[:end], "\n") {
+		key, value, found := strings.Cut(line, ":")
+		if found && strings.TrimSpace(key) == "type" {
+			pageType = strings.TrimSpace(value)
+		}
+	}
+	if pageType == "" {
+		return "", nil, errors.New("article frontmatter is missing type")
+	}
+	return pageType, []byte(strings.TrimSpace(remainder[end+len("\n---\n"):])), nil
+}
+
+func validArticlePageType(value string) bool {
+	switch value {
+	case "portal", "person", "topic", "concept", "journey", "project",
+		"event", "timeline", "place", "organization":
+		return true
+	default:
+		return false
+	}
+}
+
+func hasArticleLead(body []byte) bool {
+	lines := strings.Split(string(body), "\n")
+	if len(lines) == 0 || !strings.HasPrefix(lines[0], "# ") {
+		return false
+	}
+	var leadLines []string
+	for _, line := range lines[1:] {
+		if strings.HasPrefix(line, "## ") {
+			break
+		}
+		leadLines = append(leadLines, line)
+	}
+	for _, paragraph := range strings.Split(strings.Join(leadLines, "\n"), "\n\n") {
+		trimmed := strings.TrimSpace(paragraph)
+		if len(strings.Fields(trimmed)) < 6 {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "-") ||
+			strings.HasPrefix(trimmed, "*") ||
+			strings.HasPrefix(trimmed, "|") ||
+			strings.HasPrefix(trimmed, ">") {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func substantialParagraphs(body []byte) []string {
+	var result []string
+	for _, paragraph := range strings.Split(string(body), "\n\n") {
+		trimmed := strings.TrimSpace(paragraph)
+		if len([]rune(trimmed)) < 160 ||
+			strings.HasPrefix(trimmed, "#") ||
+			strings.HasPrefix(trimmed, "-") ||
+			strings.HasPrefix(trimmed, "|") {
+			continue
+		}
+		result = append(result, trimmed)
+	}
+	return result
+}
+
+func validateArticleNavigationDepth(
+	pages map[string]struct{},
+	links map[string][]string,
+	report *ValidationReport,
+) {
+	const index = "wiki/index.md"
+	depth := map[string]int{index: 0}
+	queue := []string{index}
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+		for _, linked := range links[current] {
+			if _, exists := pages[linked]; !exists {
+				continue
+			}
+			if _, seen := depth[linked]; seen {
+				continue
+			}
+			depth[linked] = depth[current] + 1
+			queue = append(queue, linked)
+		}
+	}
+	for page, pageDepth := range depth {
+		if pageDepth > 3 {
+			report.add(page, fmt.Sprintf(
+				"article is %d links from wiki/index.md; maximum is 3",
+				pageDepth,
+			))
+		}
+	}
+}
+
 func validateGitChangeBudget(root string, report *ValidationReport) {
 	if _, err := os.Stat(filepath.Join(root, ".git")); errors.Is(err, os.ErrNotExist) {
 		return
@@ -336,8 +537,12 @@ func validateGitChangeBudget(root string, report *ValidationReport) {
 		"--name-only",
 		"HEAD",
 		"--",
+		"wiki/index.md",
+		"wiki/portals",
 		"wiki/pages",
 		"wiki/topics",
+		"wiki/events",
+		"wiki/timelines",
 	)
 	if err != nil {
 		report.add(".git", fmt.Sprintf("inspect base Wiki pages: %v", err))

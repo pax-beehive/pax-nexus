@@ -110,6 +110,11 @@ func (s *sourceBuilderSuite) TestBuildsImmutableSourceWithStableMessageAnchors()
 	s.FileExists(filepath.Join(s.root, "wiki", "log.md"))
 	s.FileExists(filepath.Join(s.root, ".pax", "base.json"))
 	s.FileExists(filepath.Join(s.root, ".pax", "manifest.json"))
+	s.FileExists(filepath.Join(s.root, ".pax", "editorial-profile"))
+	agents, err := os.ReadFile(filepath.Join(s.root, "AGENTS.md"))
+	s.Require().NoError(err)
+	s.Contains(string(agents), "article-first living Wiki")
+	s.Contains(string(agents), "Use replace_text")
 }
 
 func (s *sourceBuilderSuite) TestStableAnchorDoesNotDependOnSlicePosition() {

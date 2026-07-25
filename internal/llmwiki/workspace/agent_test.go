@@ -56,6 +56,9 @@ func (s *agentSuite) SetupTest() {
 	s.Require().NoError(err)
 	s.sourcePath = result.Source.Path
 	s.anchor = result.Source.Anchors[0].ID
+	s.Require().NoError(os.Remove(
+		filepath.Join(s.root, ".pax", "editorial-profile"),
+	))
 }
 
 func (s *agentSuite) TestAgentUsesFilesystemToolsAndRecordsUsage() {
@@ -259,6 +262,7 @@ func (s *agentSuite) TestFilesystemToolMatrixIsBoundedAndComposable() {
 					call("list_files", `{}`),
 					call("grep", `{"query":"immutable","path":"sources"}`),
 					call("write_file", `{"path":"wiki/pages/draft.md","content":"# Draft\n"}`),
+					call("replace_text", `{"path":"wiki/pages/draft.md","old_text":"# Draft","new_text":"# Edited draft"}`),
 					call("move_file", `{"from":"wiki/pages/draft.md","to":"wiki/topics/moved.md"}`),
 					call("read_file", `{"path":"wiki/topics/moved.md"}`),
 					call("delete_file", `{"path":"wiki/topics/moved.md"}`),
@@ -275,7 +279,7 @@ func (s *agentSuite) TestFilesystemToolMatrixIsBoundedAndComposable() {
 	}, workspace.AgentRequest{RunID: "tools", Instruction: "Inspect the workspace."})
 	s.Require().NoError(err)
 	s.True(result.Validation.Valid, result.Validation.String())
-	s.Equal(8, result.Audit.ToolCalls)
+	s.Equal(9, result.Audit.ToolCalls)
 	s.NoFileExists(filepath.Join(s.root, "wiki/topics/moved.md"))
 	s.Require().Len(client.requests, 2)
 
@@ -290,6 +294,57 @@ func (s *agentSuite) TestFilesystemToolMatrixIsBoundedAndComposable() {
 	s.Contains(joined, "sources/")
 	s.Contains(joined, "read_file requires a file")
 	s.Contains(joined, "unknown tool")
+}
+
+func (s *agentSuite) TestPreciseEditPreservesPageAndInvalidEditIsRejected() {
+	original := "# Durable page\n\n" + strings.Repeat(
+		"Established knowledge remains available while one sentence changes. ",
+		8,
+	) + "\n"
+	s.Require().NoError(os.WriteFile(
+		filepath.Join(s.root, "wiki/pages/durable.md"),
+		[]byte(original),
+		0o644,
+	))
+	s.Require().NoError(os.WriteFile(
+		filepath.Join(s.root, "wiki/index.md"),
+		[]byte("# Wiki\n\n[Durable](pages/durable.md)\n"),
+		0o644,
+	))
+	client := &scriptedChatClient{responses: []workspace.ChatResponse{
+		{
+			Message: workspace.ChatMessage{
+				Role: "assistant",
+				ToolCalls: []workspace.ToolCall{
+					call("write_file", `{"path":"wiki/pages/durable.md","content":"# Lost\n"}`),
+					call("replace_text", `{"path":"wiki/pages/durable.md","old_text":"one sentence changes","new_text":"one precise sentence changes","expected_occurrences":8}`),
+					call("replace_text", `{"path":"wiki/pages/durable.md","old_text":"not present","new_text":"invented"}`),
+				},
+			},
+		},
+		{Message: workspace.ChatMessage{Role: "assistant", Content: "Done."}},
+	}}
+
+	result, err := workspace.RunAgent(context.Background(), workspace.AgentConfig{
+		Root: s.root, Client: client,
+	}, workspace.AgentRequest{RunID: "precise-edit", Instruction: "Update the page."})
+	s.Require().NoError(err)
+	s.True(result.Validation.Valid, result.Validation.String())
+
+	rendered, err := os.ReadFile(filepath.Join(s.root, "wiki/pages/durable.md"))
+	s.Require().NoError(err)
+	s.Contains(string(rendered), "one precise sentence changes")
+	s.NotContains(string(rendered), "# Lost")
+	s.NotContains(string(rendered), "invented")
+
+	var joined string
+	for _, message := range client.requests[1].Messages {
+		if message.Role == "tool" {
+			joined += message.Content
+		}
+	}
+	s.Contains(joined, "use replace_text")
+	s.Contains(joined, "found 0 occurrences")
 }
 
 func (s *agentSuite) TestRejectsInvalidAgentConfigurationAndToolInputs() {

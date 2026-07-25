@@ -46,6 +46,9 @@ func (s *validatorSuite) SetupTest() {
 	})
 	s.Require().NoError(err)
 	s.source = result.Source
+	s.Require().NoError(os.Remove(
+		filepath.Join(s.root, ".pax", "editorial-profile"),
+	))
 }
 
 func (s *validatorSuite) TestAcceptsReachablePagesLinksAndExactCitations() {
@@ -158,6 +161,187 @@ func (s *validatorSuite) TestRejectsBulkDeletionAgainstGitBase() {
 	report := workspace.Validate(checkout)
 	s.False(report.Valid)
 	s.Contains(report.String(), "bulk deletion")
+}
+
+func (s *validatorSuite) TestArticleFirstProfileRejectsDossierShape() {
+	s.enableArticleFirst()
+	duplicate := strings.Repeat(
+		"This substantial paragraph repeats the same source-shaped prose instead of "+
+			"giving each article a distinct reader promise. ",
+		3,
+	)
+	s.writeWiki(
+		"index.md",
+		"---\ntype: portal\n---\n\n# Wiki\n\n"+
+			"Start with the people and ongoing stories in this world.\n\n"+
+			"- [People](portals/people.md)\n",
+	)
+	s.writeWiki(
+		"portals/people.md",
+		"---\ntype: portal\n---\n\n# People\n\n"+
+			"Browse the people represented in the source material.\n\n"+
+			"- [Profile](../pages/profile.md)\n",
+	)
+	s.writeWiki(
+		"pages/profile.md",
+		"---\ntype: person\n---\n\n# Profile\n\n"+
+			duplicate+"\n\n## Session 1\n\nChronological notes.\n\n"+
+			"[Related profile](other.md)\n",
+	)
+	s.writeWiki(
+		"pages/other.md",
+		"---\ntype: person\n---\n\n# Other\n\n"+
+			duplicate+"\n\n## Current snapshot\n\n"+
+			"[Profile](profile.md)\n",
+	)
+
+	report := workspace.Validate(s.root)
+	s.False(report.Valid)
+	s.Contains(report.String(), "Session chronology heading")
+	s.Contains(report.String(), "duplicates substantial prose")
+	s.Contains(report.String(), "has no precise Source citation")
+}
+
+func (s *validatorSuite) TestArticleFirstProfileAcceptsLayeredLinkedArticles() {
+	s.enableArticleFirst()
+	anchor := s.source.Anchors[0].ID
+	citation := "[source](../../" + s.source.Path + "#" + anchor + ")"
+	s.writeWiki(
+		"index.md",
+		"---\ntype: portal\n---\n\n# Wiki\n\n"+
+			"Start with people, ongoing stories, and a chronological overview.\n\n"+
+			"- [People](portals/people.md)\n"+
+			"- [Timeline](timelines/world.md)\n",
+	)
+	s.writeWiki(
+		"portals/people.md",
+		"---\ntype: portal\n---\n\n# People\n\n"+
+			"Browse the people and follow their ongoing stories.\n\n"+
+			"- [Profile](../pages/profile.md)\n",
+	)
+	s.writeWiki(
+		"pages/profile.md",
+		"---\ntype: person\naliases: [Example]\n---\n\n# Profile\n\n"+
+			"This lead identifies the subject and explains why the page matters. "+
+			citation+"\n\n## Current snapshot\n\n"+
+			"The current state is grounded and links to the [timeline](../timelines/world.md).\n",
+	)
+	s.writeWiki(
+		"timelines/world.md",
+		"---\ntype: timeline\n---\n\n# Timeline\n\n"+
+			"This timeline records meaningful changes without structuring every article "+
+			"as a transcript. "+citation+"\n\n## Key changes\n\n"+
+			"- The source fact connects back to the [profile](../pages/profile.md).\n",
+	)
+
+	report := workspace.Validate(s.root)
+	s.True(report.Valid, report.String())
+}
+
+func (s *validatorSuite) TestArticleFirstContractAndNavigationFailureMatrix() {
+	tests := []struct {
+		name    string
+		page    string
+		message string
+	}{
+		{
+			name:    "missing frontmatter",
+			page:    "# Leaf\n\nThis page has a readable lead but no declared type.\n",
+			message: "missing frontmatter",
+		},
+		{
+			name: "unsupported type",
+			page: "---\ntype: transcript\n---\n\n# Leaf\n\n" +
+				"This page has a readable lead and an invalid editorial type.\n",
+			message: "unsupported article type",
+		},
+		{
+			name: "missing lead",
+			page: "---\ntype: portal\n---\n\n# Leaf\n\n" +
+				"- A list is not a prose lead with a reader promise.\n",
+			message: "needs a prose lead",
+		},
+		{
+			name: "multiple H1",
+			page: "---\ntype: portal\n---\n\n# Leaf\n\n" +
+				"This page starts with a valid prose lead for its readers.\n\n# Again\n",
+			message: "exactly one H1",
+		},
+	}
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			root := s.T().TempDir()
+			s.Require().NoError(os.MkdirAll(
+				filepath.Join(root, ".pax"),
+				0o755,
+			))
+			s.Require().NoError(os.WriteFile(
+				filepath.Join(root, ".pax", "editorial-profile"),
+				[]byte("article-first-v1\n"),
+				0o644,
+			))
+			s.Require().NoError(os.MkdirAll(
+				filepath.Join(root, "wiki", "portals"),
+				0o755,
+			))
+			s.Require().NoError(os.WriteFile(
+				filepath.Join(root, "wiki", "index.md"),
+				[]byte("---\ntype: portal\n---\n\n# Wiki\n\n"+
+					"This home page leads readers into a deliberately deep path.\n\n"+
+					"- [One](portals/one.md)\n"),
+				0o644,
+			))
+			for index, pair := range []struct {
+				name string
+				next string
+			}{
+				{name: "one.md", next: "two.md"},
+				{name: "two.md", next: "three.md"},
+				{name: "three.md", next: "leaf.md"},
+			} {
+				content := "---\ntype: portal\n---\n\n# Portal\n\n" +
+					"This portal provides another meaningful step in the reader path.\n\n"
+				if index < 2 {
+					content += "- [Next](" + pair.next + ")\n"
+				} else {
+					content += "- [Leaf](" + pair.next + ")\n"
+				}
+				s.Require().NoError(os.WriteFile(
+					filepath.Join(root, "wiki", "portals", pair.name),
+					[]byte(content),
+					0o644,
+				))
+			}
+			s.Require().NoError(os.WriteFile(
+				filepath.Join(root, "wiki", "portals", "leaf.md"),
+				[]byte(test.page),
+				0o644,
+			))
+			manifest, err := json.Marshal(workspace.Manifest{
+				SchemaVersion: "pax.llmwiki.workspace.v1",
+			})
+			s.Require().NoError(err)
+			s.Require().NoError(os.WriteFile(
+				filepath.Join(root, ".pax", "manifest.json"),
+				manifest,
+				0o644,
+			))
+
+			report := workspace.Validate(root)
+			s.False(report.Valid)
+			s.Contains(report.String(), test.message)
+			s.Contains(report.String(), "maximum is 3")
+		})
+	}
+}
+
+func (s *validatorSuite) enableArticleFirst() {
+	s.T().Helper()
+	s.Require().NoError(os.WriteFile(
+		filepath.Join(s.root, ".pax", "editorial-profile"),
+		[]byte("article-first-v1\n"),
+		0o644,
+	))
 }
 
 func (s *validatorSuite) writeWiki(relative, content string) {

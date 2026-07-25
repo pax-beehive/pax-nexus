@@ -238,6 +238,8 @@ func executeTool(root string, call ToolCall) string {
 		value, err = toolGrep(root, call.Function.Arguments)
 	case "write_file":
 		value, err = toolWriteFile(root, call.Function.Arguments)
+	case "replace_text":
+		value, err = toolReplaceText(root, call.Function.Arguments)
 	case "move_file":
 		value, err = toolMoveFile(root, call.Function.Arguments)
 	case "delete_file":
@@ -420,18 +422,81 @@ func toolWriteFile(root, arguments string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if info, statErr := os.Stat(target); statErr == nil && info.Size() >= 256 {
+		return "", errors.New(
+			"existing substantial pages must use replace_text to preserve unrelated content",
+		)
+	} else if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
+		return "", fmt.Errorf("inspect existing wiki file: %w", statErr)
+	}
+	return writeWikiCandidate(root, target, relative, []byte(input.Content))
+}
+
+func toolReplaceText(root, arguments string) (string, error) {
+	var input struct {
+		Path                string `json:"path"`
+		OldText             string `json:"old_text"`
+		NewText             string `json:"new_text"`
+		ExpectedOccurrences int    `json:"expected_occurrences"`
+	}
+	if err := decodeToolArguments(arguments, &input); err != nil {
+		return "", err
+	}
+	if input.OldText == "" {
+		return "", errors.New("replace_text old_text is required")
+	}
+	if input.ExpectedOccurrences == 0 {
+		input.ExpectedOccurrences = 1
+	}
+	if input.ExpectedOccurrences < 1 {
+		return "", errors.New("replace_text expected_occurrences must be positive")
+	}
+	target, relative, err := resolveAgentWritePath(root, input.Path)
+	if err != nil {
+		return "", err
+	}
+	content, err := os.ReadFile(target)
+	if err != nil {
+		return "", fmt.Errorf("read wiki file for precise edit: %w", err)
+	}
+	if len(content) > 2<<20 {
+		return "", errors.New("file exceeds 2 MiB edit limit")
+	}
+	actual := strings.Count(string(content), input.OldText)
+	if actual != input.ExpectedOccurrences {
+		return "", fmt.Errorf(
+			"replace_text found %d occurrences, expected %d",
+			actual,
+			input.ExpectedOccurrences,
+		)
+	}
+	updated := strings.Replace(
+		string(content),
+		input.OldText,
+		input.NewText,
+		input.ExpectedOccurrences,
+	)
+	return writeWikiCandidate(root, target, relative, []byte(updated))
+}
+
+func writeWikiCandidate(
+	root,
+	target,
+	relative string,
+	content []byte,
+) (string, error) {
 	if err := validateCandidateCitations(
 		root,
 		target,
 		relative,
-		[]byte(input.Content),
+		content,
 	); err != nil {
 		return "", fmt.Errorf("reject invalid Wiki write: %w", err)
 	}
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return "", fmt.Errorf("create wiki directory: %w", err)
 	}
-	if err := os.WriteFile(target, []byte(input.Content), 0o644); err != nil {
+	if err := os.WriteFile(target, content, 0o644); err != nil {
 		return "", fmt.Errorf("write wiki file: %w", err)
 	}
 	return relative, nil
@@ -657,11 +722,28 @@ func agentTools() []ToolDefinition {
 			Type: "function",
 			Function: ToolFunctionSchema{
 				Name:        "write_file",
-				Description: "Create or replace one Markdown file under wiki/.",
+				Description: "Create a Wiki Markdown file or replace a small scaffold. Use replace_text for an established page.",
 				Parameters: object(map[string]any{
 					"path":    stringProperty("Relative wiki/*.md path."),
 					"content": stringProperty("Complete Markdown file content."),
 				}, "path", "content"),
+			},
+		},
+		{
+			Type: "function",
+			Function: ToolFunctionSchema{
+				Name:        "replace_text",
+				Description: "Precisely edit an existing Wiki page by replacing an exact text span while retaining all unrelated content.",
+				Parameters: object(map[string]any{
+					"path":     stringProperty("Existing relative wiki/*.md path."),
+					"old_text": stringProperty("Exact text to replace."),
+					"new_text": stringProperty("Replacement text."),
+					"expected_occurrences": map[string]any{
+						"type":        "integer",
+						"minimum":     1,
+						"description": "Exact match count; defaults to one.",
+					},
+				}, "path", "old_text", "new_text"),
 			},
 		},
 		{
@@ -702,5 +784,7 @@ Sources and existing Wiki. Work globally across the Markdown tree: update,
 merge, split, rename, move, link, or delete Wiki pages as needed. Organize by
 durable topic instead of Session chronology. Every evidence-based claim needs a
 precise Source message citation. Never duplicate an existing Wiki just because
-new Source material arrived. Use the provided filesystem tools only. Run the
-deterministic validator and repair all errors before finishing.`
+new Source material arrived. Use replace_text for established pages so unrelated
+sections survive incremental maintenance; reserve write_file for new pages and
+small scaffolds. Use the provided filesystem tools only. Run the deterministic
+validator and repair all errors before finishing.`

@@ -49,6 +49,9 @@ func (s *snapshotSuite) SetupTest() {
 	s.source = built.Source
 	s.sourceRaw, err = os.ReadFile(filepath.Join(s.seed, s.source.Path))
 	s.Require().NoError(err)
+	s.Require().NoError(os.Remove(
+		filepath.Join(s.seed, ".pax", "editorial-profile"),
+	))
 	s.T().Cleanup(func() {
 		for _, root := range []string{s.seed} {
 			chmodSources(root)
