@@ -114,4 +114,8 @@ func (s *deviceProvisioningStoreSuite) TestMigration019IsReplaySafeAndAddsDevice
 		VALUES ('device', 'identity.agent.provisioned', 'credential', $1, now())
 	`, targetID)
 	s.Require().NoError(err, "audit events should accept a 'device' actor_kind")
+
+	// Replay migration after device rows exist to prove 019 is truly replay-safe
+	// on tables with device credential and enrollment rows.
+	s.Require().NoError(s.store.Migrate(ctx), "migration 019 should replay safely with device rows present")
 }
