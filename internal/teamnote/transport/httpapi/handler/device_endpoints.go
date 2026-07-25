@@ -10,12 +10,12 @@ import (
 	api "github.com/pax-beehive/pax-nexus/internal/teamnote/transport/httpapi/model/teammemory/api"
 )
 
-// Device provisioning endpoints (Task 4: IDL + codegen only). These are
-// minimal placeholders that keep the generated handler stubs compiling;
-// Task 8 replaces the remaining bodies with the real domain-backed
-// implementations (device enrollment and admin device listing/get).
-// ProvisionDeviceAgent (Task 5), ListDeviceProvisions (Task 6), and
-// RevokeAdminDevice (Task 7) are implemented below.
+// Device provisioning endpoints. ProvisionDeviceAgent (Task 5),
+// ListDeviceProvisions (Task 6), RevokeAdminDevice (Task 7), and
+// ListAdminDevices/GetAdminDevice (Task 8) are implemented below.
+// CreateDeviceEnrollment remains a placeholder from Task 4's IDL + codegen
+// pass; device enrollment is currently created through
+// RegistryService.CreateDeviceEnrollment via other entry points.
 
 func (h *Handler) CreateDeviceEnrollment(_ context.Context, c *app.RequestContext) {
 	if !h.requireOnPrem(c) {
@@ -64,18 +64,44 @@ func (h *Handler) ListDeviceProvisions(ctx context.Context, c *app.RequestContex
 	c.JSON(consts.StatusOK, deviceProvisionedAgentsToAPI(agents))
 }
 
-func (h *Handler) ListAdminDevices(_ context.Context, c *app.RequestContext) {
-	if !h.requireOnPrem(c) {
+// ListAdminDevices returns the admin device-management listing (device
+// credentials only). It mirrors ListAdminAgents's human-session handling
+// exactly: a GET, so no CSRF is required.
+func (h *Handler) ListAdminDevices(ctx context.Context, c *app.RequestContext) {
+	principal, ok := h.authorizeHumanMember(ctx, c, false)
+	if !ok {
 		return
 	}
-	c.String(consts.StatusNotImplemented, "list admin devices is not implemented")
+	limit, err := queryLimit(c)
+	if err != nil {
+		writeHumanAPIError(c, consts.StatusBadRequest, "invalid_request", "the request is invalid")
+		return
+	}
+	devices, err := h.registry.ListDevices(ctx, principal, onprem.DeviceFilter{
+		Status: c.Query("status"), Limit: limit, Cursor: c.Query("cursor"),
+	})
+	if err != nil {
+		h.writeHumanError(c, "list admin devices", err)
+		return
+	}
+	c.JSON(consts.StatusOK, deviceListToAPI(devices, limit))
 }
 
-func (h *Handler) GetAdminDevice(_ context.Context, c *app.RequestContext) {
-	if !h.requireOnPrem(c) {
+// GetAdminDevice returns a device credential's summary plus every credential
+// row it has provisioned (including revoked history). It mirrors
+// GetAdminAgent's human-session handling exactly: a GET, so no CSRF is
+// required.
+func (h *Handler) GetAdminDevice(ctx context.Context, c *app.RequestContext) {
+	principal, ok := h.authorizeHumanMember(ctx, c, false)
+	if !ok {
 		return
 	}
-	c.String(consts.StatusNotImplemented, "get admin device is not implemented")
+	detail, err := h.registry.GetDevice(ctx, principal, c.Param("credential_id"))
+	if err != nil {
+		h.writeHumanError(c, "get admin device", err)
+		return
+	}
+	c.JSON(consts.StatusOK, deviceDetailToAPI(detail))
 }
 
 // RevokeAdminDevice revokes a device credential and cascades to every agent

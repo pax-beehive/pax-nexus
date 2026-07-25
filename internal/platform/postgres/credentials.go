@@ -428,7 +428,17 @@ func (s *CredentialStore) ProvisionAgentCredential(
 func (s *CredentialStore) ListDeviceProvisionedAgents(
 	ctx context.Context, deviceCredentialID string,
 ) ([]onprem.DeviceProvisionedAgent, error) {
-	rows, err := s.pool.Query(ctx, `
+	return listDeviceProvisionedAgents(ctx, s.pool, deviceCredentialID)
+}
+
+// listDeviceProvisionedAgents is the shared query behind both
+// CredentialStore.ListDeviceProvisionedAgents (Task 6) and
+// RegistryStore.GetDevice (Task 8's admin device detail), so both surfaces
+// agree on ordering and included revoked history.
+func listDeviceProvisionedAgents(
+	ctx context.Context, pool *pgxpool.Pool, deviceCredentialID string,
+) ([]onprem.DeviceProvisionedAgent, error) {
+	rows, err := pool.Query(ctx, `
 		SELECT agents.agent_id, agents.display_name, agents.agent_type, agents.status,
 		       credentials.credential_id, credentials.created_at, credentials.revoked_at, credentials.last_used_at
 		FROM agent_credentials credentials

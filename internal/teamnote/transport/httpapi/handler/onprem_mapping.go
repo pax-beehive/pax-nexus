@@ -71,20 +71,7 @@ func provisionedAgentCredentialToAPI(credential onprem.ProvisionedAgentCredentia
 func deviceProvisionedAgentsToAPI(agents []onprem.DeviceProvisionedAgent) *api.ListDeviceProvisionsResponse {
 	result := make([]*api.DeviceProvisionedAgent, len(agents))
 	for index, agent := range agents {
-		current := &api.DeviceProvisionedAgent{
-			AgentID: agent.AgentID, DisplayName: agent.DisplayName, AgentType: agent.AgentType,
-			AgentStatus: string(agent.AgentStatus), CredentialID: agent.CredentialID,
-			CreatedAt: agent.CreatedAt.Format(time.RFC3339Nano),
-		}
-		if agent.RevokedAt != nil {
-			value := agent.RevokedAt.Format(time.RFC3339Nano)
-			current.RevokedAt = &value
-		}
-		if agent.LastUsedAt != nil {
-			value := agent.LastUsedAt.Format(time.RFC3339Nano)
-			current.LastUsedAt = &value
-		}
-		result[index] = current
+		result[index] = deviceProvisionedAgentToAPI(agent)
 	}
 	return &api.ListDeviceProvisionsResponse{Agents: result}
 }
@@ -113,6 +100,44 @@ func deviceSummaryToAPI(summary onprem.DeviceSummary) *api.DeviceSummary {
 		result.LastUsedAt = &value
 	}
 	return result
+}
+
+func deviceProvisionedAgentToAPI(agent onprem.DeviceProvisionedAgent) *api.DeviceProvisionedAgent {
+	result := &api.DeviceProvisionedAgent{
+		AgentID: agent.AgentID, DisplayName: agent.DisplayName, AgentType: agent.AgentType,
+		AgentStatus: string(agent.AgentStatus), CredentialID: agent.CredentialID,
+		CreatedAt: agent.CreatedAt.Format(time.RFC3339Nano),
+	}
+	if agent.RevokedAt != nil {
+		value := agent.RevokedAt.Format(time.RFC3339Nano)
+		result.RevokedAt = &value
+	}
+	if agent.LastUsedAt != nil {
+		value := agent.LastUsedAt.Format(time.RFC3339Nano)
+		result.LastUsedAt = &value
+	}
+	return result
+}
+
+func deviceListToAPI(devices []onprem.DeviceSummary, limit int) *api.ListDevicesResponse {
+	result := &api.ListDevicesResponse{Devices: make([]*api.DeviceSummary, len(devices))}
+	for index, device := range devices {
+		result.Devices[index] = deviceSummaryToAPI(device)
+	}
+	if len(devices) == limit && len(devices) > 0 {
+		last := devices[len(devices)-1]
+		cursor := onprem.EncodeDeviceCursor(last.CreatedAt, last.CredentialID)
+		result.NextCursor = &cursor
+	}
+	return result
+}
+
+func deviceDetailToAPI(detail onprem.DeviceDetail) *api.DeviceDetailResponse {
+	agents := make([]*api.DeviceProvisionedAgent, len(detail.Agents))
+	for index, agent := range detail.Agents {
+		agents[index] = deviceProvisionedAgentToAPI(agent)
+	}
+	return &api.DeviceDetailResponse{Device: deviceSummaryToAPI(detail.Device), Agents: agents}
 }
 
 func principalToAPI(principal onprem.Principal) *api.AgentIdentityResponse {

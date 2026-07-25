@@ -101,6 +101,8 @@ type AgentRegistryLifecycle interface {
 	ListAdminCredentials(context.Context, onprem.HumanPrincipal, string, onprem.AgentArtifactFilter) ([]onprem.AgentCredentialMetadata, error)
 	RevokeAdminCredential(context.Context, onprem.HumanPrincipal, string, string, string) (onprem.AgentCredentialMetadata, error)
 	RevokeDevice(context.Context, onprem.HumanPrincipal, string, string) (onprem.DeviceSummary, error)
+	ListDevices(context.Context, onprem.HumanPrincipal, onprem.DeviceFilter) ([]onprem.DeviceSummary, error)
+	GetDevice(context.Context, onprem.HumanPrincipal, string) (onprem.DeviceDetail, error)
 }
 
 type OperationsLifecycle interface {

@@ -160,6 +160,22 @@ type DeviceSummary struct {
 	ProvisionedAgentCount int64
 }
 
+// DeviceFilter narrows the admin device listing by status and paginates it
+// with a created_at-DESC keyset cursor (see normalizeDeviceFilter).
+type DeviceFilter struct {
+	Status string // "", "active", "revoked"
+	Limit  int
+	Cursor string
+}
+
+// DeviceDetail is a device credential's summary plus every credential row it
+// has provisioned (including revoked history), for the admin device detail
+// surface.
+type DeviceDetail struct {
+	Device DeviceSummary
+	Agents []DeviceProvisionedAgent
+}
+
 type RegistryConfig struct {
 	SecretPepper               string
 	MemberGrantablePermissions []Permission
@@ -184,6 +200,8 @@ type RegistryStore interface {
 	ListAdminAgents(context.Context, AgentFilter) ([]AgentProfile, error)
 	GetAdminAgent(context.Context, string) (AgentProfile, error)
 	RevokeDevice(context.Context, HumanPrincipal, string, string, time.Time) (DeviceSummary, error)
+	ListDevices(context.Context, DeviceFilter) ([]DeviceSummary, error)
+	GetDevice(context.Context, string) (DeviceDetail, error)
 }
 
 type registryOptions struct {
@@ -743,6 +761,37 @@ func (s *RegistryService) RevokeDevice(
 	return s.store.RevokeDevice(ctx, principal, credentialID, strings.TrimSpace(idempotencyKey), s.clock().UTC())
 }
 
+// ListDevices returns the admin device-management listing (device
+// credentials only). Only an Owner or Admin may list devices.
+func (s *RegistryService) ListDevices(
+	ctx context.Context,
+	principal HumanPrincipal,
+	filter DeviceFilter,
+) ([]DeviceSummary, error) {
+	if err := authorizeHumanAdmin(principal); err != nil {
+		return nil, err
+	}
+	return s.store.ListDevices(ctx, normalizeDeviceFilter(filter))
+}
+
+// GetDevice returns a device credential's summary plus every credential row
+// it has provisioned (including revoked history). Only an Owner or Admin may
+// view a device's detail.
+func (s *RegistryService) GetDevice(
+	ctx context.Context,
+	principal HumanPrincipal,
+	credentialID string,
+) (DeviceDetail, error) {
+	if err := authorizeHumanAdmin(principal); err != nil {
+		return DeviceDetail{}, err
+	}
+	credentialID = strings.TrimSpace(credentialID)
+	if credentialID == "" {
+		return DeviceDetail{}, ErrCredentialNotFound
+	}
+	return s.store.GetDevice(ctx, credentialID)
+}
+
 func authorizeHumanAdmin(principal HumanPrincipal) error {
 	if err := validateHumanPrincipal(principal); err != nil {
 		return err
@@ -857,6 +906,28 @@ func applyAgentUpdate(profile *AgentProfile, request UpdateAgentRequest, now tim
 func normalizeAgentFilter(filter AgentFilter) AgentFilter {
 	filter.OwnerMembershipID = strings.TrimSpace(filter.OwnerMembershipID)
 	filter.Query = strings.TrimSpace(filter.Query)
+	filter.Cursor = strings.TrimSpace(filter.Cursor)
+	if filter.Limit <= 0 {
+		filter.Limit = 50
+	}
+	if filter.Limit > 100 {
+		filter.Limit = 100
+	}
+	return filter
+}
+
+// EncodeDeviceCursor builds the opaque keyset cursor ListDevices' store
+// implementation (postgres.RegistryStore.ListDevices) expects back on
+// DeviceFilter.Cursor: "<created_at RFC3339Nano>|<credential_id>", matching
+// the ORDER BY created_at DESC, credential_id keyset. Callers building a
+// ListDevices response's next_cursor from the last returned DeviceSummary
+// should use this instead of hand-rolling the format.
+func EncodeDeviceCursor(createdAt time.Time, credentialID string) string {
+	return createdAt.UTC().Format(time.RFC3339Nano) + "|" + credentialID
+}
+
+func normalizeDeviceFilter(filter DeviceFilter) DeviceFilter {
+	filter.Status = strings.TrimSpace(filter.Status)
 	filter.Cursor = strings.TrimSpace(filter.Cursor)
 	if filter.Limit <= 0 {
 		filter.Limit = 50
