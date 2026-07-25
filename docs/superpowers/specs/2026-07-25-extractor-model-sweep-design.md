@@ -161,37 +161,29 @@ Team Note ingest reports `memory_items <= 0`. An extractor that returns
 unparseable output and writes nothing is therefore reported as an invalid run,
 not as a genuine 0% accuracy.
 
-## Known blocker: Gemini project access
+## Provider verification
 
-The supplied `GEMINI_API_KEY` authenticates and can enumerate models — both
-`gemini-3.5-flash-lite` and `gemini-3.6-flash` are present in the account's
-model list — but every generation call returns:
+The Gemini endpoint was validated directly against the OpenAI-compatible
+`chat/completions` endpoint before any harness work, using the credential stored
+in `.env.eval-v2`:
 
-```
-403 PERMISSION_DENIED: Your project has been denied access. Please contact support.
-```
+- Both `gemini-3.5-flash-lite` and `gemini-3.6-flash` generate successfully.
+- Both accept `response_format: {"type": "json_object"}` at `temperature: 0` and
+  return parseable JSON.
 
-Verified against the OpenAI-compatible `chat/completions` endpoint and the native
-`generateContent` endpoint, with both `Authorization: Bearer` and
-`x-goog-api-key`, and with `gemini-2.5-flash` as well as the target models. The
-denial is project-level and not reachable from this repository.
+The second point is the one that mattered.
+`internal/teamnote/extractor/openai.go:247-248` sends that field
+unconditionally, so an incompatible provider would have failed every extraction
+job — after the stack was up and full-domain ingest had begun. No per-provider
+response-format toggle is needed, and none should be added speculatively.
 
-Consequences: the `deepseek-v4-flash` baseline round runs today, and the Gemini
-rounds are blocked until the account is granted generation access or a different
-key is supplied. Because the credential is referenced indirectly through
-`SWEEP_EXTRACTOR_KEY_ENV`, unblocking requires only replacing the value in
-`.env.eval-v2`; no code or fragment changes.
-
-## Contingency: JSON response format
-
-`internal/teamnote/extractor/openai.go:247-248` sends
-`response_format: {"type": "json_object"}` unconditionally. Whether Gemini's
-OpenAI-compatibility layer accepts it is untested, because project access is
-denied. If it rejects the field, add `TEAM_MEMORY_EXTRACTOR_RESPONSE_FORMAT`
-(default `json_object`, alternative `none`) to the extractor configuration.
-
-This is deliberately not built up front. The micro-5 round exists to surface it
-cheaply, and building the toggle before knowing it is needed would be speculative.
+An earlier credential for the same account authenticated and could enumerate
+models but returned `403 PERMISSION_DENIED: Your project has been denied access`
+on every generation call, against both the OpenAI-compatible and native
+endpoints. If that recurs, it is a project-level entitlement problem on the
+Google side, not a configuration error in this repository. Because fragments
+reference the credential indirectly through `SWEEP_EXTRACTOR_KEY_ENV`, swapping
+keys only touches `.env.eval-v2`.
 
 ## Testing
 
