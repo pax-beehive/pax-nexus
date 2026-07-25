@@ -45,7 +45,7 @@ func (s *deviceProvisioningStoreSuite) SetupTest() {
 	ctx := context.Background()
 	userID := uniqueCredentialValue("device-provisioning-user")
 	membershipID := uniqueCredentialValue("device-provisioning-membership")
-	now := time.Now().UTC()
+	now := time.Now().UTC().Truncate(time.Microsecond)
 	_, err := s.store.Pool().Exec(ctx, `
 		INSERT INTO onprem_users (user_id, display_name, identity_status, created_at, updated_at)
 		VALUES ($1, 'Device Provisioning Owner', 'active', $2, $2)`, userID, now)
@@ -132,7 +132,7 @@ func (s *deviceProvisioningStoreSuite) TestMigration019IsReplaySafeAndAddsDevice
 // credential authenticates to a Principal carrying device semantics.
 func (s *deviceProvisioningStoreSuite) TestDeviceEnrollmentCreateExchangeAuthenticateLoop() {
 	ctx := context.Background()
-	now := time.Now().UTC()
+	now := time.Now().UTC().Truncate(time.Microsecond)
 	registryService, err := onprem.NewRegistryService(s.store.Registry(), onprem.RegistryConfig{
 		SecretPepper: "0123456789abcdef0123456789abcdef",
 		MemberGrantablePermissions: []onprem.Permission{
@@ -208,7 +208,7 @@ func (s *deviceProvisioningStoreSuite) TestDeviceEnrollmentCreateExchangeAuthent
 // (docs/decisions/2026-07-24-device-scoped-agent-provisioning.md).
 func (s *deviceProvisioningStoreSuite) TestDeviceCredentialRotationIsRejected() {
 	ctx := context.Background()
-	now := time.Now().UTC()
+	now := time.Now().UTC().Truncate(time.Microsecond)
 	registryService, err := onprem.NewRegistryService(s.store.Registry(), onprem.RegistryConfig{
 		SecretPepper: "0123456789abcdef0123456789abcdef",
 		MemberGrantablePermissions: []onprem.Permission{
@@ -258,7 +258,7 @@ func (s *deviceProvisioningStoreSuite) TestDeviceCredentialRotationIsRejected() 
 // inserting a replacement.
 func (s *deviceProvisioningStoreSuite) TestStoreRotateCredentialRejectsDeviceKindAndRollsBack() {
 	ctx := context.Background()
-	now := time.Now().UTC()
+	now := time.Now().UTC().Truncate(time.Microsecond)
 	registryService, err := onprem.NewRegistryService(s.store.Registry(), onprem.RegistryConfig{
 		SecretPepper: "0123456789abcdef0123456789abcdef",
 		MemberGrantablePermissions: []onprem.Permission{
@@ -369,7 +369,7 @@ type deviceProvisioningServices struct {
 }
 
 func (s *deviceProvisioningStoreSuite) newProvisioningServices(deviceAgentLimit int) deviceProvisioningServices {
-	now := time.Now().UTC()
+	now := time.Now().UTC().Truncate(time.Microsecond)
 	registryService, err := onprem.NewRegistryService(s.store.Registry(), onprem.RegistryConfig{
 		SecretPepper: "0123456789abcdef0123456789abcdef",
 		MemberGrantablePermissions: []onprem.Permission{
@@ -791,7 +791,7 @@ func (s *deviceProvisioningStoreSuite) TestLegacyRevokeCredentialCascadesDeviceR
 	_, err = services.credential.Authenticate(ctx, provisioned.APIKey)
 	s.Require().NoError(err)
 
-	s.Require().NoError(s.store.Credentials().RevokeCredential(ctx, device.CredentialID, time.Now().UTC()))
+	s.Require().NoError(s.store.Credentials().RevokeCredential(ctx, device.CredentialID, time.Now().UTC().Truncate(time.Microsecond)))
 
 	_, err = services.credential.Authenticate(ctx, provisioned.APIKey)
 	s.Require().ErrorIs(err, onprem.ErrUnauthorized, "legacy revoke must cascade to provisioned agent credentials")
@@ -822,7 +822,7 @@ func (s *deviceProvisioningStoreSuite) TestLegacyRevokeCredentialDoesNotCascadeF
 	issued, err := services.credential.ExchangeEnrollment(ctx, enrollment.Token)
 	s.Require().NoError(err)
 
-	s.Require().NoError(s.store.Credentials().RevokeCredential(ctx, issued.CredentialID, time.Now().UTC()))
+	s.Require().NoError(s.store.Credentials().RevokeCredential(ctx, issued.CredentialID, time.Now().UTC().Truncate(time.Microsecond)))
 
 	var revokedAt *time.Time
 	err = s.store.Pool().QueryRow(ctx, `
