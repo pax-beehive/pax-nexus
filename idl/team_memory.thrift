@@ -90,6 +90,8 @@ struct AgentCredentialResponse {
   2: required string api_key
   3: optional string expires_at
   4: optional string kind
+  5: required string user_id
+  6: required list<string> permissions
 }
 
 struct AgentIdentityRequest {}
@@ -604,6 +606,7 @@ struct ProvisionDeviceAgentResponse {
   6: optional string expires_at
   7: optional string rotated_from_credential_id
   8: required bool agent_created
+  9: required string user_id
 }
 
 struct ListDeviceProvisionsRequest {}

@@ -28,7 +28,20 @@ func enrollmentToAPI(enrollment onprem.Enrollment) *api.AgentEnrollmentResponse 
 }
 
 func credentialToAPI(credential onprem.IssuedCredential) *api.AgentCredentialResponse {
-	result := &api.AgentCredentialResponse{CredentialID: credential.CredentialID, APIKey: credential.APIKey}
+	permissions := make([]string, len(credential.Permissions))
+	for index, permission := range credential.Permissions {
+		permissions[index] = string(permission)
+	}
+	// Agent enrollments predate the credential-kind column and persist an
+	// empty kind; the exchange contract reports them as "agent".
+	kind := string(credential.Kind)
+	if kind == "" {
+		kind = string(onprem.CredentialKindAgent)
+	}
+	result := &api.AgentCredentialResponse{
+		CredentialID: credential.CredentialID, APIKey: credential.APIKey,
+		UserID: credential.UserID, Permissions: permissions, Kind: &kind,
+	}
 	if credential.ExpiresAt != nil {
 		value := credential.ExpiresAt.Format(time.RFC3339Nano)
 		result.ExpiresAt = &value
@@ -47,7 +60,10 @@ func deviceProvisionRequestToDomain(request *api.ProvisionDeviceAgentRequest) on
 	}
 }
 
-func provisionedAgentCredentialToAPI(credential onprem.ProvisionedAgentCredential) *api.ProvisionDeviceAgentResponse {
+func provisionedAgentCredentialToAPI(
+	credential onprem.ProvisionedAgentCredential,
+	principal onprem.Principal,
+) *api.ProvisionDeviceAgentResponse {
 	permissions := make([]string, len(credential.Permissions))
 	for index, permission := range credential.Permissions {
 		permissions[index] = string(permission)
@@ -55,7 +71,7 @@ func provisionedAgentCredentialToAPI(credential onprem.ProvisionedAgentCredentia
 	result := &api.ProvisionDeviceAgentResponse{
 		CredentialID: credential.CredentialID, APIKey: credential.APIKey, AgentID: credential.AgentID,
 		Permissions: permissions, CreatedAt: credential.CreatedAt.Format(time.RFC3339Nano),
-		AgentCreated: credential.AgentCreated,
+		AgentCreated: credential.AgentCreated, UserID: principal.UserID,
 	}
 	if credential.ExpiresAt != nil {
 		value := credential.ExpiresAt.Format(time.RFC3339Nano)

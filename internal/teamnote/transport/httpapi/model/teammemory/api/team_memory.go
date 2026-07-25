@@ -3923,10 +3923,12 @@ func (p *ExchangeEnrollmentRequest) String() string {
 }
 
 type AgentCredentialResponse struct {
-	CredentialID string  `thrift:"credential_id,1,required" form:"credential_id,required" json:"credential_id,required" query:"credential_id,required"`
-	APIKey       string  `thrift:"api_key,2,required" form:"api_key,required" json:"api_key,required" query:"api_key,required"`
-	ExpiresAt    *string `thrift:"expires_at,3,optional" form:"expires_at" json:"expires_at,omitempty" query:"expires_at"`
-	Kind         *string `thrift:"kind,4,optional" form:"kind" json:"kind,omitempty" query:"kind"`
+	CredentialID string   `thrift:"credential_id,1,required" form:"credential_id,required" json:"credential_id,required" query:"credential_id,required"`
+	APIKey       string   `thrift:"api_key,2,required" form:"api_key,required" json:"api_key,required" query:"api_key,required"`
+	ExpiresAt    *string  `thrift:"expires_at,3,optional" form:"expires_at" json:"expires_at,omitempty" query:"expires_at"`
+	Kind         *string  `thrift:"kind,4,optional" form:"kind" json:"kind,omitempty" query:"kind"`
+	UserID       string   `thrift:"user_id,5,required" form:"user_id,required" json:"user_id,required" query:"user_id,required"`
+	Permissions  []string `thrift:"permissions,6,required,list<string>" form:"permissions,required" json:"permissions,required" query:"permissions,required"`
 }
 
 func NewAgentCredentialResponse() *AgentCredentialResponse {
@@ -3962,11 +3964,21 @@ func (p *AgentCredentialResponse) GetKind() (v string) {
 	return *p.Kind
 }
 
+func (p *AgentCredentialResponse) GetUserID() (v string) {
+	return p.UserID
+}
+
+func (p *AgentCredentialResponse) GetPermissions() (v []string) {
+	return p.Permissions
+}
+
 var fieldIDToName_AgentCredentialResponse = map[int16]string{
 	1: "credential_id",
 	2: "api_key",
 	3: "expires_at",
 	4: "kind",
+	5: "user_id",
+	6: "permissions",
 }
 
 func (p *AgentCredentialResponse) IsSetExpiresAt() bool {
@@ -3983,6 +3995,8 @@ func (p *AgentCredentialResponse) Read(iprot thrift.TProtocol) (err error) {
 	var fieldId int16
 	var issetCredentialID bool = false
 	var issetAPIKey bool = false
+	var issetUserID bool = false
+	var issetPermissions bool = false
 
 	if _, err = iprot.ReadStructBegin(); err != nil {
 		goto ReadStructBeginError
@@ -4032,6 +4046,24 @@ func (p *AgentCredentialResponse) Read(iprot thrift.TProtocol) (err error) {
 			} else if err = iprot.Skip(fieldTypeId); err != nil {
 				goto SkipFieldError
 			}
+		case 5:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField5(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetUserID = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 6:
+			if fieldTypeId == thrift.LIST {
+				if err = p.ReadField6(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetPermissions = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
 		default:
 			if err = iprot.Skip(fieldTypeId); err != nil {
 				goto SkipFieldError
@@ -4052,6 +4084,16 @@ func (p *AgentCredentialResponse) Read(iprot thrift.TProtocol) (err error) {
 
 	if !issetAPIKey {
 		fieldId = 2
+		goto RequiredFieldNotSetError
+	}
+
+	if !issetUserID {
+		fieldId = 5
+		goto RequiredFieldNotSetError
+	}
+
+	if !issetPermissions {
+		fieldId = 6
 		goto RequiredFieldNotSetError
 	}
 	return nil
@@ -4116,6 +4158,40 @@ func (p *AgentCredentialResponse) ReadField4(iprot thrift.TProtocol) error {
 	p.Kind = _field
 	return nil
 }
+func (p *AgentCredentialResponse) ReadField5(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.UserID = _field
+	return nil
+}
+func (p *AgentCredentialResponse) ReadField6(iprot thrift.TProtocol) error {
+	_, size, err := iprot.ReadListBegin()
+	if err != nil {
+		return err
+	}
+	_field := make([]string, 0, size)
+	for i := 0; i < size; i++ {
+
+		var _elem string
+		if v, err := iprot.ReadString(); err != nil {
+			return err
+		} else {
+			_elem = v
+		}
+
+		_field = append(_field, _elem)
+	}
+	if err := iprot.ReadListEnd(); err != nil {
+		return err
+	}
+	p.Permissions = _field
+	return nil
+}
 
 func (p *AgentCredentialResponse) Write(oprot thrift.TProtocol) (err error) {
 	var fieldId int16
@@ -4137,6 +4213,14 @@ func (p *AgentCredentialResponse) Write(oprot thrift.TProtocol) (err error) {
 		}
 		if err = p.writeField4(oprot); err != nil {
 			fieldId = 4
+			goto WriteFieldError
+		}
+		if err = p.writeField5(oprot); err != nil {
+			fieldId = 5
+			goto WriteFieldError
+		}
+		if err = p.writeField6(oprot); err != nil {
+			fieldId = 6
 			goto WriteFieldError
 		}
 	}
@@ -4227,6 +4311,48 @@ WriteFieldBeginError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 4 begin error: ", p), err)
 WriteFieldEndError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 4 end error: ", p), err)
+}
+
+func (p *AgentCredentialResponse) writeField5(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("user_id", thrift.STRING, 5); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.UserID); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 5 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 5 end error: ", p), err)
+}
+
+func (p *AgentCredentialResponse) writeField6(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("permissions", thrift.LIST, 6); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteListBegin(thrift.STRING, len(p.Permissions)); err != nil {
+		return err
+	}
+	for _, v := range p.Permissions {
+		if err := oprot.WriteString(v); err != nil {
+			return err
+		}
+	}
+	if err := oprot.WriteListEnd(); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 6 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 6 end error: ", p), err)
 }
 
 func (p *AgentCredentialResponse) String() string {
@@ -27096,6 +27222,7 @@ type ProvisionDeviceAgentResponse struct {
 	ExpiresAt               *string  `thrift:"expires_at,6,optional" form:"expires_at" json:"expires_at,omitempty" query:"expires_at"`
 	RotatedFromCredentialID *string  `thrift:"rotated_from_credential_id,7,optional" form:"rotated_from_credential_id" json:"rotated_from_credential_id,omitempty" query:"rotated_from_credential_id"`
 	AgentCreated            bool     `thrift:"agent_created,8,required" form:"agent_created,required" json:"agent_created,required" query:"agent_created,required"`
+	UserID                  string   `thrift:"user_id,9,required" form:"user_id,required" json:"user_id,required" query:"user_id,required"`
 }
 
 func NewProvisionDeviceAgentResponse() *ProvisionDeviceAgentResponse {
@@ -27147,6 +27274,10 @@ func (p *ProvisionDeviceAgentResponse) GetAgentCreated() (v bool) {
 	return p.AgentCreated
 }
 
+func (p *ProvisionDeviceAgentResponse) GetUserID() (v string) {
+	return p.UserID
+}
+
 var fieldIDToName_ProvisionDeviceAgentResponse = map[int16]string{
 	1: "credential_id",
 	2: "api_key",
@@ -27156,6 +27287,7 @@ var fieldIDToName_ProvisionDeviceAgentResponse = map[int16]string{
 	6: "expires_at",
 	7: "rotated_from_credential_id",
 	8: "agent_created",
+	9: "user_id",
 }
 
 func (p *ProvisionDeviceAgentResponse) IsSetExpiresAt() bool {
@@ -27176,6 +27308,7 @@ func (p *ProvisionDeviceAgentResponse) Read(iprot thrift.TProtocol) (err error) 
 	var issetPermissions bool = false
 	var issetCreatedAt bool = false
 	var issetAgentCreated bool = false
+	var issetUserID bool = false
 
 	if _, err = iprot.ReadStructBegin(); err != nil {
 		goto ReadStructBeginError
@@ -27261,6 +27394,15 @@ func (p *ProvisionDeviceAgentResponse) Read(iprot thrift.TProtocol) (err error) 
 			} else if err = iprot.Skip(fieldTypeId); err != nil {
 				goto SkipFieldError
 			}
+		case 9:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField9(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetUserID = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
 		default:
 			if err = iprot.Skip(fieldTypeId); err != nil {
 				goto SkipFieldError
@@ -27301,6 +27443,11 @@ func (p *ProvisionDeviceAgentResponse) Read(iprot thrift.TProtocol) (err error) 
 
 	if !issetAgentCreated {
 		fieldId = 8
+		goto RequiredFieldNotSetError
+	}
+
+	if !issetUserID {
+		fieldId = 9
 		goto RequiredFieldNotSetError
 	}
 	return nil
@@ -27421,6 +27568,17 @@ func (p *ProvisionDeviceAgentResponse) ReadField8(iprot thrift.TProtocol) error 
 	p.AgentCreated = _field
 	return nil
 }
+func (p *ProvisionDeviceAgentResponse) ReadField9(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.UserID = _field
+	return nil
+}
 
 func (p *ProvisionDeviceAgentResponse) Write(oprot thrift.TProtocol) (err error) {
 	var fieldId int16
@@ -27458,6 +27616,10 @@ func (p *ProvisionDeviceAgentResponse) Write(oprot thrift.TProtocol) (err error)
 		}
 		if err = p.writeField8(oprot); err != nil {
 			fieldId = 8
+			goto WriteFieldError
+		}
+		if err = p.writeField9(oprot); err != nil {
+			fieldId = 9
 			goto WriteFieldError
 		}
 	}
@@ -27624,6 +27786,23 @@ WriteFieldBeginError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 8 begin error: ", p), err)
 WriteFieldEndError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 8 end error: ", p), err)
+}
+
+func (p *ProvisionDeviceAgentResponse) writeField9(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("user_id", thrift.STRING, 9); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.UserID); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 9 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 9 end error: ", p), err)
 }
 
 func (p *ProvisionDeviceAgentResponse) String() string {

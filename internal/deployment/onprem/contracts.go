@@ -96,6 +96,9 @@ type Enrollment struct {
 type IssuedCredential struct {
 	CredentialID string
 	APIKey       string
+	UserID       string
+	Permissions  []Permission
+	Kind         CredentialKind
 	ExpiresAt    *time.Time
 }
 
