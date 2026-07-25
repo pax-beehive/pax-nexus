@@ -195,3 +195,67 @@ func (s *deviceProvisioningStoreSuite) TestDeviceEnrollmentCreateExchangeAuthent
 	s.Equal(onprem.CredentialKindAgent, agentPrincipal.Kind)
 	s.Equal(agentID, agentPrincipal.AgentID)
 }
+
+// TestDeviceCredentialRotationPreservesKindAndGrantablePermissions exercises
+// device credential rotation to verify that Kind and GrantablePermissions
+// are preserved from the original principal through the rotation process,
+// and that the rotated credential authenticates successfully.
+func (s *deviceProvisioningStoreSuite) TestDeviceCredentialRotationPreservesKindAndGrantablePermissions() {
+	ctx := context.Background()
+	now := time.Now().UTC()
+	registryService, err := onprem.NewRegistryService(s.store.Registry(), onprem.RegistryConfig{
+		SecretPepper: "0123456789abcdef0123456789abcdef",
+		MemberGrantablePermissions: []onprem.Permission{
+			onprem.PermissionObserve, onprem.PermissionSearch, onprem.PermissionGet,
+		},
+	}, onprem.WithRegistryClock(func() time.Time { return now }))
+	s.Require().NoError(err)
+	credentialService, err := onprem.NewCredentialService(s.store.Credentials(), onprem.CredentialConfig{
+		RotationOverlap: time.Minute,
+		SecretPepper:    "0123456789abcdef0123456789abcdef",
+	}, onprem.WithClock(func() time.Time { return now }))
+	s.Require().NoError(err)
+
+	owner := onprem.HumanPrincipal{
+		UserID: s.userID, MembershipID: s.membershipID, Role: onprem.RoleOwner,
+		MembershipStatus: onprem.MembershipStatusActive,
+	}
+
+	// Create device enrollment and exchange for credential.
+	enrollment, err := registryService.CreateDeviceEnrollment(ctx, owner, onprem.DeviceEnrollmentRequest{
+		DeviceName: uniqueCredentialValue("device-rotation-test"),
+	})
+	s.Require().NoError(err)
+
+	issued, err := credentialService.ExchangeEnrollment(ctx, enrollment.Token)
+	s.Require().NoError(err)
+
+	// Authenticate to get the original principal.
+	originalPrincipal, err := credentialService.Authenticate(ctx, issued.APIKey)
+	s.Require().NoError(err)
+	s.Equal(onprem.CredentialKindDevice, originalPrincipal.Kind)
+	s.True(originalPrincipal.HasPermission(onprem.PermissionAgentProvision))
+	s.Equal(
+		[]onprem.Permission{onprem.PermissionObserve, onprem.PermissionSearch, onprem.PermissionGet},
+		originalPrincipal.GrantablePermissions,
+	)
+
+	// Rotate the credential.
+	rotated, err := credentialService.RotateCredential(ctx, originalPrincipal)
+	s.Require().NoError(err)
+	s.NotEmpty(rotated.APIKey)
+
+	// Authenticate with the new rotated credential.
+	rotatedPrincipal, err := credentialService.Authenticate(ctx, rotated.APIKey)
+	s.Require().NoError(err)
+
+	// Verify that Kind and GrantablePermissions are preserved.
+	s.Equal(onprem.CredentialKindDevice, rotatedPrincipal.Kind, "Kind should be preserved as device")
+	s.True(rotatedPrincipal.HasPermission(onprem.PermissionAgentProvision), "Permissions should be preserved")
+	s.Equal(
+		[]onprem.Permission{onprem.PermissionObserve, onprem.PermissionSearch, onprem.PermissionGet},
+		rotatedPrincipal.GrantablePermissions,
+		"GrantablePermissions should be preserved",
+	)
+	s.Empty(rotatedPrincipal.AgentID, "Device credentials should have empty AgentID")
+}
