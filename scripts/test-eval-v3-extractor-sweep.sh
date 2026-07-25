@@ -314,11 +314,12 @@ STUB
 set -eu
 {
   printf 'runner %s\n' "$*"
-  printf 'runner-env model=%s base_url=%s key=%s dsn=%s\n' \
+  printf 'runner-env model=%s base_url=%s key=%s dsn=%s arm_set=%s\n' \
     "${TEAM_MEMORY_EXTRACTOR_MODEL_OVERRIDE:-}" \
     "${TEAM_MEMORY_EXTRACTOR_BASE_URL_OVERRIDE:-}" \
     "${TEAM_MEMORY_EXTRACTOR_API_KEY_OVERRIDE:-}" \
-    "${EVAL_V2_POSTGRES_DSN:-}"
+    "${EVAL_V2_POSTGRES_DSN:-}" \
+    "${EVAL_V3_ARM_SET:-}"
 } >> "$RUNNER_STUB_LOG"
 # Also record a call marker in the shared ordering log (when provided) so
 # tests can assert the DSN command ran after `up` and before the runner.
@@ -399,6 +400,14 @@ down'
   expect_contains "stub sweep: runner still ran for 3.6-flash round after deepseek failed" \
     "$(cat "$runner_log")" \
     "runner-env model=gemini-3.6-flash base_url=https://generativelanguage.googleapis.com/v1beta/openai/ key=fake-gemini"
+
+  # The sweep script must export EVAL_V3_ARM_SET=two_arm_no_mem0 so the runner
+  # (and, through it, scripts/eval-v3-opencode.sh's before_run/consumer
+  # invocations) skip Mem0 ingest. Without this export, ingest_domain reverts
+  # to building Mem0 memory, reintroducing the ~9-hour-per-round cost this
+  # mode exists to avoid.
+  expect_contains "stub sweep: runner observes EVAL_V3_ARM_SET=two_arm_no_mem0" \
+    "$(cat "$runner_log")" "arm_set=two_arm_no_mem0"
 
   expect_contains "stub sweep: summary reports the failed round" \
     "$stub_out" "deepseek-v4-flash	FAILED (exit 7)"
