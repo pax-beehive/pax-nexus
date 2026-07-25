@@ -86,7 +86,7 @@ export function Modal({
         ref={dialogRef}
       >
         <h2 id={titleId}>{title}</h2>
-        <ErrorBoundary region="modal" escapeLabel="关闭" onEscape={onClose}>
+        <ErrorBoundary region="modal" escapeLabel="Close" onEscape={onClose}>
           {children}
         </ErrorBoundary>
       </div>

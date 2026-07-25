@@ -24,12 +24,12 @@ export function EntryPage() {
   return (
     <div className="center-page">
       <div className="center-box">
-        <h1 style={{ textAlign: "center" }}>欢迎{me?.email ? `，${me.email}` : ""}</h1>
+        <h1 style={{ textAlign: "center" }}>Welcome{me?.email ? `, ${me.email}` : ""}</h1>
         <p className="muted" style={{ textAlign: "center" }}>
-          你的账号还没有 Membership。选择一种方式加入：
+          Your account has no Membership yet. Choose a way to join:
         </p>
         <div className="card">
-          <h3 style={{ marginTop: 0 }}>我有邀请链接 / token</h3>
+          <h3 style={{ marginTop: 0 }}>I have an invitation link / token</h3>
           <label htmlFor="entry-token">Invitation token</label>
           <input
             id="entry-token"
@@ -41,19 +41,19 @@ export function EntryPage() {
           />
           <div style={{ marginTop: 10 }}>
             <button className="btn primary" disabled={!token.trim()} onClick={useToken}>
-              继续
+              Continue
             </button>
           </div>
         </div>
         <div className="card">
-          <h3 style={{ marginTop: 0 }}>首次安装</h3>
-          <p className="small muted">部署后第一位用户可 claim 首个 Owner。</p>
+          <h3 style={{ marginTop: 0 }}>First-time install</h3>
+          <p className="small muted">The first user after deployment can claim the initial Owner.</p>
           <button className="btn" onClick={() => navigate("/bootstrap")}>
             Claim Bootstrap Owner
           </button>
         </div>
         <p className="small muted" style={{ textAlign: "center" }}>
-          都没有？请联系团队的 Owner 获取邀请。
+          Neither applies? Contact your team's Owner for an invitation.
         </p>
       </div>
     </div>

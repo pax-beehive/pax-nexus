@@ -67,7 +67,7 @@ describe("section 10 item 14: cookie misconfiguration must not loop", () => {
       },
     });
 
-    await screen.findByRole("heading", { name: "Human Identity 未启用" });
+    await screen.findByRole("heading", { name: "Human Identity Not Enabled" });
     // The operator hint names the Secure Cookie misconfiguration explicitly
     // instead of sending the user through another login attempt.
     expect(document.body.textContent).toContain("TEAM_MEMORY_HUMAN_COOKIE_SECURE=false");
@@ -87,7 +87,7 @@ describe("section 10 item 14: cookie misconfiguration must not loop", () => {
 
     // After the OIDC callback, a Secure-cookie misconfiguration still yields
     // 401. The manual retry must not auto-redirect: the user stays put.
-    await user.click(screen.getByRole("button", { name: "已完成登录？点击重试" }));
+    await user.click(screen.getByRole("button", { name: "Already signed in? Click to retry" }));
     await screen.findByRole("button", { name: /Continue with OIDC/ });
     await waitFor(() => expect(callsTo(fetchMock, "/v1/me")).toHaveLength(2));
     expect(window.location.pathname).toBe("/admin/members");

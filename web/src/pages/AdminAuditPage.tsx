@@ -145,17 +145,18 @@ export function AdminAuditPage() {
         <div>
           <h1>Audit Events</h1>
           <p className="muted" style={{ margin: 0 }}>
-            immutable 审计；label enrichment 为前端非权威映射，对象删除后保留原始 ID
+            Immutable audit; label enrichment is a non-authoritative frontend mapping, and
+            raw IDs stay visible after objects are deleted
           </p>
         </div>
       </div>
       <div className="row wrap" style={{ marginBottom: 14, gap: 10 }}>
         <select
-          aria-label="actor_kind 过滤"
+          aria-label="Filter by actor_kind"
           value={actorKind}
           onChange={(e) => setActorKind(e.target.value)}
         >
-          <option value="">actor_kind: 全部</option>
+          <option value="">actor_kind: all</option>
           {ACTOR_KINDS.map((k) => (
             <option key={k} value={k}>
               {k}
@@ -163,11 +164,11 @@ export function AdminAuditPage() {
           ))}
         </select>
         <select
-          aria-label="target_kind 过滤"
+          aria-label="Filter by target_kind"
           value={targetKind}
           onChange={(e) => setTargetKind(e.target.value)}
         >
-          <option value="">target_kind: 全部</option>
+          <option value="">target_kind: all</option>
           {TARGET_KINDS.map((k) => (
             <option key={k} value={k}>
               {k}
@@ -177,7 +178,7 @@ export function AdminAuditPage() {
         <input
           type="text"
           style={{ width: 220 }}
-          placeholder="action（如 agent.create）"
+          placeholder="action (e.g. agent.create)"
           value={actionInput}
           onChange={(e) => setActionInput(e.target.value)}
           list="audit-actions"
@@ -201,19 +202,19 @@ export function AdminAuditPage() {
           }}
         />
         <button className="btn sm" onClick={applyFilters}>
-          应用过滤
+          Apply filters
         </button>
       </div>
       <div className="card">
         {list.loading ? (
-          <p className="muted small">加载中…</p>
+          <p className="muted small">Loading…</p>
         ) : list.items.length === 0 ? (
-          <p className="muted small">无匹配记录。</p>
+          <p className="muted small">No matching records.</p>
         ) : (
           <table>
             <thead>
               <tr>
-                <th>时间</th>
+                <th>Time</th>
                 <th>Actor</th>
                 <th>Action</th>
                 <th>Target</th>
@@ -241,7 +242,7 @@ export function AdminAuditPage() {
                           setExpandedId(expandedId === e.audit_event_id ? null : e.audit_event_id)
                         }
                       >
-                        {expandedId === e.audit_event_id ? "收起" : "详情"}
+                        {expandedId === e.audit_event_id ? "Collapse" : "Details"}
                       </button>
                     </td>
                   </tr>
@@ -249,7 +250,7 @@ export function AdminAuditPage() {
                     <tr>
                       <td colSpan={5}>
                         {detailLoading ? (
-                          <p className="muted small">加载中…</p>
+                          <p className="muted small">Loading…</p>
                         ) : detail ? (
                           <div className="small" style={{ display: "grid", gap: 4, padding: "4px 0" }}>
                             <DetailField label="audit_event_id">
@@ -300,7 +301,7 @@ export function AdminAuditPage() {
       {list.nextCursor && (
         <div style={{ marginTop: 10, textAlign: "center" }}>
           <button className="btn sm" disabled={list.loadingMore} onClick={() => void list.loadMore()}>
-            {list.loadingMore ? "加载中…" : "加载更多"}
+            {list.loadingMore ? "Loading…" : "Load more"}
           </button>
         </div>
       )}

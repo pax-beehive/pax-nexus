@@ -47,7 +47,7 @@ function AppRoutes() {
     case "loading":
       return (
         <div className="center-page">
-          <p className="muted">加载中…</p>
+          <p className="muted">Loading…</p>
         </div>
       );
     case "not-configured":

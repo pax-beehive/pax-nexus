@@ -22,9 +22,9 @@ import { useToast } from "../components/Toasts";
 
 const STATUS_FILTERS = ["all", "active", "revoked"] as const;
 const EXPIRY_OPTIONS = [
-  { value: 300, label: "5 分钟" },
-  { value: 900, label: "15 分钟" },
-  { value: 1800, label: "30 分钟" },
+  { value: 300, label: "5 minutes" },
+  { value: 900, label: "15 minutes" },
+  { value: 1800, label: "30 minutes" },
 ] as const;
 
 function CreateDeviceEnrollmentModal({
@@ -56,11 +56,11 @@ function CreateDeviceEnrollmentModal({
     } catch (err) {
       if (err instanceof ApiError && err.status < 500) {
         // Client-side rejection: keep the form so the user can correct it.
-        setFormError(`请求被拒绝（HTTP ${err.status}），请检查输入`);
+        setFormError(`Request rejected (HTTP ${err.status}); please check the input`);
       } else {
         // One-time secret, no Idempotency-Key (doc 3.3): never blind retry;
         // refresh the list and let the user revoke duplicates.
-        toast("warn", "请求失败，未自动重试。已刷新列表：若列表中已出现该 Device，可使用或吊销后重建");
+        toast("warn", "Request failed; no automatic retry. The list has been refreshed: if the Device already appears in it, use it or revoke it and create a new one");
         onMaybeCreated();
       }
     } finally {
@@ -69,8 +69,8 @@ function CreateDeviceEnrollmentModal({
   };
 
   return (
-    <Modal title="创建 Device Enrollment" onClose={onClose}>
-      <label htmlFor="de-name">device_name（必填）</label>
+    <Modal title="Create Device Enrollment" onClose={onClose}>
+      <label htmlFor="de-name">device_name (required)</label>
       <input
         id="de-name"
         type="text"
@@ -79,7 +79,7 @@ function CreateDeviceEnrollmentModal({
         value={deviceName}
         onChange={(e) => setDeviceName(e.target.value)}
       />
-      <label htmlFor="de-exp">token 有效期</label>
+      <label htmlFor="de-exp">Token lifetime</label>
       <select id="de-exp" value={expiresIn} onChange={(e) => setExpiresIn(Number(e.target.value))}>
         {EXPIRY_OPTIONS.map((o) => (
           <option key={o.value} value={o.value}>
@@ -89,18 +89,21 @@ function CreateDeviceEnrollmentModal({
       </select>
       {formError && <div className="note bad">{formError}</div>}
       <div className="note small">
-        Device Credential 固定只有 <code>agent_provision</code> 权限，不提供权限矩阵；它铸发的 Agent
-        的权限上限由部署 grantable 配置决定。
+        A Device Credential always carries only the <code>agent_provision</code> permission; no
+        permission matrix is offered. The permission ceiling of the Agents it provisions is set by
+        the deployment&apos;s grantable configuration.
       </div>
       <div className="note small">
-        创建响应包含一次性 token，且<b>不支持 Idempotency-Key</b>：超时不会自动重试，先刷新 Devices 列表确认是否已产生记录。
+        The create response contains a one-time token and <b>does not support Idempotency-Key</b>:
+        timeouts are not retried automatically. Refresh the Devices list first to check whether a
+        record was created.
       </div>
       <div className="row" style={{ justifyContent: "flex-end" }}>
         <button className="btn ghost" onClick={onClose} disabled={busy}>
-          取消
+          Cancel
         </button>
         <button className="btn primary" disabled={busy} onClick={() => void submit()}>
-          {busy ? "创建中…" : "创建"}
+          {busy ? "Creating…" : "Create"}
         </button>
       </div>
     </Modal>
@@ -149,24 +152,25 @@ export function AdminDevicesPage() {
         <div>
           <h1>Devices</h1>
           <p className="muted" style={{ margin: 0 }}>
-            机器级接入：一个 Device Enrollment 供应整台机器，机器上的 Agent 自助铸发 Credential
+            Machine-level onboarding: one Device Enrollment provisions an entire machine, and the
+            Agents on it self-mint Credentials
           </p>
         </div>
         <button className="btn primary" onClick={() => setCreateOpen(true)}>
-          + 创建 Device Enrollment
+          + Create Device Enrollment
         </button>
       </div>
 
       {secret && (
         <SecretCard
-          title="一次性 Device Enrollment token（仅此一次显示）"
+          title="One-time Device Enrollment token (shown only once)"
           value={secret.token}
           valueLabel=" token"
           expiresAt={secret.expires_at}
           note={
             isSelfDescribingEnrollmentToken(secret.token)
-              ? "token 不会写入持久存储、日志或埋点。丢失只能吊销 Device 后重新创建；token 已内嵌接入地址，在目标机器执行 paxl device connect 完成接入。"
-              : "token 不会写入持久存储、日志或埋点。丢失只能吊销 Device 后重新创建；在目标机器执行 paxl device connect 完成接入。"
+              ? "The token is never written to durable storage, logs, or analytics. If it is lost, you can only revoke the Device and create a new enrollment; the token embeds the connect address — run paxl device connect on the target machine to finish onboarding."
+              : "The token is never written to durable storage, logs, or analytics. If it is lost, you can only revoke the Device and create a new enrollment; run paxl device connect on the target machine to finish onboarding."
           }
           extraActions={
             <button
@@ -178,12 +182,12 @@ export function AdminDevicesPage() {
                   secret.device_name,
                 );
                 void copyTextToClipboard(command).then((ok) => {
-                  if (ok) toast("ok", "接入命令 已复制");
-                  else window.prompt("手动复制：", command);
+                  if (ok) toast("ok", "Connect command copied");
+                  else window.prompt("Copy manually:", command);
                 });
               }}
             >
-              复制客户端命令
+              Copy client command
             </button>
           }
           onClose={() => setSecret(undefined)}
@@ -205,9 +209,9 @@ export function AdminDevicesPage() {
 
       <div className="card">
         {list.loading ? (
-          <p className="muted small">加载中…</p>
+          <p className="muted small">Loading…</p>
         ) : list.items.length === 0 ? (
-          <p className="muted small">无匹配记录。</p>
+          <p className="muted small">No matching records.</p>
         ) : (
           <table>
             <thead>
@@ -245,7 +249,7 @@ export function AdminDevicesPage() {
       {list.nextCursor && (
         <div style={{ marginTop: 10, textAlign: "center" }}>
           <button className="btn sm" disabled={list.loadingMore} onClick={() => void list.loadMore()}>
-            {list.loadingMore ? "加载中…" : "加载更多"}
+            {list.loadingMore ? "Loading…" : "Load more"}
           </button>
         </div>
       )}

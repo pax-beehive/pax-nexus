@@ -39,7 +39,7 @@ function RevokeDeviceModal({
     setBusy(true);
     try {
       const updated = await revokeDevice(device.credential_id, actionKeyRef.current);
-      toast("ok", "Device 已吊销，其铸发的 Agent Credential 已级联失效");
+      toast("ok", "Device revoked; the Agent Credentials it provisioned have been cascade-revoked");
       onDone(updated);
     } catch (err) {
       handleError(err);
@@ -49,17 +49,19 @@ function RevokeDeviceModal({
   };
 
   return (
-    <Modal title={`吊销 Device ${device.device_name}`} onClose={onClose}>
+    <Modal title={`Revoke Device ${device.device_name}`} onClose={onClose}>
       <div className="note bad">
-        吊销会在同一事务内级联吊销该 Device 铸发的全部活跃 Agent Credential；对应 Agent
-        的旧 key 立即失效（401）。此操作不可恢复。
+        Revocation cascade-revokes every active Agent Credential provisioned by this Device in the
+        same transaction; the corresponding Agents&apos; existing keys stop working immediately
+        (401). This action cannot be undone.
       </div>
       {cascade.length === 0 ? (
-        <div className="note small">该 Device 当前没有仍活跃的 Agent Credential。</div>
+        <div className="note small">This Device currently has no active Agent Credentials.</div>
       ) : (
         <>
           <div className="note warn small" style={{ marginBottom: 4 }}>
-            级联预览：以下 {cascade.length} 个 Agent Credential 将随 Device 一起被吊销
+            Cascade preview: the following {cascade.length} Agent Credentials will be revoked
+            together with the Device
           </div>
           <table>
             <thead>
@@ -86,10 +88,10 @@ function RevokeDeviceModal({
       )}
       <div className="row" style={{ justifyContent: "flex-end" }}>
         <button className="btn ghost" onClick={onClose} disabled={busy}>
-          取消
+          Cancel
         </button>
         <button className="btn danger" disabled={busy} onClick={() => void submit()}>
-          {busy ? "吊销中…" : "确认吊销"}
+          {busy ? "Revoking…" : "Confirm revocation"}
         </button>
       </div>
     </Modal>
@@ -130,12 +132,13 @@ export function AdminDeviceDetailPage() {
       <div className="card">
         <h2>404</h2>
         <p className="muted">
-          Device 不存在或不是 device 类型。<Link to="/admin/devices">返回列表</Link>
+          The Device does not exist or is not of type device.{" "}
+          <Link to="/admin/devices">Back to the list</Link>
         </p>
       </div>
     );
   }
-  if (!detail) return <p className="muted">加载中…</p>;
+  if (!detail) return <p className="muted">Loading…</p>;
 
   const { device } = detail;
   const alive = aliveProvisionedAgents(detail.agents);
@@ -154,11 +157,11 @@ export function AdminDeviceDetailPage() {
         <div className="row">
           {device.status === "active" && (
             <button className="btn danger" onClick={() => setRevokeOpen(true)}>
-              吊销 Device
+              Revoke Device
             </button>
           )}
           <Link to="/admin/devices" className="btn ghost">
-            ← 返回
+            ← Back
           </Link>
         </div>
       </div>
@@ -166,21 +169,21 @@ export function AdminDeviceDetailPage() {
       <div className="card">
         <h2 style={{ margin: "0 0 8px" }}>Device</h2>
         <div className="small muted">
-          创建于 {formatTime(device.created_at)}
-          {device.revoked_at && <> · 吊销于 {formatTime(device.revoked_at)}</>}
-          {" · 最近活动 "}
+          Created {formatTime(device.created_at)}
+          {device.revoked_at && <> · Revoked {formatTime(device.revoked_at)}</>}
+          {" · Last activity "}
           {formatTime(device.last_used_at)}
         </div>
         <div className="small muted" style={{ marginTop: 4 }}>
-          权限：<code>agent_provision</code>（固定）· grantable 上限：
+          Permissions: <code>agent_provision</code> (fixed) · grantable ceiling:{" "}
           <span className="mono">{device.grantable_permissions.join(", ") || "—"}</span>
         </div>
       </div>
 
       <div className="card">
-        <h2 style={{ margin: "0 0 8px" }}>Provisioned Agents（{alive.length}）</h2>
+        <h2 style={{ margin: "0 0 8px" }}>Provisioned Agents ({alive.length})</h2>
         {alive.length === 0 ? (
-          <p className="muted small">该 Device 尚未铸发仍活跃的 Agent Credential。</p>
+          <p className="muted small">This Device has not provisioned any active Agent Credentials yet.</p>
         ) : (
           <table>
             <thead>

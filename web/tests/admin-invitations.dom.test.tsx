@@ -42,13 +42,13 @@ describe("section 10 item 4: lost invitation create response", () => {
     });
 
     // Open the create modal and submit a valid invitation.
-    await user.click(await screen.findByRole("button", { name: "+ 创建邀请" }));
+    await user.click(await screen.findByRole("button", { name: "+ Create invitation" }));
     await user.type(screen.getByLabelText("target_email"), "bob@example.com");
-    await user.click(screen.getByRole("button", { name: "创建" }));
+    await user.click(screen.getByRole("button", { name: "Create" }));
 
     // No blind retry of a one-time-secret creation: exactly one POST, and it
     // carries no Idempotency-Key (doc section 3.3).
-    await screen.findByText(/请求失败，未自动重试/);
+    await screen.findByText(/Request failed; no automatic retry/);
     const creates = callsTo(fetchMock, "/v1/admin/invitations", "POST");
     expect(creates).toHaveLength(1);
     expect(creates[0].headers.get("Idempotency-Key")).toBeNull();
@@ -58,14 +58,14 @@ describe("section 10 item 4: lost invitation create response", () => {
     });
 
     // The modal closed and the reloaded list reveals the pending record.
-    expect(screen.queryByRole("heading", { name: "创建邀请" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Create invitation" })).toBeNull();
     const row = (await screen.findByText("bob@example.com")).closest("tr");
     expect(row).not.toBeNull();
 
     // The duplicate can be revoked from the list.
-    await user.click(within(row as HTMLElement).getByRole("button", { name: "吊销" }));
-    await screen.findByText("邀请已吊销");
+    await user.click(within(row as HTMLElement).getByRole("button", { name: "Revoke" }));
+    await screen.findByText("Invitation revoked");
     expect(callsTo(fetchMock, "/v1/admin/invitations/inv_01", "DELETE")).toHaveLength(1);
-    await screen.findByText("无匹配记录。");
+    await screen.findByText("No matching records.");
   });
 });

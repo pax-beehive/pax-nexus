@@ -41,7 +41,7 @@ code, .mono { font-family: var(--mono); font-size: 12.5px; background: var(--sur
 .nav a:hover { background: var(--surface-2); text-decoration: none; }
 .nav a.active { background: var(--accent-soft); color: var(--accent-hover); font-weight: 600; }
 .side-foot { position: absolute; bottom: 16px; left: 14px; right: 14px; border-top: 1px solid var(--border); padding-top: 12px; }
-.main { flex: 1; padding: 34px 40px 120px; max-width: 1000px; }
+.main { flex: 1; padding: 34px 40px 120px; max-width: 1000px; margin: 0 auto; }
 .page-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; gap: 16px; }
 
 /* components */

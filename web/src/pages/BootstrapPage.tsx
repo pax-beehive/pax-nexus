@@ -23,20 +23,20 @@ export function BootstrapPage() {
     setBusy(true);
     try {
       await claimBootstrap(secret);
-      toast("ok", "已成为首个 Owner，bootstrap 已关闭");
+      toast("ok", "You are now the first Owner; bootstrap is closed");
       await refresh();
       navigate("/agents", { replace: true });
     } catch (err) {
       if (err instanceof ApiError && err.status === 403) {
-        toast("bad", "403：bootstrap secret 错误，或当前账号已有 Membership");
+        toast("bad", "403: incorrect bootstrap secret, or this account already has a Membership");
       } else if (err instanceof ApiError && err.code === "bootstrap_closed") {
-        toast("warn", "bootstrap 已被其他人抢先 claim 或已关闭");
+        toast("warn", "Bootstrap has already been claimed by someone else or is closed");
         await refresh();
       } else if (err instanceof ApiError && err.status === 401) {
-        toast("warn", "登录状态已失效，请重新登录后再试");
+        toast("warn", "Your session has expired; sign in again and retry");
         await refresh();
       } else {
-        toast("bad", "请求失败；不会自动重试，请确认后手工重试");
+        toast("bad", "Request failed; it will not be retried automatically — verify and retry manually");
       }
     } finally {
       // Clear the secret from component state immediately after the request.
@@ -48,8 +48,8 @@ export function BootstrapPage() {
   return (
     <div className="center-page">
       <div className="center-box card">
-        <h1>Claim 首个 Owner</h1>
-        <p className="muted">输入运维提供的 bootstrap secret。secret 不会进入 URL、日志或持久存储。</p>
+        <h1>Claim the first Owner</h1>
+        <p className="muted">Enter the bootstrap secret provided by your operator. The secret never appears in URLs, logs, or persistent storage.</p>
         <label htmlFor="bs-secret">Bootstrap secret</label>
         <input
           id="bs-secret"
@@ -61,14 +61,15 @@ export function BootstrapPage() {
         />
         <div style={{ marginTop: 14 }} className="row">
           <button className="btn primary" disabled={!secret || busy} onClick={() => void claim()}>
-            {busy ? "提交中…" : "Claim Owner"}
+            {busy ? "Claiming…" : "Claim Owner"}
           </button>
           <button className="btn ghost" onClick={() => navigate("/")}>
-            返回
+            Back
           </button>
         </div>
         <p className="small faint" style={{ marginTop: 12 }}>
-          bootstrap 一旦成功将永久关闭，旧 static Admin key 同时失效；多个浏览器同时 claim 时只有一个成功。
+          Once claimed, bootstrap is permanently closed and the legacy static Admin key stops working. If multiple
+          browsers race to claim, only one succeeds.
         </p>
       </div>
     </div>

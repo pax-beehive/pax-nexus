@@ -66,7 +66,7 @@ export function AgentGovernanceCard({
   const onConflict = async () => {
     const fresh = await refetch();
     onChanged(fresh);
-    toast("warn", "已被他人修改，已刷新最新数据");
+    toast("warn", "Someone else modified this; refreshed to the latest data");
   };
 
   const save = async () => {
@@ -86,7 +86,7 @@ export function AgentGovernanceCard({
         agent.resource_version,
       );
       onChanged(updated);
-      toast("ok", `已保存（v${updated.resource_version}）`);
+      toast("ok", `Saved (v${updated.resource_version})`);
     } catch (err) {
       if (
         err instanceof ApiError &&
@@ -114,7 +114,7 @@ export function AgentGovernanceCard({
           pending.key,
         );
         onChanged(updated);
-        toast("warn", "Agent 已 retire（终态，不可恢复）");
+        toast("warn", "Agent retired (terminal state, cannot be recovered)");
       } else {
         const status = pending.kind === "suspend" ? "suspended" : "active";
         const updated = await updateAgent(scope, agent.agent_id, { status }, agent.resource_version);
@@ -122,8 +122,8 @@ export function AgentGovernanceCard({
         toast(
           pending.kind === "suspend" ? "warn" : "ok",
           pending.kind === "suspend"
-            ? "已暂停，Credential 与 pending Enrollment 已吊销"
-            : "已恢复 active（旧 Credential 不会还原，需要新 Enrollment）",
+            ? "Suspended; Credentials and pending Enrollments have been revoked"
+            : "Resumed to active (old Credentials are not restored; a new Enrollment is required)",
         );
       }
       setPending(undefined);
@@ -146,7 +146,7 @@ export function AgentGovernanceCard({
   return (
     <div className="card">
       <div className="row between">
-        <h2 style={{ margin: 0 }}>资料</h2>
+        <h2 style={{ margin: 0 }}>Profile</h2>
         <Badge status={agent.status} />
       </div>
       <div className="field-row">
@@ -186,15 +186,15 @@ export function AgentGovernanceCard({
           disabled={retired || !canEdit}
           onChange={(e) => setVisible(e.target.checked)}
         />
-        directory_visible（可被目录发现）
+        directory_visible (discoverable in the directory)
       </label>
       <div className="row between" style={{ marginTop: 10 }}>
         <span className="small muted">
-          resource_version: <code>{agent.resource_version}</code>（提交时 body + <code>If-Match</code> 双发）
+          resource_version: <code>{agent.resource_version}</code> (sent in both body and <code>If-Match</code> on submit)
         </span>
         {!retired && canEdit && (
           <button className="btn primary sm" disabled={busy} onClick={() => void save()}>
-            保存
+            Save
           </button>
         )}
       </div>
@@ -205,12 +205,12 @@ export function AgentGovernanceCard({
             className="btn sm danger"
             onClick={() => setPending({ kind: "suspend", key: beginAction() })}
           >
-            暂停 Agent
+            Suspend Agent
           </button>
         )}
         {!retired && canResume && agent.status === "suspended" && (
           <button className="btn sm" onClick={() => setPending({ kind: "resume", key: beginAction() })}>
-            恢复 active
+            Resume to active
           </button>
         )}
         {!retired && canRetire && (
@@ -218,36 +218,36 @@ export function AgentGovernanceCard({
             className="btn sm danger"
             onClick={() => setPending({ kind: "retire", key: beginAction() })}
           >
-            Retire（不可逆）
+            Retire (irreversible)
           </button>
         )}
-        {retired && <span className="badge b-retired">retired 为终态，不可恢复</span>}
+        {retired && <span className="badge b-retired">retired is a terminal state and cannot be recovered</span>}
       </div>
 
       {pending && (
         <ConfirmDialog
           title={
             pending.kind === "suspend"
-              ? "暂停 Agent"
+              ? "Suspend Agent"
               : pending.kind === "resume"
-                ? "恢复 Agent"
+                ? "Resume Agent"
                 : "Retire Agent"
           }
           consequences={
             pending.kind === "suspend"
               ? [
-                  "立即吊销该 Agent 的全部 Credential 和 pending Enrollment",
-                  "恢复 active 不会还原旧 key，必须重新签发 Enrollment",
+                  "Immediately revokes all Credentials and pending Enrollments of this Agent",
+                  "Resuming to active does not restore old keys; a new Enrollment must be issued",
                 ]
               : pending.kind === "resume"
-                ? ["旧 Credential 保持 revoked，需要重新签发 Enrollment 才能接入客户端"]
+                ? ["Old Credentials stay revoked; a new Enrollment must be issued before clients can connect"]
                 : [
-                    "Retire 是终态、不可逆，Agent 不可恢复",
-                    "全部 Credential 与 Enrollment 立即吊销",
+                    "Retire is terminal and irreversible; the Agent cannot be recovered",
+                    "All Credentials and Enrollments are revoked immediately",
                   ]
           }
           confirmLabel={
-            pending.kind === "suspend" ? "确认暂停" : pending.kind === "resume" ? "确认恢复" : "确认 Retire"
+            pending.kind === "suspend" ? "Confirm suspend" : pending.kind === "resume" ? "Confirm resume" : "Confirm retire"
           }
           busy={busy}
           onConfirm={() => void runAction()}

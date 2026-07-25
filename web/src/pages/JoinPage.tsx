@@ -49,7 +49,7 @@ export function JoinPage() {
     try {
       await acceptInvitation(token, actionKeyRef.current);
       clearPendingInvitation();
-      toast("ok", "已加入 Team");
+      toast("ok", "Joined the team");
       await refresh();
       navigate("/agents", { replace: true });
     } catch (err) {
@@ -61,7 +61,7 @@ export function JoinPage() {
         setInvalid(true);
         await refresh();
       } else if (err instanceof ApiError && err.code === "membership_conflict") {
-        toast("warn", "当前账号已有 Membership，邀请不能覆盖现有角色");
+        toast("warn", "This account already has a Membership; the invitation cannot override your existing role");
         await refresh();
       } else if (err instanceof ApiError && err.status === 401) {
         handleUnauthorized();
@@ -89,38 +89,39 @@ export function JoinPage() {
   if (!token) {
     body = (
       <>
-        <h1>接受邀请</h1>
-        <div className="note warn">没有可用的邀请 token。请使用管理员发送的完整邀请链接打开本页。</div>
+        <h1>Accept invitation</h1>
+        <div className="note warn">No invitation token is available. Open this page with the full invitation link sent by your administrator.</div>
         <button className="btn ghost" onClick={() => navigate("/")}>
-          返回首页
+          Back to home
         </button>
       </>
     );
   } else if (invalid) {
     body = (
       <>
-        <h1>接受邀请</h1>
+        <h1>Accept invitation</h1>
         <div className="note bad">
-          邀请无效（已过期 / 已撤销 / 已使用 / 邮箱不匹配）。为避免泄漏邀请详情，所有失败统一显示此状态。请联系管理员重新邀请。
+          This invitation is invalid (expired / revoked / already used / email mismatch). All failures show this same
+          state to avoid leaking invitation details. Contact your administrator for a new invitation.
         </div>
         <button className="btn ghost" onClick={() => navigate("/")}>
-          返回首页
+          Back to home
         </button>
       </>
     );
   } else if (state.kind === "loading") {
-    body = <p className="muted">加载中…</p>;
+    body = <p className="muted">Loading…</p>;
   } else if (state.kind === "unauthenticated") {
     body = (
       <>
-        <h1>接受邀请</h1>
-        <p className="muted">登录后即可接受邀请。邀请 continuation 已保留在当前标签页。</p>
+        <h1>Accept invitation</h1>
+        <p className="muted">Sign in to accept the invitation. The invitation continuation is preserved in this tab.</p>
         <button className="btn primary" onClick={startOidcLogin}>
-          登录并继续 →
+          Sign in and continue →
         </button>
         <div style={{ marginTop: 10 }}>
           <button className="btn ghost" onClick={cancel}>
-            取消并清除本地 token
+            Cancel and clear the local token
           </button>
         </div>
       </>
@@ -128,10 +129,10 @@ export function JoinPage() {
   } else if (state.kind === "active" || state.kind === "suspended") {
     body = (
       <>
-        <h1>接受邀请</h1>
-        <div className="note warn">当前账号已有 Membership，邀请不能用于覆盖现有角色。</div>
+        <h1>Accept invitation</h1>
+        <div className="note warn">This account already has a Membership; the invitation cannot override your existing role.</div>
         <button className="btn primary" onClick={() => navigate("/agents")}>
-          进入 Portal
+          Enter the Portal
         </button>
       </>
     );
@@ -139,17 +140,17 @@ export function JoinPage() {
     const email = state.kind === "no-membership" ? state.me.email : undefined;
     body = (
       <>
-        <h1>接受邀请</h1>
+        <h1>Accept invitation</h1>
         <p className="muted">
-          以 <code>{email ?? "当前账号"}</code> 的身份加入 Team。
+          Join the team as <code>{email ?? "the current account"}</code>.
         </p>
         <div className="secret-val">{token}</div>
         <button className="btn primary" disabled={busy} onClick={() => void accept()}>
-          {busy ? "接受中…" : "接受邀请"}
+          {busy ? "Accepting…" : "Accept invitation"}
         </button>
         <div style={{ marginTop: 10 }}>
           <button className="btn ghost" onClick={cancel}>
-            取消并清除本地 token
+            Cancel and clear the local token
           </button>
         </div>
       </>

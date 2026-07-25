@@ -56,14 +56,14 @@ describe("Devices list + device enrollment creation", () => {
 
     // Open the create form: device name field, fixed agent_provision
     // permission, and no agent permission matrix (no checkboxes at all).
-    await user.click(screen.getByRole("button", { name: "+ 创建 Device Enrollment" }));
+    await user.click(screen.getByRole("button", { name: "+ Create Device Enrollment" }));
     const dialog = screen.getByRole("dialog");
     expect(within(dialog).getByLabelText(/device_name/)).toBeDefined();
     expect(within(dialog).getByText(/agent_provision/)).toBeDefined();
     expect(within(dialog).queryByRole("checkbox")).toBeNull();
 
     await user.type(within(dialog).getByLabelText(/device_name/), "todd-macbook-air");
-    await user.click(within(dialog).getByRole("button", { name: "创建" }));
+    await user.click(within(dialog).getByRole("button", { name: "Create" }));
 
     // One-time secret: exactly one POST, CSRF sent, no Idempotency-Key.
     const creates = callsTo(fetchMock, "/v1/me/device-enrollments", "POST");
@@ -77,7 +77,7 @@ describe("Devices list + device enrollment creation", () => {
 
     // The one-time token renders in the SecretCard with a copy-command action.
     await screen.findByText("tm_enroll_denr_01.secret");
-    expect(screen.getByRole("button", { name: "复制客户端命令" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Copy client command" })).toBeDefined();
   });
 
   it("rejects an empty device_name locally without issuing a request", async () => {
@@ -91,11 +91,11 @@ describe("Devices list + device enrollment creation", () => {
       },
     });
 
-    await user.click(await screen.findByRole("button", { name: "+ 创建 Device Enrollment" }));
+    await user.click(await screen.findByRole("button", { name: "+ Create Device Enrollment" }));
     const dialog = screen.getByRole("dialog");
-    await user.click(within(dialog).getByRole("button", { name: "创建" }));
+    await user.click(within(dialog).getByRole("button", { name: "Create" }));
 
-    await within(dialog).findByText(/device_name 必填/);
+    await within(dialog).findByText(/device_name is required/);
     expect(callsTo(fetchMock, "/v1/me/device-enrollments", "POST")).toHaveLength(0);
   });
 });
@@ -153,24 +153,24 @@ describe("Device detail and cascade revocation", () => {
     });
 
     // The detail lists only live rows: the rotated-out credential is hidden.
-    await screen.findByText("Provisioned Agents（2）");
+    await screen.findByText("Provisioned Agents (2)");
     expect(screen.getByRole("link", { name: "personal-codex" })).toBeDefined();
     expect(screen.getByRole("link", { name: "personal-claude" })).toBeDefined();
     expect(screen.queryByText("cred_01")).toBeNull();
 
     // The revoke dialog previews exactly the live credentials that will be
     // cascade-revoked, without any extra request (doc section 5.10).
-    await user.click(screen.getByRole("button", { name: "吊销 Device" }));
+    await user.click(screen.getByRole("button", { name: "Revoke Device" }));
     const dialog = screen.getByRole("dialog");
     expect(
-      within(dialog).getByText(/以下 2 个 Agent Credential 将随 Device 一起被吊销/),
+      within(dialog).getByText(/the following 2 Agent Credentials will be revoked/),
     ).toBeDefined();
     expect(within(dialog).getByText("cred_02")).toBeDefined();
     expect(within(dialog).getByText("cred_03")).toBeDefined();
     expect(within(dialog).queryByText("cred_01")).toBeNull();
     const fetchesBefore = callsTo(fetchMock, "/v1/admin/devices/dev_01", "GET").length;
 
-    await user.click(within(dialog).getByRole("button", { name: "确认吊销" }));
+    await user.click(within(dialog).getByRole("button", { name: "Confirm revocation" }));
 
     // Idempotency-Key only: no resource_version / If-Match on this path.
     const deletes = callsTo(fetchMock, "/v1/admin/devices/dev_01", "DELETE");
@@ -180,9 +180,9 @@ describe("Device detail and cascade revocation", () => {
     expect(deletes[0].headers.get("X-CSRF-Token")).toBe("test-csrf");
 
     // After the cascade the page refetches once and shows the revoked state.
-    await screen.findByText(/Device 已吊销/);
+    await screen.findByText(/Device revoked/);
     expect(callsTo(fetchMock, "/v1/admin/devices/dev_01", "GET")).toHaveLength(fetchesBefore + 1);
-    await screen.findByText("该 Device 尚未铸发仍活跃的 Agent Credential。");
-    expect(screen.queryByRole("button", { name: "吊销 Device" })).toBeNull();
+    await screen.findByText("This Device has not provisioned any active Agent Credentials yet.");
+    expect(screen.queryByRole("button", { name: "Revoke Device" })).toBeNull();
   });
 });

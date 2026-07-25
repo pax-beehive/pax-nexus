@@ -43,11 +43,11 @@ function TransferModal({
     setBusy(true);
     try {
       const updated = await transferAgent(agent.agent_id, target, agent.resource_version);
-      toast("ok", "已转移；旧 Credential 与 Enrollment 已吊销");
+      toast("ok", "Transferred; the old Credentials and Enrollments were revoked");
       onDone(updated);
     } catch (err) {
       if (err instanceof ApiError && err.code === "resource_version_conflict") {
-        toast("warn", "数据已被他人修改，请刷新后重试");
+        toast("warn", "The data was modified by someone else; refresh and try again");
         onClose();
       } else {
         handleError(err);
@@ -58,10 +58,10 @@ function TransferModal({
   };
 
   return (
-    <Modal title={`转移 ${agent.display_name}`} onClose={onClose}>
-      <label htmlFor="tf-target">目标 Owner（仅 active Membership）</label>
+    <Modal title={`Transfer ${agent.display_name}`} onClose={onClose}>
+      <label htmlFor="tf-target">Target Owner (active Memberships only)</label>
       {targets.length === 0 ? (
-        <div className="note warn">没有可转移的 active Membership。</div>
+        <div className="note warn">No active Membership is available as a transfer target.</div>
       ) : (
         <select id="tf-target" value={target} onChange={(e) => setTarget(e.target.value)}>
           {targets.map((m) => (
@@ -72,14 +72,14 @@ function TransferModal({
         </select>
       )}
       <div className="note warn small">
-        Transfer 会吊销旧 Owner 下的全部 Credential 与 pending Enrollment；新 Owner 必须重新签发 Enrollment。
+        Transfer revokes all Credentials and pending Enrollments under the old Owner; the new Owner must issue a new Enrollment.
       </div>
       <div className="row" style={{ justifyContent: "flex-end" }}>
         <button className="btn ghost" onClick={onClose} disabled={busy}>
-          取消
+          Cancel
         </button>
         <button className="btn danger" disabled={!target || busy} onClick={() => void submit()}>
-          {busy ? "转移中…" : "确认转移"}
+          {busy ? "Transferring…" : "Confirm transfer"}
         </button>
       </div>
     </Modal>
@@ -148,8 +148,8 @@ export function AdminAgentsPage({ me }: { me: HumanMe }) {
       toast(
         pending.kind === "suspend" ? "warn" : "ok",
         pending.kind === "suspend"
-          ? "已暂停并级联吊销 Credential 与 pending Enrollment"
-          : "已恢复 active（旧 Credential 不会还原，需要新 Enrollment）",
+          ? "Suspended; Credentials and pending Enrollments were cascade-revoked"
+          : "Resumed to active (old Credentials are not restored; a new Enrollment is required)",
       );
       setPending(undefined);
       list.reload();
@@ -158,7 +158,7 @@ export function AdminAgentsPage({ me }: { me: HumanMe }) {
       if (err instanceof ApiError && err.code === "resource_version_conflict") {
         await getAdminAgent(agent.agent_id).catch(() => undefined);
         list.reload();
-        toast("warn", "已被他人修改，已刷新最新数据");
+        toast("warn", "Modified by someone else; the latest data has been loaded");
         setPending(undefined);
       } else {
         handleError(err);
@@ -174,7 +174,7 @@ export function AdminAgentsPage({ me }: { me: HumanMe }) {
         <div>
           <h1>All Agents</h1>
           <p className="muted" style={{ margin: 0 }}>
-            Admin 只能暂停；编辑、恢复、retire、转移仅 Owner
+            Admins can only suspend; edit, resume, retire, and transfer are Owner-only
           </p>
         </div>
       </div>
@@ -182,7 +182,7 @@ export function AdminAgentsPage({ me }: { me: HumanMe }) {
         <input
           type="text"
           style={{ width: 240 }}
-          placeholder="按名称或 ID 搜索（q）"
+          placeholder="Search by name or ID (q)"
           value={qInput}
           onChange={(e) => setQInput(e.target.value)}
           onKeyDown={(e) => {
@@ -190,15 +190,15 @@ export function AdminAgentsPage({ me }: { me: HumanMe }) {
           }}
         />
         <button className="btn sm" onClick={() => setQ(qInput.trim())}>
-          搜索
+          Search
         </button>
         <select
           style={{ width: 220 }}
-          aria-label="Owner 过滤"
+          aria-label="Owner filter"
           value={ownerFilter}
           onChange={(e) => setOwnerFilter(e.target.value)}
         >
-          <option value="">全部 Owner</option>
+          <option value="">All Owners</option>
           {members.map((m) => (
             <option key={m.membership_id} value={m.membership_id}>
               {m.email ?? m.membership_id}
@@ -220,9 +220,9 @@ export function AdminAgentsPage({ me }: { me: HumanMe }) {
       </div>
       <div className="card">
         {list.loading ? (
-          <p className="muted small">加载中…</p>
+          <p className="muted small">Loading…</p>
         ) : list.items.length === 0 ? (
-          <p className="muted small">无匹配记录。</p>
+          <p className="muted small">No matching records.</p>
         ) : (
           <table>
             <thead>
@@ -230,7 +230,7 @@ export function AdminAgentsPage({ me }: { me: HumanMe }) {
                 <th>Agent</th>
                 <th>Owner</th>
                 <th>Status</th>
-                <th>治理操作</th>
+                <th>Governance</th>
               </tr>
             </thead>
             <tbody>
@@ -251,7 +251,7 @@ export function AdminAgentsPage({ me }: { me: HumanMe }) {
                     </td>
                     <td>
                       {retired ? (
-                        <span className="faint small">终态</span>
+                        <span className="faint small">Terminal</span>
                       ) : (
                         <span className="row wrap">
                           {a.status === "active" && maySuspend && (
@@ -259,17 +259,17 @@ export function AdminAgentsPage({ me }: { me: HumanMe }) {
                               className="btn sm danger"
                               onClick={() => setPending({ kind: "suspend", agent: a })}
                             >
-                              暂停
+                              Suspend
                             </button>
                           )}
                           {a.status === "suspended" && mayGovern && (
                             <button className="btn sm" onClick={() => setPending({ kind: "resume", agent: a })}>
-                              恢复
+                              Resume
                             </button>
                           )}
                           {mayGovern && (
                             <button className="btn sm" onClick={() => setPending({ kind: "transfer", agent: a })}>
-                              转移
+                              Transfer
                             </button>
                           )}
                         </span>
@@ -285,7 +285,7 @@ export function AdminAgentsPage({ me }: { me: HumanMe }) {
       {list.nextCursor && (
         <div style={{ marginTop: 10, textAlign: "center" }}>
           <button className="btn sm" disabled={list.loadingMore} onClick={() => void list.loadMore()}>
-            {list.loadingMore ? "加载中…" : "加载更多"}
+            {list.loadingMore ? "Loading…" : "Load more"}
           </button>
         </div>
       )}
@@ -303,16 +303,16 @@ export function AdminAgentsPage({ me }: { me: HumanMe }) {
       )}
       {pending && pending.kind !== "transfer" && (
         <ConfirmDialog
-          title={pending.kind === "suspend" ? "暂停 Agent" : "恢复 Agent"}
+          title={pending.kind === "suspend" ? "Suspend Agent" : "Resume Agent"}
           consequences={
             pending.kind === "suspend"
               ? [
-                  `立即吊销 ${pending.agent.display_name} 的全部 Credential 和 pending Enrollment`,
-                  "恢复 active 不会还原旧 key，必须重新签发 Enrollment",
+                  `Immediately revoke all Credentials and pending Enrollments for ${pending.agent.display_name}`,
+                  "Resuming to active does not restore old keys; a new Enrollment must be issued",
                 ]
-              : ["旧 Credential 保持 revoked，Owner 需要重新签发 Enrollment 才能接入客户端"]
+              : ["Old Credentials stay revoked; the Owner must issue a new Enrollment before clients can connect"]
           }
-          confirmLabel={pending.kind === "suspend" ? "确认暂停" : "确认恢复"}
+          confirmLabel={pending.kind === "suspend" ? "Confirm suspend" : "Confirm resume"}
           busy={busy}
           onConfirm={() => void runGovernance()}
           onClose={() => setPending(undefined)}

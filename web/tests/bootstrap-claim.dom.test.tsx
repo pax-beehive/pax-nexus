@@ -59,7 +59,7 @@ describe("section 10 item 3: concurrent bootstrap claim", () => {
     await user.type(input, "top-secret");
     await user.click(screen.getByRole("button", { name: "Claim Owner" }));
 
-    await screen.findByText("bootstrap 已被其他人抢先 claim 或已关闭");
+    await screen.findByText("Bootstrap has already been claimed by someone else or is closed");
 
     // Never auto-retried: exactly one claim request, secret in the header
     // only, no Idempotency-Key (one-time secret creation, doc section 3.3).
@@ -73,7 +73,7 @@ describe("section 10 item 3: concurrent bootstrap claim", () => {
     // claim page, not in the console.
     expect(callsTo(fetchMock, "/v1/me")).toHaveLength(2);
     expect(window.location.pathname).toBe("/bootstrap");
-    expect(screen.getByRole("heading", { name: "Claim 首个 Owner" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Claim the first Owner" })).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "My Agents" })).toBeNull();
   });
 });

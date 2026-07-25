@@ -7,12 +7,13 @@ export function SuspendedPage() {
   return (
     <div className="center-page">
       <div className="center-box card" style={{ textAlign: "center" }}>
-        <h1>账号已被暂停</h1>
+        <h1>Account Suspended</h1>
         <p className="muted">
-          你的 Membership 处于 <code>suspended</code> 状态，所有 Human Session 已被撤销。
+          Your Membership is in the <code>suspended</code> state; all Human Sessions have been revoked.
         </p>
         <p className="small muted">
-          恢复账号不会还原旧 Agent Credential——恢复后需为 Agent 重新签发 Enrollment。如有疑问请联系管理员。
+          Reactivating the account does not restore old Agent Credentials — new Enrollments must
+          be issued for your Agents after reactivation. Contact your administrator if you have any questions.
         </p>
       </div>
     </div>

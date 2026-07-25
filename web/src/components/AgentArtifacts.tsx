@@ -31,9 +31,9 @@ import { useToast } from "./Toasts";
 const ENROLLMENT_STATUSES = ["all", "pending", "consumed", "revoked", "expired"] as const;
 const CREDENTIAL_STATUSES = ["all", "active", "expired", "revoked"] as const;
 const ENROLLMENT_EXPIRY_OPTIONS = [
-  { value: 300, label: "5 分钟" },
-  { value: 900, label: "15 分钟" },
-  { value: 1800, label: "30 分钟" },
+  { value: 300, label: "5 minutes" },
+  { value: 900, label: "15 minutes" },
+  { value: 1800, label: "30 minutes" },
 ] as const;
 
 function Tabs({
@@ -77,7 +77,7 @@ function LoadMore({
   return (
     <div style={{ marginTop: 10, textAlign: "center" }}>
       <button className="btn sm" disabled={loadingMore} onClick={onLoadMore}>
-        {loadingMore ? "加载中…" : "加载更多"}
+        {loadingMore ? "Loading…" : "Load more"}
       </button>
     </div>
   );
@@ -103,8 +103,8 @@ function IssueEnrollmentModal({
   const [formError, setFormError] = useState<string | undefined>();
 
   const submit = async () => {
-    if (!label.trim()) return setFormError("credential_label 必填");
-    if (permissions.length === 0) return setFormError("permissions 必须显式选择且非空");
+    if (!label.trim()) return setFormError("credential_label is required");
+    if (permissions.length === 0) return setFormError("permissions must be explicitly selected and non-empty");
     const timeError = validateFutureTime(credExpiresAt);
     if (timeError) return setFormError(timeError);
     setFormError(undefined);
@@ -120,11 +120,11 @@ function IssueEnrollmentModal({
     } catch (err) {
       if (err instanceof ApiError && err.status < 500) {
         // Client-side rejection: keep the form so the user can correct it.
-        setFormError(`请求被拒绝（HTTP ${err.status}），请检查输入`);
+        setFormError(`Request rejected (HTTP ${err.status}); check your input`);
       } else {
         // Timeout/5xx: never blind-retry a one-time-secret creation. Close,
         // refresh the pending list, and let the user decide (doc 3.3).
-        toast("warn", "请求失败，未自动重试。已刷新列表：若出现新的 pending 记录，可使用或吊销后重建");
+        toast("warn", "Request failed; not retried automatically. The list has been refreshed: if a new pending record appears, use it or revoke it and issue a new one");
         onMaybeCreated();
       }
     } finally {
@@ -133,8 +133,8 @@ function IssueEnrollmentModal({
   };
 
   return (
-    <Modal title="签发一次性 Enrollment" onClose={onClose}>
-        <label htmlFor="en-label">credential_label（必填）</label>
+    <Modal title="Issue one-time Enrollment" onClose={onClose}>
+        <label htmlFor="en-label">credential_label (required)</label>
         <input
           id="en-label"
           type="text"
@@ -142,7 +142,7 @@ function IssueEnrollmentModal({
           value={label}
           onChange={(e) => setLabel(e.target.value)}
         />
-        <label>permissions（显式选择，受部署 grantable 限制）</label>
+        <label>permissions (explicit selection, limited by deployment grantable)</label>
         {GRANTABLE_PERMISSIONS.map((p) => (
           <label key={p} className="ck">
             <input
@@ -157,7 +157,7 @@ function IssueEnrollmentModal({
         ))}
         <div className="field-row">
           <div>
-            <label htmlFor="en-exp">token 有效期</label>
+            <label htmlFor="en-exp">Token lifetime</label>
             <select id="en-exp" value={expiresIn} onChange={(e) => setExpiresIn(Number(e.target.value))}>
               {ENROLLMENT_EXPIRY_OPTIONS.map((o) => (
                 <option key={o.value} value={o.value}>
@@ -167,7 +167,7 @@ function IssueEnrollmentModal({
             </select>
           </div>
           <div>
-            <label htmlFor="en-credexp">credential 过期时间（可选）</label>
+            <label htmlFor="en-credexp">Credential expiration (optional)</label>
             <input
               id="en-credexp"
               type="datetime-local"
@@ -178,14 +178,14 @@ function IssueEnrollmentModal({
         </div>
         {formError && <div className="note bad">{formError}</div>}
         <div className="note small">
-          此接口返回一次性 secret 且<b>不支持 Idempotency-Key</b>：网络超时不会自动重试，先刷新 pending 列表确认。
+          This endpoint returns a one-time secret and <b>does not support Idempotency-Key</b>: network timeouts are not retried automatically; refresh the pending list to confirm first.
         </div>
         <div className="row" style={{ justifyContent: "flex-end" }}>
           <button className="btn ghost" onClick={onClose} disabled={busy}>
-            取消
+            Cancel
           </button>
           <button className="btn primary" disabled={busy} onClick={() => void submit()}>
-            {busy ? "签发中…" : "签发"}
+            {busy ? "Issuing…" : "Issue"}
           </button>
         </div>
     </Modal>
@@ -242,11 +242,11 @@ export function AgentArtifacts({
     try {
       if (revokeTarget.kind === "enrollment") {
         await revokeEnrollment(scope, agentId, revokeTarget.id, revokeTarget.key);
-        toast("ok", "Enrollment 已吊销");
+        toast("ok", "Enrollment revoked");
         enrollments.reload();
       } else {
         await revokeCredential(scope, agentId, revokeTarget.id, revokeTarget.key);
-        toast("ok", "Credential 已吊销，对应 API key 立即失效");
+        toast("ok", "Credential revoked; the API key stops working immediately");
         credentials.reload();
       }
       setRevokeTarget(undefined);
@@ -261,14 +261,14 @@ export function AgentArtifacts({
     <>
       {secret && (
         <SecretCard
-          title="一次性 Enrollment token（仅此一次显示）"
+          title="One-time Enrollment token (shown only once)"
           value={secret.token}
           valueLabel=" token"
           expiresAt={secret.expires_at}
           note={
             isSelfDescribingEnrollmentToken(secret.token)
-              ? "token 不会写入持久存储、日志或埋点。丢失请吊销后重新签发；token 已内嵌接入地址，客户端可直接解析；exchange 由客户端完成，Portal 永远看不到 API key。"
-              : "token 不会写入持久存储、日志或埋点。丢失请吊销后重新签发；exchange 由客户端完成，Portal 永远看不到 API key。"
+              ? "The token is never written to durable storage, logs, or analytics. If lost, revoke it and issue a new one; the token embeds the connect address so clients can parse it directly; the client performs the exchange, and the Portal never sees the API key."
+              : "The token is never written to durable storage, logs, or analytics. If lost, revoke it and issue a new one; the client performs the exchange, and the Portal never sees the API key."
           }
           extraActions={
             <button
@@ -276,12 +276,12 @@ export function AgentArtifacts({
               onClick={() => {
                 const command = enrollmentConnectCommand(secret.token, window.location.origin);
                 void copyTextToClipboard(command).then((ok) => {
-                  if (ok) toast("ok", "接入命令 已复制");
-                  else window.prompt("手动复制：", command);
+                  if (ok) toast("ok", "Connect command copied");
+                  else window.prompt("Copy manually:", command);
                 });
               }}
             >
-              复制客户端命令
+              Copy client command
             </button>
           }
           onClose={() => setSecret(undefined)}
@@ -293,13 +293,13 @@ export function AgentArtifacts({
           <h2 style={{ margin: 0 }}>Enrollments</h2>
           {canIssue && (
             <button className="btn primary sm" onClick={() => setIssueOpen(true)}>
-              + 签发一次性 Enrollment
+              + Issue one-time Enrollment
             </button>
           )}
         </div>
         {agentStatus !== "active" && (
           <div className="note warn small">
-            Agent 非 active：暂停 / retire 会立即吊销全部 Credential 和 pending Enrollment，恢复 active 不会还原旧 key。
+            Agent is not active: suspend / retire immediately revokes all Credentials and pending Enrollments, and returning to active does not restore old keys.
           </div>
         )}
         <Tabs
@@ -309,9 +309,9 @@ export function AgentArtifacts({
           onChange={setEnrollmentFilter}
         />
         {enrollments.loading ? (
-          <p className="muted small">加载中…</p>
+          <p className="muted small">Loading…</p>
         ) : enrollments.items.length === 0 ? (
-          <p className="muted small">暂无 Enrollment。</p>
+          <p className="muted small">No Enrollments yet.</p>
         ) : (
           <table>
             <thead>
@@ -319,7 +319,7 @@ export function AgentArtifacts({
                 <th>Label</th>
                 <th>Permissions</th>
                 <th>Status</th>
-                <th>过期/创建</th>
+                <th>Expires/Created</th>
                 <th></th>
               </tr>
             </thead>
@@ -342,7 +342,7 @@ export function AgentArtifacts({
                           setRevokeTarget({ kind: "enrollment", id: e.enrollment_id, key: beginAction() })
                         }
                       >
-                        吊销
+                        Revoke
                       </button>
                     )}
                   </td>
@@ -359,7 +359,7 @@ export function AgentArtifacts({
       </div>
 
       <div className="card">
-        <h2 style={{ margin: "0 0 8px" }}>Credentials（仅元数据，永不含 API key）</h2>
+        <h2 style={{ margin: "0 0 8px" }}>Credentials (metadata only, never contains API keys)</h2>
         <Tabs
           label="credential status"
           options={CREDENTIAL_STATUSES}
@@ -367,9 +367,9 @@ export function AgentArtifacts({
           onChange={setCredentialFilter}
         />
         {credentials.loading ? (
-          <p className="muted small">加载中…</p>
+          <p className="muted small">Loading…</p>
         ) : credentials.items.length === 0 ? (
-          <p className="muted small">暂无 Credential。</p>
+          <p className="muted small">No Credentials yet.</p>
         ) : (
           <table>
             <thead>
@@ -400,7 +400,7 @@ export function AgentArtifacts({
                             setRevokeTarget({ kind: "credential", id: c.credential_id, key: beginAction() })
                           }
                         >
-                          吊销
+                          Revoke
                         </button>
                       )}
                     </td>
@@ -435,13 +435,13 @@ export function AgentArtifacts({
 
       {revokeTarget && (
         <ConfirmDialog
-          title={revokeTarget.kind === "enrollment" ? "吊销 Enrollment" : "吊销 Credential"}
+          title={revokeTarget.kind === "enrollment" ? "Revoke Enrollment" : "Revoke Credential"}
           consequences={
             revokeTarget.kind === "enrollment"
-              ? ["该一次性 token 立即失效，未完成的客户端接入将失败", "此操作不可恢复；需要时重新签发新的 Enrollment"]
-              : ["对应 API key 立即失效，持有它的 Agent 客户端将失去访问", "此操作不可恢复；需要时重新签发 Enrollment"]
+              ? ["The one-time token stops working immediately and any in-progress client onboarding will fail", "This cannot be undone; issue a new Enrollment if needed"]
+              : ["The API key stops working immediately and the Agent client holding it loses access", "This cannot be undone; issue a new Enrollment if needed"]
           }
-          confirmLabel="确认吊销"
+          confirmLabel="Confirm revoke"
           busy={busy}
           onConfirm={() => void confirmRevoke()}
           onClose={() => setRevokeTarget(undefined)}
