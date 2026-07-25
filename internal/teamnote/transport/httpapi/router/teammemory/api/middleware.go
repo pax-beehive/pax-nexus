@@ -440,3 +440,43 @@ func _listoperationsagentstatsMw() []app.HandlerFunc {
 	// your code...
 	return nil
 }
+
+func _listadmindevicesMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _devicesMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _revokeadmindeviceMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _getadmindeviceMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _deviceMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _listdeviceprovisionsMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _provisiondeviceagentMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _createdeviceenrollmentMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}

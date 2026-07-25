@@ -7,7 +7,7 @@ HZ := $(TOOLS_DIR)/hz
 MOCKGEN := $(TOOLS_DIR)/mockgen
 GOLANGCI_LINT := $(TOOLS_DIR)/golangci-lint
 GOLANGCI_LINT_CACHE ?= /tmp/team-memory-golangci-cache
-TEAM_MEMORY_TEST_POSTGRES_DSN ?= postgres://team_memory:team_memory@127.0.0.1:$${TEAM_MEMORY_POSTGRES_PORT:-55432}/team_memory?sslmode=disable
+TEAM_MEMORY_TEST_POSTGRES_DSN ?= postgres://team_memory:team_memory@127.0.0.1:$(or $(TEAM_MEMORY_POSTGRES_PORT),55432)/team_memory?sslmode=disable
 
 # hz is versioned as the github.com/cloudwego/hertz/cmd/hz submodule. Its
 # releases do not use the Hertz runtime's version number.

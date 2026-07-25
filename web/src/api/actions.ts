@@ -16,6 +16,8 @@ import { humanFetch } from "./client";
 import type {
   AgentProfile,
   CredentialMetadata,
+  DeviceEnrollmentSecret,
+  DeviceSummary,
   EnrollmentMetadata,
   EnrollmentSecret,
   HumanMe,
@@ -252,6 +254,44 @@ export function revokeInvitation(invitationId: string): Promise<Invitation> {
     `/v1/admin/invitations/${encodeURIComponent(invitationId)}`,
     { method: "DELETE" },
   );
+}
+
+export interface CreateDeviceEnrollmentInput {
+  device_name: string;
+  expires_in_seconds?: number;
+  grantable_permissions?: string[];
+}
+
+/**
+ * Issue a one-time device enrollment token (doc section 5.9). The token is
+ * returned exactly once and must be held in memory only. Like agent
+ * enrollment creation: no Idempotency-Key, no automatic retry — on timeout
+ * the user refreshes the Devices list to check for a produced device.
+ */
+export function createDeviceEnrollment(
+  input: CreateDeviceEnrollmentInput,
+): Promise<DeviceEnrollmentSecret> {
+  return humanFetch<DeviceEnrollmentSecret>("/v1/me/device-enrollments", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(input),
+  });
+}
+
+/**
+ * Revoke a Device and cascade-revoke every live agent credential it minted
+ * (doc section 5.10). Devices have no optimistic-lock field: this sends an
+ * Idempotency-Key only, never resource_version / If-Match.
+ */
+export async function revokeDevice(
+  credentialId: string,
+  idempotencyKey: string,
+): Promise<DeviceSummary> {
+  const res = await humanFetch<{ device: DeviceSummary }>(
+    `/v1/admin/devices/${encodeURIComponent(credentialId)}`,
+    { method: "DELETE", headers: { "Idempotency-Key": idempotencyKey } },
+  );
+  return res.device;
 }
 
 export interface MemberPatch {

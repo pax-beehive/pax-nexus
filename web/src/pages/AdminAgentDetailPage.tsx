@@ -7,7 +7,7 @@ import { can } from "../lib/capabilities";
 import { useErrorHandler } from "../lib/useErrorHandler";
 import { AgentArtifacts } from "../components/AgentArtifacts";
 import { AgentGovernanceCard } from "../components/AgentGovernanceCard";
-import { Badge } from "../components/Badge";
+import { Badge, ProvisionedByBadge } from "../components/Badge";
 
 /**
  * Admin governance view of a single agent (doc section 5.7). Admin may only
@@ -65,6 +65,7 @@ export function AdminAgentDetailPage({ me }: { me: HumanMe }) {
           <div className="row small muted">
             <code>{agent.agent_id}</code>
             <Badge status={agent.status} />
+            <ProvisionedByBadge agent={agent} />
             <span>owner: {agent.owner_membership_id ?? "—"}</span>
           </div>
         </div>

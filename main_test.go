@@ -62,7 +62,8 @@ func TestConfigSuite(t *testing.T) {
 func (s *configSuite) SetupTest() {
 	for _, name := range []string{
 		"TEAM_MEMORY_DATABASE_URL", "TEAM_MEMORY_API_KEYS", "TEAM_MEMORY_LISTEN_ADDRESS",
-		"TEAM_MEMORY_ADMIN_API_KEY", "TEAM_MEMORY_CREDENTIAL_ROTATION_OVERLAP", "TEAM_MEMORY_WIKI_HINT_ENABLED",
+		"TEAM_MEMORY_ADMIN_API_KEY", "TEAM_MEMORY_CREDENTIAL_ROTATION_OVERLAP", "TEAM_MEMORY_DEVICE_AGENT_LIMIT",
+		"TEAM_MEMORY_WIKI_HINT_ENABLED",
 		"TEAM_MEMORY_OPERATIONS_EVENT_RETENTION", "TEAM_MEMORY_OPERATIONS_STORAGE_RETENTION",
 		"TEAM_MEMORY_OPERATIONS_SNAPSHOT_INTERVAL", "TEAM_MEMORY_OPERATIONS_MAINTENANCE_TIMEOUT",
 		"TEAM_MEMORY_BOOTSTRAP_SECRET", "TEAM_MEMORY_OIDC_ISSUER", "TEAM_MEMORY_OIDC_CLIENT_ID",
@@ -124,6 +125,7 @@ func (s *configSuite) TestLoadsNoopConfiguration() {
 	s.Equal(30*time.Second, config.batchTimeout)
 	s.Equal(3*time.Minute, config.workerJobTimeout)
 	s.Equal(5*time.Minute, config.credentialRotationOverlap)
+	s.Equal(16, config.deviceAgentLimit)
 	s.False(config.wikiHintEnabled)
 	s.Equal(25, config.sliceEventLimit)
 	s.Equal(8192, config.sliceTokenLimit)
@@ -145,6 +147,7 @@ func (s *configSuite) TestLoadsOnPremConfiguration() {
 	s.T().Setenv("TEAM_MEMORY_SECRET_PEPPER", "0123456789abcdef0123456789abcdef")
 	s.T().Setenv("TEAM_MEMORY_MEMBER_GRANTABLE_PERMISSIONS", "search,channel_send")
 	s.T().Setenv("TEAM_MEMORY_CREDENTIAL_ROTATION_OVERLAP", "2m")
+	s.T().Setenv("TEAM_MEMORY_DEVICE_AGENT_LIMIT", "8")
 	s.T().Setenv("TEAM_MEMORY_WIKI_HINT_ENABLED", "true")
 
 	config, err := loadConfig()
@@ -153,6 +156,7 @@ func (s *configSuite) TestLoadsOnPremConfiguration() {
 	s.Equal("admin-secret", config.adminAPIKey)
 	s.Empty(config.apiKeys)
 	s.Equal(2*time.Minute, config.credentialRotationOverlap)
+	s.Equal(8, config.deviceAgentLimit)
 	s.Equal(7*24*time.Hour, config.operationsEventRetention)
 	s.Equal(90*24*time.Hour, config.operationsStorageRetention)
 	s.Equal(time.Hour, config.operationsSnapshotInterval)
@@ -172,6 +176,8 @@ func (s *configSuite) TestRejectsOperationsConfigurationOutsideSafeBounds() {
 		{name: "storage retention", env: "TEAM_MEMORY_OPERATIONS_STORAGE_RETENTION", value: "8761h"},
 		{name: "snapshot interval", env: "TEAM_MEMORY_OPERATIONS_SNAPSHOT_INTERVAL", value: "4m"},
 		{name: "maintenance timeout", env: "TEAM_MEMORY_OPERATIONS_MAINTENANCE_TIMEOUT", value: "500ms"},
+		{name: "device agent limit too low", env: "TEAM_MEMORY_DEVICE_AGENT_LIMIT", value: "0"},
+		{name: "device agent limit too high", env: "TEAM_MEMORY_DEVICE_AGENT_LIMIT", value: "1001"},
 	}
 	for _, test := range tests {
 		s.Run(test.name, func() {

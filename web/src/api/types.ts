@@ -67,6 +67,13 @@ export interface AgentProfile {
   resource_version: number;
   owner_membership_id?: string;
   owner_user_id?: string;
+  /**
+   * Present only when a Device self-registered this agent through
+   * POST /v1/device/agent-provisions (doc section 8.1); the value is the
+   * provisioning Device credential_id. Human-registered agents omit the
+   * field entirely, so consumers must test presence, not truthiness.
+   */
+  provisioned_by?: string;
 }
 
 export interface EnrollmentMetadata {
@@ -96,6 +103,61 @@ export interface CredentialMetadata {
   expires_at?: string;
   revoked_at?: string;
   last_used_at?: string;
+}
+
+// ---- Device-scoped agent provisioning (doc sections 8.4-8.6) ----
+
+export type DeviceStatus = "active" | "revoked";
+
+/**
+ * POST /v1/me/device-enrollments response: the one-time device enrollment
+ * secret, returned exactly once. `grantable_permissions` is the effective
+ * ceiling resolved by the backend; the Device Credential itself always has
+ * exactly the `agent_provision` permission.
+ */
+export interface DeviceEnrollmentSecret {
+  enrollment_id: string;
+  token: string;
+  expires_at: string;
+  device_name: string;
+  grantable_permissions: string[];
+}
+
+/** DeviceSummary (doc section 8.5); `status` is server-derived. */
+export interface DeviceSummary {
+  credential_id: string;
+  device_name: string;
+  created_by_user_id: string;
+  created_by_membership_id: string;
+  status: DeviceStatus;
+  provisioned_agent_count: number;
+  created_at: string;
+  revoked_at?: string;
+  last_used_at?: string;
+  grantable_permissions: string[];
+}
+
+/**
+ * One credential-history row minted by a Device (doc section 8.6). The same
+ * agent_id may appear multiple times (rotation history); `agent_status` is
+ * the Agent Profile state, independent of whether this credential row is
+ * revoked.
+ */
+export interface DeviceProvisionedAgent {
+  agent_id: string;
+  display_name: string;
+  agent_type: string;
+  agent_status: AgentStatus;
+  credential_id: string;
+  created_at: string;
+  revoked_at?: string;
+  last_used_at?: string;
+}
+
+/** GET /v1/admin/devices/:credential_id response. */
+export interface DeviceDetail {
+  device: DeviceSummary;
+  agents: DeviceProvisionedAgent[];
 }
 
 export interface AuditEvent {

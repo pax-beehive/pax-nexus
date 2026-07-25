@@ -6,7 +6,7 @@ import type { AgentProfile } from "../api/types";
 import { useErrorHandler } from "../lib/useErrorHandler";
 import { AgentArtifacts } from "../components/AgentArtifacts";
 import { AgentGovernanceCard } from "../components/AgentGovernanceCard";
-import { Badge } from "../components/Badge";
+import { Badge, ProvisionedByBadge } from "../components/Badge";
 
 export function AgentDetailPage() {
   const { agentId = "" } = useParams();
@@ -57,6 +57,7 @@ export function AgentDetailPage() {
           <div className="row small muted">
             <code>{agent.agent_id}</code>
             <Badge status={agent.status} />
+            <ProvisionedByBadge agent={agent} />
           </div>
         </div>
         <Link to="/agents" className="btn ghost">

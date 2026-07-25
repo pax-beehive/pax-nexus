@@ -45,6 +45,8 @@ type CredentialLifecycle interface {
 	ExchangeEnrollment(context.Context, string) (onprem.IssuedCredential, error)
 	RotateCredential(context.Context, onprem.Principal) (onprem.IssuedCredential, error)
 	RevokeCredential(context.Context, onprem.Principal, string) error
+	ProvisionDeviceAgent(context.Context, onprem.Principal, onprem.DeviceProvisionRequest) (onprem.ProvisionedAgentCredential, error)
+	ListDeviceProvisionedAgents(context.Context, onprem.Principal) ([]onprem.DeviceProvisionedAgent, error)
 }
 
 type ChannelLifecycle interface {
@@ -98,6 +100,10 @@ type AgentRegistryLifecycle interface {
 	RevokeAdminEnrollment(context.Context, onprem.HumanPrincipal, string, string, string) (onprem.AgentEnrollmentMetadata, error)
 	ListAdminCredentials(context.Context, onprem.HumanPrincipal, string, onprem.AgentArtifactFilter) ([]onprem.AgentCredentialMetadata, error)
 	RevokeAdminCredential(context.Context, onprem.HumanPrincipal, string, string, string) (onprem.AgentCredentialMetadata, error)
+	CreateDeviceEnrollment(context.Context, onprem.HumanPrincipal, onprem.DeviceEnrollmentRequest) (onprem.Enrollment, []onprem.Permission, error)
+	RevokeDevice(context.Context, onprem.HumanPrincipal, string, string) (onprem.DeviceSummary, error)
+	ListDevices(context.Context, onprem.HumanPrincipal, onprem.DeviceFilter) ([]onprem.DeviceSummary, error)
+	GetDevice(context.Context, onprem.HumanPrincipal, string) (onprem.DeviceDetail, error)
 }
 
 type OperationsLifecycle interface {

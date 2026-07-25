@@ -10,6 +10,7 @@ export type Capability =
   | "view.members"
   | "view.audit"
   | "view.all-agents"
+  | "view.devices"
   | "manage.member-role"
   | "manage.elevated-role"
   | "manage.own-agents"
@@ -23,6 +24,9 @@ const MATRIX: Record<Capability, ReadonlySet<Role>> = {
   "view.members": new Set<Role>(["owner", "admin"]),
   "view.audit": new Set<Role>(["owner", "admin"]),
   "view.all-agents": new Set<Role>(["owner", "admin"]),
+  // Device enrollment creation, listing, detail and cascade revocation are
+  // Owner/Admin-only (doc section 2.2).
+  "view.devices": new Set<Role>(["owner", "admin"]),
   "manage.member-role": new Set<Role>(["owner", "admin"]),
   "manage.elevated-role": new Set<Role>(["owner"]),
   "manage.own-agents": new Set<Role>(["owner", "admin", "member"]),

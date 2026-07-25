@@ -77,6 +77,8 @@ tr:last-child td { border-bottom: none; }
 .b-retired, .b-removed, .b-revoked { background: var(--bad-bg); color: var(--bad); }
 .b-expired, .b-consumed, .b-accepted { background: var(--surface-2); color: var(--muted); }
 .b-role { background: var(--surface-2); color: var(--text); border: 1px solid var(--border); }
+.b-device { background: var(--info-bg); color: var(--info); }
+.b-human { background: var(--surface-2); color: var(--muted); }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); gap: 14px; }
 .agent-card { cursor: pointer; transition: border-color .15s; }
 .agent-card:hover { border-color: var(--accent); }

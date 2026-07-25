@@ -21,6 +21,8 @@ import App from "../src/App";
 import type {
   AgentProfile,
   CredentialMetadata,
+  DeviceProvisionedAgent,
+  DeviceSummary,
   EnrollmentMetadata,
   HumanMe,
   Invitation,
@@ -234,6 +236,37 @@ export function makeCredential(overrides: Partial<CredentialMetadata> = {}): Cre
     created_at: "2026-07-01T00:00:00Z",
     expires_at: "2027-07-01T00:00:00Z",
     last_used_at: "2026-07-20T00:00:00Z",
+    ...overrides,
+  };
+}
+
+export function makeDevice(overrides: Partial<DeviceSummary> = {}): DeviceSummary {
+  return {
+    credential_id: "dev_01",
+    device_name: "todd-macbook-air",
+    created_by_user_id: "usr_01",
+    created_by_membership_id: "mbr_01",
+    status: "active",
+    provisioned_agent_count: 2,
+    created_at: "2026-07-24T18:00:00Z",
+    last_used_at: "2026-07-24T18:05:00Z",
+    grantable_permissions: ["observe", "search", "get", "channel_send", "channel_receive"],
+    ...overrides,
+  };
+}
+
+/** One credential-history row minted by a Device (doc section 8.6). */
+export function makeDeviceAgent(
+  overrides: Partial<DeviceProvisionedAgent> = {},
+): DeviceProvisionedAgent {
+  return {
+    agent_id: "personal-codex",
+    display_name: "personal-codex",
+    agent_type: "codex",
+    agent_status: "active",
+    credential_id: "cred_02",
+    created_at: "2026-07-24T18:05:00Z",
+    last_used_at: "2026-07-24T18:06:00Z",
     ...overrides,
   };
 }

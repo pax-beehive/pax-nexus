@@ -4,11 +4,16 @@ CREATE TABLE IF NOT EXISTS onprem_agent_identities (
     created_at TIMESTAMPTZ NOT NULL
 );
 
+-- Device credentials (added by migration 019) carry an empty agent_id and are
+-- excluded here: they are not per-agent identities and must not be grouped
+-- together as if they were a single agent shared by multiple users, nor
+-- inserted into onprem_agent_identities (whose PK requires a non-empty id).
 DO $$
 BEGIN
     IF EXISTS (
         SELECT 1
         FROM agent_credentials
+        WHERE btrim(agent_id) <> ''
         GROUP BY agent_id
         HAVING count(DISTINCT user_id) > 1
     ) THEN
@@ -21,6 +26,7 @@ $$;
 INSERT INTO onprem_agent_identities (agent_id, user_id, created_at)
 SELECT agent_id, min(user_id), min(created_at)
 FROM agent_credentials
+WHERE btrim(agent_id) <> ''
 GROUP BY agent_id
 ON CONFLICT (agent_id) DO NOTHING;
 

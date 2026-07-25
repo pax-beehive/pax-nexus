@@ -50,7 +50,7 @@ func (s *operationsStoreSuite) SetupSuite() {
 	s.Require().NoError(store.Migrate(ctx))
 	s.store = store
 	s.operations = store.Operations()
-	s.now = time.Now().UTC()
+	s.now = time.Now().UTC().Truncate(time.Microsecond)
 }
 
 func (s *operationsStoreSuite) TearDownSuite() {

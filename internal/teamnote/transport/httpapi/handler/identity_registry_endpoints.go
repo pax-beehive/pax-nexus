@@ -955,6 +955,9 @@ func agentProfileToAPI(profile onprem.AgentProfile) *api.AgentProfile {
 	if profile.OwnerUserID != "" {
 		result.OwnerUserID = &profile.OwnerUserID
 	}
+	if profile.ProvisionedBy != "" {
+		result.ProvisionedBy = &profile.ProvisionedBy
+	}
 	return result
 }
 
