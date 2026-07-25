@@ -180,14 +180,18 @@ CREATE UNIQUE INDEX IF NOT EXISTS agent_credentials_owner_revoke_idempotency_idx
     ON agent_credentials (revoke_idempotency_actor_membership_id, revoke_idempotency_key)
     WHERE revoke_idempotency_actor_membership_id <> '' AND revoke_idempotency_key <> '';
 
+-- Device credentials/enrollments (added by migration 019) carry an empty
+-- agent_id and are excluded here: they are not per-agent identities and must
+-- not be grouped together as if they were a single agent shared by multiple
+-- users.
 DO $$
 BEGIN
     IF EXISTS (
         SELECT agent_id
         FROM (
-            SELECT agent_id, user_id FROM agent_credentials
+            SELECT agent_id, user_id FROM agent_credentials WHERE btrim(agent_id) <> ''
             UNION ALL
-            SELECT agent_id, user_id FROM agent_enrollments
+            SELECT agent_id, user_id FROM agent_enrollments WHERE btrim(agent_id) <> ''
         ) identities
         GROUP BY agent_id
         HAVING count(DISTINCT user_id) > 1
@@ -218,6 +222,9 @@ FROM onprem_users
 WHERE identity_status = 'unclaimed'
 ON CONFLICT (membership_id) DO NOTHING;
 
+-- Device credentials/enrollments (added by migration 019) carry an empty
+-- agent_id and are excluded here: onprem_agents.agent_id requires a
+-- non-empty value, and a device has no agent identity to backfill.
 INSERT INTO onprem_agents (
     agent_id, owner_membership_id, display_name, status, directory_visible, created_at, updated_at
 )
@@ -226,9 +233,9 @@ SELECT identities.agent_id, memberships.membership_id, identities.agent_id, 'act
 FROM (
     SELECT agent_id, min(user_id) AS user_id, min(created_at) AS created_at
     FROM (
-        SELECT agent_id, user_id, created_at FROM agent_credentials
+        SELECT agent_id, user_id, created_at FROM agent_credentials WHERE btrim(agent_id) <> ''
         UNION ALL
-        SELECT agent_id, user_id, created_at FROM agent_enrollments
+        SELECT agent_id, user_id, created_at FROM agent_enrollments WHERE btrim(agent_id) <> ''
     ) all_identities
     GROUP BY agent_id
 ) identities
