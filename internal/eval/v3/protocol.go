@@ -27,12 +27,32 @@ const (
 	SourceOverlapExcluded   = "excluded"
 	SourceOverlapUnknown    = "unknown"
 	SourceOverlapNoEligible = "no_cross_agent_answerer_available"
+
+	ArmSetThreeArm     = "three_arm"
+	ArmSetTwoArmNoMem0 = "two_arm_no_mem0"
 )
 
 var architectureArms = []string{
 	ArmNoMemoryTeam,
 	ArmGroupMemBenchMem0,
 	ArmPrivateSQLiteTeamNote,
+}
+
+var twoArmNoMem0Arms = []string{
+	ArmNoMemoryTeam,
+	ArmPrivateSQLiteTeamNote,
+}
+
+// ArmsFor returns the required arm names for the given arm_set value. An
+// empty string (the field's absent state) resolves to the three-arm set, so
+// every config that predates arm_set behaves exactly as before.
+func ArmsFor(armSet string) []string {
+	switch armSet {
+	case ArmSetTwoArmNoMem0:
+		return slices.Clone(twoArmNoMem0Arms)
+	default:
+		return slices.Clone(architectureArms)
+	}
 }
 
 // AnswererSelection records the deterministic teammate assigned to a case.
@@ -66,23 +86,50 @@ func Validate(config v2.Config) error {
 	if config.Judge == nil {
 		return fmt.Errorf("validate eval v3 config: judge is required for comparative acceptance")
 	}
-	if len(config.Arms) != len(architectureArms) {
-		return fmt.Errorf("validate eval v3 config: exactly three architecture arms are required")
+	switch config.ArmSet {
+	case "", ArmSetThreeArm, ArmSetTwoArmNoMem0:
+	default:
+		return fmt.Errorf("validate eval v3 config: unknown arm_set %q", config.ArmSet)
+	}
+	requiredArms := ArmsFor(config.ArmSet)
+	requiredSet := make(map[string]struct{}, len(requiredArms))
+	for _, name := range requiredArms {
+		requiredSet[name] = struct{}{}
 	}
 	names := make([]string, 0, len(config.Arms))
+	var offending []string
 	for _, arm := range config.Arms {
 		names = append(names, arm.Name)
 		if arm.Producer != nil || arm.Ingest != nil || arm.AfterProducer != nil {
 			return fmt.Errorf("validate eval v3 config: arm %q must reuse full-domain memory built by before_run", arm.Name)
 		}
+		if _, required := requiredSet[arm.Name]; !required {
+			offending = append(offending, arm.Name)
+		}
+	}
+	if len(config.Arms) != len(requiredArms) {
+		if len(offending) > 0 {
+			return fmt.Errorf("validate eval v3 config: arm %q is not permitted for arm_set %s; required arms are %s", offending[0], requiredArmSetLabel(config.ArmSet), strings.Join(requiredArms, ", "))
+		}
+		return fmt.Errorf("validate eval v3 config: exactly %d architecture arms are required for arm_set %s", len(requiredArms), requiredArmSetLabel(config.ArmSet))
 	}
 	slices.Sort(names)
-	want := slices.Clone(architectureArms)
+	want := slices.Clone(requiredArms)
 	slices.Sort(want)
 	if !slices.Equal(names, want) {
-		return fmt.Errorf("validate eval v3 config: arms must be %s", strings.Join(architectureArms, ", "))
+		if len(offending) > 0 {
+			return fmt.Errorf("validate eval v3 config: arm %q is not permitted for arm_set %s; required arms are %s", offending[0], requiredArmSetLabel(config.ArmSet), strings.Join(requiredArms, ", "))
+		}
+		return fmt.Errorf("validate eval v3 config: arms must be %s", strings.Join(requiredArms, ", "))
 	}
 	return nil
+}
+
+func requiredArmSetLabel(armSet string) string {
+	if armSet == "" {
+		return ArmSetThreeArm
+	}
+	return armSet
 }
 
 // SelectAnswerer deterministically chooses one case participant. Annotated

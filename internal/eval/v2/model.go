@@ -37,6 +37,7 @@ type Config struct {
 	// compatibility layer that reuses this runner.
 	AnswererSeed          string `json:"answerer_seed,omitempty" yaml:"answerer_seed,omitempty"`
 	Mem0ReproductionLevel string `json:"mem0_reproduction_level,omitempty" yaml:"mem0_reproduction_level,omitempty"`
+	ArmSet                string `json:"arm_set,omitempty" yaml:"arm_set,omitempty"`
 }
 
 type RunConfig struct {

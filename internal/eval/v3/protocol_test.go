@@ -75,6 +75,75 @@ func (s *protocolSuite) TestValidateRequiresExactlyTheThreeArchitectureArms() {
 	}
 }
 
+func (s *protocolSuite) TestValidateArmSetDefaultsToThreeArm() {
+	config := baseConfig()
+	config.ArmSet = ""
+	config.Arms = architectureArms()
+
+	s.NoError(v3.Validate(config))
+}
+
+func (s *protocolSuite) TestValidateArmSetAbsentRejectsTwoArms() {
+	config := baseConfig()
+	config.ArmSet = ""
+	config.Arms = twoArmNoMem0Arms()
+
+	s.ErrorContains(v3.Validate(config), "exactly 3 architecture arms")
+}
+
+func (s *protocolSuite) TestValidateTwoArmNoMem0Validates() {
+	config := baseConfig()
+	config.ArmSet = v3.ArmSetTwoArmNoMem0
+	config.Arms = twoArmNoMem0Arms()
+
+	s.NoError(v3.Validate(config))
+}
+
+func (s *protocolSuite) TestValidateTwoArmNoMem0RejectsMem0Arm() {
+	config := baseConfig()
+	config.ArmSet = v3.ArmSetTwoArmNoMem0
+	config.Arms = architectureArms()
+
+	err := v3.Validate(config)
+
+	s.ErrorContains(err, v3.ArmGroupMemBenchMem0)
+}
+
+func (s *protocolSuite) TestValidateTwoArmNoMem0RequiresNoMemoryTeamBaseline() {
+	config := baseConfig()
+	config.ArmSet = v3.ArmSetTwoArmNoMem0
+	config.Arms = twoArmNoMem0Arms()
+	config.BaselineArm = v3.ArmPrivateSQLiteTeamNote
+
+	s.Error(v3.Validate(config))
+}
+
+func (s *protocolSuite) TestValidateArmSetThreeArmExplicitMatchesDefault() {
+	config := baseConfig()
+	config.ArmSet = v3.ArmSetThreeArm
+	config.Arms = architectureArms()
+
+	s.NoError(v3.Validate(config))
+}
+
+func (s *protocolSuite) TestValidateArmSetRejectsUnknownValue() {
+	config := baseConfig()
+	config.ArmSet = "one_arm_mystery"
+	config.Arms = architectureArms()
+
+	err := v3.Validate(config)
+
+	s.ErrorContains(err, "one_arm_mystery")
+}
+
+func (s *protocolSuite) TestArmsForEmptyReturnsThreeArmSet() {
+	s.Equal([]string{v3.ArmNoMemoryTeam, v3.ArmGroupMemBenchMem0, v3.ArmPrivateSQLiteTeamNote}, v3.ArmsFor(""))
+}
+
+func (s *protocolSuite) TestArmsForTwoArmNoMem0() {
+	s.Equal([]string{v3.ArmNoMemoryTeam, v3.ArmPrivateSQLiteTeamNote}, v3.ArmsFor(v3.ArmSetTwoArmNoMem0))
+}
+
 func (s *protocolSuite) TestValidateRejectsUnverifiedMem0ReproductionClaims() {
 	tests := []struct{ name, level string }{
 		{name: "exact", level: v3.ReproductionExact},
@@ -161,3 +230,10 @@ func architectureArms() []v2.ArmConfig {
 }
 
 func command() v2.CommandSpec { return v2.CommandSpec{Program: "consumer"} }
+
+func twoArmNoMem0Arms() []v2.ArmConfig {
+	return []v2.ArmConfig{
+		{Name: v3.ArmNoMemoryTeam, Consumer: command()},
+		{Name: v3.ArmPrivateSQLiteTeamNote, Consumer: command()},
+	}
+}
