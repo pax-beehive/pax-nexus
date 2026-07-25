@@ -29,6 +29,13 @@ manifest="${EVAL_V3_SWEEP_MANIFEST:-runs/groupmembench-v3-micro-canary-v1/manife
 template=evals/v3/config.sweep-template.yaml
 sweep_root="runs/eval-v3-sweep/${prefix}"
 
+# Overridable command seams. Tests point these at stub scripts so the sweep
+# loop's control flow (reset/up/runner/down ordering, failure handling,
+# override propagation) can be exercised without Docker, the network, or go.
+# Default behaviour is unchanged: the real stack script and the real runner.
+EVAL_V3_STACK_CMD="${EVAL_V3_STACK_CMD:-./scripts/eval-v3-stack.sh}"
+EVAL_V3_RUNNER_CMD="${EVAL_V3_RUNNER_CMD:-go run ./cmd/team-memory-eval-v3}"
+
 if [ ! -f "$manifest" ]; then
   echo "manifest not found: ${manifest}" >&2
   exit 2
@@ -38,11 +45,26 @@ if [ ! -f "$template" ]; then
   exit 2
 fi
 
-# Reject every unknown slug before doing any work, so a typo costs a second
-# rather than a round of full-domain ingest.
+# Reject every unknown or incomplete slug before doing any work, so a typo or
+# a malformed fragment costs a second rather than a round of full-domain
+# ingest — and so slug 2 being broken can never cost slug 3 or slug 1 a round
+# that already ran or was about to. Fragment vars are scoped to a subshell so
+# this pre-check can't leak values into (or pick up stale values left by) the
+# per-round loop below.
 for slug in $slugs; do
-  if [ ! -f "evals/v3/sweep/extractor-${slug}.env" ]; then
+  fragment="evals/v3/sweep/extractor-${slug}.env"
+  if [ ! -f "$fragment" ]; then
     echo "unknown extractor slug: ${slug}" >&2
+    exit 2
+  fi
+  if ! (
+    SWEEP_EXTRACTOR_MODEL=""
+    SWEEP_EXTRACTOR_BASE_URL=""
+    SWEEP_EXTRACTOR_KEY_ENV=""
+    . "./${fragment}"
+    [ -n "$SWEEP_EXTRACTOR_MODEL" ] && [ -n "$SWEEP_EXTRACTOR_BASE_URL" ] && [ -n "$SWEEP_EXTRACTOR_KEY_ENV" ]
+  ); then
+    echo "fragment for ${slug} is incomplete: ${fragment}" >&2
     exit 2
   fi
 done
@@ -62,11 +84,8 @@ for slug in $slugs; do
   SWEEP_EXTRACTOR_BASE_URL=""
   SWEEP_EXTRACTOR_KEY_ENV=""
   . "./evals/v3/sweep/extractor-${slug}.env"
-
-  if [ -z "$SWEEP_EXTRACTOR_MODEL" ] || [ -z "$SWEEP_EXTRACTOR_BASE_URL" ] || [ -z "$SWEEP_EXTRACTOR_KEY_ENV" ]; then
-    echo "fragment for ${slug} is incomplete" >&2
-    exit 2
-  fi
+  # Completeness was already validated for every requested slug in the
+  # up-front pre-check above, before any round started.
 
   key_value=$(eval "printf '%s' \"\${${SWEEP_EXTRACTOR_KEY_ENV}:-}\"")
   if [ -n "$key_value" ]; then
@@ -107,23 +126,46 @@ for slug in $slugs; do
 
   # down -v before every round. Surviving Team Note rows from the previous
   # extractor would corrupt all three arms with nothing in the artifacts to
-  # reveal it.
-  ./scripts/eval-v3-stack.sh reset || true
+  # reveal it. `docker compose down` against a project that doesn't exist yet
+  # exits 0, so a non-zero exit here is a genuine failure, not a first-round
+  # artifact — treat it as such: skip the round entirely (no up, no runner)
+  # rather than risk ingesting into a stack that still holds the previous
+  # extractor's data with nothing in the artifacts to reveal it.
+  reset_status=0
+  $EVAL_V3_STACK_CMD reset || reset_status=$?
+  if [ "$reset_status" -ne 0 ]; then
+    echo "  stack reset failed (exit ${reset_status}); skipping ${slug} to avoid cross-round contamination" >&2
+    summary="${summary}${slug}\tFAILED (stack reset exit ${reset_status})\n"
+    overall=1
+    continue
+  fi
 
   status=0
-  if ./scripts/eval-v3-stack.sh up "$manifest" "$run_id"; then
+  if $EVAL_V3_STACK_CMD up "$manifest" "$run_id"; then
     GOCACHE="${GOCACHE:-/tmp/team-memory-go-cache}" \
-      go run ./cmd/team-memory-eval-v3 -config "$config" || status=$?
+      $EVAL_V3_RUNNER_CMD -config "$config" || status=$?
   else
     status=1
   fi
 
-  ./scripts/eval-v3-stack.sh down || true
+  # Teardown failure is reported, not discarded, but it does not fail the
+  # round on its own: the next round's reset (down -v) will attempt teardown
+  # again before that round's ingest starts.
+  down_status=0
+  $EVAL_V3_STACK_CMD down || down_status=$?
 
   if [ "$status" -eq 0 ]; then
-    summary="${summary}${slug}\tOK\n"
+    if [ "$down_status" -ne 0 ]; then
+      summary="${summary}${slug}\tOK (teardown failed, exit ${down_status})\n"
+    else
+      summary="${summary}${slug}\tOK\n"
+    fi
   else
-    summary="${summary}${slug}\tFAILED (exit ${status})\n"
+    if [ "$down_status" -ne 0 ]; then
+      summary="${summary}${slug}\tFAILED (exit ${status}; teardown failed, exit ${down_status})\n"
+    else
+      summary="${summary}${slug}\tFAILED (exit ${status})\n"
+    fi
     overall=1
   fi
 done

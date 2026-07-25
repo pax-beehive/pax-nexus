@@ -183,6 +183,13 @@ else
     "$(printf '%s\n' "$plan" | grep '^round ' | head -1 | sed -n 's/.*slug=\([^ ]*\).*/\1/p')" \
     "deepseek-v4-flash"
 
+  # The plan reports only whether a key resolved, never the value, so a
+  # future change that starts printing credentials fails this loudly.
+  case "$plan" in
+    *fake-deepseek*|*fake-gemini*)
+      fail "dry-run plan leaked a fake credential value" ;;
+  esac
+
   rendered=runs/eval-v3-sweep/planprefix/configs/gemini-3.6-flash.yaml
   if [ ! -f "$rendered" ]; then
     fail "dry run did not render $rendered"
@@ -216,6 +223,121 @@ else
     DEEPSEEK_API_KEY=fake-deepseek \
     "$sweep" --dry-run badmanifest 2>&1) && fail "missing manifest unexpectedly succeeded"
   expect_contains "missing manifest is named" "$out" "does-not-exist"
+
+  # --- Stub-driven, non-dry-run coverage of reset/up/runner/down control flow.
+  # These invocations point EVAL_V3_STACK_CMD / EVAL_V3_RUNNER_CMD at stub
+  # scripts, so no round ever touches Docker, the network, or go, even though
+  # the sweep script itself is run without --dry-run.
+
+  cat > "$tmp/stack-stub.sh" <<'STUB'
+#!/bin/sh
+set -eu
+printf 'stack %s\n' "$*" >> "$STACK_STUB_LOG"
+case "${1:-}" in
+  reset)
+    [ -z "${STUB_RESET_FAIL:-}" ] || exit "$STUB_RESET_FAIL"
+    ;;
+  up)
+    [ -z "${STUB_UP_FAIL:-}" ] || exit "$STUB_UP_FAIL"
+    ;;
+esac
+exit 0
+STUB
+  chmod +x "$tmp/stack-stub.sh"
+
+  cat > "$tmp/runner-stub.sh" <<'STUB'
+#!/bin/sh
+set -eu
+{
+  printf 'runner %s\n' "$*"
+  printf 'runner-env model=%s base_url=%s key=%s\n' \
+    "${TEAM_MEMORY_EXTRACTOR_MODEL_OVERRIDE:-}" \
+    "${TEAM_MEMORY_EXTRACTOR_BASE_URL_OVERRIDE:-}" \
+    "${TEAM_MEMORY_EXTRACTOR_API_KEY_OVERRIDE:-}"
+} >> "$RUNNER_STUB_LOG"
+case "$*" in
+  *"${STUB_RUNNER_FAIL_MATCH:-__never_match__}"*) exit 7 ;;
+esac
+exit 0
+STUB
+  chmod +x "$tmp/runner-stub.sh"
+
+  # Scenario 1: all three rounds run; the first slug's runner fails. Verifies
+  # (a) reset precedes up for every round, (b) a failed round does not stop
+  # later slugs and the overall exit is 1, (c) down is logged for the failed
+  # round too, and (d) each round's stub observes that round's fragment
+  # values via the *_OVERRIDE variables.
+  stack_log="$tmp/stack.log"
+  runner_log="$tmp/runner.log"
+  : > "$stack_log"
+  : > "$runner_log"
+
+  stub_status=0
+  stub_out=$(env $sweep_env EVAL_V3_SWEEP_MANIFEST="$manifest" \
+    DEEPSEEK_API_KEY=fake-deepseek GEMINI_API_KEY=fake-gemini \
+    EVAL_V3_STACK_CMD="$tmp/stack-stub.sh" EVAL_V3_RUNNER_CMD="$tmp/runner-stub.sh" \
+    STACK_STUB_LOG="$stack_log" RUNNER_STUB_LOG="$runner_log" \
+    STUB_RUNNER_FAIL_MATCH=deepseek-v4-flash \
+    "$sweep" stubprefix 2>&1) || stub_status=$?
+
+  expect_eq "stub sweep: first-slug runner failure yields overall exit 1" \
+    "$stub_status" "1"
+
+  seq_actual=$(awk '{print $2}' "$stack_log")
+  expected_seq='reset
+up
+down
+reset
+up
+down
+reset
+up
+down'
+  expect_eq "stub sweep: reset,up,down logged in order for all three rounds" \
+    "$seq_actual" "$expected_seq"
+
+  expect_contains "stub sweep: runner ran for deepseek round with its fragment values" \
+    "$(cat "$runner_log")" \
+    "runner-env model=deepseek-v4-flash base_url=https://api.deepseek.com key=fake-deepseek"
+  expect_contains "stub sweep: runner still ran for flash-lite round after deepseek failed" \
+    "$(cat "$runner_log")" \
+    "runner-env model=gemini-3.5-flash-lite base_url=https://generativelanguage.googleapis.com/v1beta/openai/ key=fake-gemini"
+  expect_contains "stub sweep: runner still ran for 3.6-flash round after deepseek failed" \
+    "$(cat "$runner_log")" \
+    "runner-env model=gemini-3.6-flash base_url=https://generativelanguage.googleapis.com/v1beta/openai/ key=fake-gemini"
+
+  expect_contains "stub sweep: summary reports the failed round" \
+    "$stub_out" "deepseek-v4-flash	FAILED (exit 7)"
+
+  rm -rf runs/eval-v3-sweep/stubprefix
+
+  # Scenario 2: reset itself fails. Verifies up is never attempted for that
+  # round and the failure is reported, not swallowed.
+  resetfail_stack_log="$tmp/stack-resetfail.log"
+  resetfail_runner_log="$tmp/runner-resetfail.log"
+  : > "$resetfail_stack_log"
+  : > "$resetfail_runner_log"
+
+  resetfail_status=0
+  resetfail_out=$(env $sweep_env EVAL_V3_SWEEP_MANIFEST="$manifest" \
+    DEEPSEEK_API_KEY=fake-deepseek \
+    EVAL_V3_STACK_CMD="$tmp/stack-stub.sh" EVAL_V3_RUNNER_CMD="$tmp/runner-stub.sh" \
+    STACK_STUB_LOG="$resetfail_stack_log" RUNNER_STUB_LOG="$resetfail_runner_log" \
+    STUB_RESET_FAIL=5 \
+    "$sweep" resetfailprefix deepseek-v4-flash 2>&1) || resetfail_status=$?
+
+  expect_eq "stub sweep: reset failure yields overall exit 1" "$resetfail_status" "1"
+  expect_eq "stub sweep: reset failure logs only the reset call" \
+    "$(cat "$resetfail_stack_log")" "stack reset"
+  if [ -s "$resetfail_runner_log" ]; then
+    fail "stub sweep: runner ran despite reset failure"
+  fi
+  expect_contains "stub sweep: reset failure is named on stderr" \
+    "$resetfail_out" "stack reset failed"
+  expect_contains "stub sweep: reset failure is reported in the summary" \
+    "$resetfail_out" "deepseek-v4-flash	FAILED (stack reset exit 5)"
+
+  rm -rf runs/eval-v3-sweep/resetfailprefix
 fi
 
 out=$("$sweep" --dry-run 2>&1) && fail "missing prefix unexpectedly succeeded"
