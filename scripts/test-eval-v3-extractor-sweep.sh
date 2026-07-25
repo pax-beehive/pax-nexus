@@ -195,6 +195,28 @@ out=$(EVAL_DOCKER_CMD="$tmp/docker-stub.sh" DOCKER_STUB_MAPPING='' \
   "$dsn_script" emptyproject evals/v2/compose.yaml 2>&1) && fail "dsn: empty mapping unexpectedly succeeded"
 expect_contains "dsn: empty mapping is reported on stderr" "$out" "emptyproject"
 
+# Mutation guard: a failed docker invocation whose captured stderr happens
+# to END in ":<digits>" must still be rejected on exit status alone, not
+# rescued (or condemned) by the downstream digits-only port validation. A
+# mutant that swallows docker's exit status (e.g.
+# `mapping=$(... 2>&1) || true`) would otherwise read this stderr text as a
+# valid port mapping and mint a DSN pointing at whatever number happens to
+# follow the last colon in the error message — exactly the "healthy-looking
+# but wrong DSN" this script exists to prevent.
+out=$(EVAL_DOCKER_CMD="$tmp/docker-stub.sh" DOCKER_STUB_FAIL=1 \
+  DOCKER_STUB_STDERR='dockererror:55123' \
+  "$dsn_script" digitfailproject evals/v2/compose.yaml 2>&1) && \
+  fail "dsn: docker failure with digit-suffixed stderr unexpectedly succeeded"
+expect_contains "dsn: docker failure with digit-suffixed stderr names the compose project on stderr" \
+  "$out" "digitfailproject"
+
+stdout_only=$(EVAL_DOCKER_CMD="$tmp/docker-stub.sh" DOCKER_STUB_FAIL=1 \
+  DOCKER_STUB_STDERR='dockererror:55123' \
+  "$dsn_script" digitfailproject evals/v2/compose.yaml 2>/dev/null) && \
+  fail "dsn: docker failure with digit-suffixed stderr unexpectedly succeeded (stdout capture)"
+expect_eq "dsn: docker failure with digit-suffixed stderr emits no DSN on stdout" \
+  "$stdout_only" ""
+
 sweep=./scripts/eval-v3-extractor-sweep.sh
 sweep_env="EVAL_V2_BASE_ENV_FILE=$tmp/base.env EVAL_V2_ENV_FILE=$tmp/eval.env"
 manifest=runs/groupmembench-v3-micro-canary-v1/manifest.five.json
