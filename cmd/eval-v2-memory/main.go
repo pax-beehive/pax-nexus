@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -39,7 +40,8 @@ func run(ctx context.Context, args []string, getenv func(string) string, output 
 		TeamNoteAPIKey: getenv("TEAM_MEMORY_API_KEY"),
 		Mem0URL:        envOrDefault(getenv, "MEM0_BASE_URL", "http://mem0:8000"),
 		UserID:         getenv("PAXM_USER_ID"), AgentID: getenv("PAXM_AGENT_ID"), RunID: getenv("MEM0_RUN_ID"),
-		HTTPClient: httpClient,
+		HTTPClient:     httpClient,
+		RecallAttempts: envIntOrDefault(getenv, "PAX_EVAL_RECALL_ATTEMPTS", 0),
 	})
 	if err != nil {
 		return err
@@ -102,4 +104,19 @@ func envOrDefault(getenv func(string) string, name, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+// envIntOrDefault parses name as an integer, falling back when unset or
+// unparsable. A non-positive result still passes through unchanged;
+// memoryprobe.New treats non-positive RecallAttempts as "use the default".
+func envIntOrDefault(getenv func(string) string, name string, fallback int) int {
+	raw := strings.TrimSpace(getenv(name))
+	if raw == "" {
+		return fallback
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil {
+		return fallback
+	}
+	return value
 }

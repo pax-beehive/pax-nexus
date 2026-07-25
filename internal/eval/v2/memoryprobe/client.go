@@ -38,6 +38,9 @@ type Config struct {
 	RunID          string
 	HTTPClient     *http.Client
 	PollInterval   time.Duration
+	// RecallAttempts bounds the recall poll loops (generic field recall and
+	// Team Note origin recall). Defaults to 120 when unset or non-positive.
+	RecallAttempts int
 }
 
 type Client struct {
@@ -49,6 +52,7 @@ type Client struct {
 	runID          string
 	httpClient     *http.Client
 	pollInterval   time.Duration
+	recallAttempts int
 }
 
 type IngestResult struct {
@@ -85,10 +89,14 @@ func New(config Config) (*Client, error) {
 	if pollInterval <= 0 {
 		pollInterval = time.Second
 	}
+	recallAttempts := config.RecallAttempts
+	if recallAttempts <= 0 {
+		recallAttempts = defaultAttempts
+	}
 	return &Client{
 		teamNoteURL: teamNoteURL, teamNoteAPIKey: config.TeamNoteAPIKey, mem0URL: mem0URL,
 		userID: config.UserID, agentID: config.AgentID, runID: config.RunID,
-		httpClient: httpClient, pollInterval: pollInterval,
+		httpClient: httpClient, pollInterval: pollInterval, recallAttempts: recallAttempts,
 	}, nil
 }
 
@@ -540,7 +548,7 @@ func (c *Client) pollNonEmpty(
 	field string,
 	request func(context.Context, string) ([]byte, error),
 ) error {
-	for attempt := range defaultAttempts {
+	for attempt := range c.recallAttempts {
 		body, err := request(ctx, query)
 		if err == nil {
 			var found bool
@@ -549,7 +557,7 @@ func (c *Client) pollNonEmpty(
 				return nil
 			}
 		}
-		if attempt == defaultAttempts-1 {
+		if attempt == c.recallAttempts-1 {
 			if err != nil {
 				return err
 			}
@@ -563,11 +571,11 @@ func (c *Client) pollNonEmpty(
 		case <-timer.C:
 		}
 	}
-	return fmt.Errorf("no recalled %s after %d attempts", field, defaultAttempts)
+	return fmt.Errorf("no recalled %s after %d attempts", field, c.recallAttempts)
 }
 
 func (c *Client) pollTeamNoteOrigin(ctx context.Context, query, originSessionID string) error {
-	for attempt := range defaultAttempts {
+	for attempt := range c.recallAttempts {
 		body, err := c.recallTeamNote(ctx, query)
 		if err == nil {
 			var found bool
@@ -576,7 +584,7 @@ func (c *Client) pollTeamNoteOrigin(ctx context.Context, query, originSessionID 
 				return nil
 			}
 		}
-		if attempt == defaultAttempts-1 {
+		if attempt == c.recallAttempts-1 {
 			if err != nil {
 				return err
 			}
@@ -590,7 +598,7 @@ func (c *Client) pollTeamNoteOrigin(ctx context.Context, query, originSessionID 
 		case <-timer.C:
 		}
 	}
-	return fmt.Errorf("team note origin %q was not recalled after %d attempts", originSessionID, defaultAttempts)
+	return fmt.Errorf("team note origin %q was not recalled after %d attempts", originSessionID, c.recallAttempts)
 }
 
 func responseHasOrigin(body []byte, originSessionID string) (bool, error) {

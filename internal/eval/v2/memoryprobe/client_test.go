@@ -384,6 +384,102 @@ func (s *clientSuite) TestPreflightRejectsDuplicateTeamNoteProbe() {
 	s.Require().Error(client.Preflight(context.Background(), "probe-marker"))
 }
 
+func (s *clientSuite) TestPreflightMem0RecallDefaultsToOneHundredTwentyAttempts() {
+	transport := &recordingTransport{searchAlwaysEmpty: true}
+	client, err := memoryprobe.New(memoryprobe.Config{
+		TeamNoteURL: "http://team-note", TeamNoteAPIKey: "key", Mem0URL: "http://mem0",
+		UserID: "user", AgentID: "preflight", RunID: "run", HTTPClient: &http.Client{Transport: transport},
+		PollInterval: time.Microsecond,
+	})
+	s.Require().NoError(err)
+
+	err = client.PreflightMem0(context.Background(), "probe-marker")
+
+	s.Require().Error(err)
+	s.Contains(err.Error(), "no recalled results after 120 attempts")
+	s.Equal(120, transport.searchCount)
+}
+
+func (s *clientSuite) TestPreflightMem0RecallHonoursConfiguredBudget() {
+	transport := &recordingTransport{searchAlwaysEmpty: true}
+	client, err := memoryprobe.New(memoryprobe.Config{
+		TeamNoteURL: "http://team-note", TeamNoteAPIKey: "key", Mem0URL: "http://mem0",
+		UserID: "user", AgentID: "preflight", RunID: "run", HTTPClient: &http.Client{Transport: transport},
+		PollInterval: time.Microsecond, RecallAttempts: 5,
+	})
+	s.Require().NoError(err)
+
+	err = client.PreflightMem0(context.Background(), "probe-marker")
+
+	s.Require().Error(err)
+	s.Contains(err.Error(), "no recalled results after 5 attempts")
+	s.Equal(5, transport.searchCount)
+}
+
+func (s *clientSuite) TestPreflightMem0RecallSucceedsOnFinalPermittedAttempt() {
+	transport := &recordingTransport{searchSucceedAt: 3}
+	client, err := memoryprobe.New(memoryprobe.Config{
+		TeamNoteURL: "http://team-note", TeamNoteAPIKey: "key", Mem0URL: "http://mem0",
+		UserID: "user", AgentID: "preflight", RunID: "run", HTTPClient: &http.Client{Transport: transport},
+		PollInterval: time.Microsecond, RecallAttempts: 3,
+	})
+	s.Require().NoError(err)
+
+	err = client.PreflightMem0(context.Background(), "probe-marker")
+
+	s.Require().NoError(err)
+	// 3 polling attempts to find the probe, plus 1 cleanup search that must
+	// confirm it is gone (searchSucceedAt only matches call 3).
+	s.Equal(4, transport.searchCount)
+}
+
+func (s *clientSuite) TestPreflightTeamNoteRecallDefaultsToOneHundredTwentyAttempts() {
+	transport := &recordingTransport{recallAlwaysEmpty: true}
+	client, err := memoryprobe.New(memoryprobe.Config{
+		TeamNoteURL: "http://team-note", TeamNoteAPIKey: "key", Mem0URL: "http://mem0",
+		UserID: "user", AgentID: "preflight", RunID: "run", HTTPClient: &http.Client{Transport: transport},
+		PollInterval: time.Microsecond,
+	})
+	s.Require().NoError(err)
+
+	err = client.Preflight(context.Background(), "probe-marker")
+
+	s.Require().Error(err)
+	s.Contains(err.Error(), `was not recalled after 120 attempts`)
+	s.Equal(120, transport.recallCount)
+}
+
+func (s *clientSuite) TestPreflightTeamNoteRecallHonoursConfiguredBudget() {
+	transport := &recordingTransport{recallAlwaysEmpty: true}
+	client, err := memoryprobe.New(memoryprobe.Config{
+		TeamNoteURL: "http://team-note", TeamNoteAPIKey: "key", Mem0URL: "http://mem0",
+		UserID: "user", AgentID: "preflight", RunID: "run", HTTPClient: &http.Client{Transport: transport},
+		PollInterval: time.Microsecond, RecallAttempts: 4,
+	})
+	s.Require().NoError(err)
+
+	err = client.Preflight(context.Background(), "probe-marker")
+
+	s.Require().Error(err)
+	s.Contains(err.Error(), `was not recalled after 4 attempts`)
+	s.Equal(4, transport.recallCount)
+}
+
+func (s *clientSuite) TestPreflightTeamNoteRecallSucceedsOnFinalPermittedAttempt() {
+	transport := &recordingTransport{recallSucceedAt: 3}
+	client, err := memoryprobe.New(memoryprobe.Config{
+		TeamNoteURL: "http://team-note", TeamNoteAPIKey: "key", Mem0URL: "http://mem0",
+		UserID: "user", AgentID: "preflight", RunID: "run", HTTPClient: &http.Client{Transport: transport},
+		PollInterval: time.Microsecond, RecallAttempts: 3,
+	})
+	s.Require().NoError(err)
+
+	err = client.Preflight(context.Background(), "probe-marker")
+
+	s.Require().NoError(err)
+	s.Equal(3, transport.recallCount)
+}
+
 func (s *clientSuite) TestValidationAndInputErrors() {
 	client, err := memoryprobe.New(memoryprobe.Config{
 		TeamNoteURL: "http://team-note", TeamNoteAPIKey: "key", Mem0URL: "http://mem0",
@@ -421,6 +517,10 @@ type recordingTransport struct {
 	teamReceipt       string
 	observedSessionID string
 	staleRecallCount  int
+	recallAlwaysEmpty bool
+	recallSucceedAt   int
+	searchAlwaysEmpty bool
+	searchSucceedAt   int
 }
 
 func (t *recordingTransport) RoundTrip(request *http.Request) (*http.Response, error) {
@@ -462,7 +562,14 @@ func (t *recordingTransport) RoundTrip(request *http.Request) (*http.Response, e
 	case "/v1/notes/recall":
 		t.recallCount++
 		originSessionID := t.observedSessionID
-		if t.recallCount <= t.staleRecallCount {
+		switch {
+		case t.recallAlwaysEmpty:
+			originSessionID = "no-such-session"
+		case t.recallSucceedAt > 0:
+			if t.recallCount != t.recallSucceedAt {
+				originSessionID = "no-such-session"
+			}
+		case t.recallCount <= t.staleRecallCount:
 			originSessionID = "stale-run"
 		}
 		responseBody = fmt.Sprintf(`{"revision":"1","items":["Confirmed active for this run."],"tokens":1,"details":[{"origin":{"session_id":%q}}]}`, originSessionID)
@@ -478,9 +585,18 @@ func (t *recordingTransport) RoundTrip(request *http.Request) (*http.Response, e
 		}
 	case "/search":
 		t.searchCount++
-		if t.searchCount == 1 {
+		switch {
+		case t.searchAlwaysEmpty:
+			responseBody = `{"results":[]}`
+		case t.searchSucceedAt > 0:
+			if t.searchCount == t.searchSucceedAt {
+				responseBody = `{"results":[{"id":"mem-1","memory":"Retain the verification state."}]}`
+			} else {
+				responseBody = `{"results":[]}`
+			}
+		case t.searchCount == 1:
 			responseBody = `{"results":[{"id":"mem-1","memory":"Retain the verification state."}]}`
-		} else {
+		default:
 			responseBody = `{"results":[]}`
 		}
 	}
