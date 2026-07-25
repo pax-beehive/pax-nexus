@@ -134,3 +134,7 @@ The next engineering slice should make incremental maintenance preserve page
 content by construction, then run query-time LoCoMo/LongMemEval readers against
 isolated holdout gold. A validator passing structural checks alone is not an
 effectiveness result.
+
+The follow-up article-first experiment, including a successful incremental
+Phase 2, is recorded in
+[`llmwiki-article-first-experiment-2026-07-25.md`](llmwiki-article-first-experiment-2026-07-25.md).
