@@ -102,8 +102,10 @@ for slug in deepseek-v4-flash gemini-3.5-flash-lite gemini-3.6-flash; do
     case "$line" in
       \#*) continue ;;
     esac
-    # All other lines must match the pattern: VAR=value where VAR is one of the three allowed names
-    if ! printf '%s' "$line" | grep -qE '^(SWEEP_EXTRACTOR_MODEL|SWEEP_EXTRACTOR_BASE_URL|SWEEP_EXTRACTOR_KEY_ENV)='; then
+    # All other lines must match exactly: VAR=value where VAR is one of three allowed names
+    # and value contains only alphanumerics, dots, colons, slashes, hyphens, underscores
+    # This rejects semicolons, spaces, quotes, backticks, and other injection vectors
+    if ! printf '%s' "$line" | grep -qE '^(SWEEP_EXTRACTOR_MODEL|SWEEP_EXTRACTOR_BASE_URL|SWEEP_EXTRACTOR_KEY_ENV)=[A-Za-z0-9._:/-]*$'; then
       fail "fragment $slug contains disallowed line: $line"
     fi
   done < "$fragment"
