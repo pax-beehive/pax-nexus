@@ -29,6 +29,7 @@ func Register(r *server.Hertz) {
 			_admin.POST("/agent-enrollments", append(_createagentenrollmentMw(), handler.CreateAgentEnrollment)...)
 			_admin.GET("/agents", append(_listadminagentsMw(), handler.ListAdminAgents)...)
 			_admin.GET("/audit-events", append(_listauditeventsMw(), handler.ListAuditEvents)...)
+			_admin.GET("/devices", append(_listadmindevicesMw(), handler.ListAdminDevices)...)
 			_admin.GET("/invitations", append(_listmembershipinvitationsMw(), handler.ListMembershipInvitations)...)
 			_admin.POST("/invitations", append(_createmembershipinvitationMw(), handler.CreateMembershipInvitation)...)
 			_admin.GET("/members", append(_listmembersMw(), handler.ListMembers)...)
@@ -59,6 +60,11 @@ func Register(r *server.Hertz) {
 			{
 				_audit_events := _admin.Group("/audit-events", _audit_eventsMw()...)
 				_audit_events.GET("/:audit_event_id", append(_getauditeventMw(), handler.GetAuditEvent)...)
+			}
+			{
+				_devices := _admin.Group("/devices", _devicesMw()...)
+				_devices.DELETE("/:credential_id", append(_revokeadmindeviceMw(), handler.RevokeAdminDevice)...)
+				_devices.GET("/:credential_id", append(_getadmindeviceMw(), handler.GetAdminDevice)...)
 			}
 			{
 				_invitations := _admin.Group("/invitations", _invitationsMw()...)
@@ -123,6 +129,11 @@ func Register(r *server.Hertz) {
 			}
 		}
 		{
+			_device := _v1.Group("/device", _deviceMw()...)
+			_device.GET("/agent-provisions", append(_listdeviceprovisionsMw(), handler.ListDeviceProvisions)...)
+			_device.POST("/agent-provisions", append(_provisiondeviceagentMw(), handler.ProvisionDeviceAgent)...)
+		}
+		{
 			_invitations0 := _v1.Group("/invitations", _invitations0Mw()...)
 			_invitations0.POST("/accept", append(_acceptmembershipinvitationMw(), handler.AcceptMembershipInvitation)...)
 		}
@@ -130,6 +141,7 @@ func Register(r *server.Hertz) {
 			_me := _v1.Group("/me", _meMw()...)
 			_me.GET("/agents", append(_listownedagentsMw(), handler.ListOwnedAgents)...)
 			_me.POST("/agents", append(_createownedagentMw(), handler.CreateOwnedAgent)...)
+			_me.POST("/device-enrollments", append(_createdeviceenrollmentMw(), handler.CreateDeviceEnrollment)...)
 			{
 				_agents1 := _me.Group("/agents", _agents1Mw()...)
 				_agents1.DELETE("/:agent_id", append(_retireownedagentMw(), handler.RetireOwnedAgent)...)

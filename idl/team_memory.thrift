@@ -89,6 +89,7 @@ struct AgentCredentialResponse {
   1: required string credential_id
   2: required string api_key
   3: optional string expires_at
+  4: optional string kind
 }
 
 struct AgentIdentityRequest {}
@@ -458,6 +459,7 @@ struct AgentProfile {
   10: required i64 resource_version
   11: optional string owner_membership_id
   12: optional string owner_user_id
+  13: optional string provisioned_by
 }
 
 struct AgentProfileResponse {
@@ -570,6 +572,92 @@ struct ListAdminAgentsRequest {
 
 struct AdminAgentByIDRequest {
   1: required string agent_id (api.path="agent_id")
+}
+
+struct CreateDeviceEnrollmentRequest {
+  1: required string device_name (api.body="device_name")
+  2: optional list<string> grantable_permissions (api.body="grantable_permissions")
+  3: optional i64 expires_in_seconds (api.body="expires_in_seconds")
+}
+
+struct DeviceEnrollmentResponse {
+  1: required string enrollment_id
+  2: required string token
+  3: required string expires_at
+  4: required string device_name
+  5: required list<string> grantable_permissions
+}
+
+struct ProvisionDeviceAgentRequest {
+  1: required string agent_id (api.body="agent_id")
+  2: required string display_name (api.body="display_name")
+  3: required string agent_type (api.body="agent_type")
+  4: optional list<string> permissions (api.body="permissions")
+}
+
+struct ProvisionDeviceAgentResponse {
+  1: required string credential_id
+  2: required string api_key
+  3: required string agent_id
+  4: required list<string> permissions
+  5: required string created_at
+  6: optional string expires_at
+  7: optional string rotated_from_credential_id
+  8: required bool agent_created
+}
+
+struct ListDeviceProvisionsRequest {}
+
+struct DeviceProvisionedAgent {
+  1: required string agent_id
+  2: required string display_name
+  3: required string agent_type
+  4: required string agent_status
+  5: required string credential_id
+  6: required string created_at
+  7: optional string revoked_at
+  8: optional string last_used_at
+}
+
+struct ListDeviceProvisionsResponse {
+  1: required list<DeviceProvisionedAgent> agents
+}
+
+struct ListDevicesRequest {
+  1: optional string status (api.query="status")
+  2: optional i32 limit (api.query="limit")
+  3: optional string cursor (api.query="cursor")
+}
+
+struct DeviceSummary {
+  1: required string credential_id
+  2: required string device_name
+  3: required string created_by_user_id
+  4: required string created_by_membership_id
+  5: required string status
+  6: required i64 provisioned_agent_count
+  7: required string created_at
+  8: optional string revoked_at
+  9: optional string last_used_at
+  10: required list<string> grantable_permissions
+}
+
+struct ListDevicesResponse {
+  1: required list<DeviceSummary> devices
+  2: optional string next_cursor
+}
+
+struct DeviceByIDRequest {
+  1: required string credential_id (api.path="credential_id")
+}
+
+struct DeviceDetailResponse {
+  1: required DeviceSummary device
+  2: required list<DeviceProvisionedAgent> agents
+}
+
+struct DeviceSummaryResponse {
+  1: required DeviceSummary device
 }
 
 struct OperationsSummaryRequest {
@@ -786,6 +874,12 @@ service TeamMemoryService {
   AgentIdentityResponse GetAgentIdentity(1: AgentIdentityRequest request) (api.get="/v1/agent-identity")
   AgentCredentialResponse RotateAgentCredential(1: RotateAgentCredentialRequest request) (api.post="/v1/agent-credentials/rotate")
   RevokeAgentCredentialResponse RevokeAgentCredential(1: RevokeAgentCredentialRequest request) (api.delete="/v1/admin/agent-credentials/:credential_id")
+  DeviceEnrollmentResponse CreateDeviceEnrollment(1: CreateDeviceEnrollmentRequest request) (api.post="/v1/me/device-enrollments")
+  ProvisionDeviceAgentResponse ProvisionDeviceAgent(1: ProvisionDeviceAgentRequest request) (api.post="/v1/device/agent-provisions")
+  ListDeviceProvisionsResponse ListDeviceProvisions(1: ListDeviceProvisionsRequest request) (api.get="/v1/device/agent-provisions")
+  ListDevicesResponse ListAdminDevices(1: ListDevicesRequest request) (api.get="/v1/admin/devices")
+  DeviceDetailResponse GetAdminDevice(1: DeviceByIDRequest request) (api.get="/v1/admin/devices/:credential_id")
+  DeviceSummaryResponse RevokeAdminDevice(1: DeviceByIDRequest request) (api.delete="/v1/admin/devices/:credential_id")
   ObservationReceipt ObserveBatch(1: ObservationBatch request) (api.post="/v1/observations")
   MemorySearchResponse SearchMemory(1: MemorySearchRequest request) (api.post="/v1/memory/search")
   MemoryDocument GetMemory(1: MemoryGetRequest request) (api.post="/v1/memory/get")
