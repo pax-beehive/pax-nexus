@@ -2,7 +2,7 @@
 
 状态：基于 `idl/team_memory.thrift` 和当前 Hertz handler 的已实现契约。
 
-本文面向 Human Portal 前端，覆盖首次安装、OIDC 登录、邀请加入、成员治理、个人 Agent 注册、一次性 Enrollment、Agent Credential 元数据和管理员审计。架构原因与数据模型见 [On-prem Identity and Agent Registry ADR](./decisions/2026-07-21-on-prem-identity-and-agent-registry.md)。Operations 管理页另见 [On-prem Operations 前端接入指南](./on-prem-operations-frontend-integration.md)。
+本文面向 Human Portal 前端，覆盖首次安装、OIDC 登录、邀请加入、成员治理、个人 Agent 注册、一次性 Enrollment、Agent Credential 元数据、Device Enrollment/自助供应和管理员审计。架构原因与数据模型见 [On-prem Identity and Agent Registry ADR](./decisions/2026-07-21-on-prem-identity-and-agent-registry.md) 和 [设备级 Agent 供应 ADR](./decisions/2026-07-24-device-scoped-agent-provisioning.md)（Device 凭证类型、级联吊销和 paxl/paxm 自助接入目标流程的决策背景）。Operations 管理页另见 [On-prem Operations 前端接入指南](./on-prem-operations-frontend-integration.md)。
 
 ## 1. 当前接入边界
 
@@ -26,6 +26,8 @@
 - `Agent Profile`：Human 所有、可编辑的 Agent 身份。`agent_id` 是稳定且不可修改的全局标识。
 - `Enrollment`：把某个 Agent 安全接入客户端的一次性、短期 token。
 - `Credential`：Agent 客户端持有的长期 API key。Portal 只能看到非敏感元数据和执行吊销。
+- `Device Enrollment`：把一整台机器安全接入的一次性、短期 token，只有 Owner/Admin 能创建。与 Agent Enrollment 是同一套 token 格式（`tm_enroll_...`）和同一个交换接口（`POST /v1/agent-enrollments/exchange`），换回来的是 Device Credential 而不是 Agent Credential。
+- `Device Credential`：机器持有的长期凭证。只有单一的 `agent_provision` 权限，不能 observe/search/recall/走 Capsule Channel；用来在这台机器上自助铸发/轮换各个 Agent 自己的 Credential，减少每个 Agent 都要回 Portal 走一次 Enrollment 的次数。Device 与它铸发的 Agent 是从属关系：吊销 Device 会级联吊销它铸发的全部 Agent Credential。
 
 ### 2.2 角色能力
 
@@ -41,6 +43,7 @@
 | 查看全部 Agent | 是 | 是 | 否 |
 | 暂停任意 Agent | 是 | 是 | 否 |
 | 编辑、恢复、retire、转移任意 Agent | 是 | 否 | 否 |
+| 创建/查看/吊销 Device Enrollment 与 Device | 是 | 是 | 否 |
 | Claim 首个 Owner | 仅首次安装 | 否 | 否 |
 
 系统必须始终保留至少一个 active Owner。最后一个 active Owner 不能被降级、暂停或移除。
@@ -65,9 +68,17 @@ retired -> terminal
 
 Invitation：`pending -> accepted | revoked | expired`。
 
-Enrollment：`pending -> consumed | revoked | expired`。
+Enrollment：`pending -> consumed | revoked | expired`。Device Enrollment 是同一个状态机，只是 `kind=device`。
 
-Credential 的响应里没有独立 `status` 字段。前端可按 `revoked_at`、`expires_at` 和当前时间展示 active/expired/revoked，但服务端过滤结果才是权威状态。
+Device：
+
+```text
+active -> revoked
+```
+
+`revoked` 是终态，且吊销会在同一事务里级联吊销该 Device 铸发的全部 Agent Credential。Device 响应里的 `status` 字段（`active`/`revoked`）由 `revoked_at` 是否为空派生，与 Credential 不同，Device 是服务端直接给出的派生字段，前端不需要自己按时间判断。
+
+Credential 的响应里没有独立 `status` 字段。前端可按 `revoked_at`、`expires_at` 和当前时间展示 active/expired/revoked，但服务端过滤结果才是权威状态。Device 铸发的 Agent Credential 与人工 Enrollment 铸发的 Credential 是同一张表、同一套状态语义，只是多一个可选的 `provisioned_by` 归因（见 8.1）。
 
 ## 3. HTTP、Cookie 和请求封装
 
@@ -164,10 +175,13 @@ async function humanFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
 - `DELETE /v1/me/agents/:agent_id`
 - `DELETE /v1/admin/agents/:agent_id`
 - Human/Admin 下的 Enrollment 和 Credential revoke
+- `DELETE /v1/admin/devices/:credential_id`
 
 每次用户动作生成一个 `crypto.randomUUID()`，网络重试复用同一个 key；用户重新发起的新动作使用新 key。同一个 key 对应不同请求意图会返回 `409`。
 
-Invitation 创建和 Enrollment 创建会返回一次性 secret，但目前不支持 Idempotency-Key。发生网络超时时不要自动重试：先刷新列表，确认是否已经产生 pending 记录；由用户选择吊销并重新创建。否则可能生成多个有效 secret，且前端拿不到第一次响应里的明文 token。
+`DELETE /v1/admin/devices/:credential_id` 与 Member/Agent 更新不同：它**不使用** `resource_version`/`If-Match`（Device 没有乐观锁字段），只靠 `Idempotency-Key` 防止网络重试重复触发级联吊销；同一个 `credential_id` + 同一个 key 重放返回同一个已吊销的 `DeviceSummary`。
+
+Invitation 创建和 Enrollment 创建会返回一次性 secret，但目前不支持 Idempotency-Key。发生网络超时时不要自动重试：先刷新列表，确认是否已经产生 pending 记录；由用户选择吊销并重新创建。否则可能生成多个有效 secret，且前端拿不到第一次响应里的明文 token。`POST /v1/me/device-enrollments`（Device Enrollment 创建）适用相同规则。
 
 所有更新 Member/Agent 的请求都使用 `resource_version` 做乐观锁。推荐同时发送 body 和 `If-Match`：
 
@@ -500,6 +514,84 @@ Owner/Admin 可以查看 immutable Audit Event。列表支持：
 
 响应提供 actor/target ID 和时间，不包含可直接展示的人名或扩展 metadata。前端需要用已加载的 Member/Agent 数据做非权威的 label enrichment，并保留原始 ID，避免对象删除后审计记录无法展示。
 
+`actor_kind` 新增 `device` 取值：Device 自助铸发 Agent（`identity.agent.created`、`identity.agent.provisioned`、`identity.credential.issued`）和自助轮换（`identity.credential.revoked`，旧凭证）时，actor 是铸发它的 Device credential_id，不是某个 Human。Device Enrollment 自身的创建（`identity.enrollment.created`）和 Device 吊销（`identity.credential.revoked`，Device 自己）仍然是 `actor_kind=human`，因为这两步只能由 Owner/Admin 在 Portal 触发。
+
+### 5.9 创建 Device Enrollment（推荐的机器级接入）
+
+```text
+Owner/Admin 打开 Devices
+  -> Create Device Enrollment 表单填写 device_name（可选 grantable_permissions、expires_in_seconds）
+  -> POST /v1/me/device-enrollments
+  -> 展示一次性 token、过期倒计时和接入命令
+  -> 拷贝 token 到目标机器执行 paxl device connect（或等价手动 exchange）
+  -> Devices 列表随后出现这台机器
+```
+
+```http
+POST /v1/me/device-enrollments
+X-CSRF-Token: <tm_csrf>
+Content-Type: application/json
+
+{
+  "device_name": "todd-macbook-air",
+  "grantable_permissions": ["observe", "search", "get", "channel_send", "channel_receive"],
+  "expires_in_seconds": 900
+}
+```
+
+- `device_name` 必填，trim 后非空，最大 200 字符，不能含控制字符。
+- `grantable_permissions` 可选；省略时后端默认取部署配置的 `TEAM_MEMORY_MEMBER_GRANTABLE_PERMISSIONS`。显式传入时必须是该配置集合的子集，否则 `422 invalid_input`。这里配置的是**这台 Device 之后能授予它自助铸发的各 Agent 的权限上限**，不是 Device 自身的权限——Device Credential 本身永远只有单一的 `agent_provision` 权限，界面不需要（也不应该）为 Device 本身呈现权限矩阵。
+- `expires_in_seconds` 可选，默认 900 秒（15 分钟，与 Agent Enrollment 相同），不能为负。
+
+成功响应（`201`）：
+
+```json
+{
+  "enrollment_id": "denr_01",
+  "token": "tm_enroll_denr_01.secret",
+  "expires_at": "2026-07-24T18:15:00Z",
+  "device_name": "todd-macbook-air",
+  "grantable_permissions": ["observe", "search", "get", "channel_send", "channel_receive"]
+}
+```
+
+`token` 只在这次响应出现，处理规则与 Agent Enrollment token 完全一样：一次 Copy 按钮、显示倒计时，不写入持久存储、不出现在日志或埋点。用户随后在目标机器上执行：
+
+```text
+paxl device connect onprem --url ... --device-name todd-macbook-air --enrollment-token tm_enroll_denr_01.secret
+```
+
+该命令内部调用的仍是 `POST /v1/agent-enrollments/exchange`（与 Agent Enrollment 同一个交换接口），只是这次换回来的是 Device Credential 而不是 Agent Credential——响应结构完全相同（`credential_id`/`api_key`/`expires_at`），Portal 不需要为 Device 交换单独适配轮询逻辑。之后机器上每个工具都用这份 Device Credential 自助调用 `POST /v1/device/agent-provisions` 铸发自己的 Agent Credential，不再需要 Portal 参与；Portal 只需要在 Devices 详情页把这些自助铸发的 Agent 呈现出来（见 5.10）。
+
+### 5.10 Devices 列表、详情与吊销
+
+```text
+Owner/Admin 打开 Devices
+  -> GET /v1/admin/devices?status=&limit=&cursor=
+  -> 点击某个 Device 进入详情
+  -> GET /v1/admin/devices/:credential_id
+  -> Revoke 前用详情返回的 agents 数组展示级联预览
+  -> DELETE /v1/admin/devices/:credential_id + Idempotency-Key
+  -> 刷新 Devices 列表和该 Device 详情
+```
+
+`DeviceSummary`（见 8.5）已经带 `provisioned_agent_count`（去重后的活跃 Agent 数），列表页可以直接展示这个数字，不需要为了它单独请求详情。
+
+详情响应 `DeviceDetailResponse` 除了 `device` 字段外还带 `agents: DeviceProvisionedAgent[]`（见 8.6）——**这个数组本身就是吊销前的级联预览**，Revoke 确认弹窗直接复用它列出"即将被吊销的 Agent 凭证"，不需要额外接口或额外一次请求。数组包含该 Device 铸发过的全部 Credential 历史行（含它自己轮换掉的 revoked 行），前端应按 `revoked_at` 为空过滤出仍然存活的部分再展示为预览列表；`agent_status` 反映的是 Agent Profile 状态（active/suspended/retired），与该行 Credential 是否 revoked 是两个独立维度。
+
+吊销请求：
+
+```http
+DELETE /v1/admin/devices/dev_01
+Idempotency-Key: <uuid>
+X-CSRF-Token: <tm_csrf>
+```
+
+- 吊销在同一个数据库事务内级联：Device Credential 与它铸发的全部仍活跃 Agent Credential 一起失效；级联发生后，那些 Agent 用旧 key 请求会立即收到 `401`，不是等下一次异步任务才生效的软删除。
+- 与 Member/Agent 更新不同，Device 吊销**不使用** `resource_version`/`If-Match`；只支持 `Idempotency-Key` 防止网络重试重复触发级联（同一个 `credential_id` + 同一个 key 重放返回同一个吊销结果，不会重复吊销或报错）。
+- 响应是吊销后的 `DeviceSummaryResponse`：`status` 变为 `"revoked"`，`provisioned_agent_count` 变为 `0`（级联已在同一事务内完成，这里读到的是吊销后的最新计数，不是吊销前的快照）。
+- `credential_id` 不存在或不是 device 类型：`404 credential_not_found`，与其他资源未找到一致处理。
+
 ## 6. Human Portal API 清单
 
 ### 6.1 Auth 与当前用户
@@ -602,21 +694,41 @@ Admin retire 具有相同的终态、幂等、Credential/pending Enrollment 级�
 
 Invitation、Enrollment 和 Credential revoke 不需要 JSON body；不要为了统一 wrapper 发送虚构字段。
 
+### 6.6 Device Enrollment 与 Devices
+
+| 方法 | 路径 | 角色 | 说明 |
+| --- | --- | --- | --- |
+| POST | `/v1/me/device-enrollments` | Owner/Admin | 创建 Device Enrollment；token 仅返回一次 |
+| GET | `/v1/admin/devices?status=&limit=&cursor=` | Owner/Admin | Device 列表 |
+| GET | `/v1/admin/devices/:credential_id` | Owner/Admin | Device 详情 + 铸发的 Agent 历史（级联预览用） |
+| DELETE | `/v1/admin/devices/:credential_id` | Owner/Admin | 吊销 Device，级联吊销其铸发的全部 Agent Credential；需 `Idempotency-Key` |
+
+`status` filter：`active|revoked`。这四个接口都走 Human Cookie + CSRF（GET 不需要 CSRF，POST/DELETE 需要），鉴权模式与 §6.3/6.4 一致；错误响应使用与本文档其余 Human Portal 接口相同的稳定 JSON envelope（详见 §9），**不是**下一节 Device/Agent Bearer 接口使用的纯文本语义。
+
 ## 7. 非 Portal 接口
 
 以下接口不要用 Human Cookie 调用：
 
 | 方法 | 路径 | 调用方 | 身份 |
 | --- | --- | --- | --- |
-| POST | `/v1/agent-enrollments/exchange` | paxl/Agent 客户端 | 一次性 Enrollment token |
+| POST | `/v1/agent-enrollments/exchange` | paxl/Agent/Device 客户端 | 一次性 Enrollment token（Agent 或 Device 两种 Enrollment 共用同一个接口和响应结构） |
 | GET | `/v1/agent-identity` | Agent 客户端 | Bearer Agent key |
 | POST | `/v1/agent-credentials/rotate` | Agent 客户端 | Bearer Agent key |
 | GET | `/v1/channel/agents` | Agent 客户端 | Bearer key + `channel_send` |
 | GET | `/v1/channel/agents/:agent_id` | Agent 客户端 | Bearer key + `channel_send` |
+| POST | `/v1/device/agent-provisions` | paxl/paxm/第三方自助供应客户端 | Bearer Device key（`agent_provision` 权限） |
+| GET | `/v1/device/agent-provisions` | 同上 | Bearer Device key（`agent_provision` 权限）；返回该 Device 铸发过的全部 Credential 历史行，含已 revoked |
 
 Agent Directory 只返回可路由的 Agent：Agent active、所属 Membership active、所属 User identity 为 active/unclaimed、`directory_visible=true`，且至少有一个 active `channel_receive` Credential。隐藏或不可路由的 exact get 返回 `404`。
 
 `directory_visible` 只是 discovery 控制，不是发送 ACL。Portal 可以编辑这个字段，但不能把 Human Session 当作目录查询凭据。
+
+**这一整节（含新增的两个 Device 供应接口）的错误响应都不是 §9 描述的 JSON envelope，而是纯文本 body**（内容通常就是操作名，例如 `provision device agent`），只能按 HTTP status 区分语义，不存在 `code` 字段可解析。给这些接口写客户端（包括 paxl/paxm 的自助供应逻辑）时不要尝试 `JSON.parse` body 或匹配文案。`POST`/`GET /v1/device/agent-provisions` 的具体状态语义：
+
+- `401`：Bearer key 缺失、格式错误，或校验失败（含用一个已吊销/过期的 Device key 调用）。
+- `403`：Bearer key 是合法的 Agent Credential 而不是 Device Credential，或请求的 `permissions` 超出该 Device 的 `grantable_permissions`。
+- `409`：请求的 `agent_id` 已经被另一个 Device 或人工 Enrollment 铸发/注册占用。同一个 Device 对自己已铸发的 `agent_id` 重复调用不会 409——那会走轮换分支，返回新的 `credential_id`/`api_key` 并把旧 Credential 原子吊销（响应体带 `rotated_from_credential_id`）。
+- `422`：该 Device 的活跃 Agent 数已达到 `TEAM_MEMORY_DEVICE_AGENT_LIMIT`（默认 16，部署可配置 1-1000）上限，或请求体字段校验失败（如缺少必填的 `agent_type`）。
 
 ## 8. 响应模型
 
@@ -637,10 +749,13 @@ List response 的顶层集合字段分别为 `members`、`invitations`、`agents
     "updated_at": "2026-07-21T18:00:00Z",
     "resource_version": 1,
     "owner_membership_id": "mbr_01",
-    "owner_user_id": "usr_01"
+    "owner_user_id": "usr_01",
+    "provisioned_by": "dev_01"
   }
 }
 ```
+
+`provisioned_by` 是新增的可选字段：只有当这个 Agent 是由某个 Device 通过 `POST /v1/device/agent-provisions` 自助注册时才出现，值是铸发它的 Device 的 `credential_id`。人工通过 My Agents/Admin Agents 创建的 Agent **没有这个字段**（不是空字符串或 `null`，是整个字段缺失）。Agent 列表/详情的"人工注册"vs"设备自描述注册"徽标应按字段是否存在判断（`"provisioned_by" in agent`），不要按空字符串判断。Directory 用的 `DirectoryAgent`（Capsule Channel 用）没有这个字段，不受影响。
 
 ### 8.2 Enrollment metadata
 
@@ -673,7 +788,88 @@ List response 的顶层集合字段分别为 `members`、`invitations`、`agents
 
 这些 metadata 响应不会包含 API key。
 
+### 8.4 Device Enrollment 创建响应
+
+`POST /v1/me/device-enrollments` 直接返回（不带包裹字段），与 Invitation/Enrollment create 一致：
+
+```json
+{
+  "enrollment_id": "denr_01",
+  "token": "tm_enroll_denr_01.secret",
+  "expires_at": "2026-07-24T18:15:00Z",
+  "device_name": "todd-macbook-air",
+  "grantable_permissions": ["observe", "search", "get", "channel_send", "channel_receive"]
+}
+```
+
+`grantable_permissions` 是这次创建**实际生效**的授权上限集合：显式传入时原样返回校验后的值，省略时返回后端解析出的部署默认值（`TEAM_MEMORY_MEMBER_GRANTABLE_PERMISSIONS`）——前端不需要、也不应该自己重新计算这个默认值，直接展示响应里的这份列表。
+
+### 8.5 DeviceSummary
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `credential_id` | string | Device Credential ID |
+| `device_name` | string | 创建时填写的机器名 |
+| `created_by_user_id` | string | 创建该 Device Enrollment 的 Owner/Admin 的 `user_id` |
+| `created_by_membership_id` | string | 同上，membership 维度 |
+| `status` | string | `active` \| `revoked`，由 `revoked_at` 派生 |
+| `provisioned_agent_count` | i64 | 当前仍活跃、去重后的 Agent 数（不含已 revoked 的历史） |
+| `created_at` | string (RFC 3339) | — |
+| `revoked_at` | string (RFC 3339, 可选) | 未吊销时不出现 |
+| `last_used_at` | string (RFC 3339, 可选) | 该 Device Credential 最近一次被用于调用供应接口的时间；从未使用过时不出现 |
+| `grantable_permissions` | string[] | 创建时生效的授权上限集合（同 8.4） |
+
+`GET /v1/admin/devices` 返回 `{ "devices": DeviceSummary[], "next_cursor"?: string }`；`DELETE /v1/admin/devices/:credential_id` 返回 `{ "device": DeviceSummary }`。列表分页规则与 §3.4 一致（`limit` 默认 50、1-100，`next_cursor` 原样透传）。
+
+### 8.6 DeviceProvisionedAgent 与 Device 详情
+
+```json
+{
+  "device": {
+    "credential_id": "dev_01",
+    "device_name": "todd-macbook-air",
+    "created_by_user_id": "usr_01",
+    "created_by_membership_id": "mbr_01",
+    "status": "active",
+    "provisioned_agent_count": 2,
+    "created_at": "2026-07-24T18:00:00Z",
+    "last_used_at": "2026-07-24T18:05:00Z",
+    "grantable_permissions": ["observe", "search", "get", "channel_send", "channel_receive"]
+  },
+  "agents": [
+    {
+      "agent_id": "personal-codex",
+      "display_name": "personal-codex",
+      "agent_type": "codex",
+      "agent_status": "active",
+      "credential_id": "cred_02",
+      "created_at": "2026-07-24T18:05:00Z",
+      "last_used_at": "2026-07-24T18:06:00Z"
+    }
+  ]
+}
+```
+
+`GET /v1/admin/devices/:credential_id` 返回上面这个 `DeviceDetailResponse` 形状（`device` + `agents`）。`agents` 里的每一行是 `DeviceProvisionedAgent`：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `agent_id` | string | — |
+| `display_name` | string | 供应请求里的 `display_name`（自描述创建），不是 Portal 编辑后的值——Device 自助注册的 Agent 也可以之后被 Owner 在 Admin Agents 里正常编辑资料 |
+| `agent_type` | string | 如 `codex`/`claude`/`pi` |
+| `agent_status` | string | Agent Profile 状态：`active` \| `suspended` \| `retired` |
+| `credential_id` | string | 这一行对应的 Credential ID（历史行会有多条，同一 `agent_id` 出现多次） |
+| `created_at` | string (RFC 3339) | 该 Credential 的创建时间 |
+| `revoked_at` | string (RFC 3339, 可选) | 未吊销时不出现 |
+| `last_used_at` | string (RFC 3339, 可选) | 从未使用过时不出现 |
+
+数组按 `agent_id` 分组、同一 `agent_id` 内按 `created_at` 降序排列，包含历史上已被轮换掉的 revoked 行，因此**不能**假设一个 `agent_id` 只出现一次。级联预览（5.10）应先按 `revoked_at` 为空过滤，再按 `agent_id` 去重取最新一行展示。
+
+`GET /v1/device/agent-provisions`（Device Bearer key 自己查询，不是 Portal 接口，见 §7）返回同样的 `agents: DeviceProvisionedAgent[]`，但顶层没有 `device` 包裹字段。
+
 ## 9. HTTP 状态与 UI 行为
+
+本节的 JSON envelope 与 code 只适用于 Human Portal（Cookie + CSRF）接口，包括本文新增的 §6.6 Device Enrollment/Devices 四个接口。§7 的 Device/Agent Bearer 接口（含 `POST`/`GET /v1/device/agent-provisions`）是纯文本 body，只按 HTTP status 区分，不要在这些接口上套用下表的 code 解析逻辑，具体状态语义见 §7 末尾。
 
 | Status | 常见 code | 推荐 UI 行为 |
 | --- | --- | --- |
@@ -725,6 +921,11 @@ status + diagnostic fallback，此时采用对应 status 的保守行为。
 12. hidden、无 `channel_receive` key、inactive owner 或 inactive Agent 不出现在 Agent Directory；Human Cookie 不能调用 Directory。
 13. cursor 分页中途切换 filter 时从第一页重新加载，不混合旧结果。
 14. 本地 HTTP 环境 Cookie Secure 配置错误时，给出运维提示，而不是无限登录循环。
+15. 创建 Device Enrollment 后 Device Enrollment token 与 Agent Enrollment token 一样只显示一次；创建请求超时不自动重试，从 Devices 列表判断是否已产生。
+16. Device 详情页展示的级联预览（`agents` 数组）与吊销后 Devices 列表/详情的实际结果一致：吊销后 `provisioned_agent_count` 变为 `0`，预览里列出的 Agent 的 Credential 立即失效（对应 Agent 拿旧 key 请求收到 `401`）。
+17. Device 吊销复用同一个 `Idempotency-Key` 重放，返回同一个已吊销结果，不重复触发级联，也不报错；这一路径**不需要**、也不应该发送 `resource_version`/`If-Match`。
+18. Agent 列表/详情按 `provisioned_by` 字段是否存在（而不是真值）区分人工注册与设备自描述注册徽标。
+19. 调用 `POST`/`GET /v1/device/agent-provisions` 出错时按 HTTP status（而非 body JSON）分支处理，`409` 与 `422` 不会被误当成 §9 的 JSON code 解析。
 
 ## 11. 前端交付检查单
 
@@ -740,3 +941,6 @@ status + diagnostic fallback，此时采用对应 status 的保守行为。
 - 所有 list 接口原样透传 cursor，并在 filter 变化时重置分页。
 - suspended/removed/retired 等终态和 Credential revocation 在 UI 上不可误解为可恢复。
 - 测试环境覆盖 Secure Cookie、OIDC callback、邀请 continuation 和一次性 token 擦除。
+- Device 吊销确认弹窗直接复用详情接口的 `agents` 数组做级联预览，不额外发请求；确认后不发送 `resource_version`/`If-Match`，只发送 `Idempotency-Key`。
+- Device/Agent Bearer 接口（§7，含两个 Device 供应接口）的错误处理只依赖 HTTP status，不解析 body 为 JSON code。
+- Agent 卡片/详情的“人工注册”/“设备自描述注册”徽标读取 `provisioned_by` 字段是否存在，不误判缺失字段为空字符串。

@@ -155,6 +155,9 @@ TEAM_MEMORY_OIDC_FLOW_SECRET=<independent-high-entropy-secret>
 TEAM_MEMORY_PORTAL_URL=https://memory.example.internal/
 TEAM_MEMORY_HUMAN_COOKIE_SECURE=true
 TEAM_MEMORY_MEMBER_GRANTABLE_PERMISSIONS=observe,search,get,channel_send,channel_receive
+# Maximum number of distinct agents a single Device credential may keep
+# actively provisioned at once. Default 16; valid range 1-1000.
+TEAM_MEMORY_DEVICE_AGENT_LIMIT=16
 
 TEAM_MEMORY_EXTRACTOR_MODE=openai
 TEAM_MEMORY_EXTRACTOR_BASE_URL=https://api.deepseek.com
@@ -327,6 +330,96 @@ service prevents removal of the final active Owner, but it cannot recover an
 installation when the only Owner permanently loses access to the OIDC identity.
 
 ## 7. Register and enroll Agent clients
+
+Two onboarding paths exist. **Device Enrollment (§7.1) is the recommended
+default**: it costs one Portal round trip and one token copy per machine, no
+matter how many Agent CLIs (codex, claude, pi, ...) run there. Per-agent
+Enrollment (§7.2) remains fully supported as the documented alternative — it
+is unchanged and still required for cases outside the device model (a shared
+service account, an Agent whose credential must not live next to sibling
+Agent credentials on the same machine, etc.). The two paths produce
+indistinguishable Agent credentials; only the Agent Profile's
+`provisioned_by` field records which path created a given Agent.
+
+### 7.1 Primary flow: one Device Enrollment per machine
+
+1. An active Owner or Admin creates a **Device Enrollment** in the Portal,
+   naming the machine (e.g. `todd-macbook-air`). This is
+   `POST /v1/me/device-enrollments` (Human Session + CSRF): request
+   `device_name` (required), optional `grantable_permissions` (defaults to
+   the deployment's `TEAM_MEMORY_MEMBER_GRANTABLE_PERMISSIONS` when omitted —
+   this is the permission ceiling every Agent the device later provisions
+   must fit inside, not the Device's own permissions), optional
+   `expires_in_seconds` (defaults to 900, i.e. 15 minutes, same as a
+   per-agent Enrollment). The Device credential itself only ever carries the
+   single `agent_provision` permission — it cannot observe, search, recall,
+   or use the Capsule Channel; it can only mint Agent credentials.
+2. Copy the one-time `tm_enroll_...` Device Enrollment token to the target
+   workstation. It is shown once, exactly like a per-agent Enrollment token.
+3. Before relying on it, verify the installed paxl build actually implements
+   the Device surface, the same way section 8 verifies the Capsule Channel
+   surface:
+
+   ```sh
+   paxl version
+   paxl device connect --help
+   ```
+
+   STOP and fall back to §7.2 (per-agent Enrollment, exchanged manually with
+   `POST /v1/agent-enrollments/exchange`) if `device connect` is not a
+   recognized paxl command; the HTTP contract behind Device Enrollment
+   (`POST /v1/me/device-enrollments`, `POST /v1/device/agent-provisions`) is
+   implemented server-side regardless of paxl's CLI coverage, so a
+   third-party or hand-rolled client can still use it (see step 6).
+4. On a build that implements the accepted CLI contract, run:
+
+   ```sh
+   paxl device connect onprem \
+     --url https://memory.example.internal \
+     --device-name todd-macbook-air \
+     --enrollment-token tm_enroll_...
+   ```
+
+   `paxl device connect` performs the single exchange
+   (`POST /v1/agent-enrollments/exchange`) and stores the resulting Device
+   credential locally (0600-permission sqlite credential store), as the
+   machine's one long-lived secret. Do not exchange a Device Enrollment token
+   by hand outside this command.
+5. Each tool on that machine then self-provisions its own Agent credential
+   from the local Device credential, without any further Portal visit:
+
+   ```sh
+   paxl channel connect onprem --agent personal-codex
+   paxm setup --integration team-memory
+   ```
+
+   Each command calls `POST /v1/device/agent-provisions` with the Device
+   credential as a Bearer key and caches the returned `tm_key_...` for its
+   own tool. Re-running self-provisioning for the same `agent_id` from the
+   same Device rotates that Agent's credential (the old key is revoked
+   atomically); attempting to claim an `agent_id` already provisioned by a
+   different Device or registered by a Human returns `409`.
+6. Third-party (non-paxl/paxm) clients follow the same two steps by hand:
+   exchange the Device Enrollment token once via
+   `POST /v1/agent-enrollments/exchange` to obtain the Device credential,
+   then call `POST /v1/device/agent-provisions` with that credential as a
+   Bearer key and `agent_id`/`display_name`/`agent_type` (and optional
+   `permissions`, which must be a subset of the Device's
+   `grantable_permissions`) to obtain the Agent's `tm_key_...`.
+
+A Device's active-agent count is capped by `TEAM_MEMORY_DEVICE_AGENT_LIMIT`
+(default 16, configurable 1-1000; see §2). Exceeding it returns `422`.
+
+An Owner or Admin can review and revoke Devices from the Portal (`GET`/`DELETE
+/v1/admin/devices`, `GET /v1/admin/devices/:credential_id`). Revoking a Device
+cascades in the same transaction: every Agent credential that Device
+provisioned is revoked immediately, and those Agents lose access at once (a
+`GET /v1/agent-identity` call with a cascaded Agent key returns `401` right
+after the revoke). Losing a Device credential (lost workstation, compromised
+key) is recovered the same way: revoke the Device from the Portal and run
+`paxl device connect onprem` again with a fresh Device Enrollment.
+
+### 7.2 Alternative flow: per-agent Enrollment
 
 For each Agent:
 
