@@ -270,6 +270,15 @@ func (s *CredentialStore) ResolveCredential(
 	return record, nil
 }
 
+// RotateCredential expires the current credential (currentID) and inserts
+// replacement as its successor. Device credentials are revoke-and-rebuild,
+// not rotatable (docs/decisions/2026-07-24-device-scoped-agent-provisioning.md):
+// if currentID names a device-kind credential, rotation is rejected with
+// onprem.ErrForbidden and the transaction rolls back untouched. Otherwise the
+// replacement inherits provisioned_by from the row it rotates away (not from
+// replacement.ProvisionedBy, which callers such as CredentialService never
+// populate) so a device-provisioned agent credential remains reachable by the
+// device's cascade revocation across rotations.
 func (s *CredentialStore) RotateCredential(
 	ctx context.Context,
 	currentID string,
@@ -285,19 +294,24 @@ func (s *CredentialStore) RotateCredential(
 			returnedErr = errors.Join(returnedErr, fmt.Errorf("rollback credential rotation: %w", rollbackErr))
 		}
 	}()
-	command, err := tx.Exec(ctx, `
+	var kind, provisionedBy string
+	err = tx.QueryRow(ctx, `
 		UPDATE agent_credentials
 		SET expires_at = CASE
 			WHEN expires_at IS NULL OR expires_at > $2 THEN $2
 			ELSE expires_at
 		END
 		WHERE credential_id = $1 AND revoked_at IS NULL
-	`, currentID, overlapUntil)
+		RETURNING kind, COALESCE(provisioned_by, '')
+	`, currentID, overlapUntil).Scan(&kind, &provisionedBy)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return onprem.ErrUnauthorized
+	}
 	if err != nil {
 		return fmt.Errorf("expire rotated agent credential: %w", err)
 	}
-	if command.RowsAffected() != 1 {
-		return onprem.ErrUnauthorized
+	if kind == string(onprem.CredentialKindDevice) {
+		return onprem.ErrForbidden
 	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO agent_credentials (
@@ -309,7 +323,7 @@ func (s *CredentialStore) RotateCredential(
 		replacement.AgentID, replacement.Label, permissionStrings(replacement.Permissions),
 		replacement.CreatedAt, replacement.ExpiresAt, nullableText(replacement.RotatedFromCredentialID),
 		replacement.DigestKeyVersion, credentialKindOrDefault(replacement.Kind),
-		nullableText(replacement.ProvisionedBy), permissionStrings(replacement.GrantablePermissions)); err != nil {
+		nullableText(provisionedBy), permissionStrings(replacement.GrantablePermissions)); err != nil {
 		return fmt.Errorf("save rotated agent credential: %w", err)
 	}
 	if err := insertAuditEvent(ctx, tx, "agent", replacement.UserID, replacement.MembershipID,

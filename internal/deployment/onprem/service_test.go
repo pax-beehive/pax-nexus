@@ -89,6 +89,22 @@ func (s *serviceSuite) TestEnrollmentExchangeAuthenticationRotationAndRevocation
 	s.Require().ErrorIs(err, onprem.ErrUnauthorized)
 }
 
+// TestRotateCredentialRejectsDeviceKindPrincipal is a fast unit-level guard
+// on CredentialService.RotateCredential: device credentials are
+// revoke-and-rebuild, not rotatable
+// (docs/decisions/2026-07-24-device-scoped-agent-provisioning.md), so a
+// device-kind principal must be rejected with ErrForbidden before the store
+// is ever touched.
+func (s *serviceSuite) TestRotateCredentialRejectsDeviceKindPrincipal() {
+	ctx := context.Background()
+	device := onprem.Principal{
+		UserID: "owner", ScopeID: onprem.LocalScopeID, CredentialID: "device-credential-id",
+		Kind: onprem.CredentialKindDevice,
+	}
+	_, err := s.service.RotateCredential(ctx, device)
+	s.Require().ErrorIs(err, onprem.ErrForbidden)
+}
+
 func (s *serviceSuite) TestEnrollmentExchangeTokenCompatibility() {
 	tests := []struct {
 		name  string

@@ -226,6 +226,14 @@ func (s *CredentialService) RotateCredential(ctx context.Context, principal Prin
 	if principal.CredentialID == "" || principal.ScopeID != LocalScopeID {
 		return IssuedCredential{}, ErrUnauthorized
 	}
+	// Device credentials are revoke-and-rebuild, not rotatable: a device
+	// holder that wants a new key must revoke and re-enroll the device
+	// (docs/decisions/2026-07-24-device-scoped-agent-provisioning.md). This
+	// guard rejects device rotation before any store write; the store also
+	// enforces this as defense in depth.
+	if principal.Kind == CredentialKindDevice {
+		return IssuedCredential{}, ErrForbidden
+	}
 	id, apiKey, replacement, err := s.newCredential(CredentialRecord{
 		UserID: principal.UserID, MembershipID: principal.MembershipID, AgentID: principal.AgentID,
 		Label: principal.CredentialLabel, Permissions: append([]Permission(nil), principal.Permissions...),

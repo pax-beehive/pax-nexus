@@ -198,11 +198,15 @@ func (s *deviceProvisioningStoreSuite) TestDeviceEnrollmentCreateExchangeAuthent
 	s.Equal(agentID, agentPrincipal.AgentID)
 }
 
-// TestDeviceCredentialRotationPreservesKindAndGrantablePermissions exercises
-// device credential rotation to verify that Kind and GrantablePermissions
-// are preserved from the original principal through the rotation process,
-// and that the rotated credential authenticates successfully.
-func (s *deviceProvisioningStoreSuite) TestDeviceCredentialRotationPreservesKindAndGrantablePermissions() {
+// TestDeviceCredentialRotationIsRejected exercises the ADR's revoke-and-rebuild
+// posture for device credentials: CredentialService.RotateCredential must
+// reject a device principal with ErrForbidden, and the service guard must
+// fire before any store write, so the original device credential is left
+// completely untouched (still authenticates, nothing expired). Device
+// credentials are not rotatable -- a device holder that wants a new key must
+// revoke and re-enroll the device
+// (docs/decisions/2026-07-24-device-scoped-agent-provisioning.md).
+func (s *deviceProvisioningStoreSuite) TestDeviceCredentialRotationIsRejected() {
 	ctx := context.Background()
 	now := time.Now().UTC()
 	registryService, err := onprem.NewRegistryService(s.store.Registry(), onprem.RegistryConfig{
@@ -225,41 +229,133 @@ func (s *deviceProvisioningStoreSuite) TestDeviceCredentialRotationPreservesKind
 
 	// Create device enrollment and exchange for credential.
 	enrollment, _, err := registryService.CreateDeviceEnrollment(ctx, owner, onprem.DeviceEnrollmentRequest{
-		DeviceName: uniqueCredentialValue("device-rotation-test"),
+		DeviceName: uniqueCredentialValue("device-rotation-rejected"),
 	})
 	s.Require().NoError(err)
 
 	issued, err := credentialService.ExchangeEnrollment(ctx, enrollment.Token)
 	s.Require().NoError(err)
 
-	// Authenticate to get the original principal.
-	originalPrincipal, err := credentialService.Authenticate(ctx, issued.APIKey)
+	device, err := credentialService.Authenticate(ctx, issued.APIKey)
 	s.Require().NoError(err)
-	s.Equal(onprem.CredentialKindDevice, originalPrincipal.Kind)
-	s.True(originalPrincipal.HasPermission(onprem.PermissionAgentProvision))
-	s.Equal(
-		[]onprem.Permission{onprem.PermissionObserve, onprem.PermissionSearch, onprem.PermissionGet},
-		originalPrincipal.GrantablePermissions,
+	s.Equal(onprem.CredentialKindDevice, device.Kind)
+
+	_, err = credentialService.RotateCredential(ctx, device)
+	s.Require().ErrorIs(err, onprem.ErrForbidden, "device credentials are revoke-and-rebuild, not rotatable")
+
+	// The service guard must fire before any store write: the original
+	// device key still authenticates unchanged.
+	stillDevice, err := credentialService.Authenticate(ctx, issued.APIKey)
+	s.Require().NoError(err, "rejected rotation must not expire the original device credential")
+	s.Equal(device.CredentialID, stillDevice.CredentialID)
+}
+
+// TestStoreRotateCredentialRejectsDeviceKindAndRollsBack exercises the
+// data-layer defense in depth directly against
+// CredentialStore.RotateCredential: even if a caller bypassed the service
+// guard, rotating a device-kind credential must fail with ErrForbidden and
+// the transaction must roll back without expiring the original device row or
+// inserting a replacement.
+func (s *deviceProvisioningStoreSuite) TestStoreRotateCredentialRejectsDeviceKindAndRollsBack() {
+	ctx := context.Background()
+	now := time.Now().UTC()
+	registryService, err := onprem.NewRegistryService(s.store.Registry(), onprem.RegistryConfig{
+		SecretPepper: "0123456789abcdef0123456789abcdef",
+		MemberGrantablePermissions: []onprem.Permission{
+			onprem.PermissionObserve, onprem.PermissionSearch, onprem.PermissionGet,
+		},
+	}, onprem.WithRegistryClock(func() time.Time { return now }))
+	s.Require().NoError(err)
+	credentialService, err := onprem.NewCredentialService(s.store.Credentials(), onprem.CredentialConfig{
+		RotationOverlap: time.Minute,
+		SecretPepper:    "0123456789abcdef0123456789abcdef",
+	}, onprem.WithClock(func() time.Time { return now }))
+	s.Require().NoError(err)
+
+	owner := onprem.HumanPrincipal{
+		UserID: s.userID, MembershipID: s.membershipID, Role: onprem.RoleOwner,
+		MembershipStatus: onprem.MembershipStatusActive,
+	}
+
+	enrollment, _, err := registryService.CreateDeviceEnrollment(ctx, owner, onprem.DeviceEnrollmentRequest{
+		DeviceName: uniqueCredentialValue("device-store-rotation-rejected"),
+	})
+	s.Require().NoError(err)
+	issued, err := credentialService.ExchangeEnrollment(ctx, enrollment.Token)
+	s.Require().NoError(err)
+	device, err := credentialService.Authenticate(ctx, issued.APIKey)
+	s.Require().NoError(err)
+
+	replacement := onprem.CredentialRecord{
+		ID:           uniqueCredentialValue("device-rotation-replacement"),
+		KeyDigest:    credentialDigest(uniqueCredentialValue("device-rotation-replacement-key")),
+		UserID:       device.UserID,
+		MembershipID: device.MembershipID,
+		CreatedAt:    now,
+		Kind:         onprem.CredentialKindDevice,
+	}
+	err = s.store.Credentials().RotateCredential(ctx, device.CredentialID, replacement, now.Add(time.Minute))
+	s.Require().ErrorIs(err, onprem.ErrForbidden)
+
+	// Rollback must have left the original device credential's expires_at
+	// untouched (still NULL, not shortened by the aborted expiry UPDATE).
+	var expiresAt *time.Time
+	err = s.store.Pool().QueryRow(ctx, `
+		SELECT expires_at FROM agent_credentials WHERE credential_id = $1
+	`, device.CredentialID).Scan(&expiresAt)
+	s.Require().NoError(err)
+	s.Nil(expiresAt, "the rejected rotation must roll back and leave the device credential's expiry untouched")
+
+	// The replacement row must never have been inserted.
+	var replacementCount int
+	err = s.store.Pool().QueryRow(ctx, `
+		SELECT count(*) FROM agent_credentials WHERE credential_id = $1
+	`, replacement.ID).Scan(&replacementCount)
+	s.Require().NoError(err)
+	s.Equal(0, replacementCount, "the rejected rotation must not insert a replacement credential")
+}
+
+// TestRotatedProvisionedAgentCredentialCascadesOnDeviceRevocation is the
+// escape-hole lock for the Critical pre-merge finding: a device-provisioned
+// agent credential that its holder rotates through
+// CredentialService.RotateCredential must inherit provisioned_by from the
+// credential it rotates away, so the ADR's device cascade-revocation
+// guarantee still reaches it after rotation. Before the fix, the rotated
+// replacement's provisioned_by was NULL and it escaped cascade revocation
+// entirely.
+func (s *deviceProvisioningStoreSuite) TestRotatedProvisionedAgentCredentialCascadesOnDeviceRevocation() {
+	ctx := context.Background()
+	services := s.newProvisioningServices(16)
+	device := s.enrollDevice(services)
+	agentID := uniqueCredentialValue("rotate-escape-agent")
+
+	provisioned, err := services.credential.ProvisionDeviceAgent(ctx, device, onprem.DeviceProvisionRequest{
+		AgentID: agentID, DisplayName: "Rotate Escape Agent", AgentType: "codex",
+	})
+	s.Require().NoError(err)
+
+	agentPrincipal, err := services.credential.Authenticate(ctx, provisioned.APIKey)
+	s.Require().NoError(err)
+	s.Equal(onprem.CredentialKindAgent, agentPrincipal.Kind)
+
+	rotated, err := services.credential.RotateCredential(ctx, agentPrincipal)
+	s.Require().NoError(err)
+
+	rotatedPrincipal, err := services.credential.Authenticate(ctx, rotated.APIKey)
+	s.Require().NoError(err, "the rotated agent key must authenticate before device revocation")
+	s.Equal(agentID, rotatedPrincipal.AgentID)
+
+	_, err = s.store.Registry().RevokeDevice(
+		ctx, services.owner, device.CredentialID, "escape-hole-revoke", *services.now,
 	)
-
-	// Rotate the credential.
-	rotated, err := credentialService.RotateCredential(ctx, originalPrincipal)
-	s.Require().NoError(err)
-	s.NotEmpty(rotated.APIKey)
-
-	// Authenticate with the new rotated credential.
-	rotatedPrincipal, err := credentialService.Authenticate(ctx, rotated.APIKey)
 	s.Require().NoError(err)
 
-	// Verify that Kind and GrantablePermissions are preserved.
-	s.Equal(onprem.CredentialKindDevice, rotatedPrincipal.Kind, "Kind should be preserved as device")
-	s.True(rotatedPrincipal.HasPermission(onprem.PermissionAgentProvision), "Permissions should be preserved")
-	s.Equal(
-		[]onprem.Permission{onprem.PermissionObserve, onprem.PermissionSearch, onprem.PermissionGet},
-		rotatedPrincipal.GrantablePermissions,
-		"GrantablePermissions should be preserved",
-	)
-	s.Empty(rotatedPrincipal.AgentID, "Device credentials should have empty AgentID")
+	_, err = services.credential.Authenticate(ctx, provisioned.APIKey)
+	s.Require().ErrorIs(err, onprem.ErrUnauthorized, "the pre-rotation key must be revoked by the device cascade")
+
+	_, err = services.credential.Authenticate(ctx, rotated.APIKey)
+	s.Require().ErrorIs(err, onprem.ErrUnauthorized,
+		"the rotated-new key must inherit provisioned_by and be revoked by the device cascade too")
 }
 
 // deviceProvisioningServices bundles the registry and credential services a
