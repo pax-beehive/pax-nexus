@@ -63,25 +63,62 @@ for slug in deepseek-v4-flash gemini-3.5-flash-lite gemini-3.6-flash; do
     fail "fragment missing: $fragment"
     continue
   fi
-  actual=$(sh -c ". ./$fragment; printf '%s|%s|%s' \
-    \"\$SWEEP_EXTRACTOR_MODEL\" \"\$SWEEP_EXTRACTOR_BASE_URL\" \"\$SWEEP_EXTRACTOR_KEY_ENV\"")
-  case "$actual" in
-    *"|"*"|"*) ;;
-    *) fail "fragment $slug did not define all three fields: $actual" ;;
-  esac
-  expect_contains "fragment $slug names its model" "$actual" "$slug"
+
+  # Extract each field individually to validate non-empty
+  model=$(sh -c ". ./$fragment; printf '%s' \"\$SWEEP_EXTRACTOR_MODEL\"")
+  url=$(sh -c ". ./$fragment; printf '%s' \"\$SWEEP_EXTRACTOR_BASE_URL\"")
+  key_env=$(sh -c ". ./$fragment; printf '%s' \"\$SWEEP_EXTRACTOR_KEY_ENV\"")
+
+  # Validate each field is non-empty
+  if [ -z "$model" ]; then
+    fail "fragment $slug has empty SWEEP_EXTRACTOR_MODEL"
+  fi
+  if [ -z "$url" ]; then
+    fail "fragment $slug has empty SWEEP_EXTRACTOR_BASE_URL"
+  fi
+  if [ -z "$key_env" ]; then
+    fail "fragment $slug has empty SWEEP_EXTRACTOR_KEY_ENV"
+  fi
+
+  # Validate SWEEP_EXTRACTOR_KEY_ENV is a valid shell variable name (not a pasted credential)
+  if ! printf '%s' "$key_env" | grep -qE '^[A-Z][A-Z0-9_]*$'; then
+    fail "fragment $slug SWEEP_EXTRACTOR_KEY_ENV is not a valid variable name: $key_env"
+  fi
+
+  # Check for forbidden config variable names
   if grep -qE '^(TEAM_MEMORY|OPENCODE|MEM0)_' "$fragment"; then
     fail "fragment $slug sets a real configuration variable"
   fi
-  if grep -qiE '(api_key|apikey)[[:space:]]*=[[:space:]]*[A-Za-z0-9._-]{12,}' "$fragment"; then
-    fail "fragment $slug appears to contain a credential"
-  fi
 done
 
-expect_eq "deepseek fragment key env" \
+# Specific assertions for each model
+expect_eq "deepseek model" \
+  "$(sh -c '. ./evals/v3/sweep/extractor-deepseek-v4-flash.env; printf "%s" "$SWEEP_EXTRACTOR_MODEL"')" \
+  "deepseek-v4-flash"
+expect_eq "deepseek base URL" \
+  "$(sh -c '. ./evals/v3/sweep/extractor-deepseek-v4-flash.env; printf "%s" "$SWEEP_EXTRACTOR_BASE_URL"')" \
+  "https://api.deepseek.com"
+expect_eq "deepseek key env" \
   "$(sh -c '. ./evals/v3/sweep/extractor-deepseek-v4-flash.env; printf "%s" "$SWEEP_EXTRACTOR_KEY_ENV"')" \
   "DEEPSEEK_API_KEY"
-expect_eq "gemini fragment key env" \
+
+expect_eq "gemini 3.5 model" \
+  "$(sh -c '. ./evals/v3/sweep/extractor-gemini-3.5-flash-lite.env; printf "%s" "$SWEEP_EXTRACTOR_MODEL"')" \
+  "gemini-3.5-flash-lite"
+expect_eq "gemini 3.5 base URL" \
+  "$(sh -c '. ./evals/v3/sweep/extractor-gemini-3.5-flash-lite.env; printf "%s" "$SWEEP_EXTRACTOR_BASE_URL"')" \
+  "https://generativelanguage.googleapis.com/v1beta/openai/"
+expect_eq "gemini 3.5 key env" \
+  "$(sh -c '. ./evals/v3/sweep/extractor-gemini-3.5-flash-lite.env; printf "%s" "$SWEEP_EXTRACTOR_KEY_ENV"')" \
+  "GEMINI_API_KEY"
+
+expect_eq "gemini 3.6 model" \
+  "$(sh -c '. ./evals/v3/sweep/extractor-gemini-3.6-flash.env; printf "%s" "$SWEEP_EXTRACTOR_MODEL"')" \
+  "gemini-3.6-flash"
+expect_eq "gemini 3.6 base URL" \
+  "$(sh -c '. ./evals/v3/sweep/extractor-gemini-3.6-flash.env; printf "%s" "$SWEEP_EXTRACTOR_BASE_URL"')" \
+  "https://generativelanguage.googleapis.com/v1beta/openai/"
+expect_eq "gemini 3.6 key env" \
   "$(sh -c '. ./evals/v3/sweep/extractor-gemini-3.6-flash.env; printf "%s" "$SWEEP_EXTRACTOR_KEY_ENV"')" \
   "GEMINI_API_KEY"
 
