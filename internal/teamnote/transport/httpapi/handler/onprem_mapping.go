@@ -36,6 +36,38 @@ func credentialToAPI(credential onprem.IssuedCredential) *api.AgentCredentialRes
 	return result
 }
 
+func deviceProvisionRequestToDomain(request *api.ProvisionDeviceAgentRequest) onprem.DeviceProvisionRequest {
+	permissions := make([]onprem.Permission, len(request.Permissions))
+	for index, permission := range request.Permissions {
+		permissions[index] = onprem.Permission(permission)
+	}
+	return onprem.DeviceProvisionRequest{
+		AgentID: request.AgentID, DisplayName: request.DisplayName,
+		AgentType: request.AgentType, Permissions: permissions,
+	}
+}
+
+func provisionedAgentCredentialToAPI(credential onprem.ProvisionedAgentCredential) *api.ProvisionDeviceAgentResponse {
+	permissions := make([]string, len(credential.Permissions))
+	for index, permission := range credential.Permissions {
+		permissions[index] = string(permission)
+	}
+	result := &api.ProvisionDeviceAgentResponse{
+		CredentialID: credential.CredentialID, APIKey: credential.APIKey, AgentID: credential.AgentID,
+		Permissions: permissions, CreatedAt: credential.CreatedAt.Format(time.RFC3339Nano),
+		AgentCreated: credential.AgentCreated,
+	}
+	if credential.ExpiresAt != nil {
+		value := credential.ExpiresAt.Format(time.RFC3339Nano)
+		result.ExpiresAt = &value
+	}
+	if credential.RotatedFromCredentialID != "" {
+		value := credential.RotatedFromCredentialID
+		result.RotatedFromCredentialID = &value
+	}
+	return result
+}
+
 func principalToAPI(principal onprem.Principal) *api.AgentIdentityResponse {
 	permissions := make([]string, len(principal.Permissions))
 	for index, permission := range principal.Permissions {

@@ -138,6 +138,13 @@ type CredentialRecord struct {
 	GrantablePermissions    []Permission
 }
 
+// ProvisionOutcome reports the store-side effects of a device-scoped agent
+// provisioning transaction that the service cannot otherwise observe.
+type ProvisionOutcome struct {
+	RotatedFromCredentialID string
+	AgentCreated            bool
+}
+
 type CredentialStore interface {
 	LegacyAdminEnabled(context.Context) (bool, error)
 	SaveEnrollment(context.Context, EnrollmentRecord) error
@@ -145,4 +152,8 @@ type CredentialStore interface {
 	ResolveCredential(context.Context, string, Digest, time.Time) (CredentialRecord, error)
 	RotateCredential(context.Context, string, CredentialRecord, time.Time) error
 	RevokeCredential(context.Context, string, time.Time) error
+	// ProvisionAgentCredential creates or rotates an agent identity and
+	// credential on behalf of a device credential (deviceCredentialID),
+	// enforcing the device's active-agent cap (activeAgentLimit).
+	ProvisionAgentCredential(context.Context, string, AgentProfile, CredentialRecord, int, time.Time) (ProvisionOutcome, error)
 }

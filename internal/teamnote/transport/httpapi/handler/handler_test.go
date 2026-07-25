@@ -340,6 +340,84 @@ func (s *onPremHandlerSuite) TestEnrollmentExchangeReportsAgentIdentityConflict(
 	s.Equal(consts.StatusConflict, response.Code)
 }
 
+func (s *onPremHandlerSuite) TestProvisionDeviceAgentRequiresBearerCredential() {
+	response := perform(s.handler.ProvisionDeviceAgent, http.MethodPost,
+		`{"agent_id":"agent-1","display_name":"Agent One","agent_type":"codex"}`, "")
+
+	s.Equal(consts.StatusUnauthorized, response.Code)
+}
+
+func (s *onPremHandlerSuite) TestProvisionDeviceAgentRejectsNonDeviceCredential() {
+	response := perform(s.handler.ProvisionDeviceAgent, http.MethodPost,
+		`{"agent_id":"agent-1","display_name":"Agent One","agent_type":"codex"}`, "agent")
+
+	s.Equal(consts.StatusForbidden, response.Code)
+}
+
+func (s *onPremHandlerSuite) TestProvisionDeviceAgentSucceedsForDeviceCredential() {
+	now := time.Date(2026, 7, 24, 9, 0, 0, 0, time.UTC)
+	expiresAt := now.Add(time.Hour)
+	s.credentials.provisionResult = onprem.ProvisionedAgentCredential{
+		CredentialID: "agent-credential-1", APIKey: "tm_key_agent-credential-1.secret",
+		AgentID: "agent-1", Permissions: []onprem.Permission{onprem.PermissionObserve, onprem.PermissionSearch},
+		CreatedAt: now, ExpiresAt: &expiresAt, RotatedFromCredentialID: "agent-credential-0", AgentCreated: false,
+	}
+
+	response := perform(s.handler.ProvisionDeviceAgent, http.MethodPost,
+		`{"agent_id":"agent-1","display_name":"Agent One","agent_type":"codex","permissions":["observe","search"]}`,
+		"device")
+
+	s.Equal(consts.StatusOK, response.Code)
+	s.Equal("agent-1", s.credentials.provisionRequest.AgentID)
+	s.Equal("Agent One", s.credentials.provisionRequest.DisplayName)
+	s.Equal("codex", s.credentials.provisionRequest.AgentType)
+	s.Equal([]onprem.Permission{onprem.PermissionObserve, onprem.PermissionSearch}, s.credentials.provisionRequest.Permissions)
+	body := response.Body.String()
+	s.Contains(body, `"credential_id":"agent-credential-1"`)
+	s.Contains(body, `"api_key":"tm_key_agent-credential-1.secret"`)
+	s.Contains(body, `"agent_id":"agent-1"`)
+	s.Contains(body, `"permissions":["observe","search"]`)
+	s.Contains(body, `"created_at":"`+now.Format(time.RFC3339Nano)+`"`)
+	s.Contains(body, `"expires_at":"`+expiresAt.Format(time.RFC3339Nano)+`"`)
+	s.Contains(body, `"rotated_from_credential_id":"agent-credential-0"`)
+	s.Contains(body, `"agent_created":false`)
+}
+
+func (s *onPremHandlerSuite) TestProvisionDeviceAgentOmitsUnsetOptionalFields() {
+	s.credentials.provisionResult = onprem.ProvisionedAgentCredential{
+		CredentialID: "agent-credential-2", APIKey: "tm_key_agent-credential-2.secret",
+		AgentID: "agent-2", Permissions: []onprem.Permission{onprem.PermissionObserve},
+		CreatedAt: time.Date(2026, 7, 24, 9, 0, 0, 0, time.UTC), AgentCreated: true,
+	}
+
+	response := perform(s.handler.ProvisionDeviceAgent, http.MethodPost,
+		`{"agent_id":"agent-2","display_name":"Agent Two","agent_type":"codex"}`, "device")
+
+	s.Equal(consts.StatusOK, response.Code)
+	body := response.Body.String()
+	s.Contains(body, `"agent_created":true`)
+	s.NotContains(body, "expires_at")
+	s.NotContains(body, "rotated_from_credential_id")
+}
+
+func (s *onPremHandlerSuite) TestProvisionDeviceAgentReportsConflict() {
+	s.credentials.provisionErr = onprem.ErrAgentProvisionConflict
+
+	response := perform(s.handler.ProvisionDeviceAgent, http.MethodPost,
+		`{"agent_id":"agent-1","display_name":"Agent One","agent_type":"codex"}`, "device")
+
+	s.Equal(consts.StatusConflict, response.Code)
+}
+
+func (s *onPremHandlerSuite) TestProvisionDeviceAgentReportsLimitExceeded() {
+	s.credentials.provisionErr = onprem.ErrDeviceAgentLimitExceeded
+
+	response := perform(s.handler.ProvisionDeviceAgent, http.MethodPost,
+		`{"agent_id":"agent-1","display_name":"Agent One","agent_type":"codex"}`, "device")
+
+	s.Equal(consts.StatusUnprocessableEntity, response.Code)
+}
+
 func (s *onPremHandlerSuite) TestGeneratedRoutesDispatchToConfiguredOnPremHandler() {
 	hertz := server.New()
 	hertz.Use(handler.InstanceMiddleware(s.handler))
@@ -385,6 +463,10 @@ type credentialService struct {
 	revokedID   string
 	authErr     error
 	exchangeErr error
+
+	provisionRequest onprem.DeviceProvisionRequest
+	provisionResult  onprem.ProvisionedAgentCredential
+	provisionErr     error
 }
 
 func (s *credentialService) Authenticate(_ context.Context, apiKey string) (onprem.Principal, error) {
@@ -417,6 +499,14 @@ func (s *credentialService) Authenticate(_ context.Context, apiKey string) (onpr
 			ScopeID: onprem.LocalScopeID, CredentialID: "credential-2",
 			Permissions: []onprem.Permission{onprem.PermissionSearch},
 		}, nil
+	case "device":
+		return onprem.Principal{
+			UserID: "owner", MembershipID: "membership-1",
+			ScopeID: onprem.LocalScopeID, CredentialID: "device-credential-1",
+			Kind:                 onprem.CredentialKindDevice,
+			Permissions:          []onprem.Permission{onprem.PermissionAgentProvision},
+			GrantablePermissions: []onprem.Permission{onprem.PermissionObserve, onprem.PermissionSearch, onprem.PermissionGet},
+		}, nil
 	default:
 		return onprem.Principal{}, onprem.ErrUnauthorized
 	}
@@ -446,6 +536,18 @@ func (s *credentialService) RotateCredential(context.Context, onprem.Principal) 
 func (s *credentialService) RevokeCredential(_ context.Context, _ onprem.Principal, credentialID string) error {
 	s.revokedID = credentialID
 	return nil
+}
+
+func (s *credentialService) ProvisionDeviceAgent(
+	_ context.Context,
+	_ onprem.Principal,
+	request onprem.DeviceProvisionRequest,
+) (onprem.ProvisionedAgentCredential, error) {
+	s.provisionRequest = request
+	if s.provisionErr != nil {
+		return onprem.ProvisionedAgentCredential{}, s.provisionErr
+	}
+	return s.provisionResult, nil
 }
 
 type memoryService struct {

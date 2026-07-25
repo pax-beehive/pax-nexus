@@ -323,6 +323,213 @@ func (s *CredentialStore) RotateCredential(
 	return nil
 }
 
+// ProvisionAgentCredential creates or rotates the credential for an agent
+// that a device credential (deviceCredentialID) provisions, enforcing the
+// device's active-agent cap (activeAgentLimit). See
+// docs/decisions/2026-07-24-device-scoped-agent-provisioning.md for the
+// ordered transaction this implements.
+func (s *CredentialStore) ProvisionAgentCredential(
+	ctx context.Context,
+	deviceCredentialID string,
+	profile onprem.AgentProfile,
+	credential onprem.CredentialRecord,
+	activeAgentLimit int,
+	now time.Time,
+) (outcome onprem.ProvisionOutcome, returnedErr error) {
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return onprem.ProvisionOutcome{}, fmt.Errorf("begin device agent provisioning: %w", err)
+	}
+	defer func() {
+		if rollbackErr := tx.Rollback(context.Background()); rollbackErr != nil && !errors.Is(rollbackErr, pgx.ErrTxClosed) {
+			returnedErr = errors.Join(returnedErr, fmt.Errorf("rollback device agent provisioning: %w", rollbackErr))
+		}
+	}()
+
+	deviceMembershipID, err := lockProvisioningDevice(ctx, tx, deviceCredentialID, now)
+	if err != nil {
+		return onprem.ProvisionOutcome{}, err
+	}
+	if err := lockProvisioningDeviceOwner(ctx, tx, deviceMembershipID); err != nil {
+		return onprem.ProvisionOutcome{}, err
+	}
+
+	var existingProvisionedBy, existingStatus string
+	err = tx.QueryRow(ctx, `
+		SELECT COALESCE(provisioned_by, ''), status FROM onprem_agents
+		WHERE agent_id = $1
+		FOR UPDATE
+	`, profile.AgentID).Scan(&existingProvisionedBy, &existingStatus)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		if err := createProvisionedAgent(ctx, tx, deviceCredentialID, profile, now); err != nil {
+			return onprem.ProvisionOutcome{}, err
+		}
+		outcome.AgentCreated = true
+	case err != nil:
+		return onprem.ProvisionOutcome{}, fmt.Errorf("resolve agent for device provisioning: %w", err)
+	case existingProvisionedBy == deviceCredentialID && existingStatus == string(onprem.AgentStatusActive):
+		rotatedFrom, err := revokeRotatedProvisionedCredentials(ctx, tx, deviceCredentialID, profile, now)
+		if err != nil {
+			return onprem.ProvisionOutcome{}, err
+		}
+		outcome.RotatedFromCredentialID = rotatedFrom
+	default:
+		return onprem.ProvisionOutcome{}, onprem.ErrAgentProvisionConflict
+	}
+
+	var activeCount int
+	err = tx.QueryRow(ctx, `
+		SELECT count(DISTINCT agent_id) FROM agent_credentials
+		WHERE provisioned_by = $1 AND revoked_at IS NULL AND agent_id <> $2
+	`, deviceCredentialID, profile.AgentID).Scan(&activeCount)
+	if err != nil {
+		return onprem.ProvisionOutcome{}, fmt.Errorf("count device-provisioned agents: %w", err)
+	}
+	if activeCount >= activeAgentLimit {
+		return onprem.ProvisionOutcome{}, onprem.ErrDeviceAgentLimitExceeded
+	}
+
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO agent_credentials (
+			credential_id, key_digest, user_id, owner_membership_id, agent_id,
+			label, permissions, created_at, expires_at, rotated_from_credential_id, digest_key_version,
+			kind, provisioned_by, grantable_permissions
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+	`, credential.ID, credential.KeyDigest[:], credential.UserID, credential.MembershipID,
+		credential.AgentID, credential.Label, permissionStrings(credential.Permissions),
+		credential.CreatedAt, credential.ExpiresAt, nullableText(credential.RotatedFromCredentialID),
+		credential.DigestKeyVersion, credentialKindOrDefault(credential.Kind),
+		nullableText(credential.ProvisionedBy), permissionStrings(credential.GrantablePermissions)); err != nil {
+		return onprem.ProvisionOutcome{}, fmt.Errorf("save device-provisioned agent credential: %w", err)
+	}
+
+	if err := insertAuditEvent(ctx, tx, "device", profile.OwnerUserID, profile.OwnerMembershipID, profile.AgentID,
+		deviceCredentialID, "identity.agent.provisioned", "credential", credential.ID, now); err != nil {
+		return onprem.ProvisionOutcome{}, err
+	}
+	if err := insertAuditEvent(ctx, tx, "device", credential.UserID, credential.MembershipID, credential.AgentID,
+		deviceCredentialID, "identity.credential.issued", "credential", credential.ID, now); err != nil {
+		return onprem.ProvisionOutcome{}, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return onprem.ProvisionOutcome{}, fmt.Errorf("commit device agent provisioning: %w", err)
+	}
+	return outcome, nil
+}
+
+// lockProvisioningDevice locks the device credential row that authorizes a
+// provisioning request and returns its owning membership ID. A missing,
+// revoked, expired, or non-device credential is unauthorized.
+func lockProvisioningDevice(ctx context.Context, tx pgx.Tx, deviceCredentialID string, now time.Time) (string, error) {
+	var membershipID string
+	err := tx.QueryRow(ctx, `
+		SELECT owner_membership_id FROM agent_credentials
+		WHERE credential_id = $1 AND kind = 'device' AND revoked_at IS NULL
+		  AND (expires_at IS NULL OR expires_at > $2)
+		FOR UPDATE
+	`, deviceCredentialID, now).Scan(&membershipID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", onprem.ErrUnauthorized
+	}
+	if err != nil {
+		return "", fmt.Errorf("lock device credential for provisioning: %w", err)
+	}
+	return membershipID, nil
+}
+
+// lockProvisioningDeviceOwner locks the device's owning membership and user,
+// mirroring lockEnrollmentExchangeOwner's active-membership check.
+func lockProvisioningDeviceOwner(ctx context.Context, tx pgx.Tx, membershipID string) error {
+	var active bool
+	err := tx.QueryRow(ctx, `
+		SELECT true
+		FROM onprem_memberships memberships
+		JOIN onprem_users users ON users.user_id = memberships.user_id
+		WHERE memberships.membership_id = $1 AND memberships.status = 'active'
+		  AND users.identity_status IN ('active', 'unclaimed')
+		FOR UPDATE OF memberships, users
+	`, membershipID).Scan(&active)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return onprem.ErrUnauthorized
+	}
+	if err != nil {
+		return fmt.Errorf("lock device membership for provisioning: %w", err)
+	}
+	return nil
+}
+
+// createProvisionedAgent claims the agent_id's channel identity for the
+// device's owning user (exactly like ExchangeEnrollment's identity claim)
+// and inserts the new onprem_agents row.
+func createProvisionedAgent(
+	ctx context.Context, tx pgx.Tx, deviceCredentialID string, profile onprem.AgentProfile, now time.Time,
+) error {
+	var claimedUserID string
+	err := tx.QueryRow(ctx, `
+		INSERT INTO onprem_agent_identities (agent_id, user_id, created_at)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (agent_id) DO UPDATE
+		SET agent_id = EXCLUDED.agent_id
+		WHERE onprem_agent_identities.user_id = EXCLUDED.user_id
+		RETURNING user_id
+	`, profile.AgentID, profile.OwnerUserID, now).Scan(&claimedUserID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return onprem.ErrAgentProvisionConflict
+	}
+	if err != nil {
+		return fmt.Errorf("claim device-provisioned agent identity: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO onprem_agents (
+			agent_id, owner_membership_id, display_name, description, agent_type,
+			status, directory_visible, created_at, updated_at, provisioned_by
+		) VALUES ($1, $2, $3, $4, $5, 'active', true, $6, $6, $7)
+	`, profile.AgentID, profile.OwnerMembershipID, profile.DisplayName, profile.Description,
+		profile.AgentType, now, deviceCredentialID); err != nil {
+		return fmt.Errorf("create device-provisioned agent: %w", err)
+	}
+	if err := insertAuditEvent(ctx, tx, "device", profile.OwnerUserID, profile.OwnerMembershipID, "",
+		deviceCredentialID, "identity.agent.created", "agent", profile.AgentID, now); err != nil {
+		return err
+	}
+	return nil
+}
+
+// revokeRotatedProvisionedCredentials revokes every active credential the
+// device previously provisioned for this agent, audits each revocation, and
+// returns the newest revoked credential ID (there is normally exactly one).
+func revokeRotatedProvisionedCredentials(
+	ctx context.Context, tx pgx.Tx, deviceCredentialID string, profile onprem.AgentProfile, now time.Time,
+) (string, error) {
+	rows, err := tx.Query(ctx, `
+		WITH revoked AS (
+			UPDATE agent_credentials SET revoked_at = $3
+			WHERE agent_id = $1 AND provisioned_by = $2 AND revoked_at IS NULL
+			RETURNING credential_id, created_at
+		)
+		SELECT credential_id FROM revoked ORDER BY created_at DESC
+	`, profile.AgentID, deviceCredentialID, now)
+	if err != nil {
+		return "", fmt.Errorf("revoke rotated device-provisioned credentials: %w", err)
+	}
+	revokedIDs, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return "", fmt.Errorf("collect rotated device-provisioned credentials: %w", err)
+	}
+	for _, revokedID := range revokedIDs {
+		if err := insertAuditEvent(ctx, tx, "device", profile.OwnerUserID, profile.OwnerMembershipID, profile.AgentID,
+			deviceCredentialID, "identity.credential.revoked", "credential", revokedID, now); err != nil {
+			return "", err
+		}
+	}
+	if len(revokedIDs) == 0 {
+		return "", nil
+	}
+	return revokedIDs[0], nil
+}
+
 func resolveLegacyAgentOwner(
 	ctx context.Context,
 	tx pgx.Tx,

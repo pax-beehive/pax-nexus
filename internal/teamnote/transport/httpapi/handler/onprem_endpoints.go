@@ -338,8 +338,10 @@ func (h *Handler) writeOnPremError(ctx context.Context, c *app.RequestContext, o
 		c.String(consts.StatusForbidden, operation)
 	case errors.Is(err, onprem.ErrCredentialNotFound):
 		c.String(consts.StatusNotFound, operation)
-	case errors.Is(err, onprem.ErrAgentIdentityConflict):
+	case errors.Is(err, onprem.ErrAgentIdentityConflict), errors.Is(err, onprem.ErrAgentProvisionConflict):
 		c.String(consts.StatusConflict, operation)
+	case errors.Is(err, onprem.ErrDeviceAgentLimitExceeded):
+		c.String(consts.StatusUnprocessableEntity, operation)
 	default:
 		c.String(consts.StatusUnprocessableEntity, operation)
 	}

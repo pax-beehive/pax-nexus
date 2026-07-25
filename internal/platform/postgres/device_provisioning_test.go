@@ -2,6 +2,8 @@ package postgres_test
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -258,4 +260,249 @@ func (s *deviceProvisioningStoreSuite) TestDeviceCredentialRotationPreservesKind
 		"GrantablePermissions should be preserved",
 	)
 	s.Empty(rotatedPrincipal.AgentID, "Device credentials should have empty AgentID")
+}
+
+// deviceProvisioningServices bundles the registry and credential services a
+// device-provisioning test needs, sharing one fixed clock so audit and
+// credential timestamps are directly comparable.
+type deviceProvisioningServices struct {
+	registry   *onprem.RegistryService
+	credential *onprem.CredentialService
+	owner      onprem.HumanPrincipal
+	now        *time.Time
+}
+
+func (s *deviceProvisioningStoreSuite) newProvisioningServices(deviceAgentLimit int) deviceProvisioningServices {
+	now := time.Now().UTC()
+	registryService, err := onprem.NewRegistryService(s.store.Registry(), onprem.RegistryConfig{
+		SecretPepper: "0123456789abcdef0123456789abcdef",
+		MemberGrantablePermissions: []onprem.Permission{
+			onprem.PermissionObserve, onprem.PermissionSearch, onprem.PermissionGet,
+		},
+	}, onprem.WithRegistryClock(func() time.Time { return now }))
+	s.Require().NoError(err)
+	credentialService, err := onprem.NewCredentialService(s.store.Credentials(), onprem.CredentialConfig{
+		RotationOverlap:  time.Minute,
+		SecretPepper:     "0123456789abcdef0123456789abcdef",
+		DeviceAgentLimit: deviceAgentLimit,
+	}, onprem.WithClock(func() time.Time { return now }))
+	s.Require().NoError(err)
+	owner := onprem.HumanPrincipal{
+		UserID: s.userID, MembershipID: s.membershipID, Role: onprem.RoleOwner,
+		MembershipStatus: onprem.MembershipStatusActive,
+	}
+	return deviceProvisioningServices{registry: registryService, credential: credentialService, owner: owner, now: &now}
+}
+
+// enrollDevice creates a device enrollment, exchanges it for a credential,
+// and authenticates it to a device Principal.
+func (s *deviceProvisioningStoreSuite) enrollDevice(services deviceProvisioningServices) onprem.Principal {
+	ctx := context.Background()
+	enrollment, err := services.registry.CreateDeviceEnrollment(ctx, services.owner, onprem.DeviceEnrollmentRequest{
+		DeviceName: uniqueCredentialValue("device"),
+	})
+	s.Require().NoError(err)
+	issued, err := services.credential.ExchangeEnrollment(ctx, enrollment.Token)
+	s.Require().NoError(err)
+	principal, err := services.credential.Authenticate(ctx, issued.APIKey)
+	s.Require().NoError(err)
+	return principal
+}
+
+// TestProvisionDeviceAgentCreatesAgentAndWorkingCredential exercises the
+// store's create path: a device provisions a brand-new agent_id, the store
+// inserts an onprem_agents row carrying provisioned_by, and the issued
+// credential authenticates with exactly the permissions the device granted.
+func (s *deviceProvisioningStoreSuite) TestProvisionDeviceAgentCreatesAgentAndWorkingCredential() {
+	ctx := context.Background()
+	services := s.newProvisioningServices(16)
+	device := s.enrollDevice(services)
+	agentID := uniqueCredentialValue("device-provisioned-agent")
+
+	provisioned, err := services.credential.ProvisionDeviceAgent(ctx, device, onprem.DeviceProvisionRequest{
+		AgentID: agentID, DisplayName: "Device Agent", AgentType: "codex",
+	})
+	s.Require().NoError(err)
+	s.True(provisioned.AgentCreated)
+	s.Empty(provisioned.RotatedFromCredentialID)
+	s.True(strings.HasPrefix(provisioned.APIKey, "tm_key_"))
+
+	var provisionedBy, status string
+	err = s.store.Pool().QueryRow(ctx, `
+		SELECT COALESCE(provisioned_by, ''), status FROM onprem_agents WHERE agent_id = $1
+	`, agentID).Scan(&provisionedBy, &status)
+	s.Require().NoError(err)
+	s.Equal(device.CredentialID, provisionedBy)
+	s.Equal("active", status)
+
+	// The provisioned key authenticates and carries exactly the device's
+	// grantable permissions (observe, search, get); it must not carry
+	// agent_provision — a provisioned agent credential can never re-provision.
+	principal, err := services.credential.Authenticate(ctx, provisioned.APIKey)
+	s.Require().NoError(err)
+	s.Equal(onprem.CredentialKindAgent, principal.Kind)
+	s.Equal(agentID, principal.AgentID)
+	s.True(principal.HasPermission(onprem.PermissionObserve))
+	s.True(principal.HasPermission(onprem.PermissionSearch))
+	s.True(principal.HasPermission(onprem.PermissionGet))
+	s.False(principal.HasPermission(onprem.PermissionAgentProvision))
+}
+
+// TestProvisionDeviceAgentReProvisioningRotates exercises the store's
+// rotation path: a second provisioning call for the same device+agent_id
+// revokes the previous credential, issues a new active one, and reports the
+// old credential ID as RotatedFromCredentialID.
+func (s *deviceProvisioningStoreSuite) TestProvisionDeviceAgentReProvisioningRotates() {
+	ctx := context.Background()
+	services := s.newProvisioningServices(16)
+	device := s.enrollDevice(services)
+	agentID := uniqueCredentialValue("rotated-agent")
+
+	first, err := services.credential.ProvisionDeviceAgent(ctx, device, onprem.DeviceProvisionRequest{
+		AgentID: agentID, DisplayName: "Device Agent", AgentType: "codex",
+	})
+	s.Require().NoError(err)
+	s.True(first.AgentCreated)
+
+	firstPrincipal, err := services.credential.Authenticate(ctx, first.APIKey)
+	s.Require().NoError(err)
+
+	second, err := services.credential.ProvisionDeviceAgent(ctx, device, onprem.DeviceProvisionRequest{
+		AgentID: agentID, DisplayName: "Device Agent", AgentType: "codex",
+	})
+	s.Require().NoError(err)
+	s.False(second.AgentCreated)
+	s.Equal(firstPrincipal.CredentialID, second.RotatedFromCredentialID)
+	s.NotEqual(first.APIKey, second.APIKey)
+
+	// The old key is now rejected.
+	_, err = services.credential.Authenticate(ctx, first.APIKey)
+	s.Require().ErrorIs(err, onprem.ErrUnauthorized)
+
+	// The new key authenticates and resolves the same agent.
+	secondPrincipal, err := services.credential.Authenticate(ctx, second.APIKey)
+	s.Require().NoError(err)
+	s.Equal(agentID, secondPrincipal.AgentID)
+
+	var revokedAt *time.Time
+	err = s.store.Pool().QueryRow(ctx, `
+		SELECT revoked_at FROM agent_credentials WHERE credential_id = $1
+	`, firstPrincipal.CredentialID).Scan(&revokedAt)
+	s.Require().NoError(err)
+	s.NotNil(revokedAt, "the rotated-away credential must be revoked")
+}
+
+// TestProvisionDeviceAgentConflictsWithHumanRegisteredAgent verifies that a
+// device cannot claim an agent_id a human owner already registered directly.
+func (s *deviceProvisioningStoreSuite) TestProvisionDeviceAgentConflictsWithHumanRegisteredAgent() {
+	ctx := context.Background()
+	services := s.newProvisioningServices(16)
+	device := s.enrollDevice(services)
+	agentID := uniqueCredentialValue("human-registered-agent")
+
+	_, err := services.registry.CreateAgent(ctx, services.owner, onprem.CreateAgentRequest{
+		AgentID: agentID, DisplayName: "Human Agent",
+	})
+	s.Require().NoError(err)
+
+	_, err = services.credential.ProvisionDeviceAgent(ctx, device, onprem.DeviceProvisionRequest{
+		AgentID: agentID, DisplayName: "Device Agent", AgentType: "codex",
+	})
+
+	s.Require().ErrorIs(err, onprem.ErrAgentProvisionConflict)
+}
+
+// TestProvisionDeviceAgentConflictsAcrossDevices verifies that a second
+// device cannot provision an agent_id the first device already provisions.
+func (s *deviceProvisioningStoreSuite) TestProvisionDeviceAgentConflictsAcrossDevices() {
+	ctx := context.Background()
+	services := s.newProvisioningServices(16)
+	deviceA := s.enrollDevice(services)
+	deviceB := s.enrollDevice(services)
+	agentID := uniqueCredentialValue("contested-agent")
+
+	_, err := services.credential.ProvisionDeviceAgent(ctx, deviceA, onprem.DeviceProvisionRequest{
+		AgentID: agentID, DisplayName: "Device A Agent", AgentType: "codex",
+	})
+	s.Require().NoError(err)
+
+	_, err = services.credential.ProvisionDeviceAgent(ctx, deviceB, onprem.DeviceProvisionRequest{
+		AgentID: agentID, DisplayName: "Device B Agent", AgentType: "codex",
+	})
+
+	s.Require().ErrorIs(err, onprem.ErrAgentProvisionConflict)
+}
+
+// TestProvisionDeviceAgentEnforcesActiveAgentLimit verifies that a device
+// cannot exceed its configured active-agent cap: with limit=2, a third
+// distinct agent_id must fail with ErrDeviceAgentLimitExceeded.
+func (s *deviceProvisioningStoreSuite) TestProvisionDeviceAgentEnforcesActiveAgentLimit() {
+	ctx := context.Background()
+	services := s.newProvisioningServices(2)
+	device := s.enrollDevice(services)
+
+	agentIDs := make([]string, 2)
+	for i := 0; i < 2; i++ {
+		agentIDs[i] = uniqueCredentialValue(fmt.Sprintf("limited-agent-%d", i))
+		_, err := services.credential.ProvisionDeviceAgent(ctx, device, onprem.DeviceProvisionRequest{
+			AgentID: agentIDs[i], DisplayName: "Device Agent", AgentType: "codex",
+		})
+		s.Require().NoError(err)
+	}
+
+	thirdAgentID := uniqueCredentialValue("limited-agent-third")
+	_, err := services.credential.ProvisionDeviceAgent(ctx, device, onprem.DeviceProvisionRequest{
+		AgentID: thirdAgentID, DisplayName: "Device Agent", AgentType: "codex",
+	})
+
+	s.Require().ErrorIs(err, onprem.ErrDeviceAgentLimitExceeded)
+
+	// Re-provisioning (rotating) an already-counted agent must still be
+	// allowed at the cap, since the cap excludes the agent being provisioned.
+	rotated, err := services.credential.ProvisionDeviceAgent(ctx, device, onprem.DeviceProvisionRequest{
+		AgentID: agentIDs[0], DisplayName: "Device Agent", AgentType: "codex",
+	})
+	s.Require().NoError(err)
+	s.False(rotated.AgentCreated)
+}
+
+// TestProvisionDeviceAgentRecordsAuditTrail verifies that every step of the
+// provisioning transaction (agent creation, credential issuance, rotation)
+// is captured as an audit event with actor_kind 'device'.
+func (s *deviceProvisioningStoreSuite) TestProvisionDeviceAgentRecordsAuditTrail() {
+	ctx := context.Background()
+	services := s.newProvisioningServices(16)
+	device := s.enrollDevice(services)
+	agentID := uniqueCredentialValue("audited-agent")
+
+	created, err := services.credential.ProvisionDeviceAgent(ctx, device, onprem.DeviceProvisionRequest{
+		AgentID: agentID, DisplayName: "Device Agent", AgentType: "codex",
+	})
+	s.Require().NoError(err)
+
+	s.assertAuditEvent(ctx, "device", "identity.agent.created", "agent", agentID)
+	s.assertAuditEvent(ctx, "device", "identity.agent.provisioned", "credential", created.CredentialID)
+	s.assertAuditEvent(ctx, "device", "identity.credential.issued", "credential", created.CredentialID)
+
+	rotated, err := services.credential.ProvisionDeviceAgent(ctx, device, onprem.DeviceProvisionRequest{
+		AgentID: agentID, DisplayName: "Device Agent", AgentType: "codex",
+	})
+	s.Require().NoError(err)
+	s.NotEmpty(rotated.RotatedFromCredentialID)
+
+	s.assertAuditEvent(ctx, "device", "identity.credential.revoked", "credential", rotated.RotatedFromCredentialID)
+	s.assertAuditEvent(ctx, "device", "identity.agent.provisioned", "credential", rotated.CredentialID)
+}
+
+func (s *deviceProvisioningStoreSuite) assertAuditEvent(
+	ctx context.Context, actorKind, action, targetKind, targetID string,
+) {
+	var count int
+	err := s.store.Pool().QueryRow(ctx, `
+		SELECT count(*) FROM onprem_audit_events
+		WHERE actor_kind = $1 AND action = $2 AND target_kind = $3 AND target_id = $4
+	`, actorKind, action, targetKind, targetID).Scan(&count)
+	s.Require().NoError(err)
+	s.GreaterOrEqual(count, 1, "expected an audit event actor_kind=%s action=%s target_kind=%s target_id=%s",
+		actorKind, action, targetKind, targetID)
 }

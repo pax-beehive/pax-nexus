@@ -31,6 +31,10 @@ type CredentialConfig struct {
 	SecretPepper             string
 	AllowLegacyAgentCreation bool
 	PortalURL                string
+	// DeviceAgentLimit caps how many distinct agents a single device
+	// credential may keep actively provisioned at once. Values <= 0 default
+	// to 16 in NewCredentialService.
+	DeviceAgentLimit int
 }
 
 type serviceOptions struct {
@@ -70,6 +74,9 @@ func NewCredentialService(
 	digester, err := newSecretDigester(config.SecretPepper)
 	if err != nil {
 		return nil, fmt.Errorf("create on-prem credential service: %w", err)
+	}
+	if config.DeviceAgentLimit <= 0 {
+		config.DeviceAgentLimit = 16
 	}
 	configured := serviceOptions{clock: time.Now, tokenSource: randomToken}
 	for _, option := range options {

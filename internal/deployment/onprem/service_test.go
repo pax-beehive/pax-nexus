@@ -238,6 +238,47 @@ type memoryCredentialStore struct {
 	credentials map[onprem.Digest]onprem.CredentialRecord
 	byID        map[string]onprem.Digest
 	resolveErr  error
+
+	// provisionCalls records every ProvisionAgentCredential invocation for
+	// assertions in provisioning_test.go.
+	provisionCalls []provisionAgentCredentialCall
+	// provisionOutcome and provisionErr configure the next
+	// ProvisionAgentCredential result; provisioning_test.go uses these to
+	// drive the service's happy-path passthrough assertions without
+	// re-implementing the postgres transaction semantics (covered by
+	// device_provisioning_test.go).
+	provisionOutcome onprem.ProvisionOutcome
+	provisionErr     error
+}
+
+type provisionAgentCredentialCall struct {
+	deviceCredentialID string
+	profile            onprem.AgentProfile
+	credential         onprem.CredentialRecord
+	activeAgentLimit   int
+	now                time.Time
+}
+
+func (s *memoryCredentialStore) ProvisionAgentCredential(
+	_ context.Context,
+	deviceCredentialID string,
+	profile onprem.AgentProfile,
+	credential onprem.CredentialRecord,
+	activeAgentLimit int,
+	now time.Time,
+) (onprem.ProvisionOutcome, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.provisionCalls = append(s.provisionCalls, provisionAgentCredentialCall{
+		deviceCredentialID: deviceCredentialID, profile: profile, credential: credential,
+		activeAgentLimit: activeAgentLimit, now: now,
+	})
+	if s.provisionErr != nil {
+		return onprem.ProvisionOutcome{}, s.provisionErr
+	}
+	s.credentials[credential.KeyDigest] = credential
+	s.byID[credential.ID] = credential.KeyDigest
+	return s.provisionOutcome, nil
 }
 
 func (s *memoryCredentialStore) LegacyAdminEnabled(context.Context) (bool, error) {
