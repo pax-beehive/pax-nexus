@@ -92,3 +92,38 @@ recall replay and inspect its stage metrics. Gold-source, delivered-evidence,
 leakage, storage-size, and split recall-latency metrics still require the
 separate reviewed-evidence/stage pipeline before the ADR's product-use
 acceptance gate is complete.
+
+## Extractor model sweep
+
+Run the three-arm protocol once per candidate Team Note extraction model,
+holding the consumer, Mem0 extraction LLM, and judge fixed, so any accuracy
+delta is attributable to the extracted memory rather than the model reading it.
+
+Check the plan without starting Docker:
+
+```bash
+make eval-v3-extractor-sweep DRY_RUN=--dry-run PREFIX=my-sweep
+```
+
+Run it:
+
+```bash
+make eval-v3-extractor-sweep PREFIX=my-sweep
+```
+
+Candidates live in `evals/v3/sweep/extractor-<slug>.env`. Each names the
+variable holding its provider key rather than the key itself; set the value in
+the gitignored `.env.eval-v2`. Restrict a run to specific candidates with
+`SLUGS="deepseek-v4-flash gemini-3.6-flash"`, and change the question set with
+`MANIFEST=...`.
+
+Artifacts land in `runs/eval-v3-sweep/<prefix>/<slug>/`, with the rendered
+config for each round under `runs/eval-v3-sweep/<prefix>/configs/`.
+
+The driver resets the stack (`down -v`) before every round. This is required,
+not hygiene: Team Note rows surviving from the previous extractor would corrupt
+all three arms, and nothing in the artifacts would reveal it.
+
+Read `validity.json` before comparing any numbers across rounds. A round whose
+extractor produced no memory is reported as invalid rather than as a genuine
+zero accuracy.

@@ -343,6 +343,26 @@ fi
 out=$("$sweep" --dry-run 2>&1) && fail "missing prefix unexpectedly succeeded"
 expect_contains "usage is printed without a prefix" "$out" "usage:"
 
+expect_contains "sweep test is registered in test-scripts" \
+  "$(sed -n '/^test-scripts:/,/^$/p' Makefile)" \
+  "test-eval-v3-extractor-sweep.sh"
+
+expect_contains "sweep target exists" \
+  "$(cat Makefile)" "eval-v3-extractor-sweep:"
+
+expect_contains "sweep target is phony" \
+  "$(sed -n '/^\.PHONY:/p' Makefile)" "eval-v3-extractor-sweep"
+
+expect_contains "example env documents the Gemini key" \
+  "$(cat .env.eval-v2.example)" "GEMINI_API_KEY"
+
+if grep -qE '^GEMINI_API_KEY=.{12,}' .env.eval-v2.example; then
+  fail ".env.eval-v2.example appears to contain a real credential"
+fi
+
+expect_contains "README documents the sweep" \
+  "$(cat evals/v3/README.md)" "eval-v3-extractor-sweep"
+
 if [ "$failures" -ne 0 ]; then
   echo "$failures check(s) failed" >&2
   exit 1
