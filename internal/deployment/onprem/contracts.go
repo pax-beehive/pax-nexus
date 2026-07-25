@@ -10,27 +10,29 @@ import (
 const LocalScopeID = "local-team"
 
 var (
-	ErrUnauthorized            = errors.New("unauthorized")
-	ErrForbidden               = errors.New("forbidden")
-	ErrEnrollmentInvalid       = errors.New("enrollment is invalid or expired")
-	ErrCredentialNotFound      = errors.New("credential not found")
-	ErrAgentNotFound           = errors.New("agent not found")
-	ErrAgentConflict           = errors.New("agent already exists or version conflicts")
-	ErrAgentIDConflict         = errors.New("agent ID already exists")
-	ErrResourceVersionConflict = errors.New("resource version conflicts with current state")
-	ErrInvalidStateTransition  = errors.New("state transition is not allowed")
-	ErrBootstrapClosed         = errors.New("bootstrap is closed")
-	ErrInvitationInvalid       = errors.New("invitation is invalid or expired")
-	ErrMembershipConflict      = errors.New("membership state conflicts with the operation")
-	ErrLastActiveOwner         = errors.New("at least one active owner is required")
-	ErrTargetAgentNotFound     = errors.New("target agent not found")
-	ErrAgentIdentityConflict   = errors.New("agent identity is ambiguous")
-	ErrEnvelopeNotFound        = errors.New("channel envelope not found")
-	ErrEnvelopeState           = errors.New("channel envelope state does not allow the operation")
-	ErrIdempotencyConflict     = errors.New("idempotency key was already used for a different request")
-	ErrInvalidChannelRequest   = errors.New("invalid channel request")
-	ErrInvalidIdentityInput    = errors.New("invalid identity or agent input")
-	ErrAuditEventNotFound      = errors.New("audit event not found")
+	ErrUnauthorized             = errors.New("unauthorized")
+	ErrForbidden                = errors.New("forbidden")
+	ErrEnrollmentInvalid        = errors.New("enrollment is invalid or expired")
+	ErrCredentialNotFound       = errors.New("credential not found")
+	ErrAgentNotFound            = errors.New("agent not found")
+	ErrAgentConflict            = errors.New("agent already exists or version conflicts")
+	ErrAgentIDConflict          = errors.New("agent ID already exists")
+	ErrResourceVersionConflict  = errors.New("resource version conflicts with current state")
+	ErrInvalidStateTransition   = errors.New("state transition is not allowed")
+	ErrBootstrapClosed          = errors.New("bootstrap is closed")
+	ErrInvitationInvalid        = errors.New("invitation is invalid or expired")
+	ErrMembershipConflict       = errors.New("membership state conflicts with the operation")
+	ErrLastActiveOwner          = errors.New("at least one active owner is required")
+	ErrTargetAgentNotFound      = errors.New("target agent not found")
+	ErrAgentIdentityConflict    = errors.New("agent identity is ambiguous")
+	ErrEnvelopeNotFound         = errors.New("channel envelope not found")
+	ErrEnvelopeState            = errors.New("channel envelope state does not allow the operation")
+	ErrIdempotencyConflict      = errors.New("idempotency key was already used for a different request")
+	ErrInvalidChannelRequest    = errors.New("invalid channel request")
+	ErrInvalidIdentityInput     = errors.New("invalid identity or agent input")
+	ErrAuditEventNotFound       = errors.New("audit event not found")
+	ErrAgentProvisionConflict   = errors.New("agent is provisioned by another owner")
+	ErrDeviceAgentLimitExceeded = errors.New("device active agent limit exceeded")
 )
 
 type Permission string
@@ -42,16 +44,26 @@ const (
 	PermissionGet            Permission = "get"
 	PermissionChannelSend    Permission = "channel_send"
 	PermissionChannelReceive Permission = "channel_receive"
+	PermissionAgentProvision Permission = "agent_provision"
+)
+
+type CredentialKind string
+
+const (
+	CredentialKindAgent  CredentialKind = "agent"
+	CredentialKindDevice CredentialKind = "device"
 )
 
 type Principal struct {
-	UserID          string
-	MembershipID    string
-	AgentID         string
-	ScopeID         string
-	CredentialID    string
-	CredentialLabel string
-	Permissions     []Permission
+	UserID               string
+	MembershipID         string
+	AgentID              string
+	ScopeID              string
+	CredentialID         string
+	CredentialLabel      string
+	Permissions          []Permission
+	Kind                 CredentialKind
+	GrantablePermissions []Permission
 }
 
 func (p Principal) HasPermission(permission Permission) bool {
@@ -98,6 +110,8 @@ type EnrollmentRecord struct {
 	CredentialExpiresAt      *time.Time
 	ConsumedAt               *time.Time
 	AllowLegacyAgentCreation bool
+	Kind                     CredentialKind
+	GrantablePermissions     []Permission
 }
 
 type CredentialRecord struct {
@@ -114,6 +128,9 @@ type CredentialRecord struct {
 	RevokedAt               *time.Time
 	LastUsedAt              *time.Time
 	RotatedFromCredentialID string
+	Kind                    CredentialKind
+	ProvisionedBy           string
+	GrantablePermissions    []Permission
 }
 
 type CredentialStore interface {

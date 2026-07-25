@@ -70,6 +70,7 @@ type AgentProfile struct {
 	RetiredAt              *time.Time
 	ResourceVersion        int64
 	CreationIdempotencyKey string
+	ProvisionedBy          string
 }
 
 type CreateAgentRequest struct {
