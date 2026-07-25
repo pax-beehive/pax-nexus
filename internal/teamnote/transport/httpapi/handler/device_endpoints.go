@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
@@ -11,17 +12,46 @@ import (
 )
 
 // Device provisioning endpoints. ProvisionDeviceAgent (Task 5),
-// ListDeviceProvisions (Task 6), RevokeAdminDevice (Task 7), and
-// ListAdminDevices/GetAdminDevice (Task 8) are implemented below.
-// CreateDeviceEnrollment remains a placeholder from Task 4's IDL + codegen
-// pass; device enrollment is currently created through
-// RegistryService.CreateDeviceEnrollment via other entry points.
+// ListDeviceProvisions (Task 6), RevokeAdminDevice (Task 7),
+// ListAdminDevices/GetAdminDevice (Task 8), and CreateDeviceEnrollment
+// (Task 8.5) are implemented below.
 
-func (h *Handler) CreateDeviceEnrollment(_ context.Context, c *app.RequestContext) {
-	if !h.requireOnPrem(c) {
+// CreateDeviceEnrollment creates a one-time device enrollment token (Task
+// 8.5's device provisioning portal endpoint). It is a human-session admin
+// mutation, so it mirrors this file's own ListAdminDevices/RevokeAdminDevice
+// and identity_registry_endpoints.go's CreateOwnedAgentEnrollment exactly:
+// authorizeHumanMember(ctx, c, true) handles session auth + CSRF (mutation
+// requests require CSRF; RegistryService.CreateDeviceEnrollment itself
+// re-checks Owner/Admin via authorizeHumanAdmin, so the member-level
+// authorize here is defense in depth, not the only gate). Unlike
+// ProvisionDeviceAgent/ExchangeAgentEnrollment (device-token flows), this
+// endpoint does not call requireOnPrem: none of its human-session siblings in
+// this file do, since that guard checks h.credentials/h.memory, not
+// h.registry.
+func (h *Handler) CreateDeviceEnrollment(ctx context.Context, c *app.RequestContext) {
+	principal, ok := h.authorizeHumanMember(ctx, c, true)
+	if !ok {
 		return
 	}
-	c.String(consts.StatusNotImplemented, "create device enrollment is not implemented")
+	var request api.CreateDeviceEnrollmentRequest
+	if err := c.BindAndValidate(&request); err != nil {
+		writeHumanAPIError(c, consts.StatusBadRequest, "invalid_request", "the request is invalid")
+		return
+	}
+	deviceName := strings.TrimSpace(request.DeviceName)
+	permissions := make([]onprem.Permission, len(request.GrantablePermissions))
+	for index, permission := range request.GrantablePermissions {
+		permissions[index] = onprem.Permission(permission)
+	}
+	enrollment, grantablePermissions, err := h.registry.CreateDeviceEnrollment(ctx, principal, onprem.DeviceEnrollmentRequest{
+		DeviceName: deviceName, GrantablePermissions: permissions,
+		ExpiresIn: time.Duration(request.GetExpiresInSeconds()) * time.Second,
+	})
+	if err != nil {
+		h.writeHumanError(c, "create device enrollment", err)
+		return
+	}
+	c.JSON(consts.StatusCreated, deviceEnrollmentToAPI(enrollment, deviceName, grantablePermissions))
 }
 
 // ProvisionDeviceAgent creates or rotates the credential for an agent that a

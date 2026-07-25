@@ -389,7 +389,7 @@ func (s *registrySuite) TestMemberGrantablePermissionAllowlist() {
 
 func (s *registrySuite) TestCreateDeviceEnrollmentRequiresOwnerOrAdmin() {
 	member := activeMember()
-	_, err := s.service.CreateDeviceEnrollment(context.Background(), member, onprem.DeviceEnrollmentRequest{
+	_, _, err := s.service.CreateDeviceEnrollment(context.Background(), member, onprem.DeviceEnrollmentRequest{
 		DeviceName: "todd-macbook-air",
 	})
 	s.Require().ErrorIs(err, onprem.ErrForbidden)
@@ -398,7 +398,7 @@ func (s *registrySuite) TestCreateDeviceEnrollmentRequiresOwnerOrAdmin() {
 func (s *registrySuite) TestCreateDeviceEnrollmentRejectsEmptyDeviceName() {
 	owner := activeMember()
 	owner.Role = onprem.RoleOwner
-	_, err := s.service.CreateDeviceEnrollment(context.Background(), owner, onprem.DeviceEnrollmentRequest{
+	_, _, err := s.service.CreateDeviceEnrollment(context.Background(), owner, onprem.DeviceEnrollmentRequest{
 		DeviceName: "   ",
 	})
 	s.Require().ErrorIs(err, onprem.ErrInvalidIdentityInput)
@@ -407,7 +407,7 @@ func (s *registrySuite) TestCreateDeviceEnrollmentRejectsEmptyDeviceName() {
 func (s *registrySuite) TestCreateDeviceEnrollmentRejectsGrantableSupersetOfConfig() {
 	owner := activeMember()
 	owner.Role = onprem.RoleOwner
-	_, err := s.service.CreateDeviceEnrollment(context.Background(), owner, onprem.DeviceEnrollmentRequest{
+	_, _, err := s.service.CreateDeviceEnrollment(context.Background(), owner, onprem.DeviceEnrollmentRequest{
 		DeviceName:           "todd-macbook-air",
 		GrantablePermissions: []onprem.Permission{onprem.PermissionAdmin},
 	})
@@ -417,7 +417,7 @@ func (s *registrySuite) TestCreateDeviceEnrollmentRejectsGrantableSupersetOfConf
 func (s *registrySuite) TestCreateDeviceEnrollmentHappyPathRecordsDeviceKind() {
 	admin := activeMember()
 	admin.Role = onprem.RoleAdmin
-	enrollment, err := s.service.CreateDeviceEnrollment(context.Background(), admin, onprem.DeviceEnrollmentRequest{
+	enrollment, _, err := s.service.CreateDeviceEnrollment(context.Background(), admin, onprem.DeviceEnrollmentRequest{
 		DeviceName: "todd-macbook-air",
 	})
 	s.Require().NoError(err)
@@ -437,6 +437,41 @@ func (s *registrySuite) TestCreateDeviceEnrollmentHappyPathRecordsDeviceKind() {
 	)
 	s.Equal(admin.UserID, record.UserID)
 	s.Equal(admin.MembershipID, record.MembershipID)
+}
+
+// TestCreateDeviceEnrollmentReturnsEffectiveGrantablePermissions locks in the
+// second return value the portal endpoint (Task 8.5) relies on to report a
+// truthful grantable_permissions echo: when the caller omits
+// GrantablePermissions, the effective set returned to the caller must equal
+// the persisted record's GrantablePermissions (the configured default), and
+// when the caller supplies an explicit set, the effective set returned must
+// equal what was persisted (deduplicated, in request order).
+func (s *registrySuite) TestCreateDeviceEnrollmentReturnsEffectiveGrantablePermissions() {
+	owner := activeMember()
+	owner.Role = onprem.RoleOwner
+
+	_, defaultGrantable, err := s.service.CreateDeviceEnrollment(context.Background(), owner, onprem.DeviceEnrollmentRequest{
+		DeviceName: "default-device",
+	})
+	s.Require().NoError(err)
+	s.Require().Len(s.store.deviceEnrollments, 1)
+	s.Equal(s.store.deviceEnrollments[0].GrantablePermissions, defaultGrantable)
+	s.Equal(
+		[]onprem.Permission{
+			onprem.PermissionObserve, onprem.PermissionSearch, onprem.PermissionGet,
+			onprem.PermissionChannelSend, onprem.PermissionChannelReceive,
+		},
+		defaultGrantable,
+	)
+
+	_, explicitGrantable, err := s.service.CreateDeviceEnrollment(context.Background(), owner, onprem.DeviceEnrollmentRequest{
+		DeviceName:           "explicit-device",
+		GrantablePermissions: []onprem.Permission{onprem.PermissionSearch, onprem.PermissionGet},
+	})
+	s.Require().NoError(err)
+	s.Require().Len(s.store.deviceEnrollments, 2)
+	s.Equal(s.store.deviceEnrollments[1].GrantablePermissions, explicitGrantable)
+	s.Equal([]onprem.Permission{onprem.PermissionSearch, onprem.PermissionGet}, explicitGrantable)
 }
 
 func (s *registrySuite) TestRevokeDeviceRequiresOwnerOrAdmin() {

@@ -150,7 +150,7 @@ func (s *deviceProvisioningStoreSuite) TestDeviceEnrollmentCreateExchangeAuthent
 		UserID: s.userID, MembershipID: s.membershipID, Role: onprem.RoleOwner,
 		MembershipStatus: onprem.MembershipStatusActive,
 	}
-	enrollment, err := registryService.CreateDeviceEnrollment(ctx, owner, onprem.DeviceEnrollmentRequest{
+	enrollment, _, err := registryService.CreateDeviceEnrollment(ctx, owner, onprem.DeviceEnrollmentRequest{
 		DeviceName: uniqueCredentialValue("todd-macbook-air"),
 	})
 	s.Require().NoError(err)
@@ -224,7 +224,7 @@ func (s *deviceProvisioningStoreSuite) TestDeviceCredentialRotationPreservesKind
 	}
 
 	// Create device enrollment and exchange for credential.
-	enrollment, err := registryService.CreateDeviceEnrollment(ctx, owner, onprem.DeviceEnrollmentRequest{
+	enrollment, _, err := registryService.CreateDeviceEnrollment(ctx, owner, onprem.DeviceEnrollmentRequest{
 		DeviceName: uniqueCredentialValue("device-rotation-test"),
 	})
 	s.Require().NoError(err)
@@ -298,7 +298,7 @@ func (s *deviceProvisioningStoreSuite) newProvisioningServices(deviceAgentLimit 
 // and authenticates it to a device Principal.
 func (s *deviceProvisioningStoreSuite) enrollDevice(services deviceProvisioningServices) onprem.Principal {
 	ctx := context.Background()
-	enrollment, err := services.registry.CreateDeviceEnrollment(ctx, services.owner, onprem.DeviceEnrollmentRequest{
+	enrollment, _, err := services.registry.CreateDeviceEnrollment(ctx, services.owner, onprem.DeviceEnrollmentRequest{
 		DeviceName: uniqueCredentialValue("device"),
 	})
 	s.Require().NoError(err)
@@ -578,7 +578,7 @@ func (s *deviceProvisioningStoreSuite) TestRevokeDeviceCascadesToProvisionedAgen
 	ctx := context.Background()
 	services := s.newProvisioningServices(16)
 
-	enrollment, err := services.registry.CreateDeviceEnrollment(ctx, services.owner, onprem.DeviceEnrollmentRequest{
+	enrollment, _, err := services.registry.CreateDeviceEnrollment(ctx, services.owner, onprem.DeviceEnrollmentRequest{
 		DeviceName: uniqueCredentialValue("cascade-device"),
 	})
 	s.Require().NoError(err)
@@ -677,7 +677,7 @@ func (s *deviceProvisioningStoreSuite) TestLegacyRevokeCredentialCascadesDeviceR
 	ctx := context.Background()
 	services := s.newProvisioningServices(16)
 
-	enrollment, err := services.registry.CreateDeviceEnrollment(ctx, services.owner, onprem.DeviceEnrollmentRequest{
+	enrollment, _, err := services.registry.CreateDeviceEnrollment(ctx, services.owner, onprem.DeviceEnrollmentRequest{
 		DeviceName: uniqueCredentialValue("legacy-cascade-device"),
 	})
 	s.Require().NoError(err)

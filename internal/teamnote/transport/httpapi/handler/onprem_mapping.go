@@ -76,6 +76,22 @@ func deviceProvisionedAgentsToAPI(agents []onprem.DeviceProvisionedAgent) *api.L
 	return &api.ListDeviceProvisionsResponse{Agents: result}
 }
 
+// deviceEnrollmentToAPI builds the CreateDeviceEnrollment response.
+// grantablePermissions is the effective set RegistryService.CreateDeviceEnrollment
+// computed (the caller-supplied set, or the registry's configured default
+// when omitted) — see that method's doc comment — not re-derived here, since
+// Enrollment itself carries no permission fields.
+func deviceEnrollmentToAPI(enrollment onprem.Enrollment, deviceName string, grantablePermissions []onprem.Permission) *api.DeviceEnrollmentResponse {
+	permissions := make([]string, len(grantablePermissions))
+	for index, permission := range grantablePermissions {
+		permissions[index] = string(permission)
+	}
+	return &api.DeviceEnrollmentResponse{
+		EnrollmentID: enrollment.ID, Token: enrollment.Token, ExpiresAt: enrollment.ExpiresAt.Format(time.RFC3339Nano),
+		DeviceName: deviceName, GrantablePermissions: permissions,
+	}
+}
+
 func deviceSummaryToAPI(summary onprem.DeviceSummary) *api.DeviceSummary {
 	status := "active"
 	if summary.RevokedAt != nil {

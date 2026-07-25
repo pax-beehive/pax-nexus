@@ -408,17 +408,26 @@ func (s *RegistryService) CreateEnrollment(
 	return Enrollment{ID: id, Token: token, ExpiresAt: record.ExpiresAt}, nil
 }
 
+// CreateDeviceEnrollment creates a one-time device enrollment token. Its
+// second return value is the effective grantable-permissions set actually
+// persisted on the enrollment record: the caller-supplied set when
+// GrantablePermissions is non-empty, or the registry's configured default
+// (RegistryConfig.MemberGrantablePermissions) otherwise. Callers that need to
+// report the effective set truthfully (e.g. the device enrollment portal
+// endpoint) should use this return value rather than re-deriving it, since
+// Enrollment itself is shared with CreateEnrollment and intentionally carries
+// no permission fields.
 func (s *RegistryService) CreateDeviceEnrollment(
 	ctx context.Context,
 	principal HumanPrincipal,
 	request DeviceEnrollmentRequest,
-) (Enrollment, error) {
+) (Enrollment, []Permission, error) {
 	if err := authorizeHumanAdmin(principal); err != nil {
-		return Enrollment{}, err
+		return Enrollment{}, nil, err
 	}
 	deviceName := strings.TrimSpace(request.DeviceName)
 	if err := validateDeviceName(deviceName); err != nil {
-		return Enrollment{}, err
+		return Enrollment{}, nil, err
 	}
 	grantable := request.GrantablePermissions
 	if len(grantable) == 0 {
@@ -426,11 +435,11 @@ func (s *RegistryService) CreateDeviceEnrollment(
 	} else {
 		validated, err := validateExplicitPermissions(grantable)
 		if err != nil {
-			return Enrollment{}, err
+			return Enrollment{}, nil, err
 		}
 		for _, permission := range validated {
 			if _, allowed := s.grantable[permission]; !allowed {
-				return Enrollment{}, fmt.Errorf("%w: enrollment permission %q is not grantable", ErrInvalidIdentityInput, permission)
+				return Enrollment{}, nil, fmt.Errorf("%w: enrollment permission %q is not grantable", ErrInvalidIdentityInput, permission)
 			}
 		}
 		grantable = validated
@@ -440,15 +449,15 @@ func (s *RegistryService) CreateDeviceEnrollment(
 		expiresIn = defaultEnrollmentTTL
 	}
 	if expiresIn < 0 {
-		return Enrollment{}, fmt.Errorf("%w: enrollment expiry must be positive", ErrInvalidIdentityInput)
+		return Enrollment{}, nil, fmt.Errorf("%w: enrollment expiry must be positive", ErrInvalidIdentityInput)
 	}
 	id, err := s.idSource()
 	if err != nil {
-		return Enrollment{}, fmt.Errorf("create device enrollment ID: %w", err)
+		return Enrollment{}, nil, fmt.Errorf("create device enrollment ID: %w", err)
 	}
 	secret, err := s.tokenSource()
 	if err != nil {
-		return Enrollment{}, fmt.Errorf("create device enrollment secret: %w", err)
+		return Enrollment{}, nil, fmt.Errorf("create device enrollment secret: %w", err)
 	}
 	now := s.clock().UTC()
 	token, verifiableToken := enrollmentToken(id, secret, s.portalURL)
@@ -460,9 +469,9 @@ func (s *RegistryService) CreateDeviceEnrollment(
 		CreatedAt: now, ExpiresAt: now.Add(expiresIn),
 	}
 	if err := s.store.CreateDeviceEnrollment(ctx, principal.MembershipID, record); err != nil {
-		return Enrollment{}, fmt.Errorf("save device enrollment: %w", err)
+		return Enrollment{}, nil, fmt.Errorf("save device enrollment: %w", err)
 	}
-	return Enrollment{ID: id, Token: token, ExpiresAt: record.ExpiresAt}, nil
+	return Enrollment{ID: id, Token: token, ExpiresAt: record.ExpiresAt}, grantable, nil
 }
 
 func (s *RegistryService) ListEnrollments(

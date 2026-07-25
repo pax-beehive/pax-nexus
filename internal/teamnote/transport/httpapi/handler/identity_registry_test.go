@@ -308,6 +308,57 @@ func (s *identityRegistryHandlerSuite) TestOwnedAndAdminAgentLifecycleRoutes() {
 	s.Equal("agent-mutation-1", s.registry.lastIdempotencyKey)
 }
 
+// TestCreateDeviceEnrollmentRoutes exercises Task 8.5's device enrollment
+// portal endpoint: a Member session is service-forbidden (403), a mutation
+// without CSRF is rejected (403, mirroring TestHumanMutationRejectsMissingCSRF
+// and TestRevokeAdminDeviceRoutes), a request with no session at all is
+// unauthorized (401), and an Owner session gets a 201 carrying enrollment_id,
+// a tm_enroll_-prefixed one-time token, the (trimmed) device_name echoed back,
+// and grantable_permissions reflecting the effective set — either the
+// explicitly requested permissions or, when omitted, the registry's
+// configured default (see agentRegistryService.CreateDeviceEnrollment).
+func (s *identityRegistryHandlerSuite) TestCreateDeviceEnrollmentRoutes() {
+	headers := []ut.Header{
+		{Key: "Cookie", Value: "tm_human_session=session; tm_csrf=csrf"},
+		{Key: "X-CSRF-Token", Value: "csrf"},
+	}
+	body := `{"device_name":"todd-macbook-air"}`
+
+	memberResponse := s.performGenerated(http.MethodPost, "/v1/me/device-enrollments", body, headers...)
+	s.Equal(consts.StatusForbidden, memberResponse.Code)
+
+	missingCSRF := s.performGenerated(http.MethodPost, "/v1/me/device-enrollments", body,
+		ut.Header{Key: "Cookie", Value: "tm_human_session=session; tm_csrf=csrf"})
+	s.Equal(consts.StatusForbidden, missingCSRF.Code)
+
+	noSession := s.performGenerated(http.MethodPost, "/v1/me/device-enrollments", body,
+		ut.Header{Key: "Cookie", Value: "tm_csrf=csrf"},
+		ut.Header{Key: "X-CSRF-Token", Value: "csrf"})
+	s.Equal(consts.StatusUnauthorized, noSession.Code)
+
+	s.identity.principal.Role = onprem.RoleOwner
+
+	defaultResponse := s.performGenerated(http.MethodPost, "/v1/me/device-enrollments",
+		`{"device_name":"  todd-macbook-air  "}`, headers...)
+	s.Equal(consts.StatusCreated, defaultResponse.Code)
+	s.Contains(defaultResponse.Body.String(), `"enrollment_id":"device-enrollment"`)
+	s.Contains(defaultResponse.Body.String(), `"token":"tm_enroll_device_test"`)
+	s.Contains(defaultResponse.Body.String(), `"device_name":"todd-macbook-air"`)
+	s.Contains(defaultResponse.Body.String(),
+		`"grantable_permissions":["observe","search","get","channel_send","channel_receive"]`)
+	var defaultBody struct {
+		ExpiresAt string `json:"expires_at"`
+	}
+	s.Require().NoError(json.Unmarshal(defaultResponse.Body.Bytes(), &defaultBody))
+	_, err := time.Parse(time.RFC3339, defaultBody.ExpiresAt)
+	s.Require().NoError(err, "expires_at must be RFC3339")
+
+	explicitResponse := s.performGenerated(http.MethodPost, "/v1/me/device-enrollments",
+		`{"device_name":"todd-macbook-air","grantable_permissions":["search","get"]}`, headers...)
+	s.Equal(consts.StatusCreated, explicitResponse.Code)
+	s.Contains(explicitResponse.Body.String(), `"grantable_permissions":["search","get"]`)
+}
+
 func (s *identityRegistryHandlerSuite) TestRevokeAdminDeviceRoutes() {
 	headers := []ut.Header{
 		{Key: "Cookie", Value: "tm_human_session=session; tm_csrf=csrf"},
@@ -584,14 +635,16 @@ func (s *oidcService) CompleteLogin(
 }
 
 type agentRegistryService struct {
-	created            onprem.CreateAgentRequest
-	adminFilter        onprem.AgentFilter
-	lastIdempotencyKey string
-	createAgentErr     error
-	revokeDeviceErr    error
-	lastDeviceFilter   onprem.DeviceFilter
-	listDevicesErr     error
-	getDeviceErr       error
+	created                     onprem.CreateAgentRequest
+	adminFilter                 onprem.AgentFilter
+	lastIdempotencyKey          string
+	createAgentErr              error
+	revokeDeviceErr             error
+	lastDeviceFilter            onprem.DeviceFilter
+	listDevicesErr              error
+	getDeviceErr                error
+	lastDeviceEnrollmentRequest onprem.DeviceEnrollmentRequest
+	createDeviceEnrollmentErr   error
 }
 
 func testAgent(status onprem.AgentStatus, displayName string, version int64) onprem.AgentProfile {
@@ -841,6 +894,29 @@ func (s *agentRegistryService) RevokeAdminCredential(
 ) (onprem.AgentCredentialMetadata, error) {
 	s.lastIdempotencyKey = idempotencyKey
 	return onprem.AgentCredentialMetadata{CredentialID: credentialID, AgentID: agentID}, nil
+}
+
+func (s *agentRegistryService) CreateDeviceEnrollment(
+	_ context.Context,
+	principal onprem.HumanPrincipal,
+	request onprem.DeviceEnrollmentRequest,
+) (onprem.Enrollment, []onprem.Permission, error) {
+	if s.createDeviceEnrollmentErr != nil {
+		return onprem.Enrollment{}, nil, s.createDeviceEnrollmentErr
+	}
+	if principal.Role != onprem.RoleOwner && principal.Role != onprem.RoleAdmin {
+		return onprem.Enrollment{}, nil, onprem.ErrForbidden
+	}
+	s.lastDeviceEnrollmentRequest = request
+	grantable := request.GrantablePermissions
+	if len(grantable) == 0 {
+		grantable = []onprem.Permission{
+			onprem.PermissionObserve, onprem.PermissionSearch, onprem.PermissionGet,
+			onprem.PermissionChannelSend, onprem.PermissionChannelReceive,
+		}
+	}
+	return onprem.Enrollment{ID: "device-enrollment", Token: "tm_enroll_device_test", ExpiresAt: time.Now().Add(time.Hour)},
+		grantable, nil
 }
 
 func (s *agentRegistryService) RevokeDevice(
