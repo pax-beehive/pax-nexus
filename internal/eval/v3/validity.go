@@ -43,6 +43,7 @@ type ValidityCheck struct {
 type ValidityReport struct {
 	SchemaVersion  string            `json:"schema_version"`
 	RunID          string            `json:"run_id"`
+	ArmSet         string            `json:"arm_set"`
 	Status         string            `json:"status"`
 	Valid          bool              `json:"valid"`
 	ExpectedTrials int               `json:"expected_trials"`
@@ -80,13 +81,14 @@ func EvaluateValidity(directory string, run v2.RunRecord, cases []v2.Case, resul
 	if strings.TrimSpace(directory) == "" {
 		return ValidityReport{}, fmt.Errorf("evaluate eval v3 validity: output directory is required")
 	}
+	requiredArms := ArmsFor(run.Config.ArmSet)
 	report := ValidityReport{
-		SchemaVersion: ValiditySchemaVersion, RunID: run.ID,
-		ExpectedTrials: len(cases) * len(architectureArms), ObservedTrials: len(results), GeneratedAt: time.Now().UTC(),
+		SchemaVersion: ValiditySchemaVersion, RunID: run.ID, ArmSet: requiredArmSetLabel(run.Config.ArmSet),
+		ExpectedTrials: len(cases) * len(requiredArms), ObservedTrials: len(results), GeneratedAt: time.Now().UTC(),
 	}
 	collector := &validityCollector{}
-	evaluateTrialMatrix(collector, run, cases, results)
-	evaluateIngestEvidence(collector, directory, run)
+	evaluateTrialMatrix(collector, run, cases, results, requiredArms)
+	evaluateIngestEvidence(collector, directory, run, requiredArms)
 	evaluateRecallObservations(collector, results)
 	evaluateAttemptArtifacts(collector, directory, run.ID, run.Config.Judge != nil, results)
 	evaluateResolvedConfig(collector, directory, run)
@@ -144,11 +146,11 @@ func RequireValid(report ValidityReport) error {
 	return fmt.Errorf("%w: %d validity failures", ErrInvalidRun, len(report.Failures))
 }
 
-func evaluateTrialMatrix(collector *validityCollector, run v2.RunRecord, cases []v2.Case, results []v2.TrialResult) {
+func evaluateTrialMatrix(collector *validityCollector, run v2.RunRecord, cases []v2.Case, results []v2.TrialResult, arms []string) {
 	start := len(collector.failures)
-	expected := make(map[string]struct{}, len(cases)*len(architectureArms))
+	expected := make(map[string]struct{}, len(cases)*len(arms))
 	for _, evalCase := range cases {
-		for _, arm := range architectureArms {
+		for _, arm := range arms {
 			expected[evalCase.ID+"\x00"+arm] = struct{}{}
 		}
 	}
@@ -183,7 +185,7 @@ func evaluateTrialMatrix(collector *validityCollector, run v2.RunRecord, cases [
 	collector.finishCheck("trial_matrix", start)
 }
 
-func evaluateIngestEvidence(collector *validityCollector, directory string, run v2.RunRecord) {
+func evaluateIngestEvidence(collector *validityCollector, directory string, run v2.RunRecord, requiredArms []string) {
 	coverageStart := len(collector.failures)
 	var header manifestHeader
 	if err := readJSON(run.Config.Run.Manifest, &header); err != nil {
@@ -237,6 +239,17 @@ func evaluateIngestEvidence(collector *validityCollector, directory string, run 
 			return ""
 		}},
 	}
+	required := make(map[string]struct{}, len(requiredArms))
+	for _, arm := range requiredArms {
+		required[arm] = struct{}{}
+	}
+	filtered := tests[:0:0]
+	for _, test := range tests {
+		if _, ok := required[test.arm]; ok {
+			filtered = append(filtered, test)
+		}
+	}
+	tests = filtered
 	receipts := make([]ingestReceipt, 0, len(tests))
 	for _, test := range tests {
 		var receipt ingestReceipt
