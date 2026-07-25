@@ -80,9 +80,11 @@ validate_domain_receipts() {
   if [ "${PAX_EVAL_DOMAIN_INGEST_MODE:-all}" = "team-note-only" ]; then
     return 0
   fi
-  jq -e --argjson expected "${expected}" \
-    '.provider == "mem0_messages" and .source_events == $expected and .accepted == $expected and ((.created + .updated + .deleted) > 0)' \
-    "${marker_directory}/mem0-ingest.json" >/dev/null || return 1
+  if [ "${EVAL_V3_ARM_SET:-three_arm}" != "two_arm_no_mem0" ]; then
+    jq -e --argjson expected "${expected}" \
+      '.provider == "mem0_messages" and .source_events == $expected and .accepted == $expected and ((.created + .updated + .deleted) > 0)' \
+      "${marker_directory}/mem0-ingest.json" >/dev/null || return 1
+  fi
   jq -e --argjson expected "${expected}" \
     '.provider == "private_sqlite" and .source_events == $expected and .accepted == $expected and .created == $expected' \
     "${marker_directory}/private-sqlite-ingest.json" >/dev/null || return 1
@@ -130,9 +132,11 @@ ingest_domain() {
     : > "${marker_directory}/team-note.complete"
   fi
   if [ "${PAX_EVAL_DOMAIN_INGEST_MODE:-all}" != "team-note-only" ]; then
-    if [ ! -f "${marker_directory}/mem0.complete" ]; then
-      run_memory_ingest mem0_messages "${batches_directory}" "${batches_file}" > "${marker_directory}/mem0-ingest.json"
-      : > "${marker_directory}/mem0.complete"
+    if [ "${EVAL_V3_ARM_SET:-three_arm}" != "two_arm_no_mem0" ]; then
+      if [ ! -f "${marker_directory}/mem0.complete" ]; then
+        run_memory_ingest mem0_messages "${batches_directory}" "${batches_file}" > "${marker_directory}/mem0-ingest.json"
+        : > "${marker_directory}/mem0.complete"
+      fi
     fi
     if [ ! -f "${marker_directory}/private-sqlite.complete" ]; then
       docker compose -p "${project_name}" -f "${compose_file}" run --rm --no-deps \

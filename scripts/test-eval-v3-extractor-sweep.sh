@@ -507,6 +507,158 @@ fi
 expect_contains "README documents the sweep" \
   "$(cat evals/v3/README.md)" "eval-v3-extractor-sweep"
 
+# --- Two-arm no-Mem0 mode coverage (arm_set: two_arm_no_mem0). The sweep
+# template must declare the reduced arm set, and scripts/eval-v3-opencode.sh
+# must keep the default (three-arm) ingest path byte-for-byte unchanged while
+# gating only the Mem0 ingest step and its receipt requirement on
+# EVAL_V3_ARM_SET.
+
+if [ -f "$manifest" ]; then
+  # 1 & 2 & 3: the rendered per-round config declares arm_set and exactly the
+  # two permitted arms, with groupmembench_mem0 absent, baseline_arm still
+  # no_memory_team, and the extractor base-URL provenance guarantee intact.
+  armset_sweep_prefix="armsettemplateprefix"
+  armset_sweep_out=$(env $sweep_env EVAL_V3_SWEEP_MANIFEST="$manifest" \
+    DEEPSEEK_API_KEY=fake-deepseek \
+    "$sweep" --dry-run "$armset_sweep_prefix" deepseek-v4-flash 2>&1) || \
+    fail "arm_set dry run exited non-zero: $armset_sweep_out"
+
+  armset_rendered="runs/eval-v3-sweep/${armset_sweep_prefix}/configs/deepseek-v4-flash.yaml"
+  if [ ! -f "$armset_rendered" ]; then
+    fail "arm_set dry run did not render $armset_rendered"
+  else
+    rendered_content="$(cat "$armset_rendered")"
+    expect_contains "rendered sweep config declares arm_set: two_arm_no_mem0" \
+      "$rendered_content" "arm_set: two_arm_no_mem0"
+    expect_eq "rendered sweep config lists exactly the two permitted arms" \
+      "$(printf '%s\n' "$rendered_content" | grep -cE '^  - name: ')" "2"
+    case "$rendered_content" in
+      *groupmembench_mem0*)
+        fail "rendered sweep config still names the Mem0 arm" ;;
+    esac
+    expect_contains "rendered sweep config keeps baseline_arm as no_memory_team" \
+      "$rendered_content" "baseline_arm: no_memory_team"
+    expect_contains "rendered sweep config still records the extractor base URL" \
+      "$rendered_content" "TEAM_MEMORY_EXTRACTOR_BASE_URL"
+  fi
+  rm -rf "runs/eval-v3-sweep/${armset_sweep_prefix}"
+fi
+
+# 4: with EVAL_V3_ARM_SET unset or three_arm, scripts/eval-v3-opencode.sh must
+# still exercise the Mem0 ingest path. Asserted against the script's own
+# behaviour with a stubbed `docker` (placed ahead of the real one on PATH),
+# not by grepping the script source for a literal. As additional coverage
+# (not required by the brief but cheap given the harness above), the same
+# stub also verifies EVAL_V3_ARM_SET=two_arm_no_mem0 actually skips Mem0 while
+# leaving Team Note ingest, private-SQLite ingest, and the extraction
+# readiness wait (memory_items) intact.
+opencode_script=./scripts/eval-v3-opencode.sh
+
+armset_manifest_dir="$tmp/armset-manifest"
+mkdir -p "$armset_manifest_dir"
+cat > "$armset_manifest_dir/manifest.json" <<'JSON'
+{
+  "domain_session_batches": "batches.json",
+  "full_domain_messages": 2,
+  "cases": [{"scope_id": "scope-armset"}]
+}
+JSON
+: > "$armset_manifest_dir/batches.json"
+armset_manifest="$armset_manifest_dir/manifest.json"
+
+armset_bin="$tmp/armset-bin"
+mkdir -p "$armset_bin"
+cat > "$armset_bin/docker" <<'STUB'
+#!/bin/sh
+set -eu
+log="${DOCKER_INGEST_STUB_LOG:-/dev/null}"
+args="$*"
+printf 'docker %s\n' "$args" >> "$log"
+case "$args" in
+  *"exec -T postgres psql"*)
+    stdin_sql="$(cat)"
+    case "$stdin_sql" in
+      *session_streams*) printf '1\n' ;;
+      *team_notes*) printf '3\n' ;;
+      *) printf '0\n' ;;
+    esac
+    ;;
+  *"-action ingest -provider team_note"*)
+    printf '{"provider":"team_note","source_events":2,"accepted":2,"duplicate":0}\n'
+    ;;
+  *"-action ingest -provider mem0_messages"*)
+    printf '{"provider":"mem0_messages","source_events":2,"accepted":2,"created":2,"updated":0,"deleted":0}\n'
+    ;;
+  *"ingest-private-sqlite.mjs"*)
+    printf '{"provider":"private_sqlite","source_events":2,"accepted":2,"created":2}\n'
+    ;;
+esac
+exit 0
+STUB
+chmod +x "$armset_bin/docker"
+
+# Scenario A: EVAL_V3_ARM_SET unset (the three-arm default).
+default_output="$tmp/armset-default-output"
+default_log="$tmp/armset-default-docker.log"
+: > "$default_log"
+default_out=$(PATH="$armset_bin:$PATH" \
+  EVAL_V2_BASE_ENV_FILE="$tmp/base.env" EVAL_V2_ENV_FILE="$tmp/eval.env" \
+  PAX_EVAL_MANIFEST="$armset_manifest" PAX_EVAL_OUTPUT_DIR="$default_output" \
+  PAX_EVAL_RUN_ID=armset-default DOCKER_INGEST_STUB_LOG="$default_log" \
+  "$opencode_script" ingest-domain all 2>&1) || \
+  fail "default arm_set ingest-domain exited non-zero: $default_out"
+
+expect_contains "default arm_set (EVAL_V3_ARM_SET unset) still invokes the Mem0 ingest step" \
+  "$(cat "$default_log")" "-action ingest -provider mem0_messages"
+if [ ! -f "$default_output/memory/mem0-ingest.json" ]; then
+  fail "default arm_set (EVAL_V3_ARM_SET unset) did not produce a Mem0 ingest receipt"
+fi
+
+# Same again with EVAL_V3_ARM_SET=three_arm set explicitly.
+explicit_output="$tmp/armset-explicit-output"
+explicit_log="$tmp/armset-explicit-docker.log"
+: > "$explicit_log"
+explicit_out=$(PATH="$armset_bin:$PATH" \
+  EVAL_V2_BASE_ENV_FILE="$tmp/base.env" EVAL_V2_ENV_FILE="$tmp/eval.env" \
+  PAX_EVAL_MANIFEST="$armset_manifest" PAX_EVAL_OUTPUT_DIR="$explicit_output" \
+  PAX_EVAL_RUN_ID=armset-explicit DOCKER_INGEST_STUB_LOG="$explicit_log" \
+  EVAL_V3_ARM_SET=three_arm \
+  "$opencode_script" ingest-domain all 2>&1) || \
+  fail "explicit three_arm ingest-domain exited non-zero: $explicit_out"
+
+expect_contains "EVAL_V3_ARM_SET=three_arm still invokes the Mem0 ingest step" \
+  "$(cat "$explicit_log")" "-action ingest -provider mem0_messages"
+
+# Scenario B: EVAL_V3_ARM_SET=two_arm_no_mem0 skips Mem0 ingest and its
+# receipt requirement, while Team Note ingest, private-SQLite ingest, and the
+# extraction readiness wait still run.
+twoarm_output="$tmp/armset-twoarm-output"
+twoarm_log="$tmp/armset-twoarm-docker.log"
+: > "$twoarm_log"
+twoarm_out=$(PATH="$armset_bin:$PATH" \
+  EVAL_V2_BASE_ENV_FILE="$tmp/base.env" EVAL_V2_ENV_FILE="$tmp/eval.env" \
+  PAX_EVAL_MANIFEST="$armset_manifest" PAX_EVAL_OUTPUT_DIR="$twoarm_output" \
+  PAX_EVAL_RUN_ID=armset-twoarm DOCKER_INGEST_STUB_LOG="$twoarm_log" \
+  EVAL_V3_ARM_SET=two_arm_no_mem0 \
+  "$opencode_script" ingest-domain all 2>&1) || \
+  fail "two_arm_no_mem0 ingest-domain exited non-zero: $twoarm_out"
+
+case "$(cat "$twoarm_log")" in
+  *"-action ingest -provider mem0_messages"*)
+    fail "two_arm_no_mem0 unexpectedly invoked the Mem0 ingest step" ;;
+esac
+if [ -f "$twoarm_output/memory/mem0-ingest.json" ]; then
+  fail "two_arm_no_mem0 unexpectedly produced a Mem0 ingest receipt"
+fi
+if [ ! -f "$twoarm_output/memory/team-note-ingest.json" ]; then
+  fail "two_arm_no_mem0 did not produce a Team Note ingest receipt"
+fi
+expect_contains "two_arm_no_mem0 still runs the extraction readiness wait" \
+  "$(cat "$twoarm_output/memory/team-note-ingest.json")" "memory_items"
+if [ ! -f "$twoarm_output/memory/private-sqlite-ingest.json" ]; then
+  fail "two_arm_no_mem0 did not produce a private-SQLite ingest receipt"
+fi
+
 if [ "$failures" -ne 0 ]; then
   echo "$failures check(s) failed" >&2
   exit 1

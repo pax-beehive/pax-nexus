@@ -38,6 +38,14 @@ EVAL_V3_STACK_CMD="${EVAL_V3_STACK_CMD:-./scripts/eval-v3-stack.sh}"
 EVAL_V3_RUNNER_CMD="${EVAL_V3_RUNNER_CMD:-go run ./cmd/team-memory-eval-v3}"
 EVAL_V3_DSN_CMD="${EVAL_V3_DSN_CMD:-./scripts/eval-postgres-dsn.sh}"
 
+# evals/v3/config.sweep-template.yaml declares arm_set: two_arm_no_mem0, so the
+# runner's before_run/consumer invocations of scripts/eval-v3-opencode.sh must
+# see the same value here (the executor forwards this process's environment
+# to those child commands unchanged) — otherwise the ingest step and the
+# config's validity check would disagree about which arms ran.
+EVAL_V3_ARM_SET="${EVAL_V3_ARM_SET:-two_arm_no_mem0}"
+export EVAL_V3_ARM_SET
+
 if [ ! -f "$manifest" ]; then
   echo "manifest not found: ${manifest}" >&2
   exit 2

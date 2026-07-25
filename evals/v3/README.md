@@ -93,11 +93,42 @@ leakage, storage-size, and split recall-latency metrics still require the
 separate reviewed-evidence/stage pipeline before the ADR's product-use
 acceptance gate is complete.
 
+## Two-arm mode (`arm_set: two_arm_no_mem0`)
+
+Opt in by setting `arm_set: two_arm_no_mem0` in the config. Scripts that shell
+out to `scripts/eval-v3-opencode.sh` must set the matching
+`EVAL_V3_ARM_SET=two_arm_no_mem0` in the environment — the two must agree, or
+the ingest step and `validity.json` will disagree about which arms ran. This
+mode runs only `no_memory_team` and `private_sqlite_plus_team_note`;
+`groupmembench_mem0` is not a permitted arm in a `two_arm_no_mem0` config.
+
+It exists because Mem0 ingest costs roughly nine hours per full-domain round,
+which makes sweeping candidate Team Note extraction models against a live
+Mem0 arm infeasible. Skipping Mem0 ingest and its receipt requirement is the
+only thing this mode changes: Team Note ingest, private-SQLite ingest, and
+the full-domain extraction readiness wait are unchanged. That readiness wait
+is what enriches `team-note-ingest.json` with `memory_items`, the guardrail
+that catches an extractor that produced nothing, so it still runs in full.
+
+`validity.json` attests to this reduced contract explicitly: its `arm_set`
+field records `two_arm_no_mem0`, and it does not require a Mem0 ingest receipt
+or a Mem0 recall observation. Numbers from a two-arm run are not comparable to
+three-arm runs, and are not comparable to any published Mem0 figure — this
+mode cannot speak to Mem0 at all. It answers "which extractor produces better
+Team Note memory," not "how does PAX compare to Mem0."
+
+Default behavior is unchanged: with `arm_set` absent or `three_arm`
+(equivalently, `EVAL_V3_ARM_SET` unset or `three_arm`), all three arms run and
+Mem0 ingest and its receipt are required exactly as before.
+
 ## Extractor model sweep
 
-Run the three-arm protocol once per candidate Team Note extraction model,
-holding the consumer, Mem0 extraction LLM, and judge fixed, so any accuracy
-delta is attributable to the extracted memory rather than the model reading it.
+Run the two-arm no-Mem0 protocol once per candidate Team Note extraction
+model, holding the consumer and judge fixed, so any accuracy delta between
+`no_memory_team` and `private_sqlite_plus_team_note` is attributable to the
+extracted memory rather than the model reading it. The sweep does not ingest
+or run Mem0 at all — see "Two-arm mode" above for what that means for these
+numbers.
 
 Check the plan without starting Docker:
 
