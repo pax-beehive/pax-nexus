@@ -697,6 +697,122 @@ func (s *RegistryStore) RevokeOwnedCredential(
 	return metadata, nil
 }
 
+// RevokeDevice revokes a device credential and, in the same transaction,
+// cascades to every agent credential the device provisioned via
+// cascadeRevokeProvisionedCredentials (postgres/credentials.go). It mirrors
+// RevokeOwnedCredential's idempotent-replay pattern but locks and branches on
+// the current row state up front, since an already-revoked device must not
+// re-run the cascade.
+func (s *RegistryStore) RevokeDevice(
+	ctx context.Context,
+	actor onprem.HumanPrincipal,
+	credentialID string,
+	idempotencyKey string,
+	now time.Time,
+) (summary onprem.DeviceSummary, returnedErr error) {
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return onprem.DeviceSummary{}, fmt.Errorf("begin device revocation: %w", err)
+	}
+	defer rollbackTx(&returnedErr, tx, "device revocation")
+
+	var (
+		deviceName, createdByUserID, createdByMembershipID       string
+		createdAt                                                time.Time
+		revokedAt, lastUsedAt                                    *time.Time
+		grantablePermissions                                     []string
+		revokeIdempotencyKey, revokeIdempotencyActorMembershipID string
+	)
+	err = tx.QueryRow(ctx, `
+		SELECT label, user_id, owner_membership_id, created_at, revoked_at, last_used_at,
+		       grantable_permissions, revoke_idempotency_key, revoke_idempotency_actor_membership_id
+		FROM agent_credentials
+		WHERE credential_id = $1 AND kind = 'device'
+		FOR UPDATE
+	`, credentialID).Scan(
+		&deviceName, &createdByUserID, &createdByMembershipID, &createdAt, &revokedAt, &lastUsedAt,
+		&grantablePermissions, &revokeIdempotencyKey, &revokeIdempotencyActorMembershipID,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return onprem.DeviceSummary{}, onprem.ErrCredentialNotFound
+	}
+	if err != nil {
+		return onprem.DeviceSummary{}, fmt.Errorf("lock postgres device credential: %w", err)
+	}
+
+	if revokedAt != nil {
+		if idempotencyKey == "" || revokeIdempotencyKey != idempotencyKey ||
+			revokeIdempotencyActorMembershipID != actor.MembershipID {
+			return onprem.DeviceSummary{}, onprem.ErrIdempotencyConflict
+		}
+		summary, err = deviceSummaryWithProvisionedCount(ctx, tx, credentialID, deviceName, createdByUserID,
+			createdByMembershipID, createdAt, revokedAt, lastUsedAt, grantablePermissions)
+		if err != nil {
+			return onprem.DeviceSummary{}, err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return onprem.DeviceSummary{}, fmt.Errorf("commit device revocation replay: %w", err)
+		}
+		return summary, nil
+	}
+
+	if _, err := tx.Exec(ctx, `
+		UPDATE agent_credentials
+		SET revoked_at = $2, revoke_idempotency_key = $3, revoke_idempotency_actor_membership_id = $4
+		WHERE credential_id = $1
+	`, credentialID, now, idempotencyKey, actor.MembershipID); err != nil {
+		if isUniqueViolation(err) {
+			return onprem.DeviceSummary{}, onprem.ErrIdempotencyConflict
+		}
+		return onprem.DeviceSummary{}, fmt.Errorf("revoke postgres device credential: %w", err)
+	}
+	if err := insertAuditEvent(ctx, tx, "human", actor.UserID, actor.MembershipID, "", "",
+		"identity.credential.revoked", "credential", credentialID, now); err != nil {
+		return onprem.DeviceSummary{}, err
+	}
+	if _, err := cascadeRevokeProvisionedCredentials(ctx, tx, credentialID, now); err != nil {
+		return onprem.DeviceSummary{}, err
+	}
+	revokedAt = &now
+	summary, err = deviceSummaryWithProvisionedCount(ctx, tx, credentialID, deviceName, createdByUserID,
+		createdByMembershipID, createdAt, revokedAt, lastUsedAt, grantablePermissions)
+	if err != nil {
+		return onprem.DeviceSummary{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return onprem.DeviceSummary{}, fmt.Errorf("commit device revocation: %w", err)
+	}
+	return summary, nil
+}
+
+// deviceSummaryWithProvisionedCount builds a DeviceSummary from a device
+// credential's already-locked row fields plus a fresh count of the agents it
+// still actively provisions (0 immediately after a fresh revoke, since the
+// cascade just ran in the same transaction).
+func deviceSummaryWithProvisionedCount(
+	ctx context.Context,
+	tx pgx.Tx,
+	credentialID, deviceName, userID, membershipID string,
+	createdAt time.Time,
+	revokedAt, lastUsedAt *time.Time,
+	grantablePermissions []string,
+) (onprem.DeviceSummary, error) {
+	var count int64
+	if err := tx.QueryRow(ctx, `
+		SELECT count(DISTINCT agent_id) FROM agent_credentials
+		WHERE provisioned_by = $1 AND revoked_at IS NULL
+	`, credentialID).Scan(&count); err != nil {
+		return onprem.DeviceSummary{}, fmt.Errorf("count postgres active provisioned agents: %w", err)
+	}
+	return onprem.DeviceSummary{
+		CredentialID: credentialID, DeviceName: deviceName,
+		CreatedByUserID: userID, CreatedByMembershipID: membershipID,
+		CreatedAt: createdAt, RevokedAt: revokedAt, LastUsedAt: lastUsedAt,
+		GrantablePermissions:  permissionsFromStrings(grantablePermissions),
+		ProvisionedAgentCount: count,
+	}, nil
+}
+
 func (s *RegistryStore) ListDirectoryAgents(
 	ctx context.Context,
 	filter onprem.AgentFilter,

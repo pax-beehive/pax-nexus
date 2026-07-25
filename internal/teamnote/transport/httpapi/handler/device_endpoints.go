@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"strings"
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
@@ -11,10 +12,10 @@ import (
 
 // Device provisioning endpoints (Task 4: IDL + codegen only). These are
 // minimal placeholders that keep the generated handler stubs compiling;
-// Tasks 7-8 replace the remaining bodies with the real domain-backed
-// implementations (device enrollment and admin device management).
-// ProvisionDeviceAgent (Task 5) and ListDeviceProvisions (Task 6) are
-// implemented below.
+// Task 8 replaces the remaining bodies with the real domain-backed
+// implementations (device enrollment and admin device listing/get).
+// ProvisionDeviceAgent (Task 5), ListDeviceProvisions (Task 6), and
+// RevokeAdminDevice (Task 7) are implemented below.
 
 func (h *Handler) CreateDeviceEnrollment(_ context.Context, c *app.RequestContext) {
 	if !h.requireOnPrem(c) {
@@ -77,9 +78,21 @@ func (h *Handler) GetAdminDevice(_ context.Context, c *app.RequestContext) {
 	c.String(consts.StatusNotImplemented, "get admin device is not implemented")
 }
 
-func (h *Handler) RevokeAdminDevice(_ context.Context, c *app.RequestContext) {
-	if !h.requireOnPrem(c) {
+// RevokeAdminDevice revokes a device credential and cascades to every agent
+// credential it provisioned (Task 7). It mirrors RevokeAdminAgentCredential's
+// human-session + CSRF + Idempotency-Key handling exactly.
+func (h *Handler) RevokeAdminDevice(ctx context.Context, c *app.RequestContext) {
+	principal, ok := h.authorizeHumanMember(ctx, c, true)
+	if !ok {
 		return
 	}
-	c.String(consts.StatusNotImplemented, "revoke admin device is not implemented")
+	summary, err := h.registry.RevokeDevice(
+		ctx, principal, c.Param("credential_id"),
+		strings.TrimSpace(string(c.GetHeader("Idempotency-Key"))),
+	)
+	if err != nil {
+		h.writeHumanError(c, "revoke admin device", err)
+		return
+	}
+	c.JSON(consts.StatusOK, &api.DeviceSummaryResponse{Device: deviceSummaryToAPI(summary)})
 }

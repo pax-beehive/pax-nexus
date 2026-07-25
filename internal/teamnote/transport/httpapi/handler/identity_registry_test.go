@@ -307,6 +307,32 @@ func (s *identityRegistryHandlerSuite) TestOwnedAndAdminAgentLifecycleRoutes() {
 	s.Equal("agent-mutation-1", s.registry.lastIdempotencyKey)
 }
 
+func (s *identityRegistryHandlerSuite) TestRevokeAdminDeviceRoutes() {
+	headers := []ut.Header{
+		{Key: "Cookie", Value: "tm_human_session=session; tm_csrf=csrf"},
+		{Key: "X-CSRF-Token", Value: "csrf"},
+	}
+
+	memberResponse := s.performGenerated(http.MethodDelete, "/v1/admin/devices/device-credential", "{}", headers...)
+	s.Equal(consts.StatusForbidden, memberResponse.Code)
+
+	s.identity.principal.Role = onprem.RoleAdmin
+	response := s.performGenerated(http.MethodDelete, "/v1/admin/devices/device-credential", "{}", headers...)
+	s.Equal(consts.StatusOK, response.Code)
+	s.Contains(response.Body.String(), `"credential_id":"device-credential"`)
+	s.Contains(response.Body.String(), `"status":"revoked"`)
+	s.Contains(response.Body.String(), `"provisioned_agent_count":0`)
+
+	s.registry.revokeDeviceErr = onprem.ErrCredentialNotFound
+	notFound := s.performGenerated(http.MethodDelete, "/v1/admin/devices/unknown-device", "{}", headers...)
+	s.Equal(consts.StatusNotFound, notFound.Code)
+	s.registry.revokeDeviceErr = nil
+
+	missingCSRF := s.performGenerated(http.MethodDelete, "/v1/admin/devices/device-credential", "{}",
+		ut.Header{Key: "Cookie", Value: "tm_human_session=session; tm_csrf=csrf"})
+	s.Equal(consts.StatusForbidden, missingCSRF.Code)
+}
+
 func (s *identityRegistryHandlerSuite) performGenerated(
 	method string,
 	path string,
@@ -488,6 +514,7 @@ type agentRegistryService struct {
 	adminFilter        onprem.AgentFilter
 	lastIdempotencyKey string
 	createAgentErr     error
+	revokeDeviceErr    error
 }
 
 func testAgent(status onprem.AgentStatus, displayName string, version int64) onprem.AgentProfile {
@@ -723,4 +750,26 @@ func (s *agentRegistryService) RevokeAdminCredential(
 ) (onprem.AgentCredentialMetadata, error) {
 	s.lastIdempotencyKey = idempotencyKey
 	return onprem.AgentCredentialMetadata{CredentialID: credentialID, AgentID: agentID}, nil
+}
+
+func (s *agentRegistryService) RevokeDevice(
+	_ context.Context,
+	principal onprem.HumanPrincipal,
+	credentialID string,
+	idempotencyKey string,
+) (onprem.DeviceSummary, error) {
+	s.lastIdempotencyKey = idempotencyKey
+	if s.revokeDeviceErr != nil {
+		return onprem.DeviceSummary{}, s.revokeDeviceErr
+	}
+	if principal.Role != onprem.RoleOwner && principal.Role != onprem.RoleAdmin {
+		return onprem.DeviceSummary{}, onprem.ErrForbidden
+	}
+	revokedAt := time.Now()
+	return onprem.DeviceSummary{
+		CredentialID: credentialID, DeviceName: "todd-macbook-air",
+		CreatedByUserID: "member-user", CreatedByMembershipID: "member-membership",
+		CreatedAt: revokedAt, RevokedAt: &revokedAt,
+		GrantablePermissions: []onprem.Permission{onprem.PermissionObserve},
+	}, nil
 }

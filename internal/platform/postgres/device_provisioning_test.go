@@ -567,6 +567,183 @@ func (s *deviceProvisioningStoreSuite) TestListDeviceProvisionedAgentsReturnsOwn
 	s.Equal("Static Agent", agents[2].DisplayName)
 }
 
+// TestRevokeDeviceCascadesToProvisionedAgentCredentials exercises Task 7's
+// acceptance criterion: revoking a device credential through
+// RegistryStore.RevokeDevice immediately 401s the agent key it provisioned,
+// atomically, and revokes the device credential itself. It also exercises
+// the idempotent-replay contract: the same actor+key on an already-revoked
+// device returns the same summary without error, while a different key
+// conflicts.
+func (s *deviceProvisioningStoreSuite) TestRevokeDeviceCascadesToProvisionedAgentCredentials() {
+	ctx := context.Background()
+	services := s.newProvisioningServices(16)
+
+	enrollment, err := services.registry.CreateDeviceEnrollment(ctx, services.owner, onprem.DeviceEnrollmentRequest{
+		DeviceName: uniqueCredentialValue("cascade-device"),
+	})
+	s.Require().NoError(err)
+	deviceIssued, err := services.credential.ExchangeEnrollment(ctx, enrollment.Token)
+	s.Require().NoError(err)
+	device, err := services.credential.Authenticate(ctx, deviceIssued.APIKey)
+	s.Require().NoError(err)
+
+	agentID := uniqueCredentialValue("cascade-agent")
+	provisioned, err := services.credential.ProvisionDeviceAgent(ctx, device, onprem.DeviceProvisionRequest{
+		AgentID: agentID, DisplayName: "Cascade Agent", AgentType: "codex",
+	})
+	s.Require().NoError(err)
+
+	// Sanity: the provisioned agent key authenticates before revocation.
+	_, err = services.credential.Authenticate(ctx, provisioned.APIKey)
+	s.Require().NoError(err, "provisioned agent key must authenticate before device revocation")
+
+	idempotencyKey := "revoke-key-1"
+	summary, err := s.store.Registry().RevokeDevice(
+		ctx, services.owner, device.CredentialID, idempotencyKey, *services.now,
+	)
+	s.Require().NoError(err)
+	s.Equal(device.CredentialID, summary.CredentialID)
+	s.Require().NotNil(summary.RevokedAt)
+	s.Equal(int64(0), summary.ProvisionedAgentCount,
+		"the cascade must have already revoked the only agent this device provisioned")
+
+	// The provisioned agent key is now unauthorized.
+	_, err = services.credential.Authenticate(ctx, provisioned.APIKey)
+	s.Require().ErrorIs(err, onprem.ErrUnauthorized, "cascade must revoke the provisioned agent credential")
+
+	// The device credential itself no longer authenticates.
+	_, err = services.credential.Authenticate(ctx, deviceIssued.APIKey)
+	s.Require().ErrorIs(err, onprem.ErrUnauthorized, "the device credential itself must be revoked")
+
+	s.assertAuditEvent(ctx, "human", "identity.credential.revoked", "credential", device.CredentialID)
+	s.assertAuditEvent(ctx, "system", "identity.credential.revoked", "credential", provisioned.CredentialID)
+
+	var cascadeActorCredentialID string
+	err = s.store.Pool().QueryRow(ctx, `
+		SELECT actor_credential_id FROM onprem_audit_events
+		WHERE actor_kind = 'system' AND action = 'identity.credential.revoked' AND target_id = $1
+	`, provisioned.CredentialID).Scan(&cascadeActorCredentialID)
+	s.Require().NoError(err)
+	s.Equal(device.CredentialID, cascadeActorCredentialID,
+		"the cascade audit row must attribute the revoked device credential as the actor")
+
+	// Idempotent replay: same actor + same key on an already-revoked device
+	// returns the same summary without error.
+	replaySummary, err := s.store.Registry().RevokeDevice(
+		ctx, services.owner, device.CredentialID, idempotencyKey, *services.now,
+	)
+	s.Require().NoError(err)
+	s.Equal(summary.CredentialID, replaySummary.CredentialID)
+	s.Require().NotNil(replaySummary.RevokedAt)
+	s.True(summary.RevokedAt.Equal(*replaySummary.RevokedAt), "replay must report the same revocation instant")
+	s.Equal(summary.ProvisionedAgentCount, replaySummary.ProvisionedAgentCount)
+
+	// A different idempotency key on an already-revoked device conflicts.
+	_, err = s.store.Registry().RevokeDevice(ctx, services.owner, device.CredentialID, "different-key", *services.now)
+	s.Require().ErrorIs(err, onprem.ErrIdempotencyConflict)
+}
+
+// TestRevokeDeviceUnknownCredentialNotFound verifies that revoking a
+// credential ID that does not name an active device-kind row returns
+// ErrCredentialNotFound, whether the ID is entirely unknown or names an
+// ordinary agent-kind credential.
+func (s *deviceProvisioningStoreSuite) TestRevokeDeviceUnknownCredentialNotFound() {
+	ctx := context.Background()
+	services := s.newProvisioningServices(16)
+
+	_, err := s.store.Registry().RevokeDevice(ctx, services.owner, "does-not-exist", "", *services.now)
+	s.Require().ErrorIs(err, onprem.ErrCredentialNotFound)
+
+	agentID := uniqueCredentialValue("not-a-device-agent")
+	_, err = services.registry.CreateAgent(ctx, services.owner, onprem.CreateAgentRequest{
+		AgentID: agentID, DisplayName: "Not A Device",
+	})
+	s.Require().NoError(err)
+	agentEnrollment, err := services.registry.CreateEnrollment(ctx, services.owner, agentID, onprem.OwnerEnrollmentRequest{
+		CredentialLabel: "laptop", Permissions: []onprem.Permission{onprem.PermissionObserve},
+	})
+	s.Require().NoError(err)
+	agentIssued, err := services.credential.ExchangeEnrollment(ctx, agentEnrollment.Token)
+	s.Require().NoError(err)
+
+	_, err = s.store.Registry().RevokeDevice(ctx, services.owner, agentIssued.CredentialID, "", *services.now)
+	s.Require().ErrorIs(err, onprem.ErrCredentialNotFound, "an agent-kind credential must not be revocable as a device")
+}
+
+// TestLegacyRevokeCredentialCascadesDeviceRevocation exercises the legacy
+// admin path: CredentialStore.RevokeCredential(deviceID) must cascade to
+// provisioned agent credentials identically to RegistryStore.RevokeDevice.
+func (s *deviceProvisioningStoreSuite) TestLegacyRevokeCredentialCascadesDeviceRevocation() {
+	ctx := context.Background()
+	services := s.newProvisioningServices(16)
+
+	enrollment, err := services.registry.CreateDeviceEnrollment(ctx, services.owner, onprem.DeviceEnrollmentRequest{
+		DeviceName: uniqueCredentialValue("legacy-cascade-device"),
+	})
+	s.Require().NoError(err)
+	deviceIssued, err := services.credential.ExchangeEnrollment(ctx, enrollment.Token)
+	s.Require().NoError(err)
+	device, err := services.credential.Authenticate(ctx, deviceIssued.APIKey)
+	s.Require().NoError(err)
+
+	agentID := uniqueCredentialValue("legacy-cascade-agent")
+	provisioned, err := services.credential.ProvisionDeviceAgent(ctx, device, onprem.DeviceProvisionRequest{
+		AgentID: agentID, DisplayName: "Legacy Cascade Agent", AgentType: "codex",
+	})
+	s.Require().NoError(err)
+
+	_, err = services.credential.Authenticate(ctx, provisioned.APIKey)
+	s.Require().NoError(err)
+
+	s.Require().NoError(s.store.Credentials().RevokeCredential(ctx, device.CredentialID, time.Now().UTC()))
+
+	_, err = services.credential.Authenticate(ctx, provisioned.APIKey)
+	s.Require().ErrorIs(err, onprem.ErrUnauthorized, "legacy revoke must cascade to provisioned agent credentials")
+
+	_, err = services.credential.Authenticate(ctx, deviceIssued.APIKey)
+	s.Require().ErrorIs(err, onprem.ErrUnauthorized, "legacy revoke must revoke the device credential itself")
+
+	s.assertAuditEvent(ctx, "system", "identity.credential.revoked", "credential", device.CredentialID)
+	s.assertAuditEvent(ctx, "system", "identity.credential.revoked", "credential", provisioned.CredentialID)
+}
+
+// TestLegacyRevokeCredentialDoesNotCascadeForAgentCredentials is a regression
+// test: revoking a plain agent-kind credential through the legacy path must
+// not invoke the device cascade (only one audit revocation row, for the
+// credential itself).
+func (s *deviceProvisioningStoreSuite) TestLegacyRevokeCredentialDoesNotCascadeForAgentCredentials() {
+	ctx := context.Background()
+	services := s.newProvisioningServices(16)
+	agentID := uniqueCredentialValue("regression-agent")
+	_, err := services.registry.CreateAgent(ctx, services.owner, onprem.CreateAgentRequest{
+		AgentID: agentID, DisplayName: "Regression Agent",
+	})
+	s.Require().NoError(err)
+	enrollment, err := services.registry.CreateEnrollment(ctx, services.owner, agentID, onprem.OwnerEnrollmentRequest{
+		CredentialLabel: "regression-credential", Permissions: []onprem.Permission{onprem.PermissionObserve},
+	})
+	s.Require().NoError(err)
+	issued, err := services.credential.ExchangeEnrollment(ctx, enrollment.Token)
+	s.Require().NoError(err)
+
+	s.Require().NoError(s.store.Credentials().RevokeCredential(ctx, issued.CredentialID, time.Now().UTC()))
+
+	var revokedAt *time.Time
+	err = s.store.Pool().QueryRow(ctx, `
+		SELECT revoked_at FROM agent_credentials WHERE credential_id = $1
+	`, issued.CredentialID).Scan(&revokedAt)
+	s.Require().NoError(err)
+	s.NotNil(revokedAt)
+
+	var revokeAuditCount int
+	err = s.store.Pool().QueryRow(ctx, `
+		SELECT count(*) FROM onprem_audit_events
+		WHERE action = 'identity.credential.revoked' AND target_id = $1
+	`, issued.CredentialID).Scan(&revokeAuditCount)
+	s.Require().NoError(err)
+	s.Equal(1, revokeAuditCount, "revoking an agent-kind credential must not run the device cascade")
+}
+
 func (s *deviceProvisioningStoreSuite) assertAuditEvent(
 	ctx context.Context, actorKind, action, targetKind, targetID string,
 ) {

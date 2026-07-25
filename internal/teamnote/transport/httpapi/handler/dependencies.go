@@ -100,6 +100,7 @@ type AgentRegistryLifecycle interface {
 	RevokeAdminEnrollment(context.Context, onprem.HumanPrincipal, string, string, string) (onprem.AgentEnrollmentMetadata, error)
 	ListAdminCredentials(context.Context, onprem.HumanPrincipal, string, onprem.AgentArtifactFilter) ([]onprem.AgentCredentialMetadata, error)
 	RevokeAdminCredential(context.Context, onprem.HumanPrincipal, string, string, string) (onprem.AgentCredentialMetadata, error)
+	RevokeDevice(context.Context, onprem.HumanPrincipal, string, string) (onprem.DeviceSummary, error)
 }
 
 type OperationsLifecycle interface {

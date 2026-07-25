@@ -145,6 +145,21 @@ type AgentArtifactFilter struct {
 	Cursor string
 }
 
+// DeviceSummary describes a device credential's current state for the admin
+// device-management surface. Task 8's device listing reuses this struct, so
+// it must not be redefined elsewhere.
+type DeviceSummary struct {
+	CredentialID          string
+	DeviceName            string // credentials.label
+	CreatedByUserID       string
+	CreatedByMembershipID string
+	CreatedAt             time.Time
+	RevokedAt             *time.Time
+	LastUsedAt            *time.Time
+	GrantablePermissions  []Permission
+	ProvisionedAgentCount int64
+}
+
 type RegistryConfig struct {
 	SecretPepper               string
 	MemberGrantablePermissions []Permission
@@ -168,6 +183,7 @@ type RegistryStore interface {
 	GetDirectoryAgent(context.Context, string, time.Time) (AgentProfile, error)
 	ListAdminAgents(context.Context, AgentFilter) ([]AgentProfile, error)
 	GetAdminAgent(context.Context, string) (AgentProfile, error)
+	RevokeDevice(context.Context, HumanPrincipal, string, string, time.Time) (DeviceSummary, error)
 }
 
 type registryOptions struct {
@@ -705,6 +721,26 @@ func (s *RegistryService) RevokeAdminCredential(
 		ctx, profile.OwnerMembershipID, principal, profile.AgentID, strings.TrimSpace(credentialID),
 		strings.TrimSpace(idempotencyKey), s.clock().UTC(),
 	)
+}
+
+// RevokeDevice revokes a device credential and, transactionally with the
+// revoke, cascades to every agent credential the device provisioned (see
+// docs/decisions/2026-07-24-device-scoped-agent-provisioning.md). Only an
+// Owner or Admin may revoke a device.
+func (s *RegistryService) RevokeDevice(
+	ctx context.Context,
+	principal HumanPrincipal,
+	credentialID string,
+	idempotencyKey string,
+) (DeviceSummary, error) {
+	if err := authorizeHumanAdmin(principal); err != nil {
+		return DeviceSummary{}, err
+	}
+	credentialID = strings.TrimSpace(credentialID)
+	if credentialID == "" {
+		return DeviceSummary{}, ErrCredentialNotFound
+	}
+	return s.store.RevokeDevice(ctx, principal, credentialID, strings.TrimSpace(idempotencyKey), s.clock().UTC())
 }
 
 func authorizeHumanAdmin(principal HumanPrincipal) error {

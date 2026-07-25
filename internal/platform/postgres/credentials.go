@@ -660,25 +660,73 @@ func (s *CredentialStore) RevokeCredential(
 		return fmt.Errorf("begin credential revocation: %w", err)
 	}
 	defer rollbackTx(&returnedErr, tx, "credential revocation")
-	command, err := tx.Exec(ctx, `
+	var kind string
+	err = tx.QueryRow(ctx, `
 		UPDATE agent_credentials
 		SET revoked_at = $2
 		WHERE credential_id = $1 AND revoked_at IS NULL
-	`, credentialID, now)
+		RETURNING kind
+	`, credentialID, now).Scan(&kind)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return onprem.ErrCredentialNotFound
+	}
 	if err != nil {
 		return fmt.Errorf("revoke postgres agent credential: %w", err)
-	}
-	if command.RowsAffected() != 1 {
-		return onprem.ErrCredentialNotFound
 	}
 	if err := insertAuditEvent(ctx, tx, "system", "", "", "", "",
 		"identity.credential.revoked", "credential", credentialID, now); err != nil {
 		return err
 	}
+	if kind == string(onprem.CredentialKindDevice) {
+		if _, err := cascadeRevokeProvisionedCredentials(ctx, tx, credentialID, now); err != nil {
+			return err
+		}
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit credential revocation: %w", err)
 	}
 	return nil
+}
+
+// cascadeRevokeProvisionedCredentials revokes every still-active credential a
+// device credential (deviceCredentialID) has provisioned, auditing each
+// revocation with actor_kind 'system' and actor_credential_id set to the
+// revoked device, so a device revocation immediately invalidates every agent
+// key it provisioned (docs/decisions/2026-07-24-device-scoped-agent-provisioning.md).
+func cascadeRevokeProvisionedCredentials(
+	ctx context.Context, tx pgx.Tx, deviceCredentialID string, now time.Time,
+) (int64, error) {
+	rows, err := tx.Query(ctx, `
+		UPDATE agent_credentials
+		SET revoked_at = $2
+		WHERE provisioned_by = $1 AND revoked_at IS NULL
+		RETURNING credential_id, user_id, owner_membership_id, agent_id
+	`, deviceCredentialID, now)
+	if err != nil {
+		return 0, fmt.Errorf("cascade revoke provisioned credentials: %w", err)
+	}
+	type revoked struct{ credentialID, userID, membershipID, agentID string }
+	var all []revoked
+	for rows.Next() {
+		var current revoked
+		if err := rows.Scan(&current.credentialID, &current.userID, &current.membershipID, &current.agentID); err != nil {
+			rows.Close()
+			return 0, fmt.Errorf("scan cascade-revoked credential: %w", err)
+		}
+		all = append(all, current)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, fmt.Errorf("iterate cascade-revoked credentials: %w", err)
+	}
+	for _, current := range all {
+		if err := insertAuditEvent(ctx, tx, "system", current.userID, current.membershipID,
+			current.agentID, deviceCredentialID, "identity.credential.revoked",
+			"credential", current.credentialID, now); err != nil {
+			return 0, err
+		}
+	}
+	return int64(len(all)), nil
 }
 
 func credentialKindOrDefault(kind onprem.CredentialKind) string {

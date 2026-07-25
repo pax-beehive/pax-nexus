@@ -439,6 +439,29 @@ func (s *registrySuite) TestCreateDeviceEnrollmentHappyPathRecordsDeviceKind() {
 	s.Equal(admin.MembershipID, record.MembershipID)
 }
 
+func (s *registrySuite) TestRevokeDeviceRequiresOwnerOrAdmin() {
+	member := activeMember()
+	_, err := s.service.RevokeDevice(context.Background(), member, "device-credential", "")
+	s.Require().ErrorIs(err, onprem.ErrForbidden)
+}
+
+func (s *registrySuite) TestRevokeDeviceRejectsEmptyCredentialID() {
+	admin := activeMember()
+	admin.Role = onprem.RoleAdmin
+	_, err := s.service.RevokeDevice(context.Background(), admin, "   ", "")
+	s.Require().ErrorIs(err, onprem.ErrCredentialNotFound)
+}
+
+func (s *registrySuite) TestRevokeDevicePassesThroughToStore() {
+	admin := activeMember()
+	admin.Role = onprem.RoleAdmin
+	summary, err := s.service.RevokeDevice(context.Background(), admin, " device-credential ", " idem-key ")
+	s.Require().NoError(err)
+	s.Equal("device-credential", summary.CredentialID)
+	s.Equal("device-credential", s.store.revokedDeviceID)
+	s.Equal("idem-key", s.store.revokedDeviceIdemKey)
+}
+
 func activeMember() onprem.HumanPrincipal {
 	return onprem.HumanPrincipal{
 		UserID: "user-1", MembershipID: "membership-1", Role: onprem.RoleMember,
@@ -447,10 +470,12 @@ func activeMember() onprem.HumanPrincipal {
 }
 
 type registryStore struct {
-	agents            []onprem.AgentProfile
-	enrollments       []onprem.EnrollmentRecord
-	deviceEnrollments []onprem.EnrollmentRecord
-	lastAdminFilter   onprem.AgentFilter
+	agents               []onprem.AgentProfile
+	enrollments          []onprem.EnrollmentRecord
+	deviceEnrollments    []onprem.EnrollmentRecord
+	lastAdminFilter      onprem.AgentFilter
+	revokedDeviceID      string
+	revokedDeviceIdemKey string
 }
 
 func (s *registryStore) CreateAgent(_ context.Context, profile onprem.AgentProfile) (onprem.AgentProfile, error) {
@@ -647,4 +672,16 @@ func (s *registryStore) GetAdminAgent(_ context.Context, agentID string) (onprem
 		}
 	}
 	return onprem.AgentProfile{}, onprem.ErrAgentNotFound
+}
+
+func (s *registryStore) RevokeDevice(
+	_ context.Context,
+	_ onprem.HumanPrincipal,
+	credentialID string,
+	idempotencyKey string,
+	now time.Time,
+) (onprem.DeviceSummary, error) {
+	s.revokedDeviceID = credentialID
+	s.revokedDeviceIdemKey = idempotencyKey
+	return onprem.DeviceSummary{CredentialID: credentialID, RevokedAt: &now}, nil
 }

@@ -89,6 +89,32 @@ func deviceProvisionedAgentsToAPI(agents []onprem.DeviceProvisionedAgent) *api.L
 	return &api.ListDeviceProvisionsResponse{Agents: result}
 }
 
+func deviceSummaryToAPI(summary onprem.DeviceSummary) *api.DeviceSummary {
+	status := "active"
+	if summary.RevokedAt != nil {
+		status = "revoked"
+	}
+	grantablePermissions := make([]string, len(summary.GrantablePermissions))
+	for index, permission := range summary.GrantablePermissions {
+		grantablePermissions[index] = string(permission)
+	}
+	result := &api.DeviceSummary{
+		CredentialID: summary.CredentialID, DeviceName: summary.DeviceName,
+		CreatedByUserID: summary.CreatedByUserID, CreatedByMembershipID: summary.CreatedByMembershipID,
+		Status: status, ProvisionedAgentCount: summary.ProvisionedAgentCount,
+		CreatedAt: summary.CreatedAt.Format(time.RFC3339Nano), GrantablePermissions: grantablePermissions,
+	}
+	if summary.RevokedAt != nil {
+		value := summary.RevokedAt.Format(time.RFC3339Nano)
+		result.RevokedAt = &value
+	}
+	if summary.LastUsedAt != nil {
+		value := summary.LastUsedAt.Format(time.RFC3339Nano)
+		result.LastUsedAt = &value
+	}
+	return result
+}
+
 func principalToAPI(principal onprem.Principal) *api.AgentIdentityResponse {
 	permissions := make([]string, len(principal.Permissions))
 	for index, permission := range principal.Permissions {
