@@ -57,6 +57,45 @@ actual=$(EVAL_V2_BASE_ENV_FILE="$tmp/base.env" EVAL_V2_ENV_FILE="$tmp/eval.env" 
 expect_eq "empty override is inert" "$actual" \
   "from-base-env|https://base.example.com|base-key"
 
+for slug in deepseek-v4-flash gemini-3.5-flash-lite gemini-3.6-flash; do
+  fragment="evals/v3/sweep/extractor-${slug}.env"
+  if [ ! -f "$fragment" ]; then
+    fail "fragment missing: $fragment"
+    continue
+  fi
+  actual=$(sh -c ". ./$fragment; printf '%s|%s|%s' \
+    \"\$SWEEP_EXTRACTOR_MODEL\" \"\$SWEEP_EXTRACTOR_BASE_URL\" \"\$SWEEP_EXTRACTOR_KEY_ENV\"")
+  case "$actual" in
+    *"|"*"|"*) ;;
+    *) fail "fragment $slug did not define all three fields: $actual" ;;
+  esac
+  expect_contains "fragment $slug names its model" "$actual" "$slug"
+  if grep -qE '^(TEAM_MEMORY|OPENCODE|MEM0)_' "$fragment"; then
+    fail "fragment $slug sets a real configuration variable"
+  fi
+  if grep -qiE '(api_key|apikey)[[:space:]]*=[[:space:]]*[A-Za-z0-9._-]{12,}' "$fragment"; then
+    fail "fragment $slug appears to contain a credential"
+  fi
+done
+
+expect_eq "deepseek fragment key env" \
+  "$(sh -c '. ./evals/v3/sweep/extractor-deepseek-v4-flash.env; printf "%s" "$SWEEP_EXTRACTOR_KEY_ENV"')" \
+  "DEEPSEEK_API_KEY"
+expect_eq "gemini fragment key env" \
+  "$(sh -c '. ./evals/v3/sweep/extractor-gemini-3.6-flash.env; printf "%s" "$SWEEP_EXTRACTOR_KEY_ENV"')" \
+  "GEMINI_API_KEY"
+
+template=evals/v3/config.sweep-template.yaml
+if [ ! -f "$template" ]; then
+  fail "template missing: $template"
+else
+  for token in __RUN_ID__ __OUTPUT_DIR__ __MANIFEST__; do
+    expect_contains "template defines $token" "$(cat "$template")" "$token"
+  done
+  expect_contains "template records the extractor base URL" \
+    "$(cat "$template")" "TEAM_MEMORY_EXTRACTOR_BASE_URL"
+fi
+
 if [ "$failures" -ne 0 ]; then
   echo "$failures check(s) failed" >&2
   exit 1
