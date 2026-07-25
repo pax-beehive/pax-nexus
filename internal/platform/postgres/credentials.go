@@ -422,6 +422,43 @@ func (s *CredentialStore) ProvisionAgentCredential(
 // lockProvisioningDevice locks the device credential row that authorizes a
 // provisioning request and returns its owning membership ID. A missing,
 // revoked, expired, or non-device credential is unauthorized.
+// ListDeviceProvisionedAgents returns every credential row (including
+// revoked history) the device credential deviceCredentialID has
+// provisioned, ordered by agent ID then created_at DESC.
+func (s *CredentialStore) ListDeviceProvisionedAgents(
+	ctx context.Context, deviceCredentialID string,
+) ([]onprem.DeviceProvisionedAgent, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT agents.agent_id, agents.display_name, agents.agent_type, agents.status,
+		       credentials.credential_id, credentials.created_at, credentials.revoked_at, credentials.last_used_at
+		FROM agent_credentials credentials
+		JOIN onprem_agents agents ON agents.agent_id = credentials.agent_id
+		WHERE credentials.provisioned_by = $1
+		ORDER BY agents.agent_id, credentials.created_at DESC
+	`, deviceCredentialID)
+	if err != nil {
+		return nil, fmt.Errorf("list postgres device-provisioned agents: %w", err)
+	}
+	defer rows.Close()
+	var agents []onprem.DeviceProvisionedAgent
+	for rows.Next() {
+		var agent onprem.DeviceProvisionedAgent
+		var status string
+		if err := rows.Scan(
+			&agent.AgentID, &agent.DisplayName, &agent.AgentType, &status,
+			&agent.CredentialID, &agent.CreatedAt, &agent.RevokedAt, &agent.LastUsedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan postgres device-provisioned agent: %w", err)
+		}
+		agent.AgentStatus = onprem.AgentStatus(status)
+		agents = append(agents, agent)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate postgres device-provisioned agents: %w", err)
+	}
+	return agents, nil
+}
+
 func lockProvisioningDevice(ctx context.Context, tx pgx.Tx, deviceCredentialID string, now time.Time) (string, error) {
 	var membershipID string
 	err := tx.QueryRow(ctx, `

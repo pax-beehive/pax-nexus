@@ -36,9 +36,8 @@ type ProvisionedAgentCredential struct {
 func (s *CredentialService) ProvisionDeviceAgent(
 	ctx context.Context, principal Principal, request DeviceProvisionRequest,
 ) (ProvisionedAgentCredential, error) {
-	if principal.ScopeID != LocalScopeID || principal.CredentialID == "" ||
-		principal.Kind != CredentialKindDevice || !principal.HasPermission(PermissionAgentProvision) {
-		return ProvisionedAgentCredential{}, ErrForbidden
+	if err := requireDeviceProvisioner(principal); err != nil {
+		return ProvisionedAgentCredential{}, err
 	}
 	agentID := strings.TrimSpace(request.AgentID)
 	displayName := strings.TrimSpace(request.DisplayName)
@@ -79,6 +78,36 @@ func (s *CredentialService) ProvisionDeviceAgent(
 		CreatedAt: now, RotatedFromCredentialID: outcome.RotatedFromCredentialID,
 		AgentCreated: outcome.AgentCreated,
 	}, nil
+}
+
+// requireDeviceProvisioner is the guard shared by every device-scoped
+// provisioning endpoint: only a device credential carrying
+// PermissionAgentProvision, scoped to this deployment, may proceed. An
+// agent credential is always forbidden, even if it somehow carries the
+// permission.
+func requireDeviceProvisioner(principal Principal) error {
+	if principal.ScopeID != LocalScopeID || principal.CredentialID == "" ||
+		principal.Kind != CredentialKindDevice || !principal.HasPermission(PermissionAgentProvision) {
+		return ErrForbidden
+	}
+	return nil
+}
+
+// ListDeviceProvisionedAgents returns every credential row (including
+// revoked history) the device credential in principal has provisioned.
+// Subject to the same guard as ProvisionDeviceAgent: only a device
+// credential carrying PermissionAgentProvision may call this.
+func (s *CredentialService) ListDeviceProvisionedAgents(
+	ctx context.Context, principal Principal,
+) ([]DeviceProvisionedAgent, error) {
+	if err := requireDeviceProvisioner(principal); err != nil {
+		return nil, err
+	}
+	agents, err := s.store.ListDeviceProvisionedAgents(ctx, principal.CredentialID)
+	if err != nil {
+		return nil, fmt.Errorf("list device provisioned agents: %w", err)
+	}
+	return agents, nil
 }
 
 func deviceGrantedPermissions(requested, grantable []Permission) ([]Permission, error) {

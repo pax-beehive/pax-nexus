@@ -255,3 +255,73 @@ func (s *provisioningSuite) TestStoreErrorsPropagate() {
 		})
 	}
 }
+
+// TestListDeviceProvisionedAgentsForbiddenMatrix reuses the exact guard
+// matrix from TestForbiddenMatrix to verify ListDeviceProvisionedAgents
+// applies the identical device-provisioner check before ever reaching the
+// store.
+func (s *provisioningSuite) TestListDeviceProvisionedAgentsForbiddenMatrix() {
+	ctx := context.Background()
+	tests := []struct {
+		name      string
+		principal onprem.Principal
+	}{
+		{
+			name: "agent kind credential with agent_provision permission",
+			principal: onprem.Principal{
+				UserID: "owner", MembershipID: "membership-1", ScopeID: onprem.LocalScopeID,
+				CredentialID: "agent-credential", Kind: onprem.CredentialKindAgent,
+				Permissions: []onprem.Permission{onprem.PermissionAgentProvision},
+			},
+		},
+		{
+			name: "device kind without agent_provision permission",
+			principal: onprem.Principal{
+				UserID: "owner", MembershipID: "membership-1", ScopeID: onprem.LocalScopeID,
+				CredentialID: "device-credential", Kind: onprem.CredentialKindDevice,
+				Permissions: []onprem.Permission{onprem.PermissionObserve},
+			},
+		},
+		{
+			name:      "zero value principal",
+			principal: onprem.Principal{},
+		},
+	}
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			_, err := s.service.ListDeviceProvisionedAgents(ctx, test.principal)
+			s.Require().ErrorIs(err, onprem.ErrForbidden)
+			s.Empty(s.store.listDeviceProvisionedAgentsCalls, "store must not be reached when the principal check fails")
+		})
+	}
+}
+
+// TestListDeviceProvisionedAgentsHappyPathPassesCredentialID verifies the
+// device's credential ID reaches the store untouched and the store's rows
+// pass through to the service's result unchanged.
+func (s *provisioningSuite) TestListDeviceProvisionedAgentsHappyPathPassesCredentialID() {
+	ctx := context.Background()
+	rows := []onprem.DeviceProvisionedAgent{
+		{AgentID: "agent-1", DisplayName: "Agent One", AgentType: "codex", AgentStatus: onprem.AgentStatusActive,
+			CredentialID: "credential-1", CreatedAt: s.now},
+	}
+	s.store.listDeviceProvisionedAgentsResult = rows
+
+	result, err := s.service.ListDeviceProvisionedAgents(ctx, s.device())
+
+	s.Require().NoError(err)
+	s.Require().Equal([]string{"device-credential"}, s.store.listDeviceProvisionedAgentsCalls)
+	s.Equal(rows, result)
+}
+
+// TestListDeviceProvisionedAgentsStoreErrorPropagates verifies a store
+// error surfaces through the service wrapped, but still matchable.
+func (s *provisioningSuite) TestListDeviceProvisionedAgentsStoreErrorPropagates() {
+	ctx := context.Background()
+	storeErr := fmt.Errorf("boom")
+	s.store.listDeviceProvisionedAgentsErr = storeErr
+
+	_, err := s.service.ListDeviceProvisionedAgents(ctx, s.device())
+
+	s.Require().ErrorIs(err, storeErr)
+}

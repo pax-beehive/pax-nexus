@@ -249,6 +249,25 @@ type memoryCredentialStore struct {
 	// device_provisioning_test.go).
 	provisionOutcome onprem.ProvisionOutcome
 	provisionErr     error
+
+	// listDeviceProvisionedAgentsCalls records every
+	// ListDeviceProvisionedAgents invocation for assertions in
+	// provisioning_test.go.
+	listDeviceProvisionedAgentsCalls  []string
+	listDeviceProvisionedAgentsResult []onprem.DeviceProvisionedAgent
+	listDeviceProvisionedAgentsErr    error
+}
+
+func (s *memoryCredentialStore) ListDeviceProvisionedAgents(
+	_ context.Context, deviceCredentialID string,
+) ([]onprem.DeviceProvisionedAgent, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.listDeviceProvisionedAgentsCalls = append(s.listDeviceProvisionedAgentsCalls, deviceCredentialID)
+	if s.listDeviceProvisionedAgentsErr != nil {
+		return nil, s.listDeviceProvisionedAgentsErr
+	}
+	return s.listDeviceProvisionedAgentsResult, nil
 }
 
 type provisionAgentCredentialCall struct {

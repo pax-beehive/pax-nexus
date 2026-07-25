@@ -46,6 +46,7 @@ type CredentialLifecycle interface {
 	RotateCredential(context.Context, onprem.Principal) (onprem.IssuedCredential, error)
 	RevokeCredential(context.Context, onprem.Principal, string) error
 	ProvisionDeviceAgent(context.Context, onprem.Principal, onprem.DeviceProvisionRequest) (onprem.ProvisionedAgentCredential, error)
+	ListDeviceProvisionedAgents(context.Context, onprem.Principal) ([]onprem.DeviceProvisionedAgent, error)
 }
 
 type ChannelLifecycle interface {

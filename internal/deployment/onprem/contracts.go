@@ -145,6 +145,21 @@ type ProvisionOutcome struct {
 	AgentCreated            bool
 }
 
+// DeviceProvisionedAgent is one credential row issued for an agent a device
+// credential provisions. A device that has rotated an agent's credential
+// appears once per credential row (including revoked history), not once
+// per agent, so callers can reconstruct the full provisioning timeline.
+type DeviceProvisionedAgent struct {
+	AgentID      string
+	DisplayName  string
+	AgentType    string
+	AgentStatus  AgentStatus
+	CredentialID string
+	CreatedAt    time.Time
+	RevokedAt    *time.Time
+	LastUsedAt   *time.Time
+}
+
 type CredentialStore interface {
 	LegacyAdminEnabled(context.Context) (bool, error)
 	SaveEnrollment(context.Context, EnrollmentRecord) error
@@ -156,4 +171,8 @@ type CredentialStore interface {
 	// credential on behalf of a device credential (deviceCredentialID),
 	// enforcing the device's active-agent cap (activeAgentLimit).
 	ProvisionAgentCredential(context.Context, string, AgentProfile, CredentialRecord, int, time.Time) (ProvisionOutcome, error)
+	// ListDeviceProvisionedAgents returns every credential row (including
+	// revoked history) a device credential (identified by its credential ID)
+	// has provisioned, ordered by agent ID then created_at DESC.
+	ListDeviceProvisionedAgents(context.Context, string) ([]DeviceProvisionedAgent, error)
 }

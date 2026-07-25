@@ -11,9 +11,10 @@ import (
 
 // Device provisioning endpoints (Task 4: IDL + codegen only). These are
 // minimal placeholders that keep the generated handler stubs compiling;
-// Tasks 6-8 replace the remaining bodies with the real domain-backed
+// Tasks 7-8 replace the remaining bodies with the real domain-backed
 // implementations (device enrollment and admin device management).
-// ProvisionDeviceAgent (Task 5) is implemented below.
+// ProvisionDeviceAgent (Task 5) and ListDeviceProvisions (Task 6) are
+// implemented below.
 
 func (h *Handler) CreateDeviceEnrollment(_ context.Context, c *app.RequestContext) {
 	if !h.requireOnPrem(c) {
@@ -45,11 +46,21 @@ func (h *Handler) ProvisionDeviceAgent(ctx context.Context, c *app.RequestContex
 	c.JSON(consts.StatusOK, provisionedAgentCredentialToAPI(provisioned))
 }
 
-func (h *Handler) ListDeviceProvisions(_ context.Context, c *app.RequestContext) {
-	if !h.requireOnPrem(c) {
+// ListDeviceProvisions returns every credential the calling device
+// credential has provisioned, including revoked history. The service
+// re-checks that the authenticated principal is device-kind and carries
+// PermissionAgentProvision, so an agent credential is rejected with 403.
+func (h *Handler) ListDeviceProvisions(ctx context.Context, c *app.RequestContext) {
+	principal, ok := h.authorize(ctx, c, onprem.PermissionAgentProvision)
+	if !ok {
 		return
 	}
-	c.String(consts.StatusNotImplemented, "list device provisions is not implemented")
+	agents, err := h.credentials.ListDeviceProvisionedAgents(ctx, principal)
+	if err != nil {
+		h.writeOnPremError(ctx, c, "list device provisions", err)
+		return
+	}
+	c.JSON(consts.StatusOK, deviceProvisionedAgentsToAPI(agents))
 }
 
 func (h *Handler) ListAdminDevices(_ context.Context, c *app.RequestContext) {

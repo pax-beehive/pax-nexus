@@ -494,6 +494,79 @@ func (s *deviceProvisioningStoreSuite) TestProvisionDeviceAgentRecordsAuditTrail
 	s.assertAuditEvent(ctx, "device", "identity.agent.provisioned", "credential", rotated.CredentialID)
 }
 
+// TestListDeviceProvisionedAgentsReturnsOwnRowsOrderedIncludingRevokedHistory
+// exercises Task 6's store query: device A provisions two agents, one of
+// which is rotated (so it has one revoked and one active credential row).
+// The list must return only device A's rows, ordered by agent_id then
+// created_at DESC, and must include the rotated agent's revoked history.
+func (s *deviceProvisioningStoreSuite) TestListDeviceProvisionedAgentsReturnsOwnRowsOrderedIncludingRevokedHistory() {
+	ctx := context.Background()
+	services := s.newProvisioningServices(16)
+	deviceA := s.enrollDevice(services)
+	deviceB := s.enrollDevice(services)
+
+	// Deliberately provision in an order that would not already sort by
+	// agent_id, so this test would fail if the store didn't apply ORDER BY.
+	agentZID := uniqueCredentialValue("zzz-static-agent")
+	agentRID := uniqueCredentialValue("rrr-rotated-agent")
+
+	staticAgent, err := services.credential.ProvisionDeviceAgent(ctx, deviceA, onprem.DeviceProvisionRequest{
+		AgentID: agentZID, DisplayName: "Static Agent", AgentType: "codex",
+	})
+	s.Require().NoError(err)
+
+	rotatedFirst, err := services.credential.ProvisionDeviceAgent(ctx, deviceA, onprem.DeviceProvisionRequest{
+		AgentID: agentRID, DisplayName: "Rotated Agent", AgentType: "claude",
+	})
+	s.Require().NoError(err)
+	// Advance the fixed clock so the rotated credential's created_at is
+	// strictly later than the credential it rotates away, making the
+	// created_at DESC ordering deterministic for this test.
+	*services.now = services.now.Add(time.Second)
+	rotatedSecond, err := services.credential.ProvisionDeviceAgent(ctx, deviceA, onprem.DeviceProvisionRequest{
+		AgentID: agentRID, DisplayName: "Rotated Agent", AgentType: "claude",
+	})
+	s.Require().NoError(err)
+	s.Require().Equal(rotatedFirst.CredentialID, rotatedSecond.RotatedFromCredentialID)
+
+	// Device B's own provisioning must not leak into device A's listing.
+	deviceBAgentID := uniqueCredentialValue("device-b-agent")
+	_, err = services.credential.ProvisionDeviceAgent(ctx, deviceB, onprem.DeviceProvisionRequest{
+		AgentID: deviceBAgentID, DisplayName: "Device B Agent", AgentType: "codex",
+	})
+	s.Require().NoError(err)
+
+	agents, err := services.credential.ListDeviceProvisionedAgents(ctx, deviceA)
+	s.Require().NoError(err)
+
+	// agent_id ordering: agentRID ("rrr-...") sorts before agentZID ("zzz-...").
+	s.Require().Len(agents, 3, "expected two rows for the rotated agent and one for the static agent")
+	for _, agent := range agents {
+		s.NotEqual(deviceBAgentID, agent.AgentID, "device B's provisions must not appear in device A's listing")
+	}
+
+	// The rotated agent's two rows come first (agent_id "rrr-..." < "zzz-..."),
+	// newest created_at first.
+	s.Equal(agentRID, agents[0].AgentID)
+	s.Equal(rotatedSecond.CredentialID, agents[0].CredentialID)
+	s.Nil(agents[0].RevokedAt, "the active rotated credential must not be revoked")
+	s.Equal(onprem.AgentStatusActive, agents[0].AgentStatus)
+	s.Equal("Rotated Agent", agents[0].DisplayName)
+	s.Equal("claude", agents[0].AgentType)
+
+	s.Equal(agentRID, agents[1].AgentID)
+	s.Equal(rotatedFirst.CredentialID, agents[1].CredentialID)
+	s.NotNil(agents[1].RevokedAt, "the rotated-away credential must be revoked")
+
+	s.True(agents[1].CreatedAt.Before(agents[0].CreatedAt) || agents[1].CreatedAt.Equal(agents[0].CreatedAt),
+		"rows for the same agent must be ordered created_at DESC")
+
+	s.Equal(agentZID, agents[2].AgentID)
+	s.Equal(staticAgent.CredentialID, agents[2].CredentialID)
+	s.Nil(agents[2].RevokedAt)
+	s.Equal("Static Agent", agents[2].DisplayName)
+}
+
 func (s *deviceProvisioningStoreSuite) assertAuditEvent(
 	ctx context.Context, actorKind, action, targetKind, targetID string,
 ) {

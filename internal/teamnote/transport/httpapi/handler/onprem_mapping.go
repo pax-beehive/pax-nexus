@@ -68,6 +68,27 @@ func provisionedAgentCredentialToAPI(credential onprem.ProvisionedAgentCredentia
 	return result
 }
 
+func deviceProvisionedAgentsToAPI(agents []onprem.DeviceProvisionedAgent) *api.ListDeviceProvisionsResponse {
+	result := make([]*api.DeviceProvisionedAgent, len(agents))
+	for index, agent := range agents {
+		current := &api.DeviceProvisionedAgent{
+			AgentID: agent.AgentID, DisplayName: agent.DisplayName, AgentType: agent.AgentType,
+			AgentStatus: string(agent.AgentStatus), CredentialID: agent.CredentialID,
+			CreatedAt: agent.CreatedAt.Format(time.RFC3339Nano),
+		}
+		if agent.RevokedAt != nil {
+			value := agent.RevokedAt.Format(time.RFC3339Nano)
+			current.RevokedAt = &value
+		}
+		if agent.LastUsedAt != nil {
+			value := agent.LastUsedAt.Format(time.RFC3339Nano)
+			current.LastUsedAt = &value
+		}
+		result[index] = current
+	}
+	return &api.ListDeviceProvisionsResponse{Agents: result}
+}
+
 func principalToAPI(principal onprem.Principal) *api.AgentIdentityResponse {
 	permissions := make([]string, len(principal.Permissions))
 	for index, permission := range principal.Permissions {
