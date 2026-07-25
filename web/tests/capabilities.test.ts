@@ -15,6 +15,7 @@ const MATRIX: Record<Capability, Record<Role, boolean>> = {
   "view.members": { owner: true, admin: true, member: false },
   "view.audit": { owner: true, admin: true, member: false },
   "view.all-agents": { owner: true, admin: true, member: false },
+  "view.devices": { owner: true, admin: true, member: false },
   "manage.member-role": { owner: true, admin: true, member: false },
   "manage.elevated-role": { owner: true, admin: false, member: false },
   "manage.own-agents": { owner: true, admin: true, member: true },

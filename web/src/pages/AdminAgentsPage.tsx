@@ -7,7 +7,7 @@ import type { AgentProfile, HumanMe, Member } from "../api/types";
 import { can } from "../lib/capabilities";
 import { usePagedList } from "../lib/usePagedList";
 import { useErrorHandler } from "../lib/useErrorHandler";
-import { Badge } from "../components/Badge";
+import { Badge, ProvisionedByBadge } from "../components/Badge";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Modal } from "../components/Modal";
 import { useToast } from "../components/Toasts";
@@ -244,7 +244,10 @@ export function AdminAgentsPage({ me }: { me: HumanMe }) {
                     </td>
                     <td className="small">{memberLabel(a.owner_membership_id)}</td>
                     <td>
-                      <Badge status={a.status} />
+                      <span className="row">
+                        <Badge status={a.status} />
+                        <ProvisionedByBadge agent={a} />
+                      </span>
                     </td>
                     <td>
                       {retired ? (

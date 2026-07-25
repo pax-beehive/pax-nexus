@@ -6,6 +6,8 @@ import type {
   AgentProfile,
   AuditEvent,
   CredentialMetadata,
+  DeviceDetail,
+  DeviceSummary,
   EnrollmentMetadata,
   HumanMe,
   Invitation,
@@ -141,6 +143,21 @@ export async function listAdminAgents(
 export async function getAdminAgent(agentId: string): Promise<AgentProfile> {
   const res = await humanFetch<{ agent: AgentProfile }>(agentBase("admin", agentId));
   return res.agent;
+}
+
+// ---- Admin: devices (doc sections 6.6, 8.5-8.6) ----
+
+export async function listDevices(
+  params: ListParams & { status?: string },
+): Promise<Page<DeviceSummary>> {
+  const res = await humanFetch<{ devices: DeviceSummary[]; next_cursor?: string }>(
+    `/v1/admin/devices${query({ status: params.status, limit: params.limit, cursor: params.cursor })}`,
+  );
+  return { items: res.devices, nextCursor: res.next_cursor };
+}
+
+export function getDevice(credentialId: string): Promise<DeviceDetail> {
+  return humanFetch<DeviceDetail>(`/v1/admin/devices/${encodeURIComponent(credentialId)}`);
 }
 
 export async function listAuditEvents(

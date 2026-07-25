@@ -7,7 +7,7 @@ import type { AgentProfile } from "../api/types";
 import { usePagedList } from "../lib/usePagedList";
 import { useErrorHandler } from "../lib/useErrorHandler";
 import { validateAgentId, validateDisplayName } from "../lib/validation";
-import { Badge } from "../components/Badge";
+import { Badge, ProvisionedByBadge } from "../components/Badge";
 import { Modal } from "../components/Modal";
 import { useToast } from "../components/Toasts";
 
@@ -173,7 +173,10 @@ export function MyAgentsPage() {
             <div key={a.agent_id} className="card agent-card" onClick={() => navigate(`/agents/${encodeURIComponent(a.agent_id)}`)}>
               <div className="row between">
                 <strong>{a.display_name}</strong>
-                <Badge status={a.status} />
+                <span className="row">
+                  <ProvisionedByBadge agent={a} />
+                  <Badge status={a.status} />
+                </span>
               </div>
               <div className="small mono muted" style={{ margin: "6px 0" }}>
                 {a.agent_id}

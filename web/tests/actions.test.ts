@@ -3,11 +3,13 @@ import {
   acceptInvitation,
   beginAction,
   createAgent,
+  createDeviceEnrollment,
   createEnrollment,
   createInvitation,
   ifMatch,
   retireAgent,
   revokeCredential,
+  revokeDevice,
   revokeEnrollment,
   revokeInvitation,
   transferAgent,
@@ -116,8 +118,27 @@ describe("beginAction / idempotency", () => {
       permissions: ["observe"],
       expires_in_seconds: 900,
     });
+    await createDeviceEnrollment({ device_name: "todd-macbook-air", expires_in_seconds: 900 });
     expect(calls[0].headers.get("Idempotency-Key")).toBeNull();
     expect(calls[1].headers.get("Idempotency-Key")).toBeNull();
+    expect(calls[2].input).toBe("/v1/me/device-enrollments");
+    expect(calls[2].headers.get("Idempotency-Key")).toBeNull();
+    expect(JSON.parse(String(calls[2].init.body))).toEqual({
+      device_name: "todd-macbook-air",
+      expires_in_seconds: 900,
+    });
+  });
+
+  it("revokeDevice sends Idempotency-Key but never If-Match / resource_version", async () => {
+    stubFetchOk({ device: { credential_id: "dev_01", status: "revoked" } });
+    const key = beginAction();
+    const device = await revokeDevice("dev_01", key);
+    expect(calls[0].input).toBe("/v1/admin/devices/dev_01");
+    expect(calls[0].init.method).toBe("DELETE");
+    expect(calls[0].headers.get("Idempotency-Key")).toBe(key);
+    expect(calls[0].headers.get("If-Match")).toBeNull();
+    expect(calls[0].init.body).toBeUndefined();
+    expect(device).toMatchObject({ credential_id: "dev_01", status: "revoked" });
   });
 
   it("sends no Idempotency-Key and no body on invitation revoke", async () => {

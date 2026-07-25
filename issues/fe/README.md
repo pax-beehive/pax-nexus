@@ -7,3 +7,4 @@ Source: [Workstation Portal exploratory test](../../docs/workstation-portal-expl
 | P1 | [TM-WKS-001](TM-WKS-001-action-key-crashes-http-portal.md) | Opening Create Agent crashes the Portal when `crypto.randomUUID()` is unavailable. |
 | P2 | [TM-WKS-003](TM-WKS-003-portal-error-boundary.md) | A render exception removes the whole Portal and offers no recovery UI. |
 | P2 | [TM-WKS-004](TM-WKS-004-accessible-controls-and-dialogs.md) | Filters, refresh actions, and modals have ambiguous or missing accessibility semantics. |
+| P1 | [TM-WKS-005](TM-WKS-005-device-provisioning-portal.md) | Portal support for device-scoped agent provisioning (device enrollment, list/detail, cascade revoke, provisioned-by badges). |

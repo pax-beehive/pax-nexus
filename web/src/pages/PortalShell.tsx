@@ -12,6 +12,8 @@ import { AdminMembersPage } from "./AdminMembersPage";
 import { AdminInvitationsPage } from "./AdminInvitationsPage";
 import { AdminAgentsPage } from "./AdminAgentsPage";
 import { AdminAgentDetailPage } from "./AdminAgentDetailPage";
+import { AdminDevicesPage } from "./AdminDevicesPage";
+import { AdminDeviceDetailPage } from "./AdminDeviceDetailPage";
 import { AdminAuditPage } from "./AdminAuditPage";
 import { AdminOperationsPage } from "./AdminOperationsPage";
 import { AdminPulsePage } from "./AdminPulsePage";
@@ -104,6 +106,9 @@ export function PortalShell({ me }: { me: HumanMe }) {
               <NavLink to="/admin/agents" className={navClass}>
                 All Agents
               </NavLink>
+              <NavLink to="/admin/devices" className={navClass}>
+                Devices
+              </NavLink>
               <NavLink to="/admin/audit" className={navClass}>
                 Audit Events
               </NavLink>
@@ -172,6 +177,22 @@ export function PortalShell({ me }: { me: HumanMe }) {
               element={
                 <RequireCapability me={me} cap="view.all-agents">
                   <AdminAgentDetailPage me={me} />
+                </RequireCapability>
+              }
+            />
+            <Route
+              path="/admin/devices"
+              element={
+                <RequireCapability me={me} cap="view.devices">
+                  <AdminDevicesPage />
+                </RequireCapability>
+              }
+            />
+            <Route
+              path="/admin/devices/:credentialId"
+              element={
+                <RequireCapability me={me} cap="view.devices">
+                  <AdminDeviceDetailPage />
                 </RequireCapability>
               }
             />

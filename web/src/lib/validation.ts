@@ -19,6 +19,16 @@ export function validateEmail(email: string): string | undefined {
   return /^[^@\s]+@[^@\s]+$/.test(email) ? undefined : "邮箱格式不正确";
 }
 
+/** device_name rules from doc section 5.9. */
+export function validateDeviceName(name: string): string | undefined {
+  const trimmed = name.trim();
+  if (!trimmed) return "device_name 必填（trim 后不能为空）";
+  if (trimmed.length > 200) return "device_name 不能超过 200 字符";
+  // eslint-disable-next-line no-control-regex
+  if (/[\x00-\x1f]/.test(trimmed)) return "device_name 不能包含控制字符";
+  return undefined;
+}
+
 /** credential_expires_at is optional but must be a future time when set. */
 export function validateFutureTime(value: string): string | undefined {
   if (!value) return undefined;
