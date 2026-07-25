@@ -387,6 +387,58 @@ func (s *registrySuite) TestMemberGrantablePermissionAllowlist() {
 	s.Require().ErrorIs(err, onprem.ErrInvalidIdentityInput)
 }
 
+func (s *registrySuite) TestCreateDeviceEnrollmentRequiresOwnerOrAdmin() {
+	member := activeMember()
+	_, err := s.service.CreateDeviceEnrollment(context.Background(), member, onprem.DeviceEnrollmentRequest{
+		DeviceName: "todd-macbook-air",
+	})
+	s.Require().ErrorIs(err, onprem.ErrForbidden)
+}
+
+func (s *registrySuite) TestCreateDeviceEnrollmentRejectsEmptyDeviceName() {
+	owner := activeMember()
+	owner.Role = onprem.RoleOwner
+	_, err := s.service.CreateDeviceEnrollment(context.Background(), owner, onprem.DeviceEnrollmentRequest{
+		DeviceName: "   ",
+	})
+	s.Require().ErrorIs(err, onprem.ErrInvalidIdentityInput)
+}
+
+func (s *registrySuite) TestCreateDeviceEnrollmentRejectsGrantableSupersetOfConfig() {
+	owner := activeMember()
+	owner.Role = onprem.RoleOwner
+	_, err := s.service.CreateDeviceEnrollment(context.Background(), owner, onprem.DeviceEnrollmentRequest{
+		DeviceName:           "todd-macbook-air",
+		GrantablePermissions: []onprem.Permission{onprem.PermissionAdmin},
+	})
+	s.Require().ErrorIs(err, onprem.ErrInvalidIdentityInput)
+}
+
+func (s *registrySuite) TestCreateDeviceEnrollmentHappyPathRecordsDeviceKind() {
+	admin := activeMember()
+	admin.Role = onprem.RoleAdmin
+	enrollment, err := s.service.CreateDeviceEnrollment(context.Background(), admin, onprem.DeviceEnrollmentRequest{
+		DeviceName: "todd-macbook-air",
+	})
+	s.Require().NoError(err)
+	s.NotEmpty(enrollment.Token)
+	s.Require().Len(s.store.deviceEnrollments, 1)
+	record := s.store.deviceEnrollments[0]
+	s.Equal(onprem.CredentialKindDevice, record.Kind)
+	s.Empty(record.AgentID)
+	s.Equal([]onprem.Permission{onprem.PermissionAgentProvision}, record.Permissions)
+	s.Equal("todd-macbook-air", record.CredentialLabel)
+	s.Equal(
+		[]onprem.Permission{
+			onprem.PermissionObserve, onprem.PermissionSearch, onprem.PermissionGet,
+			onprem.PermissionChannelSend, onprem.PermissionChannelReceive,
+		},
+		record.GrantablePermissions,
+	)
+	s.Equal(admin.UserID, record.UserID)
+	s.Equal(admin.MembershipID, record.MembershipID)
+}
+
 func activeMember() onprem.HumanPrincipal {
 	return onprem.HumanPrincipal{
 		UserID: "user-1", MembershipID: "membership-1", Role: onprem.RoleMember,
@@ -395,9 +447,10 @@ func activeMember() onprem.HumanPrincipal {
 }
 
 type registryStore struct {
-	agents          []onprem.AgentProfile
-	enrollments     []onprem.EnrollmentRecord
-	lastAdminFilter onprem.AgentFilter
+	agents            []onprem.AgentProfile
+	enrollments       []onprem.EnrollmentRecord
+	deviceEnrollments []onprem.EnrollmentRecord
+	lastAdminFilter   onprem.AgentFilter
 }
 
 func (s *registryStore) CreateAgent(_ context.Context, profile onprem.AgentProfile) (onprem.AgentProfile, error) {
@@ -495,6 +548,15 @@ func (s *registryStore) CreateOwnedEnrollment(
 	record onprem.EnrollmentRecord,
 ) error {
 	s.enrollments = append(s.enrollments, record)
+	return nil
+}
+
+func (s *registryStore) CreateDeviceEnrollment(
+	_ context.Context,
+	_ string,
+	record onprem.EnrollmentRecord,
+) error {
+	s.deviceEnrollments = append(s.deviceEnrollments, record)
 	return nil
 }
 

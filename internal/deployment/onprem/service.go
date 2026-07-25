@@ -121,7 +121,9 @@ func (s *CredentialService) Authenticate(ctx context.Context, apiKey string) (Pr
 	return Principal{
 		UserID: record.UserID, MembershipID: record.MembershipID, AgentID: record.AgentID, ScopeID: LocalScopeID,
 		CredentialID: record.ID, CredentialLabel: record.Label,
-		Permissions: append([]Permission(nil), record.Permissions...),
+		Permissions:          append([]Permission(nil), record.Permissions...),
+		Kind:                 record.Kind,
+		GrantablePermissions: append([]Permission(nil), record.GrantablePermissions...),
 	}, nil
 }
 

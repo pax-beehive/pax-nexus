@@ -81,11 +81,12 @@ func (s *CredentialStore) ExchangeEnrollment(
 			returnedErr = errors.Join(returnedErr, fmt.Errorf("rollback enrollment exchange: %w", rollbackErr))
 		}
 	}()
-	membershipID, agentID, err := lockEnrollmentExchangeOwner(ctx, tx, enrollmentID, digest, now)
+	membershipID, agentID, kind, err := lockEnrollmentExchangeOwner(ctx, tx, enrollmentID, digest, now)
 	if err != nil {
 		return onprem.EnrollmentRecord{}, err
 	}
 	var permissions []string
+	var grantablePermissions []string
 	err = tx.QueryRow(ctx, `
 		UPDATE agent_enrollments
 		SET consumed_at = $3, consumed_credential_id = $4
@@ -93,11 +94,12 @@ func (s *CredentialStore) ExchangeEnrollment(
 		  AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at > $3
 		  AND membership_id = $5 AND agent_id = $6
 		RETURNING enrollment_id, user_id, membership_id, agent_id, credential_label,
-		          permissions, created_at, expires_at, credential_expires_at, consumed_at
+		          permissions, created_at, expires_at, credential_expires_at, consumed_at,
+		          kind, grantable_permissions
 	`, enrollmentID, digest[:], now, credential.ID, membershipID, agentID).Scan(
 		&enrollment.ID, &enrollment.UserID, &enrollment.MembershipID, &enrollment.AgentID,
 		&enrollment.CredentialLabel, &permissions, &enrollment.CreatedAt, &enrollment.ExpiresAt,
-		&enrollment.CredentialExpiresAt, &enrollment.ConsumedAt,
+		&enrollment.CredentialExpiresAt, &enrollment.ConsumedAt, &enrollment.Kind, &grantablePermissions,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return onprem.EnrollmentRecord{}, onprem.ErrEnrollmentInvalid
@@ -107,39 +109,51 @@ func (s *CredentialStore) ExchangeEnrollment(
 	}
 	enrollment.TokenDigest = digest
 	enrollment.Permissions = permissionsFromStrings(permissions)
+	enrollment.GrantablePermissions = permissionsFromStrings(grantablePermissions)
 	credential.UserID = enrollment.UserID
 	credential.MembershipID = enrollment.MembershipID
 	credential.AgentID = enrollment.AgentID
 	credential.Label = enrollment.CredentialLabel
 	credential.Permissions = enrollment.Permissions
 	credential.ExpiresAt = enrollment.CredentialExpiresAt
-	var claimedUserID string
-	err = tx.QueryRow(ctx, `
-		INSERT INTO onprem_agent_identities (agent_id, user_id, created_at)
-		VALUES ($1, $2, $3)
-		ON CONFLICT (agent_id) DO UPDATE
-		SET agent_id = EXCLUDED.agent_id
-		WHERE onprem_agent_identities.user_id = EXCLUDED.user_id
-		RETURNING user_id
-	`, credential.AgentID, credential.UserID, credential.CreatedAt).Scan(&claimedUserID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return onprem.EnrollmentRecord{}, onprem.ErrAgentIdentityConflict
-	}
-	if err != nil {
-		return onprem.EnrollmentRecord{}, fmt.Errorf("claim postgres agent identity: %w", err)
+	credential.Kind = enrollment.Kind
+	credential.GrantablePermissions = enrollment.GrantablePermissions
+	isDevice := kind == string(onprem.CredentialKindDevice)
+	if !isDevice {
+		var claimedUserID string
+		err = tx.QueryRow(ctx, `
+			INSERT INTO onprem_agent_identities (agent_id, user_id, created_at)
+			VALUES ($1, $2, $3)
+			ON CONFLICT (agent_id) DO UPDATE
+			SET agent_id = EXCLUDED.agent_id
+			WHERE onprem_agent_identities.user_id = EXCLUDED.user_id
+			RETURNING user_id
+		`, credential.AgentID, credential.UserID, credential.CreatedAt).Scan(&claimedUserID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return onprem.EnrollmentRecord{}, onprem.ErrAgentIdentityConflict
+		}
+		if err != nil {
+			return onprem.EnrollmentRecord{}, fmt.Errorf("claim postgres agent identity: %w", err)
+		}
 	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO agent_credentials (
 			credential_id, key_digest, user_id, owner_membership_id, agent_id,
-			label, permissions, created_at, expires_at, rotated_from_credential_id, digest_key_version
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+			label, permissions, created_at, expires_at, rotated_from_credential_id, digest_key_version,
+			kind, provisioned_by, grantable_permissions
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 	`, credential.ID, credential.KeyDigest[:], credential.UserID, credential.MembershipID,
 		credential.AgentID, credential.Label, permissionStrings(credential.Permissions),
 		credential.CreatedAt, credential.ExpiresAt, nullableText(credential.RotatedFromCredentialID),
-		credential.DigestKeyVersion); err != nil {
+		credential.DigestKeyVersion, credentialKindOrDefault(credential.Kind),
+		nullableText(credential.ProvisionedBy), permissionStrings(credential.GrantablePermissions)); err != nil {
 		return onprem.EnrollmentRecord{}, fmt.Errorf("save exchanged agent credential: %w", err)
 	}
-	if err := insertAuditEvent(ctx, tx, "agent", credential.UserID, credential.MembershipID,
+	actorKind := "agent"
+	if isDevice {
+		actorKind = "device"
+	}
+	if err := insertAuditEvent(ctx, tx, actorKind, credential.UserID, credential.MembershipID,
 		credential.AgentID, credential.ID, "identity.credential.issued", "credential", credential.ID, now); err != nil {
 		return onprem.EnrollmentRecord{}, err
 	}
@@ -155,19 +169,19 @@ func lockEnrollmentExchangeOwner(
 	enrollmentID string,
 	digest onprem.Digest,
 	now time.Time,
-) (string, string, error) {
-	var membershipID, agentID string
+) (string, string, string, error) {
+	var membershipID, agentID, kind string
 	err := tx.QueryRow(ctx, `
-		SELECT membership_id, agent_id
+		SELECT membership_id, agent_id, kind
 		FROM agent_enrollments
 		WHERE token_digest = $2 AND ($1 = '' OR enrollment_id = $1)
 		  AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at > $3
-	`, enrollmentID, digest[:], now).Scan(&membershipID, &agentID)
+	`, enrollmentID, digest[:], now).Scan(&membershipID, &agentID, &kind)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", "", onprem.ErrEnrollmentInvalid
+		return "", "", "", onprem.ErrEnrollmentInvalid
 	}
 	if err != nil {
-		return "", "", fmt.Errorf("resolve enrollment owner before exchange: %w", err)
+		return "", "", "", fmt.Errorf("resolve enrollment owner before exchange: %w", err)
 	}
 	var active bool
 	err = tx.QueryRow(ctx, `
@@ -179,10 +193,13 @@ func lockEnrollmentExchangeOwner(
 		FOR UPDATE OF memberships, users
 	`, membershipID).Scan(&active)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", "", onprem.ErrEnrollmentInvalid
+		return "", "", "", onprem.ErrEnrollmentInvalid
 	}
 	if err != nil {
-		return "", "", fmt.Errorf("lock enrollment membership before exchange: %w", err)
+		return "", "", "", fmt.Errorf("lock enrollment membership before exchange: %w", err)
+	}
+	if kind == string(onprem.CredentialKindDevice) {
+		return membershipID, agentID, kind, nil
 	}
 	err = tx.QueryRow(ctx, `
 		SELECT true FROM onprem_agents
@@ -190,12 +207,12 @@ func lockEnrollmentExchangeOwner(
 		FOR UPDATE
 	`, agentID, membershipID).Scan(&active)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", "", onprem.ErrEnrollmentInvalid
+		return "", "", "", onprem.ErrEnrollmentInvalid
 	}
 	if err != nil {
-		return "", "", fmt.Errorf("lock enrollment agent before exchange: %w", err)
+		return "", "", "", fmt.Errorf("lock enrollment agent before exchange: %w", err)
 	}
-	return membershipID, agentID, nil
+	return membershipID, agentID, kind, nil
 }
 
 func (s *CredentialStore) ResolveCredential(
@@ -205,30 +222,41 @@ func (s *CredentialStore) ResolveCredential(
 	now time.Time,
 ) (record onprem.CredentialRecord, err error) {
 	var permissions []string
+	var grantablePermissions []string
 	var storedDigest []byte
 	err = s.pool.QueryRow(ctx, `
 		UPDATE agent_credentials credentials
 		SET last_used_at = $3
-		FROM onprem_agents agents
-		JOIN onprem_memberships memberships ON memberships.membership_id = agents.owner_membership_id
+		FROM onprem_memberships memberships
 		JOIN onprem_users users ON users.user_id = memberships.user_id
 		WHERE ($1 = '' OR credentials.credential_id = $1) AND credentials.key_digest = $2
-		  AND credentials.owner_membership_id = agents.owner_membership_id
-		  AND credentials.agent_id = agents.agent_id
+		  AND credentials.owner_membership_id = memberships.membership_id
 		  AND credentials.user_id = memberships.user_id
 		  AND credentials.revoked_at IS NULL
 		  AND (credentials.expires_at IS NULL OR credentials.expires_at > $3)
-		  AND agents.status = 'active' AND memberships.status = 'active'
+		  AND memberships.status = 'active'
 		  AND users.identity_status IN ('active', 'unclaimed')
+		  AND (
+		      credentials.kind = 'device'
+		      OR EXISTS (
+		          SELECT 1 FROM onprem_agents agents
+		          WHERE agents.agent_id = credentials.agent_id
+		            AND agents.owner_membership_id = credentials.owner_membership_id
+		            AND agents.status = 'active'
+		      )
+		  )
 		RETURNING credentials.credential_id, credentials.key_digest, credentials.user_id,
 		          credentials.owner_membership_id, credentials.agent_id, credentials.label,
 		          credentials.permissions, credentials.created_at, credentials.expires_at,
 		          credentials.revoked_at, credentials.last_used_at,
-		          COALESCE(credentials.rotated_from_credential_id, '')
+		          COALESCE(credentials.rotated_from_credential_id, ''),
+		          credentials.kind, credentials.grantable_permissions,
+		          COALESCE(credentials.provisioned_by, '')
 	`, credentialID, digest[:], now).Scan(
 		&record.ID, &storedDigest, &record.UserID, &record.MembershipID, &record.AgentID,
 		&record.Label, &permissions, &record.CreatedAt, &record.ExpiresAt, &record.RevokedAt,
 		&record.LastUsedAt, &record.RotatedFromCredentialID,
+		&record.Kind, &grantablePermissions, &record.ProvisionedBy,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return onprem.CredentialRecord{}, onprem.ErrUnauthorized
@@ -238,6 +266,7 @@ func (s *CredentialStore) ResolveCredential(
 	}
 	copy(record.KeyDigest[:], storedDigest)
 	record.Permissions = permissionsFromStrings(permissions)
+	record.GrantablePermissions = permissionsFromStrings(grantablePermissions)
 	return record, nil
 }
 
@@ -273,12 +302,14 @@ func (s *CredentialStore) RotateCredential(
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO agent_credentials (
 			credential_id, key_digest, user_id, owner_membership_id, agent_id,
-			label, permissions, created_at, expires_at, rotated_from_credential_id, digest_key_version
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+			label, permissions, created_at, expires_at, rotated_from_credential_id, digest_key_version,
+			kind, provisioned_by, grantable_permissions
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 	`, replacement.ID, replacement.KeyDigest[:], replacement.UserID, replacement.MembershipID,
 		replacement.AgentID, replacement.Label, permissionStrings(replacement.Permissions),
 		replacement.CreatedAt, replacement.ExpiresAt, nullableText(replacement.RotatedFromCredentialID),
-		replacement.DigestKeyVersion); err != nil {
+		replacement.DigestKeyVersion, credentialKindOrDefault(replacement.Kind),
+		nullableText(replacement.ProvisionedBy), permissionStrings(replacement.GrantablePermissions)); err != nil {
 		return fmt.Errorf("save rotated agent credential: %w", err)
 	}
 	if err := insertAuditEvent(ctx, tx, "agent", replacement.UserID, replacement.MembershipID,
@@ -404,6 +435,13 @@ func (s *CredentialStore) RevokeCredential(
 		return fmt.Errorf("commit credential revocation: %w", err)
 	}
 	return nil
+}
+
+func credentialKindOrDefault(kind onprem.CredentialKind) string {
+	if kind == "" {
+		return string(onprem.CredentialKindAgent)
+	}
+	return string(kind)
 }
 
 func permissionStrings(permissions []onprem.Permission) []string {

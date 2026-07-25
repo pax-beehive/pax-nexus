@@ -111,6 +111,12 @@ type OwnerEnrollmentRequest struct {
 	CredentialExpiresAt *time.Time
 }
 
+type DeviceEnrollmentRequest struct {
+	DeviceName           string
+	GrantablePermissions []Permission
+	ExpiresIn            time.Duration
+}
+
 type AgentEnrollmentMetadata struct {
 	EnrollmentID        string
 	AgentID             string
@@ -153,6 +159,7 @@ type RegistryStore interface {
 	RetireOwnedAgent(context.Context, string, HumanPrincipal, string, int64, string, time.Time) (AgentProfile, error)
 	TransferAgent(context.Context, HumanPrincipal, string, string, int64, time.Time) (AgentProfile, error)
 	CreateOwnedEnrollment(context.Context, string, EnrollmentRecord) error
+	CreateDeviceEnrollment(context.Context, string, EnrollmentRecord) error
 	ListOwnedEnrollments(context.Context, string, string, AgentArtifactFilter, time.Time) ([]AgentEnrollmentMetadata, error)
 	RevokeOwnedEnrollment(context.Context, string, HumanPrincipal, string, string, string, time.Time) (AgentEnrollmentMetadata, error)
 	ListOwnedCredentials(context.Context, string, string, AgentArtifactFilter, time.Time) ([]AgentCredentialMetadata, error)
@@ -184,13 +191,14 @@ func WithRegistryTokenSource(source func() (string, error)) RegistryOption {
 }
 
 type RegistryService struct {
-	store       RegistryStore
-	clock       func() time.Time
-	idSource    func() (string, error)
-	tokenSource func() (string, error)
-	digester    secretDigester
-	grantable   map[Permission]struct{}
-	portalURL   string
+	store         RegistryStore
+	clock         func() time.Time
+	idSource      func() (string, error)
+	tokenSource   func() (string, error)
+	digester      secretDigester
+	grantable     map[Permission]struct{}
+	grantableList []Permission
+	portalURL     string
 }
 
 func NewRegistryService(store RegistryStore, config RegistryConfig, options ...RegistryOption) (*RegistryService, error) {
@@ -201,9 +209,13 @@ func NewRegistryService(store RegistryStore, config RegistryConfig, options ...R
 	if err != nil {
 		return nil, fmt.Errorf("create agent registry: %w", err)
 	}
-	grantable, err := grantablePermissionSet(config.MemberGrantablePermissions)
+	grantableList, err := validateExplicitPermissions(config.MemberGrantablePermissions)
 	if err != nil {
 		return nil, fmt.Errorf("create agent registry: %w", err)
+	}
+	grantable := make(map[Permission]struct{}, len(grantableList))
+	for _, permission := range grantableList {
+		grantable[permission] = struct{}{}
 	}
 	configured := registryOptions{clock: time.Now, idSource: randomToken, tokenSource: randomToken}
 	for _, option := range options {
@@ -214,7 +226,8 @@ func NewRegistryService(store RegistryStore, config RegistryConfig, options ...R
 	}
 	return &RegistryService{
 		store: store, clock: configured.clock, idSource: configured.idSource, tokenSource: configured.tokenSource,
-		digester: digester, grantable: grantable, portalURL: strings.TrimSpace(config.PortalURL),
+		digester: digester, grantable: grantable, grantableList: grantableList,
+		portalURL: strings.TrimSpace(config.PortalURL),
 	}, nil
 }
 
@@ -361,6 +374,63 @@ func (s *RegistryService) CreateEnrollment(
 	return Enrollment{ID: id, Token: token, ExpiresAt: record.ExpiresAt}, nil
 }
 
+func (s *RegistryService) CreateDeviceEnrollment(
+	ctx context.Context,
+	principal HumanPrincipal,
+	request DeviceEnrollmentRequest,
+) (Enrollment, error) {
+	if err := authorizeHumanAdmin(principal); err != nil {
+		return Enrollment{}, err
+	}
+	deviceName := strings.TrimSpace(request.DeviceName)
+	if err := validateDeviceName(deviceName); err != nil {
+		return Enrollment{}, err
+	}
+	grantable := request.GrantablePermissions
+	if len(grantable) == 0 {
+		grantable = append([]Permission(nil), s.grantableList...)
+	} else {
+		validated, err := validateExplicitPermissions(grantable)
+		if err != nil {
+			return Enrollment{}, err
+		}
+		for _, permission := range validated {
+			if _, allowed := s.grantable[permission]; !allowed {
+				return Enrollment{}, fmt.Errorf("%w: enrollment permission %q is not grantable", ErrInvalidIdentityInput, permission)
+			}
+		}
+		grantable = validated
+	}
+	expiresIn := request.ExpiresIn
+	if expiresIn == 0 {
+		expiresIn = defaultEnrollmentTTL
+	}
+	if expiresIn < 0 {
+		return Enrollment{}, fmt.Errorf("%w: enrollment expiry must be positive", ErrInvalidIdentityInput)
+	}
+	id, err := s.idSource()
+	if err != nil {
+		return Enrollment{}, fmt.Errorf("create device enrollment ID: %w", err)
+	}
+	secret, err := s.tokenSource()
+	if err != nil {
+		return Enrollment{}, fmt.Errorf("create device enrollment secret: %w", err)
+	}
+	now := s.clock().UTC()
+	token, verifiableToken := enrollmentToken(id, secret, s.portalURL)
+	record := EnrollmentRecord{
+		ID: id, TokenDigest: s.digester.Digest(enrollmentDigestDomain, verifiableToken),
+		DigestKeyVersion: currentDigestKeyVersion, UserID: principal.UserID, MembershipID: principal.MembershipID,
+		Kind: CredentialKindDevice, AgentID: "", CredentialLabel: deviceName,
+		Permissions: []Permission{PermissionAgentProvision}, GrantablePermissions: grantable,
+		CreatedAt: now, ExpiresAt: now.Add(expiresIn),
+	}
+	if err := s.store.CreateDeviceEnrollment(ctx, principal.MembershipID, record); err != nil {
+		return Enrollment{}, fmt.Errorf("save device enrollment: %w", err)
+	}
+	return Enrollment{ID: id, Token: token, ExpiresAt: record.ExpiresAt}, nil
+}
+
 func (s *RegistryService) ListEnrollments(
 	ctx context.Context,
 	principal HumanPrincipal,
@@ -427,18 +497,6 @@ func (s *RegistryService) RevokeOwnedCredential(
 		ctx, principal.MembershipID, principal, strings.TrimSpace(agentID), strings.TrimSpace(credentialID),
 		strings.TrimSpace(idempotencyKey), s.clock().UTC(),
 	)
-}
-
-func grantablePermissionSet(permissions []Permission) (map[Permission]struct{}, error) {
-	validated, err := validateExplicitPermissions(permissions)
-	if err != nil {
-		return nil, err
-	}
-	result := make(map[Permission]struct{}, len(validated))
-	for _, permission := range validated {
-		result[permission] = struct{}{}
-	}
-	return result, nil
 }
 
 func (s *RegistryService) ListDirectoryAgents(
@@ -686,6 +744,21 @@ func validateAgentIdentity(agentID, displayName string) error {
 	}
 	if len(displayName) > 200 {
 		return fmt.Errorf("%w: display_name is too long", ErrInvalidIdentityInput)
+	}
+	return nil
+}
+
+func validateDeviceName(name string) error {
+	if name == "" {
+		return fmt.Errorf("%w: device_name is required", ErrInvalidIdentityInput)
+	}
+	if len(name) > 200 {
+		return fmt.Errorf("%w: device_name is too long", ErrInvalidIdentityInput)
+	}
+	for _, current := range name {
+		if current < 0x20 || current == 0x7f {
+			return fmt.Errorf("%w: device_name is invalid", ErrInvalidIdentityInput)
+		}
 	}
 	return nil
 }

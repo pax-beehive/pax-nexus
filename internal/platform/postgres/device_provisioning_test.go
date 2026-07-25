@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pax-beehive/pax-nexus/internal/deployment/onprem"
 	"github.com/pax-beehive/pax-nexus/internal/platform/postgres"
 	"github.com/stretchr/testify/suite"
 )
@@ -15,6 +16,7 @@ import (
 type deviceProvisioningStoreSuite struct {
 	suite.Suite
 	store        *postgres.Store
+	userID       string
 	membershipID string
 }
 
@@ -50,6 +52,7 @@ func (s *deviceProvisioningStoreSuite) SetupTest() {
 		INSERT INTO onprem_memberships (membership_id, user_id, role, status, joined_at, updated_at)
 		VALUES ($1, $2, 'owner', 'active', $3, $3)`, membershipID, userID, now)
 	s.Require().NoError(err)
+	s.userID = userID
 	s.membershipID = membershipID
 }
 
@@ -118,4 +121,77 @@ func (s *deviceProvisioningStoreSuite) TestMigration019IsReplaySafeAndAddsDevice
 	// Replay migration after device rows exist to prove 019 is truly replay-safe
 	// on tables with device credential and enrollment rows.
 	s.Require().NoError(s.store.Migrate(ctx), "migration 019 should replay safely with device rows present")
+}
+
+// TestDeviceEnrollmentCreateExchangeAuthenticateLoop exercises the full
+// device-scoped provisioning loop described in Task 3: an Owner creates a
+// device enrollment through RegistryService, the resulting token is
+// exchanged for a credential through CredentialService, and the issued
+// credential authenticates to a Principal carrying device semantics.
+func (s *deviceProvisioningStoreSuite) TestDeviceEnrollmentCreateExchangeAuthenticateLoop() {
+	ctx := context.Background()
+	now := time.Now().UTC()
+	registryService, err := onprem.NewRegistryService(s.store.Registry(), onprem.RegistryConfig{
+		SecretPepper: "0123456789abcdef0123456789abcdef",
+		MemberGrantablePermissions: []onprem.Permission{
+			onprem.PermissionObserve, onprem.PermissionSearch, onprem.PermissionGet,
+		},
+	}, onprem.WithRegistryClock(func() time.Time { return now }))
+	s.Require().NoError(err)
+	credentialService, err := onprem.NewCredentialService(s.store.Credentials(), onprem.CredentialConfig{
+		RotationOverlap: time.Minute,
+		SecretPepper:    "0123456789abcdef0123456789abcdef",
+	}, onprem.WithClock(func() time.Time { return now }))
+	s.Require().NoError(err)
+
+	owner := onprem.HumanPrincipal{
+		UserID: s.userID, MembershipID: s.membershipID, Role: onprem.RoleOwner,
+		MembershipStatus: onprem.MembershipStatusActive,
+	}
+	enrollment, err := registryService.CreateDeviceEnrollment(ctx, owner, onprem.DeviceEnrollmentRequest{
+		DeviceName: uniqueCredentialValue("todd-macbook-air"),
+	})
+	s.Require().NoError(err)
+	s.NotEmpty(enrollment.Token)
+
+	issued, err := credentialService.ExchangeEnrollment(ctx, enrollment.Token)
+	s.Require().NoError(err)
+	s.NotEmpty(issued.APIKey)
+
+	principal, err := credentialService.Authenticate(ctx, issued.APIKey)
+	s.Require().NoError(err)
+	s.Equal(onprem.CredentialKindDevice, principal.Kind)
+	s.True(principal.HasPermission(onprem.PermissionAgentProvision))
+	s.False(principal.HasPermission(onprem.PermissionObserve))
+	s.False(principal.HasPermission(onprem.PermissionSearch))
+	s.False(principal.HasPermission(onprem.PermissionGet))
+	s.Empty(principal.AgentID)
+	s.Equal(
+		[]onprem.Permission{onprem.PermissionObserve, onprem.PermissionSearch, onprem.PermissionGet},
+		principal.GrantablePermissions,
+	)
+
+	// Second exchange of the same token must fail: enrollments are one-time use.
+	_, err = credentialService.ExchangeEnrollment(ctx, enrollment.Token)
+	s.Require().ErrorIs(err, onprem.ErrEnrollmentInvalid)
+
+	// Regression: an ordinary agent enrollment must still exchange successfully
+	// and its Principal must carry agent kind semantics (not the empty zero
+	// value observed by callers that don't know about device kinds).
+	agentID := uniqueCredentialValue("regression-agent")
+	_, err = registryService.CreateAgent(ctx, owner, onprem.CreateAgentRequest{
+		AgentID: agentID, DisplayName: "Regression Agent",
+	})
+	s.Require().NoError(err)
+	agentEnrollment, err := registryService.CreateEnrollment(ctx, owner, agentID, onprem.OwnerEnrollmentRequest{
+		CredentialLabel: "regression-credential",
+		Permissions:     []onprem.Permission{onprem.PermissionObserve},
+	})
+	s.Require().NoError(err)
+	agentIssued, err := credentialService.ExchangeEnrollment(ctx, agentEnrollment.Token)
+	s.Require().NoError(err)
+	agentPrincipal, err := credentialService.Authenticate(ctx, agentIssued.APIKey)
+	s.Require().NoError(err)
+	s.Equal(onprem.CredentialKindAgent, agentPrincipal.Kind)
+	s.Equal(agentID, agentPrincipal.AgentID)
 }

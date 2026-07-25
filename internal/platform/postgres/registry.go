@@ -414,6 +414,52 @@ func (s *RegistryStore) CreateOwnedEnrollment(
 	return nil
 }
 
+func (s *RegistryStore) CreateDeviceEnrollment(
+	ctx context.Context,
+	membershipID string,
+	record onprem.EnrollmentRecord,
+) (returnedErr error) {
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return fmt.Errorf("begin device enrollment creation: %w", err)
+	}
+	defer rollbackTx(&returnedErr, tx, "device enrollment creation")
+	var active bool
+	err = tx.QueryRow(ctx, `
+		SELECT true
+		FROM onprem_memberships memberships
+		JOIN onprem_users users ON users.user_id = memberships.user_id
+		WHERE memberships.membership_id = $1 AND memberships.status = 'active'
+		  AND users.identity_status IN ('active', 'unclaimed')
+		FOR UPDATE OF memberships, users
+	`, membershipID).Scan(&active)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return onprem.ErrForbidden
+	}
+	if err != nil {
+		return fmt.Errorf("lock device enrollment membership: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO agent_enrollments (
+			enrollment_id, token_digest, user_id, membership_id, agent_id,
+			credential_label, permissions, created_at, expires_at, credential_expires_at,
+			digest_key_version, kind, grantable_permissions
+		) VALUES ($1, $2, $3, $4, '', $5, $6, $7, $8, NULL, $9, 'device', $10)
+	`, record.ID, record.TokenDigest[:], record.UserID, membershipID, record.CredentialLabel,
+		permissionStrings(record.Permissions), record.CreatedAt, record.ExpiresAt,
+		record.DigestKeyVersion, permissionStrings(record.GrantablePermissions)); err != nil {
+		return fmt.Errorf("create postgres device enrollment: %w", err)
+	}
+	if err := insertAuditEvent(ctx, tx, "human", record.UserID, membershipID, "", "",
+		"identity.enrollment.created", "enrollment", record.ID, record.CreatedAt); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit device enrollment creation: %w", err)
+	}
+	return nil
+}
+
 func (s *RegistryStore) ListOwnedEnrollments(
 	ctx context.Context,
 	membershipID string,
