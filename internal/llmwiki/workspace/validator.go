@@ -22,6 +22,8 @@ var (
 	messageAnchorPattern       = regexp.MustCompile(`^msg-[a-f0-9]{16}$`)
 	h1Pattern                  = regexp.MustCompile(`(?m)^# [^\n]+$`)
 	sessionHeadingPattern      = regexp.MustCompile(`(?mi)^#{2,6}\s+(?:source\s+)?session\s+\d+\b`)
+	relatedPagesHeadingPattern = regexp.MustCompile(`(?mi)^## Related pages\s*$`)
+	h2Pattern                  = regexp.MustCompile(`(?m)^## [^\n]+$`)
 )
 
 func Validate(root string) ValidationReport {
@@ -380,6 +382,10 @@ func validateArticlePage(
 	}
 	if pageType != "timeline" && sessionHeadingPattern.Match(body) {
 		report.add(path, "Session chronology heading is forbidden outside timeline and log views")
+	}
+	if related := relatedPagesHeadingPattern.FindIndex(body); related != nil &&
+		h2Pattern.Match(body[related[1]:]) {
+		report.add(path, "Related pages must be the final H2 section")
 	}
 	if pageType == "portal" {
 		return

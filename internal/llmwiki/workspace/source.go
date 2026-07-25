@@ -423,7 +423,8 @@ Then write:
 Use summary style: keep an overview readable and move substantial subtopics into
 standalone articles only when they satisfy the page-creation rule. Separate
 current state from historical development. Avoid repeating the same prose across
-person, journey, and topic pages.
+person, journey, and topic pages. If a page has a Related pages section, keep it
+as the final H2 section.
 
 ## Navigation and evolution
 

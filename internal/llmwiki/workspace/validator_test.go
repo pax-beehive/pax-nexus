@@ -267,6 +267,14 @@ func (s *validatorSuite) TestArticleFirstContractAndNavigationFailureMatrix() {
 				"This page starts with a valid prose lead for its readers.\n\n# Again\n",
 			message: "exactly one H1",
 		},
+		{
+			name: "related pages before article content",
+			page: "---\ntype: portal\n---\n\n# Leaf\n\n" +
+				"This page starts with a valid prose lead for its readers.\n\n" +
+				"## Related pages\n\n- [Home](../index.md)\n\n" +
+				"## Appended facts\n\nThis content is in the wrong position.\n",
+			message: "Related pages must be the final H2",
+		},
 	}
 	for _, test := range tests {
 		s.Run(test.name, func() {
