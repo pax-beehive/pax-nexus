@@ -58,7 +58,7 @@ describe("section 12 item 1: Operations nav follows the server capability", () =
   });
 
   it("hides the nav item for a Member even if a capability were published", async () => {
-    // The Admin Console section itself is role-gated; a Member never sees
+    // The admin nav sections themselves are role-gated; a Member never sees
     // the Operations entry point regardless of the capability payload.
     await renderApp({
       route: "/agents",

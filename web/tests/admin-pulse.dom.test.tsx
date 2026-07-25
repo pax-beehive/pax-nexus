@@ -53,7 +53,7 @@ describe("agent cards", () => {
     expect(statValue(first, "capsules")).toBe("5");
     within(first).getByText("Postgres is the only metadata store");
     within(first).getByText("decision");
-    within(first).getByText("刚刚");
+    within(first).getByText("just now");
 
     const second = agentCard("Bob Pi");
     expect(statValue(second, "events written")).toBe("3");
@@ -94,13 +94,13 @@ describe("agent cards", () => {
     expect(dotOf("Idle Agent").classList.contains("s-idle")).toBe(true);
     // No recorded activity is idle and never shows a relative time.
     expect(dotOf("Silent Agent").classList.contains("s-idle")).toBe(true);
-    within(agentCard("Silent Agent")).getByText(/最近活动：无记录/);
+    within(agentCard("Silent Agent")).getByText(/Last active: no activity/);
   });
 
   it("shows the flow strip with the aggregate volumes of the window", async () => {
     await renderPulsePage();
     screen.getByRole("img", {
-      name: /48 个事件写入，5 条 notes 产出，7 次召回/,
+      name: /48 events written, 5 notes produced, 7 recalls/,
     });
   });
 
@@ -109,8 +109,8 @@ describe("agent cards", () => {
       agentStats: () => jsonResponse(agentStatsPage([])),
     });
 
-    screen.getByText("还没有 agent 活动");
-    const link = screen.getByRole("link", { name: "前往 All Agents 注册 agent" });
+    screen.getByText("No agent activity yet");
+    const link = screen.getByRole("link", { name: "Go to All Agents to register an agent" });
     expect(link.getAttribute("href")).toBe("/admin/agents");
     expect(document.querySelector(".pulse-card")).toBeNull();
   });
@@ -137,7 +137,7 @@ describe("live event feed", () => {
       events: () => jsonResponse(eventsPage([makeEvent()])),
     });
 
-    expect(screen.getAllByText("服务端错误，请稍后重试").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("Server error; try again later").length).toBeGreaterThanOrEqual(1);
     expect(document.querySelector(".pulse-card")).toBeNull();
     within(feedList()).getByText("Memory Search");
   });
@@ -149,7 +149,7 @@ describe("live event feed", () => {
 
     const first = agentCard("Alice Codex");
     expect(statValue(first, "events written")).toBe("48");
-    expect(screen.getAllByText("服务端错误，请稍后重试").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("Server error; try again later").length).toBeGreaterThanOrEqual(1);
     expect(document.getElementById("pulse-feed")).toBeNull();
   });
 });

@@ -53,13 +53,13 @@ function CreateAgentModal({
         },
         actionKeyRef.current,
       );
-      toast("ok", "Agent 已创建");
+      toast("ok", "Agent created");
       onCreated(agent);
     } catch (err) {
       if (err instanceof ApiError && err.code === "agent_id_conflict") {
-        setFormError("agent_id 已存在，请换一个 ID");
+        setFormError("agent_id already exists; choose a different ID");
       } else if (err instanceof ApiError && err.code === "idempotency_conflict") {
-        setFormError("本次动作的 Idempotency-Key 已用于不同请求，请关闭后重新发起");
+        setFormError("This action's Idempotency-Key was already used for a different request; close the dialog and start over");
       } else {
         handleError(err);
       }
@@ -70,7 +70,7 @@ function CreateAgentModal({
 
   return (
     <Modal title="Create Agent" onClose={onClose}>
-      <label htmlFor="ca-id">agent_id（创建后不可修改，全局唯一）</label>
+      <label htmlFor="ca-id">agent_id (immutable after creation, globally unique)</label>
       <input
         id="ca-id"
         type="text"
@@ -103,21 +103,21 @@ function CreateAgentModal({
           <label>&nbsp;</label>
           <label className="ck">
             <input type="checkbox" checked={visible} onChange={(e) => setVisible(e.target.checked)} />
-            directory_visible（可被目录发现）
+            directory_visible (discoverable in the directory)
           </label>
         </div>
       </div>
       {formError && <div className="note bad">{formError}</div>}
       <div className="note small">
-        本次动作 Idempotency-Key：<code>{actionKeyRef.current.slice(0, 13)}…</code>
-        。网络重试复用同一 key；重新打开表单 = 新 key。
+        Idempotency-Key for this action: <code>{actionKeyRef.current.slice(0, 13)}…</code>.
+        Network retries reuse the same key; reopening the form generates a new key.
       </div>
       <div className="row" style={{ justifyContent: "flex-end" }}>
         <button className="btn ghost" onClick={onClose} disabled={busy}>
-          取消
+          Cancel
         </button>
         <button className="btn primary" disabled={busy} onClick={() => void submit()}>
-          {busy ? "创建中…" : "创建"}
+          {busy ? "Creating…" : "Create"}
         </button>
       </div>
     </Modal>
@@ -144,7 +144,7 @@ export function MyAgentsPage() {
         <div>
           <h1>My Agents</h1>
           <p className="muted" style={{ margin: 0 }}>
-            注册并管理你拥有的 Agent 身份
+            Register and manage the Agent identities you own
           </p>
         </div>
         <button className="btn primary" onClick={() => setCreateOpen(true)}>
@@ -164,9 +164,9 @@ export function MyAgentsPage() {
         ))}
       </div>
       {list.loading ? (
-        <p className="muted">加载中…</p>
+        <p className="muted">Loading…</p>
       ) : list.items.length === 0 ? (
-        <div className="card flat muted">还没有 Agent，点击右上角创建。</div>
+        <div className="card flat muted">No agents yet — click + Create Agent to get started.</div>
       ) : (
         <div className="grid">
           {list.items.map((a) => (
@@ -183,7 +183,7 @@ export function MyAgentsPage() {
               </div>
               <div className="small muted">{a.description}</div>
               <div className="small faint" style={{ marginTop: 8 }}>
-                {a.agent_type} · {a.directory_visible ? "目录可见" : "目录隐藏"} · v{a.resource_version}
+                {a.agent_type} · {a.directory_visible ? "directory visible" : "directory hidden"} · v{a.resource_version}
               </div>
             </div>
           ))}
@@ -192,7 +192,7 @@ export function MyAgentsPage() {
       {list.nextCursor && (
         <div style={{ marginTop: 10, textAlign: "center" }}>
           <button className="btn sm" disabled={list.loadingMore} onClick={() => void list.loadMore()}>
-            {list.loadingMore ? "加载中…" : "加载更多"}
+            {list.loadingMore ? "Loading…" : "Load more"}
           </button>
         </div>
       )}

@@ -42,12 +42,12 @@ export function AgentDetailPage() {
       <div className="card">
         <h2>404</h2>
         <p className="muted">
-          Agent 不存在或不可见。<Link to="/agents">返回列表</Link>
+          Agent does not exist or is not visible. <Link to="/agents">Back to list</Link>
         </p>
       </div>
     );
   }
-  if (!agent) return <p className="muted">加载中…</p>;
+  if (!agent) return <p className="muted">Loading…</p>;
 
   return (
     <>
@@ -61,7 +61,7 @@ export function AgentDetailPage() {
           </div>
         </div>
         <Link to="/agents" className="btn ghost">
-          ← 返回
+          ← Back
         </Link>
       </div>
       <AgentGovernanceCard

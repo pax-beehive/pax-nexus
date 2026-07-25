@@ -47,12 +47,12 @@ export function AdminAgentDetailPage({ me }: { me: HumanMe }) {
       <div className="card">
         <h2>404</h2>
         <p className="muted">
-          Agent 不存在或不可见。<Link to="/admin/agents">返回列表</Link>
+          Agent does not exist or is not visible. <Link to="/admin/agents">Back to list</Link>
         </p>
       </div>
     );
   }
-  if (!agent) return <p className="muted">加载中…</p>;
+  if (!agent) return <p className="muted">Loading…</p>;
 
   const actorRole = me.role ?? "member";
   const mayGovern = can(actorRole, "govern.any-agent");
@@ -70,7 +70,7 @@ export function AdminAgentDetailPage({ me }: { me: HumanMe }) {
           </div>
         </div>
         <Link to="/admin/agents" className="btn ghost">
-          ← 返回
+          ← Back
         </Link>
       </div>
       <AgentGovernanceCard

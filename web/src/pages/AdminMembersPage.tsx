@@ -42,15 +42,15 @@ function EditMemberModal({
         { role, status },
         member.resource_version,
       );
-      toast("ok", "已更新 Member");
+      toast("ok", "Member updated");
       onSaved(updated);
     } catch (err) {
       if (err instanceof ApiError && err.code === "last_active_owner") {
-        toast("bad", "必须先提升另一位 active Owner");
+        toast("bad", "You must promote another active Owner first");
       } else if (err instanceof ApiError && err.code === "resource_version_conflict") {
         const fresh = await getMember(member.membership_id);
         onSaved(fresh);
-        toast("warn", "已被他人修改，已刷新最新数据");
+        toast("warn", "Modified by someone else; refreshed with the latest data");
       } else {
         handleError(err);
       }
@@ -60,7 +60,7 @@ function EditMemberModal({
   };
 
   return (
-    <Modal title={`编辑 ${member.email ?? member.membership_id}`} onClose={onClose}>
+    <Modal title={`Edit ${member.email ?? member.membership_id}`} onClose={onClose}>
       <div className="field-row">
         <div>
           <label htmlFor="em-role">role</label>
@@ -88,16 +88,16 @@ function EditMemberModal({
         </div>
       </div>
       <div className="note small">
-        resource_version: <code>{member.resource_version}</code>（body + If-Match 双发）。
-        暂停/移除会撤销该用户的 Human Session、全部 Agent Credential 与 pending Enrollment；恢复不还原旧 key。
-        removed 为终态，只能重新邀请。
+        resource_version: <code>{member.resource_version}</code> (sent in both the body and If-Match).
+        Suspending or removing revokes this user&apos;s Human Sessions, all Agent Credentials, and pending
+        Enrollments; reactivation does not restore old keys. removed is terminal and can only be re-invited.
       </div>
       <div className="row" style={{ justifyContent: "flex-end" }}>
         <button className="btn ghost" onClick={onClose} disabled={busy}>
-          取消
+          Cancel
         </button>
         <button className="btn primary" disabled={busy} onClick={() => void save()}>
-          {busy ? "保存中…" : "保存"}
+          {busy ? "Saving…" : "Save"}
         </button>
       </div>
     </Modal>
@@ -131,13 +131,13 @@ export function AdminMembersPage({ me }: { me: HumanMe }) {
         <div>
           <h1>Members</h1>
           <p className="muted" style={{ margin: 0 }}>
-            Owner 可管理所有角色；Admin 只能管理 Member
+            Owners can manage all roles; Admins can only manage Members
           </p>
         </div>
       </div>
       <div className="row wrap" style={{ gap: 10, marginBottom: 14, alignItems: "center" }}>
         <label className="filter-label" htmlFor="member-status-filter">
-          状态
+          Status
         </label>
         <select
           id="member-status-filter"
@@ -152,7 +152,7 @@ export function AdminMembersPage({ me }: { me: HumanMe }) {
           ))}
         </select>
         <label className="filter-label" htmlFor="member-role-filter">
-          角色
+          Role
         </label>
         <select
           id="member-role-filter"
@@ -169,7 +169,7 @@ export function AdminMembersPage({ me }: { me: HumanMe }) {
       </div>
       <div className="card">
         {list.loading ? (
-          <p className="muted small">加载中…</p>
+          <p className="muted small">Loading…</p>
         ) : (
           <table>
             <thead>
@@ -188,7 +188,7 @@ export function AdminMembersPage({ me }: { me: HumanMe }) {
                   <tr key={m.membership_id}>
                     <td>
                       {m.email ?? m.user_id}
-                      {m.membership_id === me.membership_id && <span className="faint small">（你）</span>}
+                      {m.membership_id === me.membership_id && <span className="faint small">(you)</span>}
                     </td>
                     <td>
                       <RoleBadge role={m.role} />
@@ -200,10 +200,10 @@ export function AdminMembersPage({ me }: { me: HumanMe }) {
                     <td>
                       {manageable ? (
                         <button className="btn sm" onClick={() => setEditing(m)}>
-                          编辑
+                          Edit
                         </button>
                       ) : (
-                        <span className="faint small">{m.status === "removed" ? "终态" : "无权限"}</span>
+                        <span className="faint small">{m.status === "removed" ? "Terminal" : "No permission"}</span>
                       )}
                     </td>
                   </tr>
@@ -216,13 +216,13 @@ export function AdminMembersPage({ me }: { me: HumanMe }) {
       {list.nextCursor && (
         <div style={{ marginTop: 10, textAlign: "center" }}>
           <button className="btn sm" disabled={list.loadingMore} onClick={() => void list.loadMore()}>
-            {list.loadingMore ? "加载中…" : "加载更多"}
+            {list.loadingMore ? "Loading…" : "Load more"}
           </button>
         </div>
       )}
       <div className="note small">
-        系统始终保留至少一个 active Owner；服务端会以 <code>last_active_owner</code> 拒绝破坏该约束的变更。
-        removed 为终态，需重新邀请。
+        The system always keeps at least one active Owner; the server rejects changes that break this
+        constraint with <code>last_active_owner</code>. removed is terminal and requires a new invitation.
       </div>
       {editing && (
         <EditMemberModal

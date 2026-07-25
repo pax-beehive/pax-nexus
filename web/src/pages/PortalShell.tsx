@@ -79,7 +79,7 @@ export function PortalShell({ me }: { me: HumanMe }) {
 
   const onLogout = async () => {
     await logout();
-    toast("ok", "已退出登录");
+    toast("ok", "Signed out");
     navigate("/", { replace: true });
   };
 
@@ -96,31 +96,33 @@ export function PortalShell({ me }: { me: HumanMe }) {
           </NavLink>
           {adminLike && (
             <>
-              <div className="nav-label">Admin Console</div>
+              <div className="nav-label">Directory</div>
               <NavLink to="/admin/members" className={navClass}>
                 Members
               </NavLink>
               <NavLink to="/admin/invitations" className={navClass}>
                 Invitations
               </NavLink>
+              <div className="nav-label">Fleet</div>
               <NavLink to="/admin/agents" className={navClass}>
                 All Agents
               </NavLink>
               <NavLink to="/admin/devices" className={navClass}>
                 Devices
               </NavLink>
+              <div className="nav-label">Insights</div>
+              {hasServerCapability(me, "view.operations") && (
+                <NavLink to="/admin/pulse" className={navClass}>
+                  Pulse
+                </NavLink>
+              )}
               <NavLink to="/admin/audit" className={navClass}>
                 Audit Events
               </NavLink>
               {hasServerCapability(me, "view.operations") && (
-                <>
-                  <NavLink to="/admin/operations" className={navClass}>
-                    Operations
-                  </NavLink>
-                  <NavLink to="/admin/pulse" className={navClass}>
-                    Pulse
-                  </NavLink>
-                </>
+                <NavLink to="/admin/operations" className={navClass}>
+                  Operations
+                </NavLink>
               )}
             </>
           )}
@@ -130,7 +132,7 @@ export function PortalShell({ me }: { me: HumanMe }) {
           <div className="row between" style={{ marginTop: 4 }}>
             <RoleBadge role={me.role ?? "member"} />
             <button className="btn ghost sm" onClick={() => void onLogout()}>
-              退出
+              Sign out
             </button>
           </div>
         </div>
@@ -142,7 +144,7 @@ export function PortalShell({ me }: { me: HumanMe }) {
         <ErrorBoundary
           key={location.pathname}
           region="route"
-          escapeLabel="返回 My Agents"
+          escapeLabel="Back to My Agents"
           onEscape={() => navigate("/agents")}
         >
           <Routes>

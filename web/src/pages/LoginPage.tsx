@@ -22,9 +22,9 @@ export function LoginPage() {
     <div className="center-page">
       <div className="center-box card" style={{ textAlign: "center" }}>
         <h1>Team Memory Portal</h1>
-        <p className="muted">使用组织 OIDC 账号登录</p>
+        <p className="muted">Sign in with your organization OIDC account</p>
         {hasInvitation && (
-          <div className="note">已保留邀请 continuation（sessionStorage），登录后会回到接受邀请流程。</div>
+          <div className="note">Your invitation continuation is preserved (sessionStorage); after signing in you will return to the invitation acceptance flow.</div>
         )}
         <button
           className="btn primary"
@@ -34,10 +34,10 @@ export function LoginPage() {
           Continue with OIDC →
         </button>
         <p className="small faint" style={{ marginTop: 14 }}>
-          顶层跳转 <code>GET /v1/auth/login</code>（302 → OIDC Provider），非 fetch 调用
+          Top-level navigation <code>GET /v1/auth/login</code> (302 → OIDC Provider), not a fetch call
         </p>
         <button className="btn ghost sm" onClick={() => void refresh()}>
-          已完成登录？点击重试
+          Already signed in? Click to retry
         </button>
       </div>
     </div>

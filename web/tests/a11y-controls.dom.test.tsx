@@ -31,8 +31,8 @@ describe("Members: status and role filters are labeled selects", () => {
     const { user } = await renderApp({ route: "/admin/members", me: makeMe(), fetch: membersFetch });
     await screen.findByRole("heading", { name: "Members" });
 
-    const statusFilter = screen.getByLabelText("状态");
-    const roleFilter = screen.getByLabelText("角色");
+    const statusFilter = screen.getByLabelText("Status");
+    const roleFilter = screen.getByLabelText("Role");
     expect(statusFilter.tagName).toBe("SELECT");
     expect(roleFilter.tagName).toBe("SELECT");
     expect((statusFilter as HTMLSelectElement).value).toBe("all");
@@ -61,9 +61,9 @@ describe("All Agents: owner select and status group", () => {
     });
     await screen.findByRole("heading", { name: "All Agents" });
 
-    const ownerFilter = screen.getByLabelText("Owner 过滤");
+    const ownerFilter = screen.getByLabelText("Owner filter");
     expect(ownerFilter.tagName).toBe("SELECT");
-    expect(within(ownerFilter as HTMLSelectElement).getByText("全部 Owner")).toBeTruthy();
+    expect(within(ownerFilter as HTMLSelectElement).getByText("All Owners")).toBeTruthy();
 
     const statusGroup = screen.getByRole("group", { name: "agent status" });
     expectPressed(within(statusGroup).getByRole("button", { name: "all" }), true);
@@ -137,17 +137,17 @@ describe("Agent artifacts: enrollment and credential filter groups", () => {
 });
 
 describe("Operations: named selects, distinct refresh buttons, window presets", () => {
-  it("operation/outcome selects are named and the two 刷新 buttons are distinguishable", async () => {
+  it("operation/outcome selects are named and the two Refresh buttons are distinguishable", async () => {
     await renderOperationsPage();
 
-    expect(screen.getByLabelText("按 operation 过滤").tagName).toBe("SELECT");
-    expect(screen.getByLabelText("按 outcome 过滤").tagName).toBe("SELECT");
+    expect(screen.getByLabelText("Filter by operation").tagName).toBe("SELECT");
+    expect(screen.getByLabelText("Filter by outcome").tagName).toBe("SELECT");
 
-    // Both buttons render as 刷新; only their region-scoped names differ.
-    const storageRefresh = screen.getByRole("button", { name: "刷新存储" });
-    const activityRefresh = screen.getByRole("button", { name: "刷新最近活动" });
-    expect(storageRefresh.textContent).toBe("刷新");
-    expect(activityRefresh.textContent).toBe("刷新");
+    // Both buttons render as Refresh; only their region-scoped names differ.
+    const storageRefresh = screen.getByRole("button", { name: "Refresh storage" });
+    const activityRefresh = screen.getByRole("button", { name: "Refresh recent activity" });
+    expect(storageRefresh.textContent).toBe("Refresh");
+    expect(activityRefresh.textContent).toBe("Refresh");
     expect(storageRefresh).not.toBe(activityRefresh);
   });
 

@@ -14,7 +14,7 @@ interface ErrorBoundaryProps {
   /** Short region name used in the log line ("app", "route", "modal"). */
   region: string;
   /**
-   * Escape action rendered next to 重试: a safe-page navigation for routes,
+   * Escape action rendered next to Retry: a safe-page navigation for routes,
    * onClose for modals.
    */
   escapeLabel?: string;
@@ -50,12 +50,13 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
       return (
         <div className="center-page">
           <div className="center-box card" role="alert">
-            <h1>页面渲染出错</h1>
+            <h1>This page failed to render</h1>
             <p className="muted">
-              界面遇到未处理的错误，未执行任何变更。重新加载通常可以恢复；若反复出现请联系管理员。
+              The interface hit an unexpected error; no changes were made. Reloading usually
+              recovers it — if the problem persists, contact your administrator.
             </p>
             <button className="btn primary" onClick={() => window.location.reload()}>
-              重新加载
+              Reload
             </button>
           </div>
         </div>
@@ -63,17 +64,18 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
     }
     return (
       <div className="card" role="alert">
-        <h2 style={{ marginTop: 0 }}>此区域渲染出错</h2>
+        <h2 style={{ marginTop: 0 }}>This section failed to render</h2>
         <p className="muted small">
-          该区域遇到未处理的错误；其余区域不受影响。可以重试，或离开此区域。
+          An unexpected error occurred in this section; the rest of the page is unaffected.
+          You can retry or leave this section.
         </p>
         <div className="row">
           <button className="btn sm" onClick={this.reset}>
-            重试
+            Retry
           </button>
           {this.props.onEscape && (
             <button className="btn ghost sm" onClick={this.props.onEscape}>
-              {this.props.escapeLabel ?? "关闭"}
+              {this.props.escapeLabel ?? "Close"}
             </button>
           )}
         </div>

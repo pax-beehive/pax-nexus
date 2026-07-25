@@ -117,7 +117,7 @@ export interface RenderAppOptions {
 
 /**
  * Render the full portal at `route` and wait for the boot GET /v1/me to
- * settle (the global "加载中…" placeholder disappears). Returns the fetch
+ * settle (the global "Loading…" placeholder disappears). Returns the fetch
  * mock for request assertions and a user-event instance for interactions.
  */
 export async function renderApp(options: RenderAppOptions): Promise<{
@@ -140,7 +140,7 @@ export async function renderApp(options: RenderAppOptions): Promise<{
     return options.fetch(path, init);
   });
   const view = render(<App />);
-  await waitFor(() => expect(screen.queryAllByText("加载中…")).toHaveLength(0));
+  await waitFor(() => expect(screen.queryAllByText("Loading…")).toHaveLength(0));
   return { fetchMock, user: userEvent.setup(), unmount: () => view.unmount() };
 }
 

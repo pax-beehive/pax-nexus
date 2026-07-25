@@ -1,6 +1,6 @@
 import { useEffect, useReducer } from "react";
 
-/** Live mm:ss countdown to an ISO timestamp; renders 已过期 past the deadline. */
+/** Live mm:ss countdown to an ISO timestamp; renders Expired past the deadline. */
 export function Countdown({ to }: { to: string }) {
   const [, tick] = useReducer((x: number) => x + 1, 0);
   useEffect(() => {
@@ -10,7 +10,7 @@ export function Countdown({ to }: { to: string }) {
 
   const left = new Date(to).getTime() - Date.now();
   if (Number.isNaN(left)) return <span className="countdown">—</span>;
-  if (left <= 0) return <span className="countdown danger-text">已过期</span>;
+  if (left <= 0) return <span className="countdown danger-text">Expired</span>;
   const m = Math.floor(left / 60000);
   const s = Math.floor((left % 60000) / 1000);
   return (

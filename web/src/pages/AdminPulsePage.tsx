@@ -44,9 +44,9 @@ const TONE_BADGE: Record<OutcomeTone, string> = {
 };
 
 const ACTIVITY_LABEL = {
-  active: "活跃（1 分钟内）",
-  recent: "近期活跃（10 分钟内）",
-  idle: "静止",
+  active: "Active (within 1 min)",
+  recent: "Recently active (within 10 min)",
+  idle: "Idle",
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -220,7 +220,7 @@ function RegionError({ error, onRetry }: { error: unknown; onRetry?: () => void 
       {notice.message}
       {onRetry && (
         <button className="btn sm" style={{ marginLeft: 10 }} onClick={onRetry}>
-          重试
+          Retry
         </button>
       )}
     </div>
@@ -330,11 +330,11 @@ function AgentCard({
         />
       </div>
       <p className="faint small" style={{ marginBottom: 0 }}>
-        最近活动：
+        Last active:{" "}
         {agent.last_active_at ? (
           <span title={agent.last_active_at}>{relativeAge(agent.last_active_at, now)}</span>
         ) : (
-          "无记录"
+          "no activity"
         )}
         {" · "}extraction {agent.extraction_runs} runs · tokens{" "}
         {agent.extraction_input_tokens}/{agent.extraction_output_tokens}
@@ -376,7 +376,7 @@ function FlowStrip({ agents }: { agents: OperationsAgentStats[] }) {
       className="pulse-flow"
       viewBox="0 0 640 110"
       role="img"
-      aria-label={`近 1 小时知识流向：${written} 个事件写入，${notes} 条 notes 产出，${recalled} 次召回`}
+      aria-label={`Knowledge flow over the last hour: ${written} events written, ${notes} notes produced, ${recalled} recalls`}
     >
       <path
         className="flow-line"
@@ -394,7 +394,7 @@ function FlowStrip({ agents }: { agents: OperationsAgentStats[] }) {
           Agents
         </text>
         <text x="76" y="67" textAnchor="middle" className="flow-sub">
-          {agents.length} 个
+          {agents.length}
         </text>
       </g>
       <g className="flow-node">
@@ -412,7 +412,7 @@ function FlowStrip({ agents }: { agents: OperationsAgentStats[] }) {
           Recall
         </text>
         <text x="564" y="67" textAnchor="middle" className="flow-sub">
-          {recalled} 次
+          {recalled}
         </text>
       </g>
     </svg>
@@ -458,7 +458,7 @@ export function AdminPulsePage() {
         <div>
           <h1>Team Pulse</h1>
           <p className="muted" style={{ margin: 0 }}>
-            每个 agent 的实时活动：写入、notes 产出、召回与 capsule 收发
+            Real-time per-agent activity: writes, notes produced, recalls, and capsule traffic
           </p>
         </div>
       </div>
@@ -467,18 +467,18 @@ export function AdminPulsePage() {
         <h2 style={{ margin: 0 }}>Knowledge flow</h2>
         {stats.generatedAt && (
           <p className="faint small" style={{ margin: 0 }}>
-            近 1 小时 · 生成于{" "}
+            Last 1 hour · generated at{" "}
             <span title={stats.generatedAt}>{formatTime(stats.generatedAt)}</span>
           </p>
         )}
       </div>
       <div className="card">
-        {stats.status === "loading" && <p className="muted small">加载中…</p>}
+        {stats.status === "loading" && <p className="muted small">Loading…</p>}
         {stats.status === "error" && <RegionError error={stats.error} onRetry={stats.retry} />}
         {stats.status === "ready" && (
           <>
             {stats.error && (
-              <div className="note warn">自动刷新失败，显示的数据可能已过期。</div>
+              <div className="note warn">Auto-refresh failed; the data shown may be stale.</div>
             )}
             <FlowStrip agents={stats.agents} />
           </>
@@ -488,7 +488,7 @@ export function AdminPulsePage() {
       <h2>Agents</h2>
       {stats.status === "loading" && (
         <div className="card">
-          <p className="muted small">加载中…</p>
+          <p className="muted small">Loading…</p>
         </div>
       )}
       {stats.status === "error" && (
@@ -498,13 +498,13 @@ export function AdminPulsePage() {
       )}
       {stats.status === "ready" && stats.agents.length === 0 && (
         <div className="card flat">
-          <h3 style={{ marginTop: 0 }}>还没有 agent 活动</h3>
+          <h3 style={{ marginTop: 0 }}>No agent activity yet</h3>
           <p className="muted small">
-            注册并接入 agent 后，这里会实时展示每个 agent 的事件写入、notes 产出、召回与
-            capsule 收发。
+            Once agents are registered and connected, this page shows each agent's event
+            writes, notes produced, recalls, and capsule traffic in real time.
           </p>
           <Link className="btn sm" to="/admin/agents">
-            前往 All Agents 注册 agent
+            Go to All Agents to register an agent
           </Link>
         </div>
       )}
@@ -524,14 +524,15 @@ export function AdminPulsePage() {
 
       <div className="row between" style={{ marginTop: 18 }}>
         <h2 style={{ margin: 0 }}>Live events</h2>
-        <button className="btn sm" aria-label="刷新事件流" onClick={feed.retry}>
-          刷新
+        <button className="btn sm" aria-label="Refresh event feed" onClick={feed.retry}>
+          Refresh
         </button>
       </div>
       {feed.pending && (
         <div className="note">
-          有 {feed.pending.freshIds.size > 0 ? `${feed.pending.freshIds.size} 条` : ""}
-          新事件。
+          {feed.pending.freshIds.size > 0
+            ? `${feed.pending.freshIds.size} new events arrived.`
+            : "New events arrived."}
           <button
             className="btn sm"
             style={{ marginLeft: 10 }}
@@ -540,20 +541,20 @@ export function AdminPulsePage() {
               document.getElementById("pulse-feed")?.scrollTo({ top: 0 });
             }}
           >
-            查看最新
+            View latest
           </button>
         </div>
       )}
       <div className="card">
         {feed.status === "loading" ? (
-          <p className="muted small">加载中…</p>
+          <p className="muted small">Loading…</p>
         ) : feed.status === "error" ? (
           <RegionError error={feed.error} onRetry={feed.retry} />
         ) : (
           <>
-            {feed.error && <div className="note warn">自动刷新失败，列表可能已过期。</div>}
+            {feed.error && <div className="note warn">Auto-refresh failed; the list may be stale.</div>}
             {feed.items.length === 0 ? (
-              <p className="muted small">暂无事件。</p>
+              <p className="muted small">No events yet.</p>
             ) : (
               <ul
                 id="pulse-feed"
