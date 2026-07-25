@@ -230,8 +230,8 @@ func (s *CredentialService) RotateCredential(ctx context.Context, principal Prin
 		UserID: principal.UserID, MembershipID: principal.MembershipID, AgentID: principal.AgentID,
 		Label: principal.CredentialLabel, Permissions: append([]Permission(nil), principal.Permissions...),
 		RotatedFromCredentialID: principal.CredentialID,
-		Kind: principal.Kind,
-		GrantablePermissions: append([]Permission(nil), principal.GrantablePermissions...),
+		Kind:                    principal.Kind,
+		GrantablePermissions:    append([]Permission(nil), principal.GrantablePermissions...),
 	})
 	if err != nil {
 		return IssuedCredential{}, err
