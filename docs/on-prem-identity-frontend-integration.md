@@ -561,7 +561,7 @@ Content-Type: application/json
 paxl device connect onprem --url ... --device-name todd-macbook-air --enrollment-token tm_enroll_denr_01.secret
 ```
 
-该命令内部调用的仍是 `POST /v1/agent-enrollments/exchange`（与 Agent Enrollment 同一个交换接口），只是这次换回来的是 Device Credential 而不是 Agent Credential——响应结构完全相同（`credential_id`/`api_key`/`expires_at`），Portal 不需要为 Device 交换单独适配轮询逻辑。之后机器上每个工具都用这份 Device Credential 自助调用 `POST /v1/device/agent-provisions` 铸发自己的 Agent Credential，不再需要 Portal 参与；Portal 只需要在 Devices 详情页把这些自助铸发的 Agent 呈现出来（见 5.10）。
+该命令内部调用的仍是 `POST /v1/agent-enrollments/exchange`（与 Agent Enrollment 同一个交换接口），只是这次换回来的是 Device Credential 而不是 Agent Credential——响应结构完全相同（`credential_id`/`api_key`/`user_id`/`permissions`/`kind`/`expires_at`，详见 §7），Device 交换的 `kind` 为 `"device"`、`permissions` 固定为 `["agent_provision"]`，Portal 不需要为 Device 交换单独适配轮询逻辑。之后机器上每个工具都用这份 Device Credential 自助调用 `POST /v1/device/agent-provisions` 铸发自己的 Agent Credential，不再需要 Portal 参与；Portal 只需要在 Devices 详情页把这些自助铸发的 Agent 呈现出来（见 5.10）。
 
 ### 5.10 Devices 列表、详情与吊销
 
@@ -720,6 +720,39 @@ Invitation、Enrollment 和 Credential revoke 不需要 JSON body；不要为了
 | GET | `/v1/device/agent-provisions` | 同上 | Bearer Device key（`agent_provision` 权限）；返回该 Device 铸发过的全部 Credential 历史行，含已 revoked |
 
 Agent Directory 只返回可路由的 Agent：Agent active、所属 Membership active、所属 User identity 为 active/unclaimed、`directory_visible=true`，且至少有一个 active `channel_receive` Credential。隐藏或不可路由的 exact get 返回 `404`。
+
+`POST /v1/agent-enrollments/exchange` 的成功响应（Agent 与 Device Enrollment 共用同一形状）：
+
+```json
+{
+  "credential_id": "cred_01",
+  "api_key": "tm_key_cred_01.secret",
+  "user_id": "usr_01",
+  "permissions": ["observe", "search", "get"],
+  "kind": "agent",
+  "expires_at": "2026-10-21T18:00:00Z"
+}
+```
+
+- `user_id`、`permissions`、`kind` 总是出现：Agent 交换时 `kind` 为 `"agent"`，Device 交换时为 `"device"` 且 `permissions` 固定为 `["agent_provision"]`。
+- `expires_at` 仅在 Enrollment 设置了 `credential_expires_at` 时出现。
+
+`POST /v1/device/agent-provisions` 的成功响应：
+
+```json
+{
+  "credential_id": "cred_02",
+  "api_key": "tm_key_cred_02.secret",
+  "agent_id": "personal-codex",
+  "user_id": "usr_01",
+  "permissions": ["observe", "search", "get"],
+  "created_at": "2026-07-24T18:05:00Z",
+  "agent_created": true
+}
+```
+
+- `user_id` 是持有该 Device Credential 的用户（即创建 Device Enrollment 的 Owner/Admin），总是出现。
+- `expires_at`、`rotated_from_credential_id` 为可选字段，仅在对应条件成立时出现（轮换分支见下方 `409` 语义）。
 
 `directory_visible` 只是 discovery 控制，不是发送 ACL。Portal 可以编辑这个字段，但不能把 Human Session 当作目录查询凭据。
 

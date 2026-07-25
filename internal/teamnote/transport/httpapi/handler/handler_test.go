@@ -79,6 +79,9 @@ func (s *onPremHandlerSuite) TestCredentialLifecycleEndpoints() {
 	exchanged := perform(s.handler.ExchangeAgentEnrollment, http.MethodPost, `{"token":"tm_enroll_token"}`, "")
 	s.Equal(consts.StatusOK, exchanged.Code)
 	s.Contains(exchanged.Body.String(), `"api_key":"tm_key_agent"`)
+	s.Contains(exchanged.Body.String(), `"user_id":"owner"`)
+	s.Contains(exchanged.Body.String(), `"permissions":["observe","search"]`)
+	s.Contains(exchanged.Body.String(), `"kind":"agent"`)
 
 	identity := perform(s.handler.GetAgentIdentity, http.MethodGet, "", "agent")
 	s.Equal(consts.StatusOK, identity.Code)
@@ -87,10 +90,72 @@ func (s *onPremHandlerSuite) TestCredentialLifecycleEndpoints() {
 	rotated := perform(s.handler.RotateAgentCredential, http.MethodPost, `{}`, "agent")
 	s.Equal(consts.StatusOK, rotated.Code)
 	s.Contains(rotated.Body.String(), `"api_key":"tm_key_rotated"`)
+	s.Contains(rotated.Body.String(), `"user_id":"owner"`)
+	s.Contains(rotated.Body.String(), `"kind":"agent"`)
 
 	revoked := performWithPath(s.handler.RevokeAgentCredential, http.MethodDelete, "", "admin", "credential_id", "credential-1")
 	s.Equal(consts.StatusOK, revoked.Code)
 	s.Equal("credential-1", s.credentials.revokedID)
+}
+
+func (s *onPremHandlerSuite) TestEnrollmentExchangeReturnsCredentialContract() {
+	expiresAt := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
+	for _, test := range []struct {
+		name          string
+		result        onprem.IssuedCredential
+		wantBodyParts []string
+		wantAbsent    []string
+	}{
+		{
+			name: "agent enrollment",
+			result: onprem.IssuedCredential{
+				CredentialID: "credential-agent", APIKey: "tm_key_agent", UserID: "owner",
+				Permissions: []onprem.Permission{onprem.PermissionObserve, onprem.PermissionSearch},
+				Kind:        onprem.CredentialKindAgent, ExpiresAt: &expiresAt,
+			},
+			wantBodyParts: []string{
+				`"credential_id":"credential-agent"`, `"api_key":"tm_key_agent"`, `"user_id":"owner"`,
+				`"permissions":["observe","search"]`, `"kind":"agent"`,
+				`"expires_at":"` + expiresAt.Format(time.RFC3339Nano) + `"`,
+			},
+		},
+		{
+			name: "device enrollment",
+			result: onprem.IssuedCredential{
+				CredentialID: "credential-device", APIKey: "tm_key_device", UserID: "owner",
+				Permissions: []onprem.Permission{onprem.PermissionAgentProvision},
+				Kind:        onprem.CredentialKindDevice,
+			},
+			wantBodyParts: []string{
+				`"credential_id":"credential-device"`, `"api_key":"tm_key_device"`, `"user_id":"owner"`,
+				`"permissions":["agent_provision"]`, `"kind":"device"`,
+			},
+			wantAbsent: []string{"expires_at"},
+		},
+		{
+			name: "agent enrollment with unset kind reports agent",
+			result: onprem.IssuedCredential{
+				CredentialID: "credential-legacy", APIKey: "tm_key_legacy", UserID: "owner",
+				Permissions: []onprem.Permission{onprem.PermissionObserve},
+			},
+			wantBodyParts: []string{`"kind":"agent"`, `"permissions":["observe"]`},
+		},
+	} {
+		s.Run(test.name, func() {
+			s.credentials.exchangeResult = test.result
+
+			response := perform(s.handler.ExchangeAgentEnrollment, http.MethodPost, `{"token":"tm_enroll_token"}`, "")
+
+			s.Equal(consts.StatusOK, response.Code)
+			body := response.Body.String()
+			for _, part := range test.wantBodyParts {
+				s.Contains(body, part)
+			}
+			for _, absent := range test.wantAbsent {
+				s.NotContains(body, absent)
+			}
+		})
+	}
 }
 
 func (s *onPremHandlerSuite) TestObservationBindsActorFromCredential() {
@@ -381,6 +446,7 @@ func (s *onPremHandlerSuite) TestProvisionDeviceAgentSucceedsForDeviceCredential
 	s.Contains(body, `"expires_at":"`+expiresAt.Format(time.RFC3339Nano)+`"`)
 	s.Contains(body, `"rotated_from_credential_id":"agent-credential-0"`)
 	s.Contains(body, `"agent_created":false`)
+	s.Contains(body, `"user_id":"owner"`)
 }
 
 func (s *onPremHandlerSuite) TestProvisionDeviceAgentOmitsUnsetOptionalFields() {
@@ -396,6 +462,7 @@ func (s *onPremHandlerSuite) TestProvisionDeviceAgentOmitsUnsetOptionalFields() 
 	s.Equal(consts.StatusOK, response.Code)
 	body := response.Body.String()
 	s.Contains(body, `"agent_created":true`)
+	s.Contains(body, `"user_id":"owner"`)
 	s.NotContains(body, "expires_at")
 	s.NotContains(body, "rotated_from_credential_id")
 }
@@ -530,9 +597,10 @@ func (s *onPremHandlerSuite) TestCompatibleTeamNoteRecallUsesAgentIdentityAndRec
 }
 
 type credentialService struct {
-	revokedID   string
-	authErr     error
-	exchangeErr error
+	revokedID      string
+	authErr        error
+	exchangeErr    error
+	exchangeResult onprem.IssuedCredential
 
 	provisionRequest onprem.DeviceProvisionRequest
 	provisionResult  onprem.ProvisionedAgentCredential
@@ -600,11 +668,21 @@ func (s *credentialService) ExchangeEnrollment(context.Context, string) (onprem.
 	if s.exchangeErr != nil {
 		return onprem.IssuedCredential{}, s.exchangeErr
 	}
-	return onprem.IssuedCredential{CredentialID: "credential-1", APIKey: "tm_key_agent"}, nil
+	if s.exchangeResult.CredentialID != "" {
+		return s.exchangeResult, nil
+	}
+	return onprem.IssuedCredential{
+		CredentialID: "credential-1", APIKey: "tm_key_agent", UserID: "owner",
+		Permissions: []onprem.Permission{onprem.PermissionObserve, onprem.PermissionSearch},
+		Kind:        onprem.CredentialKindAgent,
+	}, nil
 }
 
-func (s *credentialService) RotateCredential(context.Context, onprem.Principal) (onprem.IssuedCredential, error) {
-	return onprem.IssuedCredential{CredentialID: "credential-2", APIKey: "tm_key_rotated"}, nil
+func (s *credentialService) RotateCredential(_ context.Context, principal onprem.Principal) (onprem.IssuedCredential, error) {
+	return onprem.IssuedCredential{
+		CredentialID: "credential-2", APIKey: "tm_key_rotated", UserID: principal.UserID,
+		Permissions: principal.Permissions, Kind: principal.Kind,
+	}, nil
 }
 
 func (s *credentialService) RevokeCredential(_ context.Context, _ onprem.Principal, credentialID string) error {

@@ -74,7 +74,7 @@ func (h *Handler) ProvisionDeviceAgent(ctx context.Context, c *app.RequestContex
 		h.writeOnPremError(ctx, c, "provision device agent", err)
 		return
 	}
-	c.JSON(consts.StatusOK, provisionedAgentCredentialToAPI(provisioned))
+	c.JSON(consts.StatusOK, provisionedAgentCredentialToAPI(provisioned, principal))
 }
 
 // ListDeviceProvisions returns every credential the calling device

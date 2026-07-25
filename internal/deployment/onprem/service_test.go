@@ -61,6 +61,12 @@ func (s *serviceSuite) TestEnrollmentExchangeAuthenticationRotationAndRevocation
 	s.Require().NoError(err)
 	s.Equal("tm_key_credential-id.credential-secret", issued.APIKey)
 	s.Equal("credential-id", issued.CredentialID)
+	s.Equal("owner", issued.UserID)
+	s.Equal(
+		[]onprem.Permission{onprem.PermissionObserve, onprem.PermissionSearch, onprem.PermissionGet},
+		issued.Permissions,
+	)
+	s.Empty(issued.Kind)
 	_, err = s.service.ExchangeEnrollment(ctx, enrollment.Token)
 	s.Require().ErrorIs(err, onprem.ErrEnrollmentInvalid)
 
@@ -76,6 +82,9 @@ func (s *serviceSuite) TestEnrollmentExchangeAuthenticationRotationAndRevocation
 	rotated, err := s.service.RotateCredential(ctx, principal)
 	s.Require().NoError(err)
 	s.Equal("tm_key_rotated-id.rotated-secret", rotated.APIKey)
+	s.Equal("owner", rotated.UserID)
+	s.Equal(principal.Permissions, rotated.Permissions)
+	s.Equal(principal.Kind, rotated.Kind)
 	_, err = s.service.Authenticate(ctx, issued.APIKey)
 	s.Require().NoError(err, "old key remains valid during overlap")
 	s.now = s.now.Add(6 * time.Minute)

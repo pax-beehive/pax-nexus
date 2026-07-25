@@ -206,7 +206,12 @@ func (s *CredentialService) ExchangeEnrollment(ctx context.Context, token string
 	if err != nil {
 		return IssuedCredential{}, fmt.Errorf("exchange agent enrollment: %w", err)
 	}
-	return IssuedCredential{CredentialID: id, APIKey: apiKey, ExpiresAt: exchanged.CredentialExpiresAt}, nil
+	return IssuedCredential{
+		CredentialID: id, APIKey: apiKey, UserID: exchanged.UserID,
+		Permissions: append([]Permission(nil), exchanged.Permissions...),
+		Kind:        exchanged.Kind,
+		ExpiresAt:   exchanged.CredentialExpiresAt,
+	}, nil
 }
 
 func parseEnrollmentToken(value string) (string, string, bool) {
@@ -248,7 +253,11 @@ func (s *CredentialService) RotateCredential(ctx context.Context, principal Prin
 	if err := s.store.RotateCredential(ctx, principal.CredentialID, replacement, overlapUntil); err != nil {
 		return IssuedCredential{}, fmt.Errorf("rotate agent credential: %w", err)
 	}
-	return IssuedCredential{CredentialID: id, APIKey: apiKey}, nil
+	return IssuedCredential{
+		CredentialID: id, APIKey: apiKey, UserID: principal.UserID,
+		Permissions: append([]Permission(nil), principal.Permissions...),
+		Kind:        principal.Kind,
+	}, nil
 }
 
 func (s *CredentialService) RevokeCredential(ctx context.Context, principal Principal, credentialID string) error {

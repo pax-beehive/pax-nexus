@@ -187,6 +187,11 @@ func (s *coreFlowSuite) TestDeviceProvisioningEndToEnd() {
 	})
 	deviceKey := stringField(s.T(), deviceCredential, "api_key")
 	deviceCredentialID := stringField(s.T(), deviceCredential, "credential_id")
+	s.Equal(s.ownerID, stringField(s.T(), deviceCredential, "user_id"))
+	s.Equal("device", stringField(s.T(), deviceCredential, "kind"))
+	devicePermissions := arrayField(s.T(), deviceCredential, "permissions")
+	s.Require().Len(devicePermissions, 1)
+	s.Equal("agent_provision", devicePermissions[0])
 
 	// A device credential is structurally forbidden from the knowledge plane.
 	s.expectStatus(http.StatusForbidden, http.MethodPost, "/v1/observations", deviceKey, map[string]any{
@@ -200,6 +205,7 @@ func (s *coreFlowSuite) TestDeviceProvisioningEndToEnd() {
 	// Provision an agent; re-provisioning the same agent rotates its credential.
 	provisioned := s.provisionDeviceAgent(deviceKey, "device-agent")
 	s.True(boolField(s.T(), provisioned, "agent_created"))
+	s.Equal(s.ownerID, stringField(s.T(), provisioned, "user_id"))
 	firstAgentKey := stringField(s.T(), provisioned, "api_key")
 
 	rotated := s.provisionDeviceAgent(deviceKey, "device-agent")
