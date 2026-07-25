@@ -47,6 +47,11 @@ const (
 	PermissionAgentProvision Permission = "agent_provision"
 )
 
+// CredentialKind distinguishes agent credentials from device credentials.
+// The zero value ("") must be treated as CredentialKindAgent: records built
+// on paths that never set a kind (legacy admin principal, pre-device tests)
+// carry the zero value. Only kind checks against CredentialKindDevice gate
+// device-only behavior.
 type CredentialKind string
 
 const (
