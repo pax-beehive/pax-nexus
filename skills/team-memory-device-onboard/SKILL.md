@@ -37,9 +37,21 @@ agent CLI gets its own team-memory agent credential, paxl channel, and paxm acce
    409, that agent is human-registered or owned by another device — keep its
    existing credential and note it.
 5. **paxl per agent**: `paxl channel connect onprem --agent <agent-id>`
-   (uses the device credential, no token needed). Install hooks:
-   `paxl setup --agent <cli> [<cli>...]`. Verify: `paxl channel list`,
-   `paxl channel status <profile>`.
+   (uses the device credential, no token needed; do NOT pass `--allow-tailnet-http`
+   here — agent mode inherits the device's URL/trust settings).
+   Install hooks: `paxl setup --agent <cli> [<cli>...]`.
+   Verify: `paxl channel list`, `paxl channel status <profile>`.
+
+   Permission caveat (paxl <= 0.1.40): `channel connect --agent` provisions with
+   hardcoded `channel_send,channel_receive` only, and every provision rotates
+   (revokes) the previous key for that agent. To give an agent the full set
+   (observe,search,get,channel_send,channel_receive) shared by paxl and paxm:
+   1. `paxl device provision --agent <id> --permission observe --permission search --permission get --permission channel_send --permission channel_receive --json`
+   2. update the profile row in `~/.local/share/paxl/paxl.sqlite`
+      (`channel_profiles.api_key/credential_id/permissions_json`) to the new key
+   3. pre-seed `~/.config/paxm/credentials/team-<id>.json` with the same key so
+      paxm discovery never re-provisions (which would rotate again).
+   A paxl fix (`--permission` on channel connect) is filed; prefer it once released.
 6. **paxm per agent**: the team provider discovers credentials via
    `paxl device provision` automatically — remove any explicit
    `TEAM_MEMORY_API_KEY` from `~/.config/paxm/config.yaml` to activate discovery.
