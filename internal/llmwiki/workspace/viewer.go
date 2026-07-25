@@ -145,11 +145,9 @@ func markdownTitle(content []byte, fallback string) string {
 
 func renderMarkdown(root, current string, content []byte) template.HTML {
 	var rendered strings.Builder
-	scanner := bufio.NewScanner(strings.NewReader(string(content)))
 	inCode := false
 	inList := false
-	for scanner.Scan() {
-		line := scanner.Text()
+	for _, line := range logicalMarkdownLines(content) {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "```") {
 			if inList {
@@ -176,6 +174,73 @@ func renderMarkdown(root, current string, content []byte) template.HTML {
 		rendered.WriteString("</code></pre>")
 	}
 	return template.HTML(rendered.String()) //nolint:gosec // All source text is escaped above.
+}
+
+func logicalMarkdownLines(content []byte) []string {
+	content = stripMarkdownFrontmatter(content)
+	scanner := bufio.NewScanner(strings.NewReader(string(content)))
+	var result []string
+	var pending string
+	inCode := false
+	flush := func() {
+		if pending == "" {
+			return
+		}
+		result = append(result, pending)
+		pending = ""
+	}
+	for scanner.Scan() {
+		line := scanner.Text()
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "```") {
+			flush()
+			result = append(result, trimmed)
+			inCode = !inCode
+			continue
+		}
+		if inCode {
+			result = append(result, line)
+			continue
+		}
+		if trimmed == "" {
+			flush()
+			result = append(result, "")
+			continue
+		}
+		if isStandaloneMarkdownLine(trimmed) {
+			flush()
+			pending = trimmed
+			continue
+		}
+		if pending == "" {
+			pending = trimmed
+		} else {
+			pending += " " + trimmed
+		}
+	}
+	flush()
+	return result
+}
+
+func stripMarkdownFrontmatter(content []byte) []byte {
+	const open = "---\n"
+	if !strings.HasPrefix(string(content), open) {
+		return content
+	}
+	remainder := content[len(open):]
+	end := strings.Index(string(remainder), "\n---\n")
+	if end < 0 {
+		return content
+	}
+	return remainder[end+len("\n---\n"):]
+}
+
+func isStandaloneMarkdownLine(line string) bool {
+	return strings.HasPrefix(line, "# ") ||
+		strings.HasPrefix(line, "## ") ||
+		strings.HasPrefix(line, "### ") ||
+		strings.HasPrefix(line, "- ") ||
+		sourceAnchorLinePattern.MatchString(line)
 }
 
 func renderMarkdownLine(

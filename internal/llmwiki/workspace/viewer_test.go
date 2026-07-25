@@ -118,6 +118,30 @@ func (s *viewerSuite) TestRendersListsCodeSubheadingsAndExternalLinksSafely() {
 	s.NotContains(page.Body.String(), "<script>")
 }
 
+func (s *viewerSuite) TestHidesFrontmatterAndJoinsWrappedMarkdownLines() {
+	s.write(
+		"wiki/index.md",
+		"---\ntype: portal\n---\n\n# Wiki\n\n"+
+			"This lead wraps across\nmultiple source lines.\n\n"+
+			"- [Architecture](pages/architecture.md) — a durable article\n"+
+			"  with a wrapped description\n",
+	)
+
+	home := s.request("/")
+	s.Equal(http.StatusOK, home.Code)
+	s.NotContains(home.Body.String(), "type: portal")
+	s.NotContains(home.Body.String(), "<p>---</p>")
+	s.Contains(
+		home.Body.String(),
+		"<p>This lead wraps across multiple source lines.</p>",
+	)
+	s.Contains(
+		home.Body.String(),
+		"a durable article with a wrapped description</li>",
+	)
+	s.NotContains(home.Body.String(), "<p>with a wrapped description</p>")
+}
+
 func (s *viewerSuite) request(target string) *httptest.ResponseRecorder {
 	s.T().Helper()
 	request := httptest.NewRequest(http.MethodGet, target, nil)
