@@ -89,6 +89,24 @@ for slug in deepseek-v4-flash gemini-3.5-flash-lite gemini-3.6-flash; do
   if grep -qE '^(TEAM_MEMORY|OPENCODE|MEM0)_' "$fragment"; then
     fail "fragment $slug sets a real configuration variable"
   fi
+
+  # Validate file-wide: every non-blank, non-comment line must be an assignment
+  # to one of the three allowed variables (allowlist approach catches any stray
+  # assignments like SWEEP_EXTRACTOR_API_KEY=...)
+  while IFS= read -r line; do
+    # Skip blank lines
+    if [ -z "$line" ]; then
+      continue
+    fi
+    # Skip comment lines
+    case "$line" in
+      \#*) continue ;;
+    esac
+    # All other lines must match the pattern: VAR=value where VAR is one of the three allowed names
+    if ! printf '%s' "$line" | grep -qE '^(SWEEP_EXTRACTOR_MODEL|SWEEP_EXTRACTOR_BASE_URL|SWEEP_EXTRACTOR_KEY_ENV)='; then
+      fail "fragment $slug contains disallowed line: $line"
+    fi
+  done < "$fragment"
 done
 
 # Specific assertions for each model
