@@ -30,11 +30,13 @@ template=evals/v3/config.sweep-template.yaml
 sweep_root="runs/eval-v3-sweep/${prefix}"
 
 # Overridable command seams. Tests point these at stub scripts so the sweep
-# loop's control flow (reset/up/runner/down ordering, failure handling,
+# loop's control flow (reset/up/dsn/runner/down ordering, failure handling,
 # override propagation) can be exercised without Docker, the network, or go.
-# Default behaviour is unchanged: the real stack script and the real runner.
+# Default behaviour is unchanged: the real stack script, the real DSN
+# resolver, and the real runner.
 EVAL_V3_STACK_CMD="${EVAL_V3_STACK_CMD:-./scripts/eval-v3-stack.sh}"
 EVAL_V3_RUNNER_CMD="${EVAL_V3_RUNNER_CMD:-go run ./cmd/team-memory-eval-v3}"
+EVAL_V3_DSN_CMD="${EVAL_V3_DSN_CMD:-./scripts/eval-postgres-dsn.sh}"
 
 if [ ! -f "$manifest" ]; then
   echo "manifest not found: ${manifest}" >&2
@@ -141,11 +143,27 @@ for slug in $slugs; do
   fi
 
   status=0
+  reason=""
   if $EVAL_V3_STACK_CMD up "$manifest" "$run_id"; then
-    GOCACHE="${GOCACHE:-/tmp/team-memory-go-cache}" \
-      $EVAL_V3_RUNNER_CMD -config "$config" || status=$?
+    # The eval Postgres port is ephemeral (compose publishes "0:5432" so
+    # concurrent stacks don't collide), so it must be resolved fresh after
+    # every `up`, before the runner touches the database. A resolution
+    # failure is treated exactly like a runner failure: it is reported,
+    # counted, and the stack is still torn down below.
+    if dsn=$($EVAL_V3_DSN_CMD "$EVAL_V3_COMPOSE_PROJECT" "$EVAL_V3_COMPOSE_FILE"); then
+      EVAL_V2_POSTGRES_DSN="$dsn"
+      export EVAL_V2_POSTGRES_DSN
+      GOCACHE="${GOCACHE:-/tmp/team-memory-go-cache}" \
+        $EVAL_V3_RUNNER_CMD -config "$config" || status=$?
+      reason="exit ${status}"
+    else
+      echo "  DSN resolution failed for ${slug}; skipping runner" >&2
+      status=1
+      reason="DSN resolution failed"
+    fi
   else
     status=1
+    reason="exit ${status}"
   fi
 
   # Teardown failure is reported, not discarded, but it does not fail the
@@ -162,9 +180,9 @@ for slug in $slugs; do
     fi
   else
     if [ "$down_status" -ne 0 ]; then
-      summary="${summary}${slug}\tFAILED (exit ${status}; teardown failed, exit ${down_status})\n"
+      summary="${summary}${slug}\tFAILED (${reason}; teardown failed, exit ${down_status})\n"
     else
-      summary="${summary}${slug}\tFAILED (exit ${status})\n"
+      summary="${summary}${slug}\tFAILED (${reason})\n"
     fi
     overall=1
   fi

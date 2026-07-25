@@ -153,6 +153,48 @@ else
     "$(cat "$template")" "TEAM_MEMORY_EXTRACTOR_BASE_URL"
 fi
 
+# --- scripts/eval-postgres-dsn.sh direct coverage. A stub docker prints a
+# fixed `docker compose port` mapping so port resolution can be exercised
+# without Docker or the network.
+dsn_script=./scripts/eval-postgres-dsn.sh
+
+cat > "$tmp/docker-stub.sh" <<'STUB'
+#!/bin/sh
+set -eu
+printf 'docker %s\n' "$*" >> "${DOCKER_STUB_LOG:-/dev/null}"
+if [ -n "${DOCKER_STUB_FAIL:-}" ]; then
+  echo "${DOCKER_STUB_STDERR:-stub docker failure}" >&2
+  exit "${DOCKER_STUB_FAIL}"
+fi
+printf '%b' "${DOCKER_STUB_MAPPING:-}"
+STUB
+chmod +x "$tmp/docker-stub.sh"
+
+actual=$(EVAL_DOCKER_CMD="$tmp/docker-stub.sh" DOCKER_STUB_MAPPING='0.0.0.0:55999' \
+  "$dsn_script" someproject evals/v2/compose.yaml)
+expect_eq "dsn: ipv4 mapping yields the expected DSN" "$actual" \
+  "postgres://team_memory:team_memory@127.0.0.1:55999/team_memory?sslmode=disable"
+
+actual=$(EVAL_DOCKER_CMD="$tmp/docker-stub.sh" DOCKER_STUB_MAPPING='[::]:56001' \
+  "$dsn_script" someproject evals/v2/compose.yaml)
+expect_eq "dsn: ipv6-style mapping yields the expected DSN (not a naive first-colon cut)" \
+  "$actual" "postgres://team_memory:team_memory@127.0.0.1:56001/team_memory?sslmode=disable"
+
+actual=$(EVAL_DOCKER_CMD="$tmp/docker-stub.sh" DOCKER_STUB_MAPPING='0.0.0.0:56002\n[::]:56099' \
+  "$dsn_script" someproject evals/v2/compose.yaml)
+expect_eq "dsn: multi-line mapping yields exactly one line" \
+  "$(printf '%s\n' "$actual" | wc -l | tr -d ' ')" "1"
+expect_eq "dsn: multi-line mapping uses the first line's port" "$actual" \
+  "postgres://team_memory:team_memory@127.0.0.1:56002/team_memory?sslmode=disable"
+
+out=$(EVAL_DOCKER_CMD="$tmp/docker-stub.sh" DOCKER_STUB_FAIL=3 \
+  "$dsn_script" myproject evals/v2/compose.yaml 2>&1) && fail "dsn: docker failure unexpectedly succeeded"
+expect_contains "dsn: docker failure names the compose project on stderr" "$out" "myproject"
+
+out=$(EVAL_DOCKER_CMD="$tmp/docker-stub.sh" DOCKER_STUB_MAPPING='' \
+  "$dsn_script" emptyproject evals/v2/compose.yaml 2>&1) && fail "dsn: empty mapping unexpectedly succeeded"
+expect_contains "dsn: empty mapping is reported on stderr" "$out" "emptyproject"
+
 sweep=./scripts/eval-v3-extractor-sweep.sh
 sweep_env="EVAL_V2_BASE_ENV_FILE=$tmp/base.env EVAL_V2_ENV_FILE=$tmp/eval.env"
 manifest=runs/groupmembench-v3-micro-canary-v1/manifest.five.json
@@ -250,17 +292,36 @@ STUB
 set -eu
 {
   printf 'runner %s\n' "$*"
-  printf 'runner-env model=%s base_url=%s key=%s\n' \
+  printf 'runner-env model=%s base_url=%s key=%s dsn=%s\n' \
     "${TEAM_MEMORY_EXTRACTOR_MODEL_OVERRIDE:-}" \
     "${TEAM_MEMORY_EXTRACTOR_BASE_URL_OVERRIDE:-}" \
-    "${TEAM_MEMORY_EXTRACTOR_API_KEY_OVERRIDE:-}"
+    "${TEAM_MEMORY_EXTRACTOR_API_KEY_OVERRIDE:-}" \
+    "${EVAL_V2_POSTGRES_DSN:-}"
 } >> "$RUNNER_STUB_LOG"
+# Also record a call marker in the shared ordering log (when provided) so
+# tests can assert the DSN command ran after `up` and before the runner.
+printf 'stack runner\n' >> "${STACK_STUB_LOG:-/dev/null}"
 case "$*" in
   *"${STUB_RUNNER_FAIL_MATCH:-__never_match__}"*) exit 7 ;;
 esac
 exit 0
 STUB
   chmod +x "$tmp/runner-stub.sh"
+
+  cat > "$tmp/dsn-stub.sh" <<'STUB'
+#!/bin/sh
+set -eu
+# Also record a call marker in the shared ordering log (when provided) so
+# tests can assert the DSN command ran after `up` and before the runner.
+printf 'stack dsn\n' >> "${STACK_STUB_LOG:-/dev/null}"
+printf 'dsn %s\n' "$*" >> "${DSN_STUB_LOG:-/dev/null}"
+if [ -n "${STUB_DSN_FAIL:-}" ]; then
+  echo "stub dsn failure for $*" >&2
+  exit "${STUB_DSN_FAIL}"
+fi
+printf '%s\n' "${STUB_DSN_VALUE:-postgres://stub-user:stub-pass@127.0.0.1:1/stubdb?sslmode=disable}"
+STUB
+  chmod +x "$tmp/dsn-stub.sh"
 
   # Scenario 1: all three rounds run; the first slug's runner fails. Verifies
   # (a) reset precedes up for every round, (b) a failed round does not stop
@@ -269,15 +330,20 @@ STUB
   # values via the *_OVERRIDE variables.
   stack_log="$tmp/stack.log"
   runner_log="$tmp/runner.log"
+  dsn_log="$tmp/dsn.log"
   : > "$stack_log"
   : > "$runner_log"
+  : > "$dsn_log"
+
+  stub_dsn_value='postgres://stub-user:stub-pass@127.0.0.1:56321/stubdb?sslmode=disable'
 
   stub_status=0
   stub_out=$(env $sweep_env EVAL_V3_SWEEP_MANIFEST="$manifest" \
     DEEPSEEK_API_KEY=fake-deepseek GEMINI_API_KEY=fake-gemini \
     EVAL_V3_STACK_CMD="$tmp/stack-stub.sh" EVAL_V3_RUNNER_CMD="$tmp/runner-stub.sh" \
-    STACK_STUB_LOG="$stack_log" RUNNER_STUB_LOG="$runner_log" \
-    STUB_RUNNER_FAIL_MATCH=deepseek-v4-flash \
+    EVAL_V3_DSN_CMD="$tmp/dsn-stub.sh" \
+    STACK_STUB_LOG="$stack_log" RUNNER_STUB_LOG="$runner_log" DSN_STUB_LOG="$dsn_log" \
+    STUB_RUNNER_FAIL_MATCH=deepseek-v4-flash STUB_DSN_VALUE="$stub_dsn_value" \
     "$sweep" stubprefix 2>&1) || stub_status=$?
 
   expect_eq "stub sweep: first-slug runner failure yields overall exit 1" \
@@ -286,14 +352,20 @@ STUB
   seq_actual=$(awk '{print $2}' "$stack_log")
   expected_seq='reset
 up
+dsn
+runner
 down
 reset
 up
+dsn
+runner
 down
 reset
 up
+dsn
+runner
 down'
-  expect_eq "stub sweep: reset,up,down logged in order for all three rounds" \
+  expect_eq "stub sweep: reset,up,dsn,runner,down logged in order for all three rounds" \
     "$seq_actual" "$expected_seq"
 
   expect_contains "stub sweep: runner ran for deepseek round with its fragment values" \
@@ -309,6 +381,21 @@ down'
   expect_contains "stub sweep: summary reports the failed round" \
     "$stub_out" "deepseek-v4-flash	FAILED (exit 7)"
 
+  # The DSN command must be invoked with the compose project/file (so it can
+  # resolve the ephemeral postgres port for THIS stack) and its resolved
+  # value must reach the runner via EVAL_V2_POSTGRES_DSN, for every round,
+  # including the round whose runner subsequently fails.
+  expect_contains "stub sweep: dsn command receives the compose project and file" \
+    "$(cat "$dsn_log")" "pax-nexus-eval-v3 evals/v2/compose.yaml"
+  expect_eq "stub sweep: dsn command invoked exactly once per round" \
+    "$(wc -l < "$dsn_log" | tr -d ' ')" "3"
+  expect_contains "stub sweep: deepseek round runner observes the resolved DSN" \
+    "$(cat "$runner_log")" \
+    "runner-env model=deepseek-v4-flash base_url=https://api.deepseek.com key=fake-deepseek dsn=${stub_dsn_value}"
+  expect_contains "stub sweep: flash-lite round runner observes the resolved DSN" \
+    "$(cat "$runner_log")" \
+    "runner-env model=gemini-3.5-flash-lite base_url=https://generativelanguage.googleapis.com/v1beta/openai/ key=fake-gemini dsn=${stub_dsn_value}"
+
   rm -rf runs/eval-v3-sweep/stubprefix
 
   # Scenario 2: reset itself fails. Verifies up is never attempted for that
@@ -322,6 +409,7 @@ down'
   resetfail_out=$(env $sweep_env EVAL_V3_SWEEP_MANIFEST="$manifest" \
     DEEPSEEK_API_KEY=fake-deepseek \
     EVAL_V3_STACK_CMD="$tmp/stack-stub.sh" EVAL_V3_RUNNER_CMD="$tmp/runner-stub.sh" \
+    EVAL_V3_DSN_CMD="$tmp/dsn-stub.sh" \
     STACK_STUB_LOG="$resetfail_stack_log" RUNNER_STUB_LOG="$resetfail_runner_log" \
     STUB_RESET_FAIL=5 \
     "$sweep" resetfailprefix deepseek-v4-flash 2>&1) || resetfail_status=$?
@@ -338,6 +426,40 @@ down'
     "$resetfail_out" "deepseek-v4-flash	FAILED (stack reset exit 5)"
 
   rm -rf runs/eval-v3-sweep/resetfailprefix
+
+  # Scenario 3: `up` succeeds but DSN resolution fails. Verifies the runner
+  # is never invoked, the stack is still torn down (unlike a reset failure,
+  # which skips the round entirely), and the summary names the DSN step
+  # rather than reporting a bare exit code.
+  dsnfail_stack_log="$tmp/stack-dsnfail.log"
+  dsnfail_runner_log="$tmp/runner-dsnfail.log"
+  dsnfail_dsn_log="$tmp/dsn-dsnfail.log"
+  : > "$dsnfail_stack_log"
+  : > "$dsnfail_runner_log"
+  : > "$dsnfail_dsn_log"
+
+  dsnfail_status=0
+  dsnfail_out=$(env $sweep_env EVAL_V3_SWEEP_MANIFEST="$manifest" \
+    DEEPSEEK_API_KEY=fake-deepseek \
+    EVAL_V3_STACK_CMD="$tmp/stack-stub.sh" EVAL_V3_RUNNER_CMD="$tmp/runner-stub.sh" \
+    EVAL_V3_DSN_CMD="$tmp/dsn-stub.sh" \
+    STACK_STUB_LOG="$dsnfail_stack_log" RUNNER_STUB_LOG="$dsnfail_runner_log" \
+    DSN_STUB_LOG="$dsnfail_dsn_log" \
+    STUB_DSN_FAIL=9 \
+    "$sweep" dsnfailprefix deepseek-v4-flash 2>&1) || dsnfail_status=$?
+
+  expect_eq "stub sweep: DSN resolution failure yields overall exit 1" "$dsnfail_status" "1"
+  expect_eq "stub sweep: DSN resolution failure still resets, ups, and tears down" \
+    "$(awk '{print $2}' "$dsnfail_stack_log")" "$(printf 'reset\nup\ndsn\ndown')"
+  if [ -s "$dsnfail_runner_log" ]; then
+    fail "stub sweep: runner ran despite DSN resolution failure"
+  fi
+  expect_contains "stub sweep: DSN resolution failure is named on stderr" \
+    "$dsnfail_out" "DSN resolution failed"
+  expect_contains "stub sweep: DSN resolution failure is reported in the summary" \
+    "$dsnfail_out" "deepseek-v4-flash	FAILED (DSN resolution failed)"
+
+  rm -rf runs/eval-v3-sweep/dsnfailprefix
 fi
 
 out=$("$sweep" --dry-run 2>&1) && fail "missing prefix unexpectedly succeeded"

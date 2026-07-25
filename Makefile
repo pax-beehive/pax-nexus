@@ -198,6 +198,8 @@ eval-v3-up:
 eval-v3:
 	@. ./scripts/load-eval-v3-env.sh; \
 		config="$(CONFIG)"; config="$${config:-$${EVAL_V3_CONFIG:-evals/v3/config.local.yaml}}"; \
+		EVAL_V2_POSTGRES_DSN=$$(./scripts/eval-postgres-dsn.sh "$$EVAL_V3_COMPOSE_PROJECT" "$$EVAL_V3_COMPOSE_FILE") || exit 1; \
+		export EVAL_V2_POSTGRES_DSN; \
 		GOCACHE=$${GOCACHE:-/tmp/team-memory-go-cache} go run ./cmd/team-memory-eval-v3 -config "$$config"
 
 eval-v3-down:
