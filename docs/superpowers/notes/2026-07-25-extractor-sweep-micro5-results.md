@@ -58,9 +58,31 @@ Likely fix: make `UpdateAttempt` treat a nil or empty map as `{}` rather than
 `null`, so the concatenation stays object-to-object. Worth also checking whether
 any other `||` on a jsonb column can receive a non-object.
 
-## Blocker 2: Gemini rounds fail the preflight recall canary
+## Blocker 2: the preflight recall canary times out (not extractor-specific)
 
-Both Gemini rounds failed before trials:
+**Correction.** This section originally attributed the failure to the Gemini
+extractors, on the evidence that both Gemini rounds failed it while the DeepSeek
+round passed. A later run refuted that: the DeepSeek round failed the same check,
+with the same message, on the same configuration that had passed before. The
+cause is timing, not the extractor.
+
+| run | deepseek-v4-flash | gemini-3.5-flash-lite | gemini-3.6-flash |
+| --- | --- | --- | --- |
+| 5 | preflight passed | preflight failed | preflight failed |
+| 6 | preflight **failed** | not reached | not reached |
+
+Root cause: the recall poll budget was `defaultAttempts = 120` at a 1-second
+interval (`internal/eval/v2/memoryprobe/client.go:28,84-86`) — a hardcoded
+2-minute wait. Preflight runs immediately after full-domain ingest, which pushes
+1605 events through an asynchronous extraction worker over roughly 30 minutes.
+The canary session queues behind that backlog, so whether it is extracted within
+two minutes depends on worker timing.
+
+The same codebase already treats this class of wait as configurable and generous:
+domain readiness polls up to `PAX_EVAL_READINESS_ATTEMPTS`, set to 1800 in
+`.env.eval-v2`. The preflight recall budget was the outlier.
+
+The original observation, kept for the record:
 
 ```
 preflight Team Note recall: team note origin
@@ -68,22 +90,13 @@ preflight Team Note recall: team note origin
 was not recalled after 120 attempts
 ```
 
-The DeepSeek round passed the same preflight, so the mechanism works. Note that
-`gemini-3.6-flash` produced *more* memory items than DeepSeek (24 vs 13) and
-still failed, so "the extractor produced nothing" does not explain it.
+Note that `gemini-3.6-flash` produced *more* memory items than DeepSeek (24 vs
+13) and still failed, so "the extractor produced nothing" never explained it —
+which was the first hint that the extractor attribution was wrong.
 
-Not yet diagnosed. Candidates worth checking in order:
-
-- Whether the preflight canary note is extracted at all under a Gemini
-  extractor, versus extracted but not matching the origin the preflight polls for.
-- Whether the Gemini output shape differs in a way the origin-tagging path
-  depends on — the preflight matches on an exact origin string.
-- Whether extraction of the small preflight scope simply had not finished within
-  120 attempts, which would make this a timeout rather than a correctness bug.
-
-The preflight scope is separate from the domain scope and is torn down with the
-stack each round, so this needs a targeted run with the stack left up to
-diagnose.
+Of the three candidate explanations considered at the time, the third proved
+correct: extraction of the preflight scope simply had not finished within the
+120 attempts, making this a timeout rather than a correctness bug.
 
 ## What is verified working
 
@@ -97,12 +110,13 @@ diagnose.
   provenance recording of the swept extractor, and non-aborting per-round
   failure reporting.
 
-## Recommended next step
+## Status of the blockers
 
-Fix Blocker 1 first. It is small, well understood, blocks both arm sets, and
-without it no sweep can ever produce a score. Then re-run micro-5: the DeepSeek
-round should complete and produce the first real two-arm numbers, and the Gemini
-rounds will still stop at preflight, which isolates Blocker 2 for a targeted
-diagnosis with the stack left up.
+Blocker 1 is fixed (`71acf93`). Run 6 confirmed it: the DeepSeek round cleared
+ingest and reached preflight with no attempts-decode error, which is further
+than any earlier run.
+
+Blocker 2 is fixed by making the recall budget configurable, after run 6
+supplied the evidence that refuted the original extractor-specific diagnosis.
 
 Do not run the full selection until a micro-5 round scores end to end.
