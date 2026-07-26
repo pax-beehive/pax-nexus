@@ -64,6 +64,11 @@ func (s *explorerHandlerSuite) TestOwnerReadsExplorerViewsThroughGeneratedRoutes
 	s.Contains(detail.Body.String(), `"subject":"Release candidate"`)
 	s.Contains(detail.Body.String(), `"run_id":"run-1"`)
 	s.Contains(detail.Body.String(), `"observation_id":41`)
+	s.Contains(detail.Body.String(), `"rejection_reasons":[]`)
+	s.Contains(detail.Body.String(), `"budget_drop_reasons":[]`)
+	s.Contains(detail.Body.String(), `"hard_gate_failures":[]`)
+	s.Contains(detail.Body.String(), `"related_subjects":[]`)
+	s.Contains(detail.Body.String(), `"audience_agent_ids":[]`)
 	s.NotContains(detail.Body.String(), "secret query")
 
 	extraction := s.perform("/v1/admin/diagnostics/extractions/run-1")

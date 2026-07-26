@@ -11,12 +11,13 @@ type DetailState =
   | { status: "ready"; detail: TeamNoteDetail }
   | { status: "error" };
 
-function Chips({ values }: { values: string[] }) {
-  return values.length === 0 ? (
+function Chips({ values }: { values: string[] | null | undefined }) {
+  const list = values ?? [];
+  return list.length === 0 ? (
     <span className="faint small">None</span>
   ) : (
     <div className="chips">
-      {values.map((value) => (
+      {list.map((value) => (
         <code key={value}>{value}</code>
       ))}
     </div>
@@ -214,9 +215,9 @@ export function AdminTeamNoteDetailPage() {
                   <td><Badge status={recall.delivered ? "active" : "expired"} /></td>
                   <td>
                     <Chips values={[
-                      ...recall.rejection_reasons,
-                      ...recall.budget_drop_reasons,
-                      ...recall.hard_gate_failures,
+                      ...(recall.rejection_reasons ?? []),
+                      ...(recall.budget_drop_reasons ?? []),
+                      ...(recall.hard_gate_failures ?? []),
                     ]} />
                   </td>
                 </tr>

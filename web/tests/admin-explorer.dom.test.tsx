@@ -165,6 +165,36 @@ describe("Team Memory Explorer access and chain", () => {
     screen.getByText("evidence");
   });
 
+  it("renders recall decisions when a backend omits empty reason arrays", async () => {
+    const detail = noteDetail();
+    detail.recall_observations = [
+      {
+        observation_id: 41,
+        recipient_agent_id: "claude",
+        recipient_session_id: "session-consumer",
+        occurred_at: NOW,
+        disposition: "evidence",
+        delivered: true,
+        rejection_reasons: null,
+        budget_drop_reasons: null,
+        hard_gate_failures: null,
+      },
+    ] as unknown as ReturnType<typeof noteDetail>["recall_observations"];
+    await renderApp({
+      route: "/admin/explorer/notes/note-1",
+      me: makeMe({ capabilities: ["view.operations", "view.team-memory"] }),
+      fetch: (path) => {
+        if (path === "/v1/admin/team-notes/note-1") return jsonResponse(detail);
+        throw new Error(`unexpected fetch: ${path}`);
+      },
+    });
+
+    await screen.findByRole("heading", { name: "Release approval" });
+    expect(screen.queryByText("This section failed to render")).toBeNull();
+    screen.getByText("session-consumer");
+    expect(screen.getAllByText("None").length).toBeGreaterThan(0);
+  });
+
   it("filters resolved notes and ignores stale pagination results", async () => {
     let resolveOldPage!: (response: Response) => void;
     const oldPage = new Promise<Response>((resolve) => {
