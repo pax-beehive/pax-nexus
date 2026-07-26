@@ -13,6 +13,7 @@ var (
 	ErrInvalidCitation   = errors.New("invalid citation")
 	ErrInvalidLink       = errors.New("invalid page link")
 	ErrInvalidRequest    = errors.New("invalid injection request")
+	ErrInvalidSearch     = errors.New("invalid search query")
 	ErrNotFound          = errors.New("not found")
 	ErrImmutableConflict = errors.New("immutable value conflict")
 	ErrRevisionConflict  = errors.New("revision conflict")

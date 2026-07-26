@@ -70,7 +70,7 @@ func (s *RepositorySuite) TestGivenPagePublicationWhenReadThenNestedRevisionValu
 	s.Require().NoError(err)
 	s.Require().Equal("SQLite is local.", stored.Sections[0].Markdown)
 	s.Require().Equal("SQLite", stored.Citations[0].SourceAnchors[0].ExactQuote)
-	s.Require().Equal("architecture", stored.Links[0].ExactText)
+	s.Require().Equal("SQLite", stored.Links[0].ExactText)
 
 	catalog, err := s.repository.PageCatalog(s.ctx)
 	s.Require().NoError(err)
@@ -214,6 +214,63 @@ func (s *RepositorySuite) TestGivenInvalidPlacementWhenPublishedThenNothingIsSto
 	}
 }
 
+func (s *RepositorySuite) TestGivenInvalidLinkWhenPublishedThenNothingIsStored() {
+	page, revision := pageFixture()
+	tests := []struct {
+		name   string
+		mutate func(*pagewiki.PageRevision)
+	}{
+		{
+			name: "target Page is unknown",
+			mutate: func(value *pagewiki.PageRevision) {
+				value.Links[0].TargetPageID = "page-missing"
+			},
+		},
+		{
+			name: "revision identity differs",
+			mutate: func(value *pagewiki.PageRevision) {
+				value.Links[0].PageRevisionID = "revision-other"
+			},
+		},
+		{
+			name: "Section is unknown",
+			mutate: func(value *pagewiki.PageRevision) {
+				value.Links[0].SectionKey = "missing"
+			},
+		},
+		{
+			name: "exact range differs",
+			mutate: func(value *pagewiki.PageRevision) {
+				value.Links[0].StartByte = 1
+			},
+		},
+		{
+			name: "exact text is repeated",
+			mutate: func(value *pagewiki.PageRevision) {
+				value.Sections[0].Markdown = "SQLite and SQLite."
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			s.repository = memory.NewRepository()
+			changed := revision
+			changed.Sections = append([]pagewiki.PageSection(nil), revision.Sections...)
+			changed.Links = append([]pagewiki.PageLink(nil), revision.Links...)
+			tt.mutate(&changed)
+			publication := publicationFixture(page, changed)
+
+			err := s.repository.PublishPage(s.ctx, publication)
+
+			s.Require().ErrorIs(err, pagewiki.ErrInvalidLink)
+			s.Require().Zero(s.repository.PageCount())
+			s.Require().Zero(s.repository.PageRevisionCount())
+			s.Require().Zero(s.repository.SearchChunkCount())
+		})
+	}
+}
+
 func (s *RepositorySuite) TestGivenMissingParentTopicWhenPublishedThenNothingIsStored() {
 	page, revision := pageFixture()
 	publication := publicationFixture(page, revision)
@@ -284,6 +341,108 @@ func (s *RepositorySuite) TestGivenPublicationsWhenNavigatedThenCopiesAreSorted(
 	s.Require().NoError(err)
 	s.Require().Equal("Engineering", again.Roots[0].Title)
 	s.Require().Equal("Architecture", again.Roots[0].Children[0].Pages[0].Title)
+}
+
+func (s *RepositorySuite) TestGivenEqualScoresWhenSearchedThenResultsAndLinksAreSorted() {
+	sqlitePage, sqliteRevision := searchablePageFixture(
+		"page-sqlite",
+		"sqlite",
+		"SQLite",
+		"revision-sqlite",
+	)
+	architecturePage, architectureRevision := searchablePageFixture(
+		"page-architecture",
+		"architecture",
+		"Architecture",
+		"revision-architecture",
+	)
+	s.Require().NoError(s.repository.PublishPage(
+		s.ctx,
+		publicationFixture(sqlitePage, sqliteRevision),
+	))
+	s.Require().NoError(s.repository.PublishPage(
+		s.ctx,
+		publicationFixture(architecturePage, architectureRevision),
+	))
+	hubPage := pagewiki.Page{
+		ID:                "page-hub",
+		Slug:              "hub",
+		Title:             "Hub",
+		CurrentRevisionID: "revision-hub",
+	}
+	hubRevision := pagewiki.PageRevision{
+		ID:     "revision-hub",
+		PageID: hubPage.ID,
+		Title:  hubPage.Title,
+		Sections: []pagewiki.PageSection{
+			{
+				Key:      "links",
+				Heading:  "Links",
+				Markdown: "SQLite and Architecture.",
+			},
+		},
+		Links: []pagewiki.PageLink{
+			{
+				ID:             "link-sqlite",
+				PageRevisionID: "revision-hub",
+				SectionKey:     "links",
+				StartByte:      0,
+				EndByte:        6,
+				ExactText:      "SQLite",
+				TargetPageID:   sqlitePage.ID,
+			},
+			{
+				ID:             "link-architecture",
+				PageRevisionID: "revision-hub",
+				SectionKey:     "links",
+				StartByte:      11,
+				EndByte:        23,
+				ExactText:      "Architecture",
+				TargetPageID:   architecturePage.ID,
+			},
+		},
+	}
+	s.Require().NoError(s.repository.PublishPage(
+		s.ctx,
+		publicationFixture(hubPage, hubRevision),
+	))
+
+	results, err := s.repository.Search(s.ctx, "SQLite SQLite")
+
+	s.Require().NoError(err)
+	s.Require().Equal(
+		[]string{"architecture", "hub", "sqlite"},
+		[]string{results[0].Page.Slug, results[1].Page.Slug, results[2].Page.Slug},
+	)
+	results[1].Links[0].ExactText = "Changed"
+	again, err := s.repository.Search(s.ctx, "SQLite")
+	s.Require().NoError(err)
+	s.Require().Equal("SQLite", again[1].Links[0].ExactText)
+	links, err := s.repository.PageLinks(s.ctx, hubPage.ID)
+	s.Require().NoError(err)
+	s.Require().Equal(
+		[]string{"architecture", "sqlite"},
+		[]string{links.Outgoing[0].TargetPage.Slug, links.Outgoing[1].TargetPage.Slug},
+	)
+	sqliteLinks, err := s.repository.PageLinks(s.ctx, sqlitePage.ID)
+	s.Require().NoError(err)
+	s.Require().Equal(
+		[]string{"hub", "sqlite"},
+		[]string{
+			sqliteLinks.Incoming[0].SourcePage.Slug,
+			sqliteLinks.Incoming[1].SourcePage.Slug,
+		},
+	)
+}
+
+func (s *RepositorySuite) TestGivenInvalidQueriesWhenReadThenErrorsAreReturned() {
+	_, searchErr := s.repository.Search(s.ctx, " -- ")
+	_, linksErr := s.repository.PageLinks(s.ctx, "missing")
+	_, backlinksErr := s.repository.SourceBacklinks(s.ctx, "missing")
+
+	s.Require().ErrorIs(searchErr, pagewiki.ErrInvalidSearch)
+	s.Require().ErrorIs(linksErr, pagewiki.ErrNotFound)
+	s.Require().ErrorIs(backlinksErr, pagewiki.ErrNotFound)
 }
 
 func (s *RepositorySuite) TestGivenImmutableRunWhenChangedThenSaveFails() {
@@ -362,7 +521,15 @@ func pageFixture() (pagewiki.Page, pagewiki.PageRevision) {
 			},
 		},
 		Links: []pagewiki.PageLink{
-			{ID: "link-1", ExactText: "architecture"},
+			{
+				ID:             "link-1",
+				PageRevisionID: "revision-1",
+				SectionKey:     "decision",
+				StartByte:      0,
+				EndByte:        6,
+				ExactText:      "SQLite",
+				TargetPageID:   "page-1",
+			},
 		},
 	}
 	return page, revision
@@ -393,4 +560,42 @@ func publicationFixture(
 			TopicID: "topic-storage",
 		},
 	}
+}
+
+func searchablePageFixture(
+	pageID string,
+	slug string,
+	title string,
+	revisionID string,
+) (pagewiki.Page, pagewiki.PageRevision) {
+	page := pagewiki.Page{
+		ID:                pageID,
+		Slug:              slug,
+		Title:             title,
+		CurrentRevisionID: revisionID,
+	}
+	revision := pagewiki.PageRevision{
+		ID:     revisionID,
+		PageID: pageID,
+		Title:  title,
+		Sections: []pagewiki.PageSection{
+			{
+				Key:      "decision",
+				Heading:  "Decision",
+				Markdown: "SQLite is local.",
+			},
+		},
+		Links: []pagewiki.PageLink{
+			{
+				ID:             "link-" + pageID,
+				PageRevisionID: revisionID,
+				SectionKey:     "decision",
+				StartByte:      0,
+				EndByte:        6,
+				ExactText:      "SQLite",
+				TargetPageID:   pageID,
+			},
+		},
+	}
+	return page, revision
 }

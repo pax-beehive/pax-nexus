@@ -32,6 +32,10 @@ type Repository interface {
 	PageRevisionHistory(context.Context, string) ([]PageRevision, error)
 	PublishPage(context.Context, PagePublication) error
 	Navigation(context.Context) (Navigation, error)
+	Search(context.Context, string) ([]SearchResult, error)
+	PageLinks(context.Context, string) (PageLinkSet, error)
+	SourceBacklinks(context.Context, string) ([]SourceBacklink, error)
+	RebuildSearchIndex(context.Context) error
 	MaintenanceRun(context.Context, string) (MaintenanceRun, error)
 	SaveMaintenanceRun(context.Context, MaintenanceRun) error
 }

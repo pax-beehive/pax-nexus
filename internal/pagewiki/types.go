@@ -143,6 +143,34 @@ type SearchChunk struct {
 	Passage        string
 }
 
+type SearchResult struct {
+	Page       Page
+	RevisionID string
+	SectionKey string
+	Passage    string
+	Score      float64
+	Citations  []PageCitation
+	Links      []PageLink
+}
+
+type ResolvedPageLink struct {
+	Link             PageLink
+	SourcePage       Page
+	SourceRevisionID string
+	TargetPage       Page
+}
+
+type PageLinkSet struct {
+	Outgoing []ResolvedPageLink
+	Incoming []ResolvedPageLink
+}
+
+type SourceBacklink struct {
+	Page      Page
+	Revision  PageRevision
+	Citations []PageCitation
+}
+
 type PageAction string
 
 const (
