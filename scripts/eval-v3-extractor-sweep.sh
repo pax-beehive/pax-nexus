@@ -134,6 +134,24 @@ for slug in $slugs; do
   export TEAM_MEMORY_EXTRACTOR_BASE_URL_OVERRIDE
   export TEAM_MEMORY_EXTRACTOR_API_KEY_OVERRIDE
 
+  # Apply the same values to the effective variables in this shell too. The
+  # _OVERRIDE convention only takes effect when a child sources
+  # load-eval-v2-env.sh, and the runner is a Go binary that never does: it
+  # reads TEAM_MEMORY_EXTRACTOR_MODEL straight from its environment and writes
+  # it into the run's artifacts as runtime_env provenance. Without this, the
+  # stack (a shell child, so overridden correctly) extracts with the round's
+  # model while the artifacts name whatever the base .env holds — every round
+  # claiming the same extractor. That happened: runs/eval-v3-sweep/
+  # dsvs36-20260726 recorded deepseek-v4-flash for both of its rounds.
+  # Assigning here is idempotent with the child re-sourcing, which applies the
+  # identical _OVERRIDE values on top.
+  TEAM_MEMORY_EXTRACTOR_MODEL="$SWEEP_EXTRACTOR_MODEL"
+  TEAM_MEMORY_EXTRACTOR_BASE_URL="$SWEEP_EXTRACTOR_BASE_URL"
+  TEAM_MEMORY_EXTRACTOR_API_KEY="$key_value"
+  export TEAM_MEMORY_EXTRACTOR_MODEL
+  export TEAM_MEMORY_EXTRACTOR_BASE_URL
+  export TEAM_MEMORY_EXTRACTOR_API_KEY
+
   # down -v before every round. Surviving Team Note rows from the previous
   # extractor would corrupt all three arms with nothing in the artifacts to
   # reveal it. `docker compose down` against a project that doesn't exist yet

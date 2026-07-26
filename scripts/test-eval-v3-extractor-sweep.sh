@@ -314,10 +314,16 @@ STUB
 set -eu
 {
   printf 'runner %s\n' "$*"
+  # Assert on the effective variables, not the *_OVERRIDE ones. The runner is
+  # a Go binary, not a shell script: it never sources load-eval-v2-env.sh, so
+  # the _OVERRIDE convention does nothing for it. It reads
+  # TEAM_MEMORY_EXTRACTOR_MODEL directly and records it as the run's
+  # runtime_env provenance. Asserting on the _OVERRIDE names would keep
+  # passing while every round's artifacts named the wrong extractor.
   printf 'runner-env model=%s base_url=%s key=%s dsn=%s arm_set=%s\n' \
-    "${TEAM_MEMORY_EXTRACTOR_MODEL_OVERRIDE:-}" \
-    "${TEAM_MEMORY_EXTRACTOR_BASE_URL_OVERRIDE:-}" \
-    "${TEAM_MEMORY_EXTRACTOR_API_KEY_OVERRIDE:-}" \
+    "${TEAM_MEMORY_EXTRACTOR_MODEL:-}" \
+    "${TEAM_MEMORY_EXTRACTOR_BASE_URL:-}" \
+    "${TEAM_MEMORY_EXTRACTOR_API_KEY:-}" \
     "${EVAL_V2_POSTGRES_DSN:-}" \
     "${EVAL_V3_ARM_SET:-}"
 } >> "$RUNNER_STUB_LOG"
