@@ -30,6 +30,83 @@ func (s *validitySuite) TestCompleteRunIsValid() {
 	s.Equal(3, report.ObservedTrials)
 }
 
+func (s *validitySuite) TestThreeArmModeWithMissingMem0IngestIsInvalid() {
+	directory, run, cases, results := s.validRunFixture()
+	s.Require().NoError(os.Remove(filepath.Join(directory, "memory", "mem0-ingest.json")))
+
+	report, err := v3.EvaluateValidity(directory, run, cases, results)
+
+	s.Require().NoError(err)
+	s.False(report.Valid)
+	s.Equal("invalid", report.Status)
+	s.Equal(v3.ArmSetThreeArm, report.ArmSet)
+	s.True(hasFailureCheck(report, "source_coverage"), "failures: %#v", report.Failures)
+}
+
+func (s *validitySuite) TestTwoArmModeWithNoMem0IngestIsValid() {
+	directory, run, cases, results := s.twoArmRunFixture()
+	s.Require().NoFileExists(filepath.Join(directory, "memory", "mem0-ingest.json"))
+
+	report, err := v3.EvaluateValidity(directory, run, cases, results)
+
+	s.Require().NoError(err)
+	s.True(report.Valid, "failures: %#v", report.Failures)
+	s.Equal("valid", report.Status)
+	s.Equal(v3.ArmSetTwoArmNoMem0, report.ArmSet)
+	s.Equal(2, report.ExpectedTrials)
+	s.Equal(2, report.ObservedTrials)
+}
+
+func (s *validitySuite) TestTwoArmModeStillFailsOnZeroTeamNoteMutation() {
+	directory, run, cases, results := s.twoArmRunFixture()
+	s.writeJSON(filepath.Join(directory, "memory", "team-note-ingest.json"), map[string]any{
+		"provider": "team_note", "source_events": 4, "accepted": 4, "memory_items": 0,
+	})
+
+	report, err := v3.EvaluateValidity(directory, run, cases, results)
+
+	s.Require().NoError(err)
+	s.False(report.Valid)
+	s.Contains(report.Failures, v3.ValidityFailure{
+		Check: "memory_mutation", Arm: v3.ArmPrivateSQLiteTeamNote,
+		Reason: "ingest produced no observable Team Note mutation",
+	})
+}
+
+func (s *validitySuite) TestTwoArmModeStillFailsWhenPrivateSQLiteReceiptIsIncomplete() {
+	directory, run, cases, results := s.twoArmRunFixture()
+	s.writeJSON(filepath.Join(directory, "memory", "private-sqlite-ingest.json"), map[string]any{
+		"provider": "private_sqlite", "source_events": 4, "accepted": 4, "created": 1,
+	})
+
+	report, err := v3.EvaluateValidity(directory, run, cases, results)
+
+	s.Require().NoError(err)
+	s.False(report.Valid)
+	s.Contains(report.Failures, v3.ValidityFailure{
+		Check: "memory_mutation", Arm: v3.ArmPrivateSQLiteTeamNote,
+		Reason: "ingest did not materialize every full-domain source Event",
+	})
+}
+
+func (s *validitySuite) TestTwoArmModeFailsWhenMem0TrialResultIsPresentAnyway() {
+	directory, run, cases, results := s.twoArmRunFixture()
+	results = append(results, v2.TrialResult{
+		RunID: run.ID, CaseID: "case", Arm: v3.ArmGroupMemBenchMem0, Status: "completed", Judged: true,
+		MemoryRecallObserved: true, MemoryRecallSuccess: true, MemoryRecallProviderCalls: 1,
+		MemoryRecallProviders: map[string]int{"memory": 1}, MemoryRecallProviderType: "mem0",
+	})
+
+	report, err := v3.EvaluateValidity(directory, run, cases, results)
+
+	s.Require().NoError(err)
+	s.False(report.Valid)
+	s.Contains(report.Failures, v3.ValidityFailure{
+		Check: "trial_matrix", CaseID: "case", Arm: v3.ArmGroupMemBenchMem0,
+		Reason: "unexpected Case or Arm",
+	})
+}
+
 func (s *validitySuite) TestPartialPrivateSQLiteMutationInvalidatesComparison() {
 	directory, run, cases, results := s.validRunFixture()
 	s.writeJSON(filepath.Join(directory, "memory", "private-sqlite-ingest.json"), map[string]any{
@@ -60,6 +137,140 @@ func (s *validitySuite) TestAttemptFromAnotherRunInvalidatesComparison() {
 	s.Contains(report.Failures, v3.ValidityFailure{
 		Check: "attempt_artifacts", CaseID: "case", Arm: attempts[0].Arm,
 		Reason: "Attempt run_id does not match Run",
+	})
+}
+
+func (s *validitySuite) TestDecomposedArmSetWithGenuinelyIsolatedRecallIsValid() {
+	directory, run, cases, results := s.decomposedRunFixture()
+
+	report, err := v3.EvaluateValidity(directory, run, cases, results)
+
+	s.Require().NoError(err)
+	s.True(report.Valid, "failures: %#v", report.Failures)
+	s.Equal("valid", report.Status)
+	s.Equal(v3.ArmSetDecomposed, report.ArmSet)
+	s.Equal(4, report.ExpectedTrials)
+	s.Equal(4, report.ObservedTrials)
+}
+
+func (s *validitySuite) TestTeamNoteOnlyArmRejectsPrivateSqliteProviderType() {
+	directory, run, cases, results := s.decomposedRunFixture()
+	for index := range results {
+		if results[index].Arm == v3.ArmTeamNoteOnly {
+			results[index].MemoryRecallProviderType = "team-memory-sqlite"
+		}
+	}
+
+	report, err := v3.EvaluateValidity(directory, run, cases, results)
+
+	s.Require().NoError(err)
+	s.False(report.Valid)
+	s.True(hasFailureCheck(report, "recall_observation"), "failures: %#v", report.Failures)
+}
+
+func (s *validitySuite) TestPrivateSqliteOnlyArmRequiresTeamMemorySqliteProviderType() {
+	directory, run, cases, results := s.decomposedRunFixture()
+	for index := range results {
+		if results[index].Arm == v3.ArmPrivateSQLiteOnly {
+			results[index].MemoryRecallProviderType = "team-memory"
+		}
+	}
+
+	report, err := v3.EvaluateValidity(directory, run, cases, results)
+
+	s.Require().NoError(err)
+	s.False(report.Valid)
+	s.True(hasFailureCheck(report, "recall_observation"), "failures: %#v", report.Failures)
+}
+
+func (s *validitySuite) TestTeamNoteOnlyArmRejectsForeignPrivateProviderKey() {
+	directory, run, cases, results := s.decomposedRunFixture()
+	for index := range results {
+		if results[index].Arm == v3.ArmTeamNoteOnly {
+			// provider_type stays "team-memory" (correct), but the providers
+			// map shows a genuine cross-provider leak into the private store.
+			results[index].MemoryRecallProviders = map[string]int{"memory": 1, "private": 1}
+		}
+	}
+
+	report, err := v3.EvaluateValidity(directory, run, cases, results)
+
+	s.Require().NoError(err)
+	s.False(report.Valid, "a team_note_only trial that also queried the private provider must be rejected")
+	s.Contains(report.Failures, v3.ValidityFailure{
+		Check: "recall_observation", CaseID: "case", Arm: v3.ArmTeamNoteOnly,
+		Reason: "memory recall observed a provider outside the isolated Arm's boundary",
+	})
+}
+
+func (s *validitySuite) TestPrivateSqliteOnlyArmRejectsForeignTeamProviderKey() {
+	directory, run, cases, results := s.decomposedRunFixture()
+	for index := range results {
+		if results[index].Arm == v3.ArmPrivateSQLiteOnly {
+			// provider_type stays "team-memory-sqlite" (correct, matches the
+			// combined arm's label by design), but the providers map shows a
+			// genuine cross-provider leak into the shared Team Note store.
+			results[index].MemoryRecallProviders = map[string]int{"private": 1, "memory": 1}
+		}
+	}
+
+	report, err := v3.EvaluateValidity(directory, run, cases, results)
+
+	s.Require().NoError(err)
+	s.False(report.Valid, "a private_sqlite_only trial that also queried the team provider must be rejected")
+	s.Contains(report.Failures, v3.ValidityFailure{
+		Check: "recall_observation", CaseID: "case", Arm: v3.ArmPrivateSQLiteOnly,
+		Reason: "memory recall observed a provider outside the isolated Arm's boundary",
+	})
+}
+
+func (s *validitySuite) TestCombinedArmStillValidatesWithBothProviderKeysPresent() {
+	directory, run, cases, results := s.decomposedRunFixture()
+	for _, result := range results {
+		if result.Arm == v3.ArmPrivateSQLiteTeamNote {
+			s.Equal(map[string]int{"private": 1, "team": 1}, result.MemoryRecallProviders)
+		}
+	}
+
+	report, err := v3.EvaluateValidity(directory, run, cases, results)
+
+	s.Require().NoError(err)
+	s.True(report.Valid, "the combined arm legitimately records both provider keys and must not be rejected; failures: %#v", report.Failures)
+}
+
+func (s *validitySuite) TestNoMemoryArmLeakDetectionIsUntouchedByIsolatedArmBoundaryCheck() {
+	directory, run, cases, results := s.decomposedRunFixture()
+	for index := range results {
+		if results[index].Arm == v3.ArmNoMemoryTeam {
+			results[index].MemoryRecallProviders = map[string]int{"memory": 1}
+		}
+	}
+
+	report, err := v3.EvaluateValidity(directory, run, cases, results)
+
+	s.Require().NoError(err)
+	s.False(report.Valid)
+	s.Contains(report.Failures, v3.ValidityFailure{
+		Check: "recall_observation", CaseID: "case", Arm: v3.ArmNoMemoryTeam,
+		Reason: "no-memory Trial observed a recall provider",
+	})
+}
+
+func (s *validitySuite) TestDecomposedArmsAreSubjectToTheSameNonMem0Checks() {
+	directory, run, cases, results := s.decomposedRunFixture()
+	for index := range results {
+		if results[index].Arm == v3.ArmTeamNoteOnly {
+			results[index].MemoryRecallObserved = false
+		}
+	}
+
+	report, err := v3.EvaluateValidity(directory, run, cases, results)
+
+	s.Require().NoError(err)
+	s.False(report.Valid)
+	s.Contains(report.Failures, v3.ValidityFailure{
+		Check: "recall_observation", CaseID: "case", Arm: v3.ArmTeamNoteOnly,
+		Reason: "memory Trial has no recall observation",
 	})
 }
 
@@ -218,6 +429,20 @@ func (s *validitySuite) TestValidityFailureMatrix() {
 }
 
 func (s *validitySuite) validRunFixture() (string, v2.RunRecord, []v2.Case, []v2.TrialResult) {
+	return s.runFixture("", []string{v3.ArmNoMemoryTeam, v3.ArmGroupMemBenchMem0, v3.ArmPrivateSQLiteTeamNote})
+}
+
+func (s *validitySuite) twoArmRunFixture() (string, v2.RunRecord, []v2.Case, []v2.TrialResult) {
+	return s.runFixture(v3.ArmSetTwoArmNoMem0, []string{v3.ArmNoMemoryTeam, v3.ArmPrivateSQLiteTeamNote})
+}
+
+func (s *validitySuite) decomposedRunFixture() (string, v2.RunRecord, []v2.Case, []v2.TrialResult) {
+	return s.runFixture(v3.ArmSetDecomposed, []string{
+		v3.ArmNoMemoryTeam, v3.ArmTeamNoteOnly, v3.ArmPrivateSQLiteOnly, v3.ArmPrivateSQLiteTeamNote,
+	})
+}
+
+func (s *validitySuite) runFixture(armSet string, arms []string) (string, v2.RunRecord, []v2.Case, []v2.TrialResult) {
 	s.T().Helper()
 	directory := s.T().TempDir()
 	manifestPath := filepath.Join(directory, "manifest.json")
@@ -230,6 +455,13 @@ func (s *validitySuite) validRunFixture() (string, v2.RunRecord, []v2.Case, []v2
 	config.Run.OutputDir = directory
 	config.Run.Manifest = manifestPath
 	config.Judge = &v2.CommandSpec{Program: "judge"}
+	config.ArmSet = armSet
+	if armSet == v3.ArmSetTwoArmNoMem0 {
+		config.Arms = twoArmNoMem0Arms()
+	}
+	if armSet == v3.ArmSetDecomposed {
+		config.Arms = decomposedArmConfigs()
+	}
 	runtimeValues := map[string]string{"OPENCODE_MODEL": "test-model"}
 	hash, err := config.HashWithRuntime(runtimeValues)
 	s.Require().NoError(err)
@@ -239,15 +471,16 @@ func (s *validitySuite) validRunFixture() (string, v2.RunRecord, []v2.Case, []v2
 	s.writeJSON(filepath.Join(directory, "memory", "team-note-ingest.json"), map[string]any{
 		"provider": "team_note", "source_events": 4, "accepted": 4, "duplicate": 0, "memory_items": 2,
 	})
-	s.writeJSON(filepath.Join(directory, "memory", "mem0-ingest.json"), map[string]any{
-		"provider": "mem0_messages", "source_events": 4, "accepted": 4, "created": 2,
-	})
+	if containsArm(arms, v3.ArmGroupMemBenchMem0) {
+		s.writeJSON(filepath.Join(directory, "memory", "mem0-ingest.json"), map[string]any{
+			"provider": "mem0_messages", "source_events": 4, "accepted": 4, "created": 2,
+		})
+	}
 	s.writeJSON(filepath.Join(directory, "memory", "private-sqlite-ingest.json"), map[string]any{
 		"provider": "private_sqlite", "source_events": 4, "accepted": 4, "created": 4,
 	})
 
 	cases := []v2.Case{{ID: "case", Question: "q", Expected: "a", AskingUserID: "user"}}
-	arms := []string{v3.ArmNoMemoryTeam, v3.ArmGroupMemBenchMem0, v3.ArmPrivateSQLiteTeamNote}
 	results := make([]v2.TrialResult, 0, len(arms))
 	attempts := make([]v2.TrialAttempt, 0, len(arms))
 	for _, arm := range arms {
@@ -263,8 +496,15 @@ func (s *validitySuite) validRunFixture() (string, v2.RunRecord, []v2.Case, []v2
 			result.MemoryRecallProviderCalls = 1
 			result.MemoryRecallProviders = map[string]int{"memory": 1}
 			result.MemoryRecallProviderType = "mem0"
-			if arm == v3.ArmPrivateSQLiteTeamNote {
+			switch arm {
+			case v3.ArmPrivateSQLiteTeamNote:
 				result.MemoryRecallProviderType = "team-memory-sqlite"
+				result.MemoryRecallProviders = map[string]int{"private": 1, "team": 1}
+			case v3.ArmTeamNoteOnly:
+				result.MemoryRecallProviderType = "team-memory"
+			case v3.ArmPrivateSQLiteOnly:
+				result.MemoryRecallProviderType = "team-memory-sqlite"
+				result.MemoryRecallProviders = map[string]int{"private": 1}
 			}
 		}
 		results = append(results, result)
@@ -302,6 +542,15 @@ func (s *validitySuite) loadAttempts(path string) []v2.TrialAttempt {
 func hasFailureCheck(report v3.ValidityReport, check string) bool {
 	for _, failure := range report.Failures {
 		if failure.Check == check {
+			return true
+		}
+	}
+	return false
+}
+
+func containsArm(arms []string, target string) bool {
+	for _, arm := range arms {
+		if arm == target {
 			return true
 		}
 	}

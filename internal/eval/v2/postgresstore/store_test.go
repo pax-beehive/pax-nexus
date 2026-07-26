@@ -255,6 +255,53 @@ func (s *storeSuite) TestRejudgeClaimRecoversAnOrphanWithoutHidingConsumerResult
 	s.Equal(v2.FailureClassInterrupted, attempts[1].FailureClass)
 }
 
+func (s *storeSuite) TestUpdateAttemptNilOrEmptyRefsLeaveArtifactRefsAnObject() {
+	ctx := context.Background()
+	runID := "eval-update-attempt-refs-" + time.Now().UTC().Format("20060102150405.000000000")
+	key := v2.TrialKey{RunID: runID, CaseID: "case-1", Arm: "memory"}
+	run := v2.RunRecord{
+		ID: runID, Dataset: "suite", DatasetRevision: "rev", ConfigHash: "hash",
+		Config: v2.Config{Version: v2.ConfigVersion},
+	}
+	s.Require().NoError(s.store.Initialize(ctx, run, []v2.TrialKey{key}))
+
+	handle, claimed, err := s.store.Claim(ctx, key, false, 1)
+	s.Require().NoError(err)
+	s.True(claimed)
+
+	// Case 1: nil map must leave artifact_refs a JSON object, not null/array.
+	s.Require().NoError(s.store.UpdateAttempt(ctx, handle, v2.TrialStageConsumer, nil))
+	attempts, err := s.store.Attempts(ctx, runID)
+	s.Require().NoError(err)
+	s.Require().Len(attempts, 1)
+	s.Empty(attempts[0].ArtifactRefs)
+
+	// Case 2: empty non-nil map behaves identically.
+	s.Require().NoError(s.store.UpdateAttempt(ctx, handle, v2.TrialStageConsumer, map[string]string{}))
+	attempts, err = s.store.Attempts(ctx, runID)
+	s.Require().NoError(err)
+	s.Require().Len(attempts, 1)
+	s.Empty(attempts[0].ArtifactRefs)
+
+	// Case 4: a non-nil map still merges as before (must not regress).
+	s.Require().NoError(s.store.UpdateAttempt(ctx, handle, v2.TrialStageConsumer, map[string]string{
+		"artifact_dir": "trials/case-1/memory/attempts/001",
+	}))
+	attempts, err = s.store.Attempts(ctx, runID)
+	s.Require().NoError(err)
+	s.Require().Len(attempts, 1)
+	s.Equal("trials/case-1/memory/attempts/001", attempts[0].ArtifactRefs["artifact_dir"])
+
+	// Case 3: the realistic runner.go sequence - update with a key, then nil,
+	// then Attempts() - the earlier key survives because || on two objects merges.
+	s.Require().NoError(s.store.UpdateAttempt(ctx, handle, v2.TrialStageJudge, nil))
+	attempts, err = s.store.Attempts(ctx, runID)
+	s.Require().NoError(err)
+	s.Require().Len(attempts, 1)
+	s.Equal("trials/case-1/memory/attempts/001", attempts[0].ArtifactRefs["artifact_dir"])
+	s.Equal(v2.TrialStageJudge, attempts[0].Stage)
+}
+
 func TestOpenRejectsEmptyDSN(t *testing.T) {
 	store, err := postgresstore.Open(context.Background(), "")
 	if err == nil || store != nil {

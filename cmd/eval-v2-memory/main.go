@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -34,12 +35,17 @@ func run(ctx context.Context, args []string, getenv func(string) string, output 
 	if err := flags.Parse(args); err != nil {
 		return fmt.Errorf("parse eval memory flags: %w", err)
 	}
+	recallAttempts, err := intEnv(getenv, "PAX_EVAL_RECALL_ATTEMPTS")
+	if err != nil {
+		return fmt.Errorf("configure eval memory probe: %w", err)
+	}
 	client, err := memoryprobe.New(memoryprobe.Config{
 		TeamNoteURL:    envOrDefault(getenv, "TEAM_MEMORY_BASE_URL", "http://team-memory:8080"),
 		TeamNoteAPIKey: getenv("TEAM_MEMORY_API_KEY"),
 		Mem0URL:        envOrDefault(getenv, "MEM0_BASE_URL", "http://mem0:8000"),
 		UserID:         getenv("PAXM_USER_ID"), AgentID: getenv("PAXM_AGENT_ID"), RunID: getenv("MEM0_RUN_ID"),
-		HTTPClient: httpClient,
+		HTTPClient:     httpClient,
+		RecallAttempts: recallAttempts,
 	})
 	if err != nil {
 		return err
@@ -102,4 +108,23 @@ func envOrDefault(getenv func(string) string, name, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+// intEnv parses name as an integer, following the same unset-means-zero,
+// malformed-means-error contract as intEnv in
+// cmd/paxm-team-memory-provider/main.go. Unset or empty returns 0 with no
+// error (memoryprobe.New then applies its own default for a non-positive
+// RecallAttempts). A value that fails to parse is a caller configuration
+// mistake, not a signal to fall back silently, so it is reported by name and
+// offending value rather than swallowed.
+func intEnv(getenv func(string) string, name string) (int, error) {
+	raw := strings.TrimSpace(getenv(name))
+	if raw == "" {
+		return 0, nil
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, fmt.Errorf("parse %s=%q: %w", name, raw, err)
+	}
+	return value, nil
 }

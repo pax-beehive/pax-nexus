@@ -19,6 +19,8 @@ const (
 	ArmNoMemoryTeam          = "no_memory_team"
 	ArmGroupMemBenchMem0     = "groupmembench_mem0"
 	ArmPrivateSQLiteTeamNote = "private_sqlite_plus_team_note"
+	ArmTeamNoteOnly          = "team_note_only"
+	ArmPrivateSQLiteOnly     = "private_sqlite_only"
 
 	ReproductionExact      = "exact_reproduction"
 	ReproductionProtocol   = "protocol_reproduction"
@@ -27,12 +29,45 @@ const (
 	SourceOverlapExcluded   = "excluded"
 	SourceOverlapUnknown    = "unknown"
 	SourceOverlapNoEligible = "no_cross_agent_answerer_available"
+
+	ArmSetThreeArm     = "three_arm"
+	ArmSetTwoArmNoMem0 = "two_arm_no_mem0"
+	ArmSetDecomposed   = "decomposed"
 )
 
 var architectureArms = []string{
 	ArmNoMemoryTeam,
 	ArmGroupMemBenchMem0,
 	ArmPrivateSQLiteTeamNote,
+}
+
+var twoArmNoMem0Arms = []string{
+	ArmNoMemoryTeam,
+	ArmPrivateSQLiteTeamNote,
+}
+
+// decomposedArms isolates the shared Team Note store and the private SQLite
+// database into their own arms, alongside the combined arm, so each source's
+// contribution can be attributed separately.
+var decomposedArms = []string{
+	ArmNoMemoryTeam,
+	ArmTeamNoteOnly,
+	ArmPrivateSQLiteOnly,
+	ArmPrivateSQLiteTeamNote,
+}
+
+// ArmsFor returns the required arm names for the given arm_set value. An
+// empty string (the field's absent state) resolves to the three-arm set, so
+// every config that predates arm_set behaves exactly as before.
+func ArmsFor(armSet string) []string {
+	switch armSet {
+	case ArmSetTwoArmNoMem0:
+		return slices.Clone(twoArmNoMem0Arms)
+	case ArmSetDecomposed:
+		return slices.Clone(decomposedArms)
+	default:
+		return slices.Clone(architectureArms)
+	}
 }
 
 // AnswererSelection records the deterministic teammate assigned to a case.
@@ -66,23 +101,59 @@ func Validate(config v2.Config) error {
 	if config.Judge == nil {
 		return fmt.Errorf("validate eval v3 config: judge is required for comparative acceptance")
 	}
-	if len(config.Arms) != len(architectureArms) {
-		return fmt.Errorf("validate eval v3 config: exactly three architecture arms are required")
+	switch config.ArmSet {
+	case "", ArmSetThreeArm, ArmSetTwoArmNoMem0, ArmSetDecomposed:
+	default:
+		return fmt.Errorf("validate eval v3 config: unknown arm_set %q", config.ArmSet)
+	}
+	requiredArms := ArmsFor(config.ArmSet)
+	requiredSet := make(map[string]struct{}, len(requiredArms))
+	for _, name := range requiredArms {
+		requiredSet[name] = struct{}{}
 	}
 	names := make([]string, 0, len(config.Arms))
+	var offending []string
 	for _, arm := range config.Arms {
 		names = append(names, arm.Name)
 		if arm.Producer != nil || arm.Ingest != nil || arm.AfterProducer != nil {
 			return fmt.Errorf("validate eval v3 config: arm %q must reuse full-domain memory built by before_run", arm.Name)
 		}
+		if _, required := requiredSet[arm.Name]; !required {
+			offending = append(offending, arm.Name)
+		}
+	}
+	if len(config.Arms) != len(requiredArms) {
+		if len(offending) > 0 {
+			return fmt.Errorf("validate eval v3 config: arm %q is not permitted for arm_set %s; required arms are %s", offending[0], requiredArmSetLabel(config.ArmSet), strings.Join(requiredArms, ", "))
+		}
+		present := make(map[string]struct{}, len(names))
+		for _, name := range names {
+			present[name] = struct{}{}
+		}
+		for _, required := range requiredArms {
+			if _, ok := present[required]; !ok {
+				return fmt.Errorf("validate eval v3 config: arm %q is required for arm_set %s but missing", required, requiredArmSetLabel(config.ArmSet))
+			}
+		}
+		return fmt.Errorf("validate eval v3 config: exactly %d architecture arms are required for arm_set %s", len(requiredArms), requiredArmSetLabel(config.ArmSet))
 	}
 	slices.Sort(names)
-	want := slices.Clone(architectureArms)
+	want := slices.Clone(requiredArms)
 	slices.Sort(want)
 	if !slices.Equal(names, want) {
-		return fmt.Errorf("validate eval v3 config: arms must be %s", strings.Join(architectureArms, ", "))
+		if len(offending) > 0 {
+			return fmt.Errorf("validate eval v3 config: arm %q is not permitted for arm_set %s; required arms are %s", offending[0], requiredArmSetLabel(config.ArmSet), strings.Join(requiredArms, ", "))
+		}
+		return fmt.Errorf("validate eval v3 config: arms must be %s", strings.Join(requiredArms, ", "))
 	}
 	return nil
+}
+
+func requiredArmSetLabel(armSet string) string {
+	if armSet == "" {
+		return ArmSetThreeArm
+	}
+	return armSet
 }
 
 // SelectAnswerer deterministically chooses one case participant. Annotated

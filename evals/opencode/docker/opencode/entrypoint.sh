@@ -78,12 +78,27 @@ case "${PAXM_PROVIDER_TYPE}" in
     write_provider_entries="${default_provider_entries}"
     ;;
   team-memory-sqlite)
-    : "${TEAM_MEMORY_API_KEY:?TEAM_MEMORY_API_KEY is required for team-memory-sqlite}"
     : "${PAXM_PRIVATE_SQLITE_PATH:?PAXM_PRIVATE_SQLITE_PATH is required for team-memory-sqlite}"
-    provider_entries="  private:
+    : "${PAXM_TEAM_PROVIDER_DISABLED:=0}"
+    private_provider_entry="  private:
     type: sqlite
     enabled: true
-    path: \"${PAXM_PRIVATE_SQLITE_PATH}\"
+    path: \"${PAXM_PRIVATE_SQLITE_PATH}\""
+    if [ "${PAXM_TEAM_PROVIDER_DISABLED}" = "1" ]; then
+      # The private-only Eval v3 arm must not be able to reach the shared
+      # Team Note store: the "team" provider is omitted entirely rather than
+      # merely excluded from the recall profile, so it is never registered
+      # and no team-memory credential is required.
+      provider_entries="${private_provider_entry}"
+      default_provider_entries="      - name: private
+        required: true"
+      passive_provider_entries="      - name: private
+        required: true
+        timeout: ${PAXM_PASSIVE_PROVIDER_TIMEOUT}"
+      write_provider_entries="${default_provider_entries}"
+    else
+      : "${TEAM_MEMORY_API_KEY:?TEAM_MEMORY_API_KEY is required for team-memory-sqlite}"
+      provider_entries="${private_provider_entry}
   team:
     type: jsonrpc
     enabled: true
@@ -96,17 +111,18 @@ case "${PAXM_PROVIDER_TYPE}" in
       PAXM_USER_ID: \"${PAXM_PROVIDER_USER_ID}\"
       PAXM_AGENT_ID: \"${PAXM_PROVIDER_AGENT_ID}\"
       TEAM_MEMORY_REQUEST_TIMEOUT: \"${TEAM_MEMORY_REQUEST_TIMEOUT}\""
-    default_provider_entries="      - name: private
+      default_provider_entries="      - name: private
         required: true
       - name: team
         required: true"
-    passive_provider_entries="      - name: private
+      passive_provider_entries="      - name: private
         required: true
         timeout: ${PAXM_PASSIVE_PROVIDER_TIMEOUT}
       - name: team
         required: true
         timeout: ${PAXM_PASSIVE_PROVIDER_TIMEOUT}"
-    write_provider_entries="${default_provider_entries}"
+      write_provider_entries="${default_provider_entries}"
+    fi
     ;;
   *)
     echo "unsupported PAXM_PROVIDER_TYPE: ${PAXM_PROVIDER_TYPE}" >&2

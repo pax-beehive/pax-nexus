@@ -80,9 +80,11 @@ validate_domain_receipts() {
   if [ "${PAX_EVAL_DOMAIN_INGEST_MODE:-all}" = "team-note-only" ]; then
     return 0
   fi
-  jq -e --argjson expected "${expected}" \
-    '.provider == "mem0_messages" and .source_events == $expected and .accepted == $expected and ((.created + .updated + .deleted) > 0)' \
-    "${marker_directory}/mem0-ingest.json" >/dev/null || return 1
+  if [ "${EVAL_V3_ARM_SET:-three_arm}" = "three_arm" ]; then
+    jq -e --argjson expected "${expected}" \
+      '.provider == "mem0_messages" and .source_events == $expected and .accepted == $expected and ((.created + .updated + .deleted) > 0)' \
+      "${marker_directory}/mem0-ingest.json" >/dev/null || return 1
+  fi
   jq -e --argjson expected "${expected}" \
     '.provider == "private_sqlite" and .source_events == $expected and .accepted == $expected and .created == $expected' \
     "${marker_directory}/private-sqlite-ingest.json" >/dev/null || return 1
@@ -130,9 +132,11 @@ ingest_domain() {
     : > "${marker_directory}/team-note.complete"
   fi
   if [ "${PAX_EVAL_DOMAIN_INGEST_MODE:-all}" != "team-note-only" ]; then
-    if [ ! -f "${marker_directory}/mem0.complete" ]; then
-      run_memory_ingest mem0_messages "${batches_directory}" "${batches_file}" > "${marker_directory}/mem0-ingest.json"
-      : > "${marker_directory}/mem0.complete"
+    if [ "${EVAL_V3_ARM_SET:-three_arm}" = "three_arm" ]; then
+      if [ ! -f "${marker_directory}/mem0.complete" ]; then
+        run_memory_ingest mem0_messages "${batches_directory}" "${batches_file}" > "${marker_directory}/mem0-ingest.json"
+        : > "${marker_directory}/mem0.complete"
+      fi
     fi
     if [ ! -f "${marker_directory}/private-sqlite.complete" ]; then
       docker compose -p "${project_name}" -f "${compose_file}" run --rm --no-deps \
@@ -200,6 +204,7 @@ run_consumer() {
   recall_enabled=1
   extra_mount=""
   private_path=""
+  team_provider_disabled=0
 	team_memory_base_url=http://team-memory:8080
 	recall_mode=passive
 
@@ -219,6 +224,28 @@ run_consumer() {
       provider_type=mem0
       provider_user_id="${MEM0_EVAL_USER_ID}"
       provider_agent_id="${MEM0_EVAL_AGENT_ID}"
+      ;;
+    team_note_only)
+      # Isolated arm: the shared Team Note store only. No private SQLite
+      # directory is mounted and no private path is supplied, so the
+      # per-agent private database cannot be reached.
+      provider_type=team-memory
+      ;;
+    private_sqlite_only)
+      # Isolated arm: the private SQLite database only. The Team Note
+      # provider is left out of the consumer's provider config entirely
+      # (see entrypoint.sh's PAXM_TEAM_PROVIDER_DISABLED handling), so the
+      # shared store cannot be reached even though the same provider_type
+      # as the combined arm is used.
+      provider_type=team-memory-sqlite
+      team_provider_disabled=1
+      private_file="${answering_agent}.sqlite"
+      if [ ! -f "${private_directory}/${private_file}" ]; then
+        echo "private SQLite memory is missing for ${answering_agent}" >&2
+        exit 1
+      fi
+      extra_mount="--volume ${private_directory}:/private-memory"
+      private_path="/private-memory/${private_file}"
       ;;
     private_sqlite_plus_team_note)
       provider_type=team-memory-sqlite
@@ -258,6 +285,7 @@ ${PAX_EVAL_QUESTION}"
     -e PAXM_PROVIDER_USER_ID="${provider_user_id}" \
     -e PAXM_PROVIDER_AGENT_ID="${provider_agent_id}" \
     -e PAXM_PRIVATE_SQLITE_PATH="${private_path}" \
+    -e PAXM_TEAM_PROVIDER_DISABLED="${team_provider_disabled}" \
     -e MEM0_RUN_ID="${domain_mem0_run_id}" \
     -e PAXM_RECALL_ENABLED="${recall_enabled}" \
     -e PAXM_WRITE_ENABLED=0 \
@@ -267,6 +295,7 @@ ${PAX_EVAL_QUESTION}"
     -e PAXM_PASSIVE_MIN_RELEVANCE="${PAXM_PASSIVE_MIN_RELEVANCE}" \
     -e PAXM_PASSIVE_MIN_SCORE="${PAXM_PASSIVE_MIN_SCORE}" \
     -e PAXM_PASSIVE_PROVIDER_TIMEOUT="${PAXM_PASSIVE_PROVIDER_TIMEOUT}" \
+    -e PAXM_PASSIVE_PROVIDER_ALLOCATION="${PAXM_PASSIVE_PROVIDER_ALLOCATION}" \
     -e PAXM_INSERTION_MIN_SCORE="${PAXM_INSERTION_MIN_SCORE}" \
     -e PAXM_EVAL_DIAGNOSTICS="${PAXM_EVAL_DIAGNOSTICS}" \
     opencode run --agent eval-consumer --format json --model "${OPENCODE_MODEL}" "${prompt}"

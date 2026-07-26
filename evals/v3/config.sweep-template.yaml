@@ -1,13 +1,14 @@
 version: v3
 run:
-  id: groupmembench-finance-v3
+  id: __RUN_ID__
   dataset: GroupMemBench
-  manifest: runs/groupmembench-v3-selection/manifest.json
-  output_dir: runs/eval-v3/groupmembench-finance-v3
-  parallelism: 4
+  manifest: __MANIFEST__
+  output_dir: __OUTPUT_DIR__
+  parallelism: 3
 store:
   dsn_env: EVAL_V2_POSTGRES_DSN
 baseline_arm: no_memory_team
+arm_set: two_arm_no_mem0
 answerer_seed: pax-eval-v3-answerer-1
 mem0_reproduction_level: comparable_baseline
 retry_failed: false
@@ -18,6 +19,7 @@ runtime_env:
   - EVAL_V2_JUDGE_MODEL
   - EVAL_V2_JUDGE_THINKING
   - TEAM_MEMORY_EXTRACTOR_MODEL
+  - TEAM_MEMORY_EXTRACTOR_BASE_URL
   - TEAM_MEMORY_PROMPT_VERSION
   - TEAM_MEMORY_EXTRACTION_CONTEXT_MODE
   - TEAM_MEMORY_EXTRACTION_VERSION
@@ -48,10 +50,6 @@ arms:
     consumer:
       program: scripts/eval-v3-opencode.sh
       args: [consumer, no_memory_team]
-  - name: groupmembench_mem0
-    consumer:
-      program: scripts/eval-v3-opencode.sh
-      args: [consumer, groupmembench_mem0]
   - name: private_sqlite_plus_team_note
     consumer:
       program: scripts/eval-v3-opencode.sh
