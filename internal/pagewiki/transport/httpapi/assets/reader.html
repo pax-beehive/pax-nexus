@@ -66,6 +66,23 @@
           <span id="article-slug"></span>
           <span id="article-revision"></span>
         </div>
+        <section class="xanadu-summary" data-testid="xanadu-summary"
+                 aria-labelledby="xanadu-summary-heading">
+          <div class="xanadu-summary-title">
+            <span class="xanadu-mark" aria-hidden="true">↔</span>
+            <div>
+              <span class="eyebrow">Bidirectional context</span>
+              <h2 id="xanadu-summary-heading">Connected knowledge</h2>
+            </div>
+          </div>
+          <div class="xanadu-counts" aria-label="Page link counts">
+            <a href="#xanadu-panel" id="xanadu-outgoing-count">0 outgoing</a>
+            <a href="#xanadu-panel" id="xanadu-incoming-count">0 incoming</a>
+          </div>
+          <p id="xanadu-summary-copy">
+            Exact-text links and backlinks for the current revision.
+          </p>
+        </section>
         <div class="markdown" id="article-content"></div>
         <section class="article-section" aria-labelledby="history-heading">
           <div class="section-heading">
@@ -93,15 +110,37 @@
       </div>
     </article>
 
-    <aside class="evidence-rail" data-testid="evidence-panel"
-           aria-labelledby="evidence-heading">
-      <div class="rail-heading">
-        <span id="evidence-heading">Evidence</span>
-        <span class="count" id="evidence-count">0 citations</span>
-      </div>
-      <div id="evidence-list" class="evidence-list">
-        <p class="muted">Evidence for the selected revision appears here.</p>
-      </div>
+    <aside class="context-rail" aria-label="Page context">
+      <section class="xanadu-panel" id="xanadu-panel"
+               data-testid="xanadu-panel" aria-labelledby="xanadu-panel-heading">
+        <div class="rail-heading">
+          <span id="xanadu-panel-heading">Xanadu map</span>
+          <span class="count" id="xanadu-link-count">0 links</span>
+        </div>
+        <p class="panel-intro">
+          Follow an exact phrase forward, or trace every page that points here.
+        </p>
+        <div class="xanadu-direction">
+          <h2><span aria-hidden="true">→</span> References</h2>
+          <ul class="link-list context-link-list"
+              id="xanadu-outgoing-links"></ul>
+        </div>
+        <div class="xanadu-direction">
+          <h2><span aria-hidden="true">←</span> Backlinks</h2>
+          <ul class="link-list context-link-list"
+              id="xanadu-incoming-links"></ul>
+        </div>
+      </section>
+      <section class="evidence-panel" data-testid="evidence-panel"
+               aria-labelledby="evidence-heading">
+        <div class="rail-heading">
+          <span id="evidence-heading">Evidence</span>
+          <span class="count" id="evidence-count">0 citations</span>
+        </div>
+        <div id="evidence-list" class="evidence-list">
+          <p class="muted">Evidence for the selected revision appears here.</p>
+        </div>
+      </section>
     </aside>
   </main>
 

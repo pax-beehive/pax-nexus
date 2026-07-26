@@ -257,6 +257,8 @@ func (s *ContractAcceptanceSuite) TestGivenLocalReaderWhenOpenedThenItsAccessibl
 	s.Contains(html, `data-testid="topic-navigation"`)
 	s.Contains(html, `data-testid="article"`)
 	s.Contains(html, `data-testid="evidence-panel"`)
+	s.Contains(html, `data-testid="xanadu-summary"`)
+	s.Contains(html, `data-testid="xanadu-panel"`)
 	s.Contains(html, `id="wiki-search"`)
 	s.Contains(html, `/wiki/assets/reader.css`)
 	s.Contains(html, `/wiki/assets/reader.js`)

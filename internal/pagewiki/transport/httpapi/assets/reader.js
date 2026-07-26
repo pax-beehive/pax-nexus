@@ -82,6 +82,23 @@ function markCurrentPage(slug) {
   });
 }
 
+function pageURL(slug) {
+  const parameters = new URLSearchParams(window.location.search);
+  parameters.set("page", slug);
+  parameters.delete("revision");
+  return `/wiki?${parameters.toString()}`;
+}
+
+function pageLink(page, text, className) {
+  const link = element("a", className, text);
+  link.href = pageURL(page.slug);
+  link.addEventListener("click", (event) => {
+    event.preventDefault();
+    loadPage(page.slug);
+  });
+  return link;
+}
+
 async function loadPage(slug, requestedRevision = "") {
   setStatus("Loading page");
   try {
@@ -95,15 +112,17 @@ async function loadPage(slug, requestedRevision = "") {
         `/pages/${encodeURIComponent(slug)}/revisions/${encodeURIComponent(requestedRevision)}`,
       )
       : page.revision;
+    const changedPage = state.page && state.page.slug !== slug;
     state.page = page;
     state.revision = revision;
     state.history = historyResponse.revisions || [];
     state.links = links;
-    renderPage(page, revision);
+    renderPage(page, revision, links);
     renderHistory(slug, revision.id, state.history);
     renderLinks(links);
     renderEvidence(revision.citations || []);
     markCurrentPage(slug);
+    if (changedPage) window.scrollTo({ top: 0, behavior: "auto" });
     const parameters = new URLSearchParams(window.location.search);
     parameters.set("page", slug);
     if (requestedRevision) parameters.set("revision", requestedRevision);
@@ -115,7 +134,7 @@ async function loadPage(slug, requestedRevision = "") {
   }
 }
 
-function renderPage(page, revision) {
+function renderPage(page, revision, links) {
   byID("article-empty").hidden = true;
   byID("article-view").hidden = false;
   byID("article-title").textContent = revision.title;
@@ -126,16 +145,34 @@ function renderPage(page, revision) {
   const badge = byID("revision-badge");
   badge.textContent = historical ? "Historical" : "Current";
   badge.classList.toggle("historical", historical);
-  renderMarkdown(revision.markdown, byID("article-content"));
+  const inlineLinks = historical ? [] : links.outgoing || [];
+  renderMarkdown(
+    revision.markdown,
+    byID("article-content"),
+    inlineLinks,
+    revision.sections || [],
+  );
 }
 
-function renderMarkdown(markdown, container) {
+function renderMarkdown(markdown, container, relations, sections) {
   container.replaceChildren();
   const lines = String(markdown || "").split(/\r?\n/);
+  const sectionKeys = new Map(
+    sections.map((section) => [section.heading, section.key]),
+  );
   let paragraph = [];
+  let currentSection = "";
   const flush = () => {
     if (!paragraph.length) return;
-    container.append(element("p", "", paragraph.join(" ")));
+    const node = element("p");
+    if (currentSection) node.dataset.section = currentSection;
+    appendLinkedText(
+      node,
+      paragraph.join(" "),
+      currentSection,
+      relations,
+    );
+    container.append(node);
     paragraph = [];
   };
   for (const rawLine of lines) {
@@ -146,10 +183,16 @@ function renderMarkdown(markdown, container) {
     }
     if (line.startsWith("### ")) {
       flush();
-      container.append(element("h3", "", line.slice(4)));
+      const heading = element("h3", "", line.slice(4));
+      if (currentSection) heading.dataset.section = currentSection;
+      container.append(heading);
     } else if (line.startsWith("## ")) {
       flush();
-      container.append(element("h2", "", line.slice(3)));
+      const headingText = line.slice(3);
+      currentSection = sectionKeys.get(headingText) || "";
+      const heading = element("h2", "", headingText);
+      if (currentSection) heading.dataset.section = currentSection;
+      container.append(heading);
     } else if (line.startsWith("# ")) {
       flush();
     } else {
@@ -157,6 +200,34 @@ function renderMarkdown(markdown, container) {
     }
   }
   flush();
+}
+
+function appendLinkedText(container, text, sectionKey, relations) {
+  const matches = relations
+    .filter((relation) => relation.link.section_key === sectionKey)
+    .map((relation) => ({
+      relation,
+      start: text.indexOf(relation.link.exact_text),
+    }))
+    .filter((match) => match.start >= 0)
+    .sort((left, right) => left.start - right.start);
+  let cursor = 0;
+  for (const match of matches) {
+    const exactText = match.relation.link.exact_text;
+    if (match.start < cursor) continue;
+    container.append(document.createTextNode(text.slice(cursor, match.start)));
+    const link = pageLink(
+      match.relation.target_page,
+      exactText,
+      "xanadu-inline-link",
+    );
+    link.dataset.xanaduLink = "outgoing";
+    link.title =
+      `Open ${match.relation.target_page.title} · exact-text Xanadu link`;
+    container.append(link);
+    cursor = match.start + exactText.length;
+  }
+  container.append(document.createTextNode(text.slice(cursor)));
 }
 
 function renderHistory(slug, selectedID, revisions) {
@@ -179,27 +250,49 @@ function renderHistory(slug, selectedID, revisions) {
 }
 
 function renderLinks(links) {
-  renderLinkList(byID("outgoing-links"), links.outgoing || [], true);
-  renderLinkList(byID("incoming-links"), links.incoming || [], false);
+  const outgoing = links.outgoing || [];
+  const incoming = links.incoming || [];
+  renderLinkList(byID("outgoing-links"), outgoing, true);
+  renderLinkList(byID("incoming-links"), incoming, false);
+  renderLinkList(byID("xanadu-outgoing-links"), outgoing, true, true);
+  renderLinkList(byID("xanadu-incoming-links"), incoming, false, true);
+  byID("xanadu-outgoing-count").textContent =
+    `${outgoing.length} outgoing`;
+  byID("xanadu-incoming-count").textContent =
+    `${incoming.length} incoming`;
+  const total = outgoing.length + incoming.length;
+  byID("xanadu-link-count").textContent =
+    `${total} ${total === 1 ? "link" : "links"}`;
+  byID("xanadu-summary-copy").textContent = total
+    ? "Highlighted phrases travel forward; backlinks reveal who depends on this page."
+    : "This page is not connected yet. Exact-text links will appear inline.";
 }
 
-function renderLinkList(list, links, outgoing) {
+function renderLinkList(list, links, outgoing, contextual = false) {
   list.replaceChildren();
   if (!links.length) {
-    list.append(element("li", "empty-note", "No links."));
+    list.append(
+      element(
+        "li",
+        "empty-note",
+        outgoing ? "No references from this page." : "No pages point here yet.",
+      ),
+    );
     return;
   }
   for (const relation of links) {
     const page = outgoing ? relation.target_page : relation.source_page;
-    const item = element("li");
-    const button = element(
-      "button",
+    const item = element("li", contextual ? "context-link-item" : "");
+    const link = pageLink(
+      page,
+      "",
       "relation-button",
-      `${page.title} · “${relation.link.exact_text}”`,
     );
-    button.type = "button";
-    button.addEventListener("click", () => loadPage(page.slug));
-    item.append(button);
+    link.replaceChildren(
+      element("strong", "", `${outgoing ? "→" : "←"} ${page.title}`),
+      element("span", "", `“${relation.link.exact_text}”`),
+    );
+    item.append(link);
     list.append(item);
   }
 }
