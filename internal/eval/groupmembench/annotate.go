@@ -144,7 +144,7 @@ func annotateCase(ctx context.Context, evalCase ManifestCase, events []DomainEve
 	slices.Sort(agents)
 
 	confidence := ConfidenceLow
-	if len(response.SupportingEventIDs) > 0 && unknownCount == 0 {
+	if len(validEventIDs) > 0 && unknownCount == 0 {
 		confidence = ConfidenceHigh
 	}
 

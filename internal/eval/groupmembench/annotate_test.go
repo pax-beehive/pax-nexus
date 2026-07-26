@@ -204,6 +204,28 @@ func (s *annotateSuite) TestUnknownEventIDDowngradesConfidenceButKeepsKnownAutho
 	s.Contains(annotations[0].Method, "dropped_unknown_events=1")
 }
 
+func (s *annotateSuite) TestBlankEventIDsAreNotGroundingAndYieldLowConfidence() {
+	cases := []groupmembench.ManifestCase{
+		participantCase("case-8", "User_1", "groupmembench-User_1", "groupmembench-User_2"),
+	}
+	events := []groupmembench.DomainEvent{
+		{ID: "Msg_1", Author: "User_2", Content: "known fact"},
+	}
+	judge := newStubJudge()
+	// A judge response containing only blank/whitespace entries must never
+	// be treated as grounded evidence, even though it's technically
+	// "non-empty" as a raw response.
+	judge.responses["case-8"] = groupmembench.JudgeResponse{
+		SupportingEventIDs: []string{"", "   "}, Model: "stub-v1",
+	}
+
+	annotations, err := groupmembench.Annotate(context.Background(), cases, events, judge)
+	s.Require().NoError(err)
+	s.Empty(annotations[0].SupportingAgentIDs)
+	s.Empty(annotations[0].SupportingEventIDs)
+	s.Equal(groupmembench.ConfidenceLow, annotations[0].Confidence)
+}
+
 func (s *annotateSuite) TestNilJudgeIsRejected() {
 	cases := []groupmembench.ManifestCase{participantCase("case-7", "User_1", "groupmembench-User_1")}
 	_, err := groupmembench.Annotate(context.Background(), cases, nil, nil)
