@@ -7,10 +7,20 @@ pinned to DeepSeek; only the Team Note extractor varied.
 
 ## Outcome
 
-All three rounds completed ingest. No round reached a scored trial, so there are
-no accuracy numbers. Every round is `valid: false`, correctly.
+Seven runs. The final one (run 7) cleared every blocker and scored all three
+rounds; the scores are unusable for the reason given under "The decisive
+finding" below. Every round is `valid: false`, on a recall-instrumentation
+check whose expectations no longer match the paxm version in use.
 
-Total wall clock for three rounds: 46 minutes (20:30:32Z - 21:17:12Z).
+Total wall clock for run 7's three rounds: 52 minutes.
+
+Scores from run 7, recorded only to show they carry no signal:
+
+| extractor | memory_items | no_memory_team | private_sqlite_plus_team_note |
+| --- | --- | --- | --- |
+| deepseek-v4-flash | 31 | 0.20 | 0.00 |
+| gemini-3.5-flash-lite | 2 | 0.20 | 0.00 |
+| gemini-3.6-flash | 24 | 0.20 | 0.20 |
 
 ## The one real signal
 
@@ -109,6 +119,60 @@ correct: extraction of the preflight scope simply had not finished within the
 - Per-round stack reset, DSN resolution from the ephemeral published port,
   provenance recording of the swept extractor, and non-aborting per-round
   failure reporting.
+
+## The decisive finding: Eval v3's memory arm cannot measure an extractor
+
+Run 7 cleared all three blockers and scored every round. The scores are not
+usable, and the reason invalidates the whole approach of sweeping extractors on
+Eval v3.
+
+Per-trial recall for the `private_sqlite_plus_team_note` arm, across three
+rounds whose extractors produced 31, 2, and 24 memory items respectively:
+
+| case | candidates | hits | context items injected |
+| --- | --- | --- | --- |
+| abstention_4 | 15-17 | 5 | 5 |
+| knowledge_update_20 | 15 | 5 | 5 |
+| multi_hop_1 | 15 | 5 | 5 |
+| temporal_28 | 15 | 1 | 1 |
+| user_implicit_9 | 15-19 | 5 | 5 |
+
+The context actually injected into the consumer is **identical in all three
+rounds**. An extractor that produced 2 notes and one that produced 31 put the
+same five items in front of the model.
+
+The cause is the arm's composition. `private_sqlite_plus_team_note` combines two
+memory sources:
+
+- the private SQLite database, which materializes all 1605 source events
+  verbatim and is byte-identical every round;
+- the Team Note store, the only component the sweep varies.
+
+The candidate pool is ~15 regardless of extractor, and moving from 2 notes to 31
+shifts it only to 17-19, so the top-5 selection is dominated by SQLite. The
+swept component is drowned out before it reaches the model.
+
+This is not a small-sample problem. Running the full selection would not fix it:
+the varying component is absent from the model's context by construction, so
+scores at any scale measure the fixed component plus noise.
+
+### Where an extractor sweep belongs instead
+
+Eval v2 already has configs that isolate a single memory provider, which is
+exactly the structure this question needs:
+
+- `evals/v2/config.interaction-slim-passive10.local.yaml` — arms `control`, `team_note`
+- `evals/v2/config.source-span-v1-passive10.local.yaml` — arms `control`, `team_note`
+- `evals/v2/config.source-span-v2-passive10.local.yaml` — arms `control`, `team_note`
+
+With `control` versus `team_note` alone, every difference between arms is
+attributable to the extracted notes, and every difference between rounds is
+attributable to the extractor that produced them.
+
+What carries over from this work: the `_OVERRIDE` extractor selection, the
+candidate fragments, the sweep driver with its per-round reset and non-aborting
+rounds, and all three bug fixes. What has to change is the eval version and the
+config template the driver renders.
 
 ## Status of the blockers
 
