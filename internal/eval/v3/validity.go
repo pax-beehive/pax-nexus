@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -296,6 +297,8 @@ func evaluateRecallObservations(collector *validityCollector, results []v2.Trial
 			collector.fail("recall_observation", result.CaseID, result.Arm, "memory Trial has no recall provider call evidence")
 		} else if result.MemoryRecallProviderType != expectedProvider {
 			collector.fail("recall_observation", result.CaseID, result.Arm, "memory recall provider does not match the Arm")
+		} else if !isolatedRecallProvidersWithinBoundary(result.Arm, result.MemoryRecallProviders) {
+			collector.fail("recall_observation", result.CaseID, result.Arm, "memory recall observed a provider outside the isolated Arm's boundary")
 		}
 	}
 	collector.finishCheck("recall_observation", start)
@@ -312,6 +315,44 @@ func expectedRecallProvider(arm string) string {
 	default:
 		return ""
 	}
+}
+
+// isolatedRecallProviderKeys names the only paxm provider keys a genuinely
+// isolated arm is permitted to record in memory_recall_providers.
+// MemoryRecallProviderType is a literal echo of PAXM_PROVIDER_TYPE (not
+// derived from what was actually queried), so it cannot by itself detect a
+// cross-provider leak: private_sqlite_only deliberately shares its
+// provider_type label ("team-memory-sqlite") with the combined arm, so only
+// the providers map can tell a genuinely isolated trial apart from a leaked
+// one. Arms not named here are not boundary-checked by
+// isolatedRecallProvidersWithinBoundary.
+func isolatedRecallProviderKeys(arm string) []string {
+	switch arm {
+	case ArmTeamNoteOnly:
+		return []string{"memory"}
+	case ArmPrivateSQLiteOnly:
+		return []string{"private"}
+	default:
+		return nil
+	}
+}
+
+// isolatedRecallProvidersWithinBoundary reports whether every provider key
+// observed on a Trial belongs to the set an isolated arm is allowed to
+// reach. Arms without a declared boundary (the combined arm, which
+// legitimately records both "private" and "team", and no_memory_team, which
+// is handled by its own branch above) always pass.
+func isolatedRecallProvidersWithinBoundary(arm string, providers map[string]int) bool {
+	allowed := isolatedRecallProviderKeys(arm)
+	if allowed == nil {
+		return true
+	}
+	for key := range providers {
+		if !slices.Contains(allowed, key) {
+			return false
+		}
+	}
+	return true
 }
 
 func evaluateAttemptArtifacts(collector *validityCollector, directory, runID string, requireJudge bool, results []v2.TrialResult) {

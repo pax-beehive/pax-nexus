@@ -183,6 +183,79 @@ func (s *validitySuite) TestPrivateSqliteOnlyArmRequiresTeamMemorySqliteProvider
 	s.True(hasFailureCheck(report, "recall_observation"), "failures: %#v", report.Failures)
 }
 
+func (s *validitySuite) TestTeamNoteOnlyArmRejectsForeignPrivateProviderKey() {
+	directory, run, cases, results := s.decomposedRunFixture()
+	for index := range results {
+		if results[index].Arm == v3.ArmTeamNoteOnly {
+			// provider_type stays "team-memory" (correct), but the providers
+			// map shows a genuine cross-provider leak into the private store.
+			results[index].MemoryRecallProviders = map[string]int{"memory": 1, "private": 1}
+		}
+	}
+
+	report, err := v3.EvaluateValidity(directory, run, cases, results)
+
+	s.Require().NoError(err)
+	s.False(report.Valid, "a team_note_only trial that also queried the private provider must be rejected")
+	s.Contains(report.Failures, v3.ValidityFailure{
+		Check: "recall_observation", CaseID: "case", Arm: v3.ArmTeamNoteOnly,
+		Reason: "memory recall observed a provider outside the isolated Arm's boundary",
+	})
+}
+
+func (s *validitySuite) TestPrivateSqliteOnlyArmRejectsForeignTeamProviderKey() {
+	directory, run, cases, results := s.decomposedRunFixture()
+	for index := range results {
+		if results[index].Arm == v3.ArmPrivateSQLiteOnly {
+			// provider_type stays "team-memory-sqlite" (correct, matches the
+			// combined arm's label by design), but the providers map shows a
+			// genuine cross-provider leak into the shared Team Note store.
+			results[index].MemoryRecallProviders = map[string]int{"private": 1, "memory": 1}
+		}
+	}
+
+	report, err := v3.EvaluateValidity(directory, run, cases, results)
+
+	s.Require().NoError(err)
+	s.False(report.Valid, "a private_sqlite_only trial that also queried the team provider must be rejected")
+	s.Contains(report.Failures, v3.ValidityFailure{
+		Check: "recall_observation", CaseID: "case", Arm: v3.ArmPrivateSQLiteOnly,
+		Reason: "memory recall observed a provider outside the isolated Arm's boundary",
+	})
+}
+
+func (s *validitySuite) TestCombinedArmStillValidatesWithBothProviderKeysPresent() {
+	directory, run, cases, results := s.decomposedRunFixture()
+	for _, result := range results {
+		if result.Arm == v3.ArmPrivateSQLiteTeamNote {
+			s.Equal(map[string]int{"private": 1, "team": 1}, result.MemoryRecallProviders)
+		}
+	}
+
+	report, err := v3.EvaluateValidity(directory, run, cases, results)
+
+	s.Require().NoError(err)
+	s.True(report.Valid, "the combined arm legitimately records both provider keys and must not be rejected; failures: %#v", report.Failures)
+}
+
+func (s *validitySuite) TestNoMemoryArmLeakDetectionIsUntouchedByIsolatedArmBoundaryCheck() {
+	directory, run, cases, results := s.decomposedRunFixture()
+	for index := range results {
+		if results[index].Arm == v3.ArmNoMemoryTeam {
+			results[index].MemoryRecallProviders = map[string]int{"memory": 1}
+		}
+	}
+
+	report, err := v3.EvaluateValidity(directory, run, cases, results)
+
+	s.Require().NoError(err)
+	s.False(report.Valid)
+	s.Contains(report.Failures, v3.ValidityFailure{
+		Check: "recall_observation", CaseID: "case", Arm: v3.ArmNoMemoryTeam,
+		Reason: "no-memory Trial observed a recall provider",
+	})
+}
+
 func (s *validitySuite) TestDecomposedArmsAreSubjectToTheSameNonMem0Checks() {
 	directory, run, cases, results := s.decomposedRunFixture()
 	for index := range results {
