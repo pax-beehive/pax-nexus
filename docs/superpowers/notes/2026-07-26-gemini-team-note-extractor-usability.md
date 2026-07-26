@@ -1,8 +1,9 @@
 # Gemini models as Team Note extractors: usability report
 
-**Status: IN PROGRESS.** The 30-case run started 2026-07-26 05:12Z and is still
-executing. Sections marked *(preliminary)* carry results from the completed
-10-case run and will be replaced with 30-case figures. Everything else is final.
+**Status: COMPLETE.** All three 30-case rounds finished. Accuracy and recall
+figures below are the 30-case results. The cost table remains 10-case: each
+round's stack is destroyed by the next round's reset, and the 30-case
+`extraction_runs` rows were not sampled before teardown.
 
 ## Question
 
@@ -45,19 +46,57 @@ Recall coverage is the more sensitive instrument: the fraction of cases where
 the extractor's notes produced any retrieval candidate at all. It varies with
 the extractor directly and does not depend on the consumer answering correctly.
 
-## Results (preliminary — 10 cases)
+## Results (30 cases)
 
-| extractor | control | team_note | gain | recall>0 | candidates | hits |
+| extractor | control | team_note | gain | recall>0 | candidates | hits | team_note F1 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| deepseek-v4-flash | 4/30 | 6/30 | +2 | 14/30 | 25 | 25 | 0.140 |
+| gemini-3.5-flash-lite | 3/30 | 3/30 | 0 | 11/30 | 32 | 27 | 0.056 |
+| gemini-3.6-flash | 4/30 | 6/30 | +2 | 14/30 | 31 | 29 | 0.118 |
+
+**`gemini-3.6-flash` matches DeepSeek.** Identical control (4/30), identical
+`team_note` (6/30), identical recall coverage (14/30), and more candidates and
+hits (31/29 against 25/25). Its token-F1 is somewhat lower, 0.118 against 0.140 —
+it retrieves as often but its notes phrase the answer less closely.
+
+**`gemini-3.5-flash-lite` is the one that fails.** Zero gain over its own
+control, and the lowest F1 of the three (0.056) despite producing the *most*
+candidates. It retrieves plenty and retrieves the wrong things.
+
+The gains must be read against the noise floor. `control` spans 3-4/30 across
+rounds — one case — so +2 clears it, but not by much. Recall coverage is the
+firmer instrument, and there DeepSeek and `gemini-3.6-flash` are exactly level.
+
+The 10-case preliminary reading put both Gemini models above DeepSeek on recall
+coverage. At 30 cases that ordering did not hold: `3.6-flash` converged to
+DeepSeek and `3.5-flash-lite` fell below it.
+
+## Extraction speed (30 cases)
+
+Measured as `readiness_duration_ms` — how long each case waited for extraction to
+catch up with its ingested session. The `control` arm is 0 in all 30 cases of
+every round, so these are 30 independent observations per model with no
+double-counting. Worker configuration was identical across rounds
+(`TEAM_MEMORY_WORKER_JOB_TIMEOUT=20m`, `TEAM_MEMORY_WORKER_MAX_ATTEMPTS=10`), so
+the spread is attributable to the extractor.
+
+| extractor | median | mean | max | 30-case total | round wall clock | vs DeepSeek |
 | --- | --- | --- | --- | --- | --- | --- |
-| deepseek-v4-flash | 2/10 | 2/10 | +0.00 | 4/10 | 5 | 5 |
-| gemini-3.5-flash-lite | 2/10 | 3/10 | +0.10 | 6/10 | 14 | 12 |
-| gemini-3.6-flash | 1/10 | 3/10 | +0.20 | 7/10 | 11 | 9 |
+| deepseek-v4-flash | 198.5s | 199.1s | 371.1s | 99.5 min | 72.5 min | 1x |
+| gemini-3.6-flash | 48.0s | 49.4s | 82.6s | 24.7 min | 38.7 min | 4.1x faster |
+| gemini-3.5-flash-lite | 11.4s | 12.2s | 22.2s | 6.1 min | 26.5 min | 17.4x faster |
 
-Recall differed across extractors in 7 of 10 cases, so the signal separates.
+Median tracks mean in every round, so these are stable measurements rather than
+a few slow outliers. The ordering matches the output-token ratios below: 5.7x
+fewer output tokens for `3.6-flash`, 4.1x less time. Extraction latency is
+dominated by output generation.
 
-Both accuracy gains sit at or barely above the one-case noise floor, so the
-ranking is not yet meaningful. The recall-coverage ordering — both Gemini models
-above DeepSeek — is the finding that survives at this sample size.
+This is the sharpest separation in the whole comparison — far cleaner than the
+accuracy signal, which sits barely above its noise floor.
+
+Note this measures catch-up latency, not raw model latency: queueing and worker
+scheduling are included. That is the right unit for the question at hand — how
+long the system waits before a note is retrievable.
 
 ## Extraction cost and output behaviour (preliminary — 10 cases)
 
@@ -132,4 +171,54 @@ data is unaffected.
 
 ## Recommendation
 
-*Pending 30-case results.*
+**`gemini-3.6-flash` is a viable replacement for `deepseek-v4-flash`; adopt it
+behind the quarantine check, not blindly. `gemini-3.5-flash-lite` is not
+viable.**
+
+The case for `3.6-flash` is speed and cost, not quality. It equals DeepSeek on
+every retrieval measure this eval can resolve — same accuracy, same coverage,
+more candidates and hits — while extracting **4.1x faster** (48s median against
+198.5s) and emitting 5.7x fewer output tokens for the same 81 extraction calls.
+Quality is a tie; the tie is broken on latency and price, and the latency margin
+is far better separated than the accuracy numbers are.
+
+For a team-memory store the latency margin is the one that compounds: it is the
+delay between something being said and it becoming retrievable by the rest of
+the team.
+
+Two conditions on that recommendation:
+
+1. **The quarantine rate is the open risk.** Eight of 81 extraction runs
+   rejected, against two for each of the other models — the guard that blocks a
+   revision from dropping protected qualifiers without source authority. It
+   rewrites existing notes more destructively. The guard caught every instance
+   here, so nothing bad reached the store, but a 4x rate is a property of the
+   model, not of this corpus. Watch it before trusting `3.6-flash` on a store
+   with notes worth preserving.
+
+2. **The F1 gap is small but consistent.** 0.118 against 0.140. Same retrieval,
+   slightly worse phrasing. It does not change the ranking; it does mean
+   "equivalent" is about *whether* the right note is found, not about how well
+   it is written.
+
+`gemini-3.5-flash-lite` should not be used. It produces the most candidates and
+the worst answers — 0.056 F1, below its own no-memory control, and no accuracy
+gain at all over 30 cases.
+
+### Caveat on the Eval v3 attempt
+
+A separate 10-case run on Eval v3 (`runs/eval-v3-sweep/dsvs36-20260726`) showed
+`gemini-3.6-flash` producing 9 notes to DeepSeek's 43 on the full 1605-event
+domain, and returning zero Team Note candidates in all 10 cases. **Do not read
+that as a property of the model.** Two reasons:
+
+- That run's artifacts record `TEAM_MEMORY_EXTRACTOR_MODEL: deepseek-v4-flash`
+  for *both* rounds, so it cannot even prove which extractor ran. Cause and fix
+  in `scripts/eval-v3-extractor-sweep.sh` — the sweep sourced the env loader
+  once before its round loop, and the Go runner, which never sources it, took
+  the base `.env` value into every round's `runtime_env`.
+- The same collapse appeared for `gemini-3.5-flash-lite` in the earlier v3 micro
+  run (2 notes against DeepSeek's 13-31) while both Gemini models extract
+  normally on the v2 corpus. Something about the v3 full-domain ingest shape
+  suppresses Gemini extraction specifically. That is an unlocated defect, and it
+  is not evidence about extractor quality.
