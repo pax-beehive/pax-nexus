@@ -31,6 +31,8 @@ import { noticeForError } from "../lib/statusMessage";
 import { useCountUp } from "../lib/useCountUp";
 import { useErrorHandler } from "../lib/useErrorHandler";
 import { usePolling } from "../lib/usePolling";
+import { useAuth } from "../auth/AuthContext";
+import { hasServerCapability } from "../lib/capabilities";
 
 // Stats and the event feed poll every 10s while the page is visible.
 const POLL_INTERVAL_MS = 10_000;
@@ -300,11 +302,13 @@ function AgentCard({
   agentType,
   freshNotes,
   now,
+  canExplore,
 }: {
   agent: OperationsAgentStats;
   agentType?: string;
   freshNotes: Set<string>;
   now: number;
+  canExplore: boolean;
 }) {
   const activity = agentActivity(agent.last_active_at, now);
   return (
@@ -347,9 +351,19 @@ function AgentCard({
               className={freshNotes.has(note.note_id) ? "fade-in" : undefined}
             >
               <span className="badge b-role">{note.kind}</span>
-              <span className="small" title={formatTime(note.created_at)}>
-                {note.subject}
-              </span>
+              {canExplore ? (
+                <Link
+                  className="small"
+                  title={formatTime(note.created_at)}
+                  to={`/admin/explorer/notes/${encodeURIComponent(note.note_id)}`}
+                >
+                  {note.subject}
+                </Link>
+              ) : (
+                <span className="small" title={formatTime(note.created_at)}>
+                  {note.subject}
+                </span>
+              )}
             </li>
           ))}
         </ul>
@@ -424,6 +438,9 @@ function FlowStrip({ agents }: { agents: OperationsAgentStats[] }) {
 // ---------------------------------------------------------------------------
 
 export function AdminPulsePage() {
+  const { state: authState } = useAuth();
+  const canExplore =
+    authState.kind === "active" && hasServerCapability(authState.me, "view.team-memory");
   const handleError = useErrorHandler();
   // Only auth transitions go through the global handler; region failures stay
   // region-local so a failing poll never spams toasts.
@@ -517,6 +534,7 @@ export function AdminPulsePage() {
               agentType={agentTypes.get(agent.agent_id)?.agent_type}
               freshNotes={stats.freshNotes}
               now={now}
+              canExplore={canExplore}
             />
           ))}
         </div>

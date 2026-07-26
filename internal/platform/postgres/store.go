@@ -26,6 +26,7 @@ type Store struct {
 	identity       *IdentityStore
 	registry       *RegistryStore
 	operations     *OperationsStore
+	explorer       *ExplorerStore
 }
 
 func Open(ctx context.Context, dsn string) (*Store, error) {
@@ -77,6 +78,7 @@ func newStore(pool *pgxpool.Pool) *Store {
 		identity:    &IdentityStore{pool: pool},
 		registry:    &RegistryStore{pool: pool},
 		operations:  &OperationsStore{pool: pool},
+		explorer:    &ExplorerStore{pool: pool, scopeID: "local-team"},
 	}
 }
 
@@ -117,6 +119,10 @@ func (s *Store) Registry() *RegistryStore {
 
 func (s *Store) Operations() *OperationsStore {
 	return s.operations
+}
+
+func (s *Store) Explorer() *ExplorerStore {
+	return s.explorer
 }
 
 func (s *Store) Migrate(ctx context.Context) (resultErr error) {

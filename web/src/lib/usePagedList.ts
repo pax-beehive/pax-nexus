@@ -28,25 +28,28 @@ export function usePagedList<T>(
   const fetchRef = useRef(fetchPage);
   fetchRef.current = fetchPage;
   const cursorRef = useRef<string | undefined>();
+  const generationRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
+    const generation = ++generationRef.current;
     cursorRef.current = undefined;
     setItems([]);
     setNextCursor(undefined);
     setLoading(true);
+    setLoadingMore(false);
     setError(null);
     fetchRef
       .current(undefined)
       .then((page) => {
-        if (cancelled) return;
+        if (cancelled || generation !== generationRef.current) return;
         setItems(page.items);
         setNextCursor(page.nextCursor);
         cursorRef.current = page.nextCursor;
         setLoading(false);
       })
       .catch((err: unknown) => {
-        if (cancelled) return;
+        if (cancelled || generation !== generationRef.current) return;
         setError(err);
         setLoading(false);
       });
@@ -59,17 +62,20 @@ export function usePagedList<T>(
   const loadMore = useCallback(async () => {
     const cursor = cursorRef.current;
     if (!cursor) return;
+    const generation = generationRef.current;
     setLoadingMore(true);
     setError(null);
     try {
       const page = await fetchRef.current(cursor);
+      if (generation !== generationRef.current) return;
       setItems((prev) => [...prev, ...page.items]);
       setNextCursor(page.nextCursor);
       cursorRef.current = page.nextCursor;
     } catch (err) {
+      if (generation !== generationRef.current) return;
       setError(err);
     } finally {
-      setLoadingMore(false);
+      if (generation === generationRef.current) setLoadingMore(false);
     }
   }, []);
 
