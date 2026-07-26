@@ -3,6 +3,7 @@ package groupmembench
 import (
 	"context"
 	"fmt"
+	"math"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -14,6 +15,16 @@ import (
 // Bump it whenever the judge request shape or instructions change so a
 // reviewer can tell which prompt produced a given annotation.
 const PromptVersion = "groupmembench-supporting-events-v1"
+
+// MaxCandidateEvents bounds how many domain events Annotate hands the judge
+// for a single case. GroupMemBench's full-domain event set can run into the
+// tens of thousands (real Finance selections are ~30k events, tens of
+// megabytes as JSON) — far past what any model's context holds, and mostly
+// irrelevant to any one gold answer. narrowCandidateEvents selects this many
+// candidates by lexical overlap with the case's question and answer, not by
+// position in the domain, so a supporting event is not lost just because it
+// sorts late.
+const MaxCandidateEvents = 200
 
 const (
 	// ConfidenceHigh marks an annotation the judge grounded in at least one
@@ -76,22 +87,32 @@ type LLM interface {
 // the judge which domain events ground the case's gold answer, then
 // resolving those events to agent IDs.
 //
+// Before calling the judge, it narrows the full domain event set down to at
+// most MaxCandidateEvents per case (see narrowCandidateEvents): the judge
+// never sees the whole domain, only the events most likely to matter for
+// that one case's answer.
+//
 // It never invents an author: an event ID the judge returns that is not
-// found among events, an author outside the case's participant_agent_ids,
-// and the asking user are all excluded rather than silently accepted. A
+// among the candidates it was shown, an author outside the case's
+// participant_agent_ids, and the asking user are all excluded rather than
+// silently accepted. Narrowing itself must never invent an author either —
+// if the candidates handed to the judge don't include the events that
+// actually support the answer, the honest outcome is confidence low, not a
+// plausible-looking wrong one; an event ID the judge cites that fell outside
+// its candidates is treated exactly like any other unknown event ID. A
 // judge error fails only that case's annotation (confidence low, no
 // supporting authors) and does not abort the batch.
 func Annotate(ctx context.Context, cases []ManifestCase, events []DomainEvent, judge LLM) ([]Annotation, error) {
 	if judge == nil {
 		return nil, fmt.Errorf("annotate GroupMemBench cases: judge is required")
 	}
-	eventByID := make(map[string]DomainEvent, len(events))
+	seen := make(map[string]struct{}, len(events))
 	ordered := make([]DomainEvent, 0, len(events))
 	for _, event := range events {
-		if _, duplicate := eventByID[event.ID]; duplicate {
+		if _, duplicate := seen[event.ID]; duplicate {
 			continue
 		}
-		eventByID[event.ID] = event
+		seen[event.ID] = struct{}{}
 		ordered = append(ordered, event)
 	}
 	slices.SortFunc(ordered, func(left, right DomainEvent) int {
@@ -99,24 +120,31 @@ func Annotate(ctx context.Context, cases []ManifestCase, events []DomainEvent, j
 	})
 	annotations := make([]Annotation, 0, len(cases))
 	for _, evalCase := range cases {
-		annotations = append(annotations, annotateCase(ctx, evalCase, ordered, eventByID, judge))
+		annotations = append(annotations, annotateCase(ctx, evalCase, ordered, judge))
 	}
 	return annotations, nil
 }
 
-func annotateCase(ctx context.Context, evalCase ManifestCase, events []DomainEvent, eventByID map[string]DomainEvent, judge LLM) Annotation {
+func annotateCase(ctx context.Context, evalCase ManifestCase, events []DomainEvent, judge LLM) Annotation {
+	candidates, totalEvents := narrowCandidateEvents(evalCase, events, MaxCandidateEvents)
+	candidateByID := make(map[string]DomainEvent, len(candidates))
+	for _, event := range candidates {
+		candidateByID[event.ID] = event
+	}
+	candidateNote := fmt.Sprintf("candidates=%d/%d", len(candidates), totalEvents)
+
 	response, err := judge.SupportingEvents(ctx, JudgeRequest{
-		CaseID: evalCase.ID, Question: evalCase.Question, Answer: evalCase.Answer, Events: events,
+		CaseID: evalCase.ID, Question: evalCase.Question, Answer: evalCase.Answer, Events: candidates,
 	})
 	if err != nil {
 		return Annotation{
 			CaseID:     evalCase.ID,
 			Confidence: ConfidenceLow,
-			Method:     fmt.Sprintf("prompt=%s error=%q", PromptVersion, err.Error()),
+			Method:     fmt.Sprintf("prompt=%s %s error=%q", PromptVersion, candidateNote, err.Error()),
 		}
 	}
 
-	validEventIDs, unknownCount := resolveEventIDs(response.SupportingEventIDs, eventByID)
+	validEventIDs, unknownCount := resolveEventIDs(response.SupportingEventIDs, candidateByID)
 
 	askingAgentID := supportingAuthorAgentID(evalCase.AskingUserID)
 	participants := make(map[string]struct{}, len(evalCase.ParticipantAgentIDs))
@@ -127,7 +155,7 @@ func annotateCase(ctx context.Context, evalCase ManifestCase, events []DomainEve
 	agentSet := make(map[string]struct{}, len(validEventIDs))
 	var droppedNonParticipant []string
 	for _, eventID := range validEventIDs {
-		agentID := supportingAuthorAgentID(eventByID[eventID].Author)
+		agentID := supportingAuthorAgentID(candidateByID[eventID].Author)
 		if agentID == askingAgentID {
 			continue
 		}
@@ -152,7 +180,7 @@ func annotateCase(ctx context.Context, evalCase ManifestCase, events []DomainEve
 	if strings.TrimSpace(model) == "" {
 		model = "unknown"
 	}
-	method := fmt.Sprintf("model=%s prompt=%s", model, PromptVersion)
+	method := fmt.Sprintf("model=%s prompt=%s %s", model, PromptVersion, candidateNote)
 	if len(droppedNonParticipant) > 0 {
 		slices.Sort(droppedNonParticipant)
 		droppedNonParticipant = slices.Compact(droppedNonParticipant)
@@ -169,6 +197,102 @@ func annotateCase(ctx context.Context, evalCase ManifestCase, events []DomainEve
 		Confidence:         confidence,
 		Method:             method,
 	}
+}
+
+// narrowCandidateEvents selects at most limit domain events most likely to
+// ground evalCase's gold answer, ranked by BM25-style lexical overlap
+// between the case's question+answer and each event's content. Selection is
+// by relevance score, not list position, so a supporting event is not
+// dropped merely because it sorts late in an arbitrarily-ordered domain.
+// It returns the chosen candidates (sorted by ID for determinism) and the
+// size of the full domain event set they were drawn from, so callers can
+// record how much narrowing occurred.
+//
+// Candidates that don't make the cut are not a partial view held back from
+// resolveEventIDs — they are simply never sent to the judge, so a judge
+// cannot cite them, and if it tries anyway that citation is treated exactly
+// like any other unknown event ID (see resolveEventIDs). This is deliberate:
+// an event excluded by narrowing must never resolve to an author.
+func narrowCandidateEvents(evalCase ManifestCase, events []DomainEvent, limit int) ([]DomainEvent, int) {
+	total := len(events)
+	if limit <= 0 || total <= limit {
+		ordered := slices.Clone(events)
+		slices.SortFunc(ordered, func(left, right DomainEvent) int {
+			return strings.Compare(left.ID, right.ID)
+		})
+		return ordered, total
+	}
+
+	query := tokenize(evalCase.Question + " " + evalCase.Answer)
+	tokenSets := make([][]string, total)
+	documentFreq := make(map[string]int)
+	totalLength := 0
+	for index, event := range events {
+		tokenSets[index] = tokenize(event.Content)
+		totalLength += len(tokenSets[index])
+		seen := make(map[string]struct{}, len(tokenSets[index]))
+		for _, token := range tokenSets[index] {
+			if _, ok := seen[token]; ok {
+				continue
+			}
+			seen[token] = struct{}{}
+			documentFreq[token]++
+		}
+	}
+	averageLength := float64(totalLength) / float64(total)
+
+	type scoredEvent struct {
+		index int
+		score float64
+	}
+	scored := make([]scoredEvent, total)
+	for index := range events {
+		scored[index] = scoredEvent{index: index, score: bm25Overlap(query, tokenSets[index], documentFreq, total, averageLength)}
+	}
+	slices.SortFunc(scored, func(left, right scoredEvent) int {
+		if left.score != right.score {
+			if left.score > right.score {
+				return -1
+			}
+			return 1
+		}
+		return strings.Compare(events[left.index].ID, events[right.index].ID)
+	})
+
+	top := scored[:limit]
+	result := make([]DomainEvent, 0, limit)
+	for _, candidate := range top {
+		result = append(result, events[candidate.index])
+	}
+	slices.SortFunc(result, func(left, right DomainEvent) int {
+		return strings.Compare(left.ID, right.ID)
+	})
+	return result, total
+}
+
+// bm25Overlap scores one document's lexical overlap with query using Okapi
+// BM25. It mirrors the scoring already used to build case context in
+// selector.go, applied here to full DomainEvents rather than Messages.
+func bm25Overlap(query, document []string, documentFreq map[string]int, totalDocuments int, averageLength float64) float64 {
+	const k1 = 1.5
+	const b = 0.75
+	frequencies := make(map[string]int, len(document))
+	for _, token := range document {
+		frequencies[token]++
+	}
+	documentLength := float64(len(document))
+	var score float64
+	for _, token := range query {
+		frequency := float64(frequencies[token])
+		if frequency == 0 {
+			continue
+		}
+		docFreq := float64(documentFreq[token])
+		inverseDocumentFrequency := math.Log(1 + (float64(totalDocuments)-docFreq+0.5)/(docFreq+0.5))
+		denominator := frequency + k1*(1-b+b*documentLength/averageLength)
+		score += inverseDocumentFrequency * frequency * (k1 + 1) / denominator
+	}
+	return score
 }
 
 // resolveEventIDs keeps only the event IDs the judge returned that exist

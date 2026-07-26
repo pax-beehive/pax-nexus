@@ -3,6 +3,7 @@ package groupmembench_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/pax-beehive/pax-nexus/internal/eval/groupmembench"
@@ -24,6 +25,7 @@ type stubJudge struct {
 	responses map[string]groupmembench.JudgeResponse
 	errs      map[string]error
 	calls     map[string]int
+	requests  map[string]groupmembench.JudgeRequest
 }
 
 func newStubJudge() *stubJudge {
@@ -31,11 +33,13 @@ func newStubJudge() *stubJudge {
 		responses: make(map[string]groupmembench.JudgeResponse),
 		errs:      make(map[string]error),
 		calls:     make(map[string]int),
+		requests:  make(map[string]groupmembench.JudgeRequest),
 	}
 }
 
 func (s *stubJudge) SupportingEvents(_ context.Context, request groupmembench.JudgeRequest) (groupmembench.JudgeResponse, error) {
 	s.calls[request.CaseID]++
+	s.requests[request.CaseID] = request
 	if err, ok := s.errs[request.CaseID]; ok {
 		return groupmembench.JudgeResponse{}, err
 	}
@@ -224,6 +228,100 @@ func (s *annotateSuite) TestBlankEventIDsAreNotGroundingAndYieldLowConfidence() 
 	s.Empty(annotations[0].SupportingAgentIDs)
 	s.Empty(annotations[0].SupportingEventIDs)
 	s.Equal(groupmembench.ConfidenceLow, annotations[0].Confidence)
+}
+
+func (s *annotateSuite) TestNarrowingBoundsPayloadAndStillFindsSupportingEventPastAnyHeadOfListTruncation() {
+	cases := []groupmembench.ManifestCase{
+		participantCase("case-narrow", "User_1", "groupmembench-User_1", "groupmembench-User_2"),
+	}
+	cases[0].Question = "what is the launch codeword"
+	cases[0].Answer = "zephyrion-9427"
+
+	// 500 decoys share no vocabulary with the question/answer at all; the
+	// one real supporting event carries the rare codeword and sorts dead
+	// last by ID, so a naive "take the first N events" truncation would
+	// never see it. Only lexical relevance should surface it.
+	events := make([]groupmembench.DomainEvent, 0, 501)
+	for i := 0; i < 500; i++ {
+		events = append(events, groupmembench.DomainEvent{
+			ID: fmt.Sprintf("Msg_%04d", i), Author: "User_3",
+			Content: "quarterly report filler content about routine budget meetings and calendar scheduling",
+		})
+	}
+	events = append(events, groupmembench.DomainEvent{
+		ID: "Zzz_supporting", Author: "User_2",
+		Content: "The launch codeword is zephyrion-9427; keep it confidential until go-live.",
+	})
+
+	judge := newStubJudge()
+	judge.responses["case-narrow"] = groupmembench.JudgeResponse{SupportingEventIDs: []string{"Zzz_supporting"}, Model: "stub-v1"}
+
+	annotations, err := groupmembench.Annotate(context.Background(), cases, events, judge)
+	s.Require().NoError(err)
+	s.Require().Len(annotations, 1)
+
+	sent := judge.requests["case-narrow"].Events
+	s.LessOrEqual(len(sent), groupmembench.MaxCandidateEvents, "judge payload must be bounded, not the full 501-event domain")
+	found := false
+	for _, event := range sent {
+		if event.ID == "Zzz_supporting" {
+			found = true
+		}
+	}
+	s.True(found, "the lexically-relevant supporting event must survive narrowing even though it sorts last by ID")
+
+	s.Equal([]string{"groupmembench-User_2"}, annotations[0].SupportingAgentIDs)
+	s.Equal(groupmembench.ConfidenceHigh, annotations[0].Confidence)
+	s.Contains(annotations[0].Method, fmt.Sprintf("candidates=%d/501", groupmembench.MaxCandidateEvents))
+}
+
+func (s *annotateSuite) TestNarrowingExcludedSupportingEventYieldsLowConfidenceNotFabrication() {
+	cases := []groupmembench.ManifestCase{
+		participantCase("case-excluded", "User_1", "groupmembench-User_1", "groupmembench-User_2"),
+	}
+	cases[0].Question = "what happened with the budget freeze"
+	cases[0].Answer = "the budget freeze was approved in march"
+
+	// 250 decoys (more than MaxCandidateEvents) all share heavy vocabulary
+	// overlap with the question/answer, so narrowing fills its whole
+	// candidate budget with them. The one event that actually would have
+	// supported the answer shares no vocabulary with it at all, so it never
+	// makes the cut — it is excluded from the judge's view entirely.
+	events := make([]groupmembench.DomainEvent, 0, 251)
+	for i := 0; i < 250; i++ {
+		events = append(events, groupmembench.DomainEvent{
+			ID: fmt.Sprintf("Decoy_%04d", i), Author: "User_3",
+			Content: "the budget freeze was approved in march after finance reviewed the freeze budget march approval",
+		})
+	}
+	excludedEvent := groupmembench.DomainEvent{
+		ID: "Excluded_supporting", Author: "User_2",
+		Content: "elephants migrate through the savanna every summer without any budget context at all",
+	}
+	events = append(events, excludedEvent)
+
+	judge := newStubJudge()
+	// The judge response cites the excluded event anyway (whether it
+	// hallucinated it or somehow knew of it out of band); it was never in
+	// the candidates handed to it, so it must be treated like any other
+	// unknown event ID rather than trusted.
+	judge.responses["case-excluded"] = groupmembench.JudgeResponse{
+		SupportingEventIDs: []string{excludedEvent.ID}, Model: "stub-v1",
+	}
+
+	annotations, err := groupmembench.Annotate(context.Background(), cases, events, judge)
+	s.Require().NoError(err)
+	s.Require().Len(annotations, 1)
+
+	sent := judge.requests["case-excluded"].Events
+	for _, event := range sent {
+		s.NotEqual(excludedEvent.ID, event.ID, "narrowing must have excluded this event from the judge's candidates")
+	}
+
+	s.Empty(annotations[0].SupportingAgentIDs)
+	s.Empty(annotations[0].SupportingEventIDs)
+	s.Equal(groupmembench.ConfidenceLow, annotations[0].Confidence)
+	s.Contains(annotations[0].Method, "dropped_unknown_events=1")
 }
 
 func (s *annotateSuite) TestNilJudgeIsRejected() {
