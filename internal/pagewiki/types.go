@@ -109,6 +109,32 @@ type PagePlacement struct {
 	Rank    int
 }
 
+type PagePublication struct {
+	Page      Page
+	Revision  PageRevision
+	Topics    []Topic
+	Placement *PagePlacement
+}
+
+type Navigation struct {
+	Roots []NavigationTopic
+}
+
+type NavigationTopic struct {
+	ID       string
+	Slug     string
+	Title    string
+	Children []NavigationTopic
+	Pages    []NavigationPage
+}
+
+type NavigationPage struct {
+	ID    string
+	Slug  string
+	Title string
+	Rank  int
+}
+
 type SearchChunk struct {
 	ID             string
 	PageID         string

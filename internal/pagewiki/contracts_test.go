@@ -83,6 +83,16 @@ func (s *ContractsSuite) TestGivenCatalogWhenBriefIsInvalidThenValidationFails()
 			},
 		},
 		{
+			name: "create omits topic path",
+			brief: pagewiki.PageBrief{
+				Key:              "new-page",
+				Action:           pagewiki.PageActionCreate,
+				ProposedSlug:     "new-page",
+				ProposedTitle:    "New Page",
+				EvidenceEventIDs: []string{"event-1"},
+			},
+		},
+		{
 			name: "create attempts to choose page identity",
 			brief: pagewiki.PageBrief{
 				Key:              "new-page",
@@ -90,6 +100,7 @@ func (s *ContractsSuite) TestGivenCatalogWhenBriefIsInvalidThenValidationFails()
 				TargetPageID:     "invented-page",
 				ProposedSlug:     "new-page",
 				ProposedTitle:    "New Page",
+				TopicPath:        []string{"Engineering"},
 				EvidenceEventIDs: []string{"event-1"},
 			},
 		},

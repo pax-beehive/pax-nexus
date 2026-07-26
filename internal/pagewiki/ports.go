@@ -29,6 +29,7 @@ type Repository interface {
 	PageByID(context.Context, string) (Page, error)
 	PageBySlug(context.Context, string) (Page, error)
 	PageRevision(context.Context, string) (PageRevision, error)
-	PublishPage(context.Context, Page, PageRevision) error
+	PublishPage(context.Context, PagePublication) error
+	Navigation(context.Context) (Navigation, error)
 	SaveMaintenanceRun(context.Context, MaintenanceRun) error
 }

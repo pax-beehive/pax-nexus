@@ -104,7 +104,11 @@ func (s *Service) processTarget(
 		return failTarget(target, TargetFailureInvalidBrief, err)
 	}
 	if brief.Action == PageActionSourceOnly || brief.Action == PageActionAmbiguous {
-		target.Status = TargetStatusPending
+		if brief.Action == PageActionSourceOnly {
+			target.Status = TargetStatusSucceeded
+		} else {
+			target.Status = TargetStatusPending
+		}
 		return target
 	}
 
@@ -132,13 +136,44 @@ func (s *Service) processTarget(
 	if err != nil {
 		return failTarget(target, reason, err)
 	}
-	if err := s.repository.PublishPage(ctx, pageValue, revision); err != nil {
+	publication := PagePublication{
+		Page:     pageValue,
+		Revision: revision,
+	}
+	if brief.Action == PageActionCreate {
+		publication.Topics, publication.Placement = buildPlacement(
+			pageValue.ID,
+			brief.TopicPath,
+		)
+	}
+	if err := s.repository.PublishPage(ctx, publication); err != nil {
 		return failTarget(target, TargetFailurePublicationConflict, err)
 	}
 	target.PageID = pageValue.ID
 	target.PageRevisionID = revision.ID
 	target.Status = TargetStatusSucceeded
 	return target
+}
+
+func buildPlacement(pageID string, topicPath []string) ([]Topic, *PagePlacement) {
+	topics := make([]Topic, 0, len(topicPath))
+	parentID := ""
+	for _, segment := range topicPath {
+		title := strings.Join(strings.Fields(segment), " ")
+		slug := strings.ToLower(strings.Join(strings.Fields(segment), "-"))
+		topic := Topic{
+			ID:       stableID("topic", parentID, slug),
+			ParentID: parentID,
+			Slug:     slug,
+			Title:    title,
+		}
+		topics = append(topics, topic)
+		parentID = topic.ID
+	}
+	return topics, &PagePlacement{
+		PageID:  pageID,
+		TopicID: parentID,
+	}
 }
 
 func (s *Service) resolvePage(
@@ -238,11 +273,7 @@ func buildSourceRevision(request InjectSessionRequest) (SourceRevision, error) {
 			return SourceRevision{}, fmt.Errorf("%w: invalid range for event %q", ErrInvalidSource, input.ID)
 		}
 		seen[input.ID] = struct{}{}
-		events = append(events, SourceEvent{
-			ID:        input.ID,
-			StartByte: input.StartByte,
-			EndByte:   input.EndByte,
-		})
+		events = append(events, SourceEvent(input))
 	}
 	sum := sha256.Sum256(request.Raw)
 	sha := hex.EncodeToString(sum[:])
@@ -316,7 +347,7 @@ func buildCitations(
 		}
 		start, end, err := uniqueTextRange(section.Markdown, draft.ExactText)
 		if err != nil {
-			return nil, fmt.Errorf("%w: page text: %v", ErrInvalidCitation, err)
+			return nil, fmt.Errorf("%w: page text: %w", ErrInvalidCitation, err)
 		}
 		if len(draft.Evidence) == 0 {
 			return nil, fmt.Errorf("%w: evidence is required", ErrInvalidCitation)
@@ -337,7 +368,11 @@ func buildCitations(
 			eventText := string(sourceRevision.Raw[event.StartByte:event.EndByte])
 			localStart, localEnd, rangeErr := uniqueTextRange(eventText, evidence.ExactText)
 			if rangeErr != nil {
-				return nil, fmt.Errorf("%w: Source quote: %v", ErrInvalidCitation, rangeErr)
+				return nil, fmt.Errorf(
+					"%w: Source quote: %w",
+					ErrInvalidCitation,
+					rangeErr,
+				)
 			}
 			absoluteStart := event.StartByte + localStart
 			absoluteEnd := event.StartByte + localEnd
@@ -383,10 +418,15 @@ func (s *Service) buildLinks(
 		}
 		start, end, err := uniqueTextRange(section.Markdown, draft.ExactText)
 		if err != nil {
-			return nil, fmt.Errorf("%w: page text: %v", ErrInvalidLink, err)
+			return nil, fmt.Errorf("%w: page text: %w", ErrInvalidLink, err)
 		}
 		if _, err := s.repository.PageByID(ctx, draft.TargetPageID); err != nil {
-			return nil, fmt.Errorf("%w: target Page %q: %v", ErrInvalidLink, draft.TargetPageID, err)
+			return nil, fmt.Errorf(
+				"%w: target Page %q: %w",
+				ErrInvalidLink,
+				draft.TargetPageID,
+				err,
+			)
 		}
 		links = append(links, PageLink{
 			ID:             stableID("link", revisionID, fmt.Sprint(index)),

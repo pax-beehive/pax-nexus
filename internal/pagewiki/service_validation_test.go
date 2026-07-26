@@ -114,6 +114,7 @@ func (s *ServiceValidationSuite) TestGivenUnknownBriefEvidenceWhenInjectedThenTa
 					Action:           pagewiki.PageActionCreate,
 					ProposedSlug:     "sqlite",
 					ProposedTitle:    "SQLite",
+					TopicPath:        []string{"Engineering"},
 					EvidenceEventIDs: []string{"event-forged"},
 				},
 			},

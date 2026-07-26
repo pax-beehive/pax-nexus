@@ -37,6 +37,9 @@ func ValidatePageBrief(brief PageBrief, catalog PageCatalog) error {
 		if brief.TargetPageID != "" || brief.ExpectedBaseRevisionID != "" {
 			return fmt.Errorf("%w: create cannot choose page identity", ErrInvalidPageBrief)
 		}
+		if len(brief.TopicPath) == 0 {
+			return fmt.Errorf("%w: create requires a topic path", ErrInvalidPageBrief)
+		}
 		if strings.TrimSpace(brief.ProposedSlug) == "" ||
 			strings.TrimSpace(brief.ProposedTitle) == "" {
 			return fmt.Errorf("%w: create requires slug and title", ErrInvalidPageBrief)
