@@ -55,6 +55,7 @@ func (s *coreFlowSuite) SetupSuite() {
 	s.ownerID = stringField(s.T(), claimed, "user_id")
 	s.Equal("owner", stringField(s.T(), claimed, "role"))
 	s.Contains(arrayField(s.T(), claimed, "capabilities"), "view.operations")
+	s.Contains(arrayField(s.T(), claimed, "capabilities"), "view.team-memory")
 }
 
 func (s *coreFlowSuite) TestAgentObservationBecomesRecallableTeamNote() {
@@ -135,6 +136,18 @@ func (s *coreFlowSuite) TestKnowledgeCapsuleChannelEndToEnd() {
 	s.Equal("channel-sender", stringField(s.T(), envelope, "from_agent_id"))
 	s.Equal("channel-recipient", stringField(s.T(), envelope, "to_agent_id"))
 	s.Equal("pending", stringField(s.T(), envelope, "status"))
+	channelDiagnostic := s.humanRequest(
+		http.MethodGet, "/v1/admin/diagnostics/channels/"+envelopeID, nil, nil,
+	)
+	s.Equal("decoded", stringField(s.T(), channelDiagnostic, "payload_status"))
+	s.Equal(
+		"The capsule crossed the on-prem channel.",
+		stringField(s.T(), objectField(s.T(), channelDiagnostic, "capsule"), "content"),
+	)
+	encodedDiagnostic, err := json.Marshal(channelDiagnostic)
+	s.Require().NoError(err)
+	s.NotContains(string(encodedDiagnostic), "idempotency_key")
+	s.NotContains(string(encodedDiagnostic), "channel-e2e-1")
 
 	replayed := s.request(http.MethodPost, "/v1/channel/envelopes", senderKey, request)
 	s.Equal(envelopeID, stringField(s.T(), objectField(s.T(), replayed, "envelope"), "envelope_id"))
@@ -321,6 +334,27 @@ func (s *coreFlowSuite) assertOperationsFlow() {
 		s.Equal("extraction.run", stringField(s.T(), event, "operation_kind"))
 		s.Equal("extraction_run", stringField(s.T(), event, "detail_kind"))
 	}
+	extractionID := operationDetailID(s.T(), extractionEvents, "extraction.run", "extraction_run")
+	extractionDiagnostic := s.humanRequest(
+		http.MethodGet, "/v1/admin/diagnostics/extractions/"+extractionID, nil, nil,
+	)
+	s.Equal(extractionID, stringField(s.T(), objectField(s.T(), extractionDiagnostic, "run"), "run_id"))
+	s.NotEmpty(arrayField(s.T(), extractionDiagnostic, "source_events"))
+	s.NotEmpty(arrayField(s.T(), extractionDiagnostic, "candidates"))
+
+	noteList := s.humanRequest(http.MethodGet, "/v1/admin/team-notes?q="+approvalCode, nil, nil)
+	notes := arrayField(s.T(), noteList, "notes")
+	s.Require().NotEmpty(notes)
+	noteSummary, ok := notes[0].(map[string]any)
+	s.Require().True(ok)
+	noteID := stringField(s.T(), noteSummary, "note_id")
+	noteDetail := s.humanRequest(http.MethodGet, "/v1/admin/team-notes/"+noteID, nil, nil)
+	s.Contains(stringField(s.T(), objectField(s.T(), noteDetail, "note"), "body"), approvalCode)
+	revisions := arrayField(s.T(), noteDetail, "revisions")
+	s.Require().NotEmpty(revisions)
+	revision, ok := revisions[0].(map[string]any)
+	s.Require().True(ok)
+	s.Contains(stringField(s.T(), objectField(s.T(), revision, "candidate"), "body"), approvalCode)
 	searches := s.humanRequest(http.MethodGet, "/v1/admin/operations/events?operation_kind=memory.search", nil, nil)
 	diagnosticID := operationDetailID(s.T(), arrayField(s.T(), searches, "events"), "memory.search", "recall_observation")
 	diagnostic := s.humanRequest(http.MethodGet, "/v1/admin/operations/recalls/"+diagnosticID, nil, nil)

@@ -7,6 +7,8 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { ApiError } from "../api/client";
 import {
+  getChannelDiagnostic,
+  getExtractionDiagnostic,
   getOperationsStorage,
   getOperationsSummary,
   getRecallDiagnostic,
@@ -17,6 +19,8 @@ import {
 } from "../api/queries";
 import type {
   AgentProfile,
+  ChannelDiagnostic,
+  ExtractionDiagnostic,
   OperationEvent,
   OperationKind,
   OperationOutcome,
@@ -702,6 +706,31 @@ type DrawerState =
   | { status: "expired" }
   | { status: "error"; error: unknown };
 
+type ExplorerDrawerTarget =
+  | { kind: "extraction"; id: string }
+  | { kind: "channel"; id: string };
+
+type ExplorerDrawerState =
+  | { status: "loading" }
+  | { status: "ready"; value: ExtractionDiagnostic | ChannelDiagnostic }
+  | { status: "not-found" }
+  | { status: "error"; error: unknown };
+
+function explorerTargetFromLocation(enabled: boolean): ExplorerDrawerTarget | null {
+  if (!enabled) return null;
+  const params = new URLSearchParams(window.location.search);
+  const id = params.get("id")?.trim();
+  if (!id) return null;
+  switch (params.get("detail")) {
+    case "extraction_run":
+      return { kind: "extraction", id };
+    case "channel_envelope":
+      return { kind: "channel", id };
+    default:
+      return null;
+  }
+}
+
 function RecallDrawer({
   observationId,
   onClose,
@@ -831,11 +860,184 @@ function RecallView({ recall }: { recall: RecallDiagnostic }) {
   );
 }
 
+function ExplorerDiagnosticDrawer({
+  target,
+  onClose,
+  onAuthError,
+}: {
+  target: ExplorerDrawerTarget;
+  onClose: () => void;
+  onAuthError: (err: unknown) => void;
+}) {
+  const [state, setState] = useState<ExplorerDrawerState>({ status: "loading" });
+  const [epoch, setEpoch] = useState(0);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setState({ status: "loading" });
+    const request =
+      target.kind === "extraction"
+        ? getExtractionDiagnostic(target.id, controller.signal)
+        : getChannelDiagnostic(target.id, controller.signal);
+    request
+      .then((value) => setState({ status: "ready", value }))
+      .catch((err: unknown) => {
+        if (isAbortError(err)) return;
+        if (err instanceof ApiError && err.status === 404) {
+          setState({ status: "not-found" });
+          return;
+        }
+        onAuthError(err);
+        setState({ status: "error", error: err });
+      });
+    return () => controller.abort();
+  }, [target.kind, target.id, epoch, onAuthError]);
+
+  const title = target.kind === "extraction" ? "Extraction diagnostic" : "Capsule diagnostic";
+  return (
+    <>
+      <div className="drawer-backdrop" onClick={onClose} />
+      <aside className="drawer">
+        <div className="row between" style={{ marginBottom: 12 }}>
+          <div>
+            <h2 style={{ margin: 0 }}>{title}</h2>
+            <code className="small">{target.id}</code>
+          </div>
+          <button className="btn ghost sm" onClick={onClose}>Close</button>
+        </div>
+        {state.status === "loading" && <p className="muted small">Loading…</p>}
+        {state.status === "not-found" && (
+          <div className="note warn">This retained diagnostic is no longer available.</div>
+        )}
+        {state.status === "error" && (
+          <RegionError error={state.error} onRetry={() => setEpoch((value) => value + 1)} />
+        )}
+        {state.status === "ready" && target.kind === "extraction" && (
+          <ExtractionDiagnosticView diagnostic={state.value as ExtractionDiagnostic} />
+        )}
+        {state.status === "ready" && target.kind === "channel" && (
+          <ChannelDiagnosticView diagnostic={state.value as ChannelDiagnostic} />
+        )}
+      </aside>
+    </>
+  );
+}
+
+function ExtractionDiagnosticView({ diagnostic }: { diagnostic: ExtractionDiagnostic }) {
+  return (
+    <>
+      <div className="stat-grid">
+        <Stat label="status" value={diagnostic.run.status} />
+        <Stat label="agent" value={<code>{diagnostic.run.agent_id}</code>} />
+        <Stat label="session" value={<code>{diagnostic.run.session_id}</code>} />
+        <Stat label="sequence" value={`${diagnostic.run.from_sequence}–${diagnostic.run.to_sequence}`} />
+        <Stat label="model" value={diagnostic.run.model} />
+        <Stat label="prompt version" value={diagnostic.run.prompt_version} />
+        <Stat label="tokens" value={`${diagnostic.run.input_tokens}/${diagnostic.run.output_tokens}`} />
+        <Stat label="error code" value={diagnostic.run.error_code ?? "—"} />
+        <Stat label="created" value={formatTime(diagnostic.run.created_at)} />
+        <Stat label="completed" value={
+          diagnostic.run.completed_at ? formatTime(diagnostic.run.completed_at) : "—"
+        } />
+      </div>
+      <h3>Source events</h3>
+      {diagnostic.source_events.map((event) => (
+        <article className="explorer-event" key={event.event_id}>
+          <code className="small">#{event.sequence} · {event.type}</code>
+          <p>{event.content}</p>
+        </article>
+      ))}
+      {diagnostic.source_events.length === 0 && <p className="faint small">None</p>}
+      <h3>Candidates</h3>
+      {diagnostic.candidates.map((candidate) => (
+        <article className="explorer-event" key={candidate.candidate_id}>
+          <div className="row between">
+            <strong>{candidate.subject}</strong>
+            <span className={`badge ${candidate.admission_status === "admitted" ? "b-active" : "b-suspended"}`}>
+              {candidate.admission_status}
+            </span>
+          </div>
+          <p>{candidate.body}</p>
+          {candidate.rejection_reason && <code>{candidate.rejection_reason}</code>}
+          {candidate.resulting_note_id && (
+            <div style={{ marginTop: 8 }}>
+              <a href={`/admin/explorer/notes/${encodeURIComponent(candidate.resulting_note_id)}`}>
+                Open resulting Team Note
+              </a>
+            </div>
+          )}
+        </article>
+      ))}
+      <h3>Resulting Team Notes</h3>
+      {diagnostic.resulting_notes.length === 0 ? (
+        <p className="faint small">None</p>
+      ) : (
+        <ul>
+          {diagnostic.resulting_notes.map((note) => (
+            <li key={note.note_id}>
+              <a href={`/admin/explorer/notes/${encodeURIComponent(note.note_id)}`}>
+                {note.subject}
+              </a>
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
+  );
+}
+
+function ChannelDiagnosticView({ diagnostic }: { diagnostic: ChannelDiagnostic }) {
+  return (
+    <>
+      <div className="stat-grid">
+        <Stat label="status" value={diagnostic.status} />
+        <Stat label="payload" value={diagnostic.payload_status} />
+        <Stat label="from" value={<code>{diagnostic.from_agent_id}</code>} />
+        <Stat label="to" value={<code>{diagnostic.to_agent_id}</code>} />
+        <Stat label="created" value={formatTime(diagnostic.created_at)} />
+        <Stat label="accepted" value={
+          diagnostic.accepted_at ? formatTime(diagnostic.accepted_at) : "—"
+        } />
+        <Stat label="archived" value={
+          diagnostic.archived_at ? formatTime(diagnostic.archived_at) : "—"
+        } />
+      </div>
+      {diagnostic.message && <div className="note">{diagnostic.message}</div>}
+      {diagnostic.payload_status !== "decoded" ? (
+        <div className="note warn">
+          The stored payload schema is unavailable. Raw payload JSON is intentionally hidden.
+        </div>
+      ) : (
+        <>
+          <h3>{diagnostic.capsule.title ?? "Knowledge capsule"}</h3>
+          {diagnostic.capsule.summary && <p className="muted">{diagnostic.capsule.summary}</p>}
+          {diagnostic.capsule.content && (
+            <p className="explorer-content">{diagnostic.capsule.content}</p>
+          )}
+          <div className="chips">
+            {diagnostic.capsule.capsule_id && <code>capsule: {diagnostic.capsule.capsule_id}</code>}
+            {diagnostic.capsule.source_session_id && (
+              <code>session: {diagnostic.capsule.source_session_id}</code>
+            )}
+            {diagnostic.capsule.keyword && <code>keyword: {diagnostic.capsule.keyword}</code>}
+            {diagnostic.capsule.source_agent && <code>source: {diagnostic.capsule.source_agent}</code>}
+            {diagnostic.capsule.status && <code>status: {diagnostic.capsule.status}</code>}
+            {diagnostic.capsule.capsule_id && (
+              <code>truncated: {diagnostic.capsule.truncated ? "yes" : "no"}</code>
+            )}
+            {diagnostic.capsule.route_match_type && <code>route: {diagnostic.capsule.route_match_type}</code>}
+          </div>
+        </>
+      )}
+    </>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 
-export function AdminOperationsPage() {
+export function AdminOperationsPage({ canInspectTeamMemory = false }: { canInspectTeamMemory?: boolean }) {
   const handleError = useErrorHandler();
   // Only auth transitions go through the global handler; region failures stay
   // region-local so a failing poll never spams toasts (doc 11).
@@ -861,6 +1063,9 @@ export function AdminOperationsPage() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const historyLoaded = useRef(false);
   const [drawerId, setDrawerId] = useState<number | null>(null);
+  const [explorerDrawer, setExplorerDrawer] = useState<ExplorerDrawerTarget | null>(() =>
+    explorerTargetFromLocation(canInspectTeamMemory),
+  );
 
   // Non-authoritative agent label enrichment (doc section 8): the raw agent
   // id always stays visible; retired agents keep rendering as raw ids.
@@ -888,7 +1093,9 @@ export function AdminOperationsPage() {
         <div>
           <h1>Operations</h1>
           <p className="muted" style={{ margin: 0 }}>
-            Read-only operational view; queries, content, hit text and raw error details are never shown
+            {canInspectTeamMemory
+              ? "Read-only view; raw queries, credentials, idempotency keys and raw errors are never shown. Owner diagnostics may include Team Memory content."
+              : "Read-only operational view; queries, content, hit text and raw error details are never shown"}
           </p>
         </div>
       </div>
@@ -1068,6 +1275,14 @@ export function AdminOperationsPage() {
                 <tbody>
                   {events.items.map((event) => {
                     const recallId = recallObservationId(event);
+                    const extractionId =
+                      canInspectTeamMemory && event.detail_kind === "extraction_run"
+                        ? event.detail_id
+                        : undefined;
+                    const channelId =
+                      canInspectTeamMemory && event.detail_kind === "channel_envelope"
+                        ? event.detail_id
+                        : undefined;
                     const agentIdRaw = event.actor_agent_id;
                     const agent = agentIdRaw ? agentLabels.get(agentIdRaw) : undefined;
                     const humanActor = event.actor_user_id ?? event.actor_membership_id;
@@ -1122,6 +1337,20 @@ export function AdminOperationsPage() {
                             <button className="btn ghost sm" onClick={() => setDrawerId(recallId)}>
                               Inspect recall
                             </button>
+                          ) : extractionId ? (
+                            <button
+                              className="btn ghost sm"
+                              onClick={() => setExplorerDrawer({ kind: "extraction", id: extractionId })}
+                            >
+                              Inspect extraction
+                            </button>
+                          ) : channelId ? (
+                            <button
+                              className="btn ghost sm"
+                              onClick={() => setExplorerDrawer({ kind: "channel", id: channelId })}
+                            >
+                              Inspect capsule
+                            </button>
                           ) : (
                             "—"
                           )}
@@ -1156,6 +1385,13 @@ export function AdminOperationsPage() {
         <RecallDrawer
           observationId={drawerId}
           onClose={() => setDrawerId(null)}
+          onAuthError={onAuthError}
+        />
+      )}
+      {explorerDrawer !== null && (
+        <ExplorerDiagnosticDrawer
+          target={explorerDrawer}
+          onClose={() => setExplorerDrawer(null)}
           onAuthError={onAuthError}
         />
       )}

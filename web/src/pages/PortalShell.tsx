@@ -17,6 +17,8 @@ import { AdminDeviceDetailPage } from "./AdminDeviceDetailPage";
 import { AdminAuditPage } from "./AdminAuditPage";
 import { AdminOperationsPage } from "./AdminOperationsPage";
 import { AdminPulsePage } from "./AdminPulsePage";
+import { AdminExplorerPage } from "./AdminExplorerPage";
+import { AdminTeamNoteDetailPage } from "./AdminTeamNoteDetailPage";
 
 function navClass({ isActive }: { isActive: boolean }): string {
   return isActive ? "active" : "";
@@ -116,6 +118,11 @@ export function PortalShell({ me }: { me: HumanMe }) {
                   Pulse
                 </NavLink>
               )}
+              {hasServerCapability(me, "view.team-memory") && (
+                <NavLink to="/admin/explorer" className={navClass}>
+                  Explorer
+                </NavLink>
+              )}
               <NavLink to="/admin/audit" className={navClass}>
                 Audit Events
               </NavLink>
@@ -210,7 +217,9 @@ export function PortalShell({ me }: { me: HumanMe }) {
               path="/admin/operations"
               element={
                 <RequireServerCapability me={me} capability="view.operations">
-                  <AdminOperationsPage />
+                  <AdminOperationsPage
+                    canInspectTeamMemory={hasServerCapability(me, "view.team-memory")}
+                  />
                 </RequireServerCapability>
               }
             />
@@ -219,6 +228,22 @@ export function PortalShell({ me }: { me: HumanMe }) {
               element={
                 <RequireServerCapability me={me} capability="view.operations">
                   <AdminPulsePage />
+                </RequireServerCapability>
+              }
+            />
+            <Route
+              path="/admin/explorer"
+              element={
+                <RequireServerCapability me={me} capability="view.team-memory">
+                  <AdminExplorerPage />
+                </RequireServerCapability>
+              }
+            />
+            <Route
+              path="/admin/explorer/notes/:noteId"
+              element={
+                <RequireServerCapability me={me} capability="view.team-memory">
+                  <AdminTeamNoteDetailPage />
                 </RequireServerCapability>
               }
             />

@@ -520,8 +520,13 @@ func buildHTTPHandler(
 	if err != nil {
 		return nil, fmt.Errorf("configure on-prem operations: %w", err)
 	}
+	explorerService, err := onprem.NewExplorerService(store.Explorer())
+	if err != nil {
+		return nil, fmt.Errorf("configure team memory explorer: %w", err)
+	}
 	options := []handler.OnPremOption{
 		handler.WithAgentRegistry(registry), handler.WithOperations(operationsService, operationRecorder),
+		handler.WithExplorer(explorerService),
 	}
 	if config.humanIdentityConfigured() {
 		identity, err := onprem.NewIdentityService(store.Identity(), onprem.IdentityConfig{
