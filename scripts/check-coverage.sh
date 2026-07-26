@@ -19,6 +19,7 @@ tail -n +2 "${postgres_profile}" >> "${combined_profile}"
 awk '
 NR == 1 { print; next }
 $1 !~ /\/internal\/teamnote\/transport\/httpapi\/(model|router)\// &&
+$1 !~ /\/internal\/pagewiki\/transport\/httpapi\/model\// &&
 $1 !~ /\/internal\/eval\/v2\/postgresstore\// && $1 !~ /\/mocks\// &&
 $1 !~ /\/cmd\// && $1 !~ /\.gen\.go:/ { print }
 ' "${combined_profile}" > "${profile}"

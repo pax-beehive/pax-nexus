@@ -15,6 +15,9 @@ import (
 	"github.com/cloudwego/hertz/pkg/app/server"
 	"github.com/pax-beehive/pax-nexus/internal/deployment/onprem"
 	"github.com/pax-beehive/pax-nexus/internal/operations"
+	"github.com/pax-beehive/pax-nexus/internal/pagewiki"
+	pagewikimemory "github.com/pax-beehive/pax-nexus/internal/pagewiki/memory"
+	pagewikihttp "github.com/pax-beehive/pax-nexus/internal/pagewiki/transport/httpapi"
 	"github.com/pax-beehive/pax-nexus/internal/platform/observability"
 	"github.com/pax-beehive/pax-nexus/internal/platform/postgres"
 	"github.com/pax-beehive/pax-nexus/internal/platform/textembedding"
@@ -113,7 +116,14 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	if err := sessions.ConfigureExtractionEnqueuer(queue); err != nil {
 		return fmt.Errorf("connect extraction queue: %w", err)
 	}
-	httpHandler, err := buildHTTPHandler(ctx, runtime, store, operationRecorder, config, logger)
+	httpHandler, pageWikiHandler, err := buildApplicationHTTPHandlers(
+		ctx,
+		runtime,
+		store,
+		operationRecorder,
+		config,
+		logger,
+	)
 	if err != nil {
 		return err
 	}
@@ -128,6 +138,7 @@ func run(ctx context.Context, logger *slog.Logger) error {
 
 	h := server.Default(server.WithHostPorts(config.listenAddress))
 	h.Use(handler.InstanceMiddleware(httpHandler))
+	h.Use(pagewikihttp.InstanceMiddleware(pageWikiHandler))
 	register(h)
 	logger.Info("team-memory started", "listen_address", config.listenAddress, "worker_shards", config.workerShards,
 		"extraction_version", config.extractionVersion,
@@ -149,6 +160,53 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	}
 	logger.Info("team-memory stopped")
 	return nil
+}
+
+type unavailablePageWikiInjector struct{}
+
+func (unavailablePageWikiInjector) InjectSession(
+	context.Context,
+	pagewiki.InjectSessionRequest,
+) (pagewiki.InjectResult, error) {
+	return pagewiki.InjectResult{}, fmt.Errorf(
+		"%w: planner and editor are not configured",
+		pagewiki.ErrUnavailable,
+	)
+}
+
+func buildPageWikiHTTPHandler() (*pagewikihttp.Handler, error) {
+	repository := pagewikimemory.NewRepository()
+	configured, err := pagewikihttp.New(unavailablePageWikiInjector{}, repository)
+	if err != nil {
+		return nil, fmt.Errorf("initialize Page Wiki HTTP handler: %w", err)
+	}
+	return configured, nil
+}
+
+func buildApplicationHTTPHandlers(
+	ctx context.Context,
+	runtime teamnote.Runtime,
+	store *postgres.Store,
+	operationRecorder operations.Recorder,
+	config applicationConfig,
+	logger *slog.Logger,
+) (*handler.Handler, *pagewikihttp.Handler, error) {
+	teamHandler, err := buildHTTPHandler(
+		ctx,
+		runtime,
+		store,
+		operationRecorder,
+		config,
+		logger,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+	pageHandler, err := buildPageWikiHTTPHandler()
+	if err != nil {
+		return nil, nil, err
+	}
+	return teamHandler, pageHandler, nil
 }
 
 func closeExtractor(ctx context.Context, candidateExtractor extractor.Extractor) error {

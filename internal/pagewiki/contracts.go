@@ -14,6 +14,7 @@ var (
 	ErrInvalidLink       = errors.New("invalid page link")
 	ErrInvalidRequest    = errors.New("invalid injection request")
 	ErrInvalidSearch     = errors.New("invalid search query")
+	ErrUnavailable       = errors.New("page wiki unavailable")
 	ErrNotFound          = errors.New("not found")
 	ErrImmutableConflict = errors.New("immutable value conflict")
 	ErrRevisionConflict  = errors.New("revision conflict")
