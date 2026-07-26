@@ -400,6 +400,22 @@ func (s *clientSuite) TestPreflightMem0RecallDefaultsToOneHundredTwentyAttempts(
 	s.Equal(120, transport.searchCount)
 }
 
+func (s *clientSuite) TestPreflightMem0RecallTreatsNegativeConfiguredBudgetAsUnset() {
+	transport := &recordingTransport{searchAlwaysEmpty: true}
+	client, err := memoryprobe.New(memoryprobe.Config{
+		TeamNoteURL: "http://team-note", TeamNoteAPIKey: "key", Mem0URL: "http://mem0",
+		UserID: "user", AgentID: "preflight", RunID: "run", HTTPClient: &http.Client{Transport: transport},
+		PollInterval: time.Microsecond, RecallAttempts: -5,
+	})
+	s.Require().NoError(err)
+
+	err = client.PreflightMem0(context.Background(), "probe-marker")
+
+	s.Require().Error(err)
+	s.Contains(err.Error(), "no recalled results after 120 attempts")
+	s.Equal(120, transport.searchCount)
+}
+
 func (s *clientSuite) TestPreflightMem0RecallHonoursConfiguredBudget() {
 	transport := &recordingTransport{searchAlwaysEmpty: true}
 	client, err := memoryprobe.New(memoryprobe.Config{

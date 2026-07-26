@@ -89,6 +89,12 @@ func New(config Config) (*Client, error) {
 	if pollInterval <= 0 {
 		pollInterval = time.Second
 	}
+	// Zero and negative are both treated as "unset" here, not rejected: a
+	// caller-supplied literal can only be non-positive by construction, so
+	// there is no malformed-input case to distinguish from absence. That is
+	// deliberately asymmetric with cmd/eval-v2-memory/main.go's intEnv,
+	// which parses this value from an environment variable and returns a
+	// parse error rather than silently defaulting on a malformed string.
 	recallAttempts := config.RecallAttempts
 	if recallAttempts <= 0 {
 		recallAttempts = defaultAttempts

@@ -35,13 +35,17 @@ func run(ctx context.Context, args []string, getenv func(string) string, output 
 	if err := flags.Parse(args); err != nil {
 		return fmt.Errorf("parse eval memory flags: %w", err)
 	}
+	recallAttempts, err := intEnv(getenv, "PAX_EVAL_RECALL_ATTEMPTS")
+	if err != nil {
+		return fmt.Errorf("configure eval memory probe: %w", err)
+	}
 	client, err := memoryprobe.New(memoryprobe.Config{
 		TeamNoteURL:    envOrDefault(getenv, "TEAM_MEMORY_BASE_URL", "http://team-memory:8080"),
 		TeamNoteAPIKey: getenv("TEAM_MEMORY_API_KEY"),
 		Mem0URL:        envOrDefault(getenv, "MEM0_BASE_URL", "http://mem0:8000"),
 		UserID:         getenv("PAXM_USER_ID"), AgentID: getenv("PAXM_AGENT_ID"), RunID: getenv("MEM0_RUN_ID"),
 		HTTPClient:     httpClient,
-		RecallAttempts: envIntOrDefault(getenv, "PAX_EVAL_RECALL_ATTEMPTS", 0),
+		RecallAttempts: recallAttempts,
 	})
 	if err != nil {
 		return err
@@ -106,17 +110,21 @@ func envOrDefault(getenv func(string) string, name, fallback string) string {
 	return fallback
 }
 
-// envIntOrDefault parses name as an integer, falling back when unset or
-// unparsable. A non-positive result still passes through unchanged;
-// memoryprobe.New treats non-positive RecallAttempts as "use the default".
-func envIntOrDefault(getenv func(string) string, name string, fallback int) int {
+// intEnv parses name as an integer, following the same unset-means-zero,
+// malformed-means-error contract as intEnv in
+// cmd/paxm-team-memory-provider/main.go. Unset or empty returns 0 with no
+// error (memoryprobe.New then applies its own default for a non-positive
+// RecallAttempts). A value that fails to parse is a caller configuration
+// mistake, not a signal to fall back silently, so it is reported by name and
+// offending value rather than swallowed.
+func intEnv(getenv func(string) string, name string) (int, error) {
 	raw := strings.TrimSpace(getenv(name))
 	if raw == "" {
-		return fallback
+		return 0, nil
 	}
 	value, err := strconv.Atoi(raw)
 	if err != nil {
-		return fallback
+		return 0, fmt.Errorf("parse %s=%q: %w", name, raw, err)
 	}
-	return value
+	return value, nil
 }

@@ -39,6 +39,67 @@ func (s *commandSuite) TestRejectsInvalidInvocationBeforeNetworkUse() {
 	}
 }
 
+func (s *commandSuite) TestRunFailsOnMalformedRecallAttemptsBeforeNetworkUse() {
+	environment := map[string]string{
+		"TEAM_MEMORY_API_KEY": "key", "PAXM_USER_ID": "user", "PAXM_AGENT_ID": "agent", "MEM0_RUN_ID": "run",
+		"PAX_EVAL_RECALL_ATTEMPTS": "abc",
+	}
+	getenv := func(name string) string { return environment[name] }
+
+	// httpClient is nil: if this reached memoryprobe.New or beyond, a nil
+	// client would panic on first use rather than returning an error, so a
+	// clean error here proves the malformed value is caught before any
+	// network use.
+	err := run(context.Background(), []string{"-action", "preflight", "-marker", "m"}, getenv, io.Discard, nil)
+
+	s.Require().Error(err)
+	s.Contains(err.Error(), "PAX_EVAL_RECALL_ATTEMPTS")
+	s.Contains(err.Error(), "abc")
+}
+
+func (s *commandSuite) TestIntEnvUnsetEmptyZeroAndNegativeParseWithoutError() {
+	tests := []struct {
+		name     string
+		set      bool
+		value    string
+		expected int
+	}{
+		{name: "unset", set: false, expected: 0},
+		{name: "empty", set: true, value: "", expected: 0},
+		{name: "zero", set: true, value: "0", expected: 0},
+		{name: "negative", set: true, value: "-5", expected: -5},
+		{name: "positive", set: true, value: "30", expected: 30},
+	}
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			getenv := func(name string) string {
+				if test.set && name == "PAX_EVAL_RECALL_ATTEMPTS" {
+					return test.value
+				}
+				return ""
+			}
+			value, err := intEnv(getenv, "PAX_EVAL_RECALL_ATTEMPTS")
+			s.Require().NoError(err)
+			s.Equal(test.expected, value)
+		})
+	}
+}
+
+func (s *commandSuite) TestIntEnvRejectsMalformedValueNamingVariableAndValue() {
+	getenv := func(name string) string {
+		if name == "PAX_EVAL_RECALL_ATTEMPTS" {
+			return "abc"
+		}
+		return ""
+	}
+
+	_, err := intEnv(getenv, "PAX_EVAL_RECALL_ATTEMPTS")
+
+	s.Require().Error(err)
+	s.Contains(err.Error(), "PAX_EVAL_RECALL_ATTEMPTS")
+	s.Contains(err.Error(), "abc")
+}
+
 func (s *commandSuite) TestIngestPrintsMem0NoOpReceipt() {
 	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		s.Equal("/memories", request.URL.Path)
