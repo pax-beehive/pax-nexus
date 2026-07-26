@@ -194,6 +194,16 @@ struct NavigationResponse {
   1: required list<NavigationTopic> roots
 }
 
+struct ReaderRequest {}
+
+struct ReaderAssetRequest {
+  1: required string asset (api.path="asset")
+}
+
+struct ReaderDocument {
+  1: required string content
+}
+
 service PageWikiService {
   InjectResponse InjectSession(1: InjectRequest request) (api.post="/sessions/inject")
   InjectResponse InjectFile(1: InjectRequest request) (api.post="/files/inject")
@@ -206,4 +216,6 @@ service PageWikiService {
   SourceRevision GetSourceRevision(1: SourceRevisionRequest request) (api.get="/sources/:revision")
   SourceBacklinksResponse GetSourceBacklinks(1: SourceRevisionRequest request) (api.get="/sources/:revision/backlinks")
   NavigationResponse GetNavigation(1: NavigationRequest request) (api.get="/navigation")
+  ReaderDocument GetReader(1: ReaderRequest request) (api.get="/wiki")
+  ReaderDocument GetReaderAsset(1: ReaderAssetRequest request) (api.get="/wiki/assets/:asset")
 }

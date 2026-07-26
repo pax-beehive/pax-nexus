@@ -19,6 +19,7 @@ func Register(r *server.Hertz) {
 	root := r.Group("/", rootMw()...)
 	root.GET("/navigation", append(_getnavigationMw(), httpapi.GetNavigation)...)
 	root.GET("/search", append(_searchMw(), httpapi.Search)...)
+	root.GET("/wiki", append(_getreaderMw(), httpapi.GetReader)...)
 	{
 		_files := root.Group("/files", _filesMw()...)
 		_files.POST("/inject", append(_injectfileMw(), httpapi.InjectFile)...)
@@ -53,6 +54,13 @@ func Register(r *server.Hertz) {
 		{
 			_revision := _sources.Group("/:revision", _revisionMw()...)
 			_revision.GET("/backlinks", append(_getsourcebacklinksMw(), httpapi.GetSourceBacklinks)...)
+		}
+	}
+	{
+		_wiki := root.Group("/wiki", _wikiMw()...)
+		{
+			_assets := _wiki.Group("/assets", _assetsMw()...)
+			_assets.GET("/:asset", append(_getreaderassetMw(), httpapi.GetReaderAsset)...)
 		}
 	}
 }

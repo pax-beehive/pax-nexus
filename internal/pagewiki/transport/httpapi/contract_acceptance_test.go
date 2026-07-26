@@ -247,6 +247,41 @@ func (s *ContractAcceptanceSuite) TestGivenMalformedInjectionWhenRequestedThenJS
 	s.Equal("invalid_request", body["code"])
 }
 
+func (s *ContractAcceptanceSuite) TestGivenLocalReaderWhenOpenedThenItsAccessibleShellAndAssetsAreServed() {
+	response := s.performJSON(http.MethodGet, "/wiki", "")
+
+	s.Require().Equal(http.StatusOK, response.Code)
+	s.Contains(response.Header().Get("Content-Type"), "text/html")
+	html := response.Body.String()
+	s.Contains(html, "Page Wiki")
+	s.Contains(html, `data-testid="topic-navigation"`)
+	s.Contains(html, `data-testid="article"`)
+	s.Contains(html, `data-testid="evidence-panel"`)
+	s.Contains(html, `id="wiki-search"`)
+	s.Contains(html, `/wiki/assets/reader.css`)
+	s.Contains(html, `/wiki/assets/reader.js`)
+
+	for _, asset := range []string{"reader.css", "reader.js"} {
+		assetResponse := s.performJSON(
+			http.MethodGet,
+			"/wiki/assets/"+asset,
+			"",
+		)
+		s.Equal(http.StatusOK, assetResponse.Code)
+		s.NotEmpty(assetResponse.Body.Bytes())
+	}
+
+	missingAsset := s.performJSON(
+		http.MethodGet,
+		"/wiki/assets/unknown.js",
+		"",
+	)
+	s.Equal(http.StatusNotFound, missingAsset.Code)
+	var body map[string]any
+	s.Require().NoError(json.Unmarshal(missingAsset.Body.Bytes(), &body))
+	s.Equal("not_found", body["code"])
+}
+
 func (s *ContractAcceptanceSuite) TestGivenUnavailableInjectorWhenRequestedThenServiceUnavailableIsReturned() {
 	handler, err := httpapi.New(unavailableInjector{}, s.repository)
 	s.Require().NoError(err)

@@ -110,3 +110,23 @@ func _getsourcebacklinksMw() []app.HandlerFunc {
 	// your code...
 	return nil
 }
+
+func _getreaderMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _wikiMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _assetsMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _getreaderassetMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
