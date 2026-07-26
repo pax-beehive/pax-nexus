@@ -34,7 +34,8 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	}
 	provider, err := paxmprovider.New(paxmprovider.Config{
 		BaseURL: os.Getenv("TEAM_MEMORY_BASE_URL"), APIKey: os.Getenv("TEAM_MEMORY_API_KEY"),
-		UserID: os.Getenv("PAXM_USER_ID"), AgentID: os.Getenv("PAXM_AGENT_ID"), TokenBudget: budget,
+		UserID: os.Getenv("PAXM_USER_ID"), AgentID: os.Getenv("PAXM_AGENT_ID"),
+		ScopeID: os.Getenv("TEAM_MEMORY_SCOPE_ID"), TokenBudget: budget,
 		RequestTimeout: requestTimeout, Logger: logger,
 	})
 	if err != nil {
