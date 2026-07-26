@@ -140,6 +140,67 @@ func (s *validitySuite) TestAttemptFromAnotherRunInvalidatesComparison() {
 	})
 }
 
+func (s *validitySuite) TestDecomposedArmSetWithGenuinelyIsolatedRecallIsValid() {
+	directory, run, cases, results := s.decomposedRunFixture()
+
+	report, err := v3.EvaluateValidity(directory, run, cases, results)
+
+	s.Require().NoError(err)
+	s.True(report.Valid, "failures: %#v", report.Failures)
+	s.Equal("valid", report.Status)
+	s.Equal(v3.ArmSetDecomposed, report.ArmSet)
+	s.Equal(4, report.ExpectedTrials)
+	s.Equal(4, report.ObservedTrials)
+}
+
+func (s *validitySuite) TestTeamNoteOnlyArmRejectsPrivateSqliteProviderType() {
+	directory, run, cases, results := s.decomposedRunFixture()
+	for index := range results {
+		if results[index].Arm == v3.ArmTeamNoteOnly {
+			results[index].MemoryRecallProviderType = "team-memory-sqlite"
+		}
+	}
+
+	report, err := v3.EvaluateValidity(directory, run, cases, results)
+
+	s.Require().NoError(err)
+	s.False(report.Valid)
+	s.True(hasFailureCheck(report, "recall_observation"), "failures: %#v", report.Failures)
+}
+
+func (s *validitySuite) TestPrivateSqliteOnlyArmRequiresTeamMemorySqliteProviderType() {
+	directory, run, cases, results := s.decomposedRunFixture()
+	for index := range results {
+		if results[index].Arm == v3.ArmPrivateSQLiteOnly {
+			results[index].MemoryRecallProviderType = "team-memory"
+		}
+	}
+
+	report, err := v3.EvaluateValidity(directory, run, cases, results)
+
+	s.Require().NoError(err)
+	s.False(report.Valid)
+	s.True(hasFailureCheck(report, "recall_observation"), "failures: %#v", report.Failures)
+}
+
+func (s *validitySuite) TestDecomposedArmsAreSubjectToTheSameNonMem0Checks() {
+	directory, run, cases, results := s.decomposedRunFixture()
+	for index := range results {
+		if results[index].Arm == v3.ArmTeamNoteOnly {
+			results[index].MemoryRecallObserved = false
+		}
+	}
+
+	report, err := v3.EvaluateValidity(directory, run, cases, results)
+
+	s.Require().NoError(err)
+	s.False(report.Valid)
+	s.Contains(report.Failures, v3.ValidityFailure{
+		Check: "recall_observation", CaseID: "case", Arm: v3.ArmTeamNoteOnly,
+		Reason: "memory Trial has no recall observation",
+	})
+}
+
 func (s *validitySuite) TestRecallProviderEvidenceMustMatchTheArm() {
 	tests := []struct {
 		name      string
@@ -302,6 +363,12 @@ func (s *validitySuite) twoArmRunFixture() (string, v2.RunRecord, []v2.Case, []v
 	return s.runFixture(v3.ArmSetTwoArmNoMem0, []string{v3.ArmNoMemoryTeam, v3.ArmPrivateSQLiteTeamNote})
 }
 
+func (s *validitySuite) decomposedRunFixture() (string, v2.RunRecord, []v2.Case, []v2.TrialResult) {
+	return s.runFixture(v3.ArmSetDecomposed, []string{
+		v3.ArmNoMemoryTeam, v3.ArmTeamNoteOnly, v3.ArmPrivateSQLiteOnly, v3.ArmPrivateSQLiteTeamNote,
+	})
+}
+
 func (s *validitySuite) runFixture(armSet string, arms []string) (string, v2.RunRecord, []v2.Case, []v2.TrialResult) {
 	s.T().Helper()
 	directory := s.T().TempDir()
@@ -318,6 +385,9 @@ func (s *validitySuite) runFixture(armSet string, arms []string) (string, v2.Run
 	config.ArmSet = armSet
 	if armSet == v3.ArmSetTwoArmNoMem0 {
 		config.Arms = twoArmNoMem0Arms()
+	}
+	if armSet == v3.ArmSetDecomposed {
+		config.Arms = decomposedArmConfigs()
 	}
 	runtimeValues := map[string]string{"OPENCODE_MODEL": "test-model"}
 	hash, err := config.HashWithRuntime(runtimeValues)
@@ -353,8 +423,15 @@ func (s *validitySuite) runFixture(armSet string, arms []string) (string, v2.Run
 			result.MemoryRecallProviderCalls = 1
 			result.MemoryRecallProviders = map[string]int{"memory": 1}
 			result.MemoryRecallProviderType = "mem0"
-			if arm == v3.ArmPrivateSQLiteTeamNote {
+			switch arm {
+			case v3.ArmPrivateSQLiteTeamNote:
 				result.MemoryRecallProviderType = "team-memory-sqlite"
+				result.MemoryRecallProviders = map[string]int{"private": 1, "team": 1}
+			case v3.ArmTeamNoteOnly:
+				result.MemoryRecallProviderType = "team-memory"
+			case v3.ArmPrivateSQLiteOnly:
+				result.MemoryRecallProviderType = "team-memory-sqlite"
+				result.MemoryRecallProviders = map[string]int{"private": 1}
 			}
 		}
 		results = append(results, result)

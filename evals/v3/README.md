@@ -121,6 +121,37 @@ Default behavior is unchanged: with `arm_set` absent or `three_arm`
 (equivalently, `EVAL_V3_ARM_SET` unset or `three_arm`), all three arms run and
 Mem0 ingest and its receipt are required exactly as before.
 
+## Decomposed mode (`arm_set: decomposed`)
+
+Opt in by setting `arm_set: decomposed` in the config and, in the environment
+used by `scripts/eval-v3-opencode.sh`, `EVAL_V3_ARM_SET=decomposed` — the two
+must agree for the same reason as two-arm mode. This mode runs four arms:
+`no_memory_team`, `team_note_only`, `private_sqlite_only`, and
+`private_sqlite_plus_team_note`. `groupmembench_mem0` is not a permitted arm,
+so Mem0 ingest is skipped exactly as in two-arm mode.
+
+`private_sqlite_plus_team_note` bundles the shared Team Note store with a
+private SQLite database holding every full-domain source event verbatim, so
+neither source's contribution to accuracy can be attributed on its own. The
+two new arms isolate them:
+
+- `team_note_only` uses the `team-memory` provider with no private SQLite
+  database mounted at all — the per-agent private database is unreachable.
+- `private_sqlite_only` uses the same `team-memory-sqlite` provider type as
+  the combined arm (so `memory_recall_provider_type` matches), but the
+  consumer's Team Note provider is never registered — see
+  `PAXM_TEAM_PROVIDER_DISABLED` in `evals/opencode/docker/opencode/entrypoint.sh`.
+  It is omitted from the provider config entirely, not merely excluded from
+  the recall profile, so no team-memory credential is needed and the shared
+  store cannot be reached.
+
+Verify isolation from `trials.jsonl`, not from the config: `team_note_only`
+trials must show `memory_recall_providers` containing only the team entry, and
+`private_sqlite_only` trials only the private entry.
+
+See `evals/v3/config.decomposed.example.yaml` for a config exercising all four
+arms.
+
 ## Extractor model sweep
 
 Run the two-arm no-Mem0 protocol once per candidate Team Note extraction

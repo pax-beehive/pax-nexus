@@ -59,15 +59,18 @@ func (s *entrypointSuite) TestEvalV3ConsumerKeepsPairedAnswererAndArmTopology() 
 	repositoryRoot, err := filepath.Abs(filepath.Join("..", "..", "..", ".."))
 	s.Require().NoError(err)
 	tests := []struct {
-		name          string
-		arm           string
-		providerType  string
-		recall        string
-		providerAgent string
+		name                string
+		arm                 string
+		providerType        string
+		recall              string
+		providerAgent       string
+		teamProviderDisable string
 	}{
-		{name: "no memory", arm: "no_memory_team", providerType: "team-memory", recall: "0", providerAgent: "groupmembench-User_3"},
-		{name: "shared mem0", arm: "groupmembench_mem0", providerType: "mem0", recall: "1", providerAgent: "groupmembench-shared-agent"},
-		{name: "private plus team", arm: "private_sqlite_plus_team_note", providerType: "team-memory-sqlite", recall: "1", providerAgent: "groupmembench-User_3"},
+		{name: "no memory", arm: "no_memory_team", providerType: "team-memory", recall: "0", providerAgent: "groupmembench-User_3", teamProviderDisable: "0"},
+		{name: "shared mem0", arm: "groupmembench_mem0", providerType: "mem0", recall: "1", providerAgent: "groupmembench-shared-agent", teamProviderDisable: "0"},
+		{name: "team note only", arm: "team_note_only", providerType: "team-memory", recall: "1", providerAgent: "groupmembench-User_3", teamProviderDisable: "0"},
+		{name: "private sqlite only", arm: "private_sqlite_only", providerType: "team-memory-sqlite", recall: "1", providerAgent: "groupmembench-User_3", teamProviderDisable: "1"},
+		{name: "private plus team", arm: "private_sqlite_plus_team_note", providerType: "team-memory-sqlite", recall: "1", providerAgent: "groupmembench-User_3", teamProviderDisable: "0"},
 	}
 	for _, test := range tests {
 		s.Run(test.name, func() {
@@ -79,7 +82,7 @@ func (s *entrypointSuite) TestEvalV3ConsumerKeepsPairedAnswererAndArmTopology() 
 			s.Require().NoError(os.WriteFile(docker, []byte("#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$DOCKER_CAPTURE\"\n"), 0o700))
 			privateDirectory := filepath.Join(directory, "memory", "private")
 			s.Require().NoError(os.MkdirAll(privateDirectory, 0o700))
-			if test.arm == "private_sqlite_plus_team_note" {
+			if test.arm == "private_sqlite_plus_team_note" || test.arm == "private_sqlite_only" {
 				s.Require().NoError(os.WriteFile(filepath.Join(privateDirectory, "groupmembench-User_3.sqlite"), nil, 0o600))
 			}
 			command := exec.Command("sh", filepath.Join(repositoryRoot, "scripts", "eval-v3-opencode.sh"), "consumer", test.arm)
@@ -104,6 +107,11 @@ func (s *entrypointSuite) TestEvalV3ConsumerKeepsPairedAnswererAndArmTopology() 
 			s.Contains(arguments, "PAXM_PROVIDER_TYPE="+test.providerType)
 			s.Contains(arguments, "PAXM_RECALL_ENABLED="+test.recall)
 			s.Contains(arguments, "PAXM_PROVIDER_AGENT_ID="+test.providerAgent)
+			s.Contains(arguments, "PAXM_TEAM_PROVIDER_DISABLED="+test.teamProviderDisable)
+			if test.arm == "team_note_only" {
+				s.NotContains(strings.Join(arguments, "\n"), "--volume "+privateDirectory)
+				s.Contains(arguments, "PAXM_PRIVATE_SQLITE_PATH=")
+			}
 		})
 	}
 }
@@ -902,6 +910,58 @@ func (s *entrypointSuite) TestTeamMemorySQLiteProfileReadsOnlyOwnPrivateDatabase
 		config.RecallProfiles["passive"].Providers[0].Name,
 		config.RecallProfiles["passive"].Providers[1].Name,
 	})
+}
+
+func (s *entrypointSuite) TestTeamMemorySQLiteProfileWithTeamProviderDisabledOnlyReadsPrivateDatabase() {
+	directory := s.T().TempDir()
+	plugin := filepath.Join(directory, "paxm.js")
+	s.Require().NoError(os.WriteFile(plugin, []byte("// test plugin"), 0o600))
+	privatePath := filepath.Join(directory, "groupmembench-User_3.sqlite")
+	command := exec.Command("sh", "entrypoint.sh")
+	command.Env = []string{
+		"PATH=" + os.Getenv("PATH"),
+		"PAXM_AGENT_ID=groupmembench-User_3",
+		"PAXM_PROVIDER_TYPE=team-memory-sqlite",
+		"PAXM_PRIVATE_SQLITE_PATH=" + privatePath,
+		"PAXM_USER_ID=User_3",
+		"PAXM_TEAM_PROVIDER_DISABLED=1",
+		"PAXM_CONFIG_ROOT=" + directory,
+		"PAXM_PLUGIN_SOURCE=" + plugin,
+		"PAXM_CONFIG_ONLY=1",
+	}
+	output, err := command.CombinedOutput()
+	s.Require().NoError(err, string(output))
+
+	input, err := os.ReadFile(filepath.Join(directory, "paxm.yaml"))
+	s.Require().NoError(err)
+	var config struct {
+		Providers map[string]struct {
+			Type string `yaml:"type"`
+			Path string `yaml:"path"`
+		} `yaml:"providers"`
+		RecallProfiles map[string]struct {
+			Providers []struct {
+				Name string `yaml:"name"`
+			} `yaml:"providers"`
+		} `yaml:"recall_profiles"`
+		WriteProfiles map[string]struct {
+			Providers []struct {
+				Name string `yaml:"name"`
+			} `yaml:"providers"`
+		} `yaml:"write_profiles"`
+	}
+	s.Require().NoError(yaml.Unmarshal(input, &config))
+	s.Equal("sqlite", config.Providers["private"].Type)
+	s.Equal(privatePath, config.Providers["private"].Path)
+	_, hasTeamProvider := config.Providers["team"]
+	s.False(hasTeamProvider, "team provider must not be registered when disabled, not merely excluded from the recall profile")
+	s.Require().Len(config.RecallProfiles["passive"].Providers, 1)
+	s.Equal("private", config.RecallProfiles["passive"].Providers[0].Name)
+	s.Require().Len(config.WriteProfiles["ltm"].Providers, 1)
+	s.Equal("private", config.WriteProfiles["ltm"].Providers[0].Name)
+	// TEAM_MEMORY_API_KEY was never set in this test's environment; the
+	// entrypoint did not fail requiring it, confirming no team-memory
+	// credential is needed when the team provider is disabled.
 }
 
 func (s *entrypointSuite) TestPrivateSQLiteIngestCreatesOneDatabasePerSourceAgent() {

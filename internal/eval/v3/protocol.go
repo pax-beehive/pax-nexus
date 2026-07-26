@@ -19,6 +19,8 @@ const (
 	ArmNoMemoryTeam          = "no_memory_team"
 	ArmGroupMemBenchMem0     = "groupmembench_mem0"
 	ArmPrivateSQLiteTeamNote = "private_sqlite_plus_team_note"
+	ArmTeamNoteOnly          = "team_note_only"
+	ArmPrivateSQLiteOnly     = "private_sqlite_only"
 
 	ReproductionExact      = "exact_reproduction"
 	ReproductionProtocol   = "protocol_reproduction"
@@ -30,6 +32,7 @@ const (
 
 	ArmSetThreeArm     = "three_arm"
 	ArmSetTwoArmNoMem0 = "two_arm_no_mem0"
+	ArmSetDecomposed   = "decomposed"
 )
 
 var architectureArms = []string{
@@ -43,6 +46,16 @@ var twoArmNoMem0Arms = []string{
 	ArmPrivateSQLiteTeamNote,
 }
 
+// decomposedArms isolates the shared Team Note store and the private SQLite
+// database into their own arms, alongside the combined arm, so each source's
+// contribution can be attributed separately.
+var decomposedArms = []string{
+	ArmNoMemoryTeam,
+	ArmTeamNoteOnly,
+	ArmPrivateSQLiteOnly,
+	ArmPrivateSQLiteTeamNote,
+}
+
 // ArmsFor returns the required arm names for the given arm_set value. An
 // empty string (the field's absent state) resolves to the three-arm set, so
 // every config that predates arm_set behaves exactly as before.
@@ -50,6 +63,8 @@ func ArmsFor(armSet string) []string {
 	switch armSet {
 	case ArmSetTwoArmNoMem0:
 		return slices.Clone(twoArmNoMem0Arms)
+	case ArmSetDecomposed:
+		return slices.Clone(decomposedArms)
 	default:
 		return slices.Clone(architectureArms)
 	}
@@ -87,7 +102,7 @@ func Validate(config v2.Config) error {
 		return fmt.Errorf("validate eval v3 config: judge is required for comparative acceptance")
 	}
 	switch config.ArmSet {
-	case "", ArmSetThreeArm, ArmSetTwoArmNoMem0:
+	case "", ArmSetThreeArm, ArmSetTwoArmNoMem0, ArmSetDecomposed:
 	default:
 		return fmt.Errorf("validate eval v3 config: unknown arm_set %q", config.ArmSet)
 	}
@@ -110,6 +125,15 @@ func Validate(config v2.Config) error {
 	if len(config.Arms) != len(requiredArms) {
 		if len(offending) > 0 {
 			return fmt.Errorf("validate eval v3 config: arm %q is not permitted for arm_set %s; required arms are %s", offending[0], requiredArmSetLabel(config.ArmSet), strings.Join(requiredArms, ", "))
+		}
+		present := make(map[string]struct{}, len(names))
+		for _, name := range names {
+			present[name] = struct{}{}
+		}
+		for _, required := range requiredArms {
+			if _, ok := present[required]; !ok {
+				return fmt.Errorf("validate eval v3 config: arm %q is required for arm_set %s but missing", required, requiredArmSetLabel(config.ArmSet))
+			}
 		}
 		return fmt.Errorf("validate eval v3 config: exactly %d architecture arms are required for arm_set %s", len(requiredArms), requiredArmSetLabel(config.ArmSet))
 	}

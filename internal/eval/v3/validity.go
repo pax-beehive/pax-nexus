@@ -302,13 +302,16 @@ func evaluateRecallObservations(collector *validityCollector, results []v2.Trial
 }
 
 func expectedRecallProvider(arm string) string {
-	if arm == ArmGroupMemBenchMem0 {
+	switch arm {
+	case ArmGroupMemBenchMem0:
 		return "mem0"
-	}
-	if arm == ArmPrivateSQLiteTeamNote {
+	case ArmPrivateSQLiteTeamNote, ArmPrivateSQLiteOnly:
 		return "team-memory-sqlite"
+	case ArmTeamNoteOnly:
+		return "team-memory"
+	default:
+		return ""
 	}
-	return ""
 }
 
 func evaluateAttemptArtifacts(collector *validityCollector, directory, runID string, requireJudge bool, results []v2.TrialResult) {
