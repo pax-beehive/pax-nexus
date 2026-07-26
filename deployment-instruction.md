@@ -166,6 +166,11 @@ TEAM_MEMORY_EXTRACTOR_MODEL=deepseek-v4-flash
 TEAM_MEMORY_EXTRACTION_VERSION=v1
 TEAM_MEMORY_WIKI_HINT_ENABLED=false
 
+# Hard local cap on one extraction request prompt. When the assembled prompt
+# would exceed it, the episode transcript is trimmed locally, oldest
+# user/assistant pairs first, before the provider call.
+TEAM_MEMORY_EXTRACTION_MAX_PROMPT_TOKENS=131072
+
 # Operations events are kept for 7 days; hourly storage snapshots for 90 days.
 TEAM_MEMORY_OPERATIONS_EVENT_RETENTION=168h
 TEAM_MEMORY_OPERATIONS_STORAGE_RETENTION=2160h
@@ -191,6 +196,40 @@ access requires a stable DNS hostname so Caddy can provide the canonical HTTPS
 origin. This check does not validate Team Memory's remaining authentication
 invariants. The startup and bounded log checks in step 4 are the
 application-configuration validation.
+
+### Extraction episode transcript bounds
+
+Rolling extraction keeps one cumulative episode transcript per task or thread
+and resends it to the provider on every extraction request. Three mechanisms
+bound that transcript, in layers:
+
+- Periodic summary (default, `TEAM_MEMORY_EXTRACTION_SUMMARY_ENABLED=true`)
+  folds older transcript into a continuity summary once the trigger threshold
+  is reached.
+- Compaction (`TEAM_MEMORY_EXTRACTION_COMPACTION_ENABLED=true`) is the
+  mutually exclusive alternative that replaces older transcript with a
+  structured checkpoint. Enabling both is rejected at startup.
+- `TEAM_MEMORY_EXTRACTION_MAX_PROMPT_TOKENS` is the hard safety net. Before
+  every provider call the service estimates the assembled prompt locally and,
+  when it exceeds the cap, trims the episode transcript oldest-first while
+  preserving user/assistant pairs, then persists the trimmed episode. This
+  cap works without the provider, so an episode that outgrew the model
+  context cannot wedge extraction on provider token-limit rejections.
+
+Episodes that wedged before this cap existed self-heal after the upgrade: the
+next extraction attempt trims and persists them automatically. For immediate
+relief before the next attempt runs, an operator may delete oversized
+episodes inside the PostgreSQL container; extraction then restarts those
+episodes from the current session slices:
+
+```sh
+docker compose \
+  -f compose.yaml \
+  -f deploy/workstation/compose.yaml \
+  exec -T postgres \
+  psql -U team_memory -d team_memory \
+  -c 'DELETE FROM extraction_episodes WHERE estimated_tokens > 100000;'
+```
 
 ## 3. Configure the OIDC client
 
