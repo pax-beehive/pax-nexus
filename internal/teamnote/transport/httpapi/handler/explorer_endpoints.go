@@ -155,7 +155,7 @@ func teamNoteToAPI(note explorer.TeamNote) *api.ExplorerTeamNote {
 	return &api.ExplorerTeamNote{
 		Summary: teamNoteSummaryToAPI(note.TeamNoteSummary), Body: note.Body,
 		OriginUserID: note.OriginUserID, OriginSessionID: note.OriginSessionID,
-		RelatedSubjects: note.RelatedSubjects, ValidAt: optionalTime(note.ValidAt),
+		RelatedSubjects: nonNilStrings(note.RelatedSubjects), ValidAt: optionalTime(note.ValidAt),
 		InvalidAt: optionalTime(note.InvalidAt), SourceOccurredAt: optionalTime(note.SourceOccurredAt),
 	}
 }
@@ -172,7 +172,7 @@ func teamNoteSummaryToAPI(note explorer.TeamNoteSummary) *api.ExplorerTeamNoteSu
 	return &api.ExplorerTeamNoteSummary{
 		NoteID: note.NoteID, Kind: note.Kind, Subject: note.Subject, State: note.State,
 		TaskRef: optionalString(note.TaskRef), ThreadRef: optionalString(note.ThreadRef),
-		OriginAgentID: note.OriginAgentID, AudienceAgentIds: note.AudienceAgentIDs,
+		OriginAgentID: note.OriginAgentID, AudienceAgentIds: nonNilStrings(note.AudienceAgentIDs),
 		Revision:      int32(note.Revision),
 		CreatedAt:     note.CreatedAt.UTC().Format(time.RFC3339Nano),
 		UpdatedAt:     note.UpdatedAt.UTC().Format(time.RFC3339Nano),
@@ -187,7 +187,7 @@ func revisionsToAPI(revisions []explorer.Revision) []*api.ExplorerRevision {
 		result = append(result, &api.ExplorerRevision{
 			Revision: int32(revision.Revision), CandidateID: revision.CandidateID,
 			Operation: revision.Operation, Body: revision.Body,
-			RelatedSubjects: revision.RelatedSubjects,
+			RelatedSubjects: nonNilStrings(revision.RelatedSubjects),
 			ValidAt:         optionalTime(revision.ValidAt), InvalidAt: optionalTime(revision.InvalidAt),
 			CreatedAt: revision.CreatedAt.UTC().Format(time.RFC3339Nano),
 			ExpiredAt: optionalTime(revision.ExpiredAt), Extraction: extractionRunToAPI(revision.Extraction),
@@ -223,7 +223,7 @@ func candidateToAPI(candidate explorer.Candidate) *api.ExplorerCandidate {
 		CandidateID: candidate.CandidateID, Action: candidate.Action, Kind: candidate.Kind,
 		Subject: candidate.Subject, Body: candidate.Body,
 		TaskRef: optionalString(candidate.TaskRef), ThreadRef: optionalString(candidate.ThreadRef),
-		OriginAgentID: candidate.OriginAgentID, EvidenceEventIds: candidate.EvidenceEventIDs,
+		OriginAgentID: candidate.OriginAgentID, EvidenceEventIds: nonNilStrings(candidate.EvidenceEventIDs),
 		AdmissionStatus: candidate.AdmissionStatus,
 		RejectionReason: optionalString(candidate.RejectionReason),
 		CreatedAt:       candidate.CreatedAt.UTC().Format(time.RFC3339Nano),
@@ -268,8 +268,9 @@ func recallUsesToAPI(uses []explorer.RecallUse) []*api.ExplorerRecallUse {
 			RecipientSessionID: use.RecipientSessionID,
 			OccurredAt:         use.OccurredAt.UTC().Format(time.RFC3339Nano),
 			Disposition:        optionalString(use.Disposition), Delivered: use.Delivered,
-			RejectionReasons: use.RejectionReasons, BudgetDropReasons: use.BudgetDropReasons,
-			HardGateFailures: use.HardGateFailures,
+			RejectionReasons:  nonNilStrings(use.RejectionReasons),
+			BudgetDropReasons: nonNilStrings(use.BudgetDropReasons),
+			HardGateFailures:  nonNilStrings(use.HardGateFailures),
 		})
 	}
 	return result
@@ -284,6 +285,15 @@ func knowledgeCapsuleToAPI(capsule explorer.KnowledgeCapsule) *api.ExplorerKnowl
 		Truncated:      optionalBool(capsule.Truncated, capsule.CapsuleID != ""),
 		RouteMatchType: optionalString(capsule.RouteMatchType),
 	}
+}
+
+// nonNilStrings keeps list fields serializing as [] instead of null; the
+// portal iterates them without null guards.
+func nonNilStrings(values []string) []string {
+	if values == nil {
+		return []string{}
+	}
+	return values
 }
 
 func optionalString(value string) *string {
