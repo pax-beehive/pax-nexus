@@ -72,8 +72,9 @@ func (s *InjectAcceptanceSuite) TestGivenOneSessionWhenInjectedThenOneCitedPageI
 	service := pagewiki.NewService(s.repository, planner, editor)
 
 	result, err := service.InjectSession(context.Background(), pagewiki.InjectSessionRequest{
-		SourceID: "session-1",
-		Raw:      raw,
+		SourceID:       "session-1",
+		IdempotencyKey: "session-1-injection",
+		Raw:            raw,
 		Events: []pagewiki.SourceEventInput{
 			{
 				ID:        "event-1",
@@ -213,8 +214,9 @@ func (s *InjectAcceptanceSuite) TestGivenInvalidCitationWhenInjectedThenNothingI
 			result, err := service.InjectSession(
 				context.Background(),
 				pagewiki.InjectSessionRequest{
-					SourceID: "session-invalid",
-					Raw:      raw,
+					SourceID:       "session-invalid",
+					IdempotencyKey: "session-invalid-injection",
+					Raw:            raw,
 					Events: []pagewiki.SourceEventInput{
 						{
 							ID:        "event-1",

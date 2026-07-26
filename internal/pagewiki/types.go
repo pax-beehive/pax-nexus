@@ -243,9 +243,10 @@ type MaintenanceRun struct {
 }
 
 type InjectSessionRequest struct {
-	SourceID string
-	Raw      []byte
-	Events   []SourceEventInput
+	SourceID       string
+	IdempotencyKey string
+	Raw            []byte
+	Events         []SourceEventInput
 }
 
 type InjectResult struct {

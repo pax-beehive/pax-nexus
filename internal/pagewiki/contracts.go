@@ -12,10 +12,18 @@ var (
 	ErrInvalidDraft      = errors.New("invalid page draft")
 	ErrInvalidCitation   = errors.New("invalid citation")
 	ErrInvalidLink       = errors.New("invalid page link")
+	ErrInvalidRequest    = errors.New("invalid injection request")
 	ErrNotFound          = errors.New("not found")
 	ErrImmutableConflict = errors.New("immutable value conflict")
 	ErrRevisionConflict  = errors.New("revision conflict")
 )
+
+func ValidateInjectSessionRequest(request InjectSessionRequest) error {
+	if strings.TrimSpace(request.IdempotencyKey) == "" {
+		return fmt.Errorf("%w: idempotency key is required", ErrInvalidRequest)
+	}
+	return nil
+}
 
 func ValidatePageBrief(brief PageBrief, catalog PageCatalog) error {
 	if strings.TrimSpace(brief.Key) == "" {

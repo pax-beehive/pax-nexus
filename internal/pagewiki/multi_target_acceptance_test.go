@@ -215,8 +215,9 @@ func multiPageSource() pagewiki.InjectSessionRequest {
 	storageStart := strings.Index(raw, storageText)
 	searchStart := strings.Index(raw, searchText)
 	return pagewiki.InjectSessionRequest{
-		SourceID: "session-multi",
-		Raw:      []byte(raw),
+		SourceID:       "session-multi",
+		IdempotencyKey: "session-multi-injection",
+		Raw:            []byte(raw),
 		Events: []pagewiki.SourceEventInput{
 			{
 				ID:        "event-storage",

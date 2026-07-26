@@ -119,6 +119,45 @@ func (r *Repository) PageRevision(
 	return clonePageRevision(revision), nil
 }
 
+func (r *Repository) PageRevisionHistory(
+	_ context.Context,
+	pageID string,
+) ([]pagewiki.PageRevision, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	page, found := r.pages[pageID]
+	if !found {
+		return nil, fmt.Errorf("%w: Page %q", pagewiki.ErrNotFound, pageID)
+	}
+	history := make([]pagewiki.PageRevision, 0)
+	revisionID := page.CurrentRevisionID
+	seen := make(map[string]struct{})
+	for revisionID != "" {
+		if _, duplicate := seen[revisionID]; duplicate {
+			return nil, fmt.Errorf(
+				"%w: Page %q revision lineage is cyclic",
+				pagewiki.ErrRevisionConflict,
+				pageID,
+			)
+		}
+		seen[revisionID] = struct{}{}
+		revision, exists := r.pageRevisions[revisionID]
+		if !exists || revision.PageID != pageID {
+			return nil, fmt.Errorf(
+				"%w: Page %q revision lineage is incomplete",
+				pagewiki.ErrRevisionConflict,
+				pageID,
+			)
+		}
+		history = append(history, clonePageRevision(revision))
+		revisionID = revision.BaseRevisionID
+	}
+	for left, right := 0, len(history)-1; left < right; left, right = left+1, right-1 {
+		history[left], history[right] = history[right], history[left]
+	}
+	return history, nil
+}
+
 func (r *Repository) PublishPage(
 	_ context.Context,
 	publication pagewiki.PagePublication,
@@ -329,6 +368,23 @@ func (r *Repository) SaveMaintenanceRun(
 	return nil
 }
 
+func (r *Repository) MaintenanceRun(
+	_ context.Context,
+	id string,
+) (pagewiki.MaintenanceRun, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	run, found := r.runs[id]
+	if !found {
+		return pagewiki.MaintenanceRun{}, fmt.Errorf(
+			"%w: MaintenanceRun %q",
+			pagewiki.ErrNotFound,
+			id,
+		)
+	}
+	return cloneRun(run), nil
+}
+
 func (r *Repository) PageCount() int {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -351,6 +407,18 @@ func (r *Repository) PlacementCount() int {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return len(r.placements)
+}
+
+func (r *Repository) SourceRevisionCount() int {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return len(r.sourceRevisions)
+}
+
+func (r *Repository) MaintenanceRunCount() int {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return len(r.runs)
 }
 
 func sourceRevisionsEqual(left, right pagewiki.SourceRevision) bool {

@@ -85,6 +85,13 @@ func (s *RepositorySuite) TestGivenPagePublicationWhenReadThenNestedRevisionValu
 	byID, err := s.repository.PageByID(s.ctx, "page-1")
 	s.Require().NoError(err)
 	s.Require().Equal(page, byID)
+	history, err := s.repository.PageRevisionHistory(s.ctx, page.ID)
+	s.Require().NoError(err)
+	s.Require().Len(history, 1)
+	history[0].Sections[0].Markdown = "changed again"
+	againHistory, err := s.repository.PageRevisionHistory(s.ctx, page.ID)
+	s.Require().NoError(err)
+	s.Require().Equal("SQLite is local.", againHistory[0].Sections[0].Markdown)
 }
 
 func (s *RepositorySuite) TestGivenInvalidPublicationWhenPublishedThenRepositoryRejectsIt() {
@@ -290,9 +297,15 @@ func (s *RepositorySuite) TestGivenImmutableRunWhenChangedThenSaveFails() {
 	}
 	s.Require().NoError(s.repository.SaveMaintenanceRun(s.ctx, run))
 	s.Require().NoError(s.repository.SaveMaintenanceRun(s.ctx, run))
+	stored, err := s.repository.MaintenanceRun(s.ctx, run.ID)
+	s.Require().NoError(err)
+	stored.Targets[0].Status = pagewiki.TargetStatusFailed
+	again, err := s.repository.MaintenanceRun(s.ctx, run.ID)
+	s.Require().NoError(err)
+	s.Require().Equal(pagewiki.TargetStatusSucceeded, again.Targets[0].Status)
 	run.Status = pagewiki.RunStatusFailed
 
-	err := s.repository.SaveMaintenanceRun(s.ctx, run)
+	err = s.repository.SaveMaintenanceRun(s.ctx, run)
 
 	s.Require().ErrorIs(err, pagewiki.ErrImmutableConflict)
 }
@@ -302,11 +315,15 @@ func (s *RepositorySuite) TestGivenMissingValuesWhenReadThenNotFoundIsReturned()
 	_, pageErr := s.repository.PageByID(s.ctx, "missing")
 	_, slugErr := s.repository.PageBySlug(s.ctx, "missing")
 	_, revisionErr := s.repository.PageRevision(s.ctx, "missing")
+	_, historyErr := s.repository.PageRevisionHistory(s.ctx, "missing")
+	_, runErr := s.repository.MaintenanceRun(s.ctx, "missing")
 
 	s.Require().ErrorIs(sourceErr, pagewiki.ErrNotFound)
 	s.Require().ErrorIs(pageErr, pagewiki.ErrNotFound)
 	s.Require().ErrorIs(slugErr, pagewiki.ErrNotFound)
 	s.Require().ErrorIs(revisionErr, pagewiki.ErrNotFound)
+	s.Require().ErrorIs(historyErr, pagewiki.ErrNotFound)
+	s.Require().ErrorIs(runErr, pagewiki.ErrNotFound)
 }
 
 func sourceRevisionFixture() pagewiki.SourceRevision {

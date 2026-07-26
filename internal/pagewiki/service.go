@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"regexp"
 	"strings"
 )
@@ -43,8 +44,26 @@ func (s *Service) InjectSession(
 	if err != nil {
 		return InjectResult{}, err
 	}
+	if err := ValidateInjectSessionRequest(request); err != nil {
+		return InjectResult{}, err
+	}
 	if err := s.repository.SaveSourceRevision(ctx, sourceRevision); err != nil {
 		return InjectResult{}, fmt.Errorf("save SourceRevision: %w", err)
+	}
+	runID := stableID(
+		"run",
+		sourceRevision.ID,
+		strings.TrimSpace(request.IdempotencyKey),
+	)
+	existingRun, err := s.repository.MaintenanceRun(ctx, runID)
+	switch {
+	case err == nil:
+		return InjectResult{
+			SourceRevisionID: sourceRevision.ID,
+			Run:              existingRun,
+		}, nil
+	case !errors.Is(err, ErrNotFound):
+		return InjectResult{}, fmt.Errorf("load MaintenanceRun: %w", err)
 	}
 	catalog, err := s.repository.PageCatalog(ctx)
 	if err != nil {
@@ -66,7 +85,7 @@ func (s *Service) InjectSession(
 	}
 
 	run := MaintenanceRun{
-		ID:               stableID("run", sourceRevision.ID),
+		ID:               runID,
 		SourceRevisionID: sourceRevision.ID,
 		Targets:          make([]MaintenanceTarget, 0, len(briefs)),
 	}
@@ -136,6 +155,15 @@ func (s *Service) processTarget(
 	if err != nil {
 		return failTarget(target, reason, err)
 	}
+	if currentRevision != nil &&
+		page.Slug == pageValue.Slug &&
+		page.Title == pageValue.Title &&
+		revisionsEquivalent(*currentRevision, revision) {
+		target.PageID = page.ID
+		target.PageRevisionID = currentRevision.ID
+		target.Status = TargetStatusSucceeded
+		return target
+	}
 	publication := PagePublication{
 		Page:     pageValue,
 		Revision: revision,
@@ -153,6 +181,40 @@ func (s *Service) processTarget(
 	target.PageRevisionID = revision.ID
 	target.Status = TargetStatusSucceeded
 	return target
+}
+
+func revisionsEquivalent(left, right PageRevision) bool {
+	if left.Title != right.Title ||
+		left.Summary != right.Summary ||
+		left.Markdown != right.Markdown ||
+		!reflect.DeepEqual(left.Sections, right.Sections) ||
+		len(left.Citations) != len(right.Citations) ||
+		len(left.Links) != len(right.Links) {
+		return false
+	}
+	for index := range left.Citations {
+		leftCitation := left.Citations[index]
+		rightCitation := right.Citations[index]
+		if leftCitation.SectionKey != rightCitation.SectionKey ||
+			leftCitation.StartByte != rightCitation.StartByte ||
+			leftCitation.EndByte != rightCitation.EndByte ||
+			leftCitation.ExactText != rightCitation.ExactText ||
+			!reflect.DeepEqual(leftCitation.SourceAnchors, rightCitation.SourceAnchors) {
+			return false
+		}
+	}
+	for index := range left.Links {
+		leftLink := left.Links[index]
+		rightLink := right.Links[index]
+		if leftLink.SectionKey != rightLink.SectionKey ||
+			leftLink.StartByte != rightLink.StartByte ||
+			leftLink.EndByte != rightLink.EndByte ||
+			leftLink.ExactText != rightLink.ExactText ||
+			leftLink.TargetPageID != rightLink.TargetPageID {
+			return false
+		}
+	}
+	return true
 }
 
 func buildPlacement(pageID string, topicPath []string) ([]Topic, *PagePlacement) {
@@ -192,6 +254,13 @@ func (s *Service) resolvePage(
 	page, err := s.repository.PageByID(ctx, brief.TargetPageID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("load update Page: %w", err)
+	}
+	if page.CurrentRevisionID != brief.ExpectedBaseRevisionID {
+		return nil, nil, fmt.Errorf(
+			"%w: Page %q changed after planning",
+			ErrRevisionConflict,
+			page.ID,
+		)
 	}
 	revision, err := s.repository.PageRevision(ctx, page.CurrentRevisionID)
 	if err != nil {

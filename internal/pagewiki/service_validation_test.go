@@ -103,6 +103,18 @@ func (s *ServiceValidationSuite) TestGivenInvalidPlannerOutputWhenInjectedThenIt
 	s.Require().ErrorIs(err, pagewiki.ErrInvalidPageBrief)
 }
 
+func (s *ServiceValidationSuite) TestGivenMissingIdempotencyKeyWhenInjectedThenItIsRejected() {
+	repository := memory.NewRepository()
+	service := pagewiki.NewService(repository, nil, nil)
+	request := validInjectRequest()
+	request.IdempotencyKey = ""
+
+	_, err := service.InjectSession(context.Background(), request)
+
+	s.Require().ErrorIs(err, pagewiki.ErrInvalidRequest)
+	s.Require().Zero(repository.SourceRevisionCount())
+}
+
 func (s *ServiceValidationSuite) TestGivenUnknownBriefEvidenceWhenInjectedThenTargetFails() {
 	repository := memory.NewRepository()
 	service := pagewiki.NewService(
@@ -135,8 +147,9 @@ func (s *ServiceValidationSuite) TestGivenUnknownBriefEvidenceWhenInjectedThenTa
 
 func validInjectRequest() pagewiki.InjectSessionRequest {
 	return pagewiki.InjectSessionRequest{
-		SourceID: "session-1",
-		Raw:      []byte("text"),
+		SourceID:       "session-1",
+		IdempotencyKey: "session-1-injection",
+		Raw:            []byte("text"),
 		Events: []pagewiki.SourceEventInput{
 			{ID: "event-1", StartByte: 0, EndByte: 4},
 		},
