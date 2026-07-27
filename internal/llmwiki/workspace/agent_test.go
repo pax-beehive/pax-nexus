@@ -99,6 +99,11 @@ func (s *agentSuite) TestAgentUsesFilesystemToolsAndRecordsUsage() {
 	s.Equal(150, result.Audit.InputTokens)
 	s.Equal(85, result.Audit.OutputTokens)
 	s.Empty(result.Audit.FailureReason)
+	s.Contains(
+		client.requests[0].Messages[0].Content,
+		"Write all generated Wiki",
+	)
+	s.Contains(client.requests[0].Messages[0].Content, "prose in English")
 
 	rendered, err := os.ReadFile(filepath.Join(s.root, "wiki/pages/local-first.md"))
 	s.Require().NoError(err)

@@ -19,6 +19,7 @@ import { AdminOperationsPage } from "./AdminOperationsPage";
 import { AdminPulsePage } from "./AdminPulsePage";
 import { AdminExplorerPage } from "./AdminExplorerPage";
 import { AdminTeamNoteDetailPage } from "./AdminTeamNoteDetailPage";
+import { WikiPage } from "./WikiPage";
 
 function navClass({ isActive }: { isActive: boolean }): string {
   return isActive ? "active" : "";
@@ -91,10 +92,14 @@ export function PortalShell({ me }: { me: HumanMe }) {
         <div className="brand">
           Team Memory <span>Portal</span>
         </div>
-        <nav className="nav">
+        <nav className="nav" aria-label="Portal navigation">
           <div className="nav-label">Personal</div>
           <NavLink to="/agents" className={navClass} end>
             My Agents
+          </NavLink>
+          <div className="nav-label">Knowledge</div>
+          <NavLink to="/wiki" className={navClass} end>
+            Wiki
           </NavLink>
           {adminLike && (
             <>
@@ -144,7 +149,7 @@ export function PortalShell({ me }: { me: HumanMe }) {
           </div>
         </div>
       </aside>
-      <main className="main">
+      <main className={location.pathname === "/wiki" ? "main main-wide" : "main"}>
         {/* Route-level boundary: a failing route keeps the shell and nav
             usable. Keying by pathname remounts the boundary on navigation,
             so moving to another route always recovers the content area. */}
@@ -157,6 +162,7 @@ export function PortalShell({ me }: { me: HumanMe }) {
           <Routes>
             <Route path="/agents" element={<MyAgentsPage />} />
             <Route path="/agents/:agentId" element={<AgentDetailPage />} />
+            <Route path="/wiki" element={<WikiPage />} />
             <Route
               path="/admin/members"
               element={

@@ -17,15 +17,17 @@ import (
 )
 
 const (
-	listenAddress = ":8082"
-	issuer        = "http://mock-oidc:8082"
-	clientID      = "team-memory-e2e"
-	keyID         = "team-memory-e2e-key"
+	defaultListenAddress = ":8082"
+	defaultIssuer        = "http://mock-oidc:8082"
+	defaultClientID      = "team-memory-e2e"
+	keyID                = "team-memory-e2e-key"
 )
 
 type provider struct {
-	key    *rsa.PrivateKey
-	nonces sync.Map
+	key      *rsa.PrivateKey
+	issuer   string
+	clientID string
+	nonces   sync.Map
 }
 
 func main() {
@@ -40,13 +42,13 @@ func main() {
 	if err != nil {
 		log.Fatalf("initialize deterministic OIDC provider: %v", err)
 	}
-	server := newServer(service)
+	server := newServer(service, environment("MOCK_OIDC_LISTEN_ADDRESS", defaultListenAddress))
 	if err := server.ListenAndServe(); err != nil {
 		log.Fatalf("serve deterministic OIDC provider: %v", err)
 	}
 }
 
-func newServer(service *provider) *http.Server {
+func newServer(service *provider, listenAddress string) *http.Server {
 	return &http.Server{
 		Addr: listenAddress, Handler: newHandler(service),
 		ReadHeaderTimeout: 2 * time.Second, ReadTimeout: 2 * time.Second, WriteTimeout: 2 * time.Second,
@@ -58,7 +60,11 @@ func newProvider() (*provider, error) {
 	if err != nil {
 		return nil, fmt.Errorf("generate OIDC signing key: %w", err)
 	}
-	return &provider{key: key}, nil
+	return &provider{
+		key:      key,
+		issuer:   environment("MOCK_OIDC_ISSUER", defaultIssuer),
+		clientID: environment("MOCK_OIDC_CLIENT_ID", defaultClientID),
+	}, nil
 }
 
 func newHandler(service *provider) http.Handler {
@@ -77,8 +83,8 @@ func (p *provider) health(response http.ResponseWriter, _ *http.Request) {
 
 func (p *provider) discovery(response http.ResponseWriter, _ *http.Request) {
 	p.writeJSON(response, map[string]any{
-		"issuer": issuer, "authorization_endpoint": issuer + "/authorize",
-		"token_endpoint": issuer + "/token", "jwks_uri": issuer + "/keys",
+		"issuer": p.issuer, "authorization_endpoint": p.issuer + "/authorize",
+		"token_endpoint": p.issuer + "/token", "jwks_uri": p.issuer + "/keys",
 		"response_types_supported": []string{"code"}, "subject_types_supported": []string{"public"},
 		"id_token_signing_alg_values_supported": []string{"RS256"},
 	})
@@ -143,7 +149,7 @@ func (p *provider) signIDToken(nonce string) (string, error) {
 	}
 	now := time.Now().UTC()
 	token, err := jwt.Signed(signer).Claims(jwt.Claims{
-		Issuer: issuer, Subject: "e2e-owner", Audience: jwt.Audience{clientID},
+		Issuer: p.issuer, Subject: "e2e-owner", Audience: jwt.Audience{p.clientID},
 		IssuedAt: jwt.NewNumericDate(now), Expiry: jwt.NewNumericDate(now.Add(5 * time.Minute)),
 	}).Claims(struct {
 		Nonce         string `json:"nonce"`
@@ -155,6 +161,14 @@ func (p *provider) signIDToken(nonce string) (string, error) {
 		return "", fmt.Errorf("serialize OIDC ID token: %w", err)
 	}
 	return token, nil
+}
+
+func environment(name string, fallback string) string {
+	value := os.Getenv(name)
+	if value == "" {
+		return fallback
+	}
+	return value
 }
 
 func (p *provider) writeJSON(response http.ResponseWriter, value any) {

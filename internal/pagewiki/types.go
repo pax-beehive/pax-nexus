@@ -190,6 +190,12 @@ type PageBrief struct {
 	ReaderGoal             string
 	TopicPath              []string
 	EvidenceEventIDs       []string
+	RelatedPages           []RelatedPage
+}
+
+type RelatedPage struct {
+	ID    string
+	Title string
 }
 
 type PageDraft struct {

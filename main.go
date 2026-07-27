@@ -14,9 +14,11 @@ import (
 
 	"github.com/cloudwego/hertz/pkg/app/server"
 	"github.com/pax-beehive/pax-nexus/internal/deployment/onprem"
+	llmwikiworkspace "github.com/pax-beehive/pax-nexus/internal/llmwiki/workspace"
 	"github.com/pax-beehive/pax-nexus/internal/operations"
 	"github.com/pax-beehive/pax-nexus/internal/pagewiki"
-	pagewikimemory "github.com/pax-beehive/pax-nexus/internal/pagewiki/memory"
+	pagewikipostgres "github.com/pax-beehive/pax-nexus/internal/pagewiki/postgres"
+	"github.com/pax-beehive/pax-nexus/internal/pagewiki/sessionconsumer"
 	pagewikihttp "github.com/pax-beehive/pax-nexus/internal/pagewiki/transport/httpapi"
 	"github.com/pax-beehive/pax-nexus/internal/platform/observability"
 	"github.com/pax-beehive/pax-nexus/internal/platform/postgres"
@@ -162,25 +164,67 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	return nil
 }
 
-type unavailablePageWikiInjector struct{}
-
-func (unavailablePageWikiInjector) InjectSession(
-	context.Context,
-	pagewiki.InjectSessionRequest,
-) (pagewiki.InjectResult, error) {
-	return pagewiki.InjectResult{}, fmt.Errorf(
-		"%w: planner and editor are not configured",
-		pagewiki.ErrUnavailable,
+func buildPageWikiHTTPHandler(
+	ctx context.Context,
+	store *postgres.Store,
+	config applicationConfig,
+	logger *slog.Logger,
+) (*pagewikihttp.Handler, *sessionconsumer.Controller, error) {
+	repository, err := pagewikipostgres.NewRepository(ctx, store.Pool(), onprem.LocalScopeID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("initialize Page Wiki repository: %w", err)
+	}
+	editor, err := buildPageWikiEditor(config)
+	if err != nil {
+		return nil, nil, err
+	}
+	service := pagewiki.NewService(
+		repository,
+		pagewiki.SessionDocumentPlanner{},
+		editor,
 	)
+	consumerStore, err := postgres.NewPageWikiConsumerStore(store.Pool(), onprem.LocalScopeID)
+	if err != nil {
+		return nil, nil, err
+	}
+	controller, err := sessionconsumer.New(consumerStore, service, logger, 2*time.Second)
+	if err != nil {
+		return nil, nil, err
+	}
+	configured, err := pagewikihttp.New(service, repository)
+	if err != nil {
+		return nil, nil, fmt.Errorf("initialize Page Wiki HTTP handler: %w", err)
+	}
+	controller.Start(ctx)
+	return configured, controller, nil
 }
 
-func buildPageWikiHTTPHandler() (*pagewikihttp.Handler, error) {
-	repository := pagewikimemory.NewRepository()
-	configured, err := pagewikihttp.New(unavailablePageWikiInjector{}, repository)
-	if err != nil {
-		return nil, fmt.Errorf("initialize Page Wiki HTTP handler: %w", err)
+func buildPageWikiEditor(config applicationConfig) (pagewiki.Editor, error) {
+	switch strings.TrimSpace(config.llmwikiMode) {
+	case "", "local":
+		return pagewiki.SessionDocumentEditor{}, nil
+	case "openai", "harness":
+		if strings.TrimSpace(config.llmwikiBaseURL) == "" ||
+			strings.TrimSpace(config.llmwikiAPIKey) == "" ||
+			strings.TrimSpace(config.llmwikiModel) == "" {
+			return nil, errors.New(
+				"initialize Page Wiki LLM editor: LLMWIKI_LLM_BASE_URL, " +
+					"LLMWIKI_LLM_API_KEY, and LLMWIKI_LLM_MODEL are required",
+			)
+		}
+		return pagewiki.NewLLMSessionEditor(pagewiki.LLMEditorConfig{
+			Client: llmwikiworkspace.NewDeepSeekClient(llmwikiworkspace.DeepSeekConfig{
+				BaseURL: config.llmwikiBaseURL,
+				APIKey:  config.llmwikiAPIKey,
+			}),
+			Model: config.llmwikiModel,
+		})
+	default:
+		return nil, fmt.Errorf(
+			"initialize Page Wiki LLM editor: unsupported LLMWIKI_ORGANIZER_MODE %q",
+			config.llmwikiMode,
+		)
 	}
-	return configured, nil
 }
 
 func buildApplicationHTTPHandlers(
@@ -191,6 +235,10 @@ func buildApplicationHTTPHandlers(
 	config applicationConfig,
 	logger *slog.Logger,
 ) (*handler.Handler, *pagewikihttp.Handler, error) {
+	pageHandler, wikiControl, err := buildPageWikiHTTPHandler(ctx, store, config, logger)
+	if err != nil {
+		return nil, nil, err
+	}
 	teamHandler, err := buildHTTPHandler(
 		ctx,
 		runtime,
@@ -198,11 +246,8 @@ func buildApplicationHTTPHandlers(
 		operationRecorder,
 		config,
 		logger,
+		wikiControl,
 	)
-	if err != nil {
-		return nil, nil, err
-	}
-	pageHandler, err := buildPageWikiHTTPHandler()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -293,6 +338,10 @@ type applicationConfig struct {
 	embeddingModel                 string
 	embeddingTimeout               time.Duration
 	recallCandidateStrategy        teamnote.RecallCandidateStrategy
+	llmwikiMode                    string
+	llmwikiBaseURL                 string
+	llmwikiAPIKey                  string
+	llmwikiModel                   string
 }
 
 func loadConfig() (applicationConfig, error) {
@@ -300,6 +349,8 @@ func loadConfig() (applicationConfig, error) {
 		databaseURL: os.Getenv("TEAM_MEMORY_DATABASE_URL"), listenAddress: os.Getenv("TEAM_MEMORY_LISTEN_ADDRESS"),
 		extractorMode: os.Getenv("TEAM_MEMORY_EXTRACTOR_MODE"), extractorBaseURL: os.Getenv("TEAM_MEMORY_EXTRACTOR_BASE_URL"),
 		extractorAPIKey: os.Getenv("TEAM_MEMORY_EXTRACTOR_API_KEY"), extractorModel: os.Getenv("TEAM_MEMORY_EXTRACTOR_MODEL"),
+		llmwikiMode: os.Getenv("LLMWIKI_ORGANIZER_MODE"), llmwikiBaseURL: os.Getenv("LLMWIKI_LLM_BASE_URL"),
+		llmwikiAPIKey: os.Getenv("LLMWIKI_LLM_API_KEY"), llmwikiModel: os.Getenv("LLMWIKI_LLM_MODEL"),
 		promptVersion:               os.Getenv("TEAM_MEMORY_PROMPT_VERSION"),
 		extractionContextMode:       os.Getenv("TEAM_MEMORY_EXTRACTION_CONTEXT_MODE"),
 		extractionVersion:           os.Getenv("TEAM_MEMORY_EXTRACTION_VERSION"),
@@ -533,6 +584,7 @@ func buildHTTPHandler(
 	operationRecorder operations.Recorder,
 	config applicationConfig,
 	logger *slog.Logger,
+	wikiControl handler.WikiControl,
 ) (*handler.Handler, error) {
 	if len(config.apiKeys) > 0 && (strings.TrimSpace(config.adminAPIKey) != "" || config.humanIdentityConfigured()) {
 		return nil, fmt.Errorf("configure HTTP transport: legacy and on-prem authentication are mutually exclusive")
@@ -586,6 +638,9 @@ func buildHTTPHandler(
 	options := []handler.OnPremOption{
 		handler.WithAgentRegistry(registry), handler.WithOperations(operationsService, operationRecorder),
 		handler.WithExplorer(explorerService),
+	}
+	if wikiControl != nil {
+		options = append(options, handler.WithWikiControl(wikiControl))
 	}
 	if config.humanIdentityConfigured() {
 		identity, err := onprem.NewIdentityService(store.Identity(), onprem.IdentityConfig{

@@ -9,6 +9,7 @@ import (
 
 	"github.com/pax-beehive/pax-nexus/internal/deployment/onprem"
 	"github.com/pax-beehive/pax-nexus/internal/operations"
+	"github.com/pax-beehive/pax-nexus/internal/pagewiki"
 	"github.com/pax-beehive/pax-nexus/internal/sessionlake"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote/extractor"
@@ -90,6 +91,8 @@ func (s *configSuite) SetupTest() {
 		"TEAM_MEMORY_EMBEDDING_BASE_URL", "TEAM_MEMORY_EMBEDDING_MODEL",
 		"TEAM_MEMORY_EMBEDDING_TIMEOUT", "TEAM_MEMORY_SEMANTIC_THRESHOLD",
 		"TEAM_MEMORY_RETRIEVAL_CANDIDATE_LIMIT", "TEAM_MEMORY_HINT_RECALL_ENABLED", "TEAM_MEMORY_HINT_SEMANTIC_THRESHOLD", "TEAM_MEMORY_HINT_THRESHOLD", "TEAM_MEMORY_HINT_MIN_QUERY_RELEVANCE", "TEAM_MEMORY_HINT_MIN_MARGINAL_UTILITY",
+		"LLMWIKI_ORGANIZER_MODE", "LLMWIKI_LLM_BASE_URL", "LLMWIKI_LLM_API_KEY",
+		"LLMWIKI_LLM_MODEL",
 	} {
 		s.T().Setenv(name, "")
 	}
@@ -139,6 +142,27 @@ func (s *configSuite) TestLoadsNoopConfiguration() {
 	adapter, err := buildExtractor(config)
 	s.Require().NoError(err)
 	s.IsType(extractor.Noop{}, adapter)
+}
+
+func (s *configSuite) TestBuildsConfiguredPageWikiEditor() {
+	local, err := buildPageWikiEditor(applicationConfig{})
+	s.Require().NoError(err)
+	s.IsType(pagewiki.SessionDocumentEditor{}, local)
+
+	config := applicationConfig{
+		llmwikiMode: "harness", llmwikiBaseURL: "https://api.deepseek.com",
+		llmwikiAPIKey: "secret", llmwikiModel: "deepseek-v4-pro",
+	}
+	editor, err := buildPageWikiEditor(config)
+	s.Require().NoError(err)
+	s.IsType(&pagewiki.LLMSessionEditor{}, editor)
+
+	config.llmwikiAPIKey = ""
+	_, err = buildPageWikiEditor(config)
+	s.Require().ErrorContains(err, "LLMWIKI_LLM_API_KEY")
+	config.llmwikiMode = "unsupported"
+	_, err = buildPageWikiEditor(config)
+	s.Require().ErrorContains(err, "unsupported LLMWIKI_ORGANIZER_MODE")
 }
 
 func (s *configSuite) TestLoadsOnPremConfiguration() {
@@ -275,13 +299,13 @@ func (s *configSuite) TestRejectsMixedLegacyAndOnPremAuthentication() {
 func (s *configSuite) TestBuildHTTPHandlerKeepsLegacyModeWithoutAdminSecret() {
 	runtime := &runtimeStub{}
 	configured, err := buildHTTPHandler(context.Background(), runtime, nil, nil,
-		applicationConfig{apiKeys: map[string]string{"key": "scope"}}, slog.New(slog.DiscardHandler))
+		applicationConfig{apiKeys: map[string]string{"key": "scope"}}, slog.New(slog.DiscardHandler), nil)
 	s.Require().NoError(err)
 	s.NotNil(configured)
 
 	_, err = buildHTTPHandler(context.Background(), runtime, nil, nil, applicationConfig{
 		apiKeys: map[string]string{"key": "scope"}, adminAPIKey: "admin", credentialRotationOverlap: time.Minute,
-	}, slog.New(slog.DiscardHandler))
+	}, slog.New(slog.DiscardHandler), nil)
 	s.Error(err)
 }
 

@@ -787,4 +787,6 @@ precise Source message citation. Never duplicate an existing Wiki just because
 new Source material arrived. Use replace_text for established pages so unrelated
 sections survive incremental maintenance; reserve write_file for new pages and
 small scaffolds. Use the provided filesystem tools only. Run the deterministic
-validator and repair all errors before finishing.`
+validator and repair all errors before finishing. Write all generated Wiki
+titles, summaries, headings, and prose in English, while preserving proper nouns
+and verbatim Source quotations in their original language.`
