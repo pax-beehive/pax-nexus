@@ -39,7 +39,7 @@ describe("shared Modal dialog semantics (Create Agent)", () => {
     const idInput = within(dialog).getByLabelText(/agent_id/);
     expect(document.activeElement).toBe(idInput);
 
-    await user.click(within(dialog).getByRole("button", { name: "取消" }));
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(document.activeElement).toBe(trigger);
   });
@@ -55,7 +55,7 @@ describe("shared Modal dialog semantics (Create Agent)", () => {
     const { dialog } = await openCreateAgentModal();
 
     const first = within(dialog).getByLabelText(/agent_id/);
-    const last = within(dialog).getByRole("button", { name: "创建" });
+    const last = within(dialog).getByRole("button", { name: "Create" });
     expect(document.activeElement).toBe(first);
 
     // Tab past the last control wraps to the first one.
@@ -77,7 +77,7 @@ describe("action keys without crypto.randomUUID (plain-HTTP origins)", () => {
     const { dialog } = await openCreateAgentModal();
     // The form renders, including the per-action key hint.
     within(dialog).getByText(/Idempotency-Key/);
-    within(dialog).getByRole("button", { name: "创建" });
+    within(dialog).getByRole("button", { name: "Create" });
   });
 
   it("opens Create Agent when crypto is entirely unavailable", async () => {

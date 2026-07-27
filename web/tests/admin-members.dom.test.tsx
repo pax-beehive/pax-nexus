@@ -43,8 +43,8 @@ function membersHandler(patch: Response): FetchHandler {
 
 async function openBobEditor(user: UserEvent) {
   const row = (await screen.findByText("bob@example.com")).closest("tr") as HTMLElement;
-  await user.click(within(row).getByRole("button", { name: "编辑" }));
-  await screen.findByRole("heading", { name: "编辑 bob@example.com" });
+  await user.click(within(row).getByRole("button", { name: "Edit" }));
+  await screen.findByRole("heading", { name: "Edit bob@example.com" });
 }
 
 describe("section 10 item 7: concurrent member edits", () => {
@@ -56,9 +56,9 @@ describe("section 10 item 7: concurrent member edits", () => {
     });
     await openBobEditor(user);
     await user.selectOptions(screen.getByLabelText("role"), "admin");
-    await user.click(screen.getByRole("button", { name: "保存" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
 
-    await screen.findByText("已被他人修改，已刷新最新数据");
+    await screen.findByText("Modified by someone else; refreshed with the latest data");
     // The stale write carried the old version in body and If-Match.
     const patches = callsTo(fetchMock, "/v1/admin/members/mbr_02", "PATCH");
     expect(patches).toHaveLength(1);
@@ -70,7 +70,7 @@ describe("section 10 item 7: concurrent member edits", () => {
     // Exactly this code refetches the single member; the modal closes via
     // onSaved and the list reloads.
     expect(callsTo(fetchMock, "/v1/admin/members/mbr_02", "GET")).toHaveLength(1);
-    expect(screen.queryByRole("heading", { name: "编辑 bob@example.com" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Edit bob@example.com" })).toBeNull();
     const listGets = callsTo(fetchMock, "/v1/admin/members", "GET").filter(
       (call) => call.path === "/v1/admin/members",
     );
@@ -84,9 +84,9 @@ describe("section 10 item 7: concurrent member edits", () => {
       fetch: membersHandler(apiErrorResponse(409, "membership_conflict", "generic conflict")),
     });
     await openBobEditor(user);
-    await user.click(screen.getByRole("button", { name: "保存" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
 
-    await screen.findByText("数据已被他人修改，请刷新后重试");
+    await screen.findByText("The data was modified by someone else; refresh and try again");
     expect(callsTo(fetchMock, "/v1/admin/members/mbr_02", "GET")).toHaveLength(0);
   });
 });
@@ -108,16 +108,16 @@ describe("section 10 item 8: last active owner protection", () => {
       .getAllByText(/alice@example.com/)
       .map((el) => el.closest("tr"))
       .find((tr) => tr !== null) as HTMLElement;
-    await user.click(within(row).getByRole("button", { name: "编辑" }));
-    await screen.findByRole("heading", { name: "编辑 alice@example.com" });
+    await user.click(within(row).getByRole("button", { name: "Edit" }));
+    await screen.findByRole("heading", { name: "Edit alice@example.com" });
     await user.selectOptions(screen.getByLabelText("role"), "admin");
-    await user.click(screen.getByRole("button", { name: "保存" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
 
-    await screen.findByText("必须先提升另一位 active Owner");
+    await screen.findByText("You must promote another active Owner first");
     // No refetch (only resource_version_conflict refetches) and the draft
     // stays editable in place.
     expect(callsTo(fetchMock, "/v1/admin/members/mbr_01", "GET")).toHaveLength(0);
-    expect(screen.getByRole("heading", { name: "编辑 alice@example.com" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Edit alice@example.com" })).toBeTruthy();
     expect((screen.getByLabelText("role") as HTMLSelectElement).value).toBe("admin");
   });
 });

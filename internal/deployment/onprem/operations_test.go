@@ -65,7 +65,11 @@ func (s *operationsServiceSuite) TestOwnerAndAdminCanReadNormalizedOperations() 
 
 			_, err = s.service.GetRecallDiagnostic(context.Background(), principal, 1)
 			s.Require().NoError(err)
-			s.Equal([]onprem.HumanCapability{onprem.CapabilityViewOperations}, principal.Capabilities())
+			expectedCapabilities := []onprem.HumanCapability{onprem.CapabilityViewOperations}
+			if role == onprem.RoleOwner {
+				expectedCapabilities = append(expectedCapabilities, onprem.CapabilityViewTeamMemory)
+			}
+			s.Equal(expectedCapabilities, principal.Capabilities())
 		})
 	}
 }

@@ -44,8 +44,8 @@ describe("route boundary: a failing route keeps the shell usable", () => {
 
     // The route content is replaced by a recovery card...
     const alert = await screen.findByRole("alert");
-    within(alert).getByRole("button", { name: "重试" });
-    within(alert).getByRole("button", { name: "返回 My Agents" });
+    within(alert).getByRole("button", { name: "Retry" });
+    within(alert).getByRole("button", { name: "Back to My Agents" });
     // ...while the shell, navigation and identity stay put.
     expect(screen.getByRole("link", { name: "Members" })).toBeTruthy();
     expect(screen.getByText("alice@example.com")).toBeTruthy();
@@ -80,11 +80,11 @@ describe("route boundary: a failing route keeps the shell usable", () => {
 
     const alert = await screen.findByRole("alert");
     heal();
-    await user.click(within(alert).getByRole("button", { name: "重试" }));
+    await user.click(within(alert).getByRole("button", { name: "Retry" }));
 
     await screen.findByRole("heading", { name: "My Agents" });
     expect(screen.queryByRole("alert")).toBeNull();
-    await screen.findByText("还没有 Agent，点击右上角创建。");
+    await screen.findByText("No agents yet — click + Create Agent to get started.");
   });
 });
 
@@ -119,7 +119,7 @@ describe("modal boundary: a failing modal keeps the page behind it usable", () =
     // The dialog chrome survives even though its content crashed.
     const dialog = await screen.findByRole("dialog", { name: "Settings" });
     const alert = within(dialog).getByRole("alert");
-    expect(within(alert).getByRole("button", { name: "关闭" })).toBeTruthy();
+    expect(within(alert).getByRole("button", { name: "Close" })).toBeTruthy();
 
     // The page behind the modal still works.
     await user.click(screen.getByRole("button", { name: /page action/ }));
@@ -131,7 +131,7 @@ describe("modal boundary: a failing modal keeps the page behind it usable", () =
     expect(logged).toContain("[portal] modal render error: Error: boom");
 
     // Closing the failed modal restores focus to its trigger.
-    await user.click(within(alert).getByRole("button", { name: "关闭" }));
+    await user.click(within(alert).getByRole("button", { name: "Close" }));
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(document.activeElement).toBe(trigger);
   });
@@ -150,7 +150,7 @@ describe("app boundary: the outermost failure renders a safe recovery page", () 
     );
 
     const alert = screen.getByRole("alert");
-    within(alert).getByText("页面渲染出错");
-    within(alert).getByRole("button", { name: "重新加载" });
+    within(alert).getByText("This page failed to render");
+    within(alert).getByRole("button", { name: "Reload" });
   });
 });

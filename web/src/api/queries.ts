@@ -6,6 +6,8 @@ import type {
   AgentProfile,
   AuditEvent,
   CredentialMetadata,
+  DeviceDetail,
+  DeviceSummary,
   EnrollmentMetadata,
   HumanMe,
   Invitation,
@@ -143,6 +145,21 @@ export async function getAdminAgent(agentId: string): Promise<AgentProfile> {
   return res.agent;
 }
 
+// ---- Admin: devices (doc sections 6.6, 8.5-8.6) ----
+
+export async function listDevices(
+  params: ListParams & { status?: string },
+): Promise<Page<DeviceSummary>> {
+  const res = await humanFetch<{ devices: DeviceSummary[]; next_cursor?: string }>(
+    `/v1/admin/devices${query({ status: params.status, limit: params.limit, cursor: params.cursor })}`,
+  );
+  return { items: res.devices, nextCursor: res.next_cursor };
+}
+
+export function getDevice(credentialId: string): Promise<DeviceDetail> {
+  return humanFetch<DeviceDetail>(`/v1/admin/devices/${encodeURIComponent(credentialId)}`);
+}
+
 export async function listAuditEvents(
   params: ListParams & {
     actor_kind?: string;
@@ -183,6 +200,10 @@ import type {
   OperationsStorageSnapshot,
   OperationsSummary,
   RecallDiagnostic,
+  ChannelDiagnostic,
+  ExtractionDiagnostic,
+  TeamNoteDetail,
+  TeamNoteSummary,
 } from "./types";
 
 export interface OperationsTimeFilter {
@@ -299,4 +320,62 @@ export async function listOperationsStorageHistory(
     { signal },
   );
   return { items: res.snapshots, nextCursor: res.next_cursor };
+}
+
+// ---- Owner-only Team Memory Explorer ----
+
+export interface TeamNoteFilter extends ListParams {
+  q?: string;
+  kind?: string;
+  state?: string;
+  agent_id?: string;
+  task_ref?: string;
+  thread_ref?: string;
+}
+
+export async function listTeamNotes(
+  filter: TeamNoteFilter,
+  signal?: AbortSignal,
+): Promise<Page<TeamNoteSummary>> {
+  const res = await humanFetch<{ notes: TeamNoteSummary[]; next_cursor?: string }>(
+    `/v1/admin/team-notes${query({
+      q: filter.q,
+      kind: filter.kind,
+      state: filter.state,
+      agent_id: filter.agent_id,
+      task_ref: filter.task_ref,
+      thread_ref: filter.thread_ref,
+      limit: filter.limit,
+      cursor: filter.cursor,
+    })}`,
+    { signal },
+  );
+  return { items: res.notes, nextCursor: res.next_cursor };
+}
+
+export function getTeamNote(noteId: string, signal?: AbortSignal): Promise<TeamNoteDetail> {
+  return humanFetch<TeamNoteDetail>(
+    `/v1/admin/team-notes/${encodeURIComponent(noteId)}`,
+    { signal },
+  );
+}
+
+export function getExtractionDiagnostic(
+  runId: string,
+  signal?: AbortSignal,
+): Promise<ExtractionDiagnostic> {
+  return humanFetch<ExtractionDiagnostic>(
+    `/v1/admin/diagnostics/extractions/${encodeURIComponent(runId)}`,
+    { signal },
+  );
+}
+
+export function getChannelDiagnostic(
+  envelopeId: string,
+  signal?: AbortSignal,
+): Promise<ChannelDiagnostic> {
+  return humanFetch<ChannelDiagnostic>(
+    `/v1/admin/diagnostics/channels/${encodeURIComponent(envelopeId)}`,
+    { signal },
+  );
 }

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -43,6 +44,7 @@ type ValidityCheck struct {
 type ValidityReport struct {
 	SchemaVersion  string            `json:"schema_version"`
 	RunID          string            `json:"run_id"`
+	ArmSet         string            `json:"arm_set"`
 	Status         string            `json:"status"`
 	Valid          bool              `json:"valid"`
 	ExpectedTrials int               `json:"expected_trials"`
@@ -80,13 +82,14 @@ func EvaluateValidity(directory string, run v2.RunRecord, cases []v2.Case, resul
 	if strings.TrimSpace(directory) == "" {
 		return ValidityReport{}, fmt.Errorf("evaluate eval v3 validity: output directory is required")
 	}
+	requiredArms := ArmsFor(run.Config.ArmSet)
 	report := ValidityReport{
-		SchemaVersion: ValiditySchemaVersion, RunID: run.ID,
-		ExpectedTrials: len(cases) * len(architectureArms), ObservedTrials: len(results), GeneratedAt: time.Now().UTC(),
+		SchemaVersion: ValiditySchemaVersion, RunID: run.ID, ArmSet: requiredArmSetLabel(run.Config.ArmSet),
+		ExpectedTrials: len(cases) * len(requiredArms), ObservedTrials: len(results), GeneratedAt: time.Now().UTC(),
 	}
 	collector := &validityCollector{}
-	evaluateTrialMatrix(collector, run, cases, results)
-	evaluateIngestEvidence(collector, directory, run)
+	evaluateTrialMatrix(collector, run, cases, results, requiredArms)
+	evaluateIngestEvidence(collector, directory, run, requiredArms)
 	evaluateRecallObservations(collector, results)
 	evaluateAttemptArtifacts(collector, directory, run.ID, run.Config.Judge != nil, results)
 	evaluateResolvedConfig(collector, directory, run)
@@ -144,11 +147,11 @@ func RequireValid(report ValidityReport) error {
 	return fmt.Errorf("%w: %d validity failures", ErrInvalidRun, len(report.Failures))
 }
 
-func evaluateTrialMatrix(collector *validityCollector, run v2.RunRecord, cases []v2.Case, results []v2.TrialResult) {
+func evaluateTrialMatrix(collector *validityCollector, run v2.RunRecord, cases []v2.Case, results []v2.TrialResult, arms []string) {
 	start := len(collector.failures)
-	expected := make(map[string]struct{}, len(cases)*len(architectureArms))
+	expected := make(map[string]struct{}, len(cases)*len(arms))
 	for _, evalCase := range cases {
-		for _, arm := range architectureArms {
+		for _, arm := range arms {
 			expected[evalCase.ID+"\x00"+arm] = struct{}{}
 		}
 	}
@@ -183,7 +186,7 @@ func evaluateTrialMatrix(collector *validityCollector, run v2.RunRecord, cases [
 	collector.finishCheck("trial_matrix", start)
 }
 
-func evaluateIngestEvidence(collector *validityCollector, directory string, run v2.RunRecord) {
+func evaluateIngestEvidence(collector *validityCollector, directory string, run v2.RunRecord, requiredArms []string) {
 	coverageStart := len(collector.failures)
 	var header manifestHeader
 	if err := readJSON(run.Config.Run.Manifest, &header); err != nil {
@@ -237,6 +240,17 @@ func evaluateIngestEvidence(collector *validityCollector, directory string, run 
 			return ""
 		}},
 	}
+	required := make(map[string]struct{}, len(requiredArms))
+	for _, arm := range requiredArms {
+		required[arm] = struct{}{}
+	}
+	filtered := tests[:0:0]
+	for _, test := range tests {
+		if _, ok := required[test.arm]; ok {
+			filtered = append(filtered, test)
+		}
+	}
+	tests = filtered
 	receipts := make([]ingestReceipt, 0, len(tests))
 	for _, test := range tests {
 		var receipt ingestReceipt
@@ -283,19 +297,62 @@ func evaluateRecallObservations(collector *validityCollector, results []v2.Trial
 			collector.fail("recall_observation", result.CaseID, result.Arm, "memory Trial has no recall provider call evidence")
 		} else if result.MemoryRecallProviderType != expectedProvider {
 			collector.fail("recall_observation", result.CaseID, result.Arm, "memory recall provider does not match the Arm")
+		} else if !isolatedRecallProvidersWithinBoundary(result.Arm, result.MemoryRecallProviders) {
+			collector.fail("recall_observation", result.CaseID, result.Arm, "memory recall observed a provider outside the isolated Arm's boundary")
 		}
 	}
 	collector.finishCheck("recall_observation", start)
 }
 
 func expectedRecallProvider(arm string) string {
-	if arm == ArmGroupMemBenchMem0 {
+	switch arm {
+	case ArmGroupMemBenchMem0:
 		return "mem0"
-	}
-	if arm == ArmPrivateSQLiteTeamNote {
+	case ArmPrivateSQLiteTeamNote, ArmPrivateSQLiteOnly:
 		return "team-memory-sqlite"
+	case ArmTeamNoteOnly:
+		return "team-memory"
+	default:
+		return ""
 	}
-	return ""
+}
+
+// isolatedRecallProviderKeys names the only paxm provider keys a genuinely
+// isolated arm is permitted to record in memory_recall_providers.
+// MemoryRecallProviderType is a literal echo of PAXM_PROVIDER_TYPE (not
+// derived from what was actually queried), so it cannot by itself detect a
+// cross-provider leak: private_sqlite_only deliberately shares its
+// provider_type label ("team-memory-sqlite") with the combined arm, so only
+// the providers map can tell a genuinely isolated trial apart from a leaked
+// one. Arms not named here are not boundary-checked by
+// isolatedRecallProvidersWithinBoundary.
+func isolatedRecallProviderKeys(arm string) []string {
+	switch arm {
+	case ArmTeamNoteOnly:
+		return []string{"memory"}
+	case ArmPrivateSQLiteOnly:
+		return []string{"private"}
+	default:
+		return nil
+	}
+}
+
+// isolatedRecallProvidersWithinBoundary reports whether every provider key
+// observed on a Trial belongs to the set an isolated arm is allowed to
+// reach. Arms without a declared boundary (the combined arm, which
+// legitimately records both "private" and "team", and no_memory_team, which
+// is handled by its own branch above) always pass.
+func isolatedRecallProvidersWithinBoundary(arm string, providers map[string]int) bool {
+	allowed := isolatedRecallProviderKeys(arm)
+	if allowed == nil {
+		return true
+	}
+	for key := range providers {
+		if !slices.Contains(allowed, key) {
+			return false
+		}
+	}
+	return true
 }
 
 func evaluateAttemptArtifacts(collector *validityCollector, directory, runID string, requireJudge bool, results []v2.TrialResult) {

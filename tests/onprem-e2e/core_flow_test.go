@@ -55,6 +55,7 @@ func (s *coreFlowSuite) SetupSuite() {
 	s.ownerID = stringField(s.T(), claimed, "user_id")
 	s.Equal("owner", stringField(s.T(), claimed, "role"))
 	s.Contains(arrayField(s.T(), claimed, "capabilities"), "view.operations")
+	s.Contains(arrayField(s.T(), claimed, "capabilities"), "view.team-memory")
 }
 
 func (s *coreFlowSuite) TestAgentObservationBecomesRecallableTeamNote() {
@@ -135,6 +136,18 @@ func (s *coreFlowSuite) TestKnowledgeCapsuleChannelEndToEnd() {
 	s.Equal("channel-sender", stringField(s.T(), envelope, "from_agent_id"))
 	s.Equal("channel-recipient", stringField(s.T(), envelope, "to_agent_id"))
 	s.Equal("pending", stringField(s.T(), envelope, "status"))
+	channelDiagnostic := s.humanRequest(
+		http.MethodGet, "/v1/admin/diagnostics/channels/"+envelopeID, nil, nil,
+	)
+	s.Equal("decoded", stringField(s.T(), channelDiagnostic, "payload_status"))
+	s.Equal(
+		"The capsule crossed the on-prem channel.",
+		stringField(s.T(), objectField(s.T(), channelDiagnostic, "capsule"), "content"),
+	)
+	encodedDiagnostic, err := json.Marshal(channelDiagnostic)
+	s.Require().NoError(err)
+	s.NotContains(string(encodedDiagnostic), "idempotency_key")
+	s.NotContains(string(encodedDiagnostic), "channel-e2e-1")
 
 	replayed := s.request(http.MethodPost, "/v1/channel/envelopes", senderKey, request)
 	s.Equal(envelopeID, stringField(s.T(), objectField(s.T(), replayed, "envelope"), "envelope_id"))
@@ -174,6 +187,111 @@ func (s *coreFlowSuite) TestKnowledgeCapsuleChannelEndToEnd() {
 	s.Require().Len(arrayField(s.T(), archivedInbox, "envelopes"), 1)
 	s.expectStatus(http.StatusForbidden, http.MethodGet, "/v1/channel/envelopes", senderKey, nil)
 	s.expectStatus(http.StatusForbidden, http.MethodGet, "/v1/channel/envelopes?direction=sent", recipientKey, nil)
+}
+
+func (s *coreFlowSuite) TestDeviceProvisioningEndToEnd() {
+	enrollment := s.humanRequest(http.MethodPost, "/v1/me/device-enrollments", map[string]any{
+		"device_name": "e2e-device", "grantable_permissions": []string{"observe", "search", "get"},
+		"expires_in_seconds": 300,
+	}, nil)
+	s.Equal("e2e-device", stringField(s.T(), enrollment, "device_name"))
+	deviceCredential := s.request(http.MethodPost, "/v1/agent-enrollments/exchange", "", map[string]any{
+		"token": stringField(s.T(), enrollment, "token"),
+	})
+	deviceKey := stringField(s.T(), deviceCredential, "api_key")
+	deviceCredentialID := stringField(s.T(), deviceCredential, "credential_id")
+	s.Equal(s.ownerID, stringField(s.T(), deviceCredential, "user_id"))
+	s.Equal("device", stringField(s.T(), deviceCredential, "kind"))
+	devicePermissions := arrayField(s.T(), deviceCredential, "permissions")
+	s.Require().Len(devicePermissions, 1)
+	s.Equal("agent_provision", devicePermissions[0])
+
+	// A device credential is structurally forbidden from the knowledge plane.
+	s.expectStatus(http.StatusForbidden, http.MethodPost, "/v1/observations", deviceKey, map[string]any{
+		"session_id": "device-session", "idempotency_key": "e2e-device-observe", "complete": true,
+		"events": []map[string]any{{
+			"id": "e2e-device-event", "sequence": 1, "type": "assistant",
+			"content": "device credentials must not observe", "occurred_at": time.Now().UTC().Format(time.RFC3339Nano),
+		}},
+	})
+
+	// Provision an agent; re-provisioning the same agent rotates its credential.
+	provisioned := s.provisionDeviceAgent(deviceKey, "device-agent")
+	s.True(boolField(s.T(), provisioned, "agent_created"))
+	s.Equal(s.ownerID, stringField(s.T(), provisioned, "user_id"))
+	firstAgentKey := stringField(s.T(), provisioned, "api_key")
+
+	rotated := s.provisionDeviceAgent(deviceKey, "device-agent")
+	s.False(boolField(s.T(), rotated, "agent_created"))
+	s.NotEmpty(stringField(s.T(), rotated, "rotated_from_credential_id"))
+	s.expectStatus(http.StatusUnauthorized, http.MethodGet, "/v1/agent-identity", firstAgentKey, nil)
+	agentKey := stringField(s.T(), rotated, "api_key")
+
+	// A human-registered agent cannot be claimed by a device.
+	s.humanRequest(http.MethodPost, "/v1/me/agents", map[string]any{
+		"agent_id": "device-conflict-agent", "display_name": "device-conflict-agent",
+		"description": "human-registered agent", "agent_type": "test", "directory_visible": false,
+	}, map[string]string{"Idempotency-Key": "create-device-conflict-agent"})
+	conflictStatus, conflictBody := s.performRequest(http.MethodPost, "/v1/device/agent-provisions", deviceKey, map[string]any{
+		"agent_id": "device-conflict-agent", "display_name": "device-conflict-agent", "agent_type": "codex",
+	})
+	s.Equal(http.StatusConflict, conflictStatus, string(conflictBody))
+
+	// The provisioned agent credential works on the knowledge plane.
+	identity := s.request(http.MethodGet, "/v1/agent-identity", agentKey, nil)
+	s.Equal("device-agent", stringField(s.T(), identity, "agent_id"))
+	s.Equal(s.ownerID, stringField(s.T(), identity, "user_id"))
+	receipt := s.request(http.MethodPost, "/v1/observations", agentKey, map[string]any{
+		"session_id": "device-agent-session", "idempotency_key": "e2e-device-agent-observe", "complete": true,
+		"events": []map[string]any{{
+			"id": "e2e-device-agent-event", "sequence": 1, "type": "assistant",
+			"content": "device-provisioned agents can observe", "occurred_at": time.Now().UTC().Format(time.RFC3339Nano),
+		}},
+	})
+	s.InDelta(1, receipt["accepted"], 0)
+
+	// The device lists its provisions (rotation history included); admin views show the device.
+	provisions := s.request(http.MethodGet, "/v1/device/agent-provisions", deviceKey, nil)
+	provisionedAgents := arrayField(s.T(), provisions, "agents")
+	s.GreaterOrEqual(len(provisionedAgents), 2)
+	for _, value := range provisionedAgents {
+		agent, ok := value.(map[string]any)
+		s.Require().True(ok)
+		s.Equal("device-agent", stringField(s.T(), agent, "agent_id"))
+	}
+
+	devices := s.humanRequest(http.MethodGet, "/v1/admin/devices", nil, nil)
+	var deviceSummary map[string]any
+	for _, value := range arrayField(s.T(), devices, "devices") {
+		candidate, ok := value.(map[string]any)
+		s.Require().True(ok)
+		if stringField(s.T(), candidate, "credential_id") == deviceCredentialID {
+			deviceSummary = candidate
+		}
+	}
+	s.Require().NotNil(deviceSummary, "admin device list must contain the e2e device")
+	s.Equal("e2e-device", stringField(s.T(), deviceSummary, "device_name"))
+	s.Equal("active", stringField(s.T(), deviceSummary, "status"))
+	s.GreaterOrEqual(intField(s.T(), deviceSummary, "provisioned_agent_count"), int64(1))
+	detail := s.humanRequest(http.MethodGet, "/v1/admin/devices/"+deviceCredentialID, nil, nil)
+	s.Equal(deviceCredentialID, stringField(s.T(), objectField(s.T(), detail, "device"), "credential_id"))
+
+	// Cascade revocation disables the device and every credential it provisioned.
+	revoked := s.humanRequest(http.MethodDelete, "/v1/admin/devices/"+deviceCredentialID, nil,
+		map[string]string{"Idempotency-Key": "revoke-e2e-device"})
+	s.Equal("revoked", stringField(s.T(), objectField(s.T(), revoked, "device"), "status"))
+	s.expectStatus(http.StatusUnauthorized, http.MethodGet, "/v1/agent-identity", agentKey, nil)
+	s.expectStatus(http.StatusUnauthorized, http.MethodPost, "/v1/device/agent-provisions", deviceKey, map[string]any{
+		"agent_id": "device-agent-late", "display_name": "device-agent-late", "agent_type": "codex",
+	})
+}
+
+func (s *coreFlowSuite) provisionDeviceAgent(deviceKey string, agentID string) map[string]any {
+	s.T().Helper()
+	return s.request(http.MethodPost, "/v1/device/agent-provisions", deviceKey, map[string]any{
+		"agent_id": agentID, "display_name": agentID, "agent_type": "codex",
+		"permissions": []string{"observe", "search", "get"},
+	})
 }
 
 func (s *coreFlowSuite) enrollAgent(agentID string) string {
@@ -216,6 +334,27 @@ func (s *coreFlowSuite) assertOperationsFlow() {
 		s.Equal("extraction.run", stringField(s.T(), event, "operation_kind"))
 		s.Equal("extraction_run", stringField(s.T(), event, "detail_kind"))
 	}
+	extractionID := operationDetailID(s.T(), extractionEvents, "extraction.run", "extraction_run")
+	extractionDiagnostic := s.humanRequest(
+		http.MethodGet, "/v1/admin/diagnostics/extractions/"+extractionID, nil, nil,
+	)
+	s.Equal(extractionID, stringField(s.T(), objectField(s.T(), extractionDiagnostic, "run"), "run_id"))
+	s.NotEmpty(arrayField(s.T(), extractionDiagnostic, "source_events"))
+	s.NotEmpty(arrayField(s.T(), extractionDiagnostic, "candidates"))
+
+	noteList := s.humanRequest(http.MethodGet, "/v1/admin/team-notes?q="+approvalCode, nil, nil)
+	notes := arrayField(s.T(), noteList, "notes")
+	s.Require().NotEmpty(notes)
+	noteSummary, ok := notes[0].(map[string]any)
+	s.Require().True(ok)
+	noteID := stringField(s.T(), noteSummary, "note_id")
+	noteDetail := s.humanRequest(http.MethodGet, "/v1/admin/team-notes/"+noteID, nil, nil)
+	s.Contains(stringField(s.T(), objectField(s.T(), noteDetail, "note"), "body"), approvalCode)
+	revisions := arrayField(s.T(), noteDetail, "revisions")
+	s.Require().NotEmpty(revisions)
+	revision, ok := revisions[0].(map[string]any)
+	s.Require().True(ok)
+	s.Contains(stringField(s.T(), objectField(s.T(), revision, "candidate"), "body"), approvalCode)
 	searches := s.humanRequest(http.MethodGet, "/v1/admin/operations/events?operation_kind=memory.search", nil, nil)
 	diagnosticID := operationDetailID(s.T(), arrayField(s.T(), searches, "events"), "memory.search", "recall_observation")
 	diagnostic := s.humanRequest(http.MethodGet, "/v1/admin/operations/recalls/"+diagnosticID, nil, nil)

@@ -62,7 +62,8 @@ func TestConfigSuite(t *testing.T) {
 func (s *configSuite) SetupTest() {
 	for _, name := range []string{
 		"TEAM_MEMORY_DATABASE_URL", "TEAM_MEMORY_API_KEYS", "TEAM_MEMORY_LISTEN_ADDRESS",
-		"TEAM_MEMORY_ADMIN_API_KEY", "TEAM_MEMORY_CREDENTIAL_ROTATION_OVERLAP", "TEAM_MEMORY_WIKI_HINT_ENABLED",
+		"TEAM_MEMORY_ADMIN_API_KEY", "TEAM_MEMORY_CREDENTIAL_ROTATION_OVERLAP", "TEAM_MEMORY_DEVICE_AGENT_LIMIT",
+		"TEAM_MEMORY_WIKI_HINT_ENABLED",
 		"TEAM_MEMORY_OPERATIONS_EVENT_RETENTION", "TEAM_MEMORY_OPERATIONS_STORAGE_RETENTION",
 		"TEAM_MEMORY_OPERATIONS_SNAPSHOT_INTERVAL", "TEAM_MEMORY_OPERATIONS_MAINTENANCE_TIMEOUT",
 		"TEAM_MEMORY_BOOTSTRAP_SECRET", "TEAM_MEMORY_OIDC_ISSUER", "TEAM_MEMORY_OIDC_CLIENT_ID",
@@ -76,7 +77,7 @@ func (s *configSuite) SetupTest() {
 		"TEAM_MEMORY_EXTRACTION_COMPACT_START_TOKENS",
 		"TEAM_MEMORY_EXTRACTION_COMPACT_TOKENS", "TEAM_MEMORY_EXTRACTION_COMPACTION_ENABLED",
 		"TEAM_MEMORY_EXTRACTION_SUMMARY_ENABLED", "TEAM_MEMORY_EXTRACTION_SUMMARY_TRIGGER_TOKENS",
-		"TEAM_MEMORY_EXTRACTION_SUMMARY_TAIL_TOKENS",
+		"TEAM_MEMORY_EXTRACTION_SUMMARY_TAIL_TOKENS", "TEAM_MEMORY_EXTRACTION_MAX_PROMPT_TOKENS",
 		"TEAM_MEMORY_EXTRACTION_PROVIDER_TIMEOUT", "TEAM_MEMORY_EXTRACTION_PROVIDER_MAX_ATTEMPTS",
 		"TEAM_MEMORY_EXTRACTION_PROVIDER_RETRY_BACKOFF", "TEAM_MEMORY_EXTRACTION_PROVIDER_MAX_RESPONSE_BYTES",
 		"TEAM_MEMORY_EXTRACTION_PRIMARY_MAX_OUTPUT_TOKENS", "TEAM_MEMORY_EXTRACTION_SUMMARY_MAX_OUTPUT_TOKENS",
@@ -113,6 +114,7 @@ func (s *configSuite) TestLoadsNoopConfiguration() {
 	s.Equal(16*1024, config.extractionCompactTokens)
 	s.Equal(8*1024, config.extractionSummaryTriggerTokens)
 	s.Equal(16*1024, config.extractionSummaryTailTokens)
+	s.Equal(128*1024, config.extractionMaxPromptTokens)
 	s.Equal(120*time.Second, config.extractionExecutionPolicy.AttemptTimeout)
 	s.Equal(1, config.extractionExecutionPolicy.MaxAttempts)
 	s.Equal(250*time.Millisecond, config.extractionExecutionPolicy.RetryBackoff)
@@ -124,6 +126,7 @@ func (s *configSuite) TestLoadsNoopConfiguration() {
 	s.Equal(30*time.Second, config.batchTimeout)
 	s.Equal(3*time.Minute, config.workerJobTimeout)
 	s.Equal(5*time.Minute, config.credentialRotationOverlap)
+	s.Equal(16, config.deviceAgentLimit)
 	s.False(config.wikiHintEnabled)
 	s.Equal(25, config.sliceEventLimit)
 	s.Equal(8192, config.sliceTokenLimit)
@@ -145,6 +148,7 @@ func (s *configSuite) TestLoadsOnPremConfiguration() {
 	s.T().Setenv("TEAM_MEMORY_SECRET_PEPPER", "0123456789abcdef0123456789abcdef")
 	s.T().Setenv("TEAM_MEMORY_MEMBER_GRANTABLE_PERMISSIONS", "search,channel_send")
 	s.T().Setenv("TEAM_MEMORY_CREDENTIAL_ROTATION_OVERLAP", "2m")
+	s.T().Setenv("TEAM_MEMORY_DEVICE_AGENT_LIMIT", "8")
 	s.T().Setenv("TEAM_MEMORY_WIKI_HINT_ENABLED", "true")
 
 	config, err := loadConfig()
@@ -153,6 +157,7 @@ func (s *configSuite) TestLoadsOnPremConfiguration() {
 	s.Equal("admin-secret", config.adminAPIKey)
 	s.Empty(config.apiKeys)
 	s.Equal(2*time.Minute, config.credentialRotationOverlap)
+	s.Equal(8, config.deviceAgentLimit)
 	s.Equal(7*24*time.Hour, config.operationsEventRetention)
 	s.Equal(90*24*time.Hour, config.operationsStorageRetention)
 	s.Equal(time.Hour, config.operationsSnapshotInterval)
@@ -172,6 +177,8 @@ func (s *configSuite) TestRejectsOperationsConfigurationOutsideSafeBounds() {
 		{name: "storage retention", env: "TEAM_MEMORY_OPERATIONS_STORAGE_RETENTION", value: "8761h"},
 		{name: "snapshot interval", env: "TEAM_MEMORY_OPERATIONS_SNAPSHOT_INTERVAL", value: "4m"},
 		{name: "maintenance timeout", env: "TEAM_MEMORY_OPERATIONS_MAINTENANCE_TIMEOUT", value: "500ms"},
+		{name: "device agent limit too low", env: "TEAM_MEMORY_DEVICE_AGENT_LIMIT", value: "0"},
+		{name: "device agent limit too high", env: "TEAM_MEMORY_DEVICE_AGENT_LIMIT", value: "1001"},
 	}
 	for _, test := range tests {
 		s.Run(test.name, func() {
@@ -332,6 +339,17 @@ func (s *configSuite) TestAllowsExtractionV2OptIn() {
 	s.Equal("v2", config.extractionVersion)
 }
 
+func (s *configSuite) TestOverridesExtractionMaxPromptTokens() {
+	s.T().Setenv("TEAM_MEMORY_DATABASE_URL", "postgres://database")
+	s.T().Setenv("TEAM_MEMORY_API_KEYS", `{"key":"scope"}`)
+	s.T().Setenv("TEAM_MEMORY_EXTRACTOR_MODE", "noop")
+	s.T().Setenv("TEAM_MEMORY_EXTRACTION_MAX_PROMPT_TOKENS", "65536")
+
+	config, err := loadConfig()
+	s.Require().NoError(err)
+	s.Equal(65536, config.extractionMaxPromptTokens)
+}
+
 func (s *configSuite) TestCheckedInExtractionProtocolDefaults() {
 	tests := []struct {
 		path string
@@ -437,6 +455,7 @@ func (s *configSuite) TestRejectsInvalidWorkerConfiguration() {
 		{name: "TEAM_MEMORY_EXTRACTION_SUMMARY_ENABLED", value: "sometimes"},
 		{name: "TEAM_MEMORY_EXTRACTION_SUMMARY_TRIGGER_TOKENS", value: "0"},
 		{name: "TEAM_MEMORY_EXTRACTION_SUMMARY_TAIL_TOKENS", value: "0"},
+		{name: "TEAM_MEMORY_EXTRACTION_MAX_PROMPT_TOKENS", value: "0"},
 		{name: "TEAM_MEMORY_EMBEDDING_TIMEOUT", value: "0s"},
 		{name: "TEAM_MEMORY_SEMANTIC_THRESHOLD", value: "high"},
 		{name: "TEAM_MEMORY_RETRIEVAL_CANDIDATE_LIMIT", value: "0"},

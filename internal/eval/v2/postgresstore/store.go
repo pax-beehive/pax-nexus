@@ -264,6 +264,9 @@ VALUES ($1, $2, $3, $4)`, key.RunID, key.CaseID, key.Arm, attempt); err != nil {
 }
 
 func (s *Store) UpdateAttempt(ctx context.Context, handle v2.TrialAttemptHandle, stage v2.TrialStage, artifactRefs map[string]string) error {
+	if artifactRefs == nil {
+		artifactRefs = map[string]string{}
+	}
 	encoded, err := json.Marshal(artifactRefs)
 	if err != nil {
 		return fmt.Errorf("marshal eval attempt artifact references: %w", err)

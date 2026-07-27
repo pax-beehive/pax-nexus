@@ -17,7 +17,10 @@ const (
 
 type HumanCapability string
 
-const CapabilityViewOperations HumanCapability = "view.operations"
+const (
+	CapabilityViewOperations HumanCapability = "view.operations"
+	CapabilityViewTeamMemory HumanCapability = "view.team-memory"
+)
 
 type HumanPrincipal struct {
 	UserID           string
@@ -36,16 +39,22 @@ func (p HumanPrincipal) HasCapability(capability HumanCapability) bool {
 	switch capability {
 	case CapabilityViewOperations:
 		return p.Role == RoleOwner || p.Role == RoleAdmin
+	case CapabilityViewTeamMemory:
+		return p.Role == RoleOwner
 	default:
 		return false
 	}
 }
 
 func (p HumanPrincipal) Capabilities() []HumanCapability {
+	capabilities := make([]HumanCapability, 0, 2)
 	if p.HasCapability(CapabilityViewOperations) {
-		return []HumanCapability{CapabilityViewOperations}
+		capabilities = append(capabilities, CapabilityViewOperations)
 	}
-	return []HumanCapability{}
+	if p.HasCapability(CapabilityViewTeamMemory) {
+		capabilities = append(capabilities, CapabilityViewTeamMemory)
+	}
+	return capabilities
 }
 
 type AgentStatus string
@@ -70,6 +79,7 @@ type AgentProfile struct {
 	RetiredAt              *time.Time
 	ResourceVersion        int64
 	CreationIdempotencyKey string
+	ProvisionedBy          string
 }
 
 type CreateAgentRequest struct {
@@ -110,6 +120,12 @@ type OwnerEnrollmentRequest struct {
 	CredentialExpiresAt *time.Time
 }
 
+type DeviceEnrollmentRequest struct {
+	DeviceName           string
+	GrantablePermissions []Permission
+	ExpiresIn            time.Duration
+}
+
 type AgentEnrollmentMetadata struct {
 	EnrollmentID        string
 	AgentID             string
@@ -138,6 +154,37 @@ type AgentArtifactFilter struct {
 	Cursor string
 }
 
+// DeviceSummary describes a device credential's current state for the admin
+// device-management surface. Task 8's device listing reuses this struct, so
+// it must not be redefined elsewhere.
+type DeviceSummary struct {
+	CredentialID          string
+	DeviceName            string // credentials.label
+	CreatedByUserID       string
+	CreatedByMembershipID string
+	CreatedAt             time.Time
+	RevokedAt             *time.Time
+	LastUsedAt            *time.Time
+	GrantablePermissions  []Permission
+	ProvisionedAgentCount int64
+}
+
+// DeviceFilter narrows the admin device listing by status and paginates it
+// with a created_at-DESC keyset cursor (see normalizeDeviceFilter).
+type DeviceFilter struct {
+	Status string // "", "active", "revoked"
+	Limit  int
+	Cursor string
+}
+
+// DeviceDetail is a device credential's summary plus every credential row it
+// has provisioned (including revoked history), for the admin device detail
+// surface.
+type DeviceDetail struct {
+	Device DeviceSummary
+	Agents []DeviceProvisionedAgent
+}
+
 type RegistryConfig struct {
 	SecretPepper               string
 	MemberGrantablePermissions []Permission
@@ -152,6 +199,7 @@ type RegistryStore interface {
 	RetireOwnedAgent(context.Context, string, HumanPrincipal, string, int64, string, time.Time) (AgentProfile, error)
 	TransferAgent(context.Context, HumanPrincipal, string, string, int64, time.Time) (AgentProfile, error)
 	CreateOwnedEnrollment(context.Context, string, EnrollmentRecord) error
+	CreateDeviceEnrollment(context.Context, string, EnrollmentRecord) error
 	ListOwnedEnrollments(context.Context, string, string, AgentArtifactFilter, time.Time) ([]AgentEnrollmentMetadata, error)
 	RevokeOwnedEnrollment(context.Context, string, HumanPrincipal, string, string, string, time.Time) (AgentEnrollmentMetadata, error)
 	ListOwnedCredentials(context.Context, string, string, AgentArtifactFilter, time.Time) ([]AgentCredentialMetadata, error)
@@ -160,6 +208,9 @@ type RegistryStore interface {
 	GetDirectoryAgent(context.Context, string, time.Time) (AgentProfile, error)
 	ListAdminAgents(context.Context, AgentFilter) ([]AgentProfile, error)
 	GetAdminAgent(context.Context, string) (AgentProfile, error)
+	RevokeDevice(context.Context, HumanPrincipal, string, string, time.Time) (DeviceSummary, error)
+	ListDevices(context.Context, DeviceFilter) ([]DeviceSummary, error)
+	GetDevice(context.Context, string) (DeviceDetail, error)
 }
 
 type registryOptions struct {
@@ -183,13 +234,14 @@ func WithRegistryTokenSource(source func() (string, error)) RegistryOption {
 }
 
 type RegistryService struct {
-	store       RegistryStore
-	clock       func() time.Time
-	idSource    func() (string, error)
-	tokenSource func() (string, error)
-	digester    secretDigester
-	grantable   map[Permission]struct{}
-	portalURL   string
+	store         RegistryStore
+	clock         func() time.Time
+	idSource      func() (string, error)
+	tokenSource   func() (string, error)
+	digester      secretDigester
+	grantable     map[Permission]struct{}
+	grantableList []Permission
+	portalURL     string
 }
 
 func NewRegistryService(store RegistryStore, config RegistryConfig, options ...RegistryOption) (*RegistryService, error) {
@@ -200,9 +252,13 @@ func NewRegistryService(store RegistryStore, config RegistryConfig, options ...R
 	if err != nil {
 		return nil, fmt.Errorf("create agent registry: %w", err)
 	}
-	grantable, err := grantablePermissionSet(config.MemberGrantablePermissions)
+	grantableList, err := validateExplicitPermissions(config.MemberGrantablePermissions)
 	if err != nil {
 		return nil, fmt.Errorf("create agent registry: %w", err)
+	}
+	grantable := make(map[Permission]struct{}, len(grantableList))
+	for _, permission := range grantableList {
+		grantable[permission] = struct{}{}
 	}
 	configured := registryOptions{clock: time.Now, idSource: randomToken, tokenSource: randomToken}
 	for _, option := range options {
@@ -213,7 +269,8 @@ func NewRegistryService(store RegistryStore, config RegistryConfig, options ...R
 	}
 	return &RegistryService{
 		store: store, clock: configured.clock, idSource: configured.idSource, tokenSource: configured.tokenSource,
-		digester: digester, grantable: grantable, portalURL: strings.TrimSpace(config.PortalURL),
+		digester: digester, grantable: grantable, grantableList: grantableList,
+		portalURL: strings.TrimSpace(config.PortalURL),
 	}, nil
 }
 
@@ -360,6 +417,72 @@ func (s *RegistryService) CreateEnrollment(
 	return Enrollment{ID: id, Token: token, ExpiresAt: record.ExpiresAt}, nil
 }
 
+// CreateDeviceEnrollment creates a one-time device enrollment token. Its
+// second return value is the effective grantable-permissions set actually
+// persisted on the enrollment record: the caller-supplied set when
+// GrantablePermissions is non-empty, or the registry's configured default
+// (RegistryConfig.MemberGrantablePermissions) otherwise. Callers that need to
+// report the effective set truthfully (e.g. the device enrollment portal
+// endpoint) should use this return value rather than re-deriving it, since
+// Enrollment itself is shared with CreateEnrollment and intentionally carries
+// no permission fields.
+func (s *RegistryService) CreateDeviceEnrollment(
+	ctx context.Context,
+	principal HumanPrincipal,
+	request DeviceEnrollmentRequest,
+) (Enrollment, []Permission, error) {
+	if err := authorizeHumanAdmin(principal); err != nil {
+		return Enrollment{}, nil, err
+	}
+	deviceName := strings.TrimSpace(request.DeviceName)
+	if err := validateDeviceName(deviceName); err != nil {
+		return Enrollment{}, nil, err
+	}
+	grantable := request.GrantablePermissions
+	if len(grantable) == 0 {
+		grantable = append([]Permission(nil), s.grantableList...)
+	} else {
+		validated, err := validateExplicitPermissions(grantable)
+		if err != nil {
+			return Enrollment{}, nil, err
+		}
+		for _, permission := range validated {
+			if _, allowed := s.grantable[permission]; !allowed {
+				return Enrollment{}, nil, fmt.Errorf("%w: enrollment permission %q is not grantable", ErrInvalidIdentityInput, permission)
+			}
+		}
+		grantable = validated
+	}
+	expiresIn := request.ExpiresIn
+	if expiresIn == 0 {
+		expiresIn = defaultEnrollmentTTL
+	}
+	if expiresIn < 0 {
+		return Enrollment{}, nil, fmt.Errorf("%w: enrollment expiry must be positive", ErrInvalidIdentityInput)
+	}
+	id, err := s.idSource()
+	if err != nil {
+		return Enrollment{}, nil, fmt.Errorf("create device enrollment ID: %w", err)
+	}
+	secret, err := s.tokenSource()
+	if err != nil {
+		return Enrollment{}, nil, fmt.Errorf("create device enrollment secret: %w", err)
+	}
+	now := s.clock().UTC()
+	token, verifiableToken := enrollmentToken(id, secret, s.portalURL)
+	record := EnrollmentRecord{
+		ID: id, TokenDigest: s.digester.Digest(enrollmentDigestDomain, verifiableToken),
+		DigestKeyVersion: currentDigestKeyVersion, UserID: principal.UserID, MembershipID: principal.MembershipID,
+		Kind: CredentialKindDevice, AgentID: "", CredentialLabel: deviceName,
+		Permissions: []Permission{PermissionAgentProvision}, GrantablePermissions: grantable,
+		CreatedAt: now, ExpiresAt: now.Add(expiresIn),
+	}
+	if err := s.store.CreateDeviceEnrollment(ctx, principal.MembershipID, record); err != nil {
+		return Enrollment{}, nil, fmt.Errorf("save device enrollment: %w", err)
+	}
+	return Enrollment{ID: id, Token: token, ExpiresAt: record.ExpiresAt}, grantable, nil
+}
+
 func (s *RegistryService) ListEnrollments(
 	ctx context.Context,
 	principal HumanPrincipal,
@@ -426,18 +549,6 @@ func (s *RegistryService) RevokeOwnedCredential(
 		ctx, principal.MembershipID, principal, strings.TrimSpace(agentID), strings.TrimSpace(credentialID),
 		strings.TrimSpace(idempotencyKey), s.clock().UTC(),
 	)
-}
-
-func grantablePermissionSet(permissions []Permission) (map[Permission]struct{}, error) {
-	validated, err := validateExplicitPermissions(permissions)
-	if err != nil {
-		return nil, err
-	}
-	result := make(map[Permission]struct{}, len(validated))
-	for _, permission := range validated {
-		result[permission] = struct{}{}
-	}
-	return result, nil
 }
 
 func (s *RegistryService) ListDirectoryAgents(
@@ -648,6 +759,57 @@ func (s *RegistryService) RevokeAdminCredential(
 	)
 }
 
+// RevokeDevice revokes a device credential and, transactionally with the
+// revoke, cascades to every agent credential the device provisioned (see
+// docs/decisions/2026-07-24-device-scoped-agent-provisioning.md). Only an
+// Owner or Admin may revoke a device.
+func (s *RegistryService) RevokeDevice(
+	ctx context.Context,
+	principal HumanPrincipal,
+	credentialID string,
+	idempotencyKey string,
+) (DeviceSummary, error) {
+	if err := authorizeHumanAdmin(principal); err != nil {
+		return DeviceSummary{}, err
+	}
+	credentialID = strings.TrimSpace(credentialID)
+	if credentialID == "" {
+		return DeviceSummary{}, ErrCredentialNotFound
+	}
+	return s.store.RevokeDevice(ctx, principal, credentialID, strings.TrimSpace(idempotencyKey), s.clock().UTC())
+}
+
+// ListDevices returns the admin device-management listing (device
+// credentials only). Only an Owner or Admin may list devices.
+func (s *RegistryService) ListDevices(
+	ctx context.Context,
+	principal HumanPrincipal,
+	filter DeviceFilter,
+) ([]DeviceSummary, error) {
+	if err := authorizeHumanAdmin(principal); err != nil {
+		return nil, err
+	}
+	return s.store.ListDevices(ctx, normalizeDeviceFilter(filter))
+}
+
+// GetDevice returns a device credential's summary plus every credential row
+// it has provisioned (including revoked history). Only an Owner or Admin may
+// view a device's detail.
+func (s *RegistryService) GetDevice(
+	ctx context.Context,
+	principal HumanPrincipal,
+	credentialID string,
+) (DeviceDetail, error) {
+	if err := authorizeHumanAdmin(principal); err != nil {
+		return DeviceDetail{}, err
+	}
+	credentialID = strings.TrimSpace(credentialID)
+	if credentialID == "" {
+		return DeviceDetail{}, ErrCredentialNotFound
+	}
+	return s.store.GetDevice(ctx, credentialID)
+}
+
 func authorizeHumanAdmin(principal HumanPrincipal) error {
 	if err := validateHumanPrincipal(principal); err != nil {
 		return err
@@ -685,6 +847,21 @@ func validateAgentIdentity(agentID, displayName string) error {
 	}
 	if len(displayName) > 200 {
 		return fmt.Errorf("%w: display_name is too long", ErrInvalidIdentityInput)
+	}
+	return nil
+}
+
+func validateDeviceName(name string) error {
+	if name == "" {
+		return fmt.Errorf("%w: device_name is required", ErrInvalidIdentityInput)
+	}
+	if len(name) > 200 {
+		return fmt.Errorf("%w: device_name is too long", ErrInvalidIdentityInput)
+	}
+	for _, current := range name {
+		if current < 0x20 || current == 0x7f {
+			return fmt.Errorf("%w: device_name is invalid", ErrInvalidIdentityInput)
+		}
 	}
 	return nil
 }
@@ -747,6 +924,28 @@ func applyAgentUpdate(profile *AgentProfile, request UpdateAgentRequest, now tim
 func normalizeAgentFilter(filter AgentFilter) AgentFilter {
 	filter.OwnerMembershipID = strings.TrimSpace(filter.OwnerMembershipID)
 	filter.Query = strings.TrimSpace(filter.Query)
+	filter.Cursor = strings.TrimSpace(filter.Cursor)
+	if filter.Limit <= 0 {
+		filter.Limit = 50
+	}
+	if filter.Limit > 100 {
+		filter.Limit = 100
+	}
+	return filter
+}
+
+// EncodeDeviceCursor builds the opaque keyset cursor ListDevices' store
+// implementation (postgres.RegistryStore.ListDevices) expects back on
+// DeviceFilter.Cursor: "<created_at RFC3339Nano>|<credential_id>", matching
+// the ORDER BY created_at DESC, credential_id keyset. Callers building a
+// ListDevices response's next_cursor from the last returned DeviceSummary
+// should use this instead of hand-rolling the format.
+func EncodeDeviceCursor(createdAt time.Time, credentialID string) string {
+	return createdAt.UTC().Format(time.RFC3339Nano) + "|" + credentialID
+}
+
+func normalizeDeviceFilter(filter DeviceFilter) DeviceFilter {
+	filter.Status = strings.TrimSpace(filter.Status)
 	filter.Cursor = strings.TrimSpace(filter.Cursor)
 	if filter.Limit <= 0 {
 		filter.Limit = 50

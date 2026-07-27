@@ -5,12 +5,12 @@ import { copyTextToClipboard } from "../lib/clipboard";
 
 async function copyText(text: string, what: string, toast: (k: "ok" | "warn", m: string) => void) {
   if (await copyTextToClipboard(text)) {
-    toast("ok", `${what} 已复制`);
+    toast("ok", `${what} copied`);
     return;
   }
   // Clipboard unavailable (permissions or non-secure context): fall back to
   // a manual-copy prompt. The secret still never hits storage.
-  window.prompt("手动复制：", text);
+  window.prompt("Copy manually:", text);
 }
 
 /**
@@ -41,18 +41,18 @@ export function SecretCard({
         <strong>{title}</strong>
         {expiresAt && (
           <span className="small">
-            过期倒计时 <Countdown to={expiresAt} />
+            Expires in <Countdown to={expiresAt} />
           </span>
         )}
       </div>
       <div className="secret-val">{value}</div>
       <div className="row wrap">
         <button className="btn sm primary" onClick={() => void copyText(value, valueLabel, toast)}>
-          复制{valueLabel}
+          Copy {valueLabel}
         </button>
         {extraActions}
         <button className="btn sm ghost" onClick={onClose}>
-          我已保存，关闭
+          I've saved it, close
         </button>
       </div>
       <div className="note warn small" style={{ marginBottom: 0 }}>

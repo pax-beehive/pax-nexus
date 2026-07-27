@@ -136,17 +136,18 @@ export function agentActivity(lastActiveAt: string, now: number = Date.now()): A
   return "idle";
 }
 
-/** Short Chinese relative age ("刚刚", "3 分钟前") for the ticking label. */
+/** Short relative age ("just now", "3 minutes ago") for the ticking label. */
 export function relativeAge(iso: string, now: number = Date.now()): string {
   const at = new Date(iso).getTime();
   if (Number.isNaN(at)) return "—";
   const seconds = Math.max(0, Math.floor((now - at) / 1000));
-  if (seconds < 60) return "刚刚";
+  if (seconds < 60) return "just now";
   const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes} 分钟前`;
+  if (minutes < 60) return minutes === 1 ? "1 minute ago" : `${minutes} minutes ago`;
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} 小时前`;
-  return `${Math.floor(hours / 24)} 天前`;
+  if (hours < 24) return hours === 1 ? "1 hour ago" : `${hours} hours ago`;
+  const days = Math.floor(hours / 24);
+  return days === 1 ? "1 day ago" : `${days} days ago`;
 }
 
 // Known storage components (operations doc section 10); unknown components

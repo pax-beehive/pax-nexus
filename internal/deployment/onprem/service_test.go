@@ -61,6 +61,12 @@ func (s *serviceSuite) TestEnrollmentExchangeAuthenticationRotationAndRevocation
 	s.Require().NoError(err)
 	s.Equal("tm_key_credential-id.credential-secret", issued.APIKey)
 	s.Equal("credential-id", issued.CredentialID)
+	s.Equal("owner", issued.UserID)
+	s.Equal(
+		[]onprem.Permission{onprem.PermissionObserve, onprem.PermissionSearch, onprem.PermissionGet},
+		issued.Permissions,
+	)
+	s.Empty(issued.Kind)
 	_, err = s.service.ExchangeEnrollment(ctx, enrollment.Token)
 	s.Require().ErrorIs(err, onprem.ErrEnrollmentInvalid)
 
@@ -76,6 +82,9 @@ func (s *serviceSuite) TestEnrollmentExchangeAuthenticationRotationAndRevocation
 	rotated, err := s.service.RotateCredential(ctx, principal)
 	s.Require().NoError(err)
 	s.Equal("tm_key_rotated-id.rotated-secret", rotated.APIKey)
+	s.Equal("owner", rotated.UserID)
+	s.Equal(principal.Permissions, rotated.Permissions)
+	s.Equal(principal.Kind, rotated.Kind)
 	_, err = s.service.Authenticate(ctx, issued.APIKey)
 	s.Require().NoError(err, "old key remains valid during overlap")
 	s.now = s.now.Add(6 * time.Minute)
@@ -87,6 +96,22 @@ func (s *serviceSuite) TestEnrollmentExchangeAuthenticationRotationAndRevocation
 	s.Require().NoError(s.service.RevokeCredential(ctx, admin, rotatedPrincipal.CredentialID))
 	_, err = s.service.Authenticate(ctx, rotated.APIKey)
 	s.Require().ErrorIs(err, onprem.ErrUnauthorized)
+}
+
+// TestRotateCredentialRejectsDeviceKindPrincipal is a fast unit-level guard
+// on CredentialService.RotateCredential: device credentials are
+// revoke-and-rebuild, not rotatable
+// (docs/decisions/2026-07-24-device-scoped-agent-provisioning.md), so a
+// device-kind principal must be rejected with ErrForbidden before the store
+// is ever touched.
+func (s *serviceSuite) TestRotateCredentialRejectsDeviceKindPrincipal() {
+	ctx := context.Background()
+	device := onprem.Principal{
+		UserID: "owner", ScopeID: onprem.LocalScopeID, CredentialID: "device-credential-id",
+		Kind: onprem.CredentialKindDevice,
+	}
+	_, err := s.service.RotateCredential(ctx, device)
+	s.Require().ErrorIs(err, onprem.ErrForbidden)
 }
 
 func (s *serviceSuite) TestEnrollmentExchangeTokenCompatibility() {
@@ -238,6 +263,66 @@ type memoryCredentialStore struct {
 	credentials map[onprem.Digest]onprem.CredentialRecord
 	byID        map[string]onprem.Digest
 	resolveErr  error
+
+	// provisionCalls records every ProvisionAgentCredential invocation for
+	// assertions in provisioning_test.go.
+	provisionCalls []provisionAgentCredentialCall
+	// provisionOutcome and provisionErr configure the next
+	// ProvisionAgentCredential result; provisioning_test.go uses these to
+	// drive the service's happy-path passthrough assertions without
+	// re-implementing the postgres transaction semantics (covered by
+	// device_provisioning_test.go).
+	provisionOutcome onprem.ProvisionOutcome
+	provisionErr     error
+
+	// listDeviceProvisionedAgentsCalls records every
+	// ListDeviceProvisionedAgents invocation for assertions in
+	// provisioning_test.go.
+	listDeviceProvisionedAgentsCalls  []string
+	listDeviceProvisionedAgentsResult []onprem.DeviceProvisionedAgent
+	listDeviceProvisionedAgentsErr    error
+}
+
+func (s *memoryCredentialStore) ListDeviceProvisionedAgents(
+	_ context.Context, deviceCredentialID string,
+) ([]onprem.DeviceProvisionedAgent, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.listDeviceProvisionedAgentsCalls = append(s.listDeviceProvisionedAgentsCalls, deviceCredentialID)
+	if s.listDeviceProvisionedAgentsErr != nil {
+		return nil, s.listDeviceProvisionedAgentsErr
+	}
+	return s.listDeviceProvisionedAgentsResult, nil
+}
+
+type provisionAgentCredentialCall struct {
+	deviceCredentialID string
+	profile            onprem.AgentProfile
+	credential         onprem.CredentialRecord
+	activeAgentLimit   int
+	now                time.Time
+}
+
+func (s *memoryCredentialStore) ProvisionAgentCredential(
+	_ context.Context,
+	deviceCredentialID string,
+	profile onprem.AgentProfile,
+	credential onprem.CredentialRecord,
+	activeAgentLimit int,
+	now time.Time,
+) (onprem.ProvisionOutcome, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.provisionCalls = append(s.provisionCalls, provisionAgentCredentialCall{
+		deviceCredentialID: deviceCredentialID, profile: profile, credential: credential,
+		activeAgentLimit: activeAgentLimit, now: now,
+	})
+	if s.provisionErr != nil {
+		return onprem.ProvisionOutcome{}, s.provisionErr
+	}
+	s.credentials[credential.KeyDigest] = credential
+	s.byID[credential.ID] = credential.KeyDigest
+	return s.provisionOutcome, nil
 }
 
 func (s *memoryCredentialStore) LegacyAdminEnabled(context.Context) (bool, error) {

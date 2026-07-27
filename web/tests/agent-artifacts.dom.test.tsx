@@ -69,14 +69,14 @@ describe("section 10 item 6: replaying agent create reuses the Idempotency-Key",
     await user.click(await screen.findByRole("button", { name: "+ Create Agent" }));
     await user.type(screen.getByLabelText(/agent_id/), "agent-9");
     await user.type(screen.getByLabelText("display_name"), "Agent Nine");
-    await user.click(screen.getByRole("button", { name: "创建" }));
+    await user.click(screen.getByRole("button", { name: "Create" }));
 
     // Network failure surfaces without an automatic retry.
-    await screen.findByText(/网络错误/);
+    await screen.findByText(/Network error/);
     expect(callsTo(fetchMock, "/v1/me/agents", "POST")).toHaveLength(1);
 
-    await user.click(screen.getByRole("button", { name: "创建" }));
-    await screen.findByText("Agent 已创建");
+    await user.click(screen.getByRole("button", { name: "Create" }));
+    await screen.findByText("Agent created");
 
     const creates = callsTo(fetchMock, "/v1/me/agents", "POST");
     expect(creates).toHaveLength(2);
@@ -115,15 +115,15 @@ describe("section 10 item 6: replaying a credential revoke reuses the Idempotenc
 
     // Open the revoke confirmation for the active credential.
     const row = (await screen.findByText("Alice MacBook")).closest("tr") as HTMLElement;
-    await user.click(within(row).getByRole("button", { name: "吊销" }));
-    await screen.findByRole("heading", { name: "吊销 Credential" });
+    await user.click(within(row).getByRole("button", { name: "Revoke" }));
+    await screen.findByRole("heading", { name: "Revoke Credential" });
 
-    await user.click(screen.getByRole("button", { name: "确认吊销" }));
-    await screen.findByText(/网络错误/);
+    await user.click(screen.getByRole("button", { name: "Confirm revoke" }));
+    await screen.findByText(/Network error/);
     expect(callsTo(fetchMock, "/v1/me/agents/agent-1/credentials/cred_01", "DELETE")).toHaveLength(1);
 
-    await user.click(screen.getByRole("button", { name: "确认吊销" }));
-    await screen.findByText("Credential 已吊销，对应 API key 立即失效");
+    await user.click(screen.getByRole("button", { name: "Confirm revoke" }));
+    await screen.findByText("Credential revoked; the API key stops working immediately");
 
     const deletes = callsTo(fetchMock, "/v1/me/agents/agent-1/credentials/cred_01", "DELETE");
     expect(deletes).toHaveLength(2);
@@ -152,7 +152,7 @@ describe("section 10 item 11: a consumed enrollment leaves only metadata", () =>
     expect(rows).toHaveLength(2);
     expect(rows.some((row) => within(row).queryByText("consumed") !== null)).toBe(true);
     expect(rows.some((row) => within(row).queryByText("active") !== null)).toBe(true);
-    screen.getByRole("heading", { name: "Credentials（仅元数据，永不含 API key）" });
+    screen.getByRole("heading", { name: "Credentials (metadata only, never contains API keys)" });
     expect(screen.getAllByText("observe, search").length).toBe(2);
 
     // No one-time-secret card is mounted, and nothing key-shaped leaks into

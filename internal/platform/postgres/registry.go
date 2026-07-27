@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -41,7 +42,7 @@ func (s *RegistryStore) CreateAgent(
 		RETURNING agent_id, owner_membership_id,
 		          (SELECT user_id FROM onprem_memberships WHERE membership_id = owner_membership_id),
 		          display_name, description, agent_type, status, directory_visible,
-		          created_at, updated_at, retired_at, resource_version
+		          created_at, updated_at, retired_at, resource_version, COALESCE(provisioned_by, '')
 	`, profile.AgentID, profile.OwnerMembershipID, profile.DisplayName, profile.Description,
 		profile.AgentType, profile.Status, profile.DirectoryVisible, profile.CreatedAt,
 		profile.CreationIdempotencyKey))
@@ -75,7 +76,7 @@ func (s *RegistryStore) resolveIdempotentAgentCreate(
 		SELECT agents.agent_id, agents.owner_membership_id, memberships.user_id,
 		       agents.display_name, agents.description, agents.agent_type, agents.status,
 		       agents.directory_visible, agents.created_at, agents.updated_at,
-		       agents.retired_at, agents.resource_version
+		       agents.retired_at, agents.resource_version, COALESCE(agents.provisioned_by, '')
 		FROM onprem_agents agents
 		JOIN onprem_memberships memberships ON memberships.membership_id = agents.owner_membership_id
 		WHERE agents.owner_membership_id = $1 AND agents.creation_idempotency_key = $2
@@ -103,7 +104,7 @@ func (s *RegistryStore) ListOwnedAgents(
 		SELECT agents.agent_id, agents.owner_membership_id, memberships.user_id,
 		       agents.display_name, agents.description, agents.agent_type, agents.status,
 		       agents.directory_visible, agents.created_at, agents.updated_at,
-		       agents.retired_at, agents.resource_version
+		       agents.retired_at, agents.resource_version, COALESCE(agents.provisioned_by, '')
 		FROM onprem_agents agents
 		JOIN onprem_memberships memberships ON memberships.membership_id = agents.owner_membership_id
 		WHERE agents.owner_membership_id = $1
@@ -127,7 +128,7 @@ func (s *RegistryStore) GetOwnedAgent(
 		SELECT agents.agent_id, agents.owner_membership_id, memberships.user_id,
 		       agents.display_name, agents.description, agents.agent_type, agents.status,
 		       agents.directory_visible, agents.created_at, agents.updated_at,
-		       agents.retired_at, agents.resource_version
+		       agents.retired_at, agents.resource_version, COALESCE(agents.provisioned_by, '')
 		FROM onprem_agents agents
 		JOIN onprem_memberships memberships ON memberships.membership_id = agents.owner_membership_id
 		WHERE agents.owner_membership_id = $1 AND agents.agent_id = $2
@@ -162,7 +163,7 @@ func (s *RegistryStore) UpdateOwnedAgent(
 		RETURNING agent_id, owner_membership_id,
 		          (SELECT user_id FROM onprem_memberships WHERE membership_id = owner_membership_id),
 		          display_name, description, agent_type, status, directory_visible,
-		          created_at, updated_at, retired_at, resource_version
+		          created_at, updated_at, retired_at, resource_version, COALESCE(provisioned_by, '')
 	`, profile.AgentID, membershipID, profile.DisplayName, profile.Description, profile.AgentType,
 		profile.Status, profile.DirectoryVisible, profile.UpdatedAt, profile.RetiredAt, profile.ResourceVersion))
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -214,7 +215,7 @@ func (s *RegistryStore) RetireOwnedAgent(
 			SELECT agents.agent_id, agents.owner_membership_id, memberships.user_id,
 			       agents.display_name, agents.description, agents.agent_type, agents.status,
 			       agents.directory_visible, agents.created_at, agents.updated_at,
-			       agents.retired_at, agents.resource_version
+			       agents.retired_at, agents.resource_version, COALESCE(agents.provisioned_by, '')
 			FROM onprem_agents agents
 			JOIN onprem_memberships memberships ON memberships.membership_id = agents.owner_membership_id
 			WHERE agents.owner_membership_id = $1 AND agents.retire_idempotency_key = $2
@@ -241,7 +242,7 @@ func (s *RegistryStore) RetireOwnedAgent(
 		RETURNING agent_id, owner_membership_id,
 		          (SELECT user_id FROM onprem_memberships WHERE membership_id = owner_membership_id),
 		          display_name, description, agent_type, status, directory_visible,
-		          created_at, updated_at, retired_at, resource_version
+		          created_at, updated_at, retired_at, resource_version, COALESCE(provisioned_by, '')
 	`, agentID, membershipID, resourceVersion, idempotencyKey, now))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return onprem.AgentProfile{}, onprem.ErrResourceVersionConflict
@@ -299,7 +300,7 @@ func (s *RegistryStore) TransferAgent(
 		RETURNING agents.agent_id, agents.owner_membership_id, target.user_id,
 		          agents.display_name, agents.description, agents.agent_type, agents.status,
 		          agents.directory_visible, agents.created_at, agents.updated_at,
-		          agents.retired_at, agents.resource_version
+		          agents.retired_at, agents.resource_version, COALESCE(agents.provisioned_by, '')
 	`, agentID, targetMembershipID, resourceVersion, now))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return onprem.AgentProfile{}, classifyTransferAgentConflict(
@@ -410,6 +411,52 @@ func (s *RegistryStore) CreateOwnedEnrollment(
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit owned enrollment creation: %w", err)
+	}
+	return nil
+}
+
+func (s *RegistryStore) CreateDeviceEnrollment(
+	ctx context.Context,
+	membershipID string,
+	record onprem.EnrollmentRecord,
+) (returnedErr error) {
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return fmt.Errorf("begin device enrollment creation: %w", err)
+	}
+	defer rollbackTx(&returnedErr, tx, "device enrollment creation")
+	var active bool
+	err = tx.QueryRow(ctx, `
+		SELECT true
+		FROM onprem_memberships memberships
+		JOIN onprem_users users ON users.user_id = memberships.user_id
+		WHERE memberships.membership_id = $1 AND memberships.status = 'active'
+		  AND users.identity_status IN ('active', 'unclaimed')
+		FOR UPDATE OF memberships, users
+	`, membershipID).Scan(&active)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return onprem.ErrForbidden
+	}
+	if err != nil {
+		return fmt.Errorf("lock device enrollment membership: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO agent_enrollments (
+			enrollment_id, token_digest, user_id, membership_id, agent_id,
+			credential_label, permissions, created_at, expires_at, credential_expires_at,
+			digest_key_version, kind, grantable_permissions
+		) VALUES ($1, $2, $3, $4, '', $5, $6, $7, $8, NULL, $9, 'device', $10)
+	`, record.ID, record.TokenDigest[:], record.UserID, membershipID, record.CredentialLabel,
+		permissionStrings(record.Permissions), record.CreatedAt, record.ExpiresAt,
+		record.DigestKeyVersion, permissionStrings(record.GrantablePermissions)); err != nil {
+		return fmt.Errorf("create postgres device enrollment: %w", err)
+	}
+	if err := insertAuditEvent(ctx, tx, "human", record.UserID, membershipID, "", "",
+		"identity.enrollment.created", "enrollment", record.ID, record.CreatedAt); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit device enrollment creation: %w", err)
 	}
 	return nil
 }
@@ -651,6 +698,233 @@ func (s *RegistryStore) RevokeOwnedCredential(
 	return metadata, nil
 }
 
+// RevokeDevice revokes a device credential and, in the same transaction,
+// cascades to every agent credential the device provisioned via
+// cascadeRevokeProvisionedCredentials (postgres/credentials.go). It mirrors
+// RevokeOwnedCredential's idempotent-replay pattern but locks and branches on
+// the current row state up front, since an already-revoked device must not
+// re-run the cascade.
+func (s *RegistryStore) RevokeDevice(
+	ctx context.Context,
+	actor onprem.HumanPrincipal,
+	credentialID string,
+	idempotencyKey string,
+	now time.Time,
+) (summary onprem.DeviceSummary, returnedErr error) {
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return onprem.DeviceSummary{}, fmt.Errorf("begin device revocation: %w", err)
+	}
+	defer rollbackTx(&returnedErr, tx, "device revocation")
+
+	var (
+		deviceName, createdByUserID, createdByMembershipID       string
+		createdAt                                                time.Time
+		revokedAt, lastUsedAt                                    *time.Time
+		grantablePermissions                                     []string
+		revokeIdempotencyKey, revokeIdempotencyActorMembershipID string
+	)
+	err = tx.QueryRow(ctx, `
+		SELECT label, user_id, owner_membership_id, created_at, revoked_at, last_used_at,
+		       grantable_permissions, revoke_idempotency_key, revoke_idempotency_actor_membership_id
+		FROM agent_credentials
+		WHERE credential_id = $1 AND kind = 'device'
+		FOR UPDATE
+	`, credentialID).Scan(
+		&deviceName, &createdByUserID, &createdByMembershipID, &createdAt, &revokedAt, &lastUsedAt,
+		&grantablePermissions, &revokeIdempotencyKey, &revokeIdempotencyActorMembershipID,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return onprem.DeviceSummary{}, onprem.ErrCredentialNotFound
+	}
+	if err != nil {
+		return onprem.DeviceSummary{}, fmt.Errorf("lock postgres device credential: %w", err)
+	}
+
+	if revokedAt != nil {
+		if idempotencyKey == "" || revokeIdempotencyKey != idempotencyKey ||
+			revokeIdempotencyActorMembershipID != actor.MembershipID {
+			return onprem.DeviceSummary{}, onprem.ErrIdempotencyConflict
+		}
+		summary, err = deviceSummaryWithProvisionedCount(ctx, tx, credentialID, deviceName, createdByUserID,
+			createdByMembershipID, createdAt, revokedAt, lastUsedAt, grantablePermissions)
+		if err != nil {
+			return onprem.DeviceSummary{}, err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return onprem.DeviceSummary{}, fmt.Errorf("commit device revocation replay: %w", err)
+		}
+		return summary, nil
+	}
+
+	if _, err := tx.Exec(ctx, `
+		UPDATE agent_credentials
+		SET revoked_at = $2, revoke_idempotency_key = $3, revoke_idempotency_actor_membership_id = $4
+		WHERE credential_id = $1
+	`, credentialID, now, idempotencyKey, actor.MembershipID); err != nil {
+		if isUniqueViolation(err) {
+			return onprem.DeviceSummary{}, onprem.ErrIdempotencyConflict
+		}
+		return onprem.DeviceSummary{}, fmt.Errorf("revoke postgres device credential: %w", err)
+	}
+	if err := insertAuditEvent(ctx, tx, "human", actor.UserID, actor.MembershipID, "", "",
+		"identity.credential.revoked", "credential", credentialID, now); err != nil {
+		return onprem.DeviceSummary{}, err
+	}
+	if _, err := cascadeRevokeProvisionedCredentials(ctx, tx, credentialID, now); err != nil {
+		return onprem.DeviceSummary{}, err
+	}
+	revokedAt = &now
+	summary, err = deviceSummaryWithProvisionedCount(ctx, tx, credentialID, deviceName, createdByUserID,
+		createdByMembershipID, createdAt, revokedAt, lastUsedAt, grantablePermissions)
+	if err != nil {
+		return onprem.DeviceSummary{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return onprem.DeviceSummary{}, fmt.Errorf("commit device revocation: %w", err)
+	}
+	return summary, nil
+}
+
+// deviceSummaryWithProvisionedCount builds a DeviceSummary from a device
+// credential's already-locked row fields plus a fresh count of the agents it
+// still actively provisions (0 immediately after a fresh revoke, since the
+// cascade just ran in the same transaction).
+func deviceSummaryWithProvisionedCount(
+	ctx context.Context,
+	tx pgx.Tx,
+	credentialID, deviceName, userID, membershipID string,
+	createdAt time.Time,
+	revokedAt, lastUsedAt *time.Time,
+	grantablePermissions []string,
+) (onprem.DeviceSummary, error) {
+	var count int64
+	if err := tx.QueryRow(ctx, `
+		SELECT count(DISTINCT agent_id) FROM agent_credentials
+		WHERE provisioned_by = $1 AND revoked_at IS NULL
+	`, credentialID).Scan(&count); err != nil {
+		return onprem.DeviceSummary{}, fmt.Errorf("count postgres active provisioned agents: %w", err)
+	}
+	return onprem.DeviceSummary{
+		CredentialID: credentialID, DeviceName: deviceName,
+		CreatedByUserID: userID, CreatedByMembershipID: membershipID,
+		CreatedAt: createdAt, RevokedAt: revokedAt, LastUsedAt: lastUsedAt,
+		GrantablePermissions:  permissionsFromStrings(grantablePermissions),
+		ProvisionedAgentCount: count,
+	}, nil
+}
+
+// ListDevices returns the admin device-management listing (device-kind
+// credentials only), newest first. Pagination is a created_at-DESC keyset
+// cursor tie-broken by credential_id ascending, matching the
+// agent_credentials_device_kind_idx partial index added by migration 019;
+// the opaque cursor format is "<created_at RFC3339Nano>|<credential_id>",
+// built by the handler layer via onprem.EncodeDeviceCursor and parsed here
+// by decodeDeviceCursor.
+func (s *RegistryStore) ListDevices(
+	ctx context.Context,
+	filter onprem.DeviceFilter,
+) ([]onprem.DeviceSummary, error) {
+	var cursorTime time.Time
+	var cursorID string
+	hasCursor := filter.Cursor != ""
+	if hasCursor {
+		var err error
+		cursorTime, cursorID, err = decodeDeviceCursor(filter.Cursor)
+		if err != nil {
+			return nil, fmt.Errorf("%w: invalid device cursor", onprem.ErrInvalidIdentityInput)
+		}
+	}
+	rows, err := s.pool.Query(ctx, `
+		SELECT credentials.credential_id, credentials.label, credentials.user_id,
+		       credentials.owner_membership_id, credentials.created_at, credentials.revoked_at,
+		       credentials.last_used_at, credentials.grantable_permissions,
+		       (SELECT count(DISTINCT p.agent_id) FROM agent_credentials p
+		        WHERE p.provisioned_by = credentials.credential_id AND p.revoked_at IS NULL)
+		FROM agent_credentials credentials
+		WHERE credentials.kind = 'device'
+		  AND ($1 = '' OR ($1 = 'active' AND credentials.revoked_at IS NULL)
+		               OR ($1 = 'revoked' AND credentials.revoked_at IS NOT NULL))
+		  AND (NOT $2 OR credentials.created_at < $3
+		       OR (credentials.created_at = $3 AND credentials.credential_id > $4))
+		ORDER BY credentials.created_at DESC, credentials.credential_id
+		LIMIT $5
+	`, filter.Status, hasCursor, cursorTime, cursorID, filter.Limit)
+	if err != nil {
+		return nil, fmt.Errorf("list postgres devices: %w", err)
+	}
+	defer rows.Close()
+	result := make([]onprem.DeviceSummary, 0)
+	for rows.Next() {
+		summary, err := scanDeviceSummary(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan postgres device: %w", err)
+		}
+		result = append(result, summary)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate postgres devices: %w", err)
+	}
+	return result, nil
+}
+
+// GetDevice returns a device credential's summary plus every credential row
+// it has provisioned (including revoked history, via the Task 6 query shared
+// with CredentialStore.ListDeviceProvisionedAgents). A credential ID that
+// does not name an active-or-revoked device-kind row returns
+// ErrCredentialNotFound, matching RevokeDevice's kind check.
+func (s *RegistryStore) GetDevice(ctx context.Context, credentialID string) (onprem.DeviceDetail, error) {
+	summary, err := scanDeviceSummary(s.pool.QueryRow(ctx, `
+		SELECT credentials.credential_id, credentials.label, credentials.user_id,
+		       credentials.owner_membership_id, credentials.created_at, credentials.revoked_at,
+		       credentials.last_used_at, credentials.grantable_permissions,
+		       (SELECT count(DISTINCT p.agent_id) FROM agent_credentials p
+		        WHERE p.provisioned_by = credentials.credential_id AND p.revoked_at IS NULL)
+		FROM agent_credentials credentials
+		WHERE credentials.credential_id = $1 AND credentials.kind = 'device'
+	`, credentialID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return onprem.DeviceDetail{}, onprem.ErrCredentialNotFound
+	}
+	if err != nil {
+		return onprem.DeviceDetail{}, fmt.Errorf("get postgres device: %w", err)
+	}
+	agents, err := listDeviceProvisionedAgents(ctx, s.pool, credentialID)
+	if err != nil {
+		return onprem.DeviceDetail{}, err
+	}
+	return onprem.DeviceDetail{Device: summary, Agents: agents}, nil
+}
+
+func scanDeviceSummary(scanner agentRowScanner) (onprem.DeviceSummary, error) {
+	var summary onprem.DeviceSummary
+	var grantablePermissions []string
+	err := scanner.Scan(
+		&summary.CredentialID, &summary.DeviceName, &summary.CreatedByUserID,
+		&summary.CreatedByMembershipID, &summary.CreatedAt, &summary.RevokedAt,
+		&summary.LastUsedAt, &grantablePermissions, &summary.ProvisionedAgentCount,
+	)
+	summary.GrantablePermissions = permissionsFromStrings(grantablePermissions)
+	return summary, err
+}
+
+// decodeDeviceCursor parses ListDevices' keyset cursor, which the handler
+// layer builds via onprem.EncodeDeviceCursor as
+// "<created_at RFC3339Nano>|<credential_id>". credential_id never contains
+// "|" (device credential IDs are opaque generated tokens), so splitting on
+// the first "|" is unambiguous.
+func decodeDeviceCursor(cursor string) (time.Time, string, error) {
+	separator := strings.IndexByte(cursor, '|')
+	if separator < 0 {
+		return time.Time{}, "", fmt.Errorf("malformed device cursor")
+	}
+	createdAt, err := time.Parse(time.RFC3339Nano, cursor[:separator])
+	if err != nil {
+		return time.Time{}, "", fmt.Errorf("malformed device cursor timestamp: %w", err)
+	}
+	return createdAt, cursor[separator+1:], nil
+}
+
 func (s *RegistryStore) ListDirectoryAgents(
 	ctx context.Context,
 	filter onprem.AgentFilter,
@@ -694,7 +968,7 @@ func (s *RegistryStore) ListAdminAgents(
 		SELECT agents.agent_id, agents.owner_membership_id, memberships.user_id,
 		       agents.display_name, agents.description, agents.agent_type, agents.status,
 		       agents.directory_visible, agents.created_at, agents.updated_at,
-		       agents.retired_at, agents.resource_version
+		       agents.retired_at, agents.resource_version, COALESCE(agents.provisioned_by, '')
 		FROM onprem_agents agents
 		JOIN onprem_memberships memberships ON memberships.membership_id = agents.owner_membership_id
 		WHERE ($1 = '' OR agents.owner_membership_id = $1)
@@ -717,7 +991,7 @@ func (s *RegistryStore) GetAdminAgent(ctx context.Context, agentID string) (onpr
 		SELECT agents.agent_id, agents.owner_membership_id, memberships.user_id,
 		       agents.display_name, agents.description, agents.agent_type, agents.status,
 		       agents.directory_visible, agents.created_at, agents.updated_at,
-		       agents.retired_at, agents.resource_version
+		       agents.retired_at, agents.resource_version, COALESCE(agents.provisioned_by, '')
 		FROM onprem_agents agents
 		JOIN onprem_memberships memberships ON memberships.membership_id = agents.owner_membership_id
 		WHERE agents.agent_id = $1
@@ -735,7 +1009,7 @@ const directoryAgentQuery = `
 	SELECT agents.agent_id, agents.owner_membership_id, memberships.user_id,
 	       agents.display_name, agents.description, agents.agent_type, agents.status,
 	       agents.directory_visible, agents.created_at, agents.updated_at,
-	       agents.retired_at, agents.resource_version
+	       agents.retired_at, agents.resource_version, COALESCE(agents.provisioned_by, '')
 	FROM onprem_agents agents
 	JOIN onprem_memberships memberships ON memberships.membership_id = agents.owner_membership_id
 	JOIN onprem_users users ON users.user_id = memberships.user_id
@@ -773,7 +1047,7 @@ func scanAgent(scanner agentRowScanner) (onprem.AgentProfile, error) {
 		&profile.AgentID, &profile.OwnerMembershipID, &profile.OwnerUserID,
 		&profile.DisplayName, &profile.Description, &profile.AgentType, &profile.Status,
 		&profile.DirectoryVisible, &profile.CreatedAt, &profile.UpdatedAt,
-		&profile.RetiredAt, &profile.ResourceVersion,
+		&profile.RetiredAt, &profile.ResourceVersion, &profile.ProvisionedBy,
 	)
 	return profile, err
 }

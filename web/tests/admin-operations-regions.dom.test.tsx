@@ -84,9 +84,9 @@ describe("section 12 item 3: regions survive an unavailable storage backend", ()
     expect(within(eventsTable())
       .getByText("Memory Search")).toBeTruthy();
     // Storage shows its dedicated state, not a generic region error.
-    screen.getByText(/Storage 统计暂不可用（storage_not_available）/);
+    screen.getByText(/Storage statistics are temporarily unavailable \(storage_not_available\)/);
     expect(screen.queryByText("database physical")).toBeNull();
-    expect(screen.queryByText("服务端错误，请稍后重试")).toBeNull();
+    expect(screen.queryByText("Server error; try again later")).toBeNull();
   });
 
   it("a failing events region leaves summary and storage intact", async () => {
@@ -94,7 +94,7 @@ describe("section 12 item 3: regions survive an unavailable storage backend", ()
         events: () => apiErrorResponse(500, "internal_error", "boom"),
       });
 
-    screen.getByText("服务端错误，请稍后重试");
+    screen.getByText("Server error; try again later");
     expect(statValue(card("Observations"), "requests")).toBe("18");
     screen.getByText("database physical");
   });
@@ -105,7 +105,7 @@ describe("section 12 item 3: regions survive an unavailable storage backend", ()
         events: () => jsonResponse(eventsPage([makeEvent()])),
       });
 
-    screen.getByText("服务端错误，请稍后重试");
+    screen.getByText("Server error; try again later");
     expect(screen.queryByRole("heading", { name: "Observations" })).toBeNull();
     within(eventsTable()).getByText(
       "Memory Search",
@@ -124,10 +124,10 @@ describe("section 12 item 4: legitimate zero values render as 0, not as an error
     expect(statValue(observations, "duplicates")).toBe("0");
     expect(statValue(card("Latency & Errors"), "errors")).toBe("0");
     // The duplicates explainer only appears when duplicates exist.
-    expect(screen.queryByText(/duplicates 为合法幂等 replay/)).toBeNull();
+    expect(screen.queryByText(/duplicates are legitimate idempotent replays/)).toBeNull();
     // No region flipped into an error/empty-data note.
     expect(document.querySelector(".note.bad")).toBeNull();
-    expect(screen.queryByText("服务端错误，请稍后重试")).toBeNull();
+    expect(screen.queryByText("Server error; try again later")).toBeNull();
   });
 });
 
@@ -139,8 +139,8 @@ describe("section 12 item 5: missing latency percentiles show insufficient sampl
 
     const latency = card("Latency & Errors");
     expect(statValue(latency, "samples")).toBe("1");
-    expect(statValue(latency, "p50")).toBe("样本不足");
-    expect(statValue(latency, "p95")).toBe("样本不足");
+    expect(statValue(latency, "p50")).toBe("insufficient samples");
+    expect(statValue(latency, "p95")).toBe("insufficient samples");
     expect(within(latency).queryByText("0 ms")).toBeNull();
     expect(latency.textContent).not.toContain("NaN");
   });
@@ -152,7 +152,7 @@ describe("section 12 item 5: missing latency percentiles show insufficient sampl
 
     const latency = card("Latency & Errors");
     expect(statValue(latency, "p50")).toBe("24 ms");
-    expect(statValue(latency, "p95")).toBe("样本不足");
+    expect(statValue(latency, "p95")).toBe("insufficient samples");
   });
 });
 
@@ -178,7 +178,7 @@ describe("section 12 item 6: idempotent Observation replay is still a success", 
     expect(statValue(observations, "succeeded")).toBe("18");
     expect(statValue(observations, "events written")).toBe("0");
     expect(statValue(observations, "duplicates")).toBe("4");
-    screen.getByText(/duplicates 为合法幂等 replay/);
+    screen.getByText(/duplicates are legitimate idempotent replays/);
     expect(statValue(card("Latency & Errors"), "errors")).toBe("0");
   });
 });
@@ -247,9 +247,9 @@ describe("section 12 item 14: storage complete, partial, stale, 503 and empty hi
     const row = within(cardEl).getByText("Session Lake").closest("tr") as HTMLTableRowElement;
     expect(row.cells[2].textContent).toBe("501.3 KiB");
     expect(row.cells[3].textContent).toBe("4 MiB");
-    expect(within(cardEl).queryByText(/本次采集不完整/)).toBeNull();
-    expect(within(cardEl).queryByText(/可能已过时/)).toBeNull();
-    expect(within(cardEl).queryByText(/未知采集状态/)).toBeNull();
+    expect(within(cardEl).queryByText(/incomplete \(partial\)/)).toBeNull();
+    expect(within(cardEl).queryByText(/may be stale/)).toBeNull();
+    expect(within(cardEl).queryByText(/Unknown capture status/)).toBeNull();
   });
 
   it("partial snapshot shows the warning codes and capture time", async () => {
@@ -273,7 +273,7 @@ describe("section 12 item 14: storage complete, partial, stale, 503 and empty hi
       });
 
     const cardEl = storageCard();
-    within(cardEl).getByText(/本次采集不完整（partial）/);
+    within(cardEl).getByText(/This capture is incomplete \(partial\)/);
     within(cardEl).getByText("recall_diagnostics_logical_unavailable");
     expect(statValue(cardEl, "status")).toBe("partial");
     // The healthy component still renders real sizes.
@@ -288,19 +288,19 @@ describe("section 12 item 14: storage complete, partial, stale, 503 and empty hi
       });
 
     const cardEl = storageCard();
-    within(cardEl).getByText(/可能已过时/);
+    within(cardEl).getByText(/may be stale/);
     // Data is still rendered; only the freshness note is added.
     expect(statValue(cardEl, "database physical")).toBe("100 MiB");
-    expect(within(cardEl).queryByText(/本次采集不完整/)).toBeNull();
+    expect(within(cardEl).queryByText(/incomplete \(partial\)/)).toBeNull();
   });
 
   it("history loads only on demand and an empty history is its own state", async () => {
     const { fetchMock, user } = await renderOperationsPage();
     expect(callsTo(fetchMock, "/v1/admin/operations/storage/history")).toHaveLength(0);
 
-    await user.click(screen.getByRole("button", { name: "历史趋势" }));
+    await user.click(screen.getByRole("button", { name: "History trend" }));
 
-    await screen.findByText("暂无历史快照。");
+    await screen.findByText("No history snapshots yet.");
     const historyCalls = callsTo(fetchMock, "/v1/admin/operations/storage/history");
     expect(historyCalls).toHaveLength(1);
     expect(historyCalls[0].path).toContain("limit=50");
@@ -323,7 +323,7 @@ describe("section 12 item 14: storage complete, partial, stale, 503 and empty hi
         history: () => jsonResponse({ snapshots: [newer, older] }),
       });
 
-    await user.click(screen.getByRole("button", { name: "历史趋势" }));
+    await user.click(screen.getByRole("button", { name: "History trend" }));
 
     const cardEl = (await screen.findByText("Storage history")).closest(".card") as HTMLElement;
     const rows = within(cardEl).getAllByRole("row");
@@ -363,11 +363,11 @@ describe("section 12 item 15: partial zeros are never shown as a healthy empty d
     const cardEl = storageCard();
     const lakeRow = within(cardEl).getByText("Session Lake").closest("tr") as HTMLTableRowElement;
     // Logical is unavailable; physical is still a real measurement.
-    expect(lakeRow.cells[2].textContent).toBe("不可用");
+    expect(lakeRow.cells[2].textContent).toBe("unavailable");
     expect(lakeRow.cells[3].textContent).toBe("4 MiB");
     const diagRow = within(cardEl).getByText("Recall Diagnostics").closest("tr") as HTMLTableRowElement;
-    expect(diagRow.cells[2].textContent).toBe("不可用");
-    expect(diagRow.cells[3].textContent).toBe("不可用");
+    expect(diagRow.cells[2].textContent).toBe("unavailable");
+    expect(diagRow.cells[3].textContent).toBe("unavailable");
   });
 });
 
@@ -395,7 +395,7 @@ describe("section 12 item 16: unknown storage codes fall back safely", () => {
     const cardEl = storageCard();
     // Unknown component keeps its raw name; unknown warning code shows raw.
     const row = within(cardEl).getByText("vector_index").closest("tr") as HTMLTableRowElement;
-    expect(row.cells[2].textContent).toBe("不可用");
+    expect(row.cells[2].textContent).toBe("unavailable");
     within(cardEl).getByText("vector_index_logical_unavailable");
   });
 
@@ -405,7 +405,7 @@ describe("section 12 item 16: unknown storage codes fall back safely", () => {
       });
 
     const cardEl = storageCard();
-    within(cardEl).getByText(/未知采集状态/);
+    within(cardEl).getByText(/Unknown capture status/);
     // The raw code appears in the note and as the status badge.
     expect(within(cardEl).getAllByText("degraded").length).toBeGreaterThanOrEqual(2);
     expect(statValue(cardEl, "database physical")).toBe("100 MiB");
@@ -423,7 +423,7 @@ describe("section 12 item 16: unknown storage codes fall back safely", () => {
       });
 
     const cardEl = storageCard();
-    expect(cardEl.textContent).toContain("仅显示数据库总量与原始 component 名称");
+    expect(cardEl.textContent).toContain("only database totals and raw component names are shown");
     expect(cardEl.textContent).toContain("components: session_lake, vector_index");
     expect(statValue(cardEl, "database physical")).toBe("100 MiB");
     // No per-component size table under a foreign schema version.
@@ -467,8 +467,8 @@ describe("section 4.1: time-window presets emit RFC3339 from/to parameters", () 
   it("the agent filter is sent to both summary and events", async () => {
     const { fetchMock, user } = await renderOperationsPage();
 
-    await user.type(screen.getByPlaceholderText("Agent ID 过滤"), "agent-1");
-    await user.click(screen.getByRole("button", { name: "应用过滤" }));
+    await user.type(screen.getByPlaceholderText("Filter by Agent ID"), "agent-1");
+    await user.click(screen.getByRole("button", { name: "Apply filter" }));
 
     await waitFor(() =>
       expect(callsTo(fetchMock, "/v1/admin/operations/summary")).toHaveLength(2),

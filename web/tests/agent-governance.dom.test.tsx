@@ -46,11 +46,11 @@ describe("section 10 item 10: governance capabilities and lifecycle actions", ()
       fetch: detailHandler(() => makeAgent({ owner_membership_id: "mbr_02" })),
     });
 
-    await screen.findByRole("button", { name: "暂停 Agent" });
+    await screen.findByRole("button", { name: "Suspend Agent" });
     expect(screen.queryByText(/Retire/)).toBeNull();
-    expect(screen.queryByText("恢复 active")).toBeNull();
+    expect(screen.queryByText("Resume to active")).toBeNull();
     expect((screen.getByLabelText("display_name") as HTMLInputElement).disabled).toBe(true);
-    expect(screen.queryByRole("button", { name: "保存" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
   });
 
   it("the suspend confirmation spells out the cascade and PATCHes with optimistic locking", async () => {
@@ -71,14 +71,14 @@ describe("section 10 item 10: governance capabilities and lifecycle actions", ()
       },
     });
 
-    await user.click(await screen.findByRole("button", { name: "暂停" }));
+    await user.click(await screen.findByRole("button", { name: "Suspend" }));
     // The confirmation dialog states the immediate cascade up front.
-    await screen.findByRole("heading", { name: "暂停 Agent" });
-    screen.getByText(/立即吊销 Alice Codex 的全部 Credential 和 pending Enrollment/);
-    screen.getByText(/恢复 active 不会还原旧 key，必须重新签发 Enrollment/);
+    await screen.findByRole("heading", { name: "Suspend Agent" });
+    screen.getByText(/Immediately revoke all Credentials and pending Enrollments for Alice Codex/);
+    screen.getByText(/Resuming to active does not restore old keys; a new Enrollment must be issued/);
 
-    await user.click(screen.getByRole("button", { name: "确认暂停" }));
-    await screen.findByText("已暂停并级联吊销 Credential 与 pending Enrollment");
+    await user.click(screen.getByRole("button", { name: "Confirm suspend" }));
+    await screen.findByText("Suspended; Credentials and pending Enrollments were cascade-revoked");
 
     const patches = callsTo(fetchMock, "/v1/admin/agents/agent-1", "PATCH");
     expect(patches).toHaveLength(1);
@@ -112,27 +112,27 @@ describe("section 10 item 10: governance capabilities and lifecycle actions", ()
     const nameInput = screen.getByLabelText("display_name");
     await user.clear(nameInput);
     await user.type(nameInput, "Renamed");
-    await user.click(await screen.findByRole("button", { name: "保存" }));
-    await screen.findByText("已保存（v8）");
+    await user.click(await screen.findByRole("button", { name: "Save" }));
+    await screen.findByText("Saved (v8)");
     const patches = callsTo(fetchMock, "/v1/admin/agents/agent-1", "PATCH");
     expect(patches).toHaveLength(1);
     expect(JSON.parse(String(patches[0].init.body))).not.toHaveProperty("status");
 
     // Retire goes through the terminal DELETE with both optimistic locking
     // and an Idempotency-Key.
-    await user.click(screen.getByRole("button", { name: "Retire（不可逆）" }));
+    await user.click(screen.getByRole("button", { name: "Retire (irreversible)" }));
     await screen.findByRole("heading", { name: "Retire Agent" });
-    screen.getByText("Retire 是终态、不可逆，Agent 不可恢复");
-    screen.getByText("全部 Credential 与 Enrollment 立即吊销");
-    await user.click(screen.getByRole("button", { name: "确认 Retire" }));
-    await screen.findByText("Agent 已 retire（终态，不可恢复）");
+    screen.getByText("Retire is terminal and irreversible; the Agent cannot be recovered");
+    screen.getByText("All Credentials and Enrollments are revoked immediately");
+    await user.click(screen.getByRole("button", { name: "Confirm retire" }));
+    await screen.findByText("Agent retired (terminal state, cannot be recovered)");
 
     const deletes = callsTo(fetchMock, "/v1/admin/agents/agent-1", "DELETE");
     expect(deletes).toHaveLength(1);
     expect(deletes[0].path).toBe("/v1/admin/agents/agent-1?resource_version=8");
     expect(deletes[0].headers.get("If-Match")).toBe('"8"');
     expect(deletes[0].headers.get("Idempotency-Key")).toMatch(UUID_RE);
-    screen.getByText("retired 为终态，不可恢复");
+    screen.getByText("retired is a terminal state and cannot be recovered");
   });
 });
 
@@ -171,7 +171,7 @@ describe("section 10 item 13: filter changes reset cursor pagination", () => {
 
     // Page one loads, then the cursor is passed back verbatim for page two.
     await screen.findByText("First Agent");
-    await user.click(screen.getByRole("button", { name: "加载更多" }));
+    await user.click(screen.getByRole("button", { name: "Load more" }));
     await screen.findByText("Second Agent");
 
     // Switching filters mid-pagination restarts without a cursor; the old

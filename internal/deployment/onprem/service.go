@@ -31,6 +31,10 @@ type CredentialConfig struct {
 	SecretPepper             string
 	AllowLegacyAgentCreation bool
 	PortalURL                string
+	// DeviceAgentLimit caps how many distinct agents a single device
+	// credential may keep actively provisioned at once. Values <= 0 default
+	// to 16 in NewCredentialService.
+	DeviceAgentLimit int
 }
 
 type serviceOptions struct {
@@ -70,6 +74,9 @@ func NewCredentialService(
 	digester, err := newSecretDigester(config.SecretPepper)
 	if err != nil {
 		return nil, fmt.Errorf("create on-prem credential service: %w", err)
+	}
+	if config.DeviceAgentLimit <= 0 {
+		config.DeviceAgentLimit = 16
 	}
 	configured := serviceOptions{clock: time.Now, tokenSource: randomToken}
 	for _, option := range options {
@@ -121,7 +128,9 @@ func (s *CredentialService) Authenticate(ctx context.Context, apiKey string) (Pr
 	return Principal{
 		UserID: record.UserID, MembershipID: record.MembershipID, AgentID: record.AgentID, ScopeID: LocalScopeID,
 		CredentialID: record.ID, CredentialLabel: record.Label,
-		Permissions: append([]Permission(nil), record.Permissions...),
+		Permissions:          append([]Permission(nil), record.Permissions...),
+		Kind:                 record.Kind,
+		GrantablePermissions: append([]Permission(nil), record.GrantablePermissions...),
 	}, nil
 }
 
@@ -197,7 +206,12 @@ func (s *CredentialService) ExchangeEnrollment(ctx context.Context, token string
 	if err != nil {
 		return IssuedCredential{}, fmt.Errorf("exchange agent enrollment: %w", err)
 	}
-	return IssuedCredential{CredentialID: id, APIKey: apiKey, ExpiresAt: exchanged.CredentialExpiresAt}, nil
+	return IssuedCredential{
+		CredentialID: id, APIKey: apiKey, UserID: exchanged.UserID,
+		Permissions: append([]Permission(nil), exchanged.Permissions...),
+		Kind:        exchanged.Kind,
+		ExpiresAt:   exchanged.CredentialExpiresAt,
+	}, nil
 }
 
 func parseEnrollmentToken(value string) (string, string, bool) {
@@ -217,10 +231,20 @@ func (s *CredentialService) RotateCredential(ctx context.Context, principal Prin
 	if principal.CredentialID == "" || principal.ScopeID != LocalScopeID {
 		return IssuedCredential{}, ErrUnauthorized
 	}
+	// Device credentials are revoke-and-rebuild, not rotatable: a device
+	// holder that wants a new key must revoke and re-enroll the device
+	// (docs/decisions/2026-07-24-device-scoped-agent-provisioning.md). This
+	// guard rejects device rotation before any store write; the store also
+	// enforces this as defense in depth.
+	if principal.Kind == CredentialKindDevice {
+		return IssuedCredential{}, ErrForbidden
+	}
 	id, apiKey, replacement, err := s.newCredential(CredentialRecord{
 		UserID: principal.UserID, MembershipID: principal.MembershipID, AgentID: principal.AgentID,
 		Label: principal.CredentialLabel, Permissions: append([]Permission(nil), principal.Permissions...),
 		RotatedFromCredentialID: principal.CredentialID,
+		Kind:                    principal.Kind,
+		GrantablePermissions:    append([]Permission(nil), principal.GrantablePermissions...),
 	})
 	if err != nil {
 		return IssuedCredential{}, err
@@ -229,7 +253,11 @@ func (s *CredentialService) RotateCredential(ctx context.Context, principal Prin
 	if err := s.store.RotateCredential(ctx, principal.CredentialID, replacement, overlapUntil); err != nil {
 		return IssuedCredential{}, fmt.Errorf("rotate agent credential: %w", err)
 	}
-	return IssuedCredential{CredentialID: id, APIKey: apiKey}, nil
+	return IssuedCredential{
+		CredentialID: id, APIKey: apiKey, UserID: principal.UserID,
+		Permissions: append([]Permission(nil), principal.Permissions...),
+		Kind:        principal.Kind,
+	}, nil
 }
 
 func (s *CredentialService) RevokeCredential(ctx context.Context, principal Principal, credentialID string) error {

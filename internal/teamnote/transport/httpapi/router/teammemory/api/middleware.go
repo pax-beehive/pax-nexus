@@ -440,3 +440,83 @@ func _listoperationsagentstatsMw() []app.HandlerFunc {
 	// your code...
 	return nil
 }
+
+func _listadmindevicesMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _devicesMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _revokeadmindeviceMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _getadmindeviceMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _deviceMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _listdeviceprovisionsMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _provisiondeviceagentMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _createdeviceenrollmentMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _listteamnotesMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _diagnosticsMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _channelsMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _getchanneldiagnosticMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _extractionsMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _getextractiondiagnosticMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _team_notesMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _getteamnoteMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}

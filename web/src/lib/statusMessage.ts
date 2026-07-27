@@ -15,55 +15,68 @@ export interface Notice {
 export function noticeForError(err: unknown, opts?: { conflict?: string }): Notice {
   if (err instanceof ApiError) {
     if (err.code === "last_active_owner") {
-      return { kind: "bad", message: "必须先提升另一位 active Owner" };
+      return { kind: "bad", message: "You must promote another active Owner first" };
     }
     if (err.code === "agent_id_conflict") {
-      return { kind: "warn", message: "这个 Agent ID 已存在，请换一个 ID" };
+      return { kind: "warn", message: "This Agent ID already exists; choose a different ID" };
     }
     if (err.code === "idempotency_conflict") {
-      return { kind: "bad", message: "该操作标识已用于不同请求，请重新发起操作" };
+      return {
+        kind: "bad",
+        message: "This Idempotency-Key was already used for a different request; resubmit the operation with a new key",
+      };
     }
     if (err.code === "invalid_state_transition") {
-      return { kind: "warn", message: "当前状态不允许执行此操作，请刷新后确认" };
+      return { kind: "warn", message: "This operation is not allowed in the current state; refresh and try again" };
     }
     if (err.code === "storage_not_available") {
-      return { kind: "warn", message: "Storage 统计暂不可用，请稍后重试" };
+      return { kind: "warn", message: "Storage statistics are temporarily unavailable; try again later" };
     }
     switch (err.status) {
       case 400:
-        return { kind: "warn", message: "请求格式有误，请检查输入后重试" };
+        return { kind: "warn", message: "The request was malformed; check your input and try again" };
       case 401:
-        return { kind: "warn", message: "登录状态已失效，请重新登录" };
+        return { kind: "warn", message: "Your session has expired; sign in again" };
       case 403:
-        return { kind: "bad", message: "没有权限执行此操作；若角色刚被调整，请刷新后重试" };
+        return {
+          kind: "bad",
+          message: "You do not have permission to perform this operation; if your role was just changed, refresh and try again",
+        };
       case 404:
-        return { kind: "warn", message: "目标资源不存在或不可见" };
+        return { kind: "warn", message: "The target resource does not exist or is not visible" };
       case 409:
-        return { kind: "warn", message: opts?.conflict ?? "数据已被他人修改，请刷新后重试" };
+        return { kind: "warn", message: opts?.conflict ?? "The data was modified by someone else; refresh and try again" };
       case 410:
-        return { kind: "bad", message: "该凭据已失效（过期、吊销或已使用），请重新签发" };
+        return {
+          kind: "bad",
+          message: "This credential is no longer valid (expired, revoked, or already used); issue a new one",
+        };
       case 422:
-        return { kind: "warn", message: "输入不合法，请修正后重试" };
+        return { kind: "warn", message: "The input is invalid; correct it and try again" };
       case 429:
         return {
           kind: "warn",
           message:
             err.retryAfterSeconds !== undefined
-              ? `请求过于频繁，请 ${err.retryAfterSeconds} 秒后重试`
-              : "请求过于频繁，请稍后重试",
+              ? `Too many requests; try again in ${err.retryAfterSeconds} seconds`
+              : "Too many requests; try again later",
         };
       case 500:
-        return { kind: "bad", message: "服务端错误，请稍后重试" };
+        return { kind: "bad", message: "Server error; try again later" };
       case 501:
-        return { kind: "bad", message: "Human Identity 未配置，请联系运维检查安装配置" };
+        return {
+          kind: "bad",
+          message: "Human Identity is not configured; contact operations to check the installation",
+        };
       case 503:
-        return { kind: "bad", message: "服务暂时不可用，请稍后重试" };
+        return { kind: "bad", message: "Service temporarily unavailable; try again later" };
       default:
-        return { kind: "bad", message: `请求失败（HTTP ${err.status}）` };
+        return { kind: "bad", message: `Request failed (HTTP ${err.status})` };
     }
   }
   return {
     kind: "bad",
-    message: "网络错误；若刚提交了一次性凭据的创建，请先刷新列表确认是否已生成，不要直接重试",
+    message:
+      "Network error; if you just submitted a one-time credential creation, refresh the list to confirm whether it was created before retrying",
   };
 }

@@ -15,3 +15,15 @@ export function enrollmentConnectCommand(token: string, origin: string): string 
   }
   return `${base} --url ${origin} --enrollment-token ${token}`;
 }
+
+/**
+ * Build the paxl device connect command for a device enrollment token
+ * (doc section 5.9). Same self-describing-token rule as agent enrollments.
+ */
+export function deviceConnectCommand(token: string, origin: string, deviceName: string): string {
+  const base = `paxl device connect onprem --device-name ${deviceName}`;
+  if (isSelfDescribingEnrollmentToken(token)) {
+    return `${base} --enrollment-token ${token}`;
+  }
+  return `${base} --url ${origin} --enrollment-token ${token}`;
+}

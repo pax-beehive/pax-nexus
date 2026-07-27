@@ -12,9 +12,13 @@ import { AdminMembersPage } from "./AdminMembersPage";
 import { AdminInvitationsPage } from "./AdminInvitationsPage";
 import { AdminAgentsPage } from "./AdminAgentsPage";
 import { AdminAgentDetailPage } from "./AdminAgentDetailPage";
+import { AdminDevicesPage } from "./AdminDevicesPage";
+import { AdminDeviceDetailPage } from "./AdminDeviceDetailPage";
 import { AdminAuditPage } from "./AdminAuditPage";
 import { AdminOperationsPage } from "./AdminOperationsPage";
 import { AdminPulsePage } from "./AdminPulsePage";
+import { AdminExplorerPage } from "./AdminExplorerPage";
+import { AdminTeamNoteDetailPage } from "./AdminTeamNoteDetailPage";
 
 function navClass({ isActive }: { isActive: boolean }): string {
   return isActive ? "active" : "";
@@ -77,7 +81,7 @@ export function PortalShell({ me }: { me: HumanMe }) {
 
   const onLogout = async () => {
     await logout();
-    toast("ok", "已退出登录");
+    toast("ok", "Signed out");
     navigate("/", { replace: true });
   };
 
@@ -94,28 +98,38 @@ export function PortalShell({ me }: { me: HumanMe }) {
           </NavLink>
           {adminLike && (
             <>
-              <div className="nav-label">Admin Console</div>
+              <div className="nav-label">Directory</div>
               <NavLink to="/admin/members" className={navClass}>
                 Members
               </NavLink>
               <NavLink to="/admin/invitations" className={navClass}>
                 Invitations
               </NavLink>
+              <div className="nav-label">Fleet</div>
               <NavLink to="/admin/agents" className={navClass}>
                 All Agents
               </NavLink>
+              <NavLink to="/admin/devices" className={navClass}>
+                Devices
+              </NavLink>
+              <div className="nav-label">Insights</div>
+              {hasServerCapability(me, "view.operations") && (
+                <NavLink to="/admin/pulse" className={navClass}>
+                  Pulse
+                </NavLink>
+              )}
+              {hasServerCapability(me, "view.team-memory") && (
+                <NavLink to="/admin/explorer" className={navClass}>
+                  Explorer
+                </NavLink>
+              )}
               <NavLink to="/admin/audit" className={navClass}>
                 Audit Events
               </NavLink>
               {hasServerCapability(me, "view.operations") && (
-                <>
-                  <NavLink to="/admin/operations" className={navClass}>
-                    Operations
-                  </NavLink>
-                  <NavLink to="/admin/pulse" className={navClass}>
-                    Pulse
-                  </NavLink>
-                </>
+                <NavLink to="/admin/operations" className={navClass}>
+                  Operations
+                </NavLink>
               )}
             </>
           )}
@@ -125,7 +139,7 @@ export function PortalShell({ me }: { me: HumanMe }) {
           <div className="row between" style={{ marginTop: 4 }}>
             <RoleBadge role={me.role ?? "member"} />
             <button className="btn ghost sm" onClick={() => void onLogout()}>
-              退出
+              Sign out
             </button>
           </div>
         </div>
@@ -137,7 +151,7 @@ export function PortalShell({ me }: { me: HumanMe }) {
         <ErrorBoundary
           key={location.pathname}
           region="route"
-          escapeLabel="返回 My Agents"
+          escapeLabel="Back to My Agents"
           onEscape={() => navigate("/agents")}
         >
           <Routes>
@@ -176,6 +190,22 @@ export function PortalShell({ me }: { me: HumanMe }) {
               }
             />
             <Route
+              path="/admin/devices"
+              element={
+                <RequireCapability me={me} cap="view.devices">
+                  <AdminDevicesPage />
+                </RequireCapability>
+              }
+            />
+            <Route
+              path="/admin/devices/:credentialId"
+              element={
+                <RequireCapability me={me} cap="view.devices">
+                  <AdminDeviceDetailPage />
+                </RequireCapability>
+              }
+            />
+            <Route
               path="/admin/audit"
               element={
                 <RequireCapability me={me} cap="view.audit">
@@ -187,7 +217,9 @@ export function PortalShell({ me }: { me: HumanMe }) {
               path="/admin/operations"
               element={
                 <RequireServerCapability me={me} capability="view.operations">
-                  <AdminOperationsPage />
+                  <AdminOperationsPage
+                    canInspectTeamMemory={hasServerCapability(me, "view.team-memory")}
+                  />
                 </RequireServerCapability>
               }
             />
@@ -196,6 +228,22 @@ export function PortalShell({ me }: { me: HumanMe }) {
               element={
                 <RequireServerCapability me={me} capability="view.operations">
                   <AdminPulsePage />
+                </RequireServerCapability>
+              }
+            />
+            <Route
+              path="/admin/explorer"
+              element={
+                <RequireServerCapability me={me} capability="view.team-memory">
+                  <AdminExplorerPage />
+                </RequireServerCapability>
+              }
+            />
+            <Route
+              path="/admin/explorer/notes/:noteId"
+              element={
+                <RequireServerCapability me={me} capability="view.team-memory">
+                  <AdminTeamNoteDetailPage />
                 </RequireServerCapability>
               }
             />

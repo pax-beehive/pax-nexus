@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 	"sync"
@@ -227,11 +228,11 @@ func (e *OpenAI) advanceEpisodeAttempt(ctx context.Context, key EpisodeKey, slic
 	if err != nil {
 		return Result{}, err
 	}
-	messages, err := episodeMessages(episode, protocol.systemPrompt)
+	messages, nextVersion, err := e.boundEpisodeMessages(ctx, key, &episode, protocol.systemPrompt, prompt, expectedVersion)
 	if err != nil {
-		return Result{}, fmt.Errorf("build rolling extraction context: %w", err)
+		return Result{}, err
 	}
-	messages = append(messages, chatMessage{Role: "user", Content: prompt})
+	expectedVersion = nextVersion
 	result, raw, err := e.completeWith(ctx, messages, protocol.decodeFresh)
 	if err != nil {
 		return Result{}, err
@@ -271,6 +272,74 @@ func (e *OpenAI) advanceEpisodeAttempt(ctx context.Context, key EpisodeKey, slic
 	result.PromptVersion = e.config.PromptVersion
 	result.ExtractionVersion = e.resultExtractionVersion()
 	return result, nil
+}
+
+// boundEpisodeMessages assembles the extraction request messages and enforces
+// the local prompt cap, rebuilding the messages from the trimmed episode when
+// a trim occurred. It returns the store version after any trim save.
+func (e *OpenAI) boundEpisodeMessages(
+	ctx context.Context,
+	key EpisodeKey,
+	episode *Episode,
+	systemPrompt, prompt string,
+	expectedVersion int64,
+) ([]chatMessage, int64, error) {
+	messages, err := episodeMessages(*episode, systemPrompt)
+	if err != nil {
+		return nil, expectedVersion, fmt.Errorf("build rolling extraction context: %w", err)
+	}
+	messages = append(messages, chatMessage{Role: "user", Content: prompt})
+	expectedVersion, trimmed, err := e.boundEpisodePrompt(ctx, key, episode, messages, expectedVersion)
+	if err != nil || !trimmed {
+		return messages, expectedVersion, err
+	}
+	messages, err = episodeMessages(*episode, systemPrompt)
+	if err != nil {
+		return nil, expectedVersion, fmt.Errorf("build rolling extraction context: %w", err)
+	}
+	return append(messages, chatMessage{Role: "user", Content: prompt}), expectedVersion, nil
+}
+
+// boundEpisodePrompt enforces the provider-independent prompt token cap. When
+// the assembled request exceeds MaxPromptTokens, it drops the oldest
+// user/assistant pairs from the episode transcript until the estimate fits
+// under three quarters of the cap, leaving headroom for the new prompt and
+// the completion, and persists the trimmed episode. An episode that outgrew
+// the provider context before this cap existed therefore self-heals on the
+// next attempt instead of wedging on provider token-limit rejections. It
+// returns the store version after the trim save and whether the caller must
+// rebuild the request messages.
+func (e *OpenAI) boundEpisodePrompt(
+	ctx context.Context,
+	key EpisodeKey,
+	episode *Episode,
+	messages []chatMessage,
+	expectedVersion int64,
+) (int64, bool, error) {
+	before := 0
+	for _, message := range messages {
+		before += estimateTokens(message.Content)
+	}
+	if before <= e.config.MaxPromptTokens {
+		return expectedVersion, false, nil
+	}
+	overhead := before - messageTokens(episode.Messages)
+	trimmed := recentMessageTail(episode.Messages, 3*e.config.MaxPromptTokens/4-overhead)
+	if len(trimmed) == len(episode.Messages) {
+		// The newest pair alone still exceeds a very small cap; nothing more
+		// can be dropped locally, so proceed with the bounded tail.
+		return expectedVersion, false, nil
+	}
+	after := overhead + messageTokens(trimmed)
+	episode.Messages = trimmed
+	episode.EstimatedTokens = estimateEpisodeTokens(episode.Checkpoint, trimmed)
+	if err := e.config.EpisodeStore.SaveEpisode(ctx, *episode, expectedVersion); err != nil {
+		return expectedVersion, false, fmt.Errorf("trim rolling extraction episode to prompt cap: %w", err)
+	}
+	slog.WarnContext(ctx, "trimmed rolling extraction episode to prompt cap",
+		"scope_id", key.ScopeID, "task_ref", key.TaskRef, "thread_ref", key.ThreadRef,
+		"estimated_tokens_before", before, "estimated_tokens_after", after)
+	return expectedVersion + 1, true, nil
 }
 
 func (e *OpenAI) resultExtractionVersion() string {

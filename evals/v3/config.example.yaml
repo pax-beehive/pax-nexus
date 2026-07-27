@@ -32,6 +32,7 @@ runtime_env:
   - MEM0_SCORE_SEMANTICS
   - MEM0_SEARCH_SCOPE_PAYLOAD
   - PAXM_EXPECTED_VERSION
+  - PAXM_PASSIVE_PROVIDER_ALLOCATION
 output:
   formats: [csv, jsonl, html]
 before_run:

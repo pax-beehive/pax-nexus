@@ -30,10 +30,10 @@ export function ConfirmDialog({
       </div>
       <div className="row" style={{ justifyContent: "flex-end" }}>
         <button className="btn ghost" onClick={onClose} disabled={busy}>
-          取消
+          Cancel
         </button>
         <button className="btn danger" onClick={onConfirm} disabled={busy}>
-          {busy ? "执行中…" : confirmLabel}
+          {busy ? "Processing…" : confirmLabel}
         </button>
       </div>
     </Modal>

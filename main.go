@@ -256,6 +256,7 @@ type applicationConfig struct {
 	portalURL                      string
 	humanCookieSecure              bool
 	credentialRotationOverlap      time.Duration
+	deviceAgentLimit               int
 	operationsEventRetention       time.Duration
 	operationsStorageRetention     time.Duration
 	operationsSnapshotInterval     time.Duration
@@ -275,6 +276,7 @@ type applicationConfig struct {
 	extractionSummaryEnabled       bool
 	extractionSummaryTriggerTokens int
 	extractionSummaryTailTokens    int
+	extractionMaxPromptTokens      int
 	extractionExecutionPolicy      extractor.ExecutionPolicy
 	providerCallObserver           extractor.ProviderCallObserver
 	workerShards                   int
@@ -413,6 +415,12 @@ func loadOnPremConfig(config *applicationConfig) error {
 	if err := validateOperationsConfig(*config); err != nil {
 		return err
 	}
+	if config.deviceAgentLimit, err = intEnvironment("TEAM_MEMORY_DEVICE_AGENT_LIMIT", 16); err != nil {
+		return err
+	}
+	if config.deviceAgentLimit < 1 || config.deviceAgentLimit > 1000 {
+		return fmt.Errorf("TEAM_MEMORY_DEVICE_AGENT_LIMIT must be between 1 and 1000")
+	}
 	config.humanCookieSecure, err = boolEnvironment("TEAM_MEMORY_HUMAN_COOKIE_SECURE", true)
 	if err != nil {
 		return err
@@ -545,7 +553,7 @@ func buildHTTPHandler(
 	credentials, err := onprem.NewCredentialService(store.Credentials(), onprem.CredentialConfig{
 		AdminAPIKey: config.adminAPIKey, RotationOverlap: config.credentialRotationOverlap,
 		SecretPepper: config.secretPepper, AllowLegacyAgentCreation: !config.humanIdentityConfigured(),
-		PortalURL: config.portalURL,
+		PortalURL: config.portalURL, DeviceAgentLimit: config.deviceAgentLimit,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("configure on-prem credentials: %w", err)
@@ -571,8 +579,13 @@ func buildHTTPHandler(
 	if err != nil {
 		return nil, fmt.Errorf("configure on-prem operations: %w", err)
 	}
+	explorerService, err := onprem.NewExplorerService(store.Explorer())
+	if err != nil {
+		return nil, fmt.Errorf("configure team memory explorer: %w", err)
+	}
 	options := []handler.OnPremOption{
 		handler.WithAgentRegistry(registry), handler.WithOperations(operationsService, operationRecorder),
+		handler.WithExplorer(explorerService),
 	}
 	if config.humanIdentityConfigured() {
 		identity, err := onprem.NewIdentityService(store.Identity(), onprem.IdentityConfig{
@@ -737,6 +750,14 @@ func loadExtractionConfig(config *applicationConfig) error {
 	if err != nil {
 		return err
 	}
+	if config.extractionMaxPromptTokens, err = intEnvironment("TEAM_MEMORY_EXTRACTION_MAX_PROMPT_TOKENS", 128*1024); err != nil {
+		return err
+	}
+	return loadExtractionExecutionPolicy(config)
+}
+
+func loadExtractionExecutionPolicy(config *applicationConfig) error {
+	var err error
 	policy := &config.extractionExecutionPolicy
 	providerDefaults := extractionbudget.DefaultProviderPolicy()
 	if policy.AttemptTimeout, err = durationEnvironment(
@@ -886,6 +907,7 @@ func buildExtractor(config applicationConfig, stores ...extractor.EpisodeStore) 
 			SummaryEnabled:       config.extractionSummaryEnabled,
 			SummaryTriggerTokens: config.extractionSummaryTriggerTokens,
 			SummaryTailTokens:    config.extractionSummaryTailTokens,
+			MaxPromptTokens:      config.extractionMaxPromptTokens,
 			ExecutionPolicy:      config.extractionExecutionPolicy,
 			ProviderCallObserver: config.providerCallObserver,
 		})

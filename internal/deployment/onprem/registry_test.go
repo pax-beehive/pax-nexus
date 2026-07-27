@@ -387,6 +387,167 @@ func (s *registrySuite) TestMemberGrantablePermissionAllowlist() {
 	s.Require().ErrorIs(err, onprem.ErrInvalidIdentityInput)
 }
 
+func (s *registrySuite) TestCreateDeviceEnrollmentRequiresOwnerOrAdmin() {
+	member := activeMember()
+	_, _, err := s.service.CreateDeviceEnrollment(context.Background(), member, onprem.DeviceEnrollmentRequest{
+		DeviceName: "todd-macbook-air",
+	})
+	s.Require().ErrorIs(err, onprem.ErrForbidden)
+}
+
+func (s *registrySuite) TestCreateDeviceEnrollmentRejectsEmptyDeviceName() {
+	owner := activeMember()
+	owner.Role = onprem.RoleOwner
+	_, _, err := s.service.CreateDeviceEnrollment(context.Background(), owner, onprem.DeviceEnrollmentRequest{
+		DeviceName: "   ",
+	})
+	s.Require().ErrorIs(err, onprem.ErrInvalidIdentityInput)
+}
+
+func (s *registrySuite) TestCreateDeviceEnrollmentRejectsGrantableSupersetOfConfig() {
+	owner := activeMember()
+	owner.Role = onprem.RoleOwner
+	_, _, err := s.service.CreateDeviceEnrollment(context.Background(), owner, onprem.DeviceEnrollmentRequest{
+		DeviceName:           "todd-macbook-air",
+		GrantablePermissions: []onprem.Permission{onprem.PermissionAdmin},
+	})
+	s.Require().ErrorIs(err, onprem.ErrInvalidIdentityInput)
+}
+
+func (s *registrySuite) TestCreateDeviceEnrollmentHappyPathRecordsDeviceKind() {
+	admin := activeMember()
+	admin.Role = onprem.RoleAdmin
+	enrollment, _, err := s.service.CreateDeviceEnrollment(context.Background(), admin, onprem.DeviceEnrollmentRequest{
+		DeviceName: "todd-macbook-air",
+	})
+	s.Require().NoError(err)
+	s.NotEmpty(enrollment.Token)
+	s.Require().Len(s.store.deviceEnrollments, 1)
+	record := s.store.deviceEnrollments[0]
+	s.Equal(onprem.CredentialKindDevice, record.Kind)
+	s.Empty(record.AgentID)
+	s.Equal([]onprem.Permission{onprem.PermissionAgentProvision}, record.Permissions)
+	s.Equal("todd-macbook-air", record.CredentialLabel)
+	s.Equal(
+		[]onprem.Permission{
+			onprem.PermissionObserve, onprem.PermissionSearch, onprem.PermissionGet,
+			onprem.PermissionChannelSend, onprem.PermissionChannelReceive,
+		},
+		record.GrantablePermissions,
+	)
+	s.Equal(admin.UserID, record.UserID)
+	s.Equal(admin.MembershipID, record.MembershipID)
+}
+
+// TestCreateDeviceEnrollmentReturnsEffectiveGrantablePermissions locks in the
+// second return value the portal endpoint (Task 8.5) relies on to report a
+// truthful grantable_permissions echo: when the caller omits
+// GrantablePermissions, the effective set returned to the caller must equal
+// the persisted record's GrantablePermissions (the configured default), and
+// when the caller supplies an explicit set, the effective set returned must
+// equal what was persisted (deduplicated, in request order).
+func (s *registrySuite) TestCreateDeviceEnrollmentReturnsEffectiveGrantablePermissions() {
+	owner := activeMember()
+	owner.Role = onprem.RoleOwner
+
+	_, defaultGrantable, err := s.service.CreateDeviceEnrollment(context.Background(), owner, onprem.DeviceEnrollmentRequest{
+		DeviceName: "default-device",
+	})
+	s.Require().NoError(err)
+	s.Require().Len(s.store.deviceEnrollments, 1)
+	s.Equal(s.store.deviceEnrollments[0].GrantablePermissions, defaultGrantable)
+	s.Equal(
+		[]onprem.Permission{
+			onprem.PermissionObserve, onprem.PermissionSearch, onprem.PermissionGet,
+			onprem.PermissionChannelSend, onprem.PermissionChannelReceive,
+		},
+		defaultGrantable,
+	)
+
+	_, explicitGrantable, err := s.service.CreateDeviceEnrollment(context.Background(), owner, onprem.DeviceEnrollmentRequest{
+		DeviceName:           "explicit-device",
+		GrantablePermissions: []onprem.Permission{onprem.PermissionSearch, onprem.PermissionGet},
+	})
+	s.Require().NoError(err)
+	s.Require().Len(s.store.deviceEnrollments, 2)
+	s.Equal(s.store.deviceEnrollments[1].GrantablePermissions, explicitGrantable)
+	s.Equal([]onprem.Permission{onprem.PermissionSearch, onprem.PermissionGet}, explicitGrantable)
+}
+
+func (s *registrySuite) TestRevokeDeviceRequiresOwnerOrAdmin() {
+	member := activeMember()
+	_, err := s.service.RevokeDevice(context.Background(), member, "device-credential", "")
+	s.Require().ErrorIs(err, onprem.ErrForbidden)
+}
+
+func (s *registrySuite) TestRevokeDeviceRejectsEmptyCredentialID() {
+	admin := activeMember()
+	admin.Role = onprem.RoleAdmin
+	_, err := s.service.RevokeDevice(context.Background(), admin, "   ", "")
+	s.Require().ErrorIs(err, onprem.ErrCredentialNotFound)
+}
+
+func (s *registrySuite) TestRevokeDevicePassesThroughToStore() {
+	admin := activeMember()
+	admin.Role = onprem.RoleAdmin
+	summary, err := s.service.RevokeDevice(context.Background(), admin, " device-credential ", " idem-key ")
+	s.Require().NoError(err)
+	s.Equal("device-credential", summary.CredentialID)
+	s.Equal("device-credential", s.store.revokedDeviceID)
+	s.Equal("idem-key", s.store.revokedDeviceIdemKey)
+}
+
+func (s *registrySuite) TestListDevicesRequiresOwnerOrAdmin() {
+	member := activeMember()
+	_, err := s.service.ListDevices(context.Background(), member, onprem.DeviceFilter{})
+	s.Require().ErrorIs(err, onprem.ErrForbidden)
+}
+
+func (s *registrySuite) TestListDevicesNormalizesFilterLimit() {
+	admin := activeMember()
+	admin.Role = onprem.RoleAdmin
+	s.store.devices = []onprem.DeviceSummary{{CredentialID: "device-1"}}
+
+	devices, err := s.service.ListDevices(context.Background(), admin, onprem.DeviceFilter{Limit: 500})
+	s.Require().NoError(err)
+	s.Require().Len(devices, 1)
+	s.Equal(100, s.store.lastDeviceFilter.Limit)
+
+	_, err = s.service.ListDevices(context.Background(), admin, onprem.DeviceFilter{})
+	s.Require().NoError(err)
+	s.Equal(50, s.store.lastDeviceFilter.Limit, "a zero limit must default to 50, mirroring normalizeAgentFilter")
+}
+
+func (s *registrySuite) TestGetDeviceRequiresOwnerOrAdmin() {
+	member := activeMember()
+	_, err := s.service.GetDevice(context.Background(), member, "device-1")
+	s.Require().ErrorIs(err, onprem.ErrForbidden)
+}
+
+func (s *registrySuite) TestGetDeviceRejectsEmptyCredentialID() {
+	admin := activeMember()
+	admin.Role = onprem.RoleAdmin
+	_, err := s.service.GetDevice(context.Background(), admin, "   ")
+	s.Require().ErrorIs(err, onprem.ErrCredentialNotFound)
+}
+
+func (s *registrySuite) TestGetDevicePassesThroughToStore() {
+	admin := activeMember()
+	admin.Role = onprem.RoleAdmin
+	detail := onprem.DeviceDetail{
+		Device: onprem.DeviceSummary{CredentialID: "device-1"},
+		Agents: []onprem.DeviceProvisionedAgent{{AgentID: "agent-1", CredentialID: "credential-1"}},
+	}
+	s.store.deviceDetails = map[string]onprem.DeviceDetail{"device-1": detail}
+
+	got, err := s.service.GetDevice(context.Background(), admin, " device-1 ")
+	s.Require().NoError(err)
+	s.Equal(detail, got)
+
+	_, err = s.service.GetDevice(context.Background(), admin, "unknown-device")
+	s.Require().ErrorIs(err, onprem.ErrCredentialNotFound)
+}
+
 func activeMember() onprem.HumanPrincipal {
 	return onprem.HumanPrincipal{
 		UserID: "user-1", MembershipID: "membership-1", Role: onprem.RoleMember,
@@ -395,9 +556,16 @@ func activeMember() onprem.HumanPrincipal {
 }
 
 type registryStore struct {
-	agents          []onprem.AgentProfile
-	enrollments     []onprem.EnrollmentRecord
-	lastAdminFilter onprem.AgentFilter
+	agents               []onprem.AgentProfile
+	enrollments          []onprem.EnrollmentRecord
+	deviceEnrollments    []onprem.EnrollmentRecord
+	lastAdminFilter      onprem.AgentFilter
+	revokedDeviceID      string
+	revokedDeviceIdemKey string
+	devices              []onprem.DeviceSummary
+	deviceDetails        map[string]onprem.DeviceDetail
+	lastDeviceFilter     onprem.DeviceFilter
+	getDeviceErr         error
 }
 
 func (s *registryStore) CreateAgent(_ context.Context, profile onprem.AgentProfile) (onprem.AgentProfile, error) {
@@ -498,6 +666,15 @@ func (s *registryStore) CreateOwnedEnrollment(
 	return nil
 }
 
+func (s *registryStore) CreateDeviceEnrollment(
+	_ context.Context,
+	_ string,
+	record onprem.EnrollmentRecord,
+) error {
+	s.deviceEnrollments = append(s.deviceEnrollments, record)
+	return nil
+}
+
 func (s *registryStore) ListOwnedEnrollments(
 	_ context.Context,
 	_ string,
@@ -585,4 +762,35 @@ func (s *registryStore) GetAdminAgent(_ context.Context, agentID string) (onprem
 		}
 	}
 	return onprem.AgentProfile{}, onprem.ErrAgentNotFound
+}
+
+func (s *registryStore) RevokeDevice(
+	_ context.Context,
+	_ onprem.HumanPrincipal,
+	credentialID string,
+	idempotencyKey string,
+	now time.Time,
+) (onprem.DeviceSummary, error) {
+	s.revokedDeviceID = credentialID
+	s.revokedDeviceIdemKey = idempotencyKey
+	return onprem.DeviceSummary{CredentialID: credentialID, RevokedAt: &now}, nil
+}
+
+func (s *registryStore) ListDevices(
+	_ context.Context,
+	filter onprem.DeviceFilter,
+) ([]onprem.DeviceSummary, error) {
+	s.lastDeviceFilter = filter
+	return append([]onprem.DeviceSummary(nil), s.devices...), nil
+}
+
+func (s *registryStore) GetDevice(_ context.Context, credentialID string) (onprem.DeviceDetail, error) {
+	if s.getDeviceErr != nil {
+		return onprem.DeviceDetail{}, s.getDeviceErr
+	}
+	detail, ok := s.deviceDetails[credentialID]
+	if !ok {
+		return onprem.DeviceDetail{}, onprem.ErrCredentialNotFound
+	}
+	return detail, nil
 }

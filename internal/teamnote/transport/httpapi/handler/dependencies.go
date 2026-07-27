@@ -9,6 +9,7 @@ import (
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/pax-beehive/pax-nexus/internal/deployment/onprem"
+	"github.com/pax-beehive/pax-nexus/internal/explorer"
 	"github.com/pax-beehive/pax-nexus/internal/operations"
 	"github.com/pax-beehive/pax-nexus/internal/recall"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote"
@@ -33,6 +34,7 @@ type Handler struct {
 	oidc         OIDCLifecycle
 	registry     AgentRegistryLifecycle
 	operations   OperationsLifecycle
+	explorer     ExplorerLifecycle
 	recorder     operations.Recorder
 	portalURL    string
 	cookieSecure bool
@@ -45,6 +47,8 @@ type CredentialLifecycle interface {
 	ExchangeEnrollment(context.Context, string) (onprem.IssuedCredential, error)
 	RotateCredential(context.Context, onprem.Principal) (onprem.IssuedCredential, error)
 	RevokeCredential(context.Context, onprem.Principal, string) error
+	ProvisionDeviceAgent(context.Context, onprem.Principal, onprem.DeviceProvisionRequest) (onprem.ProvisionedAgentCredential, error)
+	ListDeviceProvisionedAgents(context.Context, onprem.Principal) ([]onprem.DeviceProvisionedAgent, error)
 }
 
 type ChannelLifecycle interface {
@@ -98,6 +102,10 @@ type AgentRegistryLifecycle interface {
 	RevokeAdminEnrollment(context.Context, onprem.HumanPrincipal, string, string, string) (onprem.AgentEnrollmentMetadata, error)
 	ListAdminCredentials(context.Context, onprem.HumanPrincipal, string, onprem.AgentArtifactFilter) ([]onprem.AgentCredentialMetadata, error)
 	RevokeAdminCredential(context.Context, onprem.HumanPrincipal, string, string, string) (onprem.AgentCredentialMetadata, error)
+	CreateDeviceEnrollment(context.Context, onprem.HumanPrincipal, onprem.DeviceEnrollmentRequest) (onprem.Enrollment, []onprem.Permission, error)
+	RevokeDevice(context.Context, onprem.HumanPrincipal, string, string) (onprem.DeviceSummary, error)
+	ListDevices(context.Context, onprem.HumanPrincipal, onprem.DeviceFilter) ([]onprem.DeviceSummary, error)
+	GetDevice(context.Context, onprem.HumanPrincipal, string) (onprem.DeviceDetail, error)
 }
 
 type OperationsLifecycle interface {
@@ -107,6 +115,13 @@ type OperationsLifecycle interface {
 	LatestStorage(context.Context, onprem.HumanPrincipal) (operations.StorageSnapshot, error)
 	ListStorage(context.Context, onprem.HumanPrincipal, operations.StorageFilter) ([]operations.StorageSnapshot, error)
 	AgentStats(context.Context, onprem.HumanPrincipal, operations.TimeFilter) (operations.AgentStatsReport, error)
+}
+
+type ExplorerLifecycle interface {
+	ListTeamNotes(context.Context, onprem.HumanPrincipal, explorer.TeamNoteFilter) ([]explorer.TeamNoteSummary, error)
+	GetTeamNote(context.Context, onprem.HumanPrincipal, string) (explorer.TeamNoteDetail, error)
+	GetExtractionDiagnostic(context.Context, onprem.HumanPrincipal, string) (explorer.ExtractionDiagnostic, error)
+	GetChannelDiagnostic(context.Context, onprem.HumanPrincipal, string) (explorer.ChannelDiagnostic, error)
 }
 
 type OnPremOption func(*Handler) error
@@ -128,6 +143,16 @@ func WithOperations(service OperationsLifecycle, recorder operations.Recorder) O
 		}
 		configured.operations = service
 		configured.recorder = recorder
+		return nil
+	}
+}
+
+func WithExplorer(service ExplorerLifecycle) OnPremOption {
+	return func(configured *Handler) error {
+		if service == nil {
+			return fmt.Errorf("configure explorer: service is required")
+		}
+		configured.explorer = service
 		return nil
 	}
 }

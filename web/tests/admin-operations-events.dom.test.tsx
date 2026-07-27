@@ -101,7 +101,7 @@ describe("section 12 item 9: filter changes abort and reset pagination", () => {
 
     // Page 1, then append page 2 through the opaque cursor.
     within(eventsTable()).getByText("12 ms");
-    await user.click(screen.getByRole("button", { name: "加载更多" }));
+    await user.click(screen.getByRole("button", { name: "Load more" }));
     await within(eventsTable()).findByText("13 ms");
     expect(eventCalls()).toHaveLength(2);
     expect(paramsOf(1).get("cursor")).toBe("c2");
@@ -224,7 +224,7 @@ describe("section 12 item 11: only recall_observation details open the drawer", 
     within(drawer()).getByText("candidates");
     within(drawer()).getByText("delivered");
 
-    await user.click(within(drawer()).getByRole("button", { name: "关闭" }));
+    await user.click(within(drawer()).getByRole("button", { name: "Close" }));
     expect(document.querySelector(".drawer")).toBeNull();
     expect(callsTo(fetchMock, "/v1/admin/operations/recalls/41")).toHaveLength(1);
   });
@@ -245,9 +245,9 @@ describe("section 12 item 12: recall drawer lifecycle for 404, 410 and 500", () 
       apiErrorResponse(404, "recall_diagnostic_not_found", "never existed"),
     );
 
-    await within(drawer()).findByText(/诊断不存在/);
+    await within(drawer()).findByText(/Diagnostic not found/);
     // No automatic retry and no retry affordance (doc section 9).
-    expect(within(drawer()).queryByRole("button", { name: "重试" })).toBeNull();
+    expect(within(drawer()).queryByRole("button", { name: "Retry" })).toBeNull();
     expect(callsTo(fetchMock, "/v1/admin/operations/recalls/41")).toHaveLength(1);
     // The safe activity row stays in the table.
     screen.getByRole("button", { name: "Inspect recall" });
@@ -258,8 +258,8 @@ describe("section 12 item 12: recall drawer lifecycle for 404, 410 and 500", () 
       apiErrorResponse(410, "diagnostic_expired", "diagnostic cleaned up"),
     );
 
-    await within(drawer()).findByText(/诊断已过期/);
-    expect(within(drawer()).queryByRole("button", { name: "重试" })).toBeNull();
+    await within(drawer()).findByText(/has expired or been cleaned up/);
+    expect(within(drawer()).queryByRole("button", { name: "Retry" })).toBeNull();
     expect(callsTo(fetchMock, "/v1/admin/operations/recalls/41")).toHaveLength(1);
     screen.getByRole("button", { name: "Inspect recall" });
   });
@@ -273,8 +273,8 @@ describe("section 12 item 12: recall drawer lifecycle for 404, 410 and 500", () 
         : jsonResponse({ recall: makeRecall() });
     });
 
-    await within(drawer()).findByText("服务端错误，请稍后重试");
-    await user.click(within(drawer()).getByRole("button", { name: "重试" }));
+    await within(drawer()).findByText("Server error; try again later");
+    await user.click(within(drawer()).getByRole("button", { name: "Retry" }));
 
     await within(drawer()).findByText("Delivery funnel");
     expect(callsTo(fetchMock, "/v1/admin/operations/recalls/41")).toHaveLength(2);
@@ -298,7 +298,7 @@ describe("section 12 item 13: drawer data never leaks to URL, storage or console
     await within(drawer()).findByText("Delivery funnel");
     // The session id is part of the safe projection and may render...
     within(drawer()).getByText("session-42");
-    await user.click(within(drawer()).getByRole("button", { name: "关闭" }));
+    await user.click(within(drawer()).getByRole("button", { name: "Close" }));
 
     // ...but it never reaches the URL, durable storage or the console.
     expect(window.location.pathname).toBe("/admin/operations");
@@ -342,7 +342,7 @@ describe("section 12 item 17: cursor termination and invalid-cursor recovery", (
     });
 
     await within(eventsTable()).findByText("Memory Search");
-    expect(screen.queryByRole("button", { name: "加载更多" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
   });
 
   it("a 400 on the cursor restarts from the first page", async () => {
@@ -357,7 +357,7 @@ describe("section 12 item 17: cursor termination and invalid-cursor recovery", (
     };
     const { fetchMock, user } = await renderOperationsPage({ events });
 
-    await user.click(await screen.findByRole("button", { name: "加载更多" }));
+    await user.click(await screen.findByRole("button", { name: "Load more" }));
 
     await waitFor(() =>
       expect(callsTo(fetchMock, "/v1/admin/operations/events")).toHaveLength(3),

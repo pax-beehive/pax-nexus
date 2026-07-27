@@ -8,7 +8,7 @@ HZ := $(TOOLS_DIR)/hz
 MOCKGEN := $(TOOLS_DIR)/mockgen
 GOLANGCI_LINT := $(TOOLS_DIR)/golangci-lint
 GOLANGCI_LINT_CACHE ?= /tmp/team-memory-golangci-cache
-TEAM_MEMORY_TEST_POSTGRES_DSN ?= postgres://team_memory:team_memory@127.0.0.1:$${TEAM_MEMORY_POSTGRES_PORT:-55432}/team_memory?sslmode=disable
+TEAM_MEMORY_TEST_POSTGRES_DSN ?= postgres://team_memory:team_memory@127.0.0.1:$(or $(TEAM_MEMORY_POSTGRES_PORT),55432)/team_memory?sslmode=disable
 
 # hz is versioned as the github.com/cloudwego/hertz/cmd/hz submodule. Its
 # releases do not use the Hertz runtime's version number.
@@ -29,7 +29,7 @@ RECALL_EVAL_OUTPUT ?= runs/recall-eval-v1/current
 RECALL_EVAL_SEMANTIC_THRESHOLD ?= 0.50
 RECALL_EVAL_CANDIDATE_LIMIT ?= 16
 
-.PHONY: all build validate-extraction-candidate-strategy validate-recall-candidate-strategy tools generate-init generate mocks fmt format-check lint test test-unit test-scripts coverage integration-test onprem-e2e workstation-config-check recall-eval-v1 recall-eval-v2 recall-eval-v2-up recall-eval-v2-down docker-eval groupmembench-data groupmembench-eval eval-v2-prepare eval-v2-up eval-v2 eval-v2-smoke-up eval-v2-smoke eval-v2-acceptance-up eval-v2-acceptance eval-v2-down eval-v2-reset eval-v2-job-image eval-v2-job eval-v2-zep-canary eval-v3-prepare eval-v3-up eval-v3 eval-v3-down eval-v3-reset up down logs db-up db-down clean
+.PHONY: all build validate-extraction-candidate-strategy validate-recall-candidate-strategy tools generate-init generate mocks fmt format-check lint test test-unit test-scripts coverage integration-test onprem-e2e workstation-config-check recall-eval-v1 recall-eval-v2 recall-eval-v2-up recall-eval-v2-down docker-eval groupmembench-data groupmembench-eval eval-v2-prepare eval-v2-up eval-v2 eval-v2-smoke-up eval-v2-smoke eval-v2-acceptance-up eval-v2-acceptance eval-v2-down eval-v2-reset eval-v2-job-image eval-v2-job eval-v2-zep-canary eval-v3-prepare eval-v3-up eval-v3 eval-v3-down eval-v3-reset eval-v3-extractor-sweep up down logs db-up db-down clean
 
 all: lint test
 
@@ -108,6 +108,7 @@ test-scripts:
 	./scripts/test-extraction-candidate-builds.sh
 	./scripts/test-recall-candidate-builds.sh
 	./scripts/test-zep-native-acceptance.sh
+	./scripts/test-eval-v3-extractor-sweep.sh
 
 integration-test: db-up
 	TEAM_MEMORY_TEST_POSTGRES_DSN='$(TEAM_MEMORY_TEST_POSTGRES_DSN)' \
@@ -202,6 +203,8 @@ eval-v3-up:
 eval-v3:
 	@. ./scripts/load-eval-v3-env.sh; \
 		config="$(CONFIG)"; config="$${config:-$${EVAL_V3_CONFIG:-evals/v3/config.local.yaml}}"; \
+		EVAL_V2_POSTGRES_DSN=$$(./scripts/eval-postgres-dsn.sh "$$EVAL_V3_COMPOSE_PROJECT" "$$EVAL_V3_COMPOSE_FILE") || exit 1; \
+		export EVAL_V2_POSTGRES_DSN; \
 		GOCACHE=$${GOCACHE:-/tmp/team-memory-go-cache} go run ./cmd/team-memory-eval-v3 -config "$$config"
 
 eval-v3-down:
@@ -209,6 +212,12 @@ eval-v3-down:
 
 eval-v3-reset:
 	./scripts/eval-v3-stack.sh reset
+
+eval-v3-extractor-sweep:
+	@prefix="$(PREFIX)"; prefix="$${prefix:-$${EVAL_V3_SWEEP_PREFIX:-extractor-sweep}}"; \
+		manifest="$(MANIFEST)"; \
+		EVAL_V3_SWEEP_MANIFEST="$${manifest:-$${EVAL_V3_SWEEP_MANIFEST:-runs/groupmembench-v3-micro-canary-v1/manifest.five.json}}" \
+		./scripts/eval-v3-extractor-sweep.sh $(DRY_RUN) "$$prefix" $(SLUGS)
 
 recall-eval-v2-up:
 	@manifest="$${MANIFEST:-runs/groupmembench-v3-selection/manifest.json}"; \

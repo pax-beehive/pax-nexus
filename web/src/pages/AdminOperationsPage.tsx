@@ -7,6 +7,8 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { ApiError } from "../api/client";
 import {
+  getChannelDiagnostic,
+  getExtractionDiagnostic,
   getOperationsStorage,
   getOperationsSummary,
   getRecallDiagnostic,
@@ -17,6 +19,8 @@ import {
 } from "../api/queries";
 import type {
   AgentProfile,
+  ChannelDiagnostic,
+  ExtractionDiagnostic,
   OperationEvent,
   OperationKind,
   OperationOutcome,
@@ -359,7 +363,7 @@ function RegionError({ error, onRetry }: { error: unknown; onRetry?: () => void 
       {notice.message}
       {onRetry && (
         <button className="btn sm" style={{ marginLeft: 10 }} onClick={onRetry}>
-          重试
+          Retry
         </button>
       )}
     </div>
@@ -373,7 +377,7 @@ function CountMap({ title, counts }: { title: string; counts: Record<string, num
     <div>
       <h3>{title}</h3>
       {entries.length === 0 ? (
-        <p className="faint small">无</p>
+        <p className="faint small">None</p>
       ) : (
         <div className="chips">
           {entries.map(([key, value]) => (
@@ -406,7 +410,7 @@ function SummaryCards({ summary }: { summary: OperationsSummary }) {
         </div>
         {obs.duplicate_events > 0 && (
           <p className="faint small" style={{ marginBottom: 0 }}>
-            duplicates 为合法幂等 replay（events_written=0 且 duplicate&gt;0 仍是成功），不计入失败。
+            duplicates are legitimate idempotent replays (events_written=0 with duplicate&gt;0 still counts as success), not failures.
           </p>
         )}
       </div>
@@ -416,8 +420,8 @@ function SummaryCards({ summary }: { summary: OperationsSummary }) {
           <Stat label="requests" value={recalls.requests} />
           <Stat label="succeeded" value={recalls.succeeded} />
           <Stat label="with evidence" value={recalls.with_evidence} />
-          <Stat label="empty" value={recalls.empty} title="正确返回零结果仍是 succeeded" />
-          <Stat label="memory hits" value={recalls.memory_hits} title="仅统计 Memory Search hit" />
+          <Stat label="empty" value={recalls.empty} title="A correct zero-result response is still succeeded" />
+          <Stat label="memory hits" value={recalls.memory_hits} title="Counts only Memory Search hits" />
           <Stat label="notes delivered" value={recalls.team_notes_delivered} />
         </div>
         <p className="faint small" style={{ marginBottom: 0 }}>
@@ -425,7 +429,7 @@ function SummaryCards({ summary }: { summary: OperationsSummary }) {
           team_note.recall {recalls.team_note_recall_requests} ｜ hits: evidence{" "}
           {recalls.evidence_hits} · hint {recalls.hint_hits} · reference {recalls.reference_hits}
           <br />
-          with_evidence 不代表答案正确性（正确性属于 Evaluation）。
+          with_evidence does not imply answer correctness (correctness belongs to Evaluation).
         </p>
       </div>
       <div className="card">
@@ -434,16 +438,16 @@ function SummaryCards({ summary }: { summary: OperationsSummary }) {
           <Stat label="samples" value={latency.sample_count} />
           <Stat
             label="p50"
-            value={latency.p50_ms !== undefined ? `${latency.p50_ms} ms` : "样本不足"}
+            value={latency.p50_ms !== undefined ? `${latency.p50_ms} ms` : "insufficient samples"}
           />
           <Stat
             label="p95"
-            value={latency.p95_ms !== undefined ? `${latency.p95_ms} ms` : "样本不足"}
+            value={latency.p95_ms !== undefined ? `${latency.p95_ms} ms` : "insufficient samples"}
           />
-          <Stat label="errors" value={summary.errors} title="failed / timed_out / cancelled，不含 rejected" />
+          <Stat label="errors" value={summary.errors} title="failed / timed_out / cancelled, excluding rejected" />
         </div>
         <p className="faint small" style={{ marginBottom: 0 }}>
-          样本含 memory.search / memory.get / team_note.recall 完整外部调用。
+          Samples cover complete external calls to memory.search / memory.get / team_note.recall.
         </p>
       </div>
     </div>
@@ -460,7 +464,7 @@ function PipelineHealthCard({ summary }: { summary: OperationsSummary }) {
         <Stat
           label="quarantined"
           value={ex.quarantined}
-          title="deterministic rejection，不计入 failed/errors"
+          title="deterministic rejection, not counted in failed/errors"
         />
         <Stat label="failed" value={ex.failed} />
         <Stat label="admitted revisions" value={ex.admitted_revisions} />
@@ -479,7 +483,7 @@ function PipelineHealthCard({ summary }: { summary: OperationsSummary }) {
         />
       </div>
       <p className="faint small" style={{ marginBottom: 0 }}>
-        Observation accepted 不代表 extraction 完成；backlog 与 extraction 是另一条异步链。
+        Observation accepted does not mean extraction finished; backlog and extraction are a separate asynchronous chain.
       </p>
     </div>
   );
@@ -505,11 +509,11 @@ function StorageSnapshotView({ snapshot }: { snapshot: OperationsStorageSnapshot
     <>
       {partial && (
         <div className="note warn">
-          本次采集不完整（partial），采集于{" "}
+          This capture is incomplete (partial), captured at{" "}
           <span title={snapshot.captured_at}>{formatTime(snapshot.captured_at)}</span>
           {snapshot.warning_codes.length > 0 && (
             <>
-              ；warning codes:{" "}
+              ; warning codes:{" "}
               {snapshot.warning_codes.map((code) => (
                 <code key={code} style={{ marginRight: 6 }}>
                   {code}
@@ -517,36 +521,38 @@ function StorageSnapshotView({ snapshot }: { snapshot: OperationsStorageSnapshot
               ))}
             </>
           )}
-          。失败 component 的零值不代表真实空库。
+          . Zero values from failed components do not mean the database is truly empty.
         </div>
       )}
       {unknownStatus && (
         <div className="note warn">
-          未知采集状态 <code>{snapshot.status}</code>；以下为已返回的数据。
+          Unknown capture status <code>{snapshot.status}</code>; the returned data is shown below.
         </div>
       )}
       {stale && (
         <div className="note warn">
-          快照采集于 <span title={snapshot.captured_at}>{formatTime(snapshot.captured_at)}</span>
-          ，可能已过时（默认每小时采集一次；部署可调整间隔，不代表数据库故障）。
+          Snapshot captured at{" "}
+          <span title={snapshot.captured_at}>{formatTime(snapshot.captured_at)}</span>{" "}
+          and may be stale (captured hourly by default; deployments can adjust the interval;
+          this does not indicate a database failure).
         </div>
       )}
       {schemaMismatch && (
         <div className="note warn">
-          schema_version <code>{snapshot.schema_version}</code> 与前端已知版本{" "}
-          <code>{KNOWN_STORAGE_SCHEMA_VERSION}</code> 不一致，仅显示数据库总量与原始 component 名称。
+          schema_version <code>{snapshot.schema_version}</code> differs from the frontend's known version{" "}
+          <code>{KNOWN_STORAGE_SCHEMA_VERSION}</code>; only database totals and raw component names are shown.
         </div>
       )}
       <div className="stat-grid" style={{ marginBottom: 12 }}>
         <Stat
           label="database physical"
           value={formatBytes(snapshot.database_physical_bytes)}
-          title="整个数据库大小"
+          title="Total size of the entire database"
         />
         <Stat
           label="other physical"
           value={formatBytes(snapshot.other_physical_bytes)}
-          title="未归到已知 component 的 allocation"
+          title="Allocation not attributed to a known component"
         />
         <Stat
           label="captured at"
@@ -571,7 +577,7 @@ function StorageSnapshotView({ snapshot }: { snapshot: OperationsStorageSnapshot
               <th>Logical</th>
               <th>Physical</th>
               <th>Reclaimable</th>
-              <th>数据时间范围</th>
+              <th>Data time range</th>
             </tr>
           </thead>
           <tbody>
@@ -594,10 +600,10 @@ function StorageSnapshotView({ snapshot }: { snapshot: OperationsStorageSnapshot
                       .join(" · ") || "—"}
                   </td>
                   <td className="small">
-                    {availability.logical ? formatBytes(component.logical_bytes) : "不可用"}
+                    {availability.logical ? formatBytes(component.logical_bytes) : "unavailable"}
                   </td>
                   <td className="small">
-                    {availability.physical ? formatBytes(component.physical_bytes) : "不可用"}
+                    {availability.physical ? formatBytes(component.physical_bytes) : "unavailable"}
                   </td>
                   <td className="small">
                     {component.estimated_reclaimable_bytes !== undefined
@@ -620,8 +626,9 @@ function StorageSnapshotView({ snapshot }: { snapshot: OperationsStorageSnapshot
         </table>
       )}
       <p className="faint small">
-        logical 为领域 payload 的可解释大小；physical 为 PostgreSQL relation 当前
-        allocation。删除后 logical/count 可下降而 physical 暂不下降，属正常行为。
+        logical is the interpretable size of the domain payload; physical is the current
+        allocation of the PostgreSQL relation. After deletion, logical/count may drop while
+        physical does not, which is expected behavior.
       </p>
     </>
   );
@@ -643,17 +650,17 @@ function StorageHistoryReady({
 }) {
   const cursor = region.nextCursor;
   if (region.items.length === 0) {
-    return <p className="muted small">暂无历史快照。</p>;
+    return <p className="muted small">No history snapshots yet.</p>;
   }
   return (
     <>
       <table>
         <thead>
           <tr>
-            <th>采集时间</th>
-            <th>数据库总量</th>
-            <th>状态</th>
-            <th>告警</th>
+            <th>Captured at</th>
+            <th>Database total</th>
+            <th>Status</th>
+            <th>Warnings</th>
           </tr>
         </thead>
         <tbody>
@@ -680,7 +687,7 @@ function StorageHistoryReady({
             disabled={region.loadingMore}
             onClick={() => onLoadMore(cursor)}
           >
-            {region.loadingMore ? "加载中…" : "加载更多"}
+            {region.loadingMore ? "Loading…" : "Load more"}
           </button>
         </div>
       )}
@@ -698,6 +705,31 @@ type DrawerState =
   | { status: "not-found" }
   | { status: "expired" }
   | { status: "error"; error: unknown };
+
+type ExplorerDrawerTarget =
+  | { kind: "extraction"; id: string }
+  | { kind: "channel"; id: string };
+
+type ExplorerDrawerState =
+  | { status: "loading" }
+  | { status: "ready"; value: ExtractionDiagnostic | ChannelDiagnostic }
+  | { status: "not-found" }
+  | { status: "error"; error: unknown };
+
+function explorerTargetFromLocation(enabled: boolean): ExplorerDrawerTarget | null {
+  if (!enabled) return null;
+  const params = new URLSearchParams(window.location.search);
+  const id = params.get("id")?.trim();
+  if (!id) return null;
+  switch (params.get("detail")) {
+    case "extraction_run":
+      return { kind: "extraction", id };
+    case "channel_envelope":
+      return { kind: "channel", id };
+    default:
+      return null;
+  }
+}
 
 function RecallDrawer({
   observationId,
@@ -738,18 +770,20 @@ function RecallDrawer({
         <div className="row between" style={{ marginBottom: 12 }}>
           <h2 style={{ margin: 0 }}>Recall #{observationId}</h2>
           <button className="btn ghost sm" onClick={onClose}>
-            关闭
+            Close
           </button>
         </div>
-        {state.status === "loading" && <p className="muted small">加载中…</p>}
+        {state.status === "loading" && <p className="muted small">Loading…</p>}
         {state.status === "not-found" && (
           <div className="note warn">
-            诊断不存在：从未记录，或 Operation Event 与诊断均已过 retention。列表中的事件仍然有效。
+            Diagnostic not found: it was never recorded, or both the Operation Event and its
+            diagnostic are past retention. The event in the list remains valid.
           </div>
         )}
         {state.status === "expired" && (
           <div className="note warn">
-            诊断已过期或被清理（diagnostic_expired）；列表中的安全事件仍然有效。
+            The diagnostic has expired or been cleaned up (diagnostic_expired); the safe event
+            in the list remains valid.
           </div>
         )}
         {state.status === "error" && (
@@ -783,7 +817,7 @@ function RecallView({ recall }: { recall: RecallDiagnostic }) {
           label="evidence sufficient"
           value={
             <span className={`badge ${recall.evidence_sufficient ? "b-active" : "b-suspended"}`}>
-              {recall.evidence_sufficient ? "是" : "否"}
+              {recall.evidence_sufficient ? "yes" : "no"}
             </span>
           }
         />
@@ -800,7 +834,7 @@ function RecallView({ recall }: { recall: RecallDiagnostic }) {
       </div>
       <h3>Lanes executed</h3>
       {recall.lanes_executed.length === 0 ? (
-        <p className="faint small">无</p>
+        <p className="faint small">None</p>
       ) : (
         <div className="chips">
           {recall.lanes_executed.map((lane) => (
@@ -810,7 +844,7 @@ function RecallView({ recall }: { recall: RecallDiagnostic }) {
       )}
       <h3>Reason codes</h3>
       {recall.reason_codes.length === 0 ? (
-        <p className="faint small">无</p>
+        <p className="faint small">None</p>
       ) : (
         <div className="chips">
           {recall.reason_codes.map((code) => (
@@ -826,11 +860,184 @@ function RecallView({ recall }: { recall: RecallDiagnostic }) {
   );
 }
 
+function ExplorerDiagnosticDrawer({
+  target,
+  onClose,
+  onAuthError,
+}: {
+  target: ExplorerDrawerTarget;
+  onClose: () => void;
+  onAuthError: (err: unknown) => void;
+}) {
+  const [state, setState] = useState<ExplorerDrawerState>({ status: "loading" });
+  const [epoch, setEpoch] = useState(0);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setState({ status: "loading" });
+    const request =
+      target.kind === "extraction"
+        ? getExtractionDiagnostic(target.id, controller.signal)
+        : getChannelDiagnostic(target.id, controller.signal);
+    request
+      .then((value) => setState({ status: "ready", value }))
+      .catch((err: unknown) => {
+        if (isAbortError(err)) return;
+        if (err instanceof ApiError && err.status === 404) {
+          setState({ status: "not-found" });
+          return;
+        }
+        onAuthError(err);
+        setState({ status: "error", error: err });
+      });
+    return () => controller.abort();
+  }, [target.kind, target.id, epoch, onAuthError]);
+
+  const title = target.kind === "extraction" ? "Extraction diagnostic" : "Capsule diagnostic";
+  return (
+    <>
+      <div className="drawer-backdrop" onClick={onClose} />
+      <aside className="drawer">
+        <div className="row between" style={{ marginBottom: 12 }}>
+          <div>
+            <h2 style={{ margin: 0 }}>{title}</h2>
+            <code className="small">{target.id}</code>
+          </div>
+          <button className="btn ghost sm" onClick={onClose}>Close</button>
+        </div>
+        {state.status === "loading" && <p className="muted small">Loading…</p>}
+        {state.status === "not-found" && (
+          <div className="note warn">This retained diagnostic is no longer available.</div>
+        )}
+        {state.status === "error" && (
+          <RegionError error={state.error} onRetry={() => setEpoch((value) => value + 1)} />
+        )}
+        {state.status === "ready" && target.kind === "extraction" && (
+          <ExtractionDiagnosticView diagnostic={state.value as ExtractionDiagnostic} />
+        )}
+        {state.status === "ready" && target.kind === "channel" && (
+          <ChannelDiagnosticView diagnostic={state.value as ChannelDiagnostic} />
+        )}
+      </aside>
+    </>
+  );
+}
+
+function ExtractionDiagnosticView({ diagnostic }: { diagnostic: ExtractionDiagnostic }) {
+  return (
+    <>
+      <div className="stat-grid">
+        <Stat label="status" value={diagnostic.run.status} />
+        <Stat label="agent" value={<code>{diagnostic.run.agent_id}</code>} />
+        <Stat label="session" value={<code>{diagnostic.run.session_id}</code>} />
+        <Stat label="sequence" value={`${diagnostic.run.from_sequence}–${diagnostic.run.to_sequence}`} />
+        <Stat label="model" value={diagnostic.run.model} />
+        <Stat label="prompt version" value={diagnostic.run.prompt_version} />
+        <Stat label="tokens" value={`${diagnostic.run.input_tokens}/${diagnostic.run.output_tokens}`} />
+        <Stat label="error code" value={diagnostic.run.error_code ?? "—"} />
+        <Stat label="created" value={formatTime(diagnostic.run.created_at)} />
+        <Stat label="completed" value={
+          diagnostic.run.completed_at ? formatTime(diagnostic.run.completed_at) : "—"
+        } />
+      </div>
+      <h3>Source events</h3>
+      {diagnostic.source_events.map((event) => (
+        <article className="explorer-event" key={event.event_id}>
+          <code className="small">#{event.sequence} · {event.type}</code>
+          <p>{event.content}</p>
+        </article>
+      ))}
+      {diagnostic.source_events.length === 0 && <p className="faint small">None</p>}
+      <h3>Candidates</h3>
+      {diagnostic.candidates.map((candidate) => (
+        <article className="explorer-event" key={candidate.candidate_id}>
+          <div className="row between">
+            <strong>{candidate.subject}</strong>
+            <span className={`badge ${candidate.admission_status === "admitted" ? "b-active" : "b-suspended"}`}>
+              {candidate.admission_status}
+            </span>
+          </div>
+          <p>{candidate.body}</p>
+          {candidate.rejection_reason && <code>{candidate.rejection_reason}</code>}
+          {candidate.resulting_note_id && (
+            <div style={{ marginTop: 8 }}>
+              <a href={`/admin/explorer/notes/${encodeURIComponent(candidate.resulting_note_id)}`}>
+                Open resulting Team Note
+              </a>
+            </div>
+          )}
+        </article>
+      ))}
+      <h3>Resulting Team Notes</h3>
+      {diagnostic.resulting_notes.length === 0 ? (
+        <p className="faint small">None</p>
+      ) : (
+        <ul>
+          {diagnostic.resulting_notes.map((note) => (
+            <li key={note.note_id}>
+              <a href={`/admin/explorer/notes/${encodeURIComponent(note.note_id)}`}>
+                {note.subject}
+              </a>
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
+  );
+}
+
+function ChannelDiagnosticView({ diagnostic }: { diagnostic: ChannelDiagnostic }) {
+  return (
+    <>
+      <div className="stat-grid">
+        <Stat label="status" value={diagnostic.status} />
+        <Stat label="payload" value={diagnostic.payload_status} />
+        <Stat label="from" value={<code>{diagnostic.from_agent_id}</code>} />
+        <Stat label="to" value={<code>{diagnostic.to_agent_id}</code>} />
+        <Stat label="created" value={formatTime(diagnostic.created_at)} />
+        <Stat label="accepted" value={
+          diagnostic.accepted_at ? formatTime(diagnostic.accepted_at) : "—"
+        } />
+        <Stat label="archived" value={
+          diagnostic.archived_at ? formatTime(diagnostic.archived_at) : "—"
+        } />
+      </div>
+      {diagnostic.message && <div className="note">{diagnostic.message}</div>}
+      {diagnostic.payload_status !== "decoded" ? (
+        <div className="note warn">
+          The stored payload schema is unavailable. Raw payload JSON is intentionally hidden.
+        </div>
+      ) : (
+        <>
+          <h3>{diagnostic.capsule.title ?? "Knowledge capsule"}</h3>
+          {diagnostic.capsule.summary && <p className="muted">{diagnostic.capsule.summary}</p>}
+          {diagnostic.capsule.content && (
+            <p className="explorer-content">{diagnostic.capsule.content}</p>
+          )}
+          <div className="chips">
+            {diagnostic.capsule.capsule_id && <code>capsule: {diagnostic.capsule.capsule_id}</code>}
+            {diagnostic.capsule.source_session_id && (
+              <code>session: {diagnostic.capsule.source_session_id}</code>
+            )}
+            {diagnostic.capsule.keyword && <code>keyword: {diagnostic.capsule.keyword}</code>}
+            {diagnostic.capsule.source_agent && <code>source: {diagnostic.capsule.source_agent}</code>}
+            {diagnostic.capsule.status && <code>status: {diagnostic.capsule.status}</code>}
+            {diagnostic.capsule.capsule_id && (
+              <code>truncated: {diagnostic.capsule.truncated ? "yes" : "no"}</code>
+            )}
+            {diagnostic.capsule.route_match_type && <code>route: {diagnostic.capsule.route_match_type}</code>}
+          </div>
+        </>
+      )}
+    </>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 
-export function AdminOperationsPage() {
+export function AdminOperationsPage({ canInspectTeamMemory = false }: { canInspectTeamMemory?: boolean }) {
   const handleError = useErrorHandler();
   // Only auth transitions go through the global handler; region failures stay
   // region-local so a failing poll never spams toasts (doc 11).
@@ -856,6 +1063,9 @@ export function AdminOperationsPage() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const historyLoaded = useRef(false);
   const [drawerId, setDrawerId] = useState<number | null>(null);
+  const [explorerDrawer, setExplorerDrawer] = useState<ExplorerDrawerTarget | null>(() =>
+    explorerTargetFromLocation(canInspectTeamMemory),
+  );
 
   // Non-authoritative agent label enrichment (doc section 8): the raw agent
   // id always stays visible; retired agents keep rendering as raw ids.
@@ -883,7 +1093,9 @@ export function AdminOperationsPage() {
         <div>
           <h1>Operations</h1>
           <p className="muted" style={{ margin: 0 }}>
-            只读运行面；不展示 query、正文、hit text 或原始错误信息
+            {canInspectTeamMemory
+              ? "Read-only view; raw queries, credentials, idempotency keys and raw errors are never shown. Owner diagnostics may include Team Memory content."
+              : "Read-only operational view; queries, content, hit text and raw error details are never shown"}
           </p>
         </div>
       </div>
@@ -896,7 +1108,7 @@ export function AdminOperationsPage() {
               className={preset === p ? "on" : ""}
               aria-pressed={preset === p}
               onClick={() => setPreset(p)}
-              title="超出部署 retention 的窗口会被后端拒绝"
+              title="Windows beyond the deployment retention are rejected by the backend"
             >
               {p}
             </button>
@@ -905,7 +1117,7 @@ export function AdminOperationsPage() {
         <input
           type="text"
           style={{ width: 220 }}
-          placeholder="Agent ID 过滤"
+          placeholder="Filter by Agent ID"
           value={agentInput}
           onChange={(e) => setAgentInput(e.target.value)}
           onKeyDown={(e) => {
@@ -913,14 +1125,14 @@ export function AdminOperationsPage() {
           }}
         />
         <button className="btn sm" onClick={applyAgent}>
-          应用过滤
+          Apply filter
         </button>
       </div>
 
       <h2>Activity summary</h2>
       {summary.status === "loading" && (
         <div className="card">
-          <p className="muted small">加载中…</p>
+          <p className="muted small">Loading…</p>
         </div>
       )}
       {summary.status === "error" && (
@@ -931,12 +1143,12 @@ export function AdminOperationsPage() {
       {summary.status === "ready" && summary.summary && (
         <>
           {summary.error && (
-            <div className="note warn">自动刷新失败，显示的数据可能已过期。</div>
+            <div className="note warn">Auto-refresh failed; the displayed data may be stale.</div>
           )}
           <p className="faint small">
-            窗口{" "}
+            Window{" "}
             <span title={summary.summary.from_time}>{formatTime(summary.summary.from_time)}</span> —{" "}
-            <span title={summary.summary.to_time}>{formatTime(summary.summary.to_time)}</span> · 生成于{" "}
+            <span title={summary.summary.to_time}>{formatTime(summary.summary.to_time)}</span> · generated at{" "}
             <span title={summary.summary.generated_at}>
               {formatTime(summary.summary.generated_at)}
             </span>
@@ -951,18 +1163,18 @@ export function AdminOperationsPage() {
         <h2 style={{ margin: 0 }}>Storage</h2>
         <div className="row">
           <button className="btn ghost sm" onClick={toggleHistory}>
-            {historyOpen ? "收起历史趋势" : "历史趋势"}
+            {historyOpen ? "Hide history trend" : "History trend"}
           </button>
-          <button className="btn sm" aria-label="刷新存储" onClick={storage.refresh}>
-            刷新
+          <button className="btn sm" aria-label="Refresh storage" onClick={storage.refresh}>
+            Refresh
           </button>
         </div>
       </div>
       <div className="card">
-        {storage.region.status === "loading" && <p className="muted small">加载中…</p>}
+        {storage.region.status === "loading" && <p className="muted small">Loading…</p>}
         {storage.region.status === "unavailable" && (
           <p className="muted small" style={{ margin: 0 }}>
-            Storage 统计暂不可用（storage_not_available）；summary 与事件区域不受影响。
+            Storage statistics are temporarily unavailable (storage_not_available); the summary and events regions are unaffected.
           </p>
         )}
         {storage.region.status === "error" && (
@@ -971,7 +1183,7 @@ export function AdminOperationsPage() {
         {storage.region.status === "ready" && (
           <>
             {storage.region.refreshError && (
-              <div className="note warn">刷新失败，显示的快照可能已过期。</div>
+              <div className="note warn">Refresh failed; the displayed snapshot may be stale.</div>
             )}
             <StorageSnapshotView snapshot={storage.region.snapshot} />
           </>
@@ -981,10 +1193,10 @@ export function AdminOperationsPage() {
         <div className="card">
           <h3 style={{ marginTop: 0 }}>Storage history</h3>
           <p className="faint small">
-            history 仅用于趋势，不是 backup；backup/restore 操作见部署文档
-            deployment-instruction.md。
+            history is for trends only, not a backup; see the deployment doc
+            deployment-instruction.md for backup/restore operations.
           </p>
-          {history.region.status === "loading" && <p className="muted small">加载中…</p>}
+          {history.region.status === "loading" && <p className="muted small">Loading…</p>}
           {history.region.status === "error" && (
             <RegionError error={history.region.error} onRetry={() => void history.load()} />
           )}
@@ -999,11 +1211,11 @@ export function AdminOperationsPage() {
         <div className="row">
           <select
             style={{ width: 190 }}
-            aria-label="按 operation 过滤"
+            aria-label="Filter by operation"
             value={kind}
             onChange={(e) => setKind(e.target.value as "" | OperationKind)}
           >
-            <option value="">全部 operation</option>
+            <option value="">All operations</option>
             {OPERATION_KINDS.map((k) => (
               <option key={k} value={k}>
                 {operationKindLabel(k)}
@@ -1012,45 +1224,45 @@ export function AdminOperationsPage() {
           </select>
           <select
             style={{ width: 150 }}
-            aria-label="按 outcome 过滤"
+            aria-label="Filter by outcome"
             value={outcome}
             onChange={(e) => setOutcome(e.target.value as "" | OperationOutcome)}
           >
-            <option value="">全部 outcome</option>
+            <option value="">All outcomes</option>
             {OPERATION_OUTCOMES.map((o) => (
               <option key={o} value={o}>
                 {o}
               </option>
             ))}
           </select>
-          <button className="btn sm" aria-label="刷新最近活动" onClick={events.backToFirstPage}>
-            刷新
+          <button className="btn sm" aria-label="Refresh recent activity" onClick={events.backToFirstPage}>
+            Refresh
           </button>
         </div>
       </div>
       {events.newActivity && (
         <div className="note">
-          有新活动。
+          New activity available.
           <button className="btn sm" style={{ marginLeft: 10 }} onClick={events.backToFirstPage}>
-            回到第一页
+            Back to first page
           </button>
         </div>
       )}
       <div className="card">
         {events.status === "loading" ? (
-          <p className="muted small">加载中…</p>
+          <p className="muted small">Loading…</p>
         ) : events.status === "error" ? (
           <RegionError error={events.error} onRetry={events.backToFirstPage} />
         ) : (
           <>
-            {events.error && <div className="note warn">自动刷新失败，列表可能已过期。</div>}
+            {events.error && <div className="note warn">Auto-refresh failed; the list may be stale.</div>}
             {events.items.length === 0 ? (
-              <p className="muted small">无匹配事件。</p>
+              <p className="muted small">No matching events.</p>
             ) : (
               <table>
                 <thead>
                   <tr>
-                    <th>时间</th>
+                    <th>Time</th>
                     <th>Agent</th>
                     <th>Operation</th>
                     <th>Outcome</th>
@@ -1063,6 +1275,14 @@ export function AdminOperationsPage() {
                 <tbody>
                   {events.items.map((event) => {
                     const recallId = recallObservationId(event);
+                    const extractionId =
+                      canInspectTeamMemory && event.detail_kind === "extraction_run"
+                        ? event.detail_id
+                        : undefined;
+                    const channelId =
+                      canInspectTeamMemory && event.detail_kind === "channel_envelope"
+                        ? event.detail_id
+                        : undefined;
                     const agentIdRaw = event.actor_agent_id;
                     const agent = agentIdRaw ? agentLabels.get(agentIdRaw) : undefined;
                     const humanActor = event.actor_user_id ?? event.actor_membership_id;
@@ -1117,6 +1337,20 @@ export function AdminOperationsPage() {
                             <button className="btn ghost sm" onClick={() => setDrawerId(recallId)}>
                               Inspect recall
                             </button>
+                          ) : extractionId ? (
+                            <button
+                              className="btn ghost sm"
+                              onClick={() => setExplorerDrawer({ kind: "extraction", id: extractionId })}
+                            >
+                              Inspect extraction
+                            </button>
+                          ) : channelId ? (
+                            <button
+                              className="btn ghost sm"
+                              onClick={() => setExplorerDrawer({ kind: "channel", id: channelId })}
+                            >
+                              Inspect capsule
+                            </button>
                           ) : (
                             "—"
                           )}
@@ -1129,7 +1363,7 @@ export function AdminOperationsPage() {
             )}
             {events.generatedAt && (
               <p className="faint small" style={{ marginBottom: 0 }}>
-                生成于 <span title={events.generatedAt}>{formatTime(events.generatedAt)}</span>
+                Generated at <span title={events.generatedAt}>{formatTime(events.generatedAt)}</span>
               </p>
             )}
           </>
@@ -1142,7 +1376,7 @@ export function AdminOperationsPage() {
             disabled={events.loadingMore}
             onClick={() => void events.loadMore()}
           >
-            {events.loadingMore ? "加载中…" : "加载更多"}
+            {events.loadingMore ? "Loading…" : "Load more"}
           </button>
         </div>
       )}
@@ -1151,6 +1385,13 @@ export function AdminOperationsPage() {
         <RecallDrawer
           observationId={drawerId}
           onClose={() => setDrawerId(null)}
+          onAuthError={onAuthError}
+        />
+      )}
+      {explorerDrawer !== null && (
+        <ExplorerDiagnosticDrawer
+          target={explorerDrawer}
+          onClose={() => setExplorerDrawer(null)}
           onAuthError={onAuthError}
         />
       )}

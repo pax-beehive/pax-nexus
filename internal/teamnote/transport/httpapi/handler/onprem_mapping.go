@@ -28,12 +28,148 @@ func enrollmentToAPI(enrollment onprem.Enrollment) *api.AgentEnrollmentResponse 
 }
 
 func credentialToAPI(credential onprem.IssuedCredential) *api.AgentCredentialResponse {
-	result := &api.AgentCredentialResponse{CredentialID: credential.CredentialID, APIKey: credential.APIKey}
+	permissions := make([]string, len(credential.Permissions))
+	for index, permission := range credential.Permissions {
+		permissions[index] = string(permission)
+	}
+	// Agent enrollments predate the credential-kind column and persist an
+	// empty kind; the exchange contract reports them as "agent".
+	kind := string(credential.Kind)
+	if kind == "" {
+		kind = string(onprem.CredentialKindAgent)
+	}
+	result := &api.AgentCredentialResponse{
+		CredentialID: credential.CredentialID, APIKey: credential.APIKey,
+		UserID: credential.UserID, Permissions: permissions, Kind: &kind,
+	}
 	if credential.ExpiresAt != nil {
 		value := credential.ExpiresAt.Format(time.RFC3339Nano)
 		result.ExpiresAt = &value
 	}
 	return result
+}
+
+func deviceProvisionRequestToDomain(request *api.ProvisionDeviceAgentRequest) onprem.DeviceProvisionRequest {
+	permissions := make([]onprem.Permission, len(request.Permissions))
+	for index, permission := range request.Permissions {
+		permissions[index] = onprem.Permission(permission)
+	}
+	return onprem.DeviceProvisionRequest{
+		AgentID: request.AgentID, DisplayName: request.DisplayName,
+		AgentType: request.AgentType, Permissions: permissions,
+	}
+}
+
+func provisionedAgentCredentialToAPI(
+	credential onprem.ProvisionedAgentCredential,
+	principal onprem.Principal,
+) *api.ProvisionDeviceAgentResponse {
+	permissions := make([]string, len(credential.Permissions))
+	for index, permission := range credential.Permissions {
+		permissions[index] = string(permission)
+	}
+	result := &api.ProvisionDeviceAgentResponse{
+		CredentialID: credential.CredentialID, APIKey: credential.APIKey, AgentID: credential.AgentID,
+		Permissions: permissions, CreatedAt: credential.CreatedAt.Format(time.RFC3339Nano),
+		AgentCreated: credential.AgentCreated, UserID: principal.UserID,
+	}
+	if credential.ExpiresAt != nil {
+		value := credential.ExpiresAt.Format(time.RFC3339Nano)
+		result.ExpiresAt = &value
+	}
+	if credential.RotatedFromCredentialID != "" {
+		value := credential.RotatedFromCredentialID
+		result.RotatedFromCredentialID = &value
+	}
+	return result
+}
+
+func deviceProvisionedAgentsToAPI(agents []onprem.DeviceProvisionedAgent) *api.ListDeviceProvisionsResponse {
+	result := make([]*api.DeviceProvisionedAgent, len(agents))
+	for index, agent := range agents {
+		result[index] = deviceProvisionedAgentToAPI(agent)
+	}
+	return &api.ListDeviceProvisionsResponse{Agents: result}
+}
+
+// deviceEnrollmentToAPI builds the CreateDeviceEnrollment response.
+// grantablePermissions is the effective set RegistryService.CreateDeviceEnrollment
+// computed (the caller-supplied set, or the registry's configured default
+// when omitted) — see that method's doc comment — not re-derived here, since
+// Enrollment itself carries no permission fields.
+func deviceEnrollmentToAPI(enrollment onprem.Enrollment, deviceName string, grantablePermissions []onprem.Permission) *api.DeviceEnrollmentResponse {
+	permissions := make([]string, len(grantablePermissions))
+	for index, permission := range grantablePermissions {
+		permissions[index] = string(permission)
+	}
+	return &api.DeviceEnrollmentResponse{
+		EnrollmentID: enrollment.ID, Token: enrollment.Token, ExpiresAt: enrollment.ExpiresAt.Format(time.RFC3339Nano),
+		DeviceName: deviceName, GrantablePermissions: permissions,
+	}
+}
+
+func deviceSummaryToAPI(summary onprem.DeviceSummary) *api.DeviceSummary {
+	status := "active"
+	if summary.RevokedAt != nil {
+		status = "revoked"
+	}
+	grantablePermissions := make([]string, len(summary.GrantablePermissions))
+	for index, permission := range summary.GrantablePermissions {
+		grantablePermissions[index] = string(permission)
+	}
+	result := &api.DeviceSummary{
+		CredentialID: summary.CredentialID, DeviceName: summary.DeviceName,
+		CreatedByUserID: summary.CreatedByUserID, CreatedByMembershipID: summary.CreatedByMembershipID,
+		Status: status, ProvisionedAgentCount: summary.ProvisionedAgentCount,
+		CreatedAt: summary.CreatedAt.Format(time.RFC3339Nano), GrantablePermissions: grantablePermissions,
+	}
+	if summary.RevokedAt != nil {
+		value := summary.RevokedAt.Format(time.RFC3339Nano)
+		result.RevokedAt = &value
+	}
+	if summary.LastUsedAt != nil {
+		value := summary.LastUsedAt.Format(time.RFC3339Nano)
+		result.LastUsedAt = &value
+	}
+	return result
+}
+
+func deviceProvisionedAgentToAPI(agent onprem.DeviceProvisionedAgent) *api.DeviceProvisionedAgent {
+	result := &api.DeviceProvisionedAgent{
+		AgentID: agent.AgentID, DisplayName: agent.DisplayName, AgentType: agent.AgentType,
+		AgentStatus: string(agent.AgentStatus), CredentialID: agent.CredentialID,
+		CreatedAt: agent.CreatedAt.Format(time.RFC3339Nano),
+	}
+	if agent.RevokedAt != nil {
+		value := agent.RevokedAt.Format(time.RFC3339Nano)
+		result.RevokedAt = &value
+	}
+	if agent.LastUsedAt != nil {
+		value := agent.LastUsedAt.Format(time.RFC3339Nano)
+		result.LastUsedAt = &value
+	}
+	return result
+}
+
+func deviceListToAPI(devices []onprem.DeviceSummary, limit int) *api.ListDevicesResponse {
+	result := &api.ListDevicesResponse{Devices: make([]*api.DeviceSummary, len(devices))}
+	for index, device := range devices {
+		result.Devices[index] = deviceSummaryToAPI(device)
+	}
+	if len(devices) == limit && len(devices) > 0 {
+		last := devices[len(devices)-1]
+		cursor := onprem.EncodeDeviceCursor(last.CreatedAt, last.CredentialID)
+		result.NextCursor = &cursor
+	}
+	return result
+}
+
+func deviceDetailToAPI(detail onprem.DeviceDetail) *api.DeviceDetailResponse {
+	agents := make([]*api.DeviceProvisionedAgent, len(detail.Agents))
+	for index, agent := range detail.Agents {
+		agents[index] = deviceProvisionedAgentToAPI(agent)
+	}
+	return &api.DeviceDetailResponse{Device: deviceSummaryToAPI(detail.Device), Agents: agents}
 }
 
 func principalToAPI(principal onprem.Principal) *api.AgentIdentityResponse {

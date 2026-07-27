@@ -6,7 +6,7 @@ import type { AgentProfile } from "../api/types";
 import { useErrorHandler } from "../lib/useErrorHandler";
 import { AgentArtifacts } from "../components/AgentArtifacts";
 import { AgentGovernanceCard } from "../components/AgentGovernanceCard";
-import { Badge } from "../components/Badge";
+import { Badge, ProvisionedByBadge } from "../components/Badge";
 
 export function AgentDetailPage() {
   const { agentId = "" } = useParams();
@@ -42,12 +42,12 @@ export function AgentDetailPage() {
       <div className="card">
         <h2>404</h2>
         <p className="muted">
-          Agent 不存在或不可见。<Link to="/agents">返回列表</Link>
+          Agent does not exist or is not visible. <Link to="/agents">Back to list</Link>
         </p>
       </div>
     );
   }
-  if (!agent) return <p className="muted">加载中…</p>;
+  if (!agent) return <p className="muted">Loading…</p>;
 
   return (
     <>
@@ -57,10 +57,11 @@ export function AgentDetailPage() {
           <div className="row small muted">
             <code>{agent.agent_id}</code>
             <Badge status={agent.status} />
+            <ProvisionedByBadge agent={agent} />
           </div>
         </div>
         <Link to="/agents" className="btn ghost">
-          ← 返回
+          ← Back
         </Link>
       </div>
       <AgentGovernanceCard

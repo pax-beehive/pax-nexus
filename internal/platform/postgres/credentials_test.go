@@ -206,6 +206,32 @@ func (s *credentialStoreSuite) TestRotationRollsBackExpiryWhenReplacementInsertF
 	s.Require().NoError(err, "failed replacement insert must roll back the old-key expiry")
 }
 
+// TestRotationOfOrdinaryAgentCredentialLeavesProvisionedByNull is a
+// regression test guarding the fix for the provisioned_by-through-rotation
+// escape hole: rotating an ordinary (non device-provisioned) agent
+// credential must still succeed, and the replacement row must carry
+// provisioned_by NULL and kind 'agent' -- inheriting provisioned_by from the
+// rotated-from row must not fabricate provenance for a credential nothing
+// ever provisioned.
+func (s *credentialStoreSuite) TestRotationOfOrdinaryAgentCredentialLeavesProvisionedByNull() {
+	now := time.Now().UTC()
+	service, admin := s.newService(&now)
+	issued := s.issueCredential(service, admin, time.Minute)
+	principal, err := service.Authenticate(context.Background(), issued.APIKey)
+	s.Require().NoError(err)
+
+	rotated, err := service.RotateCredential(context.Background(), principal)
+	s.Require().NoError(err)
+
+	var provisionedBy, kind string
+	err = s.store.Pool().QueryRow(context.Background(), `
+		SELECT COALESCE(provisioned_by, ''), kind FROM agent_credentials WHERE credential_id = $1
+	`, rotated.CredentialID).Scan(&provisionedBy, &kind)
+	s.Require().NoError(err)
+	s.Empty(provisionedBy, "an ordinary agent rotation must not fabricate a provisioned_by value")
+	s.Equal("agent", kind)
+}
+
 func (s *credentialStoreSuite) TestRevokeUnknownCredentialReturnsTypedError() {
 	err := s.credentials.RevokeCredential(context.Background(), uniqueCredentialValue("missing"), time.Now().UTC())
 	s.Require().ErrorIs(err, onprem.ErrCredentialNotFound)
