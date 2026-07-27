@@ -1,0 +1,159 @@
+package postgres_test
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"testing"
+	"time"
+
+	"github.com/pax-beehive/pax-nexus/internal/pagewiki"
+	pagewikipostgres "github.com/pax-beehive/pax-nexus/internal/pagewiki/postgres"
+	platformpostgres "github.com/pax-beehive/pax-nexus/internal/platform/postgres"
+	"github.com/stretchr/testify/suite"
+)
+
+type repositorySuite struct {
+	suite.Suite
+	ctx     context.Context
+	store   *platformpostgres.Store
+	scopeID string
+}
+
+func TestRepositorySuite(t *testing.T) {
+	suite.Run(t, new(repositorySuite))
+}
+
+func (s *repositorySuite) SetupSuite() {
+	dsn := os.Getenv("TEAM_MEMORY_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		s.T().Skip("TEAM_MEMORY_TEST_POSTGRES_DSN is not configured")
+	}
+	s.ctx = context.Background()
+	var err error
+	s.store, err = platformpostgres.Open(s.ctx, dsn)
+	s.Require().NoError(err)
+	s.Require().NoError(s.store.Migrate(s.ctx))
+}
+
+func (s *repositorySuite) TearDownSuite() {
+	if s.store != nil {
+		s.store.Close()
+	}
+}
+
+func (s *repositorySuite) SetupTest() {
+	s.scopeID = fmt.Sprintf("pagewiki-repository-%d", time.Now().UnixNano())
+}
+
+func (s *repositorySuite) TearDownTest() {
+	if s.store == nil || s.scopeID == "" {
+		return
+	}
+	for _, query := range []string{
+		"DELETE FROM pagewiki_maintenance_runs WHERE scope_id = $1",
+		"DELETE FROM pagewiki_publications WHERE scope_id = $1",
+		"DELETE FROM pagewiki_source_revisions WHERE scope_id = $1",
+	} {
+		_, err := s.store.Pool().Exec(s.ctx, query, s.scopeID)
+		s.Require().NoError(err)
+	}
+}
+
+func (s *repositorySuite) TestPersistsAndHydratesCompleteWikiState() {
+	repository, err := pagewikipostgres.NewRepository(s.ctx, s.store.Pool(), s.scopeID)
+	s.Require().NoError(err)
+	service := pagewiki.NewService(
+		repository,
+		pagewiki.SessionDocumentPlanner{},
+		pagewiki.SessionDocumentEditor{},
+	)
+	raw := "[event:runtime-event sequence:1 type:assistant] Runtime verification passed."
+	result, err := service.InjectSession(s.ctx, pagewiki.InjectSessionRequest{
+		SourceID:       "session:local-team:runtime-agent:runtime-session",
+		IdempotencyKey: "manual-1",
+		Raw:            []byte(raw),
+		Events: []pagewiki.SourceEventInput{{
+			ID: "runtime-event", StartByte: 0, EndByte: len(raw),
+		}},
+	})
+	s.Require().NoError(err)
+	s.Equal(pagewiki.RunStatusSucceeded, result.Run.Status)
+
+	reloaded, err := pagewikipostgres.NewRepository(s.ctx, s.store.Pool(), s.scopeID)
+	s.Require().NoError(err)
+	navigation, err := reloaded.Navigation(s.ctx)
+	s.Require().NoError(err)
+	s.Require().Len(navigation.Roots, 1)
+	s.Require().Len(navigation.Roots[0].Pages, 1)
+	pageSummary := navigation.Roots[0].Pages[0]
+	page, err := reloaded.PageByID(s.ctx, pageSummary.ID)
+	s.Require().NoError(err)
+	bySlug, err := reloaded.PageBySlug(s.ctx, page.Slug)
+	s.Require().NoError(err)
+	s.Equal(page.ID, bySlug.ID)
+	revision, err := reloaded.PageRevision(s.ctx, page.CurrentRevisionID)
+	s.Require().NoError(err)
+	s.Contains(revision.Markdown, "Runtime verification passed.")
+	history, err := reloaded.PageRevisionHistory(s.ctx, page.ID)
+	s.Require().NoError(err)
+	s.Len(history, 1)
+	catalog, err := reloaded.PageCatalog(s.ctx)
+	s.Require().NoError(err)
+	s.Len(catalog, 1)
+	source, err := reloaded.SourceRevision(s.ctx, result.SourceRevisionID)
+	s.Require().NoError(err)
+	s.Equal("runtime-event", source.Events[0].ID)
+	search, err := reloaded.Search(s.ctx, "verification")
+	s.Require().NoError(err)
+	s.Require().Len(search, 1)
+	links, err := reloaded.PageLinks(s.ctx, page.ID)
+	s.Require().NoError(err)
+	s.Empty(links.Outgoing)
+	backlinks, err := reloaded.SourceBacklinks(s.ctx, result.SourceRevisionID)
+	s.Require().NoError(err)
+	s.Len(backlinks, 1)
+	run, err := reloaded.MaintenanceRun(s.ctx, result.Run.ID)
+	s.Require().NoError(err)
+	s.Equal(result.Run.ID, run.ID)
+	s.Require().NoError(reloaded.RebuildSearchIndex(s.ctx))
+}
+
+func (s *repositorySuite) TestRejectsInvalidConfigurationAndCorruptSnapshots() {
+	_, err := pagewikipostgres.NewRepository(s.ctx, nil, s.scopeID)
+	s.Require().Error(err)
+	_, err = pagewikipostgres.NewRepository(s.ctx, s.store.Pool(), "")
+	s.Require().Error(err)
+
+	tests := []struct {
+		name  string
+		table string
+		id    string
+	}{
+		{name: "source", table: "pagewiki_source_revisions", id: "source_revision_id"},
+		{name: "publication", table: "pagewiki_publications", id: "page_revision_id"},
+		{name: "run", table: "pagewiki_maintenance_runs", id: "run_id"},
+	}
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			scopeID := s.scopeID + "-" + test.name
+			query := fmt.Sprintf(
+				"INSERT INTO %s (scope_id, %s, payload) VALUES ($1, 'broken', $2)",
+				test.table,
+				test.id,
+			)
+			_, insertErr := s.store.Pool().Exec(s.ctx, query, scopeID, []byte(`{"ID":123}`))
+			s.Require().NoError(insertErr)
+
+			_, loadErr := pagewikipostgres.NewRepository(s.ctx, s.store.Pool(), scopeID)
+
+			s.Require().Error(loadErr)
+			_, deleteErr := s.store.Pool().Exec(
+				s.ctx,
+				fmt.Sprintf("DELETE FROM %s WHERE scope_id = $1", test.table),
+				scopeID,
+			)
+			s.Require().NoError(deleteErr)
+		})
+	}
+}

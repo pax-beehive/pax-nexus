@@ -11,6 +11,7 @@ import (
 	"github.com/pax-beehive/pax-nexus/internal/deployment/onprem"
 	"github.com/pax-beehive/pax-nexus/internal/explorer"
 	"github.com/pax-beehive/pax-nexus/internal/operations"
+	"github.com/pax-beehive/pax-nexus/internal/pagewiki/sessionconsumer"
 	"github.com/pax-beehive/pax-nexus/internal/recall"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote"
 )
@@ -35,6 +36,7 @@ type Handler struct {
 	registry     AgentRegistryLifecycle
 	operations   OperationsLifecycle
 	explorer     ExplorerLifecycle
+	wikiControl  WikiControl
 	recorder     operations.Recorder
 	portalURL    string
 	cookieSecure bool
@@ -124,6 +126,12 @@ type ExplorerLifecycle interface {
 	GetChannelDiagnostic(context.Context, onprem.HumanPrincipal, string) (explorer.ChannelDiagnostic, error)
 }
 
+type WikiControl interface {
+	Status(context.Context, string) (sessionconsumer.Status, error)
+	SetAutoInject(context.Context, string, bool) (sessionconsumer.Status, error)
+	InjectSession(context.Context, string, string) (sessionconsumer.InjectResult, error)
+}
+
 type OnPremOption func(*Handler) error
 
 func WithAgentRegistry(registry AgentRegistryLifecycle) OnPremOption {
@@ -153,6 +161,16 @@ func WithExplorer(service ExplorerLifecycle) OnPremOption {
 			return fmt.Errorf("configure explorer: service is required")
 		}
 		configured.explorer = service
+		return nil
+	}
+}
+
+func WithWikiControl(control WikiControl) OnPremOption {
+	return func(configured *Handler) error {
+		if control == nil {
+			return fmt.Errorf("configure Wiki control: control is required")
+		}
+		configured.wikiControl = control
 		return nil
 	}
 }

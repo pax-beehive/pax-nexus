@@ -2,6 +2,7 @@ SHELL := /bin/sh
 
 MODULE := github.com/pax-beehive/pax-nexus
 IDL := idl/team_memory.thrift
+PAGEWIKI_IDL := idl/page_wiki.thrift
 TOOLS_DIR := $(CURDIR)/.tools/bin
 HZ := $(TOOLS_DIR)/hz
 MOCKGEN := $(TOOLS_DIR)/mockgen
@@ -74,7 +75,11 @@ generate-init: tools
 		--sort_router --handler_by_method
 
 generate: tools
-	$(HZ) update --module $(MODULE) --idl $(IDL) --out_dir . \
+	PATH=$(TOOLS_DIR):$$PATH $(HZ) update --module $(MODULE) --idl $(PAGEWIKI_IDL) --out_dir . \
+		--handler_dir internal/pagewiki/transport/httpapi \
+		--model_dir internal/pagewiki/transport/httpapi/model \
+		--sort_router --handler_by_method
+	PATH=$(TOOLS_DIR):$$PATH $(HZ) update --module $(MODULE) --idl $(IDL) --out_dir . \
 		--handler_dir internal/teamnote/transport/httpapi/handler \
 		--model_dir internal/teamnote/transport/httpapi/model \
 		--sort_router --handler_by_method

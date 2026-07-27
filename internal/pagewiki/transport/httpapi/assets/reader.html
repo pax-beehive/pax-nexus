@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Page Wiki</title>
+  <link rel="stylesheet" href="/wiki/assets/reader.css">
+</head>
+<body>
+  <a class="skip-link" href="#article">Skip to article</a>
+  <header class="masthead">
+    <a class="brand" href="/wiki" aria-label="Page Wiki home">
+      <span class="brand-mark" aria-hidden="true">PW</span>
+      <span>
+        <strong>Page Wiki</strong>
+        <small>Grounded team knowledge</small>
+      </span>
+    </a>
+    <form class="search" id="search-form" role="search">
+      <label class="sr-only" for="wiki-search">Search the wiki</label>
+      <input id="wiki-search" name="q" type="search"
+             placeholder="Search decisions, systems, evidence…" autocomplete="off">
+      <button type="submit">Search</button>
+    </form>
+    <div class="sync-state" id="reader-status" role="status" aria-live="polite">
+      Loading
+    </div>
+  </header>
+
+  <main class="reader-layout">
+    <nav class="topic-rail" aria-label="Wiki topics"
+         data-testid="topic-navigation">
+      <div class="rail-heading">
+        <span>Topics</span>
+        <span class="count" id="page-count">0 pages</span>
+      </div>
+      <div id="topic-tree" class="topic-tree"></div>
+      <section class="run-lookup" aria-labelledby="run-heading">
+        <h2 id="run-heading">Maintenance run</h2>
+        <form id="run-form">
+          <label for="run-id">Inspect by run ID</label>
+          <div class="inline-form">
+            <input id="run-id" name="run" placeholder="run_…" autocomplete="off">
+            <button type="submit">Load</button>
+          </div>
+        </form>
+        <div id="run-panel" data-testid="run-panel"></div>
+      </section>
+    </nav>
+
+    <article class="article" id="article" data-testid="article">
+      <div class="article-empty" id="article-empty">
+        <span class="eyebrow">Page-centric knowledge</span>
+        <h1>Select a page</h1>
+        <p>Choose a topic on the left or search across current revisions.</p>
+      </div>
+      <div id="article-view" hidden>
+        <div class="article-kicker">
+          <span id="article-topic">Wiki page</span>
+          <span class="revision-badge" id="revision-badge">Current</span>
+        </div>
+        <h1 id="article-title"></h1>
+        <p class="article-summary" id="article-summary"></p>
+        <div class="article-meta">
+          <span id="article-slug"></span>
+          <span id="article-revision"></span>
+        </div>
+        <section class="xanadu-summary" data-testid="xanadu-summary"
+                 aria-labelledby="xanadu-summary-heading">
+          <div class="xanadu-summary-title">
+            <span class="xanadu-mark" aria-hidden="true">↔</span>
+            <div>
+              <span class="eyebrow">Bidirectional context</span>
+              <h2 id="xanadu-summary-heading">Connected knowledge</h2>
+            </div>
+          </div>
+          <div class="xanadu-counts" aria-label="Page link counts">
+            <a href="#xanadu-panel" id="xanadu-outgoing-count">0 outgoing</a>
+            <a href="#xanadu-panel" id="xanadu-incoming-count">0 incoming</a>
+          </div>
+          <p id="xanadu-summary-copy">
+            Exact-text links and backlinks for the current revision.
+          </p>
+        </section>
+        <div class="markdown" id="article-content"></div>
+        <section class="article-section" aria-labelledby="history-heading">
+          <div class="section-heading">
+            <h2 id="history-heading">Revision history</h2>
+            <span id="history-count"></span>
+          </div>
+          <ol class="revision-list" id="revision-history"></ol>
+        </section>
+        <section class="article-section" aria-labelledby="links-heading">
+          <div class="section-heading">
+            <h2 id="links-heading">Xanadu links</h2>
+            <span>Current revision</span>
+          </div>
+          <div class="relation-grid">
+            <div>
+              <h3>Outgoing</h3>
+              <ul class="link-list" id="outgoing-links"></ul>
+            </div>
+            <div>
+              <h3>Incoming</h3>
+              <ul class="link-list" id="incoming-links"></ul>
+            </div>
+          </div>
+        </section>
+      </div>
+    </article>
+
+    <aside class="context-rail" aria-label="Page context">
+      <section class="xanadu-panel" id="xanadu-panel"
+               data-testid="xanadu-panel" aria-labelledby="xanadu-panel-heading">
+        <div class="rail-heading">
+          <span id="xanadu-panel-heading">Xanadu map</span>
+          <span class="count" id="xanadu-link-count">0 links</span>
+        </div>
+        <p class="panel-intro">
+          Follow an exact phrase forward, or trace every page that points here.
+        </p>
+        <div class="xanadu-direction">
+          <h2><span aria-hidden="true">→</span> References</h2>
+          <ul class="link-list context-link-list"
+              id="xanadu-outgoing-links"></ul>
+        </div>
+        <div class="xanadu-direction">
+          <h2><span aria-hidden="true">←</span> Backlinks</h2>
+          <ul class="link-list context-link-list"
+              id="xanadu-incoming-links"></ul>
+        </div>
+      </section>
+      <section class="evidence-panel" data-testid="evidence-panel"
+               aria-labelledby="evidence-heading">
+        <div class="rail-heading">
+          <span id="evidence-heading">Evidence</span>
+          <span class="count" id="evidence-count">0 citations</span>
+        </div>
+        <div id="evidence-list" class="evidence-list">
+          <p class="muted">Evidence for the selected revision appears here.</p>
+        </div>
+      </section>
+    </aside>
+  </main>
+
+  <section class="search-drawer" id="search-drawer" hidden
+           aria-labelledby="search-results-heading">
+    <div class="search-drawer-header">
+      <div>
+        <span class="eyebrow">Current revisions only</span>
+        <h2 id="search-results-heading">Search results</h2>
+      </div>
+      <button type="button" class="quiet-button" id="close-search">Close</button>
+    </div>
+    <ol id="search-results" class="search-results"></ol>
+  </section>
+
+  <script src="/wiki/assets/reader.js" defer></script>
+</body>
+</html>

@@ -188,5 +188,17 @@ func Register(r *server.Hertz) {
 			_notes := _v1.Group("/notes", _notesMw()...)
 			_notes.POST("/recall", append(_recallnotesMw(), handler.RecallNotes)...)
 		}
+		{
+			_wiki := _v1.Group("/wiki", _wikiMw()...)
+			_wiki.GET("/ingestion", append(_getwikiingestionstatusMw(), handler.GetWikiIngestionStatus)...)
+			_wiki.PUT("/ingestion", append(_updatewikiingestionMw(), handler.UpdateWikiIngestion)...)
+			{
+				_sessions := _wiki.Group("/sessions", _sessionsMw()...)
+				{
+					_session_id := _sessions.Group("/:session_id", _session_idMw()...)
+					_session_id.POST("/inject", append(_injectwikisessionMw(), handler.InjectWikiSession)...)
+				}
+			}
+		}
 	}
 }

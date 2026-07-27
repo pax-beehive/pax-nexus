@@ -299,6 +299,24 @@ struct HumanMeResponse {
   7: required list<string> capabilities
 }
 
+struct WikiIngestionStatusRequest {}
+
+struct UpdateWikiIngestionRequest {
+  1: required bool auto_inject (api.body="auto_inject")
+}
+
+struct WikiIngestionStatusResponse {
+  1: required bool auto_inject
+}
+
+struct InjectWikiSessionRequest {
+  1: required string session_id (api.path="session_id")
+}
+
+struct InjectWikiSessionResponse {
+  1: required i32 processed_streams
+}
+
 struct ListMembersRequest {
   1: optional string role (api.query="role")
   2: optional string status (api.query="status")
@@ -1076,6 +1094,9 @@ service TeamMemoryService {
   EmptyResponse LogoutHuman(1: AuthLogoutRequest request) (api.post="/v1/auth/logout")
   HumanMeResponse ClaimBootstrap(1: BootstrapClaimRequest request) (api.post="/v1/bootstrap/claim")
   HumanMeResponse GetHumanMe(1: HumanMeRequest request) (api.get="/v1/me")
+  WikiIngestionStatusResponse GetWikiIngestionStatus(1: WikiIngestionStatusRequest request) (api.get="/v1/wiki/ingestion")
+  WikiIngestionStatusResponse UpdateWikiIngestion(1: UpdateWikiIngestionRequest request) (api.put="/v1/wiki/ingestion")
+  InjectWikiSessionResponse InjectWikiSession(1: InjectWikiSessionRequest request) (api.post="/v1/wiki/sessions/:session_id/inject")
   InvitationResponse CreateMembershipInvitation(1: CreateInvitationRequest request) (api.post="/v1/admin/invitations")
   ListInvitationsResponse ListMembershipInvitations(1: ListInvitationsRequest request) (api.get="/v1/admin/invitations")
   InvitationResponse RevokeMembershipInvitation(1: InvitationByIDRequest request) (api.delete="/v1/admin/invitations/:invitation_id")

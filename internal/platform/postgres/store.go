@@ -11,7 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-//go:embed migrations/001_init.sql migrations/002_temporal_notes.sql migrations/003_note_relations.sql migrations/004_extraction_latency.sql migrations/005_note_embeddings.sql migrations/006_note_identity.sql migrations/007_extraction_run_actor.sql migrations/008_extraction_run_candidates.sql migrations/009_extraction_run_result.sql migrations/010_note_identity_ref.sql migrations/011_recall_observations.sql migrations/012_extraction_episodes.sql migrations/013_recall_trace.sql migrations/014_recall_hint_deliveries.sql migrations/015_onprem_credentials.sql migrations/016_onprem_channel_envelopes.sql migrations/017_onprem_identity_registry.sql migrations/018_onprem_operations.sql migrations/019_onprem_device_provisioning.sql
+//go:embed migrations/001_init.sql migrations/002_temporal_notes.sql migrations/003_note_relations.sql migrations/004_extraction_latency.sql migrations/005_note_embeddings.sql migrations/006_note_identity.sql migrations/007_extraction_run_actor.sql migrations/008_extraction_run_candidates.sql migrations/009_extraction_run_result.sql migrations/010_note_identity_ref.sql migrations/011_recall_observations.sql migrations/012_extraction_episodes.sql migrations/013_recall_trace.sql migrations/014_recall_hint_deliveries.sql migrations/015_onprem_credentials.sql migrations/016_onprem_channel_envelopes.sql migrations/017_onprem_identity_registry.sql migrations/018_onprem_operations.sql migrations/019_onprem_device_provisioning.sql migrations/020_pagewiki_session_consumer.sql
 var migrations embed.FS
 
 const migrationAdvisoryLockName = "pax-nexus.platform-postgres.migrate"
@@ -161,6 +161,7 @@ func (s *Store) Migrate(ctx context.Context) (resultErr error) {
 		"migrations/017_onprem_identity_registry.sql",
 		"migrations/018_onprem_operations.sql",
 		"migrations/019_onprem_device_provisioning.sql",
+		"migrations/020_pagewiki_session_consumer.sql",
 	} {
 		migration, err := migrations.ReadFile(path)
 		if err != nil {

@@ -17,6 +17,20 @@ export default defineConfig(({ mode }) => {
           target: apiOrigin,
           changeOrigin: false,
         },
+        // Page Wiki currently exposes its read API at root-level paths. Keep
+        // the SPA's /wiki route local while forwarding only the data routes.
+        "/navigation": {
+          target: apiOrigin,
+          changeOrigin: false,
+        },
+        "/pages": {
+          target: apiOrigin,
+          changeOrigin: false,
+        },
+        "/search": {
+          target: apiOrigin,
+          changeOrigin: false,
+        },
       },
     },
     test: {

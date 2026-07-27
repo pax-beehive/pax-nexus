@@ -27,7 +27,7 @@ func TestProviderSuite(t *testing.T) {
 func (s *providerSuite) SetupTest() {
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	s.Require().NoError(err)
-	s.provider = &provider{key: key}
+	s.provider = &provider{key: key, issuer: defaultIssuer, clientID: defaultClientID}
 }
 
 func (s *providerSuite) TestProviderConstructionAndHealthCheck() {
@@ -35,7 +35,7 @@ func (s *providerSuite) TestProviderConstructionAndHealthCheck() {
 	s.Require().NoError(err)
 	s.NotNil(constructed.key)
 	s.NotNil(newHandler(constructed))
-	s.Equal(listenAddress, newServer(constructed).Addr)
+	s.Equal(defaultListenAddress, newServer(constructed, defaultListenAddress).Addr)
 	tests := []struct {
 		name      string
 		transport roundTripFunc
@@ -67,6 +67,16 @@ func (s *providerSuite) TestProviderConstructionAndHealthCheck() {
 			s.Require().NoError(err)
 		})
 	}
+}
+
+func (s *providerSuite) TestEnvironmentOverridesLocalBrowserSettings() {
+	s.T().Setenv("MOCK_OIDC_ISSUER", "http://localhost:58082")
+	s.T().Setenv("MOCK_OIDC_CLIENT_ID", "local-browser")
+	constructed, err := newProvider()
+	s.Require().NoError(err)
+	s.Equal("http://localhost:58082", constructed.issuer)
+	s.Equal("local-browser", constructed.clientID)
+	s.Equal(":59082", environment("MOCK_OIDC_LISTEN_ADDRESS", ":59082"))
 }
 
 type roundTripFunc func(*http.Request) (*http.Response, error)
