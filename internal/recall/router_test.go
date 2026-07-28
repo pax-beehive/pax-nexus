@@ -240,7 +240,7 @@ func (s *routerSuite) TestActiveSearchAndGetUseOnlyTheWikiPath() {
 	s.Require().NoError(err)
 
 	result, err := router.Search(context.Background(), recall.SearchRequest{
-		Intent: recall.IntentActive, Source: recall.SourceLLMWiki, Query: "release", TokenBudget: 64,
+		Intent: recall.IntentActive, Source: recall.SourcePageWiki, Query: "release", TokenBudget: 64,
 	})
 	s.Require().NoError(err)
 	s.Require().Len(result.Hits, 1)
@@ -249,6 +249,23 @@ func (s *routerSuite) TestActiveSearchAndGetUseOnlyTheWikiPath() {
 	s.Require().NoError(err)
 	s.Equal("Full runbook", document.Text)
 	s.Zero(teamCalls)
+}
+
+func (s *routerSuite) TestActiveSearchRejectsUnsupportedSources() {
+	team := teamNotePathFunc(func(context.Context, teamnote.RecallRequest) (teamnote.NoteEnvelope, error) {
+		return teamnote.NoteEnvelope{}, nil
+	})
+	router, err := recall.NewRouter(team, &wikiPath{}, recall.Config{})
+	s.Require().NoError(err)
+	for _, source := range []recall.Source{"", "llm_wiki", "other"} {
+		s.Run(string(source), func() {
+			_, searchErr := router.Search(context.Background(), recall.SearchRequest{
+				Intent: recall.IntentActive, Source: source, Query: "release", TokenBudget: 64,
+			})
+			s.Require().Error(searchErr)
+			s.Contains(searchErr.Error(), "active search requires pagewiki source")
+		})
+	}
 }
 
 func (s *routerSuite) TestRejectsInvalidConfigurationAndRequests() {

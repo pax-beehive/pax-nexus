@@ -61,8 +61,8 @@ func validateSearch(request SearchRequest) error {
 	if strings.TrimSpace(request.Query) == "" || request.TokenBudget <= 0 || request.MaxItems < 0 {
 		return fmt.Errorf("search memory: query and positive token budget are required")
 	}
-	if request.Intent == IntentActive && request.Source != SourceLLMWiki {
-		return fmt.Errorf("search memory: active search requires llm_wiki source")
+	if request.Intent == IntentActive && request.Source != SourcePageWiki {
+		return fmt.Errorf("search memory: active search requires pagewiki source")
 	}
 	return nil
 }

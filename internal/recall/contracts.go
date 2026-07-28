@@ -17,7 +17,7 @@ const (
 
 type Source string
 
-const SourceLLMWiki Source = "llm_wiki"
+const SourcePageWiki Source = "pagewiki"
 
 type Disposition string
 

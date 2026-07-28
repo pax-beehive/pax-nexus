@@ -18,6 +18,7 @@ import (
 	"github.com/pax-beehive/pax-nexus/internal/operations"
 	"github.com/pax-beehive/pax-nexus/internal/pagewiki"
 	pagewikipostgres "github.com/pax-beehive/pax-nexus/internal/pagewiki/postgres"
+	"github.com/pax-beehive/pax-nexus/internal/pagewiki/recalladapter"
 	"github.com/pax-beehive/pax-nexus/internal/pagewiki/sessionconsumer"
 	pagewikihttp "github.com/pax-beehive/pax-nexus/internal/pagewiki/transport/httpapi"
 	"github.com/pax-beehive/pax-nexus/internal/platform/observability"
@@ -169,30 +170,30 @@ func buildPageWikiHTTPHandler(
 	store *postgres.Store,
 	config applicationConfig,
 	logger *slog.Logger,
-) (*pagewikihttp.Handler, *sessionconsumer.Controller, error) {
+) (*pagewikihttp.Handler, *sessionconsumer.Controller, pagewiki.Repository, error) {
 	repository, err := pagewikipostgres.NewRepository(ctx, store.Pool(), onprem.LocalScopeID)
 	if err != nil {
-		return nil, nil, fmt.Errorf("initialize Page Wiki repository: %w", err)
+		return nil, nil, nil, fmt.Errorf("initialize Page Wiki repository: %w", err)
 	}
 	planner, editor, err := buildPageWikiMaintainers(config, logger)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	service := pagewiki.NewService(repository, planner, editor)
 	consumerStore, err := postgres.NewPageWikiConsumerStore(store.Pool(), onprem.LocalScopeID)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	controller, err := sessionconsumer.New(consumerStore, service, repository, logger, 2*time.Second)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	configured, err := pagewikihttp.New(service, repository)
 	if err != nil {
-		return nil, nil, fmt.Errorf("initialize Page Wiki HTTP handler: %w", err)
+		return nil, nil, nil, fmt.Errorf("initialize Page Wiki HTTP handler: %w", err)
 	}
 	controller.Start(ctx)
-	return configured, controller, nil
+	return configured, controller, repository, nil
 }
 
 func buildPageWikiMaintainers(
@@ -244,7 +245,11 @@ func buildApplicationHTTPHandlers(
 	config applicationConfig,
 	logger *slog.Logger,
 ) (*handler.Handler, *pagewikihttp.Handler, error) {
-	pageHandler, wikiControl, err := buildPageWikiHTTPHandler(ctx, store, config, logger)
+	pageHandler, wikiControl, pageWikiRepository, err := buildPageWikiHTTPHandler(ctx, store, config, logger)
+	if err != nil {
+		return nil, nil, err
+	}
+	pageWikiRecall, err := recalladapter.New(pageWikiRepository)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -256,6 +261,7 @@ func buildApplicationHTTPHandlers(
 		config,
 		logger,
 		wikiControl,
+		pageWikiRecall,
 	)
 	if err != nil {
 		return nil, nil, err
@@ -594,6 +600,7 @@ func buildHTTPHandler(
 	config applicationConfig,
 	logger *slog.Logger,
 	wikiControl handler.WikiControl,
+	pageWikiRecall recall.WikiPath,
 ) (*handler.Handler, error) {
 	if len(config.apiKeys) > 0 && (strings.TrimSpace(config.adminAPIKey) != "" || config.humanIdentityConfigured()) {
 		return nil, fmt.Errorf("configure HTTP transport: legacy and on-prem authentication are mutually exclusive")
@@ -619,7 +626,11 @@ func buildHTTPHandler(
 	if err != nil {
 		return nil, fmt.Errorf("configure on-prem credentials: %w", err)
 	}
-	memory, err := recall.NewRouter(runtime, nil, recall.Config{EnablePassiveWikiHint: config.wikiHintEnabled})
+	memory, err := recall.NewRouter(
+		runtime,
+		pageWikiRecall,
+		recall.Config{EnablePassiveWikiHint: config.wikiHintEnabled},
+	)
 	if err != nil {
 		return nil, fmt.Errorf("configure recall router: %w", err)
 	}
