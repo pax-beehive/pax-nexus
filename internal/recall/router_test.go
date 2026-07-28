@@ -39,7 +39,7 @@ func (s *routerSuite) TestPassiveSearchStartsBothPathsAndCancelsWikiAfterSuffici
 			return nil, ctx.Err()
 		},
 	}
-	router, err := recall.NewRouter(team, wiki, recall.Config{EnablePassiveWikiHint: true})
+	router, err := recall.NewRouter(team, wiki)
 	s.Require().NoError(err)
 
 	result, err := router.Search(context.Background(), passiveRequest())
@@ -50,7 +50,7 @@ func (s *routerSuite) TestPassiveSearchStartsBothPathsAndCancelsWikiAfterSuffici
 	s.True(result.EvidenceSufficient)
 	s.Equal(int64(41), result.ObservationID)
 	s.Equal(recall.PathCompleted, result.Trace.TeamNote.Status)
-	s.Equal(recall.PathCancelled, result.Trace.WikiSearch.Status)
+	s.Equal(recall.PathCancelled, result.Trace.PageWiki.Status)
 	s.Eventually(func() bool {
 		select {
 		case <-wikiCancelled:
@@ -75,7 +75,7 @@ func (s *routerSuite) TestPassiveSearchWaitsForWikiWhenEvidenceIsInsufficient() 
 		<-wikiRelease
 		return []recall.MemoryHit{{Text: "Search the release runbook.", Tokens: 6}}, nil
 	}}
-	router, err := recall.NewRouter(team, wiki, recall.Config{EnablePassiveWikiHint: true})
+	router, err := recall.NewRouter(team, wiki)
 	s.Require().NoError(err)
 
 	done := make(chan searchOutcome, 1)
@@ -93,7 +93,7 @@ func (s *routerSuite) TestPassiveSearchWaitsForWikiWhenEvidenceIsInsufficient() 
 	s.Equal(recall.DispositionEvidence, result.Hits[0].Disposition)
 	s.Equal(recall.DispositionReference, result.Hits[1].Disposition)
 	s.False(result.EvidenceSufficient)
-	s.Equal(recall.PathCompleted, result.Trace.WikiSearch.Status)
+	s.Equal(recall.PathCompleted, result.Trace.PageWiki.Status)
 	s.Equal([]string{string(teamnote.RecallReasonFactCoverage)}, result.Trace.TeamNote.ReasonCodes)
 }
 
@@ -106,7 +106,7 @@ func (s *routerSuite) TestWikiResultCannotReturnBeforeTeamNote() {
 	wiki := &wikiPath{search: func(context.Context, recall.SearchRequest) ([]recall.MemoryHit, error) {
 		return []recall.MemoryHit{{Text: "Search the decision log.", Tokens: 5}}, nil
 	}}
-	router, err := recall.NewRouter(team, wiki, recall.Config{EnablePassiveWikiHint: true})
+	router, err := recall.NewRouter(team, wiki)
 	s.Require().NoError(err)
 
 	done := make(chan struct{})
@@ -147,7 +147,7 @@ func (s *routerSuite) TestCompletedPageWikiIsDiscardedWhenTeamNoteIsSufficient()
 		close(wikiCompleted)
 		return []recall.MemoryHit{{Text: "Search the release runbook.", Tokens: 6}}, nil
 	}}
-	router, err := recall.NewRouter(team, wiki, recall.Config{EnablePassiveWikiHint: true})
+	router, err := recall.NewRouter(team, wiki)
 	s.Require().NoError(err)
 
 	done := make(chan searchOutcome, 1)
@@ -164,9 +164,9 @@ func (s *routerSuite) TestCompletedPageWikiIsDiscardedWhenTeamNoteIsSufficient()
 	s.Require().Len(result.Hits, 1)
 	s.Equal(recall.DispositionEvidence, result.Hits[0].Disposition)
 	s.True(result.Trace.EarlyReturn)
-	s.Equal(recall.PathCompleted, result.Trace.WikiSearch.Status)
-	s.Equal(1, result.Trace.WikiSearch.Candidates)
-	s.Equal("discarded_sufficient_team_note_evidence", result.Trace.WikiSearch.Reason)
+	s.Equal(recall.PathCompleted, result.Trace.PageWiki.Status)
+	s.Equal(1, result.Trace.PageWiki.Candidates)
+	s.Equal("discarded_sufficient_team_note_evidence", result.Trace.PageWiki.Reason)
 }
 
 func (s *routerSuite) TestDeadlineKeepsCompletedPageWikiWhenTeamNoteIsStillPending() {
@@ -180,7 +180,7 @@ func (s *routerSuite) TestDeadlineKeepsCompletedPageWikiWhenTeamNoteIsStillPendi
 		close(wikiCompleted)
 		return []recall.MemoryHit{{Text: "Search the release runbook.", Tokens: 6}}, nil
 	}}
-	router, err := recall.NewRouter(team, wiki, recall.Config{EnablePassiveWikiHint: true})
+	router, err := recall.NewRouter(team, wiki)
 	s.Require().NoError(err)
 	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
 	defer cancel()
@@ -199,7 +199,7 @@ func (s *routerSuite) TestDeadlineKeepsCompletedPageWikiWhenTeamNoteIsStillPendi
 	s.Require().Len(result.Hits, 1)
 	s.Equal(recall.DispositionReference, result.Hits[0].Disposition)
 	s.Equal(recall.PathTimedOut, result.Trace.TeamNote.Status)
-	s.Equal(recall.PathCompleted, result.Trace.WikiSearch.Status)
+	s.Equal(recall.PathCompleted, result.Trace.PageWiki.Status)
 }
 
 func (s *routerSuite) TestPassiveWikiFailureDegradesToTeamNoteEvidence() {
@@ -209,15 +209,15 @@ func (s *routerSuite) TestPassiveWikiFailureDegradesToTeamNoteEvidence() {
 	wiki := &wikiPath{search: func(context.Context, recall.SearchRequest) ([]recall.MemoryHit, error) {
 		return nil, errors.New("wiki unavailable")
 	}}
-	router, err := recall.NewRouter(team, wiki, recall.Config{EnablePassiveWikiHint: true})
+	router, err := recall.NewRouter(team, wiki)
 	s.Require().NoError(err)
 
 	result, err := router.Search(context.Background(), passiveRequest())
 
 	s.Require().NoError(err)
 	s.Require().Len(result.Hits, 1)
-	s.Equal(recall.PathFailed, result.Trace.WikiSearch.Status)
-	s.Equal("wiki unavailable", result.Trace.WikiSearch.Error)
+	s.Equal(recall.PathFailed, result.Trace.PageWiki.Status)
+	s.Equal("wiki unavailable", result.Trace.PageWiki.Error)
 }
 
 func (s *routerSuite) TestActiveSearchAndGetUseOnlyTheWikiPath() {
@@ -236,7 +236,7 @@ func (s *routerSuite) TestActiveSearchAndGetUseOnlyTheWikiPath() {
 			return recall.MemoryDocument{Ref: request.Ref, Text: "Full runbook"}, nil
 		},
 	}
-	router, err := recall.NewRouter(team, wiki, recall.Config{})
+	router, err := recall.NewRouter(team, wiki)
 	s.Require().NoError(err)
 
 	result, err := router.Search(context.Background(), recall.SearchRequest{
@@ -255,7 +255,7 @@ func (s *routerSuite) TestActiveSearchRejectsUnsupportedSources() {
 	team := teamNotePathFunc(func(context.Context, teamnote.RecallRequest) (teamnote.NoteEnvelope, error) {
 		return teamnote.NoteEnvelope{}, nil
 	})
-	router, err := recall.NewRouter(team, &wikiPath{}, recall.Config{})
+	router, err := recall.NewRouter(team, &wikiPath{})
 	s.Require().NoError(err)
 	for _, source := range []recall.Source{"", "llm_wiki", "other"} {
 		s.Run(string(source), func() {
@@ -280,7 +280,7 @@ func (s *routerSuite) TestPassivePageWikiStartsByDefaultAndDoesNotDelaySufficien
 		close(wikiCancelled)
 		return nil, ctx.Err()
 	}}
-	router, err := recall.NewRouter(team, wiki, recall.Config{})
+	router, err := recall.NewRouter(team, wiki)
 	s.Require().NoError(err)
 
 	result, err := router.Search(context.Background(), passiveRequest())
@@ -288,7 +288,7 @@ func (s *routerSuite) TestPassivePageWikiStartsByDefaultAndDoesNotDelaySufficien
 	s.Require().NoError(err)
 	s.True(result.Trace.EarlyReturn)
 	s.Equal(recall.PathCompleted, result.Trace.TeamNote.Status)
-	s.Equal(recall.PathCancelled, result.Trace.WikiSearch.Status)
+	s.Equal(recall.PathCancelled, result.Trace.PageWiki.Status)
 	s.Eventually(channelClosed(wikiStarted), time.Second, time.Millisecond)
 	s.Eventually(channelClosed(wikiCancelled), time.Second, time.Millisecond)
 }
@@ -305,7 +305,7 @@ func (s *routerSuite) TestPassivePageWikiSupplementsInsufficientNotesWithinShare
 			{Ref: "pagewiki:revision/2", Text: "Runbook two", Tokens: 4},
 		}, nil
 	}}
-	router, err := recall.NewRouter(team, wiki, recall.Config{})
+	router, err := recall.NewRouter(team, wiki)
 	s.Require().NoError(err)
 	request := passiveRequest()
 	request.TokenBudget = 9
@@ -318,8 +318,8 @@ func (s *routerSuite) TestPassivePageWikiSupplementsInsufficientNotesWithinShare
 	s.Equal(recall.DispositionEvidence, result.Hits[0].Disposition)
 	s.Equal(recall.DispositionReference, result.Hits[1].Disposition)
 	s.Equal("pagewiki:revision/1", result.Hits[1].Ref)
-	s.Equal(recall.PathCompleted, result.Trace.WikiSearch.Status)
-	s.Equal(1, result.Trace.WikiSearch.BudgetDrops)
+	s.Equal(recall.PathCompleted, result.Trace.PageWiki.Status)
+	s.Equal(1, result.Trace.PageWiki.BudgetDrops)
 }
 
 func (s *routerSuite) TestPassivePageWikiDoesNotMaskTeamNoteFailure() {
@@ -333,7 +333,7 @@ func (s *routerSuite) TestPassivePageWikiDoesNotMaskTeamNoteFailure() {
 		close(wikiCancelled)
 		return nil, ctx.Err()
 	}}
-	router, err := recall.NewRouter(team, wiki, recall.Config{})
+	router, err := recall.NewRouter(team, wiki)
 	s.Require().NoError(err)
 
 	_, err = router.Search(context.Background(), passiveRequest())
@@ -347,7 +347,7 @@ func (s *routerSuite) TestPassiveWithoutPageWikiUsesOnlyTeamNotes() {
 	team := teamNotePathFunc(func(context.Context, teamnote.RecallRequest) (teamnote.NoteEnvelope, error) {
 		return want, nil
 	})
-	router, err := recall.NewRouter(team, nil, recall.Config{})
+	router, err := recall.NewRouter(team, nil)
 	s.Require().NoError(err)
 
 	result, err := router.Search(context.Background(), passiveRequest())
@@ -355,7 +355,7 @@ func (s *routerSuite) TestPassiveWithoutPageWikiUsesOnlyTeamNotes() {
 	s.Require().NoError(err)
 	s.Require().Len(result.Hits, 1)
 	s.Equal(recall.PathCompleted, result.Trace.TeamNote.Status)
-	s.Equal(recall.PathSkipped, result.Trace.WikiSearch.Status)
+	s.Equal(recall.PathSkipped, result.Trace.PageWiki.Status)
 }
 
 func (s *routerSuite) TestPassiveWithoutPageWikiPropagatesTeamNoteFailure() {
@@ -363,7 +363,7 @@ func (s *routerSuite) TestPassiveWithoutPageWikiPropagatesTeamNoteFailure() {
 	team := teamNotePathFunc(func(context.Context, teamnote.RecallRequest) (teamnote.NoteEnvelope, error) {
 		return teamnote.NoteEnvelope{}, want
 	})
-	router, err := recall.NewRouter(team, nil, recall.Config{})
+	router, err := recall.NewRouter(team, nil)
 	s.Require().NoError(err)
 
 	_, err = router.Search(context.Background(), passiveRequest())
@@ -380,7 +380,7 @@ func (s *routerSuite) TestPassivePageWikiEstimatesMissingTokenCount() {
 	wiki := &wikiPath{search: func(context.Context, recall.SearchRequest) ([]recall.MemoryHit, error) {
 		return []recall.MemoryHit{{Text: "12345678"}}, nil
 	}}
-	router, err := recall.NewRouter(team, wiki, recall.Config{})
+	router, err := recall.NewRouter(team, wiki)
 	s.Require().NoError(err)
 	request := passiveRequest()
 	request.TokenBudget = 4
@@ -410,7 +410,7 @@ func (s *routerSuite) TestActivePageWikiFailuresProduceTypedTraceStatus() {
 			wiki := &wikiPath{search: func(context.Context, recall.SearchRequest) ([]recall.MemoryHit, error) {
 				return nil, test.searchErr
 			}}
-			router, err := recall.NewRouter(team, wiki, recall.Config{})
+			router, err := recall.NewRouter(team, wiki)
 			s.Require().NoError(err)
 
 			result, searchErr := router.Search(context.Background(), recall.SearchRequest{
@@ -419,18 +419,18 @@ func (s *routerSuite) TestActivePageWikiFailuresProduceTypedTraceStatus() {
 			})
 
 			s.Require().ErrorIs(searchErr, test.searchErr)
-			s.Equal(test.wantStatus, result.Trace.WikiSearch.Status)
+			s.Equal(test.wantStatus, result.Trace.PageWiki.Status)
 		})
 	}
 }
 
 func (s *routerSuite) TestRejectsInvalidConfigurationAndRequests() {
-	_, err := recall.NewRouter(nil, &wikiPath{}, recall.Config{})
+	_, err := recall.NewRouter(nil, &wikiPath{})
 	s.Require().Error(err)
 	team := teamNotePathFunc(func(context.Context, teamnote.RecallRequest) (teamnote.NoteEnvelope, error) {
 		return teamnote.NoteEnvelope{}, nil
 	})
-	router, err := recall.NewRouter(team, nil, recall.Config{})
+	router, err := recall.NewRouter(team, nil)
 	s.Require().NoError(err)
 
 	_, err = router.Search(context.Background(), recall.SearchRequest{})
@@ -451,13 +451,8 @@ func (f teamNotePathFunc) RecallNotes(ctx context.Context, request teamnote.Reca
 }
 
 type wikiPath struct {
-	hint   func(context.Context, recall.SearchRequest) (recall.MemoryHit, error)
 	search func(context.Context, recall.SearchRequest) ([]recall.MemoryHit, error)
 	get    func(context.Context, recall.GetRequest) (recall.MemoryDocument, error)
-}
-
-func (w *wikiPath) Hint(ctx context.Context, request recall.SearchRequest) (recall.MemoryHit, error) {
-	return w.hint(ctx, request)
 }
 
 func (w *wikiPath) Search(ctx context.Context, request recall.SearchRequest) ([]recall.MemoryHit, error) {

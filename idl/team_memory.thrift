@@ -210,8 +210,7 @@ struct RecallPathTrace {
 struct MemorySearchTrace {
   1: required bool early_return
   2: required RecallPathTrace team_note
-  3: required RecallPathTrace wiki_hint
-  4: required RecallPathTrace wiki_search
+  3: required RecallPathTrace pagewiki
 }
 
 struct MemorySearchResponse {

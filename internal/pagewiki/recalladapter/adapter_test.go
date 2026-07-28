@@ -99,49 +99,6 @@ func (s *adapterSuite) TestGivenSearchLimitsWhenSearchedThenResultsArePackedDete
 	}
 }
 
-func (s *adapterSuite) TestGivenSearchResultsWhenHintedThenFirstPackedResultIsReturned() {
-	adapter, err := recalladapter.New(searchReaderFunc(func(
-		context.Context,
-		string,
-	) ([]pagewiki.SearchResult, error) {
-		return []pagewiki.SearchResult{searchResult("revision-1", "result")}, nil
-	}))
-	s.Require().NoError(err)
-
-	hit, err := adapter.Hint(context.Background(), searchRequest(64, 0))
-
-	s.Require().NoError(err)
-	s.Equal("pagewiki:revision/revision-1", hit.Ref)
-}
-
-func (s *adapterSuite) TestGivenEmptyOrFailedSearchWhenHintedThenNoHintIsReturned() {
-	want := errors.New("search failed")
-	tests := []struct {
-		name    string
-		results []pagewiki.SearchResult
-		err     error
-	}{
-		{name: "empty"},
-		{name: "failure", err: want},
-	}
-	for _, test := range tests {
-		s.Run(test.name, func() {
-			adapter, createErr := recalladapter.New(searchReaderFunc(func(
-				context.Context,
-				string,
-			) ([]pagewiki.SearchResult, error) {
-				return test.results, test.err
-			}))
-			s.Require().NoError(createErr)
-
-			hit, hintErr := adapter.Hint(context.Background(), searchRequest(64, 0))
-
-			s.Empty(hit)
-			s.Require().ErrorIs(hintErr, test.err)
-		})
-	}
-}
-
 func (s *adapterSuite) TestGetRejectsUnknownRevision() {
 	adapter, err := recalladapter.New(searchReaderFunc(func(
 		context.Context,

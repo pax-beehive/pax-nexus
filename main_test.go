@@ -130,7 +130,6 @@ func (s *configSuite) TestLoadsNoopConfiguration() {
 	s.Equal(3*time.Minute, config.workerJobTimeout)
 	s.Equal(5*time.Minute, config.credentialRotationOverlap)
 	s.Equal(16, config.deviceAgentLimit)
-	s.False(config.wikiHintEnabled)
 	s.Equal(25, config.sliceEventLimit)
 	s.Equal(8192, config.sliceTokenLimit)
 	s.Equal(3, config.sliceOverlap)
@@ -176,7 +175,6 @@ func (s *configSuite) TestLoadsOnPremConfiguration() {
 	s.T().Setenv("TEAM_MEMORY_MEMBER_GRANTABLE_PERMISSIONS", "search,channel_send")
 	s.T().Setenv("TEAM_MEMORY_CREDENTIAL_ROTATION_OVERLAP", "2m")
 	s.T().Setenv("TEAM_MEMORY_DEVICE_AGENT_LIMIT", "8")
-	s.T().Setenv("TEAM_MEMORY_WIKI_HINT_ENABLED", "true")
 
 	config, err := loadConfig()
 
@@ -189,7 +187,6 @@ func (s *configSuite) TestLoadsOnPremConfiguration() {
 	s.Equal(90*24*time.Hour, config.operationsStorageRetention)
 	s.Equal(time.Hour, config.operationsSnapshotInterval)
 	s.Equal(15*time.Second, config.operationsMaintenanceTimeout)
-	s.True(config.wikiHintEnabled)
 	s.True(config.humanCookieSecure)
 	s.Equal([]onprem.Permission{onprem.PermissionSearch, onprem.PermissionChannelSend}, config.memberGrantablePermissions)
 }

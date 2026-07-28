@@ -10,21 +10,14 @@ import (
 	"github.com/pax-beehive/pax-nexus/internal/teamnote"
 )
 
-type Config struct {
-	EnablePassiveWikiHint bool
-}
-
 type Router struct {
 	teamNote TeamNotePath
 	wiki     WikiPath
 }
 
-func NewRouter(teamNote TeamNotePath, wiki WikiPath, config Config) (*Router, error) {
+func NewRouter(teamNote TeamNotePath, wiki WikiPath) (*Router, error) {
 	if teamNote == nil {
 		return nil, fmt.Errorf("create recall router: team note path is required")
-	}
-	if config.EnablePassiveWikiHint && wiki == nil {
-		return nil, fmt.Errorf("create recall router: enabled wiki hint path is required")
 	}
 	return &Router{teamNote: teamNote, wiki: wiki}, nil
 }
@@ -75,7 +68,7 @@ func (r *Router) searchWiki(ctx context.Context, request SearchRequest) (SearchR
 	trace := PathTrace{DurationMS: time.Since(startedAt).Milliseconds(), Candidates: len(hits)}
 	if err != nil {
 		trace.Status, trace.Error = pathFailure(ctx, err)
-		return SearchResult{Trace: Trace{TeamNote: skipped("active_wiki_search"), WikiHint: skipped("active_wiki_search"), WikiSearch: trace}},
+		return SearchResult{Trace: Trace{TeamNote: skipped("active_pagewiki_search"), PageWiki: trace}},
 			fmt.Errorf("search wiki memory: %w", err)
 	}
 	trace.Status = PathCompleted
@@ -83,7 +76,7 @@ func (r *Router) searchWiki(ctx context.Context, request SearchRequest) (SearchR
 		hits[index].Disposition = DispositionReference
 	}
 	return SearchResult{Hits: hits, Trace: Trace{
-		TeamNote: skipped("active_wiki_search"), WikiHint: skipped("active_wiki_search"), WikiSearch: trace,
+		TeamNote: skipped("active_pagewiki_search"), PageWiki: trace,
 	}}, nil
 }
 
@@ -121,7 +114,7 @@ func (r *Router) searchPassive(ctx context.Context, request SearchRequest) (Sear
 		case <-ctx.Done():
 			cancel()
 			result := SearchResult{Trace: Trace{
-				TeamNote: timedOut(ctx.Err()), WikiHint: timedOut(ctx.Err()), WikiSearch: skipped("passive_search"),
+				TeamNote: timedOut(ctx.Err()), PageWiki: timedOut(ctx.Err()),
 			}}
 			if wiki == nil && wikiResults != nil {
 				select {
@@ -150,19 +143,18 @@ func (r *Router) finishPassive(
 	wikiResults <-chan wikiOutcome,
 ) (SearchResult, error) {
 	result := teamResult(team)
-	result.Trace.WikiHint = skipped("pagewiki_replaced")
 	if team.err != nil {
 		cancel()
-		result.Trace.WikiSearch = cancelled("team_note_failed")
+		result.Trace.PageWiki = cancelled("team_note_failed")
 		return result, fmt.Errorf("search team note memory: %w", team.err)
 	}
 	if team.envelope.Decision.EvidenceSufficient {
 		cancel()
 		result.Trace.EarlyReturn = true
 		if wiki == nil {
-			result.Trace.WikiSearch = cancelled("sufficient_team_note_evidence")
+			result.Trace.PageWiki = cancelled("sufficient_team_note_evidence")
 		} else {
-			result.Trace.WikiSearch = completedPageWikiTrace(
+			result.Trace.PageWiki = completedPageWikiTrace(
 				*wiki,
 				"discarded_sufficient_team_note_evidence",
 			)
@@ -175,7 +167,7 @@ func (r *Router) finishPassive(
 			wiki = &current
 		case <-ctx.Done():
 			cancel()
-			result.Trace.WikiSearch = timedOut(ctx.Err())
+			result.Trace.PageWiki = timedOut(ctx.Err())
 			return result, nil
 		}
 	}
@@ -197,8 +189,7 @@ func (r *Router) searchTeamNoteOnly(ctx context.Context, request SearchRequest) 
 	startedAt := time.Now()
 	envelope, err := r.teamNote.RecallNotes(ctx, teamNoteRequest(request))
 	result := teamResult(teamOutcome{envelope: envelope, err: err, duration: time.Since(startedAt)})
-	result.Trace.WikiHint = skipped("pagewiki_replaced")
-	result.Trace.WikiSearch = skipped("unavailable")
+	result.Trace.PageWiki = skipped("unavailable")
 	if err != nil {
 		return result, fmt.Errorf("search team note memory: %w", err)
 	}
@@ -276,14 +267,14 @@ func composePageWiki(
 	trace := PathTrace{DurationMS: outcome.duration.Milliseconds()}
 	if outcome.err != nil {
 		trace.Status, trace.Error = pathFailure(context.Background(), outcome.err)
-		result.Trace.WikiSearch = trace
+		result.Trace.PageWiki = trace
 		return result
 	}
 	trace.Status = PathCompleted
 	trace.Candidates = len(outcome.hits)
 	if len(outcome.hits) == 0 {
 		trace.Reason = "empty_search"
-		result.Trace.WikiSearch = trace
+		result.Trace.PageWiki = trace
 		return result
 	}
 	used := 0
@@ -309,7 +300,7 @@ func composePageWiki(
 	if trace.BudgetDrops > 0 {
 		trace.Reason = "shared_budget"
 	}
-	result.Trace.WikiSearch = trace
+	result.Trace.PageWiki = trace
 	return result
 }
 

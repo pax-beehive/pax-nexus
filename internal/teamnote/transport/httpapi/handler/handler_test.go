@@ -295,6 +295,10 @@ func (s *onPremHandlerSuite) TestMemorySearchAndGetBindPrincipal() {
 	s.Contains(search.Body.String(), `"disposition":"evidence"`)
 	s.Contains(search.Body.String(), `"pagewiki":{"page_id":"page-1"`)
 	s.Contains(search.Body.String(), `"exact_quote":"source quote"`)
+	s.Contains(search.Body.String(), `"trace":{"early_return":false`)
+	s.Contains(search.Body.String(), `"pagewiki":{"status":"skipped"`)
+	s.NotContains(search.Body.String(), `"wiki_hint"`)
+	s.NotContains(search.Body.String(), `"wiki_search"`)
 
 	get := perform(s.handler.GetMemory, http.MethodPost,
 		`{"session_id":"session-1","ref":"wiki:release"}`, "agent")
@@ -809,9 +813,8 @@ func (s *memoryService) Search(_ context.Context, request recall.SearchRequest) 
 		}},
 		EvidenceSufficient: true,
 		Trace: recall.Trace{
-			TeamNote:   recall.PathTrace{Status: recall.PathCompleted, Candidates: 1},
-			WikiHint:   recall.PathTrace{Status: recall.PathSkipped},
-			WikiSearch: recall.PathTrace{Status: recall.PathSkipped},
+			TeamNote: recall.PathTrace{Status: recall.PathCompleted, Candidates: 1},
+			PageWiki: recall.PathTrace{Status: recall.PathSkipped},
 		}, ObservationID: 41,
 	}, nil
 }

@@ -249,7 +249,7 @@ func memorySearchResultToAPI(result recall.SearchResult) *api.MemorySearchRespon
 		Hits: hits, EvidenceSufficient: result.EvidenceSufficient,
 		Trace: &api.MemorySearchTrace{
 			EarlyReturn: result.Trace.EarlyReturn, TeamNote: pathTraceToAPI(result.Trace.TeamNote),
-			WikiHint: pathTraceToAPI(result.Trace.WikiHint), WikiSearch: pathTraceToAPI(result.Trace.WikiSearch),
+			Pagewiki: pathTraceToAPI(result.Trace.PageWiki),
 		},
 	}
 }

@@ -72,17 +72,6 @@ func (a *Adapter) Search(
 	return hits, nil
 }
 
-func (a *Adapter) Hint(
-	ctx context.Context,
-	request recall.SearchRequest,
-) (recall.MemoryHit, error) {
-	hits, err := a.Search(ctx, request)
-	if err != nil || len(hits) == 0 {
-		return recall.MemoryHit{}, err
-	}
-	return hits[0], nil
-}
-
 func (a *Adapter) Get(
 	ctx context.Context,
 	request recall.GetRequest,

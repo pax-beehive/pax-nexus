@@ -119,8 +119,7 @@ type PathTrace struct {
 type Trace struct {
 	EarlyReturn bool
 	TeamNote    PathTrace
-	WikiHint    PathTrace
-	WikiSearch  PathTrace
+	PageWiki    PathTrace
 }
 
 type SearchResult struct {
@@ -135,7 +134,6 @@ type TeamNotePath interface {
 }
 
 type WikiPath interface {
-	Hint(context.Context, SearchRequest) (MemoryHit, error)
 	Search(context.Context, SearchRequest) ([]MemoryHit, error)
 	Get(context.Context, GetRequest) (MemoryDocument, error)
 }

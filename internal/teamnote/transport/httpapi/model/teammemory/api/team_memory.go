@@ -9724,8 +9724,7 @@ func (p *RecallPathTrace) String() string {
 type MemorySearchTrace struct {
 	EarlyReturn bool             `thrift:"early_return,1,required" form:"early_return,required" json:"early_return,required" query:"early_return,required"`
 	TeamNote    *RecallPathTrace `thrift:"team_note,2,required" form:"team_note,required" json:"team_note,required" query:"team_note,required"`
-	WikiHint    *RecallPathTrace `thrift:"wiki_hint,3,required" form:"wiki_hint,required" json:"wiki_hint,required" query:"wiki_hint,required"`
-	WikiSearch  *RecallPathTrace `thrift:"wiki_search,4,required" form:"wiki_search,required" json:"wiki_search,required" query:"wiki_search,required"`
+	Pagewiki    *RecallPathTrace `thrift:"pagewiki,3,required" form:"pagewiki,required" json:"pagewiki,required" query:"pagewiki,required"`
 }
 
 func NewMemorySearchTrace() *MemorySearchTrace {
@@ -9748,41 +9747,27 @@ func (p *MemorySearchTrace) GetTeamNote() (v *RecallPathTrace) {
 	return p.TeamNote
 }
 
-var MemorySearchTrace_WikiHint_DEFAULT *RecallPathTrace
+var MemorySearchTrace_Pagewiki_DEFAULT *RecallPathTrace
 
-func (p *MemorySearchTrace) GetWikiHint() (v *RecallPathTrace) {
-	if !p.IsSetWikiHint() {
-		return MemorySearchTrace_WikiHint_DEFAULT
+func (p *MemorySearchTrace) GetPagewiki() (v *RecallPathTrace) {
+	if !p.IsSetPagewiki() {
+		return MemorySearchTrace_Pagewiki_DEFAULT
 	}
-	return p.WikiHint
-}
-
-var MemorySearchTrace_WikiSearch_DEFAULT *RecallPathTrace
-
-func (p *MemorySearchTrace) GetWikiSearch() (v *RecallPathTrace) {
-	if !p.IsSetWikiSearch() {
-		return MemorySearchTrace_WikiSearch_DEFAULT
-	}
-	return p.WikiSearch
+	return p.Pagewiki
 }
 
 var fieldIDToName_MemorySearchTrace = map[int16]string{
 	1: "early_return",
 	2: "team_note",
-	3: "wiki_hint",
-	4: "wiki_search",
+	3: "pagewiki",
 }
 
 func (p *MemorySearchTrace) IsSetTeamNote() bool {
 	return p.TeamNote != nil
 }
 
-func (p *MemorySearchTrace) IsSetWikiHint() bool {
-	return p.WikiHint != nil
-}
-
-func (p *MemorySearchTrace) IsSetWikiSearch() bool {
-	return p.WikiSearch != nil
+func (p *MemorySearchTrace) IsSetPagewiki() bool {
+	return p.Pagewiki != nil
 }
 
 func (p *MemorySearchTrace) Read(iprot thrift.TProtocol) (err error) {
@@ -9791,8 +9776,7 @@ func (p *MemorySearchTrace) Read(iprot thrift.TProtocol) (err error) {
 	var fieldId int16
 	var issetEarlyReturn bool = false
 	var issetTeamNote bool = false
-	var issetWikiHint bool = false
-	var issetWikiSearch bool = false
+	var issetPagewiki bool = false
 
 	if _, err = iprot.ReadStructBegin(); err != nil {
 		goto ReadStructBeginError
@@ -9831,16 +9815,7 @@ func (p *MemorySearchTrace) Read(iprot thrift.TProtocol) (err error) {
 				if err = p.ReadField3(iprot); err != nil {
 					goto ReadFieldError
 				}
-				issetWikiHint = true
-			} else if err = iprot.Skip(fieldTypeId); err != nil {
-				goto SkipFieldError
-			}
-		case 4:
-			if fieldTypeId == thrift.STRUCT {
-				if err = p.ReadField4(iprot); err != nil {
-					goto ReadFieldError
-				}
-				issetWikiSearch = true
+				issetPagewiki = true
 			} else if err = iprot.Skip(fieldTypeId); err != nil {
 				goto SkipFieldError
 			}
@@ -9867,13 +9842,8 @@ func (p *MemorySearchTrace) Read(iprot thrift.TProtocol) (err error) {
 		goto RequiredFieldNotSetError
 	}
 
-	if !issetWikiHint {
+	if !issetPagewiki {
 		fieldId = 3
-		goto RequiredFieldNotSetError
-	}
-
-	if !issetWikiSearch {
-		fieldId = 4
 		goto RequiredFieldNotSetError
 	}
 	return nil
@@ -9918,15 +9888,7 @@ func (p *MemorySearchTrace) ReadField3(iprot thrift.TProtocol) error {
 	if err := _field.Read(iprot); err != nil {
 		return err
 	}
-	p.WikiHint = _field
-	return nil
-}
-func (p *MemorySearchTrace) ReadField4(iprot thrift.TProtocol) error {
-	_field := NewRecallPathTrace()
-	if err := _field.Read(iprot); err != nil {
-		return err
-	}
-	p.WikiSearch = _field
+	p.Pagewiki = _field
 	return nil
 }
 
@@ -9946,10 +9908,6 @@ func (p *MemorySearchTrace) Write(oprot thrift.TProtocol) (err error) {
 		}
 		if err = p.writeField3(oprot); err != nil {
 			fieldId = 3
-			goto WriteFieldError
-		}
-		if err = p.writeField4(oprot); err != nil {
-			fieldId = 4
 			goto WriteFieldError
 		}
 	}
@@ -10005,10 +9963,10 @@ WriteFieldEndError:
 }
 
 func (p *MemorySearchTrace) writeField3(oprot thrift.TProtocol) (err error) {
-	if err = oprot.WriteFieldBegin("wiki_hint", thrift.STRUCT, 3); err != nil {
+	if err = oprot.WriteFieldBegin("pagewiki", thrift.STRUCT, 3); err != nil {
 		goto WriteFieldBeginError
 	}
-	if err := p.WikiHint.Write(oprot); err != nil {
+	if err := p.Pagewiki.Write(oprot); err != nil {
 		return err
 	}
 	if err = oprot.WriteFieldEnd(); err != nil {
@@ -10019,23 +9977,6 @@ WriteFieldBeginError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 3 begin error: ", p), err)
 WriteFieldEndError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 3 end error: ", p), err)
-}
-
-func (p *MemorySearchTrace) writeField4(oprot thrift.TProtocol) (err error) {
-	if err = oprot.WriteFieldBegin("wiki_search", thrift.STRUCT, 4); err != nil {
-		goto WriteFieldBeginError
-	}
-	if err := p.WikiSearch.Write(oprot); err != nil {
-		return err
-	}
-	if err = oprot.WriteFieldEnd(); err != nil {
-		goto WriteFieldEndError
-	}
-	return nil
-WriteFieldBeginError:
-	return thrift.PrependError(fmt.Sprintf("%T write field 4 begin error: ", p), err)
-WriteFieldEndError:
-	return thrift.PrependError(fmt.Sprintf("%T write field 4 end error: ", p), err)
 }
 
 func (p *MemorySearchTrace) String() string {

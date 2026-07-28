@@ -31,10 +31,6 @@ func NewRepository(ctx context.Context, pool *pgxpool.Pool, scopeID string) (*Re
 }
 
 func (r *Repository) hydrate(ctx context.Context) error {
-	legacyPages, err := r.hydrateLegacyWiki(ctx)
-	if err != nil {
-		return fmt.Errorf("hydrate legacy LLM Wiki: %w", err)
-	}
 	if err := r.loadRows(ctx, `
 SELECT payload FROM pagewiki_source_revisions
 WHERE scope_id = $1 ORDER BY created_at, source_revision_id`, func(payload []byte) error {
@@ -53,9 +49,6 @@ WHERE scope_id = $1 ORDER BY ordinal`, func(payload []byte) error {
 		if err := json.Unmarshal(payload, &publication); err != nil {
 			return err
 		}
-		if legacyPages > 0 && isSessionPublication(publication) {
-			return nil
-		}
 		return r.memory.PublishPage(ctx, publication)
 	}); err != nil {
 		return fmt.Errorf("hydrate Page Wiki publications: %w", err)
@@ -72,15 +65,6 @@ WHERE scope_id = $1 ORDER BY created_at, run_id`, func(payload []byte) error {
 		return fmt.Errorf("hydrate Page Wiki runs: %w", err)
 	}
 	return nil
-}
-
-func isSessionPublication(publication pagewiki.PagePublication) bool {
-	for _, topic := range publication.Topics {
-		if topic.ParentID == "" && topic.Title == "Sessions" {
-			return true
-		}
-	}
-	return false
 }
 
 func (r *Repository) loadRows(

@@ -321,7 +321,6 @@ type applicationConfig struct {
 	operationsStorageRetention     time.Duration
 	operationsSnapshotInterval     time.Duration
 	operationsMaintenanceTimeout   time.Duration
-	wikiHintEnabled                bool
 	extractorMode                  string
 	extractorBaseURL               string
 	extractorAPIKey                string
@@ -453,9 +452,6 @@ func loadOnPremConfig(config *applicationConfig) error {
 	if config.credentialRotationOverlap, err = durationEnvironment(
 		"TEAM_MEMORY_CREDENTIAL_ROTATION_OVERLAP", 5*time.Minute,
 	); err != nil {
-		return err
-	}
-	if config.wikiHintEnabled, err = boolEnvironment("TEAM_MEMORY_WIKI_HINT_ENABLED", false); err != nil {
 		return err
 	}
 	if config.operationsEventRetention, err = durationEnvironment(
@@ -626,11 +622,7 @@ func buildHTTPHandler(
 	if err != nil {
 		return nil, fmt.Errorf("configure on-prem credentials: %w", err)
 	}
-	memory, err := recall.NewRouter(
-		runtime,
-		pageWikiRecall,
-		recall.Config{EnablePassiveWikiHint: config.wikiHintEnabled},
-	)
+	memory, err := recall.NewRouter(runtime, pageWikiRecall)
 	if err != nil {
 		return nil, fmt.Errorf("configure recall router: %w", err)
 	}

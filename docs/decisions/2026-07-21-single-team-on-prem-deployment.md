@@ -13,6 +13,24 @@
 - [paxl on-prem Knowledge Capsule Channel](./2026-07-21-paxl-onprem-capsule-channel.md)
 - [On-prem Human Identity and Agent Registry（提议）](./2026-07-21-on-prem-identity-and-agent-registry.md)
 
+## 2026-07-28 PageWiki implementation update
+
+本 ADR 中的认证、单 Team scope、统一 Agent Memory API 和 Team Note
+evidence-sufficiency early return 决策仍然有效。关于尚未实现的 LLM Wiki Hint、Semantic
+Path 和 `source=llm_wiki` 的描述已由
+[PageWiki Agent recall implementation plan](../pagewiki-agent-recall-implementation-plan.md)
+取代：
+
+- Agent 主动搜索使用 `intent=active, source=pagewiki`；
+- 被动搜索并发运行 Team Note 与 PageWiki lexical search；
+- Team Note evidence 足够时立即取消 PageWiki 并返回；
+- evidence 不足时，PageWiki references 使用剩余 token 和 item budget；
+- `memory/get` 读取 search 返回的 immutable PageRevision ref；
+- PageWiki citation、source anchor 和 link 通过 typed provenance 返回；
+- 不保留 `llm_wiki` source、Wiki Hint feature flag 或旧 LLM Wiki hydration。
+
+以下旧 LLM Wiki/Hint 段落仅保留为决策历史，不再描述当前实现。
+
 ## 背景
 
 PAX Nexus 当前以一个 Team Memory 进程运行，依赖 PostgreSQL、River、抽取模型和

@@ -104,7 +104,7 @@ func (s *operationsHTTPIntegrationSuite) SetupSuite() {
 	s.Require().NoError(store.Sessions().ConfigureExtractionEnqueuer(queue))
 	s.Require().NoError(queue.Start(ctx))
 	s.queue = queue
-	memory, err := recall.NewRouter(runtime, nil, recall.Config{})
+	memory, err := recall.NewRouter(runtime, nil)
 	s.Require().NoError(err)
 	configured, err := handler.NewOnPrem(
 		runtime, &credentialService{}, memory, &channelService{},

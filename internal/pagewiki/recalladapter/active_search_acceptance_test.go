@@ -37,7 +37,7 @@ func (s *activeSearchAcceptanceSuite) SetupTest() {
 	) (teamnote.NoteEnvelope, error) {
 		s.teamCalls++
 		return teamnote.NoteEnvelope{}, nil
-	}), adapter, recall.Config{})
+	}), adapter)
 	s.Require().NoError(err)
 }
 
@@ -69,7 +69,7 @@ func (s *activeSearchAcceptanceSuite) TestGivenCurrentCitedPageWhenAgentActively
 	s.Equal("event-radix", hit.PageWiki.Citations[0].SourceAnchors[0].EventID)
 	s.Zero(s.teamCalls)
 	s.Equal(recall.PathSkipped, result.Trace.TeamNote.Status)
-	s.Equal(recall.PathCompleted, result.Trace.WikiSearch.Status)
+	s.Equal(recall.PathCompleted, result.Trace.PageWiki.Status)
 }
 
 func (s *activeSearchAcceptanceSuite) publishCitedPage() {

@@ -31,7 +31,8 @@ internal/teamnote/paxmprovider/         paxm bridge to Team Note HTTP
 internal/eval/                          Evaluation harness and benchmark adapters
 internal/eval/v2/                       Resumable multi-arm evaluation engine
 internal/eval/v3/                       Three-arm multi-agent GroupMemBench protocol
-internal/llmwiki/                       Reserved durable LLM Wiki module
+internal/pagewiki/                      Durable PageWiki domain, storage, and recall
+internal/llmwiki/                       Legacy provider transport pending extraction
 internal/platform/                      Shared PostgreSQL and observability adapters
 evals/opencode/                         Two-OpenCode scenarios and Docker orchestration
 evals/v2/                               Team Note versus self-hosted Mem0 configuration
@@ -43,7 +44,7 @@ cmd/team-memory-eval-v2/     Durable configuration-driven evaluation runner
 cmd/team-memory-eval-v3/     Multi-agent GroupMemBench evaluation runner
 ```
 
-Team Note and LLM Wiki are independent product modules. Both consume Session
+Team Note and PageWiki are independent product modules. Both consume Session
 Lake evidence, but neither may import the other. Evaluation may depend on either
 product module; product code may not depend on Evaluation. These rules are
 enforced by `internal/architecture/dependencies_test.go`.
@@ -211,12 +212,13 @@ The Hertz HTTP surface is generated from `idl/team_memory.thrift` and provides:
 - `/v1/channel/envelopes`, credential-bound Agent-to-Agent Knowledge Capsule
   delivery with inbox, outbox, accept, and archive operations.
 
-Passive search returns Team Note evidence and can speculatively run one typed
-LLM Wiki hint path under the same deadline and token budget. The hint path is
-off by default. The concrete LLM Wiki page store, index, and document resolver
-remain a separate module decision; until that adapter is installed, active
-Wiki search/get is unavailable and `TEAM_MEMORY_WIKI_HINT_ENABLED` must remain
-false. The legacy session-batch and note-recall endpoints remain available only
+Passive search returns Team Note evidence and speculatively runs PageWiki
+lexical search under the same deadline and token budget. Sufficient Team Note
+evidence returns immediately and cancels PageWiki; insufficient evidence may
+be supplemented by PageWiki references. Active PageWiki search uses
+`intent=active` and `source=pagewiki`. Search returns immutable revision refs,
+and `memory/get` resolves the exact cited revision with typed citation, source
+anchor, and link provenance. The legacy session-batch and note-recall endpoints remain available only
 when `TEAM_MEMORY_API_KEYS` selects compatibility mode without an admin secret.
 `TEAM_MEMORY_API_KEYS` compatibility mode remains mutually exclusive with all
 on-prem identity settings.
