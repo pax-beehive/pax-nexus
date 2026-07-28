@@ -31,8 +31,13 @@ function revision(id = "revision-current", title = "SQLite") {
         heading: "Decision",
         markdown: "SQLite is searchable and links to the runtime.",
       },
+      {
+        key: "source-evidence",
+        heading: "Source evidence",
+        markdown: "SQLite is searchable.",
+      },
     ],
-    markdown: `# ${title}\n\n## Decision\n\nSQLite is searchable and links to the runtime.`,
+    markdown: `# ${title}\n\n## Decision\n\nSQLite is searchable and links to the runtime.\n\n## Source evidence\n\nSQLite is searchable.`,
     citations: [
       {
         id: "citation-1",
@@ -150,7 +155,6 @@ describe("Page Wiki portal integration", () => {
     screen.getByText("1 outgoing");
     screen.getByText("0 incoming");
     expect(screen.queryByText("Xanadu map")).toBeNull();
-    expect(screen.queryByText("SQLite is searchable.")).toBeNull();
   });
 
   it("searches current revisions and opens a historical revision", async () => {
@@ -258,5 +262,20 @@ describe("Page Wiki portal integration", () => {
 
     await screen.findByRole("heading", { name: "SQLite" });
     expect(screen.queryByRole("button", { name: "Reset & rebuild" })).toBeNull();
+  });
+
+  it("collapses the Source evidence section by default", async () => {
+    await renderApp({
+      route: "/wiki",
+      me: makeMe({ role: "member" }),
+      fetch: (path) => wikiFetch(path),
+    });
+
+    await screen.findByRole("heading", { name: "SQLite" });
+    const fold = document.querySelector("details.wiki-evidence-fold");
+    expect(fold).not.toBeNull();
+    expect(fold?.hasAttribute("open")).toBe(false);
+    expect(within(fold as HTMLElement).getByText("Source evidence")).toBeTruthy();
+    expect(screen.queryByRole("heading", { level: 2, name: "Source evidence" })).toBeNull();
   });
 });
