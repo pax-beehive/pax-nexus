@@ -80,7 +80,9 @@ LLM output is untrusted. Inside the planner, after decoding:
 - `update` briefs resolve `target_slug` to `TargetPageID` and
   `ExpectedBaseRevisionID` deterministically from the catalog — the LLM never
   sees or emits internal IDs;
-- slug normalization and a cap of 10 briefs per revision;
+- slug normalization, `topic_path` capped at two segments (the existing
+  `ValidatePageBrief` limit), and a cap of 8 briefs per revision (the service's
+  existing `maxPlannedPages`);
 - `skip_noise` briefs are dropped inside the planner — they exist only so the
   model can account for every event; the domain `PageAction` enum is unchanged.
   If every brief is dropped, the planner returns a single `source-only` brief
@@ -89,8 +91,9 @@ LLM output is untrusted. Inside the planner, after decoding:
 ### Degradation policy (approved)
 
 LLM call fails or returns invalid JSON → retry once → on second failure return
-a single `source-only` brief and record the failure reason in the maintenance
-run. Never fall back to the heading chunker: evidence is preserved without
+a single `source-only` brief with key `plan-degraded` (the intentional
+empty-plan key stays `source-only`), so the maintenance run's target records
+that planning degraded. Never fall back to the heading chunker: evidence is preserved without
 creating garbage pages, and a later re-run can build pages from the stored
 source revision.
 
