@@ -11,6 +11,8 @@ import (
 	"github.com/pax-beehive/pax-nexus/internal/llmwiki/workspace"
 )
 
+const editorEvidenceContextBytes = 8 << 10
+
 var llmSectionKeyCharacters = regexp.MustCompile(`[^a-z0-9]+`)
 
 type LLMEditorConfig struct {
@@ -44,12 +46,28 @@ func (e *LLMSessionEditor) Edit(ctx context.Context, input EditInput) (PageDraft
 	for _, evidence := range input.Brief.Evidence {
 		quotes = append(quotes, evidence.ExactText)
 	}
+	contentByEvent := make(map[string]string, len(input.SourceRevision.Events))
+	for _, event := range input.SourceRevision.Events {
+		contentByEvent[event.ID] = string(input.SourceRevision.Raw[event.StartByte:event.EndByte])
+	}
+	evidenceContext := make([]string, 0, len(input.Brief.EvidenceEventIDs))
+	for _, eventID := range input.Brief.EvidenceEventIDs {
+		content, found := contentByEvent[eventID]
+		if !found {
+			continue
+		}
+		if len(content) > editorEvidenceContextBytes {
+			content = content[:editorEvidenceContextBytes]
+		}
+		evidenceContext = append(evidenceContext, content)
+	}
 	payload, err := json.Marshal(llmEditRequest{
-		Topic:        topic,
-		ReaderGoal:   input.Brief.ReaderGoal,
-		CurrentTitle: currentTitle(input),
-		CurrentText:  currentText(input),
-		Evidence:     quotes,
+		Topic:           topic,
+		ReaderGoal:      input.Brief.ReaderGoal,
+		CurrentTitle:    currentTitle(input),
+		CurrentText:     currentText(input),
+		Evidence:        quotes,
+		EvidenceContext: evidenceContext,
 	})
 	if err != nil {
 		return PageDraft{}, fmt.Errorf("encode Page Wiki LLM request: %w", err)
@@ -72,11 +90,12 @@ func (e *LLMSessionEditor) Edit(ctx context.Context, input EditInput) (PageDraft
 }
 
 type llmEditRequest struct {
-	Topic        string   `json:"topic"`
-	ReaderGoal   string   `json:"reader_goal"`
-	CurrentTitle string   `json:"current_title,omitempty"`
-	CurrentText  string   `json:"current_text,omitempty"`
-	Evidence     []string `json:"evidence"`
+	Topic           string   `json:"topic"`
+	ReaderGoal      string   `json:"reader_goal"`
+	CurrentTitle    string   `json:"current_title,omitempty"`
+	CurrentText     string   `json:"current_text,omitempty"`
+	Evidence        []string `json:"evidence"`
+	EvidenceContext []string `json:"evidence_context,omitempty"`
 }
 
 type llmEditResponse struct {
@@ -202,13 +221,18 @@ Return exactly one JSON object with this shape and no Markdown fence:
 
 Write every generated title, summary, heading, and prose sentence in English,
 regardless of the language of the evidence. Preserve proper nouns accurately.
-The evidence is immutable source material: preserve attribution, negation,
-scope, uncertainty, and chronology. Never invent a fact, decision, owner,
-status, date, outcome, or relationship. Write a coherent reader-facing article,
-not a Session transcript or a list of chat turns. If current_text is present,
-retain still-supported durable knowledge while updating it from the supplied
-evidence. Do not include source quotations or a related-pages section; the
-runtime appends exact evidence and audited Xanadu links deterministically.
-Use 1-5 concise sections and return JSON only.`
+evidence lists the exact quotes that will be cited; evidence_context carries
+the full source material they come from. Ground every claim in that
+material: preserve attribution, negation, scope, uncertainty, and
+chronology. Never invent a fact, decision, owner, status, date, outcome, or
+relationship. Write a complete, self-contained article, not a Session
+transcript or a list of chat turns: open with a substantive lead, then two
+to six sections organized by reader meaning. Expand every point the
+material supports — background, rationale, consequences, current state —
+and stop where the evidence stops instead of padding. If current_text is
+present, retain still-supported durable knowledge while updating it from
+the supplied evidence. Do not include source quotations or a related-pages
+section; the runtime appends exact evidence and audited Xanadu links
+deterministically. Return JSON only.`
 
 var _ Editor = (*LLMSessionEditor)(nil)
