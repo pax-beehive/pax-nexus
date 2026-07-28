@@ -33,12 +33,19 @@ func (SessionDocumentPlanner) Plan(_ context.Context, input PlanInput) ([]PageBr
 	units := sessionKnowledgeUnits(input.SourceRevision)
 	briefs := make([]PageBrief, 0, len(units))
 	for _, unit := range units {
+		evidence := make([]EvidenceQuoteDraft, 0, len(unit.quotes))
+		for index, quote := range unit.quotes {
+			evidence = append(evidence, EvidenceQuoteDraft{
+				EventID: unit.eventIDs[index], ExactText: quote,
+			})
+		}
 		brief := PageBrief{
 			Key: unit.key, Action: PageActionCreate,
 			ProposedSlug: unit.slug, ProposedTitle: unit.title,
 			ReaderGoal:       "Understand the durable knowledge supported by Session Lake evidence.",
 			TopicPath:        unit.topicPath,
 			EvidenceEventIDs: uniqueStrings(unit.eventIDs),
+			Evidence:         evidence,
 		}
 		for _, page := range input.PageCatalog {
 			if page.Slug != unit.slug {
