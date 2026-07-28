@@ -50,6 +50,7 @@ type MemoryHit struct {
 	Tokens      int
 	Disposition Disposition
 	Metadata    map[string]string
+	PageWiki    *PageWikiContext
 }
 
 type MemoryDocument struct {
@@ -57,6 +58,42 @@ type MemoryDocument struct {
 	Text       string
 	Tokens     int
 	Provenance map[string]string
+	PageWiki   *PageWikiContext
+}
+
+type PageWikiContext struct {
+	PageID     string
+	Slug       string
+	Title      string
+	RevisionID string
+	SectionKey string
+	Citations  []PageWikiCitation
+	Links      []PageWikiLink
+}
+
+type PageWikiCitation struct {
+	CitationID    string
+	SectionKey    string
+	StartByte     int
+	EndByte       int
+	ExactText     string
+	SourceAnchors []PageWikiSourceAnchor
+}
+
+type PageWikiSourceAnchor struct {
+	SourceRevisionID string
+	EventID          string
+	StartByte        int
+	EndByte          int
+	ExactQuote       string
+}
+
+type PageWikiLink struct {
+	Direction    string
+	SectionKey   string
+	ExactText    string
+	SourcePageID string
+	TargetPageID string
 }
 
 type PathStatus string

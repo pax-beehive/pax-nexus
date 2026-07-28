@@ -7056,13 +7056,1677 @@ func (p *MemorySearchRequest) String() string {
 
 }
 
+type MemoryPageWikiSourceAnchor struct {
+	SourceRevisionID string `thrift:"source_revision_id,1,required" form:"source_revision_id,required" json:"source_revision_id,required" query:"source_revision_id,required"`
+	EventID          string `thrift:"event_id,2,required" form:"event_id,required" json:"event_id,required" query:"event_id,required"`
+	StartByte        int32  `thrift:"start_byte,3,required" form:"start_byte,required" json:"start_byte,required" query:"start_byte,required"`
+	EndByte          int32  `thrift:"end_byte,4,required" form:"end_byte,required" json:"end_byte,required" query:"end_byte,required"`
+	ExactQuote       string `thrift:"exact_quote,5,required" form:"exact_quote,required" json:"exact_quote,required" query:"exact_quote,required"`
+}
+
+func NewMemoryPageWikiSourceAnchor() *MemoryPageWikiSourceAnchor {
+	return &MemoryPageWikiSourceAnchor{}
+}
+
+func (p *MemoryPageWikiSourceAnchor) InitDefault() {
+}
+
+func (p *MemoryPageWikiSourceAnchor) GetSourceRevisionID() (v string) {
+	return p.SourceRevisionID
+}
+
+func (p *MemoryPageWikiSourceAnchor) GetEventID() (v string) {
+	return p.EventID
+}
+
+func (p *MemoryPageWikiSourceAnchor) GetStartByte() (v int32) {
+	return p.StartByte
+}
+
+func (p *MemoryPageWikiSourceAnchor) GetEndByte() (v int32) {
+	return p.EndByte
+}
+
+func (p *MemoryPageWikiSourceAnchor) GetExactQuote() (v string) {
+	return p.ExactQuote
+}
+
+var fieldIDToName_MemoryPageWikiSourceAnchor = map[int16]string{
+	1: "source_revision_id",
+	2: "event_id",
+	3: "start_byte",
+	4: "end_byte",
+	5: "exact_quote",
+}
+
+func (p *MemoryPageWikiSourceAnchor) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+	var issetSourceRevisionID bool = false
+	var issetEventID bool = false
+	var issetStartByte bool = false
+	var issetEndByte bool = false
+	var issetExactQuote bool = false
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 1:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField1(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetSourceRevisionID = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 2:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField2(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetEventID = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 3:
+			if fieldTypeId == thrift.I32 {
+				if err = p.ReadField3(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetStartByte = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 4:
+			if fieldTypeId == thrift.I32 {
+				if err = p.ReadField4(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetEndByte = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 5:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField5(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetExactQuote = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	if !issetSourceRevisionID {
+		fieldId = 1
+		goto RequiredFieldNotSetError
+	}
+
+	if !issetEventID {
+		fieldId = 2
+		goto RequiredFieldNotSetError
+	}
+
+	if !issetStartByte {
+		fieldId = 3
+		goto RequiredFieldNotSetError
+	}
+
+	if !issetEndByte {
+		fieldId = 4
+		goto RequiredFieldNotSetError
+	}
+
+	if !issetExactQuote {
+		fieldId = 5
+		goto RequiredFieldNotSetError
+	}
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_MemoryPageWikiSourceAnchor[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+RequiredFieldNotSetError:
+	return thrift.NewTProtocolExceptionWithType(thrift.INVALID_DATA, fmt.Errorf("required field %s is not set", fieldIDToName_MemoryPageWikiSourceAnchor[fieldId]))
+}
+
+func (p *MemoryPageWikiSourceAnchor) ReadField1(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.SourceRevisionID = _field
+	return nil
+}
+func (p *MemoryPageWikiSourceAnchor) ReadField2(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.EventID = _field
+	return nil
+}
+func (p *MemoryPageWikiSourceAnchor) ReadField3(iprot thrift.TProtocol) error {
+
+	var _field int32
+	if v, err := iprot.ReadI32(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.StartByte = _field
+	return nil
+}
+func (p *MemoryPageWikiSourceAnchor) ReadField4(iprot thrift.TProtocol) error {
+
+	var _field int32
+	if v, err := iprot.ReadI32(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.EndByte = _field
+	return nil
+}
+func (p *MemoryPageWikiSourceAnchor) ReadField5(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.ExactQuote = _field
+	return nil
+}
+
+func (p *MemoryPageWikiSourceAnchor) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("MemoryPageWikiSourceAnchor"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField1(oprot); err != nil {
+			fieldId = 1
+			goto WriteFieldError
+		}
+		if err = p.writeField2(oprot); err != nil {
+			fieldId = 2
+			goto WriteFieldError
+		}
+		if err = p.writeField3(oprot); err != nil {
+			fieldId = 3
+			goto WriteFieldError
+		}
+		if err = p.writeField4(oprot); err != nil {
+			fieldId = 4
+			goto WriteFieldError
+		}
+		if err = p.writeField5(oprot); err != nil {
+			fieldId = 5
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *MemoryPageWikiSourceAnchor) writeField1(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("source_revision_id", thrift.STRING, 1); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.SourceRevisionID); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 end error: ", p), err)
+}
+
+func (p *MemoryPageWikiSourceAnchor) writeField2(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("event_id", thrift.STRING, 2); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.EventID); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 2 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 2 end error: ", p), err)
+}
+
+func (p *MemoryPageWikiSourceAnchor) writeField3(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("start_byte", thrift.I32, 3); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteI32(p.StartByte); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 end error: ", p), err)
+}
+
+func (p *MemoryPageWikiSourceAnchor) writeField4(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("end_byte", thrift.I32, 4); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteI32(p.EndByte); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 4 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 4 end error: ", p), err)
+}
+
+func (p *MemoryPageWikiSourceAnchor) writeField5(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("exact_quote", thrift.STRING, 5); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.ExactQuote); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 5 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 5 end error: ", p), err)
+}
+
+func (p *MemoryPageWikiSourceAnchor) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("MemoryPageWikiSourceAnchor(%+v)", *p)
+
+}
+
+type MemoryPageWikiCitation struct {
+	CitationID    string                        `thrift:"citation_id,1,required" form:"citation_id,required" json:"citation_id,required" query:"citation_id,required"`
+	SectionKey    string                        `thrift:"section_key,2,required" form:"section_key,required" json:"section_key,required" query:"section_key,required"`
+	StartByte     int32                         `thrift:"start_byte,3,required" form:"start_byte,required" json:"start_byte,required" query:"start_byte,required"`
+	EndByte       int32                         `thrift:"end_byte,4,required" form:"end_byte,required" json:"end_byte,required" query:"end_byte,required"`
+	ExactText     string                        `thrift:"exact_text,5,required" form:"exact_text,required" json:"exact_text,required" query:"exact_text,required"`
+	SourceAnchors []*MemoryPageWikiSourceAnchor `thrift:"source_anchors,6,required,list<MemoryPageWikiSourceAnchor>" form:"source_anchors,required" json:"source_anchors,required" query:"source_anchors,required"`
+}
+
+func NewMemoryPageWikiCitation() *MemoryPageWikiCitation {
+	return &MemoryPageWikiCitation{}
+}
+
+func (p *MemoryPageWikiCitation) InitDefault() {
+}
+
+func (p *MemoryPageWikiCitation) GetCitationID() (v string) {
+	return p.CitationID
+}
+
+func (p *MemoryPageWikiCitation) GetSectionKey() (v string) {
+	return p.SectionKey
+}
+
+func (p *MemoryPageWikiCitation) GetStartByte() (v int32) {
+	return p.StartByte
+}
+
+func (p *MemoryPageWikiCitation) GetEndByte() (v int32) {
+	return p.EndByte
+}
+
+func (p *MemoryPageWikiCitation) GetExactText() (v string) {
+	return p.ExactText
+}
+
+func (p *MemoryPageWikiCitation) GetSourceAnchors() (v []*MemoryPageWikiSourceAnchor) {
+	return p.SourceAnchors
+}
+
+var fieldIDToName_MemoryPageWikiCitation = map[int16]string{
+	1: "citation_id",
+	2: "section_key",
+	3: "start_byte",
+	4: "end_byte",
+	5: "exact_text",
+	6: "source_anchors",
+}
+
+func (p *MemoryPageWikiCitation) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+	var issetCitationID bool = false
+	var issetSectionKey bool = false
+	var issetStartByte bool = false
+	var issetEndByte bool = false
+	var issetExactText bool = false
+	var issetSourceAnchors bool = false
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 1:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField1(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetCitationID = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 2:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField2(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetSectionKey = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 3:
+			if fieldTypeId == thrift.I32 {
+				if err = p.ReadField3(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetStartByte = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 4:
+			if fieldTypeId == thrift.I32 {
+				if err = p.ReadField4(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetEndByte = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 5:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField5(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetExactText = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 6:
+			if fieldTypeId == thrift.LIST {
+				if err = p.ReadField6(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetSourceAnchors = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	if !issetCitationID {
+		fieldId = 1
+		goto RequiredFieldNotSetError
+	}
+
+	if !issetSectionKey {
+		fieldId = 2
+		goto RequiredFieldNotSetError
+	}
+
+	if !issetStartByte {
+		fieldId = 3
+		goto RequiredFieldNotSetError
+	}
+
+	if !issetEndByte {
+		fieldId = 4
+		goto RequiredFieldNotSetError
+	}
+
+	if !issetExactText {
+		fieldId = 5
+		goto RequiredFieldNotSetError
+	}
+
+	if !issetSourceAnchors {
+		fieldId = 6
+		goto RequiredFieldNotSetError
+	}
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_MemoryPageWikiCitation[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+RequiredFieldNotSetError:
+	return thrift.NewTProtocolExceptionWithType(thrift.INVALID_DATA, fmt.Errorf("required field %s is not set", fieldIDToName_MemoryPageWikiCitation[fieldId]))
+}
+
+func (p *MemoryPageWikiCitation) ReadField1(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.CitationID = _field
+	return nil
+}
+func (p *MemoryPageWikiCitation) ReadField2(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.SectionKey = _field
+	return nil
+}
+func (p *MemoryPageWikiCitation) ReadField3(iprot thrift.TProtocol) error {
+
+	var _field int32
+	if v, err := iprot.ReadI32(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.StartByte = _field
+	return nil
+}
+func (p *MemoryPageWikiCitation) ReadField4(iprot thrift.TProtocol) error {
+
+	var _field int32
+	if v, err := iprot.ReadI32(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.EndByte = _field
+	return nil
+}
+func (p *MemoryPageWikiCitation) ReadField5(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.ExactText = _field
+	return nil
+}
+func (p *MemoryPageWikiCitation) ReadField6(iprot thrift.TProtocol) error {
+	_, size, err := iprot.ReadListBegin()
+	if err != nil {
+		return err
+	}
+	_field := make([]*MemoryPageWikiSourceAnchor, 0, size)
+	values := make([]MemoryPageWikiSourceAnchor, size)
+	for i := 0; i < size; i++ {
+		_elem := &values[i]
+		_elem.InitDefault()
+
+		if err := _elem.Read(iprot); err != nil {
+			return err
+		}
+
+		_field = append(_field, _elem)
+	}
+	if err := iprot.ReadListEnd(); err != nil {
+		return err
+	}
+	p.SourceAnchors = _field
+	return nil
+}
+
+func (p *MemoryPageWikiCitation) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("MemoryPageWikiCitation"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField1(oprot); err != nil {
+			fieldId = 1
+			goto WriteFieldError
+		}
+		if err = p.writeField2(oprot); err != nil {
+			fieldId = 2
+			goto WriteFieldError
+		}
+		if err = p.writeField3(oprot); err != nil {
+			fieldId = 3
+			goto WriteFieldError
+		}
+		if err = p.writeField4(oprot); err != nil {
+			fieldId = 4
+			goto WriteFieldError
+		}
+		if err = p.writeField5(oprot); err != nil {
+			fieldId = 5
+			goto WriteFieldError
+		}
+		if err = p.writeField6(oprot); err != nil {
+			fieldId = 6
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *MemoryPageWikiCitation) writeField1(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("citation_id", thrift.STRING, 1); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.CitationID); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 end error: ", p), err)
+}
+
+func (p *MemoryPageWikiCitation) writeField2(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("section_key", thrift.STRING, 2); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.SectionKey); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 2 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 2 end error: ", p), err)
+}
+
+func (p *MemoryPageWikiCitation) writeField3(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("start_byte", thrift.I32, 3); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteI32(p.StartByte); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 end error: ", p), err)
+}
+
+func (p *MemoryPageWikiCitation) writeField4(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("end_byte", thrift.I32, 4); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteI32(p.EndByte); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 4 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 4 end error: ", p), err)
+}
+
+func (p *MemoryPageWikiCitation) writeField5(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("exact_text", thrift.STRING, 5); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.ExactText); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 5 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 5 end error: ", p), err)
+}
+
+func (p *MemoryPageWikiCitation) writeField6(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("source_anchors", thrift.LIST, 6); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteListBegin(thrift.STRUCT, len(p.SourceAnchors)); err != nil {
+		return err
+	}
+	for _, v := range p.SourceAnchors {
+		if err := v.Write(oprot); err != nil {
+			return err
+		}
+	}
+	if err := oprot.WriteListEnd(); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 6 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 6 end error: ", p), err)
+}
+
+func (p *MemoryPageWikiCitation) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("MemoryPageWikiCitation(%+v)", *p)
+
+}
+
+type MemoryPageWikiLink struct {
+	Direction    string `thrift:"direction,1,required" form:"direction,required" json:"direction,required" query:"direction,required"`
+	SectionKey   string `thrift:"section_key,2,required" form:"section_key,required" json:"section_key,required" query:"section_key,required"`
+	ExactText    string `thrift:"exact_text,3,required" form:"exact_text,required" json:"exact_text,required" query:"exact_text,required"`
+	SourcePageID string `thrift:"source_page_id,4,required" form:"source_page_id,required" json:"source_page_id,required" query:"source_page_id,required"`
+	TargetPageID string `thrift:"target_page_id,5,required" form:"target_page_id,required" json:"target_page_id,required" query:"target_page_id,required"`
+}
+
+func NewMemoryPageWikiLink() *MemoryPageWikiLink {
+	return &MemoryPageWikiLink{}
+}
+
+func (p *MemoryPageWikiLink) InitDefault() {
+}
+
+func (p *MemoryPageWikiLink) GetDirection() (v string) {
+	return p.Direction
+}
+
+func (p *MemoryPageWikiLink) GetSectionKey() (v string) {
+	return p.SectionKey
+}
+
+func (p *MemoryPageWikiLink) GetExactText() (v string) {
+	return p.ExactText
+}
+
+func (p *MemoryPageWikiLink) GetSourcePageID() (v string) {
+	return p.SourcePageID
+}
+
+func (p *MemoryPageWikiLink) GetTargetPageID() (v string) {
+	return p.TargetPageID
+}
+
+var fieldIDToName_MemoryPageWikiLink = map[int16]string{
+	1: "direction",
+	2: "section_key",
+	3: "exact_text",
+	4: "source_page_id",
+	5: "target_page_id",
+}
+
+func (p *MemoryPageWikiLink) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+	var issetDirection bool = false
+	var issetSectionKey bool = false
+	var issetExactText bool = false
+	var issetSourcePageID bool = false
+	var issetTargetPageID bool = false
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 1:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField1(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetDirection = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 2:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField2(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetSectionKey = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 3:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField3(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetExactText = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 4:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField4(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetSourcePageID = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 5:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField5(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetTargetPageID = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	if !issetDirection {
+		fieldId = 1
+		goto RequiredFieldNotSetError
+	}
+
+	if !issetSectionKey {
+		fieldId = 2
+		goto RequiredFieldNotSetError
+	}
+
+	if !issetExactText {
+		fieldId = 3
+		goto RequiredFieldNotSetError
+	}
+
+	if !issetSourcePageID {
+		fieldId = 4
+		goto RequiredFieldNotSetError
+	}
+
+	if !issetTargetPageID {
+		fieldId = 5
+		goto RequiredFieldNotSetError
+	}
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_MemoryPageWikiLink[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+RequiredFieldNotSetError:
+	return thrift.NewTProtocolExceptionWithType(thrift.INVALID_DATA, fmt.Errorf("required field %s is not set", fieldIDToName_MemoryPageWikiLink[fieldId]))
+}
+
+func (p *MemoryPageWikiLink) ReadField1(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.Direction = _field
+	return nil
+}
+func (p *MemoryPageWikiLink) ReadField2(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.SectionKey = _field
+	return nil
+}
+func (p *MemoryPageWikiLink) ReadField3(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.ExactText = _field
+	return nil
+}
+func (p *MemoryPageWikiLink) ReadField4(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.SourcePageID = _field
+	return nil
+}
+func (p *MemoryPageWikiLink) ReadField5(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.TargetPageID = _field
+	return nil
+}
+
+func (p *MemoryPageWikiLink) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("MemoryPageWikiLink"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField1(oprot); err != nil {
+			fieldId = 1
+			goto WriteFieldError
+		}
+		if err = p.writeField2(oprot); err != nil {
+			fieldId = 2
+			goto WriteFieldError
+		}
+		if err = p.writeField3(oprot); err != nil {
+			fieldId = 3
+			goto WriteFieldError
+		}
+		if err = p.writeField4(oprot); err != nil {
+			fieldId = 4
+			goto WriteFieldError
+		}
+		if err = p.writeField5(oprot); err != nil {
+			fieldId = 5
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *MemoryPageWikiLink) writeField1(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("direction", thrift.STRING, 1); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.Direction); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 end error: ", p), err)
+}
+
+func (p *MemoryPageWikiLink) writeField2(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("section_key", thrift.STRING, 2); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.SectionKey); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 2 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 2 end error: ", p), err)
+}
+
+func (p *MemoryPageWikiLink) writeField3(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("exact_text", thrift.STRING, 3); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.ExactText); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 end error: ", p), err)
+}
+
+func (p *MemoryPageWikiLink) writeField4(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("source_page_id", thrift.STRING, 4); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.SourcePageID); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 4 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 4 end error: ", p), err)
+}
+
+func (p *MemoryPageWikiLink) writeField5(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("target_page_id", thrift.STRING, 5); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.TargetPageID); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 5 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 5 end error: ", p), err)
+}
+
+func (p *MemoryPageWikiLink) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("MemoryPageWikiLink(%+v)", *p)
+
+}
+
+type MemoryPageWikiContext struct {
+	PageID     string                    `thrift:"page_id,1,required" form:"page_id,required" json:"page_id,required" query:"page_id,required"`
+	Slug       string                    `thrift:"slug,2,required" form:"slug,required" json:"slug,required" query:"slug,required"`
+	Title      string                    `thrift:"title,3,required" form:"title,required" json:"title,required" query:"title,required"`
+	RevisionID string                    `thrift:"revision_id,4,required" form:"revision_id,required" json:"revision_id,required" query:"revision_id,required"`
+	SectionKey *string                   `thrift:"section_key,5,optional" form:"section_key" json:"section_key,omitempty" query:"section_key"`
+	Citations  []*MemoryPageWikiCitation `thrift:"citations,6,required,list<MemoryPageWikiCitation>" form:"citations,required" json:"citations,required" query:"citations,required"`
+	Links      []*MemoryPageWikiLink     `thrift:"links,7,required,list<MemoryPageWikiLink>" form:"links,required" json:"links,required" query:"links,required"`
+}
+
+func NewMemoryPageWikiContext() *MemoryPageWikiContext {
+	return &MemoryPageWikiContext{}
+}
+
+func (p *MemoryPageWikiContext) InitDefault() {
+}
+
+func (p *MemoryPageWikiContext) GetPageID() (v string) {
+	return p.PageID
+}
+
+func (p *MemoryPageWikiContext) GetSlug() (v string) {
+	return p.Slug
+}
+
+func (p *MemoryPageWikiContext) GetTitle() (v string) {
+	return p.Title
+}
+
+func (p *MemoryPageWikiContext) GetRevisionID() (v string) {
+	return p.RevisionID
+}
+
+var MemoryPageWikiContext_SectionKey_DEFAULT string
+
+func (p *MemoryPageWikiContext) GetSectionKey() (v string) {
+	if !p.IsSetSectionKey() {
+		return MemoryPageWikiContext_SectionKey_DEFAULT
+	}
+	return *p.SectionKey
+}
+
+func (p *MemoryPageWikiContext) GetCitations() (v []*MemoryPageWikiCitation) {
+	return p.Citations
+}
+
+func (p *MemoryPageWikiContext) GetLinks() (v []*MemoryPageWikiLink) {
+	return p.Links
+}
+
+var fieldIDToName_MemoryPageWikiContext = map[int16]string{
+	1: "page_id",
+	2: "slug",
+	3: "title",
+	4: "revision_id",
+	5: "section_key",
+	6: "citations",
+	7: "links",
+}
+
+func (p *MemoryPageWikiContext) IsSetSectionKey() bool {
+	return p.SectionKey != nil
+}
+
+func (p *MemoryPageWikiContext) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+	var issetPageID bool = false
+	var issetSlug bool = false
+	var issetTitle bool = false
+	var issetRevisionID bool = false
+	var issetCitations bool = false
+	var issetLinks bool = false
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 1:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField1(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetPageID = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 2:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField2(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetSlug = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 3:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField3(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetTitle = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 4:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField4(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetRevisionID = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 5:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField5(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 6:
+			if fieldTypeId == thrift.LIST {
+				if err = p.ReadField6(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetCitations = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 7:
+			if fieldTypeId == thrift.LIST {
+				if err = p.ReadField7(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetLinks = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	if !issetPageID {
+		fieldId = 1
+		goto RequiredFieldNotSetError
+	}
+
+	if !issetSlug {
+		fieldId = 2
+		goto RequiredFieldNotSetError
+	}
+
+	if !issetTitle {
+		fieldId = 3
+		goto RequiredFieldNotSetError
+	}
+
+	if !issetRevisionID {
+		fieldId = 4
+		goto RequiredFieldNotSetError
+	}
+
+	if !issetCitations {
+		fieldId = 6
+		goto RequiredFieldNotSetError
+	}
+
+	if !issetLinks {
+		fieldId = 7
+		goto RequiredFieldNotSetError
+	}
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_MemoryPageWikiContext[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+RequiredFieldNotSetError:
+	return thrift.NewTProtocolExceptionWithType(thrift.INVALID_DATA, fmt.Errorf("required field %s is not set", fieldIDToName_MemoryPageWikiContext[fieldId]))
+}
+
+func (p *MemoryPageWikiContext) ReadField1(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.PageID = _field
+	return nil
+}
+func (p *MemoryPageWikiContext) ReadField2(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.Slug = _field
+	return nil
+}
+func (p *MemoryPageWikiContext) ReadField3(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.Title = _field
+	return nil
+}
+func (p *MemoryPageWikiContext) ReadField4(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.RevisionID = _field
+	return nil
+}
+func (p *MemoryPageWikiContext) ReadField5(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.SectionKey = _field
+	return nil
+}
+func (p *MemoryPageWikiContext) ReadField6(iprot thrift.TProtocol) error {
+	_, size, err := iprot.ReadListBegin()
+	if err != nil {
+		return err
+	}
+	_field := make([]*MemoryPageWikiCitation, 0, size)
+	values := make([]MemoryPageWikiCitation, size)
+	for i := 0; i < size; i++ {
+		_elem := &values[i]
+		_elem.InitDefault()
+
+		if err := _elem.Read(iprot); err != nil {
+			return err
+		}
+
+		_field = append(_field, _elem)
+	}
+	if err := iprot.ReadListEnd(); err != nil {
+		return err
+	}
+	p.Citations = _field
+	return nil
+}
+func (p *MemoryPageWikiContext) ReadField7(iprot thrift.TProtocol) error {
+	_, size, err := iprot.ReadListBegin()
+	if err != nil {
+		return err
+	}
+	_field := make([]*MemoryPageWikiLink, 0, size)
+	values := make([]MemoryPageWikiLink, size)
+	for i := 0; i < size; i++ {
+		_elem := &values[i]
+		_elem.InitDefault()
+
+		if err := _elem.Read(iprot); err != nil {
+			return err
+		}
+
+		_field = append(_field, _elem)
+	}
+	if err := iprot.ReadListEnd(); err != nil {
+		return err
+	}
+	p.Links = _field
+	return nil
+}
+
+func (p *MemoryPageWikiContext) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("MemoryPageWikiContext"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField1(oprot); err != nil {
+			fieldId = 1
+			goto WriteFieldError
+		}
+		if err = p.writeField2(oprot); err != nil {
+			fieldId = 2
+			goto WriteFieldError
+		}
+		if err = p.writeField3(oprot); err != nil {
+			fieldId = 3
+			goto WriteFieldError
+		}
+		if err = p.writeField4(oprot); err != nil {
+			fieldId = 4
+			goto WriteFieldError
+		}
+		if err = p.writeField5(oprot); err != nil {
+			fieldId = 5
+			goto WriteFieldError
+		}
+		if err = p.writeField6(oprot); err != nil {
+			fieldId = 6
+			goto WriteFieldError
+		}
+		if err = p.writeField7(oprot); err != nil {
+			fieldId = 7
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *MemoryPageWikiContext) writeField1(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("page_id", thrift.STRING, 1); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.PageID); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 end error: ", p), err)
+}
+
+func (p *MemoryPageWikiContext) writeField2(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("slug", thrift.STRING, 2); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.Slug); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 2 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 2 end error: ", p), err)
+}
+
+func (p *MemoryPageWikiContext) writeField3(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("title", thrift.STRING, 3); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.Title); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 end error: ", p), err)
+}
+
+func (p *MemoryPageWikiContext) writeField4(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("revision_id", thrift.STRING, 4); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.RevisionID); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 4 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 4 end error: ", p), err)
+}
+
+func (p *MemoryPageWikiContext) writeField5(oprot thrift.TProtocol) (err error) {
+	if p.IsSetSectionKey() {
+		if err = oprot.WriteFieldBegin("section_key", thrift.STRING, 5); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.SectionKey); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 5 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 5 end error: ", p), err)
+}
+
+func (p *MemoryPageWikiContext) writeField6(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("citations", thrift.LIST, 6); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteListBegin(thrift.STRUCT, len(p.Citations)); err != nil {
+		return err
+	}
+	for _, v := range p.Citations {
+		if err := v.Write(oprot); err != nil {
+			return err
+		}
+	}
+	if err := oprot.WriteListEnd(); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 6 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 6 end error: ", p), err)
+}
+
+func (p *MemoryPageWikiContext) writeField7(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("links", thrift.LIST, 7); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteListBegin(thrift.STRUCT, len(p.Links)); err != nil {
+		return err
+	}
+	for _, v := range p.Links {
+		if err := v.Write(oprot); err != nil {
+			return err
+		}
+	}
+	if err := oprot.WriteListEnd(); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 7 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 7 end error: ", p), err)
+}
+
+func (p *MemoryPageWikiContext) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("MemoryPageWikiContext(%+v)", *p)
+
+}
+
 type MemoryHit struct {
-	Ref         *string           `thrift:"ref,1,optional" form:"ref" json:"ref,omitempty" query:"ref"`
-	Text        string            `thrift:"text,2,required" form:"text,required" json:"text,required" query:"text,required"`
-	Score       float64           `thrift:"score,3,required" form:"score,required" json:"score,required" query:"score,required"`
-	Tokens      int32             `thrift:"tokens,4,required" form:"tokens,required" json:"tokens,required" query:"tokens,required"`
-	Disposition string            `thrift:"disposition,5,required" form:"disposition,required" json:"disposition,required" query:"disposition,required"`
-	Metadata    map[string]string `thrift:"metadata,6,optional" form:"metadata" json:"metadata,omitempty" query:"metadata"`
+	Ref         *string                `thrift:"ref,1,optional" form:"ref" json:"ref,omitempty" query:"ref"`
+	Text        string                 `thrift:"text,2,required" form:"text,required" json:"text,required" query:"text,required"`
+	Score       float64                `thrift:"score,3,required" form:"score,required" json:"score,required" query:"score,required"`
+	Tokens      int32                  `thrift:"tokens,4,required" form:"tokens,required" json:"tokens,required" query:"tokens,required"`
+	Disposition string                 `thrift:"disposition,5,required" form:"disposition,required" json:"disposition,required" query:"disposition,required"`
+	Metadata    map[string]string      `thrift:"metadata,6,optional" form:"metadata" json:"metadata,omitempty" query:"metadata"`
+	Pagewiki    *MemoryPageWikiContext `thrift:"pagewiki,7,optional" form:"pagewiki" json:"pagewiki,omitempty" query:"pagewiki"`
 }
 
 func NewMemoryHit() *MemoryHit {
@@ -7106,6 +8770,15 @@ func (p *MemoryHit) GetMetadata() (v map[string]string) {
 	return p.Metadata
 }
 
+var MemoryHit_Pagewiki_DEFAULT *MemoryPageWikiContext
+
+func (p *MemoryHit) GetPagewiki() (v *MemoryPageWikiContext) {
+	if !p.IsSetPagewiki() {
+		return MemoryHit_Pagewiki_DEFAULT
+	}
+	return p.Pagewiki
+}
+
 var fieldIDToName_MemoryHit = map[int16]string{
 	1: "ref",
 	2: "text",
@@ -7113,6 +8786,7 @@ var fieldIDToName_MemoryHit = map[int16]string{
 	4: "tokens",
 	5: "disposition",
 	6: "metadata",
+	7: "pagewiki",
 }
 
 func (p *MemoryHit) IsSetRef() bool {
@@ -7121,6 +8795,10 @@ func (p *MemoryHit) IsSetRef() bool {
 
 func (p *MemoryHit) IsSetMetadata() bool {
 	return p.Metadata != nil
+}
+
+func (p *MemoryHit) IsSetPagewiki() bool {
+	return p.Pagewiki != nil
 }
 
 func (p *MemoryHit) Read(iprot thrift.TProtocol) (err error) {
@@ -7193,6 +8871,14 @@ func (p *MemoryHit) Read(iprot thrift.TProtocol) (err error) {
 		case 6:
 			if fieldTypeId == thrift.MAP {
 				if err = p.ReadField6(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 7:
+			if fieldTypeId == thrift.STRUCT {
+				if err = p.ReadField7(iprot); err != nil {
 					goto ReadFieldError
 				}
 			} else if err = iprot.Skip(fieldTypeId); err != nil {
@@ -7332,6 +9018,14 @@ func (p *MemoryHit) ReadField6(iprot thrift.TProtocol) error {
 	p.Metadata = _field
 	return nil
 }
+func (p *MemoryHit) ReadField7(iprot thrift.TProtocol) error {
+	_field := NewMemoryPageWikiContext()
+	if err := _field.Read(iprot); err != nil {
+		return err
+	}
+	p.Pagewiki = _field
+	return nil
+}
 
 func (p *MemoryHit) Write(oprot thrift.TProtocol) (err error) {
 	var fieldId int16
@@ -7361,6 +9055,10 @@ func (p *MemoryHit) Write(oprot thrift.TProtocol) (err error) {
 		}
 		if err = p.writeField6(oprot); err != nil {
 			fieldId = 6
+			goto WriteFieldError
+		}
+		if err = p.writeField7(oprot); err != nil {
+			fieldId = 7
 			goto WriteFieldError
 		}
 	}
@@ -7496,6 +9194,25 @@ WriteFieldBeginError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 6 begin error: ", p), err)
 WriteFieldEndError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 6 end error: ", p), err)
+}
+
+func (p *MemoryHit) writeField7(oprot thrift.TProtocol) (err error) {
+	if p.IsSetPagewiki() {
+		if err = oprot.WriteFieldBegin("pagewiki", thrift.STRUCT, 7); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := p.Pagewiki.Write(oprot); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 7 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 7 end error: ", p), err)
 }
 
 func (p *MemoryHit) String() string {
@@ -8811,10 +10528,11 @@ func (p *MemoryGetRequest) String() string {
 }
 
 type MemoryDocument struct {
-	Ref        string            `thrift:"ref,1,required" form:"ref,required" json:"ref,required" query:"ref,required"`
-	Text       string            `thrift:"text,2,required" form:"text,required" json:"text,required" query:"text,required"`
-	Tokens     int32             `thrift:"tokens,3,required" form:"tokens,required" json:"tokens,required" query:"tokens,required"`
-	Provenance map[string]string `thrift:"provenance,4,optional" form:"provenance" json:"provenance,omitempty" query:"provenance"`
+	Ref        string                 `thrift:"ref,1,required" form:"ref,required" json:"ref,required" query:"ref,required"`
+	Text       string                 `thrift:"text,2,required" form:"text,required" json:"text,required" query:"text,required"`
+	Tokens     int32                  `thrift:"tokens,3,required" form:"tokens,required" json:"tokens,required" query:"tokens,required"`
+	Provenance map[string]string      `thrift:"provenance,4,optional" form:"provenance" json:"provenance,omitempty" query:"provenance"`
+	Pagewiki   *MemoryPageWikiContext `thrift:"pagewiki,5,optional" form:"pagewiki" json:"pagewiki,omitempty" query:"pagewiki"`
 }
 
 func NewMemoryDocument() *MemoryDocument {
@@ -8845,15 +10563,29 @@ func (p *MemoryDocument) GetProvenance() (v map[string]string) {
 	return p.Provenance
 }
 
+var MemoryDocument_Pagewiki_DEFAULT *MemoryPageWikiContext
+
+func (p *MemoryDocument) GetPagewiki() (v *MemoryPageWikiContext) {
+	if !p.IsSetPagewiki() {
+		return MemoryDocument_Pagewiki_DEFAULT
+	}
+	return p.Pagewiki
+}
+
 var fieldIDToName_MemoryDocument = map[int16]string{
 	1: "ref",
 	2: "text",
 	3: "tokens",
 	4: "provenance",
+	5: "pagewiki",
 }
 
 func (p *MemoryDocument) IsSetProvenance() bool {
 	return p.Provenance != nil
+}
+
+func (p *MemoryDocument) IsSetPagewiki() bool {
+	return p.Pagewiki != nil
 }
 
 func (p *MemoryDocument) Read(iprot thrift.TProtocol) (err error) {
@@ -8908,6 +10640,14 @@ func (p *MemoryDocument) Read(iprot thrift.TProtocol) (err error) {
 		case 4:
 			if fieldTypeId == thrift.MAP {
 				if err = p.ReadField4(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 5:
+			if fieldTypeId == thrift.STRUCT {
+				if err = p.ReadField5(iprot); err != nil {
 					goto ReadFieldError
 				}
 			} else if err = iprot.Skip(fieldTypeId); err != nil {
@@ -9020,6 +10760,14 @@ func (p *MemoryDocument) ReadField4(iprot thrift.TProtocol) error {
 	p.Provenance = _field
 	return nil
 }
+func (p *MemoryDocument) ReadField5(iprot thrift.TProtocol) error {
+	_field := NewMemoryPageWikiContext()
+	if err := _field.Read(iprot); err != nil {
+		return err
+	}
+	p.Pagewiki = _field
+	return nil
+}
 
 func (p *MemoryDocument) Write(oprot thrift.TProtocol) (err error) {
 	var fieldId int16
@@ -9041,6 +10789,10 @@ func (p *MemoryDocument) Write(oprot thrift.TProtocol) (err error) {
 		}
 		if err = p.writeField4(oprot); err != nil {
 			fieldId = 4
+			goto WriteFieldError
+		}
+		if err = p.writeField5(oprot); err != nil {
+			fieldId = 5
 			goto WriteFieldError
 		}
 	}
@@ -9140,6 +10892,25 @@ WriteFieldBeginError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 4 begin error: ", p), err)
 WriteFieldEndError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 4 end error: ", p), err)
+}
+
+func (p *MemoryDocument) writeField5(oprot thrift.TProtocol) (err error) {
+	if p.IsSetPagewiki() {
+		if err = oprot.WriteFieldBegin("pagewiki", thrift.STRUCT, 5); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := p.Pagewiki.Write(oprot); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 5 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 5 end error: ", p), err)
 }
 
 func (p *MemoryDocument) String() string {

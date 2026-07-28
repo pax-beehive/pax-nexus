@@ -4,6 +4,7 @@ package recalladapter
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/pax-beehive/pax-nexus/internal/pagewiki"
 	"github.com/pax-beehive/pax-nexus/internal/recall"
@@ -13,6 +14,8 @@ const revisionRefPrefix = "pagewiki:revision/"
 
 type Reader interface {
 	Search(context.Context, string) ([]pagewiki.SearchResult, error)
+	PageByID(context.Context, string) (pagewiki.Page, error)
+	PageRevision(context.Context, string) (pagewiki.PageRevision, error)
 }
 
 type Adapter struct {
@@ -56,6 +59,13 @@ func (a *Adapter) Search(
 				"revision_id": result.RevisionID,
 				"section_key": result.SectionKey,
 			},
+			PageWiki: pageWikiContext(
+				result.Page,
+				result.RevisionID,
+				result.SectionKey,
+				result.Citations,
+				result.Links,
+			),
 		})
 		usedTokens += tokens
 	}
@@ -74,10 +84,102 @@ func (a *Adapter) Hint(
 }
 
 func (a *Adapter) Get(
-	context.Context,
-	recall.GetRequest,
+	ctx context.Context,
+	request recall.GetRequest,
 ) (recall.MemoryDocument, error) {
-	return recall.MemoryDocument{}, fmt.Errorf("get PageWiki revision: unavailable")
+	revisionID, err := parseRevisionRef(request.Ref)
+	if err != nil {
+		return recall.MemoryDocument{}, err
+	}
+	revision, err := a.reader.PageRevision(ctx, revisionID)
+	if err != nil {
+		return recall.MemoryDocument{}, fmt.Errorf("get PageWiki revision %q: %w", revisionID, err)
+	}
+	page, err := a.reader.PageByID(ctx, revision.PageID)
+	if err != nil {
+		return recall.MemoryDocument{}, fmt.Errorf("get PageWiki page %q: %w", revision.PageID, err)
+	}
+	page.Title = revision.Title
+	return recall.MemoryDocument{
+		Ref:    request.Ref,
+		Text:   revision.Markdown,
+		Tokens: estimateTokens(revision.Markdown),
+		Provenance: map[string]string{
+			"page_id":     page.ID,
+			"slug":        page.Slug,
+			"revision_id": revision.ID,
+		},
+		PageWiki: pageWikiContext(
+			page,
+			revision.ID,
+			"",
+			revision.Citations,
+			revision.Links,
+		),
+	}, nil
+}
+
+func parseRevisionRef(ref string) (string, error) {
+	if strings.TrimSpace(ref) != ref || !strings.HasPrefix(ref, revisionRefPrefix) {
+		return "", fmt.Errorf("get PageWiki revision: invalid ref %q", ref)
+	}
+	revisionID := strings.TrimPrefix(ref, revisionRefPrefix)
+	if revisionID == "" || strings.ContainsAny(revisionID, "/?# \t\r\n") {
+		return "", fmt.Errorf("get PageWiki revision: invalid ref %q", ref)
+	}
+	return revisionID, nil
+}
+
+func pageWikiContext(
+	page pagewiki.Page,
+	revisionID string,
+	sectionKey string,
+	citations []pagewiki.PageCitation,
+	links []pagewiki.PageLink,
+) *recall.PageWikiContext {
+	return &recall.PageWikiContext{
+		PageID:     page.ID,
+		Slug:       page.Slug,
+		Title:      page.Title,
+		RevisionID: revisionID,
+		SectionKey: sectionKey,
+		Citations:  mapCitations(citations),
+		Links:      mapLinks(page.ID, links),
+	}
+}
+
+func mapCitations(values []pagewiki.PageCitation) []recall.PageWikiCitation {
+	result := make([]recall.PageWikiCitation, len(values))
+	for index, citation := range values {
+		anchors := make([]recall.PageWikiSourceAnchor, len(citation.SourceAnchors))
+		for anchorIndex, anchor := range citation.SourceAnchors {
+			anchors[anchorIndex] = recall.PageWikiSourceAnchor{
+				SourceRevisionID: anchor.SourceRevisionID,
+				EventID:          anchor.EventID,
+				StartByte:        anchor.StartByte,
+				EndByte:          anchor.EndByte,
+				ExactQuote:       anchor.ExactQuote,
+			}
+		}
+		result[index] = recall.PageWikiCitation{
+			CitationID: citation.ID, SectionKey: citation.SectionKey,
+			StartByte: citation.StartByte, EndByte: citation.EndByte,
+			ExactText: citation.ExactText, SourceAnchors: anchors,
+		}
+	}
+	return result
+}
+
+func mapLinks(sourcePageID string, values []pagewiki.PageLink) []recall.PageWikiLink {
+	result := make([]recall.PageWikiLink, len(values))
+	for index, link := range values {
+		result[index] = recall.PageWikiLink{
+			Direction: "outgoing", SectionKey: link.SectionKey,
+			ExactText: link.ExactText, SourcePageID: sourcePageID,
+			TargetPageID: link.TargetPageID,
+		}
+	}
+	return result
 }
 
 func estimateTokens(text string) int {

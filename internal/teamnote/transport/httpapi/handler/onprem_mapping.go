@@ -242,6 +242,7 @@ func memorySearchResultToAPI(result recall.SearchResult) *api.MemorySearchRespon
 		if hit.Ref != "" {
 			current.Ref = &hit.Ref
 		}
+		current.Pagewiki = pageWikiContextToAPI(hit.PageWiki)
 		hits[index] = current
 	}
 	return &api.MemorySearchResponse{
@@ -272,6 +273,50 @@ func pathTraceToAPI(trace recall.PathTrace) *api.RecallPathTrace {
 
 func memoryDocumentToAPI(document recall.MemoryDocument) *api.MemoryDocument {
 	return &api.MemoryDocument{
-		Ref: document.Ref, Text: document.Text, Tokens: int32(document.Tokens), Provenance: document.Provenance,
+		Ref: document.Ref, Text: document.Text, Tokens: int32(document.Tokens),
+		Provenance: document.Provenance, Pagewiki: pageWikiContextToAPI(document.PageWiki),
 	}
+}
+
+func pageWikiContextToAPI(context *recall.PageWikiContext) *api.MemoryPageWikiContext {
+	if context == nil {
+		return nil
+	}
+	citations := make([]*api.MemoryPageWikiCitation, len(context.Citations))
+	for index, citation := range context.Citations {
+		anchors := make([]*api.MemoryPageWikiSourceAnchor, len(citation.SourceAnchors))
+		for anchorIndex, anchor := range citation.SourceAnchors {
+			anchors[anchorIndex] = &api.MemoryPageWikiSourceAnchor{
+				SourceRevisionID: anchor.SourceRevisionID,
+				EventID:          anchor.EventID,
+				StartByte:        int32(anchor.StartByte),
+				EndByte:          int32(anchor.EndByte),
+				ExactQuote:       anchor.ExactQuote,
+			}
+		}
+		citations[index] = &api.MemoryPageWikiCitation{
+			CitationID:    citation.CitationID,
+			SectionKey:    citation.SectionKey,
+			StartByte:     int32(citation.StartByte),
+			EndByte:       int32(citation.EndByte),
+			ExactText:     citation.ExactText,
+			SourceAnchors: anchors,
+		}
+	}
+	links := make([]*api.MemoryPageWikiLink, len(context.Links))
+	for index, link := range context.Links {
+		links[index] = &api.MemoryPageWikiLink{
+			Direction: link.Direction, SectionKey: link.SectionKey,
+			ExactText: link.ExactText, SourcePageID: link.SourcePageID,
+			TargetPageID: link.TargetPageID,
+		}
+	}
+	result := &api.MemoryPageWikiContext{
+		PageID: context.PageID, Slug: context.Slug, Title: context.Title,
+		RevisionID: context.RevisionID, Citations: citations, Links: links,
+	}
+	if context.SectionKey != "" {
+		result.SectionKey = &context.SectionKey
+	}
+	return result
 }

@@ -293,12 +293,16 @@ func (s *onPremHandlerSuite) TestMemorySearchAndGetBindPrincipal() {
 	s.Equal("owner", s.memory.searchRequest.Actor.UserID)
 	s.Equal("agent-1", s.memory.searchRequest.Actor.AgentID)
 	s.Contains(search.Body.String(), `"disposition":"evidence"`)
+	s.Contains(search.Body.String(), `"pagewiki":{"page_id":"page-1"`)
+	s.Contains(search.Body.String(), `"exact_quote":"source quote"`)
 
 	get := perform(s.handler.GetMemory, http.MethodPost,
 		`{"session_id":"session-1","ref":"wiki:release"}`, "agent")
 	s.Equal(consts.StatusOK, get.Code)
 	s.Equal("agent-1", s.memory.getRequest.Actor.AgentID)
 	s.Contains(get.Body.String(), `"text":"Full document"`)
+	s.Contains(get.Body.String(), `"pagewiki":{"page_id":"page-1"`)
+	s.Contains(get.Body.String(), `"target_page_id":"page-2"`)
 	s.Require().Len(s.recorder.events, 2)
 	s.Equal(operations.KindMemorySearch, s.recorder.events[0].Kind)
 	s.Equal("recall_observation", s.recorder.events[0].DetailKind)
@@ -799,7 +803,10 @@ func validHandlerPayload() json.RawMessage {
 func (s *memoryService) Search(_ context.Context, request recall.SearchRequest) (recall.SearchResult, error) {
 	s.searchRequest = request
 	return recall.SearchResult{
-		Hits:               []recall.MemoryHit{{Ref: "note:1", Text: "Release approved.", Disposition: recall.DispositionEvidence}},
+		Hits: []recall.MemoryHit{{
+			Ref: "note:1", Text: "Release approved.", Disposition: recall.DispositionEvidence,
+			PageWiki: handlerTestPageWikiContext(),
+		}},
 		EvidenceSufficient: true,
 		Trace: recall.Trace{
 			TeamNote:   recall.PathTrace{Status: recall.PathCompleted, Candidates: 1},
@@ -811,7 +818,28 @@ func (s *memoryService) Search(_ context.Context, request recall.SearchRequest) 
 
 func (s *memoryService) Get(_ context.Context, request recall.GetRequest) (recall.MemoryDocument, error) {
 	s.getRequest = request
-	return recall.MemoryDocument{Ref: request.Ref, Text: "Full document"}, nil
+	return recall.MemoryDocument{
+		Ref: request.Ref, Text: "Full document", PageWiki: handlerTestPageWikiContext(),
+	}, nil
+}
+
+func handlerTestPageWikiContext() *recall.PageWikiContext {
+	return &recall.PageWikiContext{
+		PageID: "page-1", Slug: "release", Title: "Release",
+		RevisionID: "revision-1", SectionKey: "status",
+		Citations: []recall.PageWikiCitation{{
+			CitationID: "citation-1", SectionKey: "status",
+			StartByte: 0, EndByte: 7, ExactText: "Release",
+			SourceAnchors: []recall.PageWikiSourceAnchor{{
+				SourceRevisionID: "source-1", EventID: "event-1",
+				StartByte: 4, EndByte: 16, ExactQuote: "source quote",
+			}},
+		}},
+		Links: []recall.PageWikiLink{{
+			Direction: "outgoing", SectionKey: "status", ExactText: "runbook",
+			SourcePageID: "page-1", TargetPageID: "page-2",
+		}},
+	}
 }
 
 func TestHandlerSuite(t *testing.T) {

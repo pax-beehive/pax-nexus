@@ -152,6 +152,41 @@ struct MemorySearchRequest {
   8: optional i32 max_items (api.body="max_items")
 }
 
+struct MemoryPageWikiSourceAnchor {
+  1: required string source_revision_id
+  2: required string event_id
+  3: required i32 start_byte
+  4: required i32 end_byte
+  5: required string exact_quote
+}
+
+struct MemoryPageWikiCitation {
+  1: required string citation_id
+  2: required string section_key
+  3: required i32 start_byte
+  4: required i32 end_byte
+  5: required string exact_text
+  6: required list<MemoryPageWikiSourceAnchor> source_anchors
+}
+
+struct MemoryPageWikiLink {
+  1: required string direction
+  2: required string section_key
+  3: required string exact_text
+  4: required string source_page_id
+  5: required string target_page_id
+}
+
+struct MemoryPageWikiContext {
+  1: required string page_id
+  2: required string slug
+  3: required string title
+  4: required string revision_id
+  5: optional string section_key
+  6: required list<MemoryPageWikiCitation> citations
+  7: required list<MemoryPageWikiLink> links
+}
+
 struct MemoryHit {
   1: optional string ref
   2: required string text
@@ -159,6 +194,7 @@ struct MemoryHit {
   4: required i32 tokens
   5: required string disposition
   6: optional map<string, string> metadata
+  7: optional MemoryPageWikiContext pagewiki
 }
 
 struct RecallPathTrace {
@@ -194,6 +230,7 @@ struct MemoryDocument {
   2: required string text
   3: required i32 tokens
   4: optional map<string, string> provenance
+  5: optional MemoryPageWikiContext pagewiki
 }
 
 struct KnowledgeCapsuleEnvelopeCapsule {

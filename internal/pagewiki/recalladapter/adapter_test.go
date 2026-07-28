@@ -142,7 +142,7 @@ func (s *adapterSuite) TestGivenEmptyOrFailedSearchWhenHintedThenNoHintIsReturne
 	}
 }
 
-func (s *adapterSuite) TestGetRemainsUnavailableUntilImmutableGetSlice() {
+func (s *adapterSuite) TestGetRejectsUnknownRevision() {
 	adapter, err := recalladapter.New(searchReaderFunc(func(
 		context.Context,
 		string,
@@ -153,7 +153,7 @@ func (s *adapterSuite) TestGetRemainsUnavailableUntilImmutableGetSlice() {
 
 	_, err = adapter.Get(context.Background(), recall.GetRequest{Ref: "pagewiki:revision/revision-1"})
 
-	s.Require().Error(err)
+	s.Require().ErrorIs(err, pagewiki.ErrNotFound)
 }
 
 type searchReaderFunc func(context.Context, string) ([]pagewiki.SearchResult, error)
@@ -163,6 +163,20 @@ func (f searchReaderFunc) Search(
 	query string,
 ) ([]pagewiki.SearchResult, error) {
 	return f(ctx, query)
+}
+
+func (f searchReaderFunc) PageByID(
+	context.Context,
+	string,
+) (pagewiki.Page, error) {
+	return pagewiki.Page{}, pagewiki.ErrNotFound
+}
+
+func (f searchReaderFunc) PageRevision(
+	context.Context,
+	string,
+) (pagewiki.PageRevision, error) {
+	return pagewiki.PageRevision{}, pagewiki.ErrNotFound
 }
 
 func searchRequest(tokenBudget, maxItems int) recall.SearchRequest {
