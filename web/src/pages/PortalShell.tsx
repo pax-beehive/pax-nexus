@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { can, hasServerCapability, type Capability } from "../lib/capabilities";
@@ -73,12 +74,25 @@ function RequireServerCapability({
   return children;
 }
 
+const SIDE_COLLAPSED_KEY = "portal.side-collapsed";
+
 export function PortalShell({ me }: { me: HumanMe }) {
   const { logout } = useAuth();
   const toast = useToast();
   const navigate = useNavigate();
   const location = useLocation();
   const adminLike = can(me.role, "view.members");
+  const [sideCollapsed, setSideCollapsed] = useState(
+    () => localStorage.getItem(SIDE_COLLAPSED_KEY) === "1",
+  );
+
+  const toggleSide = () => {
+    setSideCollapsed((current) => {
+      const next = !current;
+      localStorage.setItem(SIDE_COLLAPSED_KEY, next ? "1" : "0");
+      return next;
+    });
+  };
 
   const onLogout = async () => {
     await logout();
@@ -88,10 +102,25 @@ export function PortalShell({ me }: { me: HumanMe }) {
 
   return (
     <div className="shell">
-      <aside className="side">
-        <div className="brand">
-          Team Memory <span>Portal</span>
+      <aside className={sideCollapsed ? "side collapsed" : "side"}>
+        <div className="side-top">
+          {!sideCollapsed && (
+            <div className="brand">
+              Team Memory <span>Portal</span>
+            </div>
+          )}
+          <button
+            className="side-toggle"
+            type="button"
+            aria-expanded={!sideCollapsed}
+            aria-label={sideCollapsed ? "Expand navigation" : "Collapse navigation"}
+            onClick={toggleSide}
+          >
+            {sideCollapsed ? "»" : "«"}
+          </button>
         </div>
+        {!sideCollapsed && (
+          <>
         <nav className="nav" aria-label="Portal navigation">
           <div className="nav-label">Personal</div>
           <NavLink to="/agents" className={navClass} end>
@@ -148,6 +177,8 @@ export function PortalShell({ me }: { me: HumanMe }) {
             </button>
           </div>
         </div>
+          </>
+        )}
       </aside>
       <main className={location.pathname === "/wiki" ? "main main-wide" : "main"}>
         {/* Route-level boundary: a failing route keeps the shell and nav

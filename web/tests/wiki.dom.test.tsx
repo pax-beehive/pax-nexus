@@ -147,9 +147,10 @@ describe("Page Wiki portal integration", () => {
     screen.getByRole("navigation", { name: "Wiki topics" });
     screen.getByText("The durable local knowledge store.");
     screen.getByRole("link", { name: "runtime" });
-    screen.getByText("SQLite is searchable.");
     screen.getByText("1 outgoing");
     screen.getByText("0 incoming");
+    expect(screen.queryByText("Xanadu map")).toBeNull();
+    expect(screen.queryByText("SQLite is searchable.")).toBeNull();
   });
 
   it("searches current revisions and opens a historical revision", async () => {
