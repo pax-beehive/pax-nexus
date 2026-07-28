@@ -1,6 +1,6 @@
 import { screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { makeMe, renderApp, setupDomTest } from "./helpers";
+import { jsonResponse, makeMe, renderApp, setupDomTest } from "./helpers";
 
 setupDomTest();
 
@@ -9,6 +9,12 @@ describe("Portal sidebar collapse", () => {
     const { user } = await renderApp({
       route: "/agents",
       me: makeMe({ role: "member" }),
+      fetch: (path) => {
+        if (path === "/v1/me/agents" || path.startsWith("/v1/me/agents?")) {
+          return jsonResponse({ agents: [] });
+        }
+        throw new Error(`unexpected fetch: ${path}`);
+      },
     });
 
     screen.getByRole("navigation", { name: "Portal navigation" });
