@@ -36,16 +36,20 @@ func NewLLMSessionEditor(config LLMEditorConfig) (*LLMSessionEditor, error) {
 }
 
 func (e *LLMSessionEditor) Edit(ctx context.Context, input EditInput) (PageDraft, error) {
-	unit, err := knowledgeUnitForBrief(input.SourceRevision, input.Brief.Key)
-	if err != nil {
-		return PageDraft{}, err
+	topic := strings.TrimSpace(input.Brief.ProposedTitle)
+	if input.CurrentPage != nil {
+		topic = input.CurrentPage.Title
+	}
+	quotes := make([]string, 0, len(input.Brief.Evidence))
+	for _, evidence := range input.Brief.Evidence {
+		quotes = append(quotes, evidence.ExactText)
 	}
 	payload, err := json.Marshal(llmEditRequest{
-		Topic:        unit.title,
+		Topic:        topic,
 		ReaderGoal:   input.Brief.ReaderGoal,
 		CurrentTitle: currentTitle(input),
 		CurrentText:  currentText(input),
-		Evidence:     append([]string(nil), unit.quotes...),
+		Evidence:     quotes,
 	})
 	if err != nil {
 		return PageDraft{}, fmt.Errorf("encode Page Wiki LLM request: %w", err)
@@ -64,11 +68,7 @@ func (e *LLMSessionEditor) Edit(ctx context.Context, input EditInput) (PageDraft
 	if err := json.Unmarshal([]byte(trimJSONFence(response.Message.Content)), &generated); err != nil {
 		return PageDraft{}, fmt.Errorf("decode Page Wiki LLM response: %w", err)
 	}
-	draft, err := generatedDraft(input, unit, generated)
-	if err != nil {
-		return PageDraft{}, err
-	}
-	return draft, nil
+	return generatedDraft(input, generated)
 }
 
 type llmEditRequest struct {
@@ -93,7 +93,6 @@ type llmSectionResponse struct {
 
 func generatedDraft(
 	input EditInput,
-	unit knowledgeUnit,
 	generated llmEditResponse,
 ) (PageDraft, error) {
 	title := strings.TrimSpace(generated.Title)
@@ -101,7 +100,7 @@ func generatedDraft(
 	if title == "" || summary == "" || len(generated.Sections) == 0 {
 		return PageDraft{}, errors.New("decode Page Wiki LLM response: title, summary, and sections are required")
 	}
-	slug := unit.slug
+	slug := input.Brief.ProposedSlug
 	if input.CurrentPage != nil {
 		slug = input.CurrentPage.Slug
 	}
@@ -116,15 +115,15 @@ func generatedDraft(
 		key := uniqueLLMSectionKey(section.Key, heading, seenKeys)
 		sections = append(sections, SectionDraft{Key: key, Heading: heading, Markdown: markdown})
 	}
-	evidenceMarkdown := make([]string, 0, len(unit.quotes))
-	citations := make([]CitationDraft, 0, len(unit.quotes))
-	for index, quote := range unit.quotes {
-		evidenceMarkdown = append(evidenceMarkdown, quote)
+	evidenceMarkdown := make([]string, 0, len(input.Brief.Evidence))
+	citations := make([]CitationDraft, 0, len(input.Brief.Evidence))
+	for _, evidence := range input.Brief.Evidence {
+		evidenceMarkdown = append(evidenceMarkdown, evidence.ExactText)
 		citations = append(citations, CitationDraft{
 			SectionKey: "source-evidence",
-			ExactText:  quote,
+			ExactText:  evidence.ExactText,
 			Evidence: []EvidenceQuoteDraft{{
-				EventID: unit.eventIDs[index], ExactText: quote,
+				EventID: evidence.EventID, ExactText: evidence.ExactText,
 			}},
 		})
 	}
@@ -150,15 +149,6 @@ func generatedDraft(
 		Slug: slug, Title: title, Summary: summary,
 		Sections: sections, Citations: citations, Links: links,
 	}, nil
-}
-
-func knowledgeUnitForBrief(revision SourceRevision, key string) (knowledgeUnit, error) {
-	for _, unit := range sessionKnowledgeUnits(revision) {
-		if unit.key == key {
-			return unit, nil
-		}
-	}
-	return knowledgeUnit{}, fmt.Errorf("write Page Wiki with LLM: brief %q is unavailable", key)
 }
 
 func currentTitle(input EditInput) string {
