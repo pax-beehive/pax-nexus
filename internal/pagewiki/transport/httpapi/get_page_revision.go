@@ -11,7 +11,7 @@ import (
 )
 
 // GetPageRevision .
-// @router /pages/:slug/revisions/:revision [GET]
+// @router /v1/wiki/pages/:slug/revisions/:revision [GET]
 func GetPageRevision(ctx context.Context, c *app.RequestContext) {
 	handler, ok := handlerFromRequest(c)
 	if !ok {

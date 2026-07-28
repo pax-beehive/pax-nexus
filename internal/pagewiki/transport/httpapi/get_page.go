@@ -11,7 +11,7 @@ import (
 )
 
 // GetPage .
-// @router /pages/:slug [GET]
+// @router /v1/wiki/pages/:slug [GET]
 func GetPage(ctx context.Context, c *app.RequestContext) {
 	handler, ok := handlerFromRequest(c)
 	if !ok {

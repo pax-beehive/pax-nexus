@@ -17,8 +17,6 @@ import (
 func Register(r *server.Hertz) {
 
 	root := r.Group("/", rootMw()...)
-	root.GET("/navigation", append(_getnavigationMw(), httpapi.GetNavigation)...)
-	root.GET("/search", append(_searchMw(), httpapi.Search)...)
 	root.GET("/wiki", append(_getreaderMw(), httpapi.GetReader)...)
 	{
 		_files := root.Group("/files", _filesMw()...)
@@ -29,19 +27,6 @@ func Register(r *server.Hertz) {
 		{
 			_runs := _maintenance.Group("/runs", _runsMw()...)
 			_runs.GET("/:id", append(_getmaintenancerunMw(), httpapi.GetMaintenanceRun)...)
-		}
-	}
-	{
-		_pages := root.Group("/pages", _pagesMw()...)
-		_pages.GET("/:slug", append(_getpageMw(), httpapi.GetPage)...)
-		{
-			_slug := _pages.Group("/:slug", _slugMw()...)
-			_slug.GET("/backlinks", append(_getpagebacklinksMw(), httpapi.GetPageBacklinks)...)
-			_slug.GET("/revisions", append(_listpagerevisionsMw(), httpapi.ListPageRevisions)...)
-			{
-				_revisions := _slug.Group("/revisions", _revisionsMw()...)
-				_revisions.GET("/:revision", append(_getpagerevisionMw(), httpapi.GetPageRevision)...)
-			}
 		}
 	}
 	{
@@ -57,9 +42,30 @@ func Register(r *server.Hertz) {
 		}
 	}
 	{
-		_wiki := root.Group("/wiki", _wikiMw()...)
+		_v1 := root.Group("/v1", _v1Mw()...)
 		{
-			_assets := _wiki.Group("/assets", _assetsMw()...)
+			_wiki := _v1.Group("/wiki", _wikiMw()...)
+			_wiki.GET("/navigation", append(_getnavigationMw(), httpapi.GetNavigation)...)
+			_wiki.GET("/search", append(_searchMw(), httpapi.Search)...)
+			{
+				_pages := _wiki.Group("/pages", _pagesMw()...)
+				_pages.GET("/:slug", append(_getpageMw(), httpapi.GetPage)...)
+				{
+					_slug := _pages.Group("/:slug", _slugMw()...)
+					_slug.GET("/backlinks", append(_getpagebacklinksMw(), httpapi.GetPageBacklinks)...)
+					_slug.GET("/revisions", append(_listpagerevisionsMw(), httpapi.ListPageRevisions)...)
+					{
+						_revisions := _slug.Group("/revisions", _revisionsMw()...)
+						_revisions.GET("/:revision", append(_getpagerevisionMw(), httpapi.GetPageRevision)...)
+					}
+				}
+			}
+		}
+	}
+	{
+		_wiki0 := root.Group("/wiki", _wiki0Mw()...)
+		{
+			_assets := _wiki0.Group("/assets", _assetsMw()...)
 			_assets.GET("/:asset", append(_getreaderassetMw(), httpapi.GetReaderAsset)...)
 		}
 	}

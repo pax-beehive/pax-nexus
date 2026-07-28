@@ -331,14 +331,14 @@ feat(pagewiki): derive search and xanadu links
 POST /sessions/inject
 POST /files/inject
 GET  /maintenance/runs/:id
-GET  /pages/:slug
-GET  /pages/:slug/revisions
-GET  /pages/:slug/revisions/:revision
-GET  /pages/:slug/backlinks
-GET  /search
+GET  /v1/wiki/pages/:slug
+GET  /v1/wiki/pages/:slug/revisions
+GET  /v1/wiki/pages/:slug/revisions/:revision
+GET  /v1/wiki/pages/:slug/backlinks
+GET  /v1/wiki/search
 GET  /sources/:revision
 GET  /sources/:revision/backlinks
-GET  /navigation
+GET  /v1/wiki/navigation
 ```
 
 Follow the repository rule that Hertz interfaces originate from Thrift IDL.
