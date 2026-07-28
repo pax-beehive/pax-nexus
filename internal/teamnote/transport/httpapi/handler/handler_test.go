@@ -609,6 +609,7 @@ type credentialService struct {
 	authErr        error
 	exchangeErr    error
 	exchangeResult onprem.IssuedCredential
+	principal      *onprem.Principal
 
 	provisionRequest onprem.DeviceProvisionRequest
 	provisionResult  onprem.ProvisionedAgentCredential
@@ -622,6 +623,9 @@ type credentialService struct {
 func (s *credentialService) Authenticate(_ context.Context, apiKey string) (onprem.Principal, error) {
 	if s.authErr != nil {
 		return onprem.Principal{}, s.authErr
+	}
+	if s.principal != nil {
+		return *s.principal, nil
 	}
 	switch apiKey {
 	case "admin":
