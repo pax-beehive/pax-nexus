@@ -442,17 +442,28 @@ func (e *OpenAI) prepareEpisode(ctx context.Context, key EpisodeKey, episode *Ep
 			flightErr = applyErr
 		}
 	}
+	if !errors.Is(flightErr, ErrEpisodeConflict) {
+		recordCompactionFailure(episode, flightErr)
+	}
 	if !hardLimit {
 		return Usage{}, nil
 	}
 	result, err = e.computeCompaction(ctx, *episode)
-	if err != nil {
-		return Usage{}, errors.Join(flightErr, err)
+	if err == nil {
+		if applyErr := applyCompaction(episode, result); applyErr == nil {
+			return result.usage, nil
+		} else {
+			err = applyErr
+		}
 	}
-	if err := applyCompaction(episode, result); err != nil {
-		return Usage{}, err
+	if !errors.Is(err, ErrEpisodeConflict) {
+		recordCompactionFailure(episode, err)
 	}
-	return result.usage, nil
+	dropped := truncateEpisodeMessages(episode, e.config.CompactStartTokens)
+	slog.WarnContext(ctx, "extraction compaction failed; truncated episode deterministically",
+		"scope_id", key.ScopeID, "task_ref", key.TaskRef, "thread_ref", key.ThreadRef,
+		"dropped_messages", dropped, "error", err)
+	return Usage{}, nil
 }
 
 func (e *OpenAI) startCompaction(ctx context.Context, key EpisodeKey, episode Episode) *compactionFlight {
@@ -547,11 +558,35 @@ func applyCompaction(episode *Episode, result compactionResult) error {
 	result.checkpoint.SummaryAttempts = episode.Checkpoint.SummaryAttempts
 	result.checkpoint.SummaryFailures = episode.Checkpoint.SummaryFailures
 	result.checkpoint.SummaryLastError = episode.Checkpoint.SummaryLastError
+	result.checkpoint.CompactionFailures = episode.Checkpoint.CompactionFailures
+	result.checkpoint.CompactionTruncations = episode.Checkpoint.CompactionTruncations
+	result.checkpoint.CompactionLastError = episode.Checkpoint.CompactionLastError
 	episode.Checkpoint = result.checkpoint
 	episode.Messages = tail
 	episode.EstimatedTokens = estimateEpisodeTokens(result.checkpoint, tail)
 	episode.CompactionCount++
 	return nil
+}
+
+func recordCompactionFailure(episode *Episode, err error) {
+	episode.Checkpoint.CompactionFailures++
+	message := err.Error()
+	if len(message) > 500 {
+		message = message[:500]
+	}
+	episode.Checkpoint.CompactionLastError = message
+}
+
+func truncateEpisodeMessages(episode *Episode, limit int) int {
+	dropped := 0
+	for len(episode.Messages) > 1 &&
+		estimateEpisodeTokens(episode.Checkpoint, episode.Messages) >= limit {
+		episode.Messages = episode.Messages[1:]
+		dropped++
+	}
+	episode.Checkpoint.CompactionTruncations++
+	episode.EstimatedTokens = estimateEpisodeTokens(episode.Checkpoint, episode.Messages)
+	return dropped
 }
 
 func digestMessages(messages []EpisodeMessage) [sha256.Size]byte {
