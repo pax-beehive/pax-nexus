@@ -2,6 +2,8 @@ package pagewiki_test
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/pax-beehive/pax-nexus/internal/pagewiki"
@@ -77,4 +79,97 @@ func (s *llmSessionPlannerSuite) TestPlansCreateUpdateAndDropsNoise() {
 	s.Equal("test-model", client.requests[0].Model)
 	s.Contains(client.requests[0].Messages[1].Content, "event-1")
 	s.Contains(client.requests[0].Messages[1].Content, "existing-page")
+}
+
+func (s *llmSessionPlannerSuite) TestDropsInvalidEvidenceAndBriefs() {
+	client := &wikiChatClient{responses: []string{`{"briefs":[
+		{"action":"create","proposed_slug":"ghost","proposed_title":"Ghost",
+		 "topic_path":["Engineering"],
+		 "evidence":[{"event_id":"missing-event","exact_quote":"decision:"}]},
+		{"action":"create","proposed_slug":"ambiguous","proposed_title":"Ambiguous",
+		 "topic_path":["Engineering"],
+		 "evidence":[{"event_id":"event-1","exact_quote":"e"}]},
+		{"action":"update","target_slug":"absent-page",
+		 "evidence":[{"event_id":"event-1","exact_quote":"decision:"}]},
+		{"action":"create","proposed_slug":"","proposed_title":"No Slug",
+		 "topic_path":["Engineering"],
+		 "evidence":[{"event_id":"event-1","exact_quote":"decision:"}]}
+	]}`}}
+	planner, err := pagewiki.NewLLMSessionPlanner(pagewiki.LLMPlannerConfig{
+		Client: client, Model: "test-model",
+	})
+	s.Require().NoError(err)
+
+	briefs, err := planner.Plan(context.Background(), pagewiki.PlanInput{
+		SourceRevision: plannerRevision(),
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(briefs, 1)
+	s.Equal("source-only", briefs[0].Key)
+	s.Equal(pagewiki.PageActionSourceOnly, briefs[0].Action)
+	s.Equal([]string{"event-1", "event-2"}, briefs[0].EvidenceEventIDs)
+}
+
+func (s *llmSessionPlannerSuite) TestRetriesOnceThenDegradesToSourceOnly() {
+	client := &wikiChatClient{responses: []string{"not-json", "still-not-json"}}
+	planner, err := pagewiki.NewLLMSessionPlanner(pagewiki.LLMPlannerConfig{
+		Client: client, Model: "test-model",
+	})
+	s.Require().NoError(err)
+
+	briefs, err := planner.Plan(context.Background(), pagewiki.PlanInput{
+		SourceRevision: plannerRevision(),
+	})
+
+	s.Require().NoError(err)
+	s.Len(client.requests, 2)
+	s.Require().Len(briefs, 1)
+	s.Equal("plan-degraded", briefs[0].Key)
+	s.Equal(pagewiki.PageActionSourceOnly, briefs[0].Action)
+}
+
+func (s *llmSessionPlannerSuite) TestDegradesWhenTheModelIsUnreachable() {
+	client := &wikiChatClient{err: context.DeadlineExceeded}
+	planner, err := pagewiki.NewLLMSessionPlanner(pagewiki.LLMPlannerConfig{
+		Client: client, Model: "test-model",
+	})
+	s.Require().NoError(err)
+
+	briefs, err := planner.Plan(context.Background(), pagewiki.PlanInput{
+		SourceRevision: plannerRevision(),
+	})
+
+	s.Require().NoError(err)
+	s.Len(client.requests, 2)
+	s.Require().Len(briefs, 1)
+	s.Equal("plan-degraded", briefs[0].Key)
+}
+
+func (s *llmSessionPlannerSuite) TestCapsAcceptedBriefsAtEight() {
+	var body strings.Builder
+	body.WriteString(`{"briefs":[`)
+	for index := 0; index < 10; index++ {
+		if index > 0 {
+			body.WriteString(",")
+		}
+		fmt.Fprintf(&body,
+			`{"action":"create","proposed_slug":"page-%d","proposed_title":"Page %d",
+			  "topic_path":["Engineering"],
+			  "evidence":[{"event_id":"event-1","exact_quote":"decision:"}]}`,
+			index, index)
+	}
+	body.WriteString(`]}`)
+	client := &wikiChatClient{responses: []string{body.String()}}
+	planner, err := pagewiki.NewLLMSessionPlanner(pagewiki.LLMPlannerConfig{
+		Client: client, Model: "test-model",
+	})
+	s.Require().NoError(err)
+
+	briefs, err := planner.Plan(context.Background(), pagewiki.PlanInput{
+		SourceRevision: plannerRevision(),
+	})
+
+	s.Require().NoError(err)
+	s.Len(briefs, 8)
 }

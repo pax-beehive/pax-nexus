@@ -136,6 +136,7 @@ func (s *llmSessionEditorSuite) TestUsesBriefEvidenceInsteadOfHeadingChunks() {
 type wikiChatClient struct {
 	requests  []workspace.ChatRequest
 	responses []string
+	err       error
 }
 
 func (c *wikiChatClient) Complete(
@@ -143,6 +144,9 @@ func (c *wikiChatClient) Complete(
 	request workspace.ChatRequest,
 ) (workspace.ChatResponse, error) {
 	c.requests = append(c.requests, request)
+	if c.err != nil {
+		return workspace.ChatResponse{}, c.err
+	}
 	response := c.responses[0]
 	c.responses = c.responses[1:]
 	return workspace.ChatResponse{
