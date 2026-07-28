@@ -190,6 +190,7 @@ type PageBrief struct {
 	ReaderGoal             string
 	TopicPath              []string
 	EvidenceEventIDs       []string
+	Evidence               []EvidenceQuoteDraft
 	RelatedPages           []RelatedPage
 }
 
