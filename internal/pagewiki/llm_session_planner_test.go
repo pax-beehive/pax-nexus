@@ -301,3 +301,22 @@ func (s *llmSessionPlannerSuite) TestCapsAcceptedBriefsAtEight() {
 	s.Require().NoError(err)
 	s.Len(briefs, 8)
 }
+
+func (s *llmSessionPlannerSuite) TestPlannerPromptPinsUpdateRuleAndNoisePolicy() {
+	client := &wikiChatClient{responses: []string{`{"briefs":[]}`}}
+	planner, err := pagewiki.NewLLMSessionPlanner(pagewiki.LLMPlannerConfig{
+		Client: client, Model: "test-model",
+	})
+	s.Require().NoError(err)
+
+	_, err = planner.Plan(context.Background(), pagewiki.PlanInput{
+		SourceRevision: plannerRevision(),
+	})
+
+	s.Require().NoError(err)
+	s.Require().NotEmpty(client.requests)
+	system := client.requests[0].Messages[0].Content
+	s.Contains(system, "still need in a month")
+	s.Contains(system, "one-off session narratives")
+	s.Contains(system, "MUST be update")
+}

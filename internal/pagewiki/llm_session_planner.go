@@ -306,16 +306,25 @@ You receive one JSON object: {"events":[{"id","content","truncated"}],"pages":[{
 Return exactly one JSON object and no Markdown fence:
 {"briefs":[{"action":"create|update|skip_noise","target_slug":"existing page slug, update only","proposed_slug":"kebab-case, create only","proposed_title":"English title, create only","reader_goal":"one English sentence","topic_path":["Area","Subarea"],"evidence":[{"event_id":"...","exact_quote":"verbatim substring of that event's content"}]}]}
 
-Select only knowledge that stays durable for the team: decisions, designs,
-conventions, project state, and domain facts. Treat as noise and mark
-skip_noise: code diffs and fragments, JSON or log output, tool transcripts,
-agent system or skill instructions, branch names, timestamps, and one-off
-conversation. When in doubt, skip. Prefer updating an existing page over
-creating a near-duplicate; use action update with that page's slug from
-pages. Group related evidence into one page instead of one page per
-fragment. Every exact_quote must be copied verbatim from the event content
-and must genuinely support the page. topic_path has at most two segments,
-for example ["Engineering","Runtime"]. Account for every event with either
-a page brief or skip_noise. Return at most 8 briefs and JSON only.`
+Keep only knowledge a teammate would still need in a month: decisions and
+their rationale, architecture, conventions, durable project state, and
+domain facts. Treat as noise and mark skip_noise: one-off session narratives
+about what an agent did or tried in a single session; transient
+operational or verification records such as release checks, approvals, and
+test-run logs; content unrelated to the team's work; single bug-fix details
+that establish no lasting convention; code diffs and fragments; JSON or log
+output; tool transcripts; agent system or skill instructions; branch names;
+and timestamps. When in doubt, skip.
+
+Updating an existing page is the rule, not a preference: when any page in
+pages covers the same subject or a parent subject, or the new evidence
+continues that subject's story, the action MUST be update with that page's
+slug. Creating a page whose subject overlaps an existing page is an error.
+Group related evidence aggressively into one page; most sessions should
+yield zero to two briefs. Every exact_quote must be copied verbatim from
+the event content and must genuinely support the page. topic_path has at
+most two segments, for example ["Engineering","Runtime"]. Account for every
+event with either a page brief or skip_noise. Return at most 8 briefs and
+JSON only.`
 
 var _ Planner = (*LLMSessionPlanner)(nil)
