@@ -317,6 +317,12 @@ struct InjectWikiSessionResponse {
   1: required i32 processed_streams
 }
 
+struct RebuildWikiRequest {}
+
+struct RebuildWikiResponse {
+  1: required bool auto_inject
+}
+
 struct ListMembersRequest {
   1: optional string role (api.query="role")
   2: optional string status (api.query="status")
@@ -1097,6 +1103,7 @@ service TeamMemoryService {
   WikiIngestionStatusResponse GetWikiIngestionStatus(1: WikiIngestionStatusRequest request) (api.get="/v1/wiki/ingestion")
   WikiIngestionStatusResponse UpdateWikiIngestion(1: UpdateWikiIngestionRequest request) (api.put="/v1/wiki/ingestion")
   InjectWikiSessionResponse InjectWikiSession(1: InjectWikiSessionRequest request) (api.post="/v1/wiki/sessions/:session_id/inject")
+  RebuildWikiResponse RebuildWiki(1: RebuildWikiRequest request) (api.post="/v1/wiki/rebuild")
   InvitationResponse CreateMembershipInvitation(1: CreateInvitationRequest request) (api.post="/v1/admin/invitations")
   ListInvitationsResponse ListMembershipInvitations(1: ListInvitationsRequest request) (api.get="/v1/admin/invitations")
   InvitationResponse RevokeMembershipInvitation(1: InvitationByIDRequest request) (api.delete="/v1/admin/invitations/:invitation_id")

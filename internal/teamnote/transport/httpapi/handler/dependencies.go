@@ -130,6 +130,7 @@ type WikiControl interface {
 	Status(context.Context, string) (sessionconsumer.Status, error)
 	SetAutoInject(context.Context, string, bool) (sessionconsumer.Status, error)
 	InjectSession(context.Context, string, string) (sessionconsumer.InjectResult, error)
+	Rebuild(context.Context, string) (sessionconsumer.Status, error)
 }
 
 type OnPremOption func(*Handler) error

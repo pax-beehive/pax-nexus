@@ -3,8 +3,11 @@ package postgres
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strings"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pax-beehive/pax-nexus/internal/pagewiki"
 	"github.com/pax-beehive/pax-nexus/internal/pagewiki/memory"
@@ -130,6 +133,63 @@ func (r *Repository) SaveMaintenanceRun(ctx context.Context, run pagewiki.Mainte
 INSERT INTO pagewiki_maintenance_runs (scope_id, run_id, payload)
 VALUES ($1, $2, $3)
 ON CONFLICT (scope_id, run_id) DO NOTHING`, run.ID, run)
+}
+
+func (r *Repository) RebuildPageWiki(
+	ctx context.Context,
+	scopeID string,
+	processorName string,
+	processorVersion string,
+) (returnedErr error) {
+	if strings.TrimSpace(scopeID) == "" || scopeID != r.scopeID ||
+		strings.TrimSpace(processorName) == "" || strings.TrimSpace(processorVersion) == "" {
+		return fmt.Errorf("rebuild Page Wiki: scope and processor identity are required")
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("rebuild Page Wiki: begin transaction: %w", err)
+	}
+	committed := false
+	defer func() {
+		if committed {
+			return
+		}
+		if rollbackErr := tx.Rollback(ctx); rollbackErr != nil && !errors.Is(rollbackErr, pgx.ErrTxClosed) {
+			returnedErr = errors.Join(
+				returnedErr,
+				fmt.Errorf("rebuild Page Wiki: roll back transaction: %w", rollbackErr),
+			)
+		}
+	}()
+	for _, query := range []string{
+		"DELETE FROM pagewiki_maintenance_runs WHERE scope_id = $1",
+		"DELETE FROM pagewiki_publications WHERE scope_id = $1",
+		"DELETE FROM pagewiki_source_revisions WHERE scope_id = $1",
+	} {
+		if _, err := tx.Exec(ctx, query, scopeID); err != nil {
+			return fmt.Errorf("rebuild Page Wiki: clear derived state: %w", err)
+		}
+	}
+	if _, err := tx.Exec(ctx, `
+DELETE FROM session_processor_cursors
+WHERE processor_name = $1 AND processor_version = $2 AND scope_id = $3`,
+		processorName, processorVersion, scopeID,
+	); err != nil {
+		return fmt.Errorf("rebuild Page Wiki: reset ingestion cursors: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+INSERT INTO pagewiki_ingestion_settings (scope_id, auto_inject)
+VALUES ($1, TRUE)
+ON CONFLICT (scope_id) DO UPDATE
+SET auto_inject = TRUE, updated_at = NOW()`, scopeID); err != nil {
+		return fmt.Errorf("rebuild Page Wiki: enable ingestion: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("rebuild Page Wiki: commit transaction: %w", err)
+	}
+	committed = true
+	r.memory.Reset()
+	return nil
 }
 
 func (r *Repository) insertJSON(ctx context.Context, query, id string, value any) error {

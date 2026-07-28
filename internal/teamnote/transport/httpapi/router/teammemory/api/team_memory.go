@@ -192,6 +192,7 @@ func Register(r *server.Hertz) {
 			_wiki := _v1.Group("/wiki", _wikiMw()...)
 			_wiki.GET("/ingestion", append(_getwikiingestionstatusMw(), handler.GetWikiIngestionStatus)...)
 			_wiki.PUT("/ingestion", append(_updatewikiingestionMw(), handler.UpdateWikiIngestion)...)
+			_wiki.POST("/rebuild", append(_rebuildwikiMw(), handler.RebuildWiki)...)
 			{
 				_sessions := _wiki.Group("/sessions", _sessionsMw()...)
 				{

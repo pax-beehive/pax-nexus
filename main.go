@@ -183,7 +183,7 @@ func buildPageWikiHTTPHandler(
 	if err != nil {
 		return nil, nil, err
 	}
-	controller, err := sessionconsumer.New(consumerStore, service, logger, 2*time.Second)
+	controller, err := sessionconsumer.New(consumerStore, service, repository, logger, 2*time.Second)
 	if err != nil {
 		return nil, nil, err
 	}

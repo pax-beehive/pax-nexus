@@ -145,6 +145,8 @@ tr:last-child td { border-bottom: none; }
 .wiki-fixed-session { display: grid; grid-template-columns: minmax(170px, 1fr) auto; align-items: end; gap: 8px; }
 .wiki-fixed-session label { grid-column: 1 / -1; color: var(--muted); font-size: 11px; font-weight: 650; }
 .wiki-fixed-session input { width: 100%; min-width: 0; padding: 8px 10px; border: 1px solid var(--border-strong); border-radius: 8px; background: #fff; color: var(--text); font: 12px var(--mono); }
+.wiki-reset { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 18px; padding-top: 12px; border-top: 1px solid var(--border); }
+.wiki-reset > div { display: flex; flex-direction: column; gap: 2px; }
 .wiki-switch { display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--border-strong); border-radius: 99px; padding: 5px 9px 5px 5px; background: var(--surface-2); color: var(--muted); font: 650 12px var(--sans); cursor: pointer; }
 .wiki-switch span { display: block; width: 18px; height: 18px; border-radius: 50%; background: var(--faint); transition: background .15s ease; }
 .wiki-switch.active { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-hover); }
@@ -211,6 +213,7 @@ tr:last-child td { border-bottom: none; }
   .wiki-ingestion { grid-template-columns: 1fr; }
   .wiki-fixed-session { grid-template-columns: 1fr; }
   .wiki-fixed-session label { grid-column: auto; }
+  .wiki-reset { align-items: stretch; flex-direction: column; }
   .wiki-layout { grid-template-columns: 1fr; }
   .wiki-topic-rail, .wiki-context { position: static; max-height: none; overflow: visible; }
   .wiki-context { display: block; grid-column: auto; }

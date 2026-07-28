@@ -14492,6 +14492,237 @@ func (p *InjectWikiSessionResponse) String() string {
 
 }
 
+type RebuildWikiRequest struct {
+}
+
+func NewRebuildWikiRequest() *RebuildWikiRequest {
+	return &RebuildWikiRequest{}
+}
+
+func (p *RebuildWikiRequest) InitDefault() {
+}
+
+var fieldIDToName_RebuildWikiRequest = map[int16]string{}
+
+func (p *RebuildWikiRequest) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+		if err = iprot.Skip(fieldTypeId); err != nil {
+			goto SkipFieldTypeError
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+SkipFieldTypeError:
+	return thrift.PrependError(fmt.Sprintf("%T skip field type %d error", p, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+}
+
+func (p *RebuildWikiRequest) Write(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteStructBegin("RebuildWikiRequest"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *RebuildWikiRequest) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("RebuildWikiRequest(%+v)", *p)
+
+}
+
+type RebuildWikiResponse struct {
+	AutoInject bool `thrift:"auto_inject,1,required" form:"auto_inject,required" json:"auto_inject,required" query:"auto_inject,required"`
+}
+
+func NewRebuildWikiResponse() *RebuildWikiResponse {
+	return &RebuildWikiResponse{}
+}
+
+func (p *RebuildWikiResponse) InitDefault() {
+}
+
+func (p *RebuildWikiResponse) GetAutoInject() (v bool) {
+	return p.AutoInject
+}
+
+var fieldIDToName_RebuildWikiResponse = map[int16]string{
+	1: "auto_inject",
+}
+
+func (p *RebuildWikiResponse) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+	var issetAutoInject bool = false
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 1:
+			if fieldTypeId == thrift.BOOL {
+				if err = p.ReadField1(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetAutoInject = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	if !issetAutoInject {
+		fieldId = 1
+		goto RequiredFieldNotSetError
+	}
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_RebuildWikiResponse[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+RequiredFieldNotSetError:
+	return thrift.NewTProtocolExceptionWithType(thrift.INVALID_DATA, fmt.Errorf("required field %s is not set", fieldIDToName_RebuildWikiResponse[fieldId]))
+}
+
+func (p *RebuildWikiResponse) ReadField1(iprot thrift.TProtocol) error {
+
+	var _field bool
+	if v, err := iprot.ReadBool(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.AutoInject = _field
+	return nil
+}
+
+func (p *RebuildWikiResponse) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("RebuildWikiResponse"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField1(oprot); err != nil {
+			fieldId = 1
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *RebuildWikiResponse) writeField1(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("auto_inject", thrift.BOOL, 1); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteBool(p.AutoInject); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 end error: ", p), err)
+}
+
+func (p *RebuildWikiResponse) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("RebuildWikiResponse(%+v)", *p)
+
+}
+
 type ListMembersRequest struct {
 	Role   *string `thrift:"role,1,optional" json:"role,omitempty" query:"role"`
 	Status *string `thrift:"status,2,optional" json:"status,omitempty" query:"status"`
@@ -49936,6 +50167,8 @@ type TeamMemoryService interface {
 
 	InjectWikiSession(ctx context.Context, request *InjectWikiSessionRequest) (r *InjectWikiSessionResponse, err error)
 
+	RebuildWiki(ctx context.Context, request *RebuildWikiRequest) (r *RebuildWikiResponse, err error)
+
 	CreateMembershipInvitation(ctx context.Context, request *CreateInvitationRequest) (r *InvitationResponse, err error)
 
 	ListMembershipInvitations(ctx context.Context, request *ListInvitationsRequest) (r *ListInvitationsResponse, err error)
@@ -50309,6 +50542,15 @@ func (p *TeamMemoryServiceClient) InjectWikiSession(ctx context.Context, request
 	_args.Request = request
 	var _result TeamMemoryServiceInjectWikiSessionResult
 	if err = p.Client_().Call(ctx, "InjectWikiSession", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
+func (p *TeamMemoryServiceClient) RebuildWiki(ctx context.Context, request *RebuildWikiRequest) (r *RebuildWikiResponse, err error) {
+	var _args TeamMemoryServiceRebuildWikiArgs
+	_args.Request = request
+	var _result TeamMemoryServiceRebuildWikiResult
+	if err = p.Client_().Call(ctx, "RebuildWiki", &_args, &_result); err != nil {
 		return
 	}
 	return _result.GetSuccess(), nil
@@ -50724,6 +50966,7 @@ func NewTeamMemoryServiceProcessor(handler TeamMemoryService) *TeamMemoryService
 	self.AddToProcessorMap("GetWikiIngestionStatus", &teamMemoryServiceProcessorGetWikiIngestionStatus{handler: handler})
 	self.AddToProcessorMap("UpdateWikiIngestion", &teamMemoryServiceProcessorUpdateWikiIngestion{handler: handler})
 	self.AddToProcessorMap("InjectWikiSession", &teamMemoryServiceProcessorInjectWikiSession{handler: handler})
+	self.AddToProcessorMap("RebuildWiki", &teamMemoryServiceProcessorRebuildWiki{handler: handler})
 	self.AddToProcessorMap("CreateMembershipInvitation", &teamMemoryServiceProcessorCreateMembershipInvitation{handler: handler})
 	self.AddToProcessorMap("ListMembershipInvitations", &teamMemoryServiceProcessorListMembershipInvitations{handler: handler})
 	self.AddToProcessorMap("RevokeMembershipInvitation", &teamMemoryServiceProcessorRevokeMembershipInvitation{handler: handler})
@@ -52207,6 +52450,54 @@ func (p *teamMemoryServiceProcessorInjectWikiSession) Process(ctx context.Contex
 		result.Success = retval
 	}
 	if err2 = oprot.WriteMessageBegin("InjectWikiSession", thrift.REPLY, seqId); err2 != nil {
+		err = err2
+	}
+	if err2 = result.Write(oprot); err == nil && err2 != nil {
+		err = err2
+	}
+	if err2 = oprot.WriteMessageEnd(); err == nil && err2 != nil {
+		err = err2
+	}
+	if err2 = oprot.Flush(ctx); err == nil && err2 != nil {
+		err = err2
+	}
+	if err != nil {
+		return
+	}
+	return true, err
+}
+
+type teamMemoryServiceProcessorRebuildWiki struct {
+	handler TeamMemoryService
+}
+
+func (p *teamMemoryServiceProcessorRebuildWiki) Process(ctx context.Context, seqId int32, iprot, oprot thrift.TProtocol) (success bool, err thrift.TException) {
+	args := TeamMemoryServiceRebuildWikiArgs{}
+	if err = args.Read(iprot); err != nil {
+		iprot.ReadMessageEnd()
+		x := thrift.NewTApplicationException(thrift.PROTOCOL_ERROR, err.Error())
+		oprot.WriteMessageBegin("RebuildWiki", thrift.EXCEPTION, seqId)
+		x.Write(oprot)
+		oprot.WriteMessageEnd()
+		oprot.Flush(ctx)
+		return false, err
+	}
+
+	iprot.ReadMessageEnd()
+	var err2 error
+	result := TeamMemoryServiceRebuildWikiResult{}
+	var retval *RebuildWikiResponse
+	if retval, err2 = p.handler.RebuildWiki(ctx, args.Request); err2 != nil {
+		x := thrift.NewTApplicationException(thrift.INTERNAL_ERROR, "Internal error processing RebuildWiki: "+err2.Error())
+		oprot.WriteMessageBegin("RebuildWiki", thrift.EXCEPTION, seqId)
+		x.Write(oprot)
+		oprot.WriteMessageEnd()
+		oprot.Flush(ctx)
+		return true, err2
+	} else {
+		result.Success = retval
+	}
+	if err2 = oprot.WriteMessageBegin("RebuildWiki", thrift.REPLY, seqId); err2 != nil {
 		err = err2
 	}
 	if err2 = result.Write(oprot); err == nil && err2 != nil {
@@ -62961,6 +63252,300 @@ func (p *TeamMemoryServiceInjectWikiSessionResult) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("TeamMemoryServiceInjectWikiSessionResult(%+v)", *p)
+
+}
+
+type TeamMemoryServiceRebuildWikiArgs struct {
+	Request *RebuildWikiRequest `thrift:"request,1"`
+}
+
+func NewTeamMemoryServiceRebuildWikiArgs() *TeamMemoryServiceRebuildWikiArgs {
+	return &TeamMemoryServiceRebuildWikiArgs{}
+}
+
+func (p *TeamMemoryServiceRebuildWikiArgs) InitDefault() {
+}
+
+var TeamMemoryServiceRebuildWikiArgs_Request_DEFAULT *RebuildWikiRequest
+
+func (p *TeamMemoryServiceRebuildWikiArgs) GetRequest() (v *RebuildWikiRequest) {
+	if !p.IsSetRequest() {
+		return TeamMemoryServiceRebuildWikiArgs_Request_DEFAULT
+	}
+	return p.Request
+}
+
+var fieldIDToName_TeamMemoryServiceRebuildWikiArgs = map[int16]string{
+	1: "request",
+}
+
+func (p *TeamMemoryServiceRebuildWikiArgs) IsSetRequest() bool {
+	return p.Request != nil
+}
+
+func (p *TeamMemoryServiceRebuildWikiArgs) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 1:
+			if fieldTypeId == thrift.STRUCT {
+				if err = p.ReadField1(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_TeamMemoryServiceRebuildWikiArgs[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+}
+
+func (p *TeamMemoryServiceRebuildWikiArgs) ReadField1(iprot thrift.TProtocol) error {
+	_field := NewRebuildWikiRequest()
+	if err := _field.Read(iprot); err != nil {
+		return err
+	}
+	p.Request = _field
+	return nil
+}
+
+func (p *TeamMemoryServiceRebuildWikiArgs) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("RebuildWiki_args"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField1(oprot); err != nil {
+			fieldId = 1
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *TeamMemoryServiceRebuildWikiArgs) writeField1(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("request", thrift.STRUCT, 1); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := p.Request.Write(oprot); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 end error: ", p), err)
+}
+
+func (p *TeamMemoryServiceRebuildWikiArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("TeamMemoryServiceRebuildWikiArgs(%+v)", *p)
+
+}
+
+type TeamMemoryServiceRebuildWikiResult struct {
+	Success *RebuildWikiResponse `thrift:"success,0,optional"`
+}
+
+func NewTeamMemoryServiceRebuildWikiResult() *TeamMemoryServiceRebuildWikiResult {
+	return &TeamMemoryServiceRebuildWikiResult{}
+}
+
+func (p *TeamMemoryServiceRebuildWikiResult) InitDefault() {
+}
+
+var TeamMemoryServiceRebuildWikiResult_Success_DEFAULT *RebuildWikiResponse
+
+func (p *TeamMemoryServiceRebuildWikiResult) GetSuccess() (v *RebuildWikiResponse) {
+	if !p.IsSetSuccess() {
+		return TeamMemoryServiceRebuildWikiResult_Success_DEFAULT
+	}
+	return p.Success
+}
+
+var fieldIDToName_TeamMemoryServiceRebuildWikiResult = map[int16]string{
+	0: "success",
+}
+
+func (p *TeamMemoryServiceRebuildWikiResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *TeamMemoryServiceRebuildWikiResult) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 0:
+			if fieldTypeId == thrift.STRUCT {
+				if err = p.ReadField0(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_TeamMemoryServiceRebuildWikiResult[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+}
+
+func (p *TeamMemoryServiceRebuildWikiResult) ReadField0(iprot thrift.TProtocol) error {
+	_field := NewRebuildWikiResponse()
+	if err := _field.Read(iprot); err != nil {
+		return err
+	}
+	p.Success = _field
+	return nil
+}
+
+func (p *TeamMemoryServiceRebuildWikiResult) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("RebuildWiki_result"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField0(oprot); err != nil {
+			fieldId = 0
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *TeamMemoryServiceRebuildWikiResult) writeField0(oprot thrift.TProtocol) (err error) {
+	if p.IsSetSuccess() {
+		if err = oprot.WriteFieldBegin("success", thrift.STRUCT, 0); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := p.Success.Write(oprot); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 0 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 0 end error: ", p), err)
+}
+
+func (p *TeamMemoryServiceRebuildWikiResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("TeamMemoryServiceRebuildWikiResult(%+v)", *p)
 
 }
 
