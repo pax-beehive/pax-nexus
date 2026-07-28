@@ -2,6 +2,7 @@ package pagewiki_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/pax-beehive/pax-nexus/internal/llmwiki/workspace"
@@ -130,7 +131,46 @@ func (s *llmSessionEditorSuite) TestUsesBriefEvidenceInsteadOfHeadingChunks() {
 	s.Require().Len(client.requests, 1)
 	s.Contains(client.requests[0].Messages[1].Content, "Release Policy")
 	s.Contains(client.requests[0].Messages[1].Content, "real decision: releases ship weekly.")
-	s.NotContains(client.requests[0].Messages[1].Content, "Fake Heading")
+	s.Contains(client.requests[0].Messages[1].Content, "evidence_context")
+}
+
+func (s *llmSessionEditorSuite) TestSendsFullEvidenceContextToTheModel() {
+	client := &wikiChatClient{responses: []string{
+		`{"title":"Release Policy","summary":"How the team ships.","sections":[{"key":"policy","heading":"Policy","markdown":"Ships weekly."}]}`,
+	}}
+	editor, err := pagewiki.NewLLMSessionEditor(pagewiki.LLMEditorConfig{
+		Client: client, Model: "test-model",
+	})
+	s.Require().NoError(err)
+	first := "background before the quote. the decision: ship weekly. aftermath after the quote."
+	oversized := strings.Repeat("x", 9000) + "TAIL-MARKER"
+	raw := first + oversized
+	_, err = editor.Edit(context.Background(), pagewiki.EditInput{
+		SourceRevision: pagewiki.SourceRevision{
+			ID:  "source-revision-1",
+			Raw: []byte(raw),
+			Events: []pagewiki.SourceEvent{
+				{ID: "event-1", StartByte: 0, EndByte: len(first)},
+				{ID: "event-2", StartByte: len(first), EndByte: len(raw)},
+			},
+		},
+		Brief: pagewiki.PageBrief{
+			Key: "release-policy", Action: pagewiki.PageActionCreate,
+			ProposedSlug: "release-policy", ProposedTitle: "Release Policy",
+			TopicPath:        []string{"Engineering"},
+			EvidenceEventIDs: []string{"event-1", "event-2"},
+			Evidence: []pagewiki.EvidenceQuoteDraft{{
+				EventID: "event-1", ExactText: "the decision: ship weekly.",
+			}},
+		},
+	})
+	s.Require().NoError(err)
+	s.Require().Len(client.requests, 1)
+	payload := client.requests[0].Messages[1].Content
+	s.Contains(payload, "evidence_context")
+	s.Contains(payload, "background before the quote")
+	s.Contains(payload, "aftermath after the quote")
+	s.NotContains(payload, "TAIL-MARKER")
 }
 
 type wikiChatClient struct {
