@@ -103,14 +103,17 @@ func (s *llmSessionEditorSuite) TestUsesBriefEvidenceInsteadOfHeadingChunks() {
 		Client: client, Model: "test-model",
 	})
 	s.Require().NoError(err)
-	raw := "noise before ## Fake Heading\nreal decision: releases ship weekly."
+	noiseEvent := "noise before ## Fake Heading\n"
+	decisionEvent := "real decision: releases ship weekly."
+	raw := noiseEvent + decisionEvent
 	draft, err := editor.Edit(context.Background(), pagewiki.EditInput{
 		SourceRevision: pagewiki.SourceRevision{
 			ID:  "source-revision-1",
 			Raw: []byte(raw),
-			Events: []pagewiki.SourceEvent{{
-				ID: "event-1", StartByte: 0, EndByte: len(raw),
-			}},
+			Events: []pagewiki.SourceEvent{
+				{ID: "event-1", StartByte: len(noiseEvent), EndByte: len(raw)},
+				{ID: "event-2", StartByte: 0, EndByte: len(noiseEvent)},
+			},
 		},
 		Brief: pagewiki.PageBrief{
 			Key: "release-policy", Action: pagewiki.PageActionCreate,
@@ -129,9 +132,11 @@ func (s *llmSessionEditorSuite) TestUsesBriefEvidenceInsteadOfHeadingChunks() {
 	s.Equal("real decision: releases ship weekly.", draft.Citations[0].ExactText)
 	s.Equal("event-1", draft.Citations[0].Evidence[0].EventID)
 	s.Require().Len(client.requests, 1)
-	s.Contains(client.requests[0].Messages[1].Content, "Release Policy")
-	s.Contains(client.requests[0].Messages[1].Content, "real decision: releases ship weekly.")
-	s.Contains(client.requests[0].Messages[1].Content, "evidence_context")
+	payload := client.requests[0].Messages[1].Content
+	s.Contains(payload, "Release Policy")
+	s.Contains(payload, "real decision: releases ship weekly.")
+	s.Contains(payload, "evidence_context")
+	s.NotContains(payload, "Fake Heading")
 }
 
 func (s *llmSessionEditorSuite) TestSendsFullEvidenceContextToTheModel() {
