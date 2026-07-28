@@ -103,13 +103,13 @@ async function loadPage(slug, requestedRevision = "") {
   setStatus("Loading page");
   try {
     const [page, historyResponse, links] = await Promise.all([
-      requestJSON(`/pages/${encodeURIComponent(slug)}`),
-      requestJSON(`/pages/${encodeURIComponent(slug)}/revisions`),
-      requestJSON(`/pages/${encodeURIComponent(slug)}/backlinks`),
+      requestJSON(`/v1/wiki/pages/${encodeURIComponent(slug)}`),
+      requestJSON(`/v1/wiki/pages/${encodeURIComponent(slug)}/revisions`),
+      requestJSON(`/v1/wiki/pages/${encodeURIComponent(slug)}/backlinks`),
     ]);
     const revision = requestedRevision
       ? await requestJSON(
-        `/pages/${encodeURIComponent(slug)}/revisions/${encodeURIComponent(requestedRevision)}`,
+        `/v1/wiki/pages/${encodeURIComponent(slug)}/revisions/${encodeURIComponent(requestedRevision)}`,
       )
       : page.revision;
     const changedPage = state.page && state.page.slug !== slug;
@@ -330,7 +330,7 @@ async function searchWiki(query) {
   drawer.hidden = false;
   list.replaceChildren(element("li", "empty-note", "Searching…"));
   try {
-    const response = await requestJSON(`/search?q=${encodeURIComponent(query)}`);
+    const response = await requestJSON(`/v1/wiki/search?q=${encodeURIComponent(query)}`);
     list.replaceChildren();
     if (!(response.results || []).length) {
       list.append(element("li", "empty-note", "No current revision matches."));
@@ -390,7 +390,7 @@ async function loadRun(runID) {
 
 async function initialize() {
   try {
-    const navigation = await requestJSON("/navigation");
+    const navigation = await requestJSON("/v1/wiki/navigation");
     const pages = renderNavigation(navigation);
     const parameters = new URLSearchParams(window.location.search);
     const slug = parameters.get("page") || pages[0]?.slug;

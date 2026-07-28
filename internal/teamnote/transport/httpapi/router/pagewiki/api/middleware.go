@@ -130,3 +130,13 @@ func _getreaderassetMw() []app.HandlerFunc {
 	// your code...
 	return nil
 }
+
+func _v1Mw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _wiki0Mw() []app.HandlerFunc {
+	// your code...
+	return nil
+}

@@ -11,7 +11,7 @@ import (
 )
 
 // GetNavigation .
-// @router /navigation [GET]
+// @router /v1/wiki/navigation [GET]
 func GetNavigation(ctx context.Context, c *app.RequestContext) {
 	handler, ok := handlerFromRequest(c)
 	if !ok {

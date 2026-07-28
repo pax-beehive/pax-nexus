@@ -98,7 +98,7 @@ func (s *ContractAcceptanceSuite) TestGivenInjectedSessionWhenReadThenEveryWikiR
 		},
 		{
 			name: "current page",
-			path: "/pages/sqlite",
+			path: "/v1/wiki/pages/sqlite",
 			assertBody: func(body map[string]any) {
 				s.Equal("sqlite", body["slug"])
 				s.Equal(revisionID, body["current_revision_id"])
@@ -109,7 +109,7 @@ func (s *ContractAcceptanceSuite) TestGivenInjectedSessionWhenReadThenEveryWikiR
 		},
 		{
 			name: "revision history",
-			path: "/pages/sqlite/revisions",
+			path: "/v1/wiki/pages/sqlite/revisions",
 			assertBody: func(body map[string]any) {
 				revisions := requireList(s.T(), body["revisions"])
 				s.Require().Len(revisions, 1)
@@ -118,7 +118,7 @@ func (s *ContractAcceptanceSuite) TestGivenInjectedSessionWhenReadThenEveryWikiR
 		},
 		{
 			name: "specific revision",
-			path: "/pages/sqlite/revisions/" + revisionID,
+			path: "/v1/wiki/pages/sqlite/revisions/" + revisionID,
 			assertBody: func(body map[string]any) {
 				s.Equal(revisionID, body["id"])
 				s.Equal("SQLite", body["title"])
@@ -126,14 +126,14 @@ func (s *ContractAcceptanceSuite) TestGivenInjectedSessionWhenReadThenEveryWikiR
 		},
 		{
 			name: "page backlinks",
-			path: "/pages/sqlite/backlinks",
+			path: "/v1/wiki/pages/sqlite/backlinks",
 			assertBody: func(body map[string]any) {
 				s.Empty(body["incoming"])
 			},
 		},
 		{
 			name: "search",
-			path: "/search?q=searchable",
+			path: "/v1/wiki/search?q=searchable",
 			assertBody: func(body map[string]any) {
 				results := requireList(s.T(), body["results"])
 				s.Require().Len(results, 1)
@@ -165,7 +165,7 @@ func (s *ContractAcceptanceSuite) TestGivenInjectedSessionWhenReadThenEveryWikiR
 		},
 		{
 			name: "navigation",
-			path: "/navigation",
+			path: "/v1/wiki/navigation",
 			assertBody: func(body map[string]any) {
 				roots := requireList(s.T(), body["roots"])
 				s.Require().Len(roots, 1)
@@ -214,13 +214,13 @@ func (s *ContractAcceptanceSuite) TestGivenInvalidReadWhenRequestedThenJSONError
 	}{
 		{
 			name:       "missing page",
-			path:       "/pages/missing",
+			path:       "/v1/wiki/pages/missing",
 			wantStatus: http.StatusNotFound,
 			wantCode:   "not_found",
 		},
 		{
 			name:       "blank search",
-			path:       "/search?q=--",
+			path:       "/v1/wiki/search?q=--",
 			wantStatus: http.StatusBadRequest,
 			wantCode:   "invalid_search",
 		},
@@ -309,7 +309,7 @@ func (s *ContractAcceptanceSuite) TestGivenMissingMiddlewareWhenRequestedThenSer
 	hertz := server.New()
 	pagewikirouter.Register(hertz)
 
-	response := performJSON(hertz, http.MethodGet, "/navigation", "")
+	response := performJSON(hertz, http.MethodGet, "/v1/wiki/navigation", "")
 
 	s.Equal(http.StatusInternalServerError, response.Code)
 }

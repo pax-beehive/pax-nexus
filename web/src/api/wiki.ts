@@ -108,7 +108,7 @@ function get<T>(path: string, signal?: AbortSignal): Promise<T> {
 }
 
 export function getWikiNavigation(signal?: AbortSignal): Promise<WikiNavigation> {
-  return get<WikiNavigation>("/navigation", signal);
+  return get<WikiNavigation>("/v1/wiki/navigation", signal);
 }
 
 export function getWikiIngestionStatus(signal?: AbortSignal): Promise<WikiIngestionStatus> {
@@ -116,7 +116,7 @@ export function getWikiIngestionStatus(signal?: AbortSignal): Promise<WikiIngest
 }
 
 export function getWikiPage(slug: string, signal?: AbortSignal): Promise<WikiPage> {
-  return get<WikiPage>(`/pages/${encodeURIComponent(slug)}`, signal);
+  return get<WikiPage>(`/v1/wiki/pages/${encodeURIComponent(slug)}`, signal);
 }
 
 export async function getWikiRevisions(
@@ -124,7 +124,7 @@ export async function getWikiRevisions(
   signal?: AbortSignal,
 ): Promise<WikiRevision[]> {
   const response = await get<{ revisions: WikiRevision[] }>(
-    `/pages/${encodeURIComponent(slug)}/revisions`,
+    `/v1/wiki/pages/${encodeURIComponent(slug)}/revisions`,
     signal,
   );
   return response.revisions ?? [];
@@ -136,13 +136,13 @@ export function getWikiRevision(
   signal?: AbortSignal,
 ): Promise<WikiRevision> {
   return get<WikiRevision>(
-    `/pages/${encodeURIComponent(slug)}/revisions/${encodeURIComponent(revision)}`,
+    `/v1/wiki/pages/${encodeURIComponent(slug)}/revisions/${encodeURIComponent(revision)}`,
     signal,
   );
 }
 
 export function getWikiLinks(slug: string, signal?: AbortSignal): Promise<WikiLinks> {
-  return get<WikiLinks>(`/pages/${encodeURIComponent(slug)}/backlinks`, signal);
+  return get<WikiLinks>(`/v1/wiki/pages/${encodeURIComponent(slug)}/backlinks`, signal);
 }
 
 export async function searchWiki(
@@ -150,7 +150,7 @@ export async function searchWiki(
   signal?: AbortSignal,
 ): Promise<WikiSearchResult[]> {
   const response = await get<{ results: WikiSearchResult[] }>(
-    `/search?q=${encodeURIComponent(search)}`,
+    `/v1/wiki/search?q=${encodeURIComponent(search)}`,
     signal,
   );
   return response.results ?? [];

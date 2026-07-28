@@ -11,7 +11,7 @@ import (
 )
 
 // GetPageBacklinks .
-// @router /pages/:slug/backlinks [GET]
+// @router /v1/wiki/pages/:slug/backlinks [GET]
 func GetPageBacklinks(ctx context.Context, c *app.RequestContext) {
 	handler, ok := handlerFromRequest(c)
 	if !ok {

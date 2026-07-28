@@ -11,7 +11,7 @@ import (
 )
 
 // Search .
-// @router /search [GET]
+// @router /v1/wiki/search [GET]
 func Search(ctx context.Context, c *app.RequestContext) {
 	handler, ok := handlerFromRequest(c)
 	if !ok {

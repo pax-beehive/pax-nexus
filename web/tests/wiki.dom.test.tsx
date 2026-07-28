@@ -97,18 +97,18 @@ const links = {
 
 function wikiFetch(path: string) {
   if (path === "/v1/wiki/ingestion") return jsonResponse({ auto_inject: false });
-  if (path === "/navigation") return jsonResponse(navigation);
-  if (path === "/pages/sqlite") return jsonResponse(currentPage);
-  if (path === "/pages/sqlite/revisions") {
+  if (path === "/v1/wiki/navigation") return jsonResponse(navigation);
+  if (path === "/v1/wiki/pages/sqlite") return jsonResponse(currentPage);
+  if (path === "/v1/wiki/pages/sqlite/revisions") {
     return jsonResponse({
       revisions: [revision(), revision("revision-old", "SQLite before WAL")],
     });
   }
-  if (path === "/pages/sqlite/backlinks") return jsonResponse(links);
-  if (path === "/pages/sqlite/revisions/revision-old") {
+  if (path === "/v1/wiki/pages/sqlite/backlinks") return jsonResponse(links);
+  if (path === "/v1/wiki/pages/sqlite/revisions/revision-old") {
     return jsonResponse(revision("revision-old", "SQLite before WAL"));
   }
-  if (path === "/search?q=searchable") {
+  if (path === "/v1/wiki/search?q=searchable") {
     return jsonResponse({
       results: [
         {
@@ -180,7 +180,7 @@ describe("Page Wiki portal integration", () => {
       me: makeMe({ role: "member" }),
       fetch: (path) => {
         if (path === "/v1/wiki/ingestion") return jsonResponse({ auto_inject: false });
-        if (path === "/navigation") return jsonResponse({ roots: [] });
+        if (path === "/v1/wiki/navigation") return jsonResponse({ roots: [] });
         throw new Error(`unexpected fetch: ${path}`);
       },
     });
@@ -204,7 +204,7 @@ describe("Page Wiki portal integration", () => {
         if (path === "/v1/wiki/sessions/runtime-session/inject") {
           return jsonResponse({ processed_streams: 1 });
         }
-        if (path === "/navigation") return jsonResponse({ roots: [] });
+        if (path === "/v1/wiki/navigation") return jsonResponse({ roots: [] });
         throw new Error(`unexpected fetch: ${path}`);
       },
     });
