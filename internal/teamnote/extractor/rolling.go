@@ -442,7 +442,9 @@ func (e *OpenAI) prepareEpisode(ctx context.Context, key EpisodeKey, episode *Ep
 			flightErr = applyErr
 		}
 	}
-	recordCompactionFailure(episode, flightErr)
+	if !errors.Is(flightErr, ErrEpisodeConflict) {
+		recordCompactionFailure(episode, flightErr)
+	}
 	if !hardLimit {
 		return Usage{}, nil
 	}
@@ -454,10 +456,12 @@ func (e *OpenAI) prepareEpisode(ctx context.Context, key EpisodeKey, episode *Ep
 			err = applyErr
 		}
 	}
-	recordCompactionFailure(episode, err)
+	if !errors.Is(err, ErrEpisodeConflict) {
+		recordCompactionFailure(episode, err)
+	}
 	dropped := truncateEpisodeMessages(episode, e.config.CompactStartTokens)
-	slog.Warn("extraction compaction failed; truncated episode deterministically",
-		"scope_id", key.ScopeID, "task_ref", key.TaskRef,
+	slog.WarnContext(ctx, "extraction compaction failed; truncated episode deterministically",
+		"scope_id", key.ScopeID, "task_ref", key.TaskRef, "thread_ref", key.ThreadRef,
 		"dropped_messages", dropped, "error", err)
 	return Usage{}, nil
 }

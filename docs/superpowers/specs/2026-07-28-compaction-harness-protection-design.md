@@ -41,6 +41,9 @@ applies to all call types (primary, summary, compaction): an invalid body is a
 transient model flake in practice, and the retry is already bounded by
 `ExecutionPolicy.MaxAttempts` and paced by `RetryBackoff`.
 `ErrProviderResponseTooLarge` stays non-retryable (deterministic outcome).
+Layer 1 requires `ExecutionPolicy.MaxAttempts >= 2` (env
+`TEAM_MEMORY_EXTRACTION_PROVIDER_MAX_ATTEMPTS`); with the historical default
+of 1 the retry never fires and only Layer 2 protects.
 
 ### Layer 2 — deterministic truncation fallback at the hard limit
 
