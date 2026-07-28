@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   getWikiLinks,
@@ -633,58 +633,6 @@ export function WikiPage() {
               </>
             )}
           </article>
-
-          <aside className="wiki-context" aria-label="Page context">
-            <section className="card">
-              <div className="wiki-rail-heading">
-                <span>Xanadu map</span>
-                <span className="faint small">
-                  {links.outgoing.length + links.incoming.length} links
-                </span>
-              </div>
-              <p className="muted small">
-                Follow an exact phrase forward, or trace every page that points here.
-              </p>
-              <h3>→ References</h3>
-              <RelationList
-                relations={links.outgoing}
-                direction="outgoing"
-                onSelect={selectPage}
-              />
-              <h3>← Backlinks</h3>
-              <RelationList
-                relations={links.incoming}
-                direction="incoming"
-                onSelect={selectPage}
-              />
-            </section>
-
-            <section className="card">
-              <div className="wiki-rail-heading">
-                <span>Evidence</span>
-                <span className="faint small">{revision?.citations?.length ?? 0} citations</span>
-              </div>
-              {(revision?.citations ?? []).length === 0 ? (
-                <p className="muted small">This revision has no citations.</p>
-              ) : (
-                <div className="wiki-evidence">
-                  {revision?.citations.map((citation) => (
-                    <article key={citation.id}>
-                      <strong>“{citation.exact_text}”</strong>
-                      {(citation.source_anchors ?? []).map((anchor) => (
-                        <Fragment key={anchor.id}>
-                          <blockquote>{anchor.exact_quote}</blockquote>
-                          <small className="mono faint">
-                            {anchor.event_id} · bytes {anchor.start_byte}–{anchor.end_byte}
-                          </small>
-                        </Fragment>
-                      ))}
-                    </article>
-                  ))}
-                </div>
-              )}
-            </section>
-          </aside>
         </div>
       )}
     </div>
