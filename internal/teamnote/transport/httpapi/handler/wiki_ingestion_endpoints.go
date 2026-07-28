@@ -58,6 +58,23 @@ func (h *Handler) InjectWikiSession(ctx context.Context, c *app.RequestContext) 
 	c.JSON(consts.StatusOK, &api.InjectWikiSessionResponse{ProcessedStreams: int32(result.ProcessedStreams)})
 }
 
+func (h *Handler) RebuildWiki(ctx context.Context, c *app.RequestContext) {
+	principal, ok := h.authorizeWikiControl(ctx, c, true)
+	if !ok {
+		return
+	}
+	if principal.Role != onprem.RoleOwner {
+		writeHumanAPIError(c, consts.StatusForbidden, "forbidden", "the operation is not permitted")
+		return
+	}
+	status, err := h.wikiControl.Rebuild(ctx, onprem.LocalScopeID)
+	if err != nil {
+		h.writeWikiControlError(c, "rebuild Wiki", err)
+		return
+	}
+	c.JSON(consts.StatusOK, &api.RebuildWikiResponse{AutoInject: status.AutoInject})
+}
+
 func (h *Handler) authorizeWikiControl(
 	ctx context.Context,
 	c *app.RequestContext,

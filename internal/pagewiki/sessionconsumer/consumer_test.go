@@ -15,9 +15,10 @@ import (
 
 type consumerSuite struct {
 	suite.Suite
-	store    *consumerStore
-	injector *recordingInjector
-	consumer *sessionconsumer.Controller
+	store     *consumerStore
+	injector  *recordingInjector
+	rebuilder *recordingRebuilder
+	consumer  *sessionconsumer.Controller
 }
 
 func TestConsumerSuite(t *testing.T) {
@@ -39,9 +40,10 @@ func (s *consumerSuite) SetupTest() {
 		advanced: make(chan struct{}, 1),
 	}
 	s.injector = &recordingInjector{}
+	s.rebuilder = &recordingRebuilder{}
 	var err error
 	s.consumer, err = sessionconsumer.New(
-		s.store, s.injector, slog.New(slog.DiscardHandler), time.Hour,
+		s.store, s.injector, s.rebuilder, slog.New(slog.DiscardHandler), time.Hour,
 	)
 	s.Require().NoError(err)
 }
@@ -78,6 +80,17 @@ func (s *consumerSuite) TestAutoSettingRoundTrips() {
 	s.True(status.AutoInject)
 }
 
+func (s *consumerSuite) TestRebuildResetsDerivedWikiStateAndSchedulesFreshConsumption() {
+	status, err := s.consumer.Rebuild(context.Background(), "local-team")
+
+	s.Require().NoError(err)
+	s.True(status.AutoInject)
+	s.Equal(1, s.rebuilder.calls)
+	s.Equal("local-team", s.rebuilder.scopeID)
+	s.Equal(sessionconsumer.ProcessorName, s.rebuilder.processorName)
+	s.Equal(sessionconsumer.ProcessorVersion, s.rebuilder.processorVersion)
+}
+
 func (s *consumerSuite) TestRejectsMissingSession() {
 	_, err := s.consumer.InjectSession(context.Background(), "local-team", "missing")
 
@@ -99,11 +112,13 @@ func (s *consumerSuite) TestStartsBackgroundScanAndConsumesPendingStream() {
 }
 
 func (s *consumerSuite) TestValidationRejectsIncompleteConfigurationAndInput() {
-	_, err := sessionconsumer.New(nil, s.injector, slog.New(slog.DiscardHandler), time.Second)
+	_, err := sessionconsumer.New(nil, s.injector, s.rebuilder, slog.New(slog.DiscardHandler), time.Second)
 	s.Require().Error(err)
-	_, err = sessionconsumer.New(s.store, nil, slog.New(slog.DiscardHandler), time.Second)
+	_, err = sessionconsumer.New(s.store, nil, s.rebuilder, slog.New(slog.DiscardHandler), time.Second)
 	s.Require().Error(err)
-	_, err = sessionconsumer.New(s.store, s.injector, nil, time.Second)
+	_, err = sessionconsumer.New(s.store, s.injector, nil, slog.New(slog.DiscardHandler), time.Second)
+	s.Require().Error(err)
+	_, err = sessionconsumer.New(s.store, s.injector, s.rebuilder, nil, time.Second)
 	s.Require().Error(err)
 
 	_, err = s.consumer.SetAutoInject(context.Background(), "", true)
@@ -111,6 +126,8 @@ func (s *consumerSuite) TestValidationRejectsIncompleteConfigurationAndInput() {
 	_, err = s.consumer.InjectSession(context.Background(), "", "runtime-demo")
 	s.Require().Error(err)
 	_, err = s.consumer.InjectSession(context.Background(), "local-team", "")
+	s.Require().Error(err)
+	_, err = s.consumer.Rebuild(context.Background(), "")
 	s.Require().Error(err)
 }
 
@@ -195,6 +212,17 @@ func (s *consumerSuite) TestStoreFailuresAreReported() {
 				return err
 			},
 			contains: "cursor unavailable",
+		},
+		{
+			name: "rebuild",
+			configure: func() {
+				s.rebuilder.err = errors.New("rebuild unavailable")
+			},
+			run: func() error {
+				_, err := s.consumer.Rebuild(context.Background(), "local-team")
+				return err
+			},
+			contains: "rebuild unavailable",
 		},
 	}
 	for _, test := range tests {
@@ -288,6 +316,27 @@ type recordingInjector struct {
 	requests []pagewiki.InjectSessionRequest
 	err      error
 	status   pagewiki.RunStatus
+}
+
+type recordingRebuilder struct {
+	calls            int
+	scopeID          string
+	processorName    string
+	processorVersion string
+	err              error
+}
+
+func (r *recordingRebuilder) RebuildPageWiki(
+	_ context.Context,
+	scopeID string,
+	processorName string,
+	processorVersion string,
+) error {
+	r.calls++
+	r.scopeID = scopeID
+	r.processorName = processorName
+	r.processorVersion = processorVersion
+	return r.err
 }
 
 func (i *recordingInjector) InjectSession(

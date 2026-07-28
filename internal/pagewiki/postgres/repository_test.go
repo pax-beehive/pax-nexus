@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pax-beehive/pax-nexus/internal/pagewiki"
 	pagewikipostgres "github.com/pax-beehive/pax-nexus/internal/pagewiki/postgres"
 	platformpostgres "github.com/pax-beehive/pax-nexus/internal/platform/postgres"
@@ -156,4 +157,58 @@ func (s *repositorySuite) TestRejectsInvalidConfigurationAndCorruptSnapshots() {
 			s.Require().NoError(deleteErr)
 		})
 	}
+}
+
+func (s *repositorySuite) TestRebuildRejectsInvalidScopeAndProcessorIdentity() {
+	repository, err := pagewikipostgres.NewRepository(s.ctx, s.store.Pool(), s.scopeID)
+	s.Require().NoError(err)
+
+	tests := []struct {
+		name             string
+		scopeID          string
+		processorName    string
+		processorVersion string
+	}{
+		{name: "missing scope", processorName: "page_wiki", processorVersion: "v1"},
+		{name: "wrong scope", scopeID: "another-scope", processorName: "page_wiki", processorVersion: "v1"},
+		{name: "missing processor name", scopeID: s.scopeID, processorVersion: "v1"},
+		{name: "missing processor version", scopeID: s.scopeID, processorName: "page_wiki"},
+	}
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			err := repository.RebuildPageWiki(
+				s.ctx,
+				test.scopeID,
+				test.processorName,
+				test.processorVersion,
+			)
+			s.Require().ErrorContains(err, "scope and processor identity are required")
+		})
+	}
+}
+
+func (s *repositorySuite) TestRebuildReportsCanceledTransactionStart() {
+	repository, err := pagewikipostgres.NewRepository(s.ctx, s.store.Pool(), s.scopeID)
+	s.Require().NoError(err)
+	ctx, cancel := context.WithCancel(s.ctx)
+	cancel()
+
+	err = repository.RebuildPageWiki(ctx, s.scopeID, "page_wiki", "v1")
+
+	s.Require().ErrorContains(err, "begin transaction")
+	s.Require().ErrorIs(err, context.Canceled)
+}
+
+func (s *repositorySuite) TestRebuildRollsBackWhenPersistentStateCannotBeCleared() {
+	dsn := os.Getenv("TEAM_MEMORY_TEST_POSTGRES_DSN") + "&default_transaction_read_only=on"
+	readOnlyPool, err := pgxpool.New(s.ctx, dsn)
+	s.Require().NoError(err)
+	defer readOnlyPool.Close()
+	repository, err := pagewikipostgres.NewRepository(s.ctx, readOnlyPool, s.scopeID)
+	s.Require().NoError(err)
+
+	err = repository.RebuildPageWiki(s.ctx, s.scopeID, "page_wiki", "v1")
+
+	s.Require().ErrorContains(err, "clear derived state")
+	s.Require().ErrorContains(err, "read-only transaction")
 }

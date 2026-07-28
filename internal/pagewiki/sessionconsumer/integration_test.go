@@ -79,6 +79,7 @@ func (s *postgresConsumerSuite) TestManualInjectionPersistsPageAndIndependentCur
 			pagewiki.SessionDocumentPlanner{},
 			pagewiki.SessionDocumentEditor{},
 		),
+		repository,
 		slog.New(slog.DiscardHandler),
 		time.Hour,
 	)
@@ -104,6 +105,48 @@ WHERE processor_name = $1 AND processor_version = $2
 	).Scan(&cursor)
 	s.Require().NoError(err)
 	s.Equal(int64(1), cursor)
+}
+
+func (s *postgresConsumerSuite) TestRebuildClearsDerivedWikiAndMakesSessionPendingAgain() {
+	s.seedSession()
+	repository, err := pagewikipostgres.NewRepository(s.ctx, s.store.Pool(), s.scopeID)
+	s.Require().NoError(err)
+	consumerStore, err := platformpostgres.NewPageWikiConsumerStore(s.store.Pool(), s.scopeID)
+	s.Require().NoError(err)
+	controller, err := sessionconsumer.New(
+		consumerStore,
+		pagewiki.NewService(
+			repository,
+			pagewiki.SessionDocumentPlanner{},
+			pagewiki.SessionDocumentEditor{},
+		),
+		repository,
+		slog.New(slog.DiscardHandler),
+		time.Hour,
+	)
+	s.Require().NoError(err)
+	_, err = controller.InjectSession(s.ctx, s.scopeID, "runtime-session")
+	s.Require().NoError(err)
+
+	status, err := controller.Rebuild(s.ctx, s.scopeID)
+
+	s.Require().NoError(err)
+	s.True(status.AutoInject)
+	navigation, err := repository.Navigation(s.ctx)
+	s.Require().NoError(err)
+	s.Empty(navigation.Roots)
+	var cursorCount int
+	err = s.store.Pool().QueryRow(s.ctx, `
+SELECT COUNT(*) FROM session_processor_cursors
+WHERE processor_name = $1 AND processor_version = $2 AND scope_id = $3`,
+		sessionconsumer.ProcessorName, sessionconsumer.ProcessorVersion, s.scopeID,
+	).Scan(&cursorCount)
+	s.Require().NoError(err)
+	s.Zero(cursorCount)
+	pending, err := consumerStore.PendingStreams(s.ctx)
+	s.Require().NoError(err)
+	s.Require().Len(pending, 1)
+	s.Equal("runtime-session", pending[0].Actor.SessionID)
 }
 
 func (s *postgresConsumerSuite) TestAutoSettingSelectsPendingStreams() {

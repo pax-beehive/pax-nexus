@@ -550,3 +550,8 @@ func _injectwikisessionMw() []app.HandlerFunc {
 	// your code...
 	return nil
 }
+
+func _rebuildwikiMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}

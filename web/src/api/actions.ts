@@ -357,3 +357,10 @@ export function injectWikiSession(
     },
   );
 }
+
+export function rebuildWiki(idempotencyKey: string): Promise<WikiIngestionStatus> {
+  return humanFetch<WikiIngestionStatus>("/v1/wiki/rebuild", {
+    method: "POST",
+    headers: { "Idempotency-Key": idempotencyKey },
+  });
+}

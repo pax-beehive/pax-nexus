@@ -193,7 +193,7 @@ export function PortalShell({ me }: { me: HumanMe }) {
           <Routes>
             <Route path="/agents" element={<MyAgentsPage />} />
             <Route path="/agents/:agentId" element={<AgentDetailPage />} />
-            <Route path="/wiki" element={<WikiPage />} />
+            <Route path="/wiki" element={<WikiPage me={me} />} />
             <Route
               path="/admin/members"
               element={

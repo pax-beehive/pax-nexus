@@ -27,16 +27,22 @@ type Repository struct {
 }
 
 func NewRepository() *Repository {
-	return &Repository{
-		sourceRevisions: make(map[string]pagewiki.SourceRevision),
-		pages:           make(map[string]pagewiki.Page),
-		pageIDsBySlug:   make(map[string]string),
-		pageRevisions:   make(map[string]pagewiki.PageRevision),
-		topics:          make(map[string]pagewiki.Topic),
-		placements:      make(map[string]pagewiki.PagePlacement),
-		searchChunks:    make(map[string]pagewiki.SearchChunk),
-		runs:            make(map[string]pagewiki.MaintenanceRun),
-	}
+	repository := &Repository{}
+	repository.Reset()
+	return repository
+}
+
+func (r *Repository) Reset() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.sourceRevisions = make(map[string]pagewiki.SourceRevision)
+	r.pages = make(map[string]pagewiki.Page)
+	r.pageIDsBySlug = make(map[string]string)
+	r.pageRevisions = make(map[string]pagewiki.PageRevision)
+	r.topics = make(map[string]pagewiki.Topic)
+	r.placements = make(map[string]pagewiki.PagePlacement)
+	r.searchChunks = make(map[string]pagewiki.SearchChunk)
+	r.runs = make(map[string]pagewiki.MaintenanceRun)
 }
 
 func (r *Repository) SaveSourceRevision(

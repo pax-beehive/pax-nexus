@@ -223,4 +223,40 @@ describe("Page Wiki portal integration", () => {
       method: "POST",
     });
   });
+
+  it("lets an owner confirm a full Wiki rebuild without deleting Session Lake", async () => {
+    const requests: Array<{ path: string; method: string }> = [];
+    const { user } = await renderApp({
+      route: "/wiki",
+      me: makeMe({ role: "owner" }),
+      fetch: (path, init) => {
+        const method = init?.method ?? "GET";
+        requests.push({ path, method });
+        if (path === "/v1/wiki/rebuild" && method === "POST") {
+          return jsonResponse({ auto_inject: true });
+        }
+        return wikiFetch(path);
+      },
+    });
+
+    await screen.findByRole("heading", { name: "SQLite" });
+    await user.click(screen.getByRole("button", { name: "Reset & rebuild" }));
+    const dialog = screen.getByRole("dialog", { name: "Reset and rebuild Wiki" });
+    within(dialog).getByText("Session Lake events and Team Notes are preserved.");
+    await user.click(within(dialog).getByRole("button", { name: "Confirm reset & rebuild" }));
+
+    await screen.findByText("Wiki cleared. Rebuilding from Session Lake…");
+    expect(requests).toContainEqual({ path: "/v1/wiki/rebuild", method: "POST" });
+  });
+
+  it("hides the destructive rebuild control from members", async () => {
+    await renderApp({
+      route: "/wiki",
+      me: makeMe({ role: "member" }),
+      fetch: (path) => wikiFetch(path),
+    });
+
+    await screen.findByRole("heading", { name: "SQLite" });
+    expect(screen.queryByRole("button", { name: "Reset & rebuild" })).toBeNull();
+  });
 });

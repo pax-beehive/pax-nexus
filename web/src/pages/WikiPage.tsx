@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
+import type { HumanMe } from "../api/types";
 import {
   getWikiLinks,
   getWikiNavigation,
@@ -16,7 +17,8 @@ import {
   type WikiSearchResult,
   type WikiPage,
 } from "../api/wiki";
-import { beginAction, injectWikiSession, setWikiAutoInject } from "../api/actions";
+import { beginAction, injectWikiSession, rebuildWiki, setWikiAutoInject } from "../api/actions";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { useErrorHandler } from "../lib/useErrorHandler";
 
 const EMPTY_LINKS: WikiLinks = { outgoing: [], incoming: [] };
@@ -214,7 +216,7 @@ function RelationList({
   );
 }
 
-export function WikiPage() {
+export function WikiPage({ me }: { me: HumanMe }) {
   const navigate = useNavigate();
   const handleError = useErrorHandler();
   const [topics, setTopics] = useState<WikiNavigationTopic[]>([]);
@@ -240,6 +242,7 @@ export function WikiPage() {
   );
   const [ingestionMessage, setIngestionMessage] = useState("");
   const [navigationRevision, setNavigationRevision] = useState(0);
+  const [rebuildOpen, setRebuildOpen] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -417,6 +420,30 @@ export function WikiPage() {
     }
   };
 
+  const confirmRebuild = async () => {
+    setIngestionBusy(true);
+    setIngestionMessage("");
+    try {
+      const status = await rebuildWiki(beginAction());
+      setAutoInject(status.auto_inject);
+      setTopics([]);
+      setSelectedSlug("");
+      setPage(undefined);
+      setRevision(undefined);
+      setRevisions([]);
+      setLinks(EMPTY_LINKS);
+      setSearchOpen(false);
+      navigate({ pathname: "/wiki" }, { replace: true });
+      setIngestionMessage("Wiki cleared. Rebuilding from Session Lake…");
+      setRebuildOpen(false);
+      setNavigationRevision((current) => current + 1);
+    } catch (error) {
+      handleError(error);
+    } finally {
+      setIngestionBusy(false);
+    }
+  };
+
   const pages = collectPages(topics);
   const historical = Boolean(page && revision && revision.id !== page.current_revision_id);
   const inlineRelations = historical ? [] : links.outgoing;
@@ -490,6 +517,24 @@ export function WikiPage() {
             {ingestionBusy ? "Injecting…" : "Inject session"}
           </button>
         </div>
+        {me.role === "owner" && (
+          <div className="wiki-reset">
+            <div>
+              <strong>Start over with current Session Lake evidence</strong>
+              <span className="muted small">
+                Clears PageWiki-derived data and rebuilds it with the currently configured organizer.
+              </span>
+            </div>
+            <button
+              className="btn danger"
+              type="button"
+              disabled={ingestionBusy}
+              onClick={() => setRebuildOpen(true)}
+            >
+              Reset & rebuild
+            </button>
+          </div>
+        )}
         {ingestionMessage && <p className="wiki-ingestion-message">{ingestionMessage}</p>}
       </section>
 
@@ -634,6 +679,22 @@ export function WikiPage() {
             )}
           </article>
         </div>
+      )}
+
+      {rebuildOpen && (
+        <ConfirmDialog
+          title="Reset and rebuild Wiki"
+          consequences={[
+            "All PageWiki pages, revisions, links, citations, and maintenance runs will be deleted.",
+            "PageWiki ingestion cursors will reset and every Session Lake stream will be processed again.",
+            "Session Lake events and Team Notes are preserved.",
+            "An LLM-backed rebuild may make paid provider calls.",
+          ]}
+          confirmLabel="Confirm reset & rebuild"
+          busy={ingestionBusy}
+          onConfirm={() => void confirmRebuild()}
+          onClose={() => setRebuildOpen(false)}
+        />
       )}
     </div>
   );

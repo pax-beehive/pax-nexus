@@ -47,22 +47,39 @@ type Injector interface {
 	InjectSession(context.Context, pagewiki.InjectSessionRequest) (pagewiki.InjectResult, error)
 }
 
-type Controller struct {
-	store    Store
-	injector Injector
-	logger   *slog.Logger
-	interval time.Duration
-	mu       sync.Mutex
+type Rebuilder interface {
+	RebuildPageWiki(context.Context, string, string, string) error
 }
 
-func New(store Store, injector Injector, logger *slog.Logger, interval time.Duration) (*Controller, error) {
-	if store == nil || injector == nil || logger == nil {
-		return nil, fmt.Errorf("create Page Wiki session consumer: store, injector, and logger are required")
+type Controller struct {
+	store     Store
+	injector  Injector
+	rebuilder Rebuilder
+	logger    *slog.Logger
+	interval  time.Duration
+	trigger   chan struct{}
+	mu        sync.Mutex
+}
+
+func New(
+	store Store,
+	injector Injector,
+	rebuilder Rebuilder,
+	logger *slog.Logger,
+	interval time.Duration,
+) (*Controller, error) {
+	if store == nil || injector == nil || rebuilder == nil || logger == nil {
+		return nil, fmt.Errorf(
+			"create Page Wiki session consumer: store, injector, rebuilder, and logger are required",
+		)
 	}
 	if interval <= 0 {
 		interval = 2 * time.Second
 	}
-	return &Controller{store: store, injector: injector, logger: logger, interval: interval}, nil
+	return &Controller{
+		store: store, injector: injector, rebuilder: rebuilder,
+		logger: logger, interval: interval, trigger: make(chan struct{}, 1),
+	}, nil
 }
 
 func (c *Controller) Start(ctx context.Context) {
@@ -74,6 +91,8 @@ func (c *Controller) Start(ctx context.Context) {
 			select {
 			case <-ctx.Done():
 				return
+			case <-c.trigger:
+				c.scan(ctx)
 			case <-ticker.C:
 				c.scan(ctx)
 			}
@@ -97,6 +116,23 @@ func (c *Controller) SetAutoInject(ctx context.Context, scopeID string, enabled 
 		return Status{}, fmt.Errorf("set Page Wiki auto injection: %w", err)
 	}
 	return Status{AutoInject: enabled}, nil
+}
+
+func (c *Controller) Rebuild(ctx context.Context, scopeID string) (Status, error) {
+	if strings.TrimSpace(scopeID) == "" {
+		return Status{}, fmt.Errorf("rebuild Page Wiki: scope is required")
+	}
+	c.mu.Lock()
+	err := c.rebuilder.RebuildPageWiki(ctx, scopeID, ProcessorName, ProcessorVersion)
+	c.mu.Unlock()
+	if err != nil {
+		return Status{}, fmt.Errorf("rebuild Page Wiki: %w", err)
+	}
+	select {
+	case c.trigger <- struct{}{}:
+	default:
+	}
+	return Status{AutoInject: true}, nil
 }
 
 func (c *Controller) InjectSession(
