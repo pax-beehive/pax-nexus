@@ -395,7 +395,32 @@ func (s *openAISuite) TestProviderExecutionRetriesTransientFailureAndRecordsAtte
 	s.Empty(calls[1].FailureClass)
 }
 
-func (s *openAISuite) TestProviderExecutionRecordsInvalidResponseWithoutRetry() {
+func (s *openAISuite) TestProviderExecutionRetriesInvalidResponse() {
+	var calls []extractor.ProviderCall
+	attempts := atomic.Int64{}
+	client := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		if attempts.Add(1) == 1 {
+			return response(http.StatusOK, `{"choices":[{"message":{"content":"not-json"}}]}`), nil
+		}
+		return response(http.StatusOK, `{"choices":[{"message":{"content":"{\"candidates\":[]}"}}]}`), nil
+	})}
+	adapter, err := extractor.NewOpenAI(extractor.OpenAIConfig{
+		BaseURL: "http://extractor.test", Model: "model", Client: client,
+		ExecutionPolicy:      extractor.ExecutionPolicy{MaxAttempts: 2, RetryBackoff: time.Millisecond},
+		ProviderCallObserver: func(call extractor.ProviderCall) { calls = append(calls, call) },
+	})
+	s.Require().NoError(err)
+
+	_, err = adapter.Extract(context.Background(), extractorSlice())
+
+	s.Require().NoError(err)
+	s.Require().Len(calls, 2)
+	s.Equal(extractor.ProviderFailureInvalidResponse, calls[0].FailureClass)
+	s.True(calls[0].Retryable)
+	s.Empty(calls[1].FailureClass)
+}
+
+func (s *openAISuite) TestProviderExecutionStopsRetryingInvalidResponseAtMaxAttempts() {
 	var calls []extractor.ProviderCall
 	client := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
 		return response(http.StatusOK, `{"choices":[{"message":{"content":"not-json"}}]}`), nil
@@ -410,9 +435,9 @@ func (s *openAISuite) TestProviderExecutionRecordsInvalidResponseWithoutRetry() 
 	_, err = adapter.Extract(context.Background(), extractorSlice())
 
 	s.Require().Error(err)
-	s.Require().Len(calls, 1)
-	s.Equal(extractor.ProviderFailureInvalidResponse, calls[0].FailureClass)
-	s.False(calls[0].Retryable)
+	s.Require().Len(calls, 2)
+	s.True(calls[0].Retryable)
+	s.True(calls[1].Retryable)
 }
 
 func (s *openAISuite) TestProviderExecutionAppliesDeadlineAndOutputBudget() {

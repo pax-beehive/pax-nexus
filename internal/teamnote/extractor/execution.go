@@ -101,7 +101,7 @@ func classifyProviderFailure(attemptCtx context.Context, err error) (ProviderFai
 		return ProviderFailureResponseTooLarge, false
 	}
 	if errors.Is(err, ErrInvalidModelResponse) {
-		return ProviderFailureInvalidResponse, false
+		return ProviderFailureInvalidResponse, true
 	}
 	var statusErr *providerStatusError
 	if errors.As(err, &statusErr) {
