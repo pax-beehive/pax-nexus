@@ -1489,6 +1489,118 @@ func response(status int, body string) *http.Response {
 	}
 }
 
+func (s *openAISuite) TestRollingContextTruncatesEpisodeWhenCompactionKeepsFailing() {
+	store := newMemoryEpisodeStore()
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		body, err := io.ReadAll(request.Body)
+		s.Require().NoError(err)
+		if strings.Contains(string(body), "KNOWLEDGE CONTEXT CHECKPOINT COMPACTION") {
+			return response(http.StatusOK, `{"choices":[{"message":{"content":"not-json"}}]}`), nil
+		}
+		eventID := "event-1"
+		for _, candidate := range []string{"event-2", "event-3"} {
+			if strings.Contains(string(body), candidate) {
+				eventID = candidate
+			}
+		}
+		content := fmt.Sprintf(`{"candidates":[{"action":"create","kind":"status","subject":"release","identity_ref":"decision/release","body":"Release state.","evidence_event_ids":[%q]}]}`, eventID)
+		return response(http.StatusOK, fmt.Sprintf(`{"choices":[{"message":{"content":%q}}]}`, content)), nil
+	})}
+	adapter, err := extractor.NewOpenAI(extractor.OpenAIConfig{
+		BaseURL: "http://extractor.test", Model: "model", Client: client,
+		ContextMode: extractor.ContextModeRolling, EpisodeStore: store,
+		CompactionEnabled: true, CompactStartTokens: 1, CompactTokens: 1,
+		ExecutionPolicy: extractor.ExecutionPolicy{MaxAttempts: 2, RetryBackoff: time.Millisecond},
+	})
+	s.Require().NoError(err)
+	ctx := teamnote.WithScope(context.Background(), "scope-truncate")
+
+	_, err = adapter.Extract(ctx, extractorSlice())
+	s.Require().NoError(err)
+
+	second := extractorSlice()
+	second.InputChecksum = "checksum-2"
+	second.NewEventIDs = []string{"event-2"}
+	second.Events[0].ID = "event-2"
+	_, err = adapter.Extract(ctx, second)
+	s.Require().NoError(err, "hard-limit compaction failure must degrade, not fail the slice")
+
+	third := extractorSlice()
+	third.InputChecksum = "checksum-3"
+	third.NewEventIDs = []string{"event-3"}
+	third.Events[0].ID = "event-3"
+	_, err = adapter.Extract(ctx, third)
+	s.Require().NoError(err, "the episode must never loop on compaction failure")
+
+	episode, ok, err := store.LoadEpisode(ctx, extractor.EpisodeKey{ScopeID: "scope-truncate", TaskRef: "release-42"})
+	s.Require().NoError(err)
+	s.Require().True(ok)
+	s.Zero(episode.CompactionCount)
+	s.GreaterOrEqual(episode.Checkpoint.CompactionFailures, 2)
+	s.Equal(2, episode.Checkpoint.CompactionTruncations)
+	s.Contains(episode.Checkpoint.CompactionLastError, "compact extraction episode")
+	s.Require().NotEmpty(episode.Messages)
+	s.Equal(1+2, len(episode.Messages), "each truncation keeps one message; one exchange appends two")
+}
+
+func (s *openAISuite) TestRollingContextKeepsCompactionCountersAfterLaterSuccess() {
+	store := newMemoryEpisodeStore()
+	var failCompaction atomic.Bool
+	failCompaction.Store(true)
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		body, err := io.ReadAll(request.Body)
+		s.Require().NoError(err)
+		if strings.Contains(string(body), "KNOWLEDGE CONTEXT CHECKPOINT COMPACTION") {
+			if failCompaction.Load() {
+				return response(http.StatusOK, `{"choices":[{"message":{"content":"not-json"}}]}`), nil
+			}
+			checkpoint := `{"active_knowledge":[{"memory_id":"decision/release","kind":"status","subject":"release","body":"Release state.","evidence_event_ids":["event-2"]}],"resolved_knowledge":[],"open_questions":[],"evidence_index":{"decision/release":["event-2"]},"source_cursors":{}}`
+			return response(http.StatusOK, fmt.Sprintf(`{"choices":[{"message":{"content":%q}}]}`, checkpoint)), nil
+		}
+		eventID := "event-1"
+		for _, candidate := range []string{"event-2", "event-3"} {
+			if strings.Contains(string(body), candidate) {
+				eventID = candidate
+			}
+		}
+		content := fmt.Sprintf(`{"candidates":[{"action":"create","kind":"status","subject":"release","identity_ref":"decision/release","body":"Release state.","evidence_event_ids":[%q]}]}`, eventID)
+		return response(http.StatusOK, fmt.Sprintf(`{"choices":[{"message":{"content":%q}}]}`, content)), nil
+	})}
+	adapter, err := extractor.NewOpenAI(extractor.OpenAIConfig{
+		BaseURL: "http://extractor.test", Model: "model", Client: client,
+		ContextMode: extractor.ContextModeRolling, EpisodeStore: store,
+		CompactionEnabled: true, CompactStartTokens: 1, CompactTokens: 1,
+		ExecutionPolicy: extractor.ExecutionPolicy{MaxAttempts: 2, RetryBackoff: time.Millisecond},
+	})
+	s.Require().NoError(err)
+	ctx := teamnote.WithScope(context.Background(), "scope-carryover")
+
+	_, err = adapter.Extract(ctx, extractorSlice())
+	s.Require().NoError(err)
+
+	second := extractorSlice()
+	second.InputChecksum = "checksum-2"
+	second.NewEventIDs = []string{"event-2"}
+	second.Events[0].ID = "event-2"
+	_, err = adapter.Extract(ctx, second)
+	s.Require().NoError(err)
+
+	failCompaction.Store(false)
+	third := extractorSlice()
+	third.InputChecksum = "checksum-3"
+	third.NewEventIDs = []string{"event-3"}
+	third.Events[0].ID = "event-3"
+	_, err = adapter.Extract(ctx, third)
+	s.Require().NoError(err)
+
+	episode, ok, err := store.LoadEpisode(ctx, extractor.EpisodeKey{ScopeID: "scope-carryover", TaskRef: "release-42"})
+	s.Require().NoError(err)
+	s.Require().True(ok)
+	s.Equal(1, episode.CompactionCount)
+	s.GreaterOrEqual(episode.Checkpoint.CompactionFailures, 1)
+	s.Equal(1, episode.Checkpoint.CompactionTruncations)
+}
+
 func extractorSlice() sessionlake.Slice {
 	actor := teamnote.Actor{UserID: "owner", AgentID: "producer", SessionID: "session-1"}
 	return sessionlake.Slice{
