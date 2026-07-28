@@ -1,8 +1,10 @@
 package pagewiki_test
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"testing"
 
@@ -79,6 +81,132 @@ func (s *llmSessionPlannerSuite) TestPlansCreateUpdateAndDropsNoise() {
 	s.Equal("test-model", client.requests[0].Model)
 	s.Contains(client.requests[0].Messages[1].Content, "event-1")
 	s.Contains(client.requests[0].Messages[1].Content, "existing-page")
+}
+
+func (s *llmSessionPlannerSuite) TestRemapsCreateToUpdateWhenSlugMatchesCatalog() {
+	client := &wikiChatClient{responses: []string{`{"briefs":[
+		{"action":"create","proposed_slug":"Existing  Page","proposed_title":"Existing Page",
+		 "reader_goal":"Refresh the existing page.","topic_path":["Engineering"],
+		 "evidence":[{"event_id":"event-1","exact_quote":"decision:"}]}
+	]}`}}
+	planner, err := pagewiki.NewLLMSessionPlanner(pagewiki.LLMPlannerConfig{
+		Client: client, Model: "test-model",
+	})
+	s.Require().NoError(err)
+
+	briefs, err := planner.Plan(context.Background(), pagewiki.PlanInput{
+		SourceRevision: plannerRevision(),
+		PageCatalog: pagewiki.PageCatalog{{
+			ID: "page-1", Slug: "existing-page", Title: "Existing Page",
+			CurrentRevisionID: "revision-1",
+		}},
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(briefs, 1)
+
+	update := briefs[0]
+	s.Equal(pagewiki.PageActionUpdate, update.Action)
+	s.Equal("existing-page", update.Key)
+	s.Equal("page-1", update.TargetPageID)
+	s.Equal("revision-1", update.ExpectedBaseRevisionID)
+	s.Empty(update.ProposedSlug)
+	s.Empty(update.ProposedTitle)
+	s.Empty(update.TopicPath)
+}
+
+func (s *llmSessionPlannerSuite) TestDropsLaterQuoteThatDuplicatesAnAcceptedQuoteAcrossEvents() {
+	eventOneContent := "Team ships weekly. ship weekly cadence recorded here."
+	eventTwoContent := "Second mention of ship weekly cadence appears here."
+	raw := eventOneContent + eventTwoContent
+	revision := pagewiki.SourceRevision{
+		ID:  "source-revision-cross-quote",
+		Raw: []byte(raw),
+		Events: []pagewiki.SourceEvent{
+			{ID: "event-1", StartByte: 0, EndByte: len(eventOneContent)},
+			{ID: "event-2", StartByte: len(eventOneContent), EndByte: len(raw)},
+		},
+	}
+	client := &wikiChatClient{responses: []string{`{"briefs":[
+		{"action":"create","proposed_slug":"release-cadence","proposed_title":"Release Cadence",
+		 "topic_path":["Engineering"],
+		 "evidence":[
+			{"event_id":"event-1","exact_quote":"ship weekly cadence"},
+			{"event_id":"event-2","exact_quote":"ship weekly cadence"}
+		 ]}
+	]}`}}
+	planner, err := pagewiki.NewLLMSessionPlanner(pagewiki.LLMPlannerConfig{
+		Client: client, Model: "test-model",
+	})
+	s.Require().NoError(err)
+
+	briefs, err := planner.Plan(context.Background(), pagewiki.PlanInput{
+		SourceRevision: revision,
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(briefs, 1)
+	s.Equal(pagewiki.PageActionCreate, briefs[0].Action)
+	s.Require().Len(briefs[0].Evidence, 1)
+	s.Equal("event-1", briefs[0].Evidence[0].EventID)
+	s.Equal("ship weekly cadence", briefs[0].Evidence[0].ExactText)
+}
+
+func (s *llmSessionPlannerSuite) TestDropsLaterQuoteThatIsASubstringOfAnAcceptedQuote() {
+	eventOneContent := "Releases ship weekly after the validation gate passes."
+	eventTwoContent := "The validation gate passes before every release."
+	raw := eventOneContent + eventTwoContent
+	revision := pagewiki.SourceRevision{
+		ID:  "source-revision-substring-quote",
+		Raw: []byte(raw),
+		Events: []pagewiki.SourceEvent{
+			{ID: "event-1", StartByte: 0, EndByte: len(eventOneContent)},
+			{ID: "event-2", StartByte: len(eventOneContent), EndByte: len(raw)},
+		},
+	}
+	client := &wikiChatClient{responses: []string{`{"briefs":[
+		{"action":"create","proposed_slug":"release-policy","proposed_title":"Release Policy",
+		 "topic_path":["Engineering"],
+		 "evidence":[
+			{"event_id":"event-1","exact_quote":"Releases ship weekly after the validation gate passes."},
+			{"event_id":"event-2","exact_quote":"validation gate passes"}
+		 ]}
+	]}`}}
+	planner, err := pagewiki.NewLLMSessionPlanner(pagewiki.LLMPlannerConfig{
+		Client: client, Model: "test-model",
+	})
+	s.Require().NoError(err)
+
+	briefs, err := planner.Plan(context.Background(), pagewiki.PlanInput{
+		SourceRevision: revision,
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(briefs, 1)
+	s.Require().Len(briefs[0].Evidence, 1)
+	s.Equal("event-1", briefs[0].Evidence[0].EventID)
+	s.Equal("Releases ship weekly after the validation gate passes.", briefs[0].Evidence[0].ExactText)
+}
+
+func (s *llmSessionPlannerSuite) TestLogsTheLastAttemptErrorWhenDegraded() {
+	var logs bytes.Buffer
+	client := &wikiChatClient{err: context.DeadlineExceeded}
+	planner, err := pagewiki.NewLLMSessionPlanner(pagewiki.LLMPlannerConfig{
+		Client: client, Model: "test-model",
+		Logger: slog.New(slog.NewJSONHandler(&logs, nil)),
+	})
+	s.Require().NoError(err)
+
+	briefs, err := planner.Plan(context.Background(), pagewiki.PlanInput{
+		SourceRevision: plannerRevision(),
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(briefs, 1)
+	s.Equal("plan-degraded", briefs[0].Key)
+	s.Contains(logs.String(), `"level":"WARN"`)
+	s.Contains(logs.String(), `"source_revision_id":"source-revision-1"`)
+	s.Contains(logs.String(), context.DeadlineExceeded.Error())
 }
 
 func (s *llmSessionPlannerSuite) TestDropsInvalidEvidenceAndBriefs() {

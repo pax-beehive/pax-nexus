@@ -145,7 +145,8 @@ func (s *configSuite) TestLoadsNoopConfiguration() {
 }
 
 func (s *configSuite) TestBuildsConfiguredPageWikiMaintainers() {
-	localPlanner, localEditor, err := buildPageWikiMaintainers(applicationConfig{})
+	logger := slog.New(slog.DiscardHandler)
+	localPlanner, localEditor, err := buildPageWikiMaintainers(applicationConfig{}, logger)
 	s.Require().NoError(err)
 	s.IsType(pagewiki.SessionDocumentPlanner{}, localPlanner)
 	s.IsType(pagewiki.SessionDocumentEditor{}, localEditor)
@@ -154,16 +155,16 @@ func (s *configSuite) TestBuildsConfiguredPageWikiMaintainers() {
 		llmwikiMode: "harness", llmwikiBaseURL: "https://api.deepseek.com",
 		llmwikiAPIKey: "secret", llmwikiModel: "deepseek-v4-pro",
 	}
-	planner, editor, err := buildPageWikiMaintainers(config)
+	planner, editor, err := buildPageWikiMaintainers(config, logger)
 	s.Require().NoError(err)
 	s.IsType(&pagewiki.LLMSessionPlanner{}, planner)
 	s.IsType(&pagewiki.LLMSessionEditor{}, editor)
 
 	config.llmwikiAPIKey = ""
-	_, _, err = buildPageWikiMaintainers(config)
+	_, _, err = buildPageWikiMaintainers(config, logger)
 	s.Require().ErrorContains(err, "LLMWIKI_LLM_API_KEY")
 	config.llmwikiMode = "unsupported"
-	_, _, err = buildPageWikiMaintainers(config)
+	_, _, err = buildPageWikiMaintainers(config, logger)
 	s.Require().ErrorContains(err, "unsupported LLMWIKI_ORGANIZER_MODE")
 }
 

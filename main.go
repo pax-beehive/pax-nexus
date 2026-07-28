@@ -174,7 +174,7 @@ func buildPageWikiHTTPHandler(
 	if err != nil {
 		return nil, nil, fmt.Errorf("initialize Page Wiki repository: %w", err)
 	}
-	planner, editor, err := buildPageWikiMaintainers(config)
+	planner, editor, err := buildPageWikiMaintainers(config, logger)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -197,6 +197,7 @@ func buildPageWikiHTTPHandler(
 
 func buildPageWikiMaintainers(
 	config applicationConfig,
+	logger *slog.Logger,
 ) (pagewiki.Planner, pagewiki.Editor, error) {
 	switch strings.TrimSpace(config.llmwikiMode) {
 	case "", "local":
@@ -215,7 +216,7 @@ func buildPageWikiMaintainers(
 			APIKey:  config.llmwikiAPIKey,
 		})
 		planner, err := pagewiki.NewLLMSessionPlanner(pagewiki.LLMPlannerConfig{
-			Client: client, Model: config.llmwikiModel,
+			Client: client, Model: config.llmwikiModel, Logger: logger,
 		})
 		if err != nil {
 			return nil, nil, err

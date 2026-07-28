@@ -80,3 +80,75 @@ func (s *llmPlanAcceptanceSuite) TestNoisySessionProducesOnlyGenuinePages() {
 	_, err = repository.PageBySlug(context.Background(), "knowledge-checklist")
 	s.Require().ErrorIs(err, pagewiki.ErrNotFound)
 }
+
+func (s *llmPlanAcceptanceSuite) TestUpdatePathRevisesAnExistingPageThroughInjectSession() {
+	plannerClient := &wikiChatClient{responses: []string{
+		`{"briefs":[
+			{"action":"create","proposed_slug":"release-policy","proposed_title":"Release Policy",
+			 "reader_goal":"Understand the release cadence.","topic_path":["Engineering","Runtime"],
+			 "evidence":[{"event_id":"event-1","exact_quote":"releases ship weekly"}]}
+		]}`,
+		`{"briefs":[
+			{"action":"update","target_slug":"release-policy",
+			 "reader_goal":"Refresh the release cadence.",
+			 "evidence":[{"event_id":"event-2","exact_quote":"releases ship twice weekly now"}]}
+		]}`,
+	}}
+	editorClient := &wikiChatClient{responses: []string{
+		`{"title":"Release Policy","summary":"How the team ships releases.","sections":[{"key":"policy","heading":"Policy","markdown":"Releases ship weekly."}]}`,
+		`{"title":"Release Policy","summary":"How the team ships releases, revised.","sections":[{"key":"policy","heading":"Policy","markdown":"Releases ship twice weekly now."}]}`,
+	}}
+	planner, err := pagewiki.NewLLMSessionPlanner(pagewiki.LLMPlannerConfig{
+		Client: plannerClient, Model: "test-model",
+	})
+	s.Require().NoError(err)
+	editor, err := pagewiki.NewLLMSessionEditor(pagewiki.LLMEditorConfig{
+		Client: editorClient, Model: "test-model",
+	})
+	s.Require().NoError(err)
+	repository := memory.NewRepository()
+	service := pagewiki.NewService(repository, planner, editor)
+
+	firstRaw := "decision: releases ship weekly."
+	firstResult, err := service.InjectSession(context.Background(), pagewiki.InjectSessionRequest{
+		SourceID:       "session-release-1",
+		IdempotencyKey: "release-run-1",
+		Raw:            []byte(firstRaw),
+		Events: []pagewiki.SourceEventInput{{
+			ID: "event-1", StartByte: 0, EndByte: len(firstRaw),
+		}},
+	})
+	s.Require().NoError(err)
+	s.Equal(pagewiki.RunStatusSucceeded, firstResult.Run.Status)
+	s.Require().Len(firstResult.Run.Targets, 1)
+	s.Equal(pagewiki.PageActionCreate, firstResult.Run.Targets[0].Action)
+
+	page, err := repository.PageBySlug(context.Background(), "release-policy")
+	s.Require().NoError(err)
+	firstRevisionID := page.CurrentRevisionID
+
+	secondRaw := "decision: releases ship twice weekly now."
+	secondResult, err := service.InjectSession(context.Background(), pagewiki.InjectSessionRequest{
+		SourceID:       "session-release-2",
+		IdempotencyKey: "release-run-2",
+		Raw:            []byte(secondRaw),
+		Events: []pagewiki.SourceEventInput{{
+			ID: "event-2", StartByte: 0, EndByte: len(secondRaw),
+		}},
+	})
+
+	s.Require().NoError(err)
+	s.Equal(pagewiki.RunStatusSucceeded, secondResult.Run.Status)
+	s.Require().Len(secondResult.Run.Targets, 1)
+	s.Equal(pagewiki.PageActionUpdate, secondResult.Run.Targets[0].Action)
+	s.Equal(page.ID, secondResult.Run.Targets[0].PageID)
+	s.NotEqual(firstRevisionID, secondResult.Run.Targets[0].PageRevisionID)
+
+	updatedPage, err := repository.PageBySlug(context.Background(), "release-policy")
+	s.Require().NoError(err)
+	s.Equal(secondResult.Run.Targets[0].PageRevisionID, updatedPage.CurrentRevisionID)
+	updatedRevision, err := repository.PageRevision(context.Background(), updatedPage.CurrentRevisionID)
+	s.Require().NoError(err)
+	s.Contains(updatedRevision.Markdown, "Releases ship twice weekly now.")
+	s.Contains(updatedRevision.Markdown, "releases ship twice weekly now")
+}

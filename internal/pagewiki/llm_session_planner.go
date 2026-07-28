@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/pax-beehive/pax-nexus/internal/llmwiki/workspace"
+	"github.com/pax-beehive/pax-nexus/internal/platform/observability"
 )
 
 const (
@@ -21,6 +23,7 @@ const (
 type LLMPlannerConfig struct {
 	Client workspace.ChatClient
 	Model  string
+	Logger *slog.Logger
 }
 
 // LLMSessionPlanner lets the model choose durable pages while deterministic
@@ -28,6 +31,7 @@ type LLMPlannerConfig struct {
 type LLMSessionPlanner struct {
 	client workspace.ChatClient
 	model  string
+	logger *slog.Logger
 }
 
 func NewLLMSessionPlanner(config LLMPlannerConfig) (*LLMSessionPlanner, error) {
@@ -37,8 +41,12 @@ func NewLLMSessionPlanner(config LLMPlannerConfig) (*LLMSessionPlanner, error) {
 	if strings.TrimSpace(config.Model) == "" {
 		return nil, errors.New("create Page Wiki LLM planner: model is required")
 	}
+	logger := config.Logger
+	if logger == nil {
+		logger = observability.DiscardLogger()
+	}
 	return &LLMSessionPlanner{
-		client: config.Client, model: strings.TrimSpace(config.Model),
+		client: config.Client, model: strings.TrimSpace(config.Model), logger: logger,
 	}, nil
 }
 
@@ -85,6 +93,7 @@ func (p *LLMSessionPlanner) Plan(
 	if err != nil {
 		return nil, fmt.Errorf("encode Page Wiki plan request: %w", err)
 	}
+	var lastErr error
 	for attempt := 0; attempt < plannerAttempts; attempt++ {
 		response, err := p.client.Complete(ctx, workspace.ChatRequest{
 			Model: p.model,
@@ -94,6 +103,7 @@ func (p *LLMSessionPlanner) Plan(
 			},
 		})
 		if err != nil {
+			lastErr = err
 			continue
 		}
 		var decoded llmPlanResponse
@@ -101,10 +111,16 @@ func (p *LLMSessionPlanner) Plan(
 			[]byte(trimJSONFence(response.Message.Content)),
 			&decoded,
 		); err != nil {
+			lastErr = err
 			continue
 		}
 		return acceptedBriefs(decoded, input), nil
 	}
+	p.logger.Warn(
+		"Page Wiki plan degraded after all attempts failed",
+		"source_revision_id", input.SourceRevision.ID,
+		"error", lastErr,
+	)
 	return []PageBrief{sourceOnlyBrief(planDegradedBriefKey, input.SourceRevision)}, nil
 }
 
@@ -170,6 +186,9 @@ func acceptBrief(candidate llmPlanBrief, input PlanInput) (PageBrief, bool) {
 		if slug == "" || title == "" || len(topicPath) == 0 {
 			return PageBrief{}, false
 		}
+		if page, found := catalogBySlug(input.PageCatalog, slug); found {
+			return updateBrief(page, candidate, eventIDs, evidence), true
+		}
 		return PageBrief{
 			Key: slug, Action: PageActionCreate,
 			ProposedSlug: slug, ProposedTitle: title,
@@ -179,22 +198,37 @@ func acceptBrief(candidate llmPlanBrief, input PlanInput) (PageBrief, bool) {
 			Evidence:         evidence,
 		}, true
 	case "update":
-		for _, page := range input.PageCatalog {
-			if page.Slug != strings.TrimSpace(candidate.TargetSlug) {
-				continue
-			}
-			return PageBrief{
-				Key: page.Slug, Action: PageActionUpdate,
-				TargetPageID:           page.ID,
-				ExpectedBaseRevisionID: page.CurrentRevisionID,
-				ReaderGoal:             strings.TrimSpace(candidate.ReaderGoal),
-				EvidenceEventIDs:       eventIDs,
-				Evidence:               evidence,
-			}, true
+		if page, found := catalogBySlug(input.PageCatalog, strings.TrimSpace(candidate.TargetSlug)); found {
+			return updateBrief(page, candidate, eventIDs, evidence), true
 		}
 		return PageBrief{}, false
 	default:
 		return PageBrief{}, false
+	}
+}
+
+func catalogBySlug(catalog PageCatalog, slug string) (PageCatalogEntry, bool) {
+	for _, page := range catalog {
+		if page.Slug == slug {
+			return page, true
+		}
+	}
+	return PageCatalogEntry{}, false
+}
+
+func updateBrief(
+	page PageCatalogEntry,
+	candidate llmPlanBrief,
+	eventIDs []string,
+	evidence []EvidenceQuoteDraft,
+) PageBrief {
+	return PageBrief{
+		Key: page.Slug, Action: PageActionUpdate,
+		TargetPageID:           page.ID,
+		ExpectedBaseRevisionID: page.CurrentRevisionID,
+		ReaderGoal:             strings.TrimSpace(candidate.ReaderGoal),
+		EvidenceEventIDs:       eventIDs,
+		Evidence:               evidence,
 	}
 }
 
@@ -205,7 +239,6 @@ func validEvidence(
 	events := eventIndex(revision.Events)
 	evidence := make([]EvidenceQuoteDraft, 0, len(candidates))
 	eventIDs := make([]string, 0, len(candidates))
-	seenQuotes := make(map[string]struct{})
 	for _, candidate := range candidates {
 		event, found := events[candidate.EventID]
 		if !found {
@@ -219,11 +252,9 @@ func validEvidence(
 		if strings.Count(content, quote) != 1 {
 			continue
 		}
-		dedupeKey := candidate.EventID + "\x00" + quote
-		if _, exists := seenQuotes[dedupeKey]; exists {
+		if overlapsAcceptedQuote(evidence, quote) {
 			continue
 		}
-		seenQuotes[dedupeKey] = struct{}{}
 		evidence = append(evidence, EvidenceQuoteDraft{
 			EventID: candidate.EventID, ExactText: quote,
 		})
@@ -232,6 +263,17 @@ func validEvidence(
 		}
 	}
 	return evidence, eventIDs
+}
+
+func overlapsAcceptedQuote(accepted []EvidenceQuoteDraft, quote string) bool {
+	for _, existing := range accepted {
+		if existing.ExactText == quote ||
+			strings.Contains(existing.ExactText, quote) ||
+			strings.Contains(quote, existing.ExactText) {
+			return true
+		}
+	}
+	return false
 }
 
 func trimmedTopicPath(values []string) []string {
