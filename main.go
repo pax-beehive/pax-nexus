@@ -174,15 +174,11 @@ func buildPageWikiHTTPHandler(
 	if err != nil {
 		return nil, nil, fmt.Errorf("initialize Page Wiki repository: %w", err)
 	}
-	editor, err := buildPageWikiEditor(config)
+	planner, editor, err := buildPageWikiMaintainers(config)
 	if err != nil {
 		return nil, nil, err
 	}
-	service := pagewiki.NewService(
-		repository,
-		pagewiki.SessionDocumentPlanner{},
-		editor,
-	)
+	service := pagewiki.NewService(repository, planner, editor)
 	consumerStore, err := postgres.NewPageWikiConsumerStore(store.Pool(), onprem.LocalScopeID)
 	if err != nil {
 		return nil, nil, err
@@ -199,29 +195,41 @@ func buildPageWikiHTTPHandler(
 	return configured, controller, nil
 }
 
-func buildPageWikiEditor(config applicationConfig) (pagewiki.Editor, error) {
+func buildPageWikiMaintainers(
+	config applicationConfig,
+) (pagewiki.Planner, pagewiki.Editor, error) {
 	switch strings.TrimSpace(config.llmwikiMode) {
 	case "", "local":
-		return pagewiki.SessionDocumentEditor{}, nil
+		return pagewiki.SessionDocumentPlanner{}, pagewiki.SessionDocumentEditor{}, nil
 	case "openai", "harness":
 		if strings.TrimSpace(config.llmwikiBaseURL) == "" ||
 			strings.TrimSpace(config.llmwikiAPIKey) == "" ||
 			strings.TrimSpace(config.llmwikiModel) == "" {
-			return nil, errors.New(
-				"initialize Page Wiki LLM editor: LLMWIKI_LLM_BASE_URL, " +
+			return nil, nil, errors.New(
+				"initialize Page Wiki LLM maintainers: LLMWIKI_LLM_BASE_URL, " +
 					"LLMWIKI_LLM_API_KEY, and LLMWIKI_LLM_MODEL are required",
 			)
 		}
-		return pagewiki.NewLLMSessionEditor(pagewiki.LLMEditorConfig{
-			Client: llmwikiworkspace.NewDeepSeekClient(llmwikiworkspace.DeepSeekConfig{
-				BaseURL: config.llmwikiBaseURL,
-				APIKey:  config.llmwikiAPIKey,
-			}),
-			Model: config.llmwikiModel,
+		client := llmwikiworkspace.NewDeepSeekClient(llmwikiworkspace.DeepSeekConfig{
+			BaseURL: config.llmwikiBaseURL,
+			APIKey:  config.llmwikiAPIKey,
 		})
+		planner, err := pagewiki.NewLLMSessionPlanner(pagewiki.LLMPlannerConfig{
+			Client: client, Model: config.llmwikiModel,
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		editor, err := pagewiki.NewLLMSessionEditor(pagewiki.LLMEditorConfig{
+			Client: client, Model: config.llmwikiModel,
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		return planner, editor, nil
 	default:
-		return nil, fmt.Errorf(
-			"initialize Page Wiki LLM editor: unsupported LLMWIKI_ORGANIZER_MODE %q",
+		return nil, nil, fmt.Errorf(
+			"initialize Page Wiki LLM maintainers: unsupported LLMWIKI_ORGANIZER_MODE %q",
 			config.llmwikiMode,
 		)
 	}
