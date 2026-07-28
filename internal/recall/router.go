@@ -17,7 +17,6 @@ type Config struct {
 type Router struct {
 	teamNote TeamNotePath
 	wiki     WikiPath
-	config   Config
 }
 
 func NewRouter(teamNote TeamNotePath, wiki WikiPath, config Config) (*Router, error) {
@@ -27,7 +26,7 @@ func NewRouter(teamNote TeamNotePath, wiki WikiPath, config Config) (*Router, er
 	if config.EnablePassiveWikiHint && wiki == nil {
 		return nil, fmt.Errorf("create recall router: enabled wiki hint path is required")
 	}
-	return &Router{teamNote: teamNote, wiki: wiki, config: config}, nil
+	return &Router{teamNote: teamNote, wiki: wiki}, nil
 }
 
 func (r *Router) Search(ctx context.Context, request SearchRequest) (SearchResult, error) {
@@ -94,45 +93,45 @@ type teamOutcome struct {
 	duration time.Duration
 }
 
-type hintOutcome struct {
-	hit      MemoryHit
+type wikiOutcome struct {
+	hits     []MemoryHit
 	err      error
 	duration time.Duration
 }
 
 func (r *Router) searchPassive(ctx context.Context, request SearchRequest) (SearchResult, error) {
-	if !r.config.EnablePassiveWikiHint {
+	if r.wiki == nil {
 		return r.searchTeamNoteOnly(ctx, request)
 	}
 	searchCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	teamResults := make(chan teamOutcome, 1)
-	hintResults := make(chan hintOutcome, 1)
+	wikiResults := make(chan wikiOutcome, 1)
 	go r.runTeamNote(searchCtx, request, teamResults)
-	go r.runWikiHint(searchCtx, request, hintResults)
+	go r.runPageWiki(searchCtx, request, wikiResults)
 
-	var hint *hintOutcome
+	var wiki *wikiOutcome
 	for {
 		select {
-		case current := <-hintResults:
-			hint = &current
-			hintResults = nil
+		case current := <-wikiResults:
+			wiki = &current
+			wikiResults = nil
 		case team := <-teamResults:
-			return r.finishPassive(ctx, cancel, request, team, hint, hintResults)
+			return r.finishPassive(ctx, cancel, request, team, wiki, wikiResults)
 		case <-ctx.Done():
 			cancel()
 			result := SearchResult{Trace: Trace{
 				TeamNote: timedOut(ctx.Err()), WikiHint: timedOut(ctx.Err()), WikiSearch: skipped("passive_search"),
 			}}
-			if hint == nil && hintResults != nil {
+			if wiki == nil && wikiResults != nil {
 				select {
-				case current := <-hintResults:
-					hint = &current
+				case current := <-wikiResults:
+					wiki = &current
 				default:
 				}
 			}
-			if hint != nil {
-				result = composeHint(result, *hint, request.TokenBudget)
+			if wiki != nil {
+				result = composePageWiki(result, *wiki, request)
 				if len(result.Hits) > 0 {
 					return result, nil
 				}
@@ -147,49 +146,50 @@ func (r *Router) finishPassive(
 	cancel context.CancelFunc,
 	request SearchRequest,
 	team teamOutcome,
-	hint *hintOutcome,
-	hintResults <-chan hintOutcome,
+	wiki *wikiOutcome,
+	wikiResults <-chan wikiOutcome,
 ) (SearchResult, error) {
 	result := teamResult(team)
-	result.Trace.WikiSearch = skipped("passive_search")
+	result.Trace.WikiHint = skipped("pagewiki_replaced")
 	if team.err != nil {
 		cancel()
-		result.Trace.WikiHint = cancelled("team_note_failed")
+		result.Trace.WikiSearch = cancelled("team_note_failed")
 		return result, fmt.Errorf("search team note memory: %w", team.err)
 	}
 	if team.envelope.Decision.EvidenceSufficient {
 		cancel()
 		result.Trace.EarlyReturn = true
-		if hint == nil {
-			result.Trace.WikiHint = cancelled("sufficient_team_note_evidence")
+		if wiki == nil {
+			result.Trace.WikiSearch = cancelled("sufficient_team_note_evidence")
 		} else {
-			result.Trace.WikiHint = completedHintTrace(*hint, "discarded_sufficient_team_note_evidence")
+			result.Trace.WikiSearch = completedPageWikiTrace(
+				*wiki,
+				"discarded_sufficient_team_note_evidence",
+			)
 		}
 		return result, nil
 	}
-	if hint == nil {
+	if wiki == nil {
 		select {
-		case current := <-hintResults:
-			hint = &current
+		case current := <-wikiResults:
+			wiki = &current
 		case <-ctx.Done():
 			cancel()
-			result.Trace.WikiHint = timedOut(ctx.Err())
+			result.Trace.WikiSearch = timedOut(ctx.Err())
 			return result, nil
 		}
 	}
-	return composeHint(result, *hint, request.TokenBudget), nil
+	return composePageWiki(result, *wiki, request), nil
 }
 
-func completedHintTrace(outcome hintOutcome, reason string) PathTrace {
+func completedPageWikiTrace(outcome wikiOutcome, reason string) PathTrace {
 	trace := PathTrace{DurationMS: outcome.duration.Milliseconds(), Reason: reason}
 	if outcome.err != nil {
 		trace.Status, trace.Error = pathFailure(context.Background(), outcome.err)
 		return trace
 	}
 	trace.Status = PathCompleted
-	if strings.TrimSpace(outcome.hit.Text) != "" {
-		trace.Candidates = 1
-	}
+	trace.Candidates = len(outcome.hits)
 	return trace
 }
 
@@ -197,8 +197,8 @@ func (r *Router) searchTeamNoteOnly(ctx context.Context, request SearchRequest) 
 	startedAt := time.Now()
 	envelope, err := r.teamNote.RecallNotes(ctx, teamNoteRequest(request))
 	result := teamResult(teamOutcome{envelope: envelope, err: err, duration: time.Since(startedAt)})
-	result.Trace.WikiHint = skipped("disabled")
-	result.Trace.WikiSearch = skipped("passive_search")
+	result.Trace.WikiHint = skipped("pagewiki_replaced")
+	result.Trace.WikiSearch = skipped("unavailable")
 	if err != nil {
 		return result, fmt.Errorf("search team note memory: %w", err)
 	}
@@ -211,10 +211,10 @@ func (r *Router) runTeamNote(ctx context.Context, request SearchRequest, results
 	results <- teamOutcome{envelope: envelope, err: err, duration: time.Since(startedAt)}
 }
 
-func (r *Router) runWikiHint(ctx context.Context, request SearchRequest, results chan<- hintOutcome) {
+func (r *Router) runPageWiki(ctx context.Context, request SearchRequest, results chan<- wikiOutcome) {
 	startedAt := time.Now()
-	hit, err := r.wiki.Hint(ctx, request)
-	results <- hintOutcome{hit: hit, err: err, duration: time.Since(startedAt)}
+	hits, err := r.wiki.Search(ctx, request)
+	results <- wikiOutcome{hits: hits, err: err, duration: time.Since(startedAt)}
 }
 
 func teamNoteRequest(request SearchRequest) teamnote.RecallRequest {
@@ -268,36 +268,48 @@ func recallReasonCodes(values []teamnote.RecallReasonCode) []string {
 	return result
 }
 
-func composeHint(result SearchResult, outcome hintOutcome, tokenBudget int) SearchResult {
+func composePageWiki(
+	result SearchResult,
+	outcome wikiOutcome,
+	request SearchRequest,
+) SearchResult {
 	trace := PathTrace{DurationMS: outcome.duration.Milliseconds()}
 	if outcome.err != nil {
 		trace.Status, trace.Error = pathFailure(context.Background(), outcome.err)
-		result.Trace.WikiHint = trace
+		result.Trace.WikiSearch = trace
 		return result
 	}
 	trace.Status = PathCompleted
-	if strings.TrimSpace(outcome.hit.Text) == "" {
-		trace.Reason = "empty_hint"
-		result.Trace.WikiHint = trace
+	trace.Candidates = len(outcome.hits)
+	if len(outcome.hits) == 0 {
+		trace.Reason = "empty_search"
+		result.Trace.WikiSearch = trace
 		return result
-	}
-	outcome.hit.Disposition = DispositionHint
-	if outcome.hit.Tokens <= 0 {
-		outcome.hit.Tokens = estimateTokens(outcome.hit.Text)
 	}
 	used := 0
 	for _, hit := range result.Hits {
 		used += hit.Tokens
 	}
-	if used+outcome.hit.Tokens > tokenBudget {
-		trace.BudgetDrops = 1
-		trace.Reason = "shared_token_budget"
-		result.Trace.WikiHint = trace
-		return result
+	for _, hit := range outcome.hits {
+		if request.MaxItems > 0 && len(result.Hits) >= request.MaxItems {
+			trace.BudgetDrops++
+			continue
+		}
+		if hit.Tokens <= 0 {
+			hit.Tokens = estimateTokens(hit.Text)
+		}
+		if used+hit.Tokens > request.TokenBudget {
+			trace.BudgetDrops++
+			continue
+		}
+		hit.Disposition = DispositionReference
+		result.Hits = append(result.Hits, hit)
+		used += hit.Tokens
 	}
-	trace.Candidates = 1
-	result.Hits = append(result.Hits, outcome.hit)
-	result.Trace.WikiHint = trace
+	if trace.BudgetDrops > 0 {
+		trace.Reason = "shared_budget"
+	}
+	result.Trace.WikiSearch = trace
 	return result
 }
 
