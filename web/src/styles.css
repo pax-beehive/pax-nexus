@@ -180,6 +180,9 @@ tr:last-child td { border-bottom: none; }
 .wiki-markdown { font-family: var(--serif); font-size: 16px; line-height: 1.72; }
 .wiki-markdown h2 { margin-top: 28px; padding-bottom: 7px; border-bottom: 1px solid var(--border); }
 .wiki-markdown h3 { margin-top: 22px; }
+.wiki-evidence-fold { margin-top: 28px; padding-top: 7px; border-top: 1px solid var(--border); }
+.wiki-evidence-fold > summary { color: var(--muted); font-family: var(--sans); font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; cursor: pointer; }
+.wiki-evidence-fold[open] > summary { margin-bottom: 8px; }
 .wiki-inline-link { padding: 0 2px; border-bottom: 1px solid currentColor; font-weight: 600; }
 .wiki-article-section { padding-top: 22px; margin-top: 26px; border-top: 1px solid var(--border); }
 .wiki-article-section > h2 { font-size: 17px; }
