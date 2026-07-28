@@ -60,16 +60,19 @@ type KnowledgeItem struct {
 }
 
 type Checkpoint struct {
-	ActiveKnowledge   []KnowledgeItem     `json:"active_knowledge"`
-	ResolvedKnowledge []KnowledgeItem     `json:"resolved_knowledge"`
-	OpenQuestions     []KnowledgeItem     `json:"open_questions"`
-	EvidenceIndex     map[string][]string `json:"evidence_index"`
-	SourceCursors     map[string]int64    `json:"source_cursors"`
-	Summary           string              `json:"summary,omitempty"`
-	SummaryCount      int                 `json:"summary_count,omitempty"`
-	SummaryAttempts   int                 `json:"summary_attempts,omitempty"`
-	SummaryFailures   int                 `json:"summary_failures,omitempty"`
-	SummaryLastError  string              `json:"summary_last_error,omitempty"`
+	ActiveKnowledge       []KnowledgeItem     `json:"active_knowledge"`
+	ResolvedKnowledge     []KnowledgeItem     `json:"resolved_knowledge"`
+	OpenQuestions         []KnowledgeItem     `json:"open_questions"`
+	EvidenceIndex         map[string][]string `json:"evidence_index"`
+	SourceCursors         map[string]int64    `json:"source_cursors"`
+	Summary               string              `json:"summary,omitempty"`
+	SummaryCount          int                 `json:"summary_count,omitempty"`
+	SummaryAttempts       int                 `json:"summary_attempts,omitempty"`
+	SummaryFailures       int                 `json:"summary_failures,omitempty"`
+	SummaryLastError      string              `json:"summary_last_error,omitempty"`
+	CompactionFailures    int                 `json:"compaction_failures,omitempty"`
+	CompactionTruncations int                 `json:"compaction_truncations,omitempty"`
+	CompactionLastError   string              `json:"compaction_last_error,omitempty"`
 }
 
 type Episode struct {
