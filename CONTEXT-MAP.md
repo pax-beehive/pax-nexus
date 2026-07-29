@@ -4,19 +4,27 @@
 
 - [Session](./internal/session/CONTEXT.md) — shared agent identity and immutable session evidence.
 - [Team Note](./internal/teamnote/CONTEXT.md) — short-lived passive collaboration recall.
+- [PageWiki](./internal/pagewiki/CONTEXT.md) — the shipping wiki product: durable, cited pages maintained from session evidence.
+- Recall (`internal/recall`) — routes recall requests across product paths; owns no adapters.
+- Explorer (`internal/explorer`) — read-only team-memory diagnostics for operators.
 - [Evaluation](./internal/eval/CONTEXT.md) — reproducible quality measurement and benchmark adapters.
-- [LLM Wiki](./internal/llmwiki/CONTEXT.md) — durable, actively browsed knowledge maintained from session evidence.
 - [On-prem Identity](./internal/deployment/onprem/CONTEXT.md) — human membership, Agent ownership, and credential-bound access for one installation.
 - [Operations](./internal/operations/CONTEXT.md) — bounded service activity, diagnostics, and storage accounting for operators.
+- Platform (`internal/platform`) — technical infrastructure: Postgres adapters, observability, text embedding, and the shared LLM chat client (`platform/llm`).
+- [LLM Wiki](./internal/llmwiki/CONTEXT.md) — experimental spike (workspace agent, effect eval, session datasets) and a reserved name for a future actively browsed knowledge module. Not a shipping product; PageWiki is.
 
 ## Relationships
 
 - **Session → Team Note**: Team Note extracts bounded facts from Session Lake events.
-- **Session → LLM Wiki**: LLM Wiki will maintain durable pages from larger Session Lake batches.
-- **Evaluation → Team Note/LLM Wiki**: Evaluation may exercise product contexts; product contexts never import Evaluation.
-- **Team Note ↔ LLM Wiki**: They share Session evidence but do not import each other.
-- **On-prem Identity → Session/Team Note/LLM Wiki**: On-prem Identity authenticates human and Agent principals; product contexts consume the resulting identity but do not own accounts or credentials.
-- **Operations → Session/Team Note/LLM Wiki/On-prem Identity**: Operations observes bounded outcomes and storage measurements without owning product state or changing product decisions.
+- **Session → PageWiki**: PageWiki maintains durable pages from Session Lake batches.
+- **Recall → Team Note**: Recall routes across product recall paths; product contexts never import Recall.
+- **Evaluation → products**: Evaluation may exercise any product context; product contexts never import Evaluation.
+- **Platform → products**: Platform adapters implement ports defined by product contexts (dependency points at the domain). Exception: `platform/observability` and `platform/llm` are shared technical services that domains may import.
+- **On-prem Identity → Session/Team Note/PageWiki**: On-prem Identity authenticates principals; product contexts consume the resulting identity but do not own accounts or credentials.
+- **Operations → products/On-prem Identity**: Operations observes bounded outcomes and storage measurements without owning product state.
+- **Team Note ↔ PageWiki**: They share Session evidence but do not import each other's domain packages.
+
+The dependency rules are enforced by `internal/architecture/dependencies_test.go`.
 
 The implementation boundary and extension rules are documented in the
 [Session Lake processor guide](./docs/session-lake-processors.md).
