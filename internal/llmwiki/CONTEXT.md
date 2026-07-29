@@ -1,5 +1,10 @@
 # LLM Wiki
 
+> **Status:** experimental spike + reserved name. The shipping wiki product is
+> [PageWiki](../pagewiki/CONTEXT.md). `effecteval`, `sessiondataset`, and
+> `cmd/llmwiki-spike` are spike code; the shared LLM chat client formerly in
+> `workspace` now lives in `internal/platform/llm`.
+
 The LLM Wiki context will own durable, actively browsed knowledge derived from Session Lake evidence.
 
 ## Language
