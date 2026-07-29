@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pax-beehive/pax-nexus/internal/sessionlake"
+	"github.com/pax-beehive/pax-nexus/internal/evidencelake"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote"
 )
 
@@ -163,7 +163,7 @@ func normalizeExtractionVersion(config *OpenAIConfig) error {
 	return nil
 }
 
-func (e *OpenAI) Extract(ctx context.Context, slice sessionlake.Slice) (Result, error) {
+func (e *OpenAI) Extract(ctx context.Context, slice evidencelake.Slice) (Result, error) {
 	if err := e.lifecycle.beginForeground(); err != nil {
 		return Result{}, fmt.Errorf("extract with OpenAI: %w", err)
 	}
@@ -217,7 +217,7 @@ func (e *OpenAI) systemPrompt() string {
 	return rollingSystemPrompt
 }
 
-func (e *OpenAI) extractSlice(ctx context.Context, slice sessionlake.Slice) (Result, error) {
+func (e *OpenAI) extractSlice(ctx context.Context, slice evidencelake.Slice) (Result, error) {
 	prompt, err := buildPrompt(slice, e.config.PromptVersion)
 	if err != nil {
 		return Result{}, err
@@ -313,7 +313,7 @@ func providerUsage(body []byte) Usage {
 	}
 }
 
-func buildPrompt(slice sessionlake.Slice, promptVersion string) (string, error) {
+func buildPrompt(slice evidencelake.Slice, promptVersion string) (string, error) {
 	input := struct {
 		PromptVersion   string                  `json:"prompt_version"`
 		InputChecksum   string                  `json:"input_checksum"`
@@ -415,7 +415,7 @@ func normalizeV11OptionalTimes(content string) ([]byte, error) {
 	return normalized, nil
 }
 
-func normalizeCandidates(result *Result, slice sessionlake.Slice, candidateLimit int) error {
+func normalizeCandidates(result *Result, slice evidencelake.Slice, candidateLimit int) error {
 	checksum := slice.InputChecksum
 	if len(checksum) > 16 {
 		checksum = checksum[:16]

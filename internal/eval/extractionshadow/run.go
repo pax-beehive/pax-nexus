@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pax-beehive/pax-nexus/internal/sessionlake"
+	"github.com/pax-beehive/pax-nexus/internal/evidencelake"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote/extractor"
 	teamruntime "github.com/pax-beehive/pax-nexus/internal/teamnote/runtime"
@@ -50,7 +50,7 @@ type recordingExtractor struct {
 	seen     map[string]struct{}
 }
 
-func (r *recordingExtractor) Extract(ctx context.Context, slice sessionlake.Slice) (extractor.Result, error) {
+func (r *recordingExtractor) Extract(ctx context.Context, slice evidencelake.Slice) (extractor.Result, error) {
 	startedAt := time.Now()
 	result, err := r.delegate.Extract(ctx, slice)
 	record := SliceRecord{
@@ -149,7 +149,7 @@ func RunCaseWithOptions(
 	}
 	noteStore := teamnote.NewScopedLedgerStore(teamnote.DefaultTTLPolicy(), teamnote.SystemClock{})
 	runtimeConfig := teamruntime.Config{NoteStore: noteStore, SliceEventLimit: options.SliceEventLimit}
-	app, err := teamruntime.New(sessionlake.New(newMemoryRepository()), recorder, runtimeConfig)
+	app, err := teamruntime.New(evidencelake.New(newMemoryRepository()), recorder, runtimeConfig)
 	if err != nil {
 		return CaseRun{}, fmt.Errorf("run extraction shadow case %q: %w", caseID, err)
 	}
@@ -177,7 +177,7 @@ func RunCaseWithOptions(
 	}, nil
 }
 
-// memoryRepository is an in-memory sessionlake.Repository for shadow replay.
+// memoryRepository is an in-memory evidencelake.Repository for shadow replay.
 type memoryRepository struct {
 	events  map[string][]teamnote.SessionEvent
 	cursors map[string]int64
@@ -241,7 +241,7 @@ func (r *memoryRepository) AdvanceExtractionCursor(_ context.Context, scopeID st
 }
 
 // AppendStream and StreamEvents are not exercised by shadow replay yet; they
-// exist only to satisfy sessionlake.Repository.
+// exist only to satisfy evidencelake.Repository.
 func (r *memoryRepository) AppendStream(_ context.Context, _ string, _ teamnote.StreamBatch) (teamnote.IngestReceipt, error) {
 	return teamnote.IngestReceipt{}, fmt.Errorf("append stream: not supported in shadow replay")
 }

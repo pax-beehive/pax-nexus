@@ -9,7 +9,7 @@ import (
 
 	"github.com/pax-beehive/pax-nexus/internal/eval/extractionshadow"
 	"github.com/pax-beehive/pax-nexus/internal/eval/stageeval"
-	"github.com/pax-beehive/pax-nexus/internal/sessionlake"
+	"github.com/pax-beehive/pax-nexus/internal/evidencelake"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote/extractor"
 	"github.com/stretchr/testify/suite"
@@ -34,7 +34,7 @@ type stubExtractor struct {
 	calls  int
 }
 
-func (e *stubExtractor) Extract(_ context.Context, _ sessionlake.Slice) (extractor.Result, error) {
+func (e *stubExtractor) Extract(_ context.Context, _ evidencelake.Slice) (extractor.Result, error) {
 	e.calls++
 	return e.result, nil
 }

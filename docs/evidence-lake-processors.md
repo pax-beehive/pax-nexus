@@ -1,8 +1,8 @@
-# Session Lake processor guide
+# Evidence Lake processor guide
 
 ## Purpose
 
-Session Lake is the shared, immutable evidence layer for knowledge products.
+Evidence Lake is the shared, immutable evidence layer for knowledge products.
 It is not a Team Note database, a Wiki database, or a queue whose messages may
 be deleted after one consumer handles them. A processor consumes ordered source
 events and owns its derived output, lifecycle, and delivery policy.
@@ -26,7 +26,28 @@ The source of truth is the Session Event. A derived output is never allowed to
 rewrite its source event or make a source event disappear for another
 processor.
 
-## Current ingestion contract
+## Generalized stream identity and the connector boundary
+
+Every event the Evidence Lake stores belongs to a **Stream**, identified by
+`(source, stream_id)` (`internal/session.Stream`). The legacy Actor-scoped
+ingestion path (`ObserveSession` / `/v1/session-batches`) maps each
+`(agent_id, session_id)` onto a Stream with `source="agent-session"`; other
+registered sources, such as `im-channel`, carry `StreamEvent`s pushed by a
+generic ingest path (`ObserveStream` / `POST /v1/stream-batches`).
+
+A connector for a source such as an IM channel is an external program: it
+lives outside this repository, authenticates to the platform it bridges, and
+pushes `StreamEvent`s through the generic endpoint. This repository owns only
+the ingest contract (`ValidateStreamBatch` in `internal/session/evidence.go`)
+and Evidence Lake storage — not any specific connector, and not (yet)
+anything downstream of ingest for non-`agent-session` sources. Stream-keyed
+extraction/consumption, `source + native_id → user_id` identity resolution,
+and media/blob storage for non-text kinds are explicitly future plans; the
+generic endpoint currently accepts only `kind="text"` events with
+`visibility="team"` from a registered source and rejects everything else with
+a 400.
+
+## Current ingestion contracts
 
 `POST /v1/session-batches` is defined in `idl/team_memory.thrift`. The storage
 adapter enforces these properties:
@@ -41,7 +62,16 @@ adapter enforces these properties:
   has one durable order.
 - `complete` only transitions from false to true. It never reopens a stream.
 
-`captured_at` is set by Session Lake persistence. A processor should preserve
+`POST /v1/stream-batches` is the generalized counterpart: it accepts a
+`StreamBatch` of `StreamEvent`s for any registered `(source, stream_id)`
+instead of only `agent-session`. `ValidateStreamBatch` enforces a single
+stream per batch, a registered source/kind/event-type/author-kind, a
+non-empty author `native_id`, `visibility="team"`, and (for now) `kind="text"`
+only; a caller-supplied `sequence` or any other kind/visibility is rejected
+with a 400. Both endpoints append to the same underlying Evidence Lake
+storage.
+
+`captured_at` is set by Evidence Lake persistence. A processor should preserve
 `occurred_at` as the factual time and may use `captured_at` to measure ingest
 latency. It must not treat either timestamp as a replacement for the other.
 
@@ -64,7 +94,7 @@ ObserveSession
   -> CommitSlice advances the Team Note extraction cursor
 ```
 
-`sessionlake.Slice` contains two kinds of events:
+`evidencelake.Slice` contains two kinds of events:
 
 - `NewEventIDs` are the events that advance the cursor and define
   `InputChecksum`.
@@ -146,7 +176,7 @@ An LLM Wiki processor differs from Team Note in product intent:
 
 For a Wiki page that incorporates multiple streams, keep the consumer cursor
 per source stream and persist a page-level provenance set. A page checkpoint is
-not permission to discard or compact the source events in Session Lake.
+not permission to discard or compact the source events in Evidence Lake.
 
 ## Implementation and evaluation checklist
 
@@ -165,7 +195,7 @@ Before enabling a processor in production, verify:
 ## Code map
 
 - Shared source contract: `internal/session/contracts.go`
-- Lake slicing and Team Note cursor operations: `internal/sessionlake/lake.go`
+- Lake slicing and Team Note cursor operations: `internal/evidencelake/lake.go`
 - PostgreSQL durability and idempotency: `internal/platform/postgres/store.go`
 - Team Note orchestration: `internal/teamnote/runtime/app.go`
 - Team Note queue: `internal/teamnote/extractionqueue/queue.go`

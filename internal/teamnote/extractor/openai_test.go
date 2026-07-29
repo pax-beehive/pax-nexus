@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pax-beehive/pax-nexus/internal/sessionlake"
+	"github.com/pax-beehive/pax-nexus/internal/evidencelake"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote/extractor"
 	"github.com/stretchr/testify/suite"
@@ -521,7 +521,7 @@ func (s *openAISuite) TestFixtureNoopAndCodeFence() {
 	s.Require().NoError(err)
 	s.Equal(want, got)
 
-	_, err = fixture.Extract(context.Background(), sessionlake.Slice{InputChecksum: "missing"})
+	_, err = fixture.Extract(context.Background(), evidencelake.Slice{InputChecksum: "missing"})
 	s.Require().Error(err)
 	canceled, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -1601,9 +1601,9 @@ func (s *openAISuite) TestRollingContextKeepsCompactionCountersAfterLaterSuccess
 	s.Equal(1, episode.Checkpoint.CompactionTruncations)
 }
 
-func extractorSlice() sessionlake.Slice {
+func extractorSlice() evidencelake.Slice {
 	actor := teamnote.Actor{UserID: "owner", AgentID: "producer", SessionID: "session-1"}
-	return sessionlake.Slice{
+	return evidencelake.Slice{
 		Actor: actor, FromSequence: 1, ToSequence: 1, InputChecksum: "checksum",
 		NewEventIDs: []string{"event-1"},
 		Events: []teamnote.SessionEvent{{
@@ -1613,7 +1613,7 @@ func extractorSlice() sessionlake.Slice {
 	}
 }
 
-func extractionEventSlice(eventID, checksum string, sequence int64) sessionlake.Slice {
+func extractionEventSlice(eventID, checksum string, sequence int64) evidencelake.Slice {
 	slice := extractorSlice()
 	slice.InputChecksum = checksum
 	slice.FromSequence = sequence
