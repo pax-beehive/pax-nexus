@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { ApiError } from "../api/client";
+import { apiError } from "../api/client";
 import { transferAgent, updateAgent } from "../api/actions";
 import { getAdminAgent, listAdminAgents, listAllMembers } from "../api/queries";
 import type { AgentProfile, HumanMe, Member } from "../api/types";
@@ -10,6 +10,7 @@ import { useErrorHandler } from "../lib/useErrorHandler";
 import { Badge, ProvisionedByBadge } from "../components/Badge";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Modal } from "../components/Modal";
+import { PagedListCard } from "../components/PagedListCard";
 import { useToast } from "../components/Toasts";
 
 const STATUS_FILTERS = ["all", "active", "suspended", "retired"] as const;
@@ -46,7 +47,7 @@ function TransferModal({
       toast("ok", "Transferred; the old Credentials and Enrollments were revoked");
       onDone(updated);
     } catch (err) {
-      if (err instanceof ApiError && err.code === "resource_version_conflict") {
+      if (apiError(err, undefined, "resource_version_conflict")) {
         toast("warn", "The data was modified by someone else; refresh and try again");
         onClose();
       } else {
@@ -155,7 +156,7 @@ export function AdminAgentsPage({ me }: { me: HumanMe }) {
       list.reload();
       void updated;
     } catch (err) {
-      if (err instanceof ApiError && err.code === "resource_version_conflict") {
+      if (apiError(err, undefined, "resource_version_conflict")) {
         await getAdminAgent(agent.agent_id).catch(() => undefined);
         list.reload();
         toast("warn", "Modified by someone else; the latest data has been loaded");
@@ -218,77 +219,55 @@ export function AdminAgentsPage({ me }: { me: HumanMe }) {
           </button>
         ))}
       </div>
-      <div className="card">
-        {list.loading ? (
-          <p className="muted small">Loading…</p>
-        ) : list.items.length === 0 ? (
-          <p className="muted small">No matching records.</p>
-        ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>Agent</th>
-                <th>Owner</th>
-                <th>Status</th>
-                <th>Governance</th>
-              </tr>
-            </thead>
-            <tbody>
-              {list.items.map((a) => {
-                const retired = a.status === "retired";
-                return (
-                  <tr key={a.agent_id}>
-                    <td>
-                      <Link to={`/admin/agents/${encodeURIComponent(a.agent_id)}`}>{a.display_name}</Link>
-                      <div className="small mono faint">{a.agent_id}</div>
-                    </td>
-                    <td className="small">{memberLabel(a.owner_membership_id)}</td>
-                    <td>
-                      <span className="row">
-                        <Badge status={a.status} />
-                        <ProvisionedByBadge agent={a} />
-                      </span>
-                    </td>
-                    <td>
-                      {retired ? (
-                        <span className="faint small">Terminal</span>
-                      ) : (
-                        <span className="row wrap">
-                          {a.status === "active" && maySuspend && (
-                            <button
-                              className="btn sm danger"
-                              onClick={() => setPending({ kind: "suspend", agent: a })}
-                            >
-                              Suspend
-                            </button>
-                          )}
-                          {a.status === "suspended" && mayGovern && (
-                            <button className="btn sm" onClick={() => setPending({ kind: "resume", agent: a })}>
-                              Resume
-                            </button>
-                          )}
-                          {mayGovern && (
-                            <button className="btn sm" onClick={() => setPending({ kind: "transfer", agent: a })}>
-                              Transfer
-                            </button>
-                          )}
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        )}
-      </div>
-      {list.nextCursor && (
-        <div style={{ marginTop: 10, textAlign: "center" }}>
-          <button className="btn sm" disabled={list.loadingMore} onClick={() => void list.loadMore()}>
-            {list.loadingMore ? "Loading…" : "Load more"}
-          </button>
-        </div>
-      )}
+      <PagedListCard
+        list={list}
+        columns={["Agent", "Owner", "Status", "Governance"]}
+        emptyText="No agents yet"
+        renderRow={(a) => {
+          const retired = a.status === "retired";
+          return (
+            <tr key={a.agent_id}>
+              <td>
+                <Link to={`/admin/agents/${encodeURIComponent(a.agent_id)}`}>{a.display_name}</Link>
+                <div className="small mono faint">{a.agent_id}</div>
+              </td>
+              <td className="small">{memberLabel(a.owner_membership_id)}</td>
+              <td>
+                <span className="row">
+                  <Badge status={a.status} />
+                  <ProvisionedByBadge agent={a} />
+                </span>
+              </td>
+              <td>
+                {retired ? (
+                  <span className="faint small">Terminal</span>
+                ) : (
+                  <span className="row wrap">
+                    {a.status === "active" && maySuspend && (
+                      <button
+                        className="btn sm danger"
+                        onClick={() => setPending({ kind: "suspend", agent: a })}
+                      >
+                        Suspend
+                      </button>
+                    )}
+                    {a.status === "suspended" && mayGovern && (
+                      <button className="btn sm" onClick={() => setPending({ kind: "resume", agent: a })}>
+                        Resume
+                      </button>
+                    )}
+                    {mayGovern && (
+                      <button className="btn sm" onClick={() => setPending({ kind: "transfer", agent: a })}>
+                        Transfer
+                      </button>
+                    )}
+                  </span>
+                )}
+              </td>
+            </tr>
+          );
+        }}
+      />
 
       {pending?.kind === "transfer" && (
         <TransferModal

@@ -4,6 +4,7 @@ import type { AgentProfile, AuditEvent, Member } from "../api/types";
 import { usePagedList } from "../lib/usePagedList";
 import { useErrorHandler } from "../lib/useErrorHandler";
 import { formatTime } from "../lib/format";
+import { PagedListCard } from "../components/PagedListCard";
 
 // Fixed kind vocabularies from the backend audit schema (migration 017).
 const ACTOR_KINDS = ["bootstrap", "human", "agent", "system"] as const;
@@ -205,106 +206,83 @@ export function AdminAuditPage() {
           Apply filters
         </button>
       </div>
-      <div className="card">
-        {list.loading ? (
-          <p className="muted small">Loading…</p>
-        ) : list.items.length === 0 ? (
-          <p className="muted small">No matching records.</p>
-        ) : (
-          <table>
-            <thead>
+      <PagedListCard
+        list={list}
+        columns={["Time", "Actor", "Action", "Target", ""]}
+        emptyText="No matching audit events."
+        renderRow={(e) => (
+          <Fragment key={e.audit_event_id}>
+            <tr>
+              <td className="small">{formatTime(e.occurred_at)}</td>
+              <td>
+                <span className="faint small">{e.actor_kind}: </span>
+                <Label id={actorId(e)} directory={directory} />
+              </td>
+              <td className="mono small">{e.action}</td>
+              <td>
+                <span className="faint small">{e.target_kind}: </span>
+                <Label id={e.target_id} directory={directory} />
+              </td>
+              <td>
+                <button
+                  className="btn sm"
+                  onClick={() =>
+                    setExpandedId(expandedId === e.audit_event_id ? null : e.audit_event_id)
+                  }
+                >
+                  {expandedId === e.audit_event_id ? "Collapse" : "Details"}
+                </button>
+              </td>
+            </tr>
+            {expandedId === e.audit_event_id && (
               <tr>
-                <th>Time</th>
-                <th>Actor</th>
-                <th>Action</th>
-                <th>Target</th>
-                <th></th>
+                <td colSpan={5}>
+                  {detailLoading ? (
+                    <p className="muted small">Loading…</p>
+                  ) : detail ? (
+                    <div className="small" style={{ display: "grid", gap: 4, padding: "4px 0" }}>
+                      <DetailField label="audit_event_id">
+                        <code>{detail.audit_event_id}</code>
+                      </DetailField>
+                      <DetailField label="occurred_at">
+                        {formatTime(detail.occurred_at)}
+                      </DetailField>
+                      <DetailField label="action">
+                        <span className="mono">{detail.action}</span>
+                      </DetailField>
+                      <DetailField label="actor_kind">{detail.actor_kind}</DetailField>
+                      {detail.actor_user_id && (
+                        <DetailField label="actor_user_id">
+                          <Label id={detail.actor_user_id} directory={directory} />
+                        </DetailField>
+                      )}
+                      {detail.actor_membership_id && (
+                        <DetailField label="actor_membership_id">
+                          <Label id={detail.actor_membership_id} directory={directory} />
+                        </DetailField>
+                      )}
+                      {detail.actor_agent_id && (
+                        <DetailField label="actor_agent_id">
+                          <Label id={detail.actor_agent_id} directory={directory} />
+                        </DetailField>
+                      )}
+                      {detail.actor_credential_id && (
+                        <DetailField label="actor_credential_id">
+                          <Label id={detail.actor_credential_id} directory={directory} />
+                        </DetailField>
+                      )}
+                      <DetailField label="target_kind">{detail.target_kind}</DetailField>
+                      <DetailField label="target_id">
+                        <Label id={detail.target_id} directory={directory} />
+                      </DetailField>
+                    </div>
+                  ) : null}
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {list.items.map((e) => (
-                <Fragment key={e.audit_event_id}>
-                  <tr>
-                    <td className="small">{formatTime(e.occurred_at)}</td>
-                    <td>
-                      <span className="faint small">{e.actor_kind}: </span>
-                      <Label id={actorId(e)} directory={directory} />
-                    </td>
-                    <td className="mono small">{e.action}</td>
-                    <td>
-                      <span className="faint small">{e.target_kind}: </span>
-                      <Label id={e.target_id} directory={directory} />
-                    </td>
-                    <td>
-                      <button
-                        className="btn sm"
-                        onClick={() =>
-                          setExpandedId(expandedId === e.audit_event_id ? null : e.audit_event_id)
-                        }
-                      >
-                        {expandedId === e.audit_event_id ? "Collapse" : "Details"}
-                      </button>
-                    </td>
-                  </tr>
-                  {expandedId === e.audit_event_id && (
-                    <tr>
-                      <td colSpan={5}>
-                        {detailLoading ? (
-                          <p className="muted small">Loading…</p>
-                        ) : detail ? (
-                          <div className="small" style={{ display: "grid", gap: 4, padding: "4px 0" }}>
-                            <DetailField label="audit_event_id">
-                              <code>{detail.audit_event_id}</code>
-                            </DetailField>
-                            <DetailField label="occurred_at">
-                              {formatTime(detail.occurred_at)}
-                            </DetailField>
-                            <DetailField label="action">
-                              <span className="mono">{detail.action}</span>
-                            </DetailField>
-                            <DetailField label="actor_kind">{detail.actor_kind}</DetailField>
-                            {detail.actor_user_id && (
-                              <DetailField label="actor_user_id">
-                                <Label id={detail.actor_user_id} directory={directory} />
-                              </DetailField>
-                            )}
-                            {detail.actor_membership_id && (
-                              <DetailField label="actor_membership_id">
-                                <Label id={detail.actor_membership_id} directory={directory} />
-                              </DetailField>
-                            )}
-                            {detail.actor_agent_id && (
-                              <DetailField label="actor_agent_id">
-                                <Label id={detail.actor_agent_id} directory={directory} />
-                              </DetailField>
-                            )}
-                            {detail.actor_credential_id && (
-                              <DetailField label="actor_credential_id">
-                                <Label id={detail.actor_credential_id} directory={directory} />
-                              </DetailField>
-                            )}
-                            <DetailField label="target_kind">{detail.target_kind}</DetailField>
-                            <DetailField label="target_id">
-                              <Label id={detail.target_id} directory={directory} />
-                            </DetailField>
-                          </div>
-                        ) : null}
-                      </td>
-                    </tr>
-                  )}
-                </Fragment>
-              ))}
-            </tbody>
-          </table>
+            )}
+          </Fragment>
         )}
-      </div>
-      {list.nextCursor && (
-        <div style={{ marginTop: 10, textAlign: "center" }}>
-          <button className="btn sm" disabled={list.loadingMore} onClick={() => void list.loadMore()}>
-            {list.loadingMore ? "Loading…" : "Load more"}
-          </button>
-        </div>
-      )}
+      />
     </>
   );
 }

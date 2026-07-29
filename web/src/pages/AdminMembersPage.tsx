@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ApiError } from "../api/client";
+import { apiError } from "../api/client";
 import { updateMember } from "../api/actions";
 import { getMember, listMembers } from "../api/queries";
 import type { HumanMe, Member, MembershipStatus, Role } from "../api/types";
@@ -8,6 +8,7 @@ import { usePagedList } from "../lib/usePagedList";
 import { useErrorHandler } from "../lib/useErrorHandler";
 import { Badge, RoleBadge } from "../components/Badge";
 import { Modal } from "../components/Modal";
+import { PagedListCard } from "../components/PagedListCard";
 import { useToast } from "../components/Toasts";
 
 const STATUS_FILTERS = ["all", "active", "suspended", "removed"] as const;
@@ -45,9 +46,9 @@ function EditMemberModal({
       toast("ok", "Member updated");
       onSaved(updated);
     } catch (err) {
-      if (err instanceof ApiError && err.code === "last_active_owner") {
+      if (apiError(err, undefined, "last_active_owner")) {
         toast("bad", "You must promote another active Owner first");
-      } else if (err instanceof ApiError && err.code === "resource_version_conflict") {
+      } else if (apiError(err, undefined, "resource_version_conflict")) {
         const fresh = await getMember(member.membership_id);
         onSaved(fresh);
         toast("warn", "Modified by someone else; refreshed with the latest data");
@@ -167,59 +168,38 @@ export function AdminMembersPage({ me }: { me: HumanMe }) {
           ))}
         </select>
       </div>
-      <div className="card">
-        {list.loading ? (
-          <p className="muted small">Loading…</p>
-        ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>Email</th>
-                <th>Role</th>
-                <th>Status</th>
-                <th>Version</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {list.items.map((m) => {
-                const manageable = m.status !== "removed" && canManageTargetRole(actorRole, m.role);
-                return (
-                  <tr key={m.membership_id}>
-                    <td>
-                      {m.email ?? m.user_id}
-                      {m.membership_id === me.membership_id && <span className="faint small">(you)</span>}
-                    </td>
-                    <td>
-                      <RoleBadge role={m.role} />
-                    </td>
-                    <td>
-                      <Badge status={m.status} />
-                    </td>
-                    <td className="small mono">v{m.resource_version}</td>
-                    <td>
-                      {manageable ? (
-                        <button className="btn sm" onClick={() => setEditing(m)}>
-                          Edit
-                        </button>
-                      ) : (
-                        <span className="faint small">{m.status === "removed" ? "Terminal" : "No permission"}</span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        )}
-      </div>
-      {list.nextCursor && (
-        <div style={{ marginTop: 10, textAlign: "center" }}>
-          <button className="btn sm" disabled={list.loadingMore} onClick={() => void list.loadMore()}>
-            {list.loadingMore ? "Loading…" : "Load more"}
-          </button>
-        </div>
-      )}
+      <PagedListCard
+        list={list}
+        columns={["Email", "Role", "Status", "Version", ""]}
+        emptyText="No members yet"
+        renderRow={(m) => {
+          const manageable = m.status !== "removed" && canManageTargetRole(actorRole, m.role);
+          return (
+            <tr key={m.membership_id}>
+              <td>
+                {m.email ?? m.user_id}
+                {m.membership_id === me.membership_id && <span className="faint small">(you)</span>}
+              </td>
+              <td>
+                <RoleBadge role={m.role} />
+              </td>
+              <td>
+                <Badge status={m.status} />
+              </td>
+              <td className="small mono">v{m.resource_version}</td>
+              <td>
+                {manageable ? (
+                  <button className="btn sm" onClick={() => setEditing(m)}>
+                    Edit
+                  </button>
+                ) : (
+                  <span className="faint small">{m.status === "removed" ? "Terminal" : "No permission"}</span>
+                )}
+              </td>
+            </tr>
+          );
+        }}
+      />
       <div className="note small">
         The system always keeps at least one active Owner; the server rejects changes that break this
         constraint with <code>last_active_owner</code>. removed is terminal and requires a new invitation.

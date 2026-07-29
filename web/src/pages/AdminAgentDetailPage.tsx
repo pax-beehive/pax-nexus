@@ -1,13 +1,9 @@
-import { useCallback, useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
-import { ApiError } from "../api/client";
+import { useParams } from "react-router-dom";
 import { getAdminAgent } from "../api/queries";
-import type { AgentProfile, HumanMe } from "../api/types";
+import type { HumanMe } from "../api/types";
 import { can } from "../lib/capabilities";
-import { useErrorHandler } from "../lib/useErrorHandler";
-import { AgentArtifacts } from "../components/AgentArtifacts";
-import { AgentGovernanceCard } from "../components/AgentGovernanceCard";
-import { Badge, ProvisionedByBadge } from "../components/Badge";
+import { useAgentDetail } from "../lib/useAgentDetail";
+import { AgentDetailView } from "../components/AgentDetailView";
 
 /**
  * Admin governance view of a single agent (doc section 5.7). Admin may only
@@ -16,74 +12,25 @@ import { Badge, ProvisionedByBadge } from "../components/Badge";
  */
 export function AdminAgentDetailPage({ me }: { me: HumanMe }) {
   const { agentId = "" } = useParams();
-  const handleError = useErrorHandler();
-  const [agent, setAgent] = useState<AgentProfile | undefined>();
-  const [notFound, setNotFound] = useState(false);
-
-  const refetch = useCallback(async () => {
-    const fresh = await getAdminAgent(agentId);
-    setAgent(fresh);
-    return fresh;
-  }, [agentId]);
-
-  useEffect(() => {
-    let cancelled = false;
-    getAdminAgent(agentId)
-      .then((a) => {
-        if (!cancelled) setAgent(a);
-      })
-      .catch((err: unknown) => {
-        if (cancelled) return;
-        if (err instanceof ApiError && err.status === 404) setNotFound(true);
-        else handleError(err);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [agentId, handleError]);
-
-  if (notFound) {
-    return (
-      <div className="card">
-        <h2>404</h2>
-        <p className="muted">
-          Agent does not exist or is not visible. <Link to="/admin/agents">Back to list</Link>
-        </p>
-      </div>
-    );
-  }
-  if (!agent) return <p className="muted">Loading…</p>;
+  const { agent, setAgent, notFound, refetch } = useAgentDetail(getAdminAgent, agentId);
 
   const actorRole = me.role ?? "member";
   const mayGovern = can(actorRole, "govern.any-agent");
 
   return (
-    <>
-      <div className="page-head">
-        <div>
-          <h1>{agent.display_name}</h1>
-          <div className="row small muted">
-            <code>{agent.agent_id}</code>
-            <Badge status={agent.status} />
-            <ProvisionedByBadge agent={agent} />
-            <span>owner: {agent.owner_membership_id ?? "—"}</span>
-          </div>
-        </div>
-        <Link to="/admin/agents" className="btn ghost">
-          ← Back
-        </Link>
-      </div>
-      <AgentGovernanceCard
-        scope="admin"
-        agent={agent}
-        canEdit={mayGovern}
-        canSuspend={can(actorRole, "suspend.any-agent")}
-        canResume={mayGovern}
-        canRetire={mayGovern}
-        onChanged={setAgent}
-        refetch={refetch}
-      />
-      <AgentArtifacts scope="admin" agentId={agent.agent_id} agentStatus={agent.status} canIssue={false} />
-    </>
+    <AgentDetailView
+      scope="admin"
+      backTo="/admin/agents"
+      agent={agent}
+      notFound={notFound}
+      showOwner
+      canEdit={mayGovern}
+      canSuspend={can(actorRole, "suspend.any-agent")}
+      canResume={mayGovern}
+      canRetire={mayGovern}
+      canIssue={false}
+      onChanged={setAgent}
+      refetch={refetch}
+    />
   );
 }

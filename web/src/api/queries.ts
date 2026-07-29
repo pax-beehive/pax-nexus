@@ -12,13 +12,9 @@ import type {
   HumanMe,
   Invitation,
   Member,
+  Page,
 } from "./types";
 import type { AgentScope } from "./actions";
-
-export interface Page<T> {
-  items: T[];
-  nextCursor?: string;
-}
 
 export interface ListParams {
   cursor?: string;

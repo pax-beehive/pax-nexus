@@ -11,7 +11,7 @@ import {
   type AgentScope,
 } from "../api/actions";
 import { listCredentials, listEnrollments } from "../api/queries";
-import { ApiError } from "../api/client";
+import { apiError } from "../api/client";
 import type { CredentialMetadata, EnrollmentSecret } from "../api/types";
 import { GRANTABLE_PERMISSIONS } from "../api/types";
 import { deriveCredentialStatus } from "../lib/credentials";
@@ -118,7 +118,7 @@ function IssueEnrollmentModal({
       });
       onCreated(secret);
     } catch (err) {
-      if (err instanceof ApiError && err.status < 500) {
+      if (apiError(err) && err.status < 500) {
         // Client-side rejection: keep the form so the user can correct it.
         setFormError(`Request rejected (HTTP ${err.status}); check your input`);
       } else {

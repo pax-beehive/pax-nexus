@@ -4,7 +4,7 @@
 // central status mapping.
 
 import { useCallback } from "react";
-import { ApiError } from "../api/client";
+import { apiError } from "../api/client";
 import { noticeForError } from "../lib/statusMessage";
 import { useAuth } from "../auth/AuthContext";
 import { useToast } from "../components/Toasts";
@@ -15,11 +15,11 @@ export function useErrorHandler(): (err: unknown, opts?: { conflict?: string }) 
 
   return useCallback(
     (err: unknown, opts?: { conflict?: string }) => {
-      if (err instanceof ApiError && err.status === 401) {
+      if (apiError(err, 401)) {
         handleUnauthorized();
         return;
       }
-      if (err instanceof ApiError && err.status === 403) {
+      if (apiError(err, 403)) {
         void refresh();
       }
       const notice = noticeForError(err, opts);
