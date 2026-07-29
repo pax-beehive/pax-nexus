@@ -97,6 +97,14 @@ func (a *App) ObserveSession(ctx context.Context, batch teamnote.SessionBatch) (
 	return receipt, nil
 }
 
+func (a *App) ObserveStream(ctx context.Context, batch teamnote.StreamBatch) (teamnote.IngestReceipt, error) {
+	receipt, err := a.lake.ObserveStream(ctx, batch)
+	if err != nil {
+		return teamnote.IngestReceipt{}, err
+	}
+	return receipt, nil
+}
+
 func (a *App) ProcessExtraction(ctx context.Context, actor teamnote.Actor, throughCursor int64, requireCurrent bool) (bool, error) {
 	if requireCurrent {
 		current, err := a.lake.IsCurrent(ctx, actor, throughCursor)

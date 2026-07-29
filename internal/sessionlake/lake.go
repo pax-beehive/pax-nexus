@@ -18,6 +18,8 @@ type Repository interface {
 	SessionLatestSequence(context.Context, string, session.Actor) (int64, error)
 	ExtractionCursor(context.Context, string, session.Actor) (int64, error)
 	AdvanceExtractionCursor(context.Context, string, session.Actor, int64) error
+	AppendStream(context.Context, string, session.StreamBatch) (session.IngestReceipt, error)
+	StreamEvents(context.Context, string, session.Stream, int64, int) ([]session.StreamEvent, error)
 }
 
 func (l *Lake) IsCurrent(ctx context.Context, actor session.Actor, sequence int64) (bool, error) {
@@ -65,6 +67,23 @@ func (l *Lake) Observe(ctx context.Context, batch session.SessionBatch) (session
 	receipt, err := l.repository.AppendSession(ctx, scopeID, batch)
 	if err != nil {
 		return session.IngestReceipt{}, fmt.Errorf("observe session: %w", err)
+	}
+	return receipt, nil
+}
+
+// ObserveStream ingests one generalized connector batch. Contract validation
+// happens here so every transport rejects identically.
+func (l *Lake) ObserveStream(ctx context.Context, batch session.StreamBatch) (session.IngestReceipt, error) {
+	scopeID, err := session.ScopeFromContext(ctx)
+	if err != nil {
+		return session.IngestReceipt{}, fmt.Errorf("observe stream: %w", err)
+	}
+	if err := session.ValidateStreamBatch(batch); err != nil {
+		return session.IngestReceipt{}, fmt.Errorf("observe stream: %w", err)
+	}
+	receipt, err := l.repository.AppendStream(ctx, scopeID, batch)
+	if err != nil {
+		return session.IngestReceipt{}, fmt.Errorf("observe stream: %w", err)
 	}
 	return receipt, nil
 }

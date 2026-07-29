@@ -239,3 +239,13 @@ func (r *memoryRepository) AdvanceExtractionCursor(_ context.Context, scopeID st
 	r.cursors[r.streamKey(scopeID, actor)] = cursor
 	return nil
 }
+
+// AppendStream and StreamEvents are not exercised by shadow replay yet; they
+// exist only to satisfy sessionlake.Repository.
+func (r *memoryRepository) AppendStream(_ context.Context, _ string, _ teamnote.StreamBatch) (teamnote.IngestReceipt, error) {
+	return teamnote.IngestReceipt{}, fmt.Errorf("append stream: not supported in shadow replay")
+}
+
+func (r *memoryRepository) StreamEvents(_ context.Context, _ string, _ teamnote.Stream, _ int64, _ int) ([]teamnote.StreamEvent, error) {
+	return nil, nil
+}
