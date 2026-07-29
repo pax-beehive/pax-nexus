@@ -28,6 +28,11 @@ export function usePagedList<T>(
   const fetchRef = useRef(fetchPage);
   fetchRef.current = fetchPage;
   const cursorRef = useRef<string | undefined>();
+  // Mirror invariant: pages/operations/hooks.ts's useEventsRegion is a
+  // deliberate bespoke fork of this hook's cursor pagination (it also polls
+  // and detects newest-first prepends, which this hook does not model). Any
+  // race-guard fix to generationRef/epoch here must be mirrored there
+  // (epochRef/cursorRef/abort generation), and vice versa.
   const generationRef = useRef(0);
 
   useEffect(() => {

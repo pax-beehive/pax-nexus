@@ -3,7 +3,7 @@
 
 import type { ExtractionDiagnostic } from "../../api/types";
 import { formatTime } from "../../lib/format";
-import { Stat } from "./SummaryCards";
+import { Stat } from "./Stat";
 
 export function ExtractionDiagnosticView({ diagnostic }: { diagnostic: ExtractionDiagnostic }) {
   return (

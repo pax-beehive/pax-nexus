@@ -78,6 +78,9 @@ describe("PagedListCard", () => {
     screen.getByText("First row");
     const alert = screen.getByRole("alert");
     expect(alert.textContent).toContain("Failed to load more.");
+    // The Retry notice is the single affordance while a load-more error is
+    // showing; the redundant "Load more" button is hidden.
+    expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
 
     await userEvent.setup().click(screen.getByRole("button", { name: "Retry" }));
     expect(list.loadMore).toHaveBeenCalledTimes(1);

@@ -3,7 +3,7 @@
 // an epoch, and a failed refresh keeps the last good data marked possibly
 // stale instead of clearing the region (operations doc section 11).
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { usePolling } from "./usePolling";
 
 export interface PolledRegionState<T> {
@@ -26,7 +26,9 @@ export function usePolledRegion<T>(
 ): PolledRegionState<T> & { retry: () => void } {
   const [state, setState] = useState<PolledRegionState<T>>({ status: "loading" });
   const stateRef = useRef(state);
-  stateRef.current = state;
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
   const [epoch, setEpoch] = useState(0);
 
   usePolling(

@@ -3,7 +3,7 @@
 
 import type { OperationsSummary } from "../../api/types";
 import { formatTime } from "../../lib/format";
-import { Stat } from "./SummaryCards";
+import { Stat } from "./Stat";
 
 export function PipelineHealthCard({ summary }: { summary: OperationsSummary }) {
   const ex = summary.extraction;

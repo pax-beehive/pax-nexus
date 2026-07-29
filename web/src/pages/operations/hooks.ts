@@ -25,10 +25,10 @@ import { isAbortError, usePolling } from "../../lib/usePolling";
 import { usePolledRegion, type PolledRegionState } from "../../lib/useRegion";
 
 // Summary and the first events page poll every 15s while visible (doc 4.3).
-export const POLL_INTERVAL_MS = 15_000;
-export const PAGE_SIZE = 50;
+const POLL_INTERVAL_MS = 15_000;
+const PAGE_SIZE = 50;
 
-export type SummaryRegion = PolledRegionState<OperationsSummary>;
+type SummaryRegion = PolledRegionState<OperationsSummary>;
 
 export function useSummaryRegion(
   preset: TimeWindowPreset,
@@ -78,6 +78,13 @@ function eventsQuery(filter: EventsFilter, cursor?: string): OperationEventFilte
   };
 }
 
+// Deliberately a bespoke fork of usePagedList's cursor pagination (see
+// lib/usePagedList.ts), not a shared abstraction: this hook also layers in
+// 15s polling of the first page and newest-first "new activity" detection
+// when the user has paged past it, neither of which usePagedList models.
+// Invariant: any race-guard fix here (epochRef/cursorRef/abort generation)
+// must be mirrored in usePagedList.ts's generationRef/epoch guards, and
+// vice versa.
 export function useEventsRegion(
   filter: EventsFilter,
   onAuthError: (err: unknown) => void,

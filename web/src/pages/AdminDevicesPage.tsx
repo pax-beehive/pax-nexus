@@ -211,7 +211,7 @@ export function AdminDevicesPage() {
       <PagedListCard
         list={list}
         columns={["Device", "Creator", "Agents", "Last activity", "Status"]}
-        emptyText="No devices yet"
+        emptyText="No matching records."
         renderRow={(d) => (
           <tr key={d.credential_id}>
             <td>
