@@ -48,7 +48,7 @@ func streamBatchToDomain(request *api.StreamBatch) (teamnote.StreamBatch, error)
 		if wire == nil || wire.Author == nil {
 			return teamnote.StreamBatch{}, fmt.Errorf("map stream event: event and author are required")
 		}
-		occurredAt, err := time.Parse(time.RFC3339, wire.OccurredAt)
+		occurredAt, err := time.Parse(time.RFC3339Nano, wire.OccurredAt)
 		if err != nil {
 			return teamnote.StreamBatch{}, fmt.Errorf("event %q occurred_at: %w", wire.ID, err)
 		}

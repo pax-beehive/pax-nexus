@@ -95,7 +95,7 @@ func mapSourceSpanV1(result *Result, slice evidencelake.Slice) {
 }
 
 // mapSourceSpanV2 preserves every new-event byte in deterministic, bounded
-// source shards. The Session Lake remains the complete immutable archive;
+// source shards. The Evidence Lake remains the complete immutable archive;
 // shards are the retrieval-sized representation of that archive.
 func mapSourceSpanV2(result *Result, slice evidencelake.Slice) {
 	if len(slice.NewEventIDs) == 0 {

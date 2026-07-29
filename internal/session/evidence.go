@@ -64,6 +64,12 @@ type MediaRef struct {
 // StreamEvent is immutable source evidence pushed by an external connector.
 // Sequence is assigned by ingest and must be zero on input.
 type StreamEvent struct {
+	// ID is the connector-assigned dedup key. Deduplication is scope-global
+	// (ON CONFLICT (scope_id, event_id)), not per-stream, so connectors MUST
+	// supply ids unique within the whole scope, not merely within their own
+	// stream. When the source platform only guarantees per-channel or
+	// per-session uniqueness, prefix the platform-native id with the stream
+	// id before submitting it here. Per-stream dedup is revisited in Plan 2.
 	ID         string            `json:"id"`
 	Stream     Stream            `json:"stream"`
 	Author     Author            `json:"author"`
@@ -89,6 +95,11 @@ func ValidateStreamBatch(batch StreamBatch) error {
 		return fmt.Errorf("empty batch: %w", ErrInvalidStreamBatch)
 	}
 	stream := batch.Events[0].Stream
+	// StreamID is a batch-level property: validated as non-blank after
+	// trimming, but the stored value is never mutated — evidence is verbatim.
+	if strings.TrimSpace(stream.StreamID) == "" {
+		return fmt.Errorf("stream %q empty stream id: %w", stream.Source, ErrInvalidStreamBatch)
+	}
 	for _, event := range batch.Events {
 		if strings.TrimSpace(event.ID) == "" || event.OccurredAt.IsZero() {
 			return fmt.Errorf("event %q identity: %w", event.ID, ErrInvalidStreamBatch)
@@ -96,8 +107,11 @@ func ValidateStreamBatch(batch StreamBatch) error {
 		if event.Sequence != 0 {
 			return fmt.Errorf("event %q carries a caller sequence: %w", event.ID, ErrInvalidStreamBatch)
 		}
-		if event.Stream != stream || strings.TrimSpace(stream.StreamID) == "" {
-			return fmt.Errorf("event %q mixed or empty stream: %w", event.ID, ErrInvalidStreamBatch)
+		if event.Stream != stream {
+			return fmt.Errorf("event %q mixed stream: %w", event.ID, ErrInvalidStreamBatch)
+		}
+		if event.Stream.Source == SourceAgentSession {
+			return fmt.Errorf("event %q source %q must enter via the session ingest path, not the generic stream endpoint: %w", event.ID, SourceAgentSession, ErrInvalidStreamBatch)
 		}
 		if _, ok := registeredSources[event.Stream.Source]; !ok {
 			return fmt.Errorf("source %q: %w", event.Stream.Source, ErrUnregisteredValue)
