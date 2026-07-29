@@ -347,12 +347,12 @@ func (s *configSuite) TestRuntimeCandidateStrategyOverridesBuildDefault() {
 	s.T().Setenv("TEAM_MEMORY_DATABASE_URL", "postgres://database")
 	s.T().Setenv("TEAM_MEMORY_API_KEYS", `{"key":"scope"}`)
 	s.T().Setenv("TEAM_MEMORY_EXTRACTOR_MODE", "noop")
-	s.T().Setenv("TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY", extractor.CandidateStrategyTyped2)
+	s.T().Setenv("TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY", extractor.CandidateStrategySourceSpanV1)
 
 	config, err := loadConfig()
 
 	s.Require().NoError(err)
-	s.Equal(extractor.CandidateStrategyTyped2, config.extractionCandidateStrategy)
+	s.Equal(extractor.CandidateStrategySourceSpanV1, config.extractionCandidateStrategy)
 }
 
 func (s *configSuite) TestAllowsExtractionV2OptIn() {
@@ -403,7 +403,7 @@ func (s *configSuite) TestCheckedInCandidateStrategyBuildInterface() {
 		path string
 		want string
 	}{
-		{path: ".env.example", want: "evidence-fidelity-v1, source-clause-v1, source-clause-implicit-state-v1, typed-2"},
+		{path: ".env.example", want: "interaction-slim,\n# source-clause-v1, source-span-v1, source-span-v2, or claim-card-v2."},
 		{path: ".env.example", want: "TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY="},
 		{path: ".env.eval-v2.example", want: "TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY=source-clause-v1"},
 		{path: "compose.yaml", want: "EXTRACTION_CANDIDATE_STRATEGY: ${TEAM_MEMORY_BUILD_EXTRACTION_CANDIDATE_STRATEGY:-source-clause-v1}"},

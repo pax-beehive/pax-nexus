@@ -14,7 +14,6 @@ import (
 	"github.com/pax-beehive/pax-nexus/internal/teamnote"
 )
 
-const extractionProtocolV2RevisionClaimCardV1 = "claim-card-v1-temporal-deterministic"
 const extractionProtocolV2RevisionClaimCardV2 = "claim-card-v2-temporal-deterministic"
 
 // Extraction v2 separates one model response into explicit internal products:
@@ -251,7 +250,7 @@ func mapExtractionV2(result *Result, slice sessionlake.Slice) {
 	result.TransitionAuthorities = nil
 }
 
-func mapExtractionClaimCardV1(result *Result, slice sessionlake.Slice) {
+func mapExtractionClaimCard(result *Result, slice sessionlake.Slice) {
 	mapExtractionV2With(result, slice, mapClaimCardDecision)
 	result.TransitionAuthorities = nil
 }

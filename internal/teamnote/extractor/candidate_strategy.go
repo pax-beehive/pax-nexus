@@ -24,21 +24,15 @@ type candidateStrategy struct {
 	candidateLimit  int
 }
 
+// Retirement policy (see docs/decisions/2026-07-28-extraction-strategy-retirement.md):
+// a strategy enters this table with a stated experiment goal and an eval exit
+// condition. When the experiment concludes it is either promoted to the build
+// default or deleted in the same change that records the conclusion. Git
+// history is the archive — no dormant entries.
 var candidateStrategies = []candidateStrategy{
-	{
-		name: CandidateStrategyCurrent, protocolVersion: extractionProtocolV2RevisionCurrent,
-		protocol:  extractionProtocol{rollingSystemPromptV2, decodeExtractionResponseV2, decodeExtractionContentV2},
-		mapResult: mapExtractionV2,
-	},
 	{
 		name: CandidateStrategyInteractionSlim, protocolVersion: extractionProtocolV2RevisionInteractionSlim,
 		protocol:  extractionProtocol{rollingSystemPromptV2InteractionSlim, decodeExtractionResponseV2, decodeExtractionContentV2},
-		mapResult: mapExtractionV2,
-	},
-	{
-		name: CandidateStrategyEvidenceFidelity, protocolVersion: extractionProtocolV2RevisionEvidenceFidelity,
-		protocol: extractionProtocol{rollingSystemPromptV2EvidenceFidelity, decodeExtractionResponseV2,
-			decodeExtractionContentV2},
 		mapResult: mapExtractionV2,
 	},
 	{
@@ -46,17 +40,6 @@ var candidateStrategies = []candidateStrategy{
 		protocol: extractionProtocol{rollingSystemPromptV2SourceClause, decodeExtractionResponseV2,
 			decodeExtractionContentV2},
 		mapResult: mapExtractionSourceClauseV1,
-	},
-	{
-		name: CandidateStrategyImplicitState, protocolVersion: extractionProtocolV2RevisionImplicitState,
-		protocol: extractionProtocol{rollingSystemPromptV2ImplicitState, decodeExtractionResponseV2,
-			decodeExtractionContentV2},
-		mapResult: mapExtractionSourceClauseV1,
-	},
-	{
-		name: CandidateStrategyTyped2, protocolVersion: extractionProtocolV2RevisionTypedCurrent,
-		protocol:  extractionProtocol{rollingSystemPromptV2Typed, decodeExtractionResponseV2Typed, decodeExtractionContentV2Typed},
-		mapResult: mapExtractionV2,
 	},
 	{
 		name: CandidateStrategySourceSpanV1, protocolVersion: extractionProtocolV2RevisionSourceSpanV1,
@@ -73,16 +56,10 @@ var candidateStrategies = []candidateStrategy{
 		candidateLimit: -1,
 	},
 	{
-		name: CandidateStrategyClaimCardV1, protocolVersion: extractionProtocolV2RevisionClaimCardV1,
-		protocol: extractionProtocol{rollingSystemPromptClaimCardV1, decodeExtractionResponseV2,
-			decodeExtractionContentV2},
-		mapResult: mapExtractionClaimCardV1,
-	},
-	{
 		name: CandidateStrategyClaimCardV2, protocolVersion: extractionProtocolV2RevisionClaimCardV2,
 		protocol: extractionProtocol{rollingSystemPromptClaimCardV2, decodeExtractionResponseV2,
 			decodeExtractionContentV2},
-		mapResult: mapExtractionClaimCardV1,
+		mapResult: mapExtractionClaimCard,
 	},
 }
 

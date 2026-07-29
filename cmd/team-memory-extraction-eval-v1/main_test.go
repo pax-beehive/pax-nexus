@@ -34,11 +34,11 @@ func (s *commandSuite) TestParseFlagsAcceptsCandidateStrategy() {
 	config, err := parseFlags([]string{
 		"-dsn", "postgres://example", "-manifest", "manifest.json", "-fixtures", "fixtures.json",
 		"-source-run-id", "source-run", "-run-id", "eval-run", "-extractor-base-url", "https://example.test",
-		"-extractor-model", "model", "-candidate-strategy", extractor.CandidateStrategyTyped2,
+		"-extractor-model", "model", "-candidate-strategy", extractor.CandidateStrategySourceSpanV1,
 	})
 
 	s.Require().NoError(err)
-	s.Equal(extractor.CandidateStrategyTyped2, config.v2Variant)
+	s.Equal(extractor.CandidateStrategySourceSpanV1, config.v2Variant)
 }
 
 func (s *commandSuite) TestParseFlagsRequiresSourceIdentity() {
@@ -145,7 +145,7 @@ func (s *commandSuite) TestResumeRejectsChangedRunInputs() {
 	dir := filepath.Join(s.T().TempDir(), "run")
 	config := evalConfig{
 		outputDir: dir, runID: "run", sourceRunID: "source", extractorVersion: "v2",
-		v2Variant: extractor.V2VariantCurrent, baseURL: "https://example.test", model: "model",
+		v2Variant: extractor.V2VariantSourceClause, baseURL: "https://example.test", model: "model",
 		promptVersion: "v2", sliceEventLimit: 25,
 	}
 	profile := extractioneval.Profile{Name: "quick"}
