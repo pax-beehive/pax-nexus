@@ -208,7 +208,6 @@ func injectCreate(
 			Action:           pagewiki.PageActionCreate,
 			ProposedSlug:     spec.slug,
 			ProposedTitle:    spec.title,
-			TopicPath:        spec.topicPath,
 			EvidenceEventIDs: []string{"event-" + spec.slug},
 		},
 		draftForSpec(ctx, repository, spec),

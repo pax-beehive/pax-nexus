@@ -119,7 +119,6 @@ func (s *llmSessionEditorSuite) TestUsesBriefEvidenceInsteadOfHeadingChunks() {
 			Key: "release-policy", Action: pagewiki.PageActionCreate,
 			ProposedSlug: "release-policy", ProposedTitle: "Release Policy",
 			ReaderGoal:       "Understand the release cadence.",
-			TopicPath:        []string{"Engineering", "Runtime"},
 			EvidenceEventIDs: []string{"event-1"},
 			Evidence: []pagewiki.EvidenceQuoteDraft{{
 				EventID: "event-1", ExactText: "real decision: releases ship weekly.",
@@ -162,7 +161,6 @@ func (s *llmSessionEditorSuite) TestSendsFullEvidenceContextToTheModel() {
 		Brief: pagewiki.PageBrief{
 			Key: "release-policy", Action: pagewiki.PageActionCreate,
 			ProposedSlug: "release-policy", ProposedTitle: "Release Policy",
-			TopicPath:        []string{"Engineering"},
 			EvidenceEventIDs: []string{"event-1", "event-2"},
 			Evidence: []pagewiki.EvidenceQuoteDraft{{
 				EventID: "event-1", ExactText: "the decision: ship weekly.",

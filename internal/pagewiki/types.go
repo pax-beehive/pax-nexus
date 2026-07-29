@@ -189,7 +189,6 @@ type PageBrief struct {
 	ProposedSlug           string
 	ProposedTitle          string
 	ReaderGoal             string
-	TopicPath              []string
 	EvidenceEventIDs       []string
 	Evidence               []EvidenceQuoteDraft
 	RelatedPages           []RelatedPage

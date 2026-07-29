@@ -468,7 +468,6 @@ func generatedBrief(
 		brief.Action = pagewiki.PageActionCreate
 		brief.ProposedSlug = page.Slug
 		brief.ProposedTitle = page.Title
-		brief.TopicPath = append([]string(nil), page.TopicPath...)
 		return brief, nil
 	}
 	existing, err := repository.PageBySlug(ctx, page.Slug)

@@ -239,7 +239,6 @@ func searchPageBrief() pagewiki.PageBrief {
 		Action:           pagewiki.PageActionCreate,
 		ProposedSlug:     "wiki-search",
 		ProposedTitle:    "Wiki Search",
-		TopicPath:        []string{"Engineering", "Search"},
 		EvidenceEventIDs: []string{"event-search"},
 	}
 }

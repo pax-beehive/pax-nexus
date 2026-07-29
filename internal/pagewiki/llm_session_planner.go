@@ -78,7 +78,6 @@ type llmPlanBrief struct {
 	ProposedSlug  string            `json:"proposed_slug"`
 	ProposedTitle string            `json:"proposed_title"`
 	ReaderGoal    string            `json:"reader_goal"`
-	TopicPath     []string          `json:"topic_path"`
 	Evidence      []llmPlanEvidence `json:"evidence"`
 }
 
@@ -183,8 +182,7 @@ func acceptBrief(candidate llmPlanBrief, input PlanInput) (PageBrief, bool) {
 			strings.ToLower(candidate.ProposedSlug), "-",
 		), "-")
 		title := strings.TrimSpace(candidate.ProposedTitle)
-		topicPath := trimmedTopicPath(candidate.TopicPath)
-		if slug == "" || title == "" || len(topicPath) == 0 {
+		if slug == "" || title == "" {
 			return PageBrief{}, false
 		}
 		if page, found := catalogBySlug(input.PageCatalog, slug); found {
@@ -194,7 +192,6 @@ func acceptBrief(candidate llmPlanBrief, input PlanInput) (PageBrief, bool) {
 			Key: slug, Action: PageActionCreate,
 			ProposedSlug: slug, ProposedTitle: title,
 			ReaderGoal:       strings.TrimSpace(candidate.ReaderGoal),
-			TopicPath:        topicPath,
 			EvidenceEventIDs: eventIDs,
 			Evidence:         evidence,
 		}, true
@@ -277,21 +274,6 @@ func overlapsAcceptedQuote(accepted []EvidenceQuoteDraft, quote string) bool {
 	return false
 }
 
-func trimmedTopicPath(values []string) []string {
-	result := make([]string, 0, 2)
-	for _, value := range values {
-		trimmed := strings.TrimSpace(value)
-		if trimmed == "" {
-			continue
-		}
-		result = append(result, trimmed)
-		if len(result) == 2 {
-			break
-		}
-	}
-	return result
-}
-
 func sourceOnlyBrief(key string, revision SourceRevision) PageBrief {
 	eventIDs := make([]string, 0, len(revision.Events))
 	for _, event := range revision.Events {
@@ -305,7 +287,7 @@ func sourceOnlyBrief(key string, revision SourceRevision) PageBrief {
 const pageWikiPlannerPrompt = `You are the maintenance planner of a durable, evidence-backed team Wiki.
 You receive one JSON object: {"events":[{"id","content","truncated"}],"pages":[{"slug","title","summary"}]}.
 Return exactly one JSON object and no Markdown fence:
-{"briefs":[{"action":"create|update|skip_noise","target_slug":"existing page slug, update only","proposed_slug":"kebab-case, create only","proposed_title":"English title, create only","reader_goal":"one English sentence","topic_path":["Area","Subarea"],"evidence":[{"event_id":"...","exact_quote":"verbatim substring of that event's content"}]}]}
+{"briefs":[{"action":"create|update|skip_noise","target_slug":"existing page slug, update only","proposed_slug":"kebab-case, create only","proposed_title":"English title, create only","reader_goal":"one English sentence","evidence":[{"event_id":"...","exact_quote":"verbatim substring of that event's content"}]}]}
 
 Keep only knowledge a teammate would still need in a month: decisions and
 their rationale, architecture, conventions, durable project state, and
@@ -323,8 +305,7 @@ continues that subject's story, the action MUST be update with that page's
 slug. Creating a page whose subject overlaps an existing page is an error.
 Group related evidence aggressively into one page; most sessions should
 yield zero to two briefs. Judge subject overlap with each page's summary, not its title alone. Every exact_quote must be copied verbatim from
-the event content and must genuinely support the page. topic_path has at
-most two segments, for example ["Engineering","Runtime"]. Account for every
+the event content and must genuinely support the page. Account for every
 event with either a page brief or skip_noise. Return at most 8 briefs and
 JSON only.`
 

@@ -232,8 +232,6 @@ func (r *Repository) validatePublication(publication pagewiki.PagePublication) e
 		}
 	} else if revision.BaseRevisionID != "" {
 		return fmt.Errorf("%w: new Page %q has a base revision", pagewiki.ErrRevisionConflict, page.ID)
-	} else if publication.Placement == nil {
-		return fmt.Errorf("%w: new Page %q requires placement", pagewiki.ErrRevisionConflict, page.ID)
 	}
 	if existing, found := r.pageRevisions[revision.ID]; found &&
 		!reflect.DeepEqual(existing, revision) {

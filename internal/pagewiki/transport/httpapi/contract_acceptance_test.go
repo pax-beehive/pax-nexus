@@ -168,8 +168,7 @@ func (s *ContractAcceptanceSuite) TestGivenInjectedSessionWhenReadThenEveryWikiR
 			path: "/v1/wiki/navigation",
 			assertBody: func(body map[string]any) {
 				roots := requireList(s.T(), body["roots"])
-				s.Require().Len(roots, 1)
-				s.Equal("Engineering", requireObject(s.T(), roots[0])["title"])
+				s.Require().Empty(roots)
 			},
 		},
 	}
@@ -389,7 +388,6 @@ func (contractPlanner) Plan(
 			Action:           pagewiki.PageActionCreate,
 			ProposedSlug:     "sqlite",
 			ProposedTitle:    "SQLite",
-			TopicPath:        []string{"Engineering", "Storage"},
 			EvidenceEventIDs: []string{"event-sqlite"},
 		},
 	}, nil

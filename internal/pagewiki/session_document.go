@@ -16,12 +16,11 @@ var (
 )
 
 type knowledgeUnit struct {
-	key       string
-	slug      string
-	title     string
-	topicPath []string
-	eventIDs  []string
-	quotes    []string
+	key      string
+	slug     string
+	title    string
+	eventIDs []string
+	quotes   []string
 }
 
 // SessionDocumentPlanner is the deterministic knowledge-oriented fallback used
@@ -43,7 +42,6 @@ func (SessionDocumentPlanner) Plan(_ context.Context, input PlanInput) ([]PageBr
 			Key: unit.key, Action: PageActionCreate,
 			ProposedSlug: unit.slug, ProposedTitle: unit.title,
 			ReaderGoal:       "Understand the durable knowledge supported by Session Lake evidence.",
-			TopicPath:        unit.topicPath,
 			EvidenceEventIDs: uniqueStrings(unit.eventIDs),
 			Evidence:         evidence,
 		}
@@ -56,7 +54,6 @@ func (SessionDocumentPlanner) Plan(_ context.Context, input PlanInput) ([]PageBr
 			brief.ExpectedBaseRevisionID = page.CurrentRevisionID
 			brief.ProposedSlug = ""
 			brief.ProposedTitle = ""
-			brief.TopicPath = nil
 			break
 		}
 		briefs = append(briefs, brief)
@@ -141,35 +138,21 @@ func addRelatedKnowledgeLinks(
 	briefs []PageBrief,
 ) {
 	for index := range briefs {
-		for candidate := index - 1; candidate >= 0; candidate-- {
-			if !sameTopicPath(units[index].topicPath, units[candidate].topicPath) {
-				continue
-			}
-			targetID := briefs[candidate].TargetPageID
-			targetTitle := units[candidate].title
-			if briefs[candidate].Action == PageActionCreate {
-				targetID = stableID("page", sourceRevisionID, briefs[candidate].Key)
-			}
-			if targetID != "" && targetTitle != "" {
-				briefs[index].RelatedPages = []RelatedPage{{
-					ID: targetID, Title: targetTitle,
-				}}
-			}
-			break
+		if index == 0 {
+			continue
+		}
+		candidate := index - 1
+		targetID := briefs[candidate].TargetPageID
+		targetTitle := units[candidate].title
+		if briefs[candidate].Action == PageActionCreate {
+			targetID = stableID("page", sourceRevisionID, briefs[candidate].Key)
+		}
+		if targetID != "" && targetTitle != "" {
+			briefs[index].RelatedPages = []RelatedPage{{
+				ID: targetID, Title: targetTitle,
+			}}
 		}
 	}
-}
-
-func sameTopicPath(left, right []string) bool {
-	if len(left) == 0 || len(left) != len(right) {
-		return false
-	}
-	for index := range left {
-		if left[index] != right[index] {
-			return false
-		}
-	}
-	return true
 }
 
 func sessionKnowledgeUnits(revision SourceRevision) []knowledgeUnit {
@@ -201,7 +184,7 @@ func sessionKnowledgeUnits(revision SourceRevision) []knowledgeUnit {
 			}
 			bySlug[slug] = len(units)
 			units = append(units, knowledgeUnit{
-				key: slug, slug: slug, title: title, topicPath: knowledgeTopic(title + " " + quote),
+				key: slug, slug: slug, title: title,
 				eventIDs: []string{event.ID}, quotes: []string{quote},
 			})
 		}
@@ -288,24 +271,6 @@ func knowledgeTitle(candidate, content string) string {
 		return "Untitled knowledge"
 	}
 	return truncateRunes(line, 72)
-}
-
-func knowledgeTopic(content string) []string {
-	value := strings.ToLower(content)
-	switch {
-	case containsAny(value, "retrieval", "search", "检索", "召回"):
-		return []string{"Engineering", "Retrieval"}
-	case containsAny(value, "wiki", "source anchor", "citation", "evidence", "引用"):
-		return []string{"Engineering", "Wiki Architecture"}
-	case containsAny(value, "experiment", "实验", "coal", "briquette", "煤球"):
-		return []string{"Research", "Experiments"}
-	case containsAny(value, "runtime", "deploy", "release", "运行", "发布"):
-		return []string{"Engineering", "Runtime"}
-	case containsAny(value, "decision", "决策", "approved", "决定"):
-		return []string{"Product", "Decisions"}
-	default:
-		return []string{"Knowledge", "Concepts"}
-	}
 }
 
 func slugValue(title, content string) string {

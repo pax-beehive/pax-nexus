@@ -36,7 +36,6 @@ func (s *InjectAcceptanceSuite) TestGivenOneSessionWhenInjectedThenOneCitedPageI
 				ProposedSlug:     "sqlite",
 				ProposedTitle:    "SQLite",
 				ReaderGoal:       "Explain why SQLite is the local store.",
-				TopicPath:        []string{"Engineering", "Storage"},
 				EvidenceEventIDs: []string{"event-1"},
 			},
 		},
@@ -115,6 +114,8 @@ func (s *InjectAcceptanceSuite) TestGivenOneSessionWhenInjectedThenOneCitedPageI
 	s.Require().NoError(err)
 	s.Require().Equal(sourceBytesBefore, storedSource.Raw)
 	s.Require().Equal(sourceBytesBefore, raw)
+	s.Require().Zero(s.repository.TopicCount())
+	s.Require().Zero(s.repository.PlacementCount())
 }
 
 func (s *InjectAcceptanceSuite) TestGivenInvalidCitationWhenInjectedThenNothingIsPublished() {
@@ -187,7 +188,6 @@ func (s *InjectAcceptanceSuite) TestGivenInvalidCitationWhenInjectedThenNothingI
 						Action:           pagewiki.PageActionCreate,
 						ProposedSlug:     "sqlite",
 						ProposedTitle:    "SQLite",
-						TopicPath:        []string{"Engineering", "Storage"},
 						EvidenceEventIDs: []string{"event-1"},
 					},
 				},

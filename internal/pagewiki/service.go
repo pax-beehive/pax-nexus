@@ -168,12 +168,6 @@ func (s *Service) processTarget(
 		Page:     pageValue,
 		Revision: revision,
 	}
-	if brief.Action == PageActionCreate {
-		publication.Topics, publication.Placement = buildPlacement(
-			pageValue.ID,
-			brief.TopicPath,
-		)
-	}
 	if err := s.repository.PublishPage(ctx, publication); err != nil {
 		return failTarget(target, TargetFailurePublicationConflict, err)
 	}
@@ -215,27 +209,6 @@ func revisionsEquivalent(left, right PageRevision) bool {
 		}
 	}
 	return true
-}
-
-func buildPlacement(pageID string, topicPath []string) ([]Topic, *PagePlacement) {
-	topics := make([]Topic, 0, len(topicPath))
-	parentID := ""
-	for _, segment := range topicPath {
-		title := strings.Join(strings.Fields(segment), " ")
-		slug := strings.ToLower(strings.Join(strings.Fields(segment), "-"))
-		topic := Topic{
-			ID:       stableID("topic", parentID, slug),
-			ParentID: parentID,
-			Slug:     slug,
-			Title:    title,
-		}
-		topics = append(topics, topic)
-		parentID = topic.ID
-	}
-	return topics, &PagePlacement{
-		PageID:  pageID,
-		TopicID: parentID,
-	}
 }
 
 func (s *Service) resolvePage(
