@@ -71,6 +71,17 @@ WHERE scope_id = $1 ORDER BY created_at, run_id`, func(payload []byte) error {
 	}); err != nil {
 		return fmt.Errorf("hydrate Page Wiki runs: %w", err)
 	}
+	if err := r.loadRows(ctx, `
+SELECT payload FROM pagewiki_topic_trees
+WHERE scope_id = $1`, func(payload []byte) error {
+		var tree pagewiki.TopicTree
+		if err := json.Unmarshal(payload, &tree); err != nil {
+			return err
+		}
+		return r.memory.ReplaceTopicTree(ctx, tree)
+	}); err != nil {
+		return fmt.Errorf("hydrate Page Wiki topic tree: %w", err)
+	}
 	return nil
 }
 
@@ -135,6 +146,28 @@ VALUES ($1, $2, $3)
 ON CONFLICT (scope_id, run_id) DO NOTHING`, run.ID, run)
 }
 
+func (r *Repository) TopicTree(ctx context.Context) (pagewiki.TopicTree, error) {
+	return r.memory.TopicTree(ctx)
+}
+
+func (r *Repository) ReplaceTopicTree(ctx context.Context, tree pagewiki.TopicTree) error {
+	if err := r.memory.ReplaceTopicTree(ctx, tree); err != nil {
+		return err
+	}
+	payload, err := json.Marshal(tree)
+	if err != nil {
+		return fmt.Errorf("marshal Page Wiki topic tree: %w", err)
+	}
+	if _, err := r.pool.Exec(ctx, `
+INSERT INTO pagewiki_topic_trees (scope_id, payload)
+VALUES ($1, $2)
+ON CONFLICT (scope_id) DO UPDATE
+SET payload = EXCLUDED.payload, updated_at = NOW()`, r.scopeID, payload); err != nil {
+		return fmt.Errorf("persist Page Wiki topic tree: %w", err)
+	}
+	return nil
+}
+
 func (r *Repository) RebuildPageWiki(
 	ctx context.Context,
 	scopeID string,
@@ -165,6 +198,7 @@ func (r *Repository) RebuildPageWiki(
 		"DELETE FROM pagewiki_maintenance_runs WHERE scope_id = $1",
 		"DELETE FROM pagewiki_publications WHERE scope_id = $1",
 		"DELETE FROM pagewiki_source_revisions WHERE scope_id = $1",
+		"DELETE FROM pagewiki_topic_trees WHERE scope_id = $1",
 	} {
 		if _, err := tx.Exec(ctx, query, scopeID); err != nil {
 			return fmt.Errorf("rebuild Page Wiki: clear derived state: %w", err)

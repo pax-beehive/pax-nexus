@@ -38,4 +38,6 @@ type Repository interface {
 	RebuildSearchIndex(context.Context) error
 	MaintenanceRun(context.Context, string) (MaintenanceRun, error)
 	SaveMaintenanceRun(context.Context, MaintenanceRun) error
+	TopicTree(context.Context) (TopicTree, error)
+	ReplaceTopicTree(context.Context, TopicTree) error
 }
