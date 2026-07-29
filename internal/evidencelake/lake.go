@@ -1,4 +1,4 @@
-package sessionlake
+package evidencelake
 
 import (
 	"context"

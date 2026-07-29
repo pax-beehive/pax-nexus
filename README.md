@@ -21,7 +21,7 @@ paxm session events
 CONTEXT-MAP.md                         Product contexts and dependency direction
 doc/                                   Product architecture and evaluation design
 internal/session/                      Shared session identity and event contracts
-internal/sessionlake/                  Shared immutable ingestion and cursor module
+internal/evidencelake/                 Shared immutable ingestion and cursor module
 internal/teamnote/                     Team Note domain module
 internal/teamnote/extractor/           Team Note extraction adapters
 internal/teamnote/extractionqueue/      River-backed Team Note worker pool

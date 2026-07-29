@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/pax-beehive/pax-nexus/internal/sessionlake"
+	"github.com/pax-beehive/pax-nexus/internal/evidencelake"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote/extractionbudget"
 )
@@ -102,14 +102,14 @@ type Result struct {
 }
 
 type Extractor interface {
-	Extract(context.Context, sessionlake.Slice) (Result, error)
+	Extract(context.Context, evidencelake.Slice) (Result, error)
 }
 
 type Fixture struct {
 	ByChecksum map[string]Result
 }
 
-func (f Fixture) Extract(ctx context.Context, slice sessionlake.Slice) (Result, error) {
+func (f Fixture) Extract(ctx context.Context, slice evidencelake.Slice) (Result, error) {
 	if err := ctx.Err(); err != nil {
 		return Result{}, fmt.Errorf("fixture extraction context: %w", err)
 	}
@@ -122,7 +122,7 @@ func (f Fixture) Extract(ctx context.Context, slice sessionlake.Slice) (Result, 
 
 type Noop struct{}
 
-func (Noop) Extract(ctx context.Context, _ sessionlake.Slice) (Result, error) {
+func (Noop) Extract(ctx context.Context, _ evidencelake.Slice) (Result, error) {
 	if err := ctx.Err(); err != nil {
 		return Result{}, fmt.Errorf("noop extraction context: %w", err)
 	}

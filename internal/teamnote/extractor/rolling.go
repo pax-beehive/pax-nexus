@@ -11,7 +11,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/pax-beehive/pax-nexus/internal/sessionlake"
+	"github.com/pax-beehive/pax-nexus/internal/evidencelake"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote"
 )
 
@@ -25,25 +25,25 @@ var (
 	protocolV11 = extractionProtocol{rollingSystemPromptV11, decodeResponseV11, decodeCandidateContentV11}
 )
 
-func (e *OpenAI) extractRolling(ctx context.Context, slice sessionlake.Slice) (Result, error) {
+func (e *OpenAI) extractRolling(ctx context.Context, slice evidencelake.Slice) (Result, error) {
 	return e.extractRollingWith(ctx, slice, protocolV1, nil)
 }
 
-func (e *OpenAI) extractRollingV11(ctx context.Context, slice sessionlake.Slice) (Result, error) {
+func (e *OpenAI) extractRollingV11(ctx context.Context, slice evidencelake.Slice) (Result, error) {
 	return e.extractRollingWith(ctx, slice, protocolV11, nil)
 }
 
-func (e *OpenAI) extractRollingV2(ctx context.Context, slice sessionlake.Slice) (Result, error) {
+func (e *OpenAI) extractRollingV2(ctx context.Context, slice evidencelake.Slice) (Result, error) {
 	return e.extractRollingV2With(ctx, slice)
 }
 
 // extractRollingV2With maps validated v2 products onto candidates after each
 // episode group, keeping the trace merged across groups.
-func (e *OpenAI) extractRollingV2With(ctx context.Context, slice sessionlake.Slice) (Result, error) {
+func (e *OpenAI) extractRollingV2With(ctx context.Context, slice evidencelake.Slice) (Result, error) {
 	return e.extractRollingWith(ctx, slice, e.candidateStrategy.protocol, e.candidateStrategy.mapResult)
 }
 
-func (e *OpenAI) extractRollingWith(ctx context.Context, slice sessionlake.Slice, protocol extractionProtocol, mapResult func(*Result, sessionlake.Slice)) (Result, error) {
+func (e *OpenAI) extractRollingWith(ctx context.Context, slice evidencelake.Slice, protocol extractionProtocol, mapResult func(*Result, evidencelake.Slice)) (Result, error) {
 	scopeID, err := teamnote.ScopeFromContext(ctx)
 	if err != nil {
 		return Result{}, fmt.Errorf("extract rolling context: %w", err)
@@ -133,17 +133,17 @@ func mergeTraceV2(result *Result, trace *TraceV2) {
 
 type scopedSlice struct {
 	scope eventScope
-	slice sessionlake.Slice
+	slice evidencelake.Slice
 }
 
-func groupSlice(slice sessionlake.Slice) []scopedSlice {
+func groupSlice(slice evidencelake.Slice) []scopedSlice {
 	newIDs := stringSet(slice.NewEventIDs)
 	groups := make(map[eventScope]*scopedSlice)
 	for _, event := range slice.Events {
 		scope := eventScope{taskRef: event.TaskRef, threadRef: event.ThreadRef}
 		group, ok := groups[scope]
 		if !ok {
-			group = &scopedSlice{scope: scope, slice: sessionlake.Slice{
+			group = &scopedSlice{scope: scope, slice: evidencelake.Slice{
 				Actor: slice.Actor, FromSequence: slice.FromSequence, ToSequence: slice.ToSequence,
 				InputChecksum: slice.InputChecksum,
 			}}
@@ -175,7 +175,7 @@ func groupSlice(slice sessionlake.Slice) []scopedSlice {
 	return result
 }
 
-func (e *OpenAI) advanceEpisode(ctx context.Context, key EpisodeKey, slice sessionlake.Slice, protocol extractionProtocol) (Result, error) {
+func (e *OpenAI) advanceEpisode(ctx context.Context, key EpisodeKey, slice evidencelake.Slice, protocol extractionProtocol) (Result, error) {
 	releaseEpisode := e.acquireEpisode(key)
 	defer releaseEpisode()
 	var result Result
@@ -189,7 +189,7 @@ func (e *OpenAI) advanceEpisode(ctx context.Context, key EpisodeKey, slice sessi
 	return Result{}, fmt.Errorf("advance rolling extraction episode after conflict retry: %w", err)
 }
 
-func (e *OpenAI) advanceEpisodeAttempt(ctx context.Context, key EpisodeKey, slice sessionlake.Slice, protocol extractionProtocol) (Result, error) {
+func (e *OpenAI) advanceEpisodeAttempt(ctx context.Context, key EpisodeKey, slice evidencelake.Slice, protocol extractionProtocol) (Result, error) {
 
 	if err := e.consumeReadySummary(key); err != nil {
 		return Result{}, fmt.Errorf("persist rolling extraction summary: %w", err)
@@ -378,7 +378,7 @@ func (e *OpenAI) episodeProtocolVersion() string {
 	return e.config.ExtractionVersion
 }
 
-func removeHistoricalEvidence(result *Result, episode Episode, slice sessionlake.Slice) {
+func removeHistoricalEvidence(result *Result, episode Episode, slice evidencelake.Slice) {
 	historical := episodeEvidence(episode)
 	current := stringSet(eventIDs(slice.Events))
 	for index := range result.Candidates {
@@ -787,7 +787,7 @@ func (e *OpenAI) acquireEpisode(key EpisodeKey) func() {
 	}
 }
 
-func updateSourceCursor(checkpoint *Checkpoint, slice sessionlake.Slice) {
+func updateSourceCursor(checkpoint *Checkpoint, slice evidencelake.Slice) {
 	if checkpoint.SourceCursors == nil {
 		checkpoint.SourceCursors = make(map[string]int64)
 	}

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pax-beehive/pax-nexus/internal/sessionlake"
+	"github.com/pax-beehive/pax-nexus/internal/evidencelake"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote/extractor"
 	teamruntime "github.com/pax-beehive/pax-nexus/internal/teamnote/runtime"
@@ -32,7 +32,7 @@ func (s *appSuite) SetupTest() {
 	s.repository = newRuntimeRepository()
 	s.extractor = new(runtimeExtractor)
 	logger := slog.New(slog.NewJSONHandler(&s.logs, nil))
-	app, err := teamruntime.New(sessionlake.New(s.repository), s.extractor, teamruntime.Config{Logger: logger})
+	app, err := teamruntime.New(evidencelake.New(s.repository), s.extractor, teamruntime.Config{Logger: logger})
 	s.Require().NoError(err)
 	s.app = app
 }
@@ -108,7 +108,7 @@ func (s *appSuite) TestProcessExtractionIsIdempotentAfterCursorAdvance() {
 
 func (s *appSuite) TestProcessExtractionCommitsZeroCandidateRunProvenance() {
 	store := newRecordingNoteStore()
-	app, err := teamruntime.New(sessionlake.New(s.repository), s.extractor, teamruntime.Config{NoteStore: store})
+	app, err := teamruntime.New(evidencelake.New(s.repository), s.extractor, teamruntime.Config{NoteStore: store})
 	s.Require().NoError(err)
 	ctx := teamnote.WithScope(context.Background(), "scope-zero-candidate")
 	actor := teamnote.Actor{UserID: "owner", AgentID: "producer", SessionID: "producer-session"}
@@ -139,7 +139,7 @@ func (s *appSuite) TestProcessExtractionCommitsZeroCandidateRunProvenance() {
 
 func (s *appSuite) TestExtractionV2UsesProtocolScopedRunIdentity() {
 	store := newRecordingNoteStore()
-	app, err := teamruntime.New(sessionlake.New(s.repository), s.extractor, teamruntime.Config{NoteStore: store})
+	app, err := teamruntime.New(evidencelake.New(s.repository), s.extractor, teamruntime.Config{NoteStore: store})
 	s.Require().NoError(err)
 	ctx := teamnote.WithScope(context.Background(), "scope-v2-run")
 	actor := teamnote.Actor{UserID: "owner", AgentID: "producer", SessionID: "producer-session"}
@@ -180,7 +180,7 @@ func (s *appSuite) TestTimeoutJobSkipsWhenSessionHasAdvanced() {
 
 func (s *appSuite) TestProcessExtractionFiltersInadmissibleCandidates() {
 	store := newRecordingNoteStore()
-	app, err := teamruntime.New(sessionlake.New(s.repository), s.extractor, teamruntime.Config{NoteStore: store})
+	app, err := teamruntime.New(evidencelake.New(s.repository), s.extractor, teamruntime.Config{NoteStore: store})
 	s.Require().NoError(err)
 	ctx := teamnote.WithScope(context.Background(), "scope-filter")
 	actor := teamnote.Actor{UserID: "owner", AgentID: "producer", SessionID: "producer-session"}
@@ -221,7 +221,7 @@ func (s *appSuite) TestProcessExtractionFiltersInadmissibleCandidates() {
 
 func (s *appSuite) TestProcessExtractionCommitsQuarantinedRun() {
 	observations := make([]teamruntime.ExtractionObservation, 0, 1)
-	app, err := teamruntime.New(sessionlake.New(s.repository), s.extractor, teamruntime.Config{
+	app, err := teamruntime.New(evidencelake.New(s.repository), s.extractor, teamruntime.Config{
 		Logger: slog.New(slog.NewJSONHandler(&s.logs, nil)),
 		ExtractionObserver: func(_ context.Context, observation teamruntime.ExtractionObservation) {
 			observations = append(observations, observation)
@@ -280,7 +280,7 @@ func (s *appSuite) TestCompleteJobStopsAtCapturedBatchCursor() {
 }
 
 func (s *appSuite) TestCapsSlicesAndReportsContinuation() {
-	app, err := teamruntime.New(sessionlake.New(s.repository), s.extractor, teamruntime.Config{
+	app, err := teamruntime.New(evidencelake.New(s.repository), s.extractor, teamruntime.Config{
 		SliceEventLimit: 1, SliceTokenLimit: 1024, SliceOverlap: 1, MaxSlicesPerJob: 2,
 	})
 	s.Require().NoError(err)
@@ -332,7 +332,7 @@ func (s *recordingNoteStore) RecallNotes(ctx context.Context, scopeID string, re
 	return s.delegate.RecallNotes(ctx, scopeID, request)
 }
 
-func (e *runtimeExtractor) Extract(_ context.Context, _ sessionlake.Slice) (extractor.Result, error) {
+func (e *runtimeExtractor) Extract(_ context.Context, _ evidencelake.Slice) (extractor.Result, error) {
 	e.calls++
 	return e.result, nil
 }

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pax-beehive/pax-nexus/internal/sessionlake"
+	"github.com/pax-beehive/pax-nexus/internal/evidencelake"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote"
 )
 
@@ -245,12 +245,12 @@ func decodeExtractionContentV2(content string) (Result, error) {
 // mapExtractionV2 validates raw v2 products against the slice and maps
 // admitted decisions onto the existing Candidate shape. Invalid claims and
 // decisions are dropped with trace rejections instead of failing the slice.
-func mapExtractionV2(result *Result, slice sessionlake.Slice) {
+func mapExtractionV2(result *Result, slice evidencelake.Slice) {
 	mapExtractionV2With(result, slice, mapStandardDecision)
 	result.TransitionAuthorities = nil
 }
 
-func mapExtractionClaimCard(result *Result, slice sessionlake.Slice) {
+func mapExtractionClaimCard(result *Result, slice evidencelake.Slice) {
 	mapExtractionV2With(result, slice, mapClaimCardDecision)
 	result.TransitionAuthorities = nil
 }
@@ -261,10 +261,10 @@ type stateDecisionMapper func(
 	map[string]struct{},
 	map[string]struct{},
 	[]teamnote.SessionEvent,
-	sessionlake.Slice,
+	evidencelake.Slice,
 ) (*teamnote.Candidate, string)
 
-func mapExtractionV2With(result *Result, slice sessionlake.Slice, mapDecisionWith stateDecisionMapper) {
+func mapExtractionV2With(result *Result, slice evidencelake.Slice, mapDecisionWith stateDecisionMapper) {
 	trace := result.Trace
 	if trace == nil {
 		trace = &TraceV2{}
@@ -341,7 +341,7 @@ func mapStandardDecision(
 	allEvents map[string]struct{},
 	newEvents map[string]struct{},
 	events []teamnote.SessionEvent,
-	slice sessionlake.Slice,
+	slice evidencelake.Slice,
 ) (*teamnote.Candidate, string) {
 	return mapDecision(decision, claims, allEvents, newEvents, events, extractionObservationTime(slice), false)
 }
@@ -505,7 +505,7 @@ func mapClaimCardDecision(
 	allEvents map[string]struct{},
 	newEvents map[string]struct{},
 	events []teamnote.SessionEvent,
-	slice sessionlake.Slice,
+	slice evidencelake.Slice,
 ) (*teamnote.Candidate, string) {
 	candidate, reason := mapDecision(
 		decision, claims, allEvents, newEvents, events, extractionObservationTime(slice), false,
@@ -533,7 +533,7 @@ type claimCard struct {
 	relatedSubjects []string
 }
 
-func buildClaimCard(decision StateDecision, claims map[string]Claim, slice sessionlake.Slice) (claimCard, string) {
+func buildClaimCard(decision StateDecision, claims map[string]Claim, slice evidencelake.Slice) (claimCard, string) {
 	if len(decision.ClaimIDs) != 1 {
 		return claimCard{}, "claim-card decision must reference exactly one primary claim"
 	}
@@ -594,7 +594,7 @@ func renderClaimCard(claim Claim, subject, predicate, value, speaker string) str
 	return strings.Join(lines, "\n")
 }
 
-func claimCardIdentity(slice sessionlake.Slice, subject, predicate string) string {
+func claimCardIdentity(slice evidencelake.Slice, subject, predicate string) string {
 	input := strings.Join([]string{
 		compactClaimCardText(slice.Events[0].TaskRef),
 		compactClaimCardText(slice.Events[0].ThreadRef),
@@ -806,7 +806,7 @@ func parseTemporalWindow(validAt string, invalidAt string) (*time.Time, *time.Ti
 	return valid, invalid, nil
 }
 
-func traceCoverage(trace *TraceV2, slice sessionlake.Slice, claims map[string]Claim) {
+func traceCoverage(trace *TraceV2, slice evidencelake.Slice, claims map[string]Claim) {
 	newEvents := stringSet(slice.NewEventIDs)
 	reviewed := make(map[string]struct{}, len(newEvents))
 	referencedClaims := make(map[string]struct{}, len(claims))

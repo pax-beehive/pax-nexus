@@ -7,11 +7,11 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/pax-beehive/pax-nexus/internal/sessionlake"
+	"github.com/pax-beehive/pax-nexus/internal/evidencelake"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote"
 )
 
-func mapExtractionSourceClauseV1(result *Result, slice sessionlake.Slice) {
+func mapExtractionSourceClauseV1(result *Result, slice evidencelake.Slice) {
 	normalizeSourceClauseCitations(result.Trace, slice.Events)
 	mapExtractionV2With(result, slice, mapSourceClauseDecision)
 }
@@ -172,7 +172,7 @@ func mapSourceClauseDecision(
 	allEvents map[string]struct{},
 	newEvents map[string]struct{},
 	events []teamnote.SessionEvent,
-	slice sessionlake.Slice,
+	slice evidencelake.Slice,
 ) (*teamnote.Candidate, string) {
 	if reason := sourceClauseRejectionReason(decision, events, newEvents); reason != "" {
 		return nil, reason
@@ -405,7 +405,7 @@ func containsAny(value string, markers []string) bool {
 	return false
 }
 
-func extractionObservationTime(slice sessionlake.Slice) time.Time {
+func extractionObservationTime(slice evidencelake.Slice) time.Time {
 	newEvents := stringSet(slice.NewEventIDs)
 	var observationTime time.Time
 	for _, event := range slice.Events {

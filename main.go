@@ -14,6 +14,7 @@ import (
 
 	"github.com/cloudwego/hertz/pkg/app/server"
 	"github.com/pax-beehive/pax-nexus/internal/deployment/onprem"
+	"github.com/pax-beehive/pax-nexus/internal/evidencelake"
 	"github.com/pax-beehive/pax-nexus/internal/operations"
 	"github.com/pax-beehive/pax-nexus/internal/pagewiki"
 	pagewikipostgres "github.com/pax-beehive/pax-nexus/internal/pagewiki/postgres"
@@ -24,7 +25,6 @@ import (
 	"github.com/pax-beehive/pax-nexus/internal/platform/postgres"
 	"github.com/pax-beehive/pax-nexus/internal/platform/textembedding"
 	"github.com/pax-beehive/pax-nexus/internal/recall"
-	"github.com/pax-beehive/pax-nexus/internal/sessionlake"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote/extractionbudget"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote/extractionqueue"
@@ -100,7 +100,7 @@ func run(ctx context.Context, logger *slog.Logger) error {
 		operationRecorder = dropCountingRecorder
 		runtimeConfig.ExtractionObserver = onprem.NewExtractionObserver(operationRecorder, logger)
 	}
-	runtime, err := teamruntime.New(sessionlake.New(sessions), candidateExtractor, runtimeConfig)
+	runtime, err := teamruntime.New(evidencelake.New(sessions), candidateExtractor, runtimeConfig)
 	if err != nil {
 		return fmt.Errorf("initialize runtime: %w", err)
 	}
