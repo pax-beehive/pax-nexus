@@ -85,6 +85,7 @@ func (s *dependencySuite) TestEveryInternalPackageIsRegistered() {
 }
 
 func (s *dependencySuite) TestDependencyWhitelist() {
+	carvedOut := dependencyCarveOuts(dependencyRules)
 	for _, rule := range dependencyRules {
 		if rule.unrestricted {
 			continue
@@ -97,7 +98,7 @@ func (s *dependencySuite) TestDependencyWhitelist() {
 					continue
 				}
 				relative := strings.TrimPrefix(imported, modulePath)
-				s.True(importAllowed(relative, rule),
+				s.True(importAllowed(relative, rule, carvedOut),
 					"%s imports %s which is not in its whitelist", rule.directory, imported)
 			}
 		})
@@ -121,14 +122,47 @@ func (s *dependencySuite) TestOnlyEvalImportsEval() {
 func (s *dependencySuite) TestImportAllowedDefaultsToDeny() {
 	rule := dependencyRule{directory: "example", excluded: []string{"transport"},
 		allowed: []string{"session"}}
-	s.False(importAllowed("platform/postgres", rule), "unlisted import must be denied")
-	s.False(importAllowed("example/transport/httpapi", rule), "excluded subtree must be denied")
-	s.True(importAllowed("session", rule))
-	s.True(importAllowed("session/sub", rule))
-	s.True(importAllowed("example/inner", rule))
+	s.False(importAllowed("platform/postgres", rule, nil), "unlisted import must be denied")
+	s.False(importAllowed("example/transport/httpapi", rule, nil), "excluded subtree must be denied")
+	s.True(importAllowed("session", rule, nil))
+	s.True(importAllowed("session/sub", rule, nil))
+	s.True(importAllowed("example/inner", rule, nil))
 }
 
-func importAllowed(relative string, rule dependencyRule) bool {
+// TestImportAllowedDeniesOverGrantIntoCarveOut guards against a coarse allowed
+// prefix (e.g. "teamnote") silently reaching into a subtree another rule
+// carved out and owns (e.g. "teamnote/transport"). An allowed prefix that
+// targets the carve-out directly, or a relative import outside it, is
+// unaffected.
+func (s *dependencySuite) TestImportAllowedDeniesOverGrantIntoCarveOut() {
+	carvedOut := []string{"teamnote/transport", "pagewiki/transport"}
+	coarseTeamnote := dependencyRule{directory: "platform", allowed: []string{"teamnote"}}
+	s.False(importAllowed("teamnote/transport/httpapi/handler", coarseTeamnote, carvedOut),
+		"allowed=teamnote must not reach into the carved-out teamnote/transport subtree")
+	s.True(importAllowed("teamnote/extractor", coarseTeamnote, carvedOut),
+		"allowed=teamnote must still cover teamnote/extractor, which is outside the carve-out")
+
+	targetedTransport := dependencyRule{directory: "teamnote/transport",
+		allowed: []string{"pagewiki/transport/httpapi"}}
+	s.True(importAllowed("pagewiki/transport/httpapi/model", targetedTransport, carvedOut),
+		"an allowed prefix that itself targets the carve-out must still be granted")
+}
+
+// dependencyCarveOuts derives the set of subtrees a rule excludes from its own
+// directory because another rule owns them (e.g. "teamnote/transport" is
+// carved out of the "teamnote" rule). Computed from dependencyRules itself so
+// it cannot drift from the exclusions the rules already declare.
+func dependencyCarveOuts(rules []dependencyRule) []string {
+	carvedOut := make([]string, 0)
+	for _, rule := range rules {
+		for _, excluded := range rule.excluded {
+			carvedOut = append(carvedOut, rule.directory+"/"+excluded)
+		}
+	}
+	return carvedOut
+}
+
+func importAllowed(relative string, rule dependencyRule, carvedOut []string) bool {
 	if hasPathPrefix(relative, rule.directory) {
 		for _, excluded := range rule.excluded {
 			if hasPathPrefix(relative, rule.directory+"/"+excluded) {
@@ -138,7 +172,20 @@ func importAllowed(relative string, rule dependencyRule) bool {
 		return true
 	}
 	for _, allowed := range rule.allowed {
-		if hasPathPrefix(relative, allowed) {
+		if hasPathPrefix(relative, allowed) && !crossesCarveOut(relative, allowed, carvedOut) {
+			return true
+		}
+	}
+	return false
+}
+
+// crossesCarveOut reports whether granting the "allowed" prefix would reach
+// "relative" only by cutting through a carved-out subtree that "allowed"
+// does not itself lie inside — an over-grant into territory another rule
+// owns exclusively.
+func crossesCarveOut(relative, allowed string, carvedOut []string) bool {
+	for _, carveOut := range carvedOut {
+		if hasPathPrefix(relative, carveOut) && !hasPathPrefix(allowed, carveOut) {
 			return true
 		}
 	}
