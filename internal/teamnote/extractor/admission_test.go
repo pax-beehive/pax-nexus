@@ -3,7 +3,6 @@ package extractor_test
 import (
 	"context"
 	"encoding/json"
-	"io"
 	"net/http"
 	"testing"
 	"time"
@@ -231,31 +230,6 @@ func (s *admissionSuite) TestSourceClauseAdmissionValidatesExactAtomicEvidence()
 	}
 }
 
-func (s *admissionSuite) TestClauseLocalOverrideDoesNotAffectCurrentStrategy() {
-	slice := v2Slice()
-	slice.Events[0].Content = "The plan is provisional. I’ll update the final baseline. Legal should own the final baseline."
-	decision := `{"decision":"create","identity_ref":"owner/final-baseline","evidence_event_ids":["event-1"],` +
-		`"evidence_clauses":[{"event_id":"event-1","quote":"I’ll update the final baseline."}],` +
-		`"reason_codes":["explicit_new_fact"],"candidate":{"kind":"owner","subject":"final baseline owner",` +
-		`"body":"Legal owns the final baseline."}}`
-	client := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
-		return response(http.StatusOK, v2Body("", decision)), nil
-	})}
-	adapter, err := extractor.NewOpenAI(extractor.OpenAIConfig{
-		BaseURL: "http://extractor.test", Model: "model", Client: client,
-		ContextMode: extractor.ContextModeRolling, EpisodeStore: extractor.NewMemoryEpisodeStore(),
-		ExtractionVersion: extractor.ExtractionVersionV2, V2Variant: extractor.V2VariantCurrent,
-	})
-	s.Require().NoError(err)
-
-	result, err := adapter.Extract(teamnote.WithScope(context.Background(), "current-strategy-clause-isolation"), slice)
-
-	s.Require().NoError(err)
-	s.Empty(result.Candidates)
-	s.Require().Len(result.Trace.DecisionRejections, 1)
-	s.Contains(result.Trace.DecisionRejections[0].Reason, "non-committal")
-}
-
 func (s *admissionSuite) TestTemporalAdmissionUsesNewEventObservationTime() {
 	slice := v2Slice()
 	slice.Events[0].Content = "The review remains active through 2025."
@@ -286,48 +260,6 @@ func (s *admissionSuite) TestTemporalAdmissionUsesNewEventObservationTime() {
 	s.Require().Len(result.Candidates, 1)
 	s.Require().NotNil(result.Candidates[0].InvalidAt)
 	s.Equal(time.Date(2025, time.January, 1, 0, 0, 0, 0, time.UTC), *result.Candidates[0].InvalidAt)
-}
-
-func (s *admissionSuite) TestImplicitStatePromptReviewsDurableStateBeforeNoState() {
-	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
-		body, err := io.ReadAll(request.Body)
-		s.Require().NoError(err)
-		prompt := string(body)
-		s.Contains(prompt, "Observable incomplete state is durable")
-		s.Contains(prompt, "Declarative role capability tied to a concrete action and deadline")
-		s.Contains(prompt, "Preserve can, cannot, and not-yet modality")
-		s.Contains(prompt, "can you")
-		return response(http.StatusOK, v2BodyWithNoStateEvents("", "", `"event-1"`)), nil
-	})}
-	adapter, err := extractor.NewOpenAI(extractor.OpenAIConfig{
-		BaseURL: "http://extractor.test", Model: "model", Client: client,
-		ContextMode: extractor.ContextModeRolling, EpisodeStore: extractor.NewMemoryEpisodeStore(),
-		ExtractionVersion: extractor.ExtractionVersionV2, V2Variant: extractor.V2VariantImplicitState,
-	})
-	s.Require().NoError(err)
-
-	_, err = adapter.Extract(teamnote.WithScope(context.Background(), "implicit-state-review-prompt"), v2Slice())
-
-	s.Require().NoError(err)
-}
-
-func (s *admissionSuite) TestSourceClausePromptExcludesImplicitStateExperiment() {
-	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
-		body, err := io.ReadAll(request.Body)
-		s.Require().NoError(err)
-		s.NotContains(string(body), "Implicit durable-state review before no_state")
-		return response(http.StatusOK, v2BodyWithNoStateEvents("", "", `"event-1"`)), nil
-	})}
-	adapter, err := extractor.NewOpenAI(extractor.OpenAIConfig{
-		BaseURL: "http://extractor.test", Model: "model", Client: client,
-		ContextMode: extractor.ContextModeRolling, EpisodeStore: extractor.NewMemoryEpisodeStore(),
-		ExtractionVersion: extractor.ExtractionVersionV2, V2Variant: extractor.V2VariantSourceClause,
-	})
-	s.Require().NoError(err)
-
-	_, err = adapter.Extract(teamnote.WithScope(context.Background(), "source-clause-prompt-isolation"), v2Slice())
-
-	s.Require().NoError(err)
 }
 
 func quoteJSON(value string) string {

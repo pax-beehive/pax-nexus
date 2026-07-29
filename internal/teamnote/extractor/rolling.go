@@ -349,8 +349,6 @@ func (e *OpenAI) resultExtractionVersion() string {
 			return ExtractionVersionSourceSpanV1
 		case CandidateStrategySourceSpanV2:
 			return ExtractionVersionSourceSpanV2
-		case CandidateStrategyClaimCardV1:
-			return ExtractionVersionClaimCardV1
 		case CandidateStrategyClaimCardV2:
 			return ExtractionVersionClaimCardV2
 		}

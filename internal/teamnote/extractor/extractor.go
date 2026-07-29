@@ -65,27 +65,17 @@ type ProviderCall struct {
 type ProviderCallObserver func(ProviderCall)
 
 const (
-	CandidateStrategyCurrent          = "current"
-	CandidateStrategyInteractionSlim  = "interaction-slim"
-	CandidateStrategyEvidenceFidelity = "evidence-fidelity-v1"
-	CandidateStrategySourceClause     = "source-clause-v1"
-	CandidateStrategyImplicitState    = "source-clause-implicit-state-v1"
-	CandidateStrategyTyped2           = "typed-2"
-	CandidateStrategySourceSpanV1     = "source-span-v1"
-	CandidateStrategySourceSpanV2     = "source-span-v2"
-	CandidateStrategyClaimCardV1      = "claim-card-v1"
-	CandidateStrategyClaimCardV2      = "claim-card-v2"
+	CandidateStrategyInteractionSlim = "interaction-slim"
+	CandidateStrategySourceClause    = "source-clause-v1"
+	CandidateStrategySourceSpanV1    = "source-span-v1"
+	CandidateStrategySourceSpanV2    = "source-span-v2"
+	CandidateStrategyClaimCardV2     = "claim-card-v2"
 
-	V2VariantCurrent          = CandidateStrategyCurrent
-	V2VariantInteractionSlim  = CandidateStrategyInteractionSlim
-	V2VariantEvidenceFidelity = CandidateStrategyEvidenceFidelity
-	V2VariantSourceClause     = CandidateStrategySourceClause
-	V2VariantImplicitState    = CandidateStrategyImplicitState
-	V2VariantTypedCurrent     = CandidateStrategyTyped2
-	V2VariantSourceSpanV1     = CandidateStrategySourceSpanV1
-	V2VariantSourceSpanV2     = CandidateStrategySourceSpanV2
-	V2VariantClaimCardV1      = CandidateStrategyClaimCardV1
-	V2VariantClaimCardV2      = CandidateStrategyClaimCardV2
+	V2VariantInteractionSlim = CandidateStrategyInteractionSlim
+	V2VariantSourceClause    = CandidateStrategySourceClause
+	V2VariantSourceSpanV1    = CandidateStrategySourceSpanV1
+	V2VariantSourceSpanV2    = CandidateStrategySourceSpanV2
+	V2VariantClaimCardV2     = CandidateStrategyClaimCardV2
 )
 
 type Result struct {

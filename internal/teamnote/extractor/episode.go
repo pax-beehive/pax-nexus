@@ -32,9 +32,6 @@ const (
 	// ExtractionVersionSourceSpanV2 identifies source shards so they cannot
 	// replay a source-span-v1 or state-normalizing extraction result.
 	ExtractionVersionSourceSpanV2 = "source-span-v2"
-	// ExtractionVersionClaimCardV1 identifies deterministic claim-card output
-	// so a state-normalizing v2 replay cannot reuse a free-form candidate body.
-	ExtractionVersionClaimCardV1 = "claim-card-v1"
 	// ExtractionVersionClaimCardV2 identifies exact-value claim cards so they
 	// cannot replay a v1 card response with compressed claim values.
 	ExtractionVersionClaimCardV2 = "claim-card-v2"

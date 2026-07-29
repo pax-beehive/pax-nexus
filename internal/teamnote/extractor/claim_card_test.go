@@ -23,7 +23,7 @@ func TestClaimCardSuite(t *testing.T) {
 }
 
 func newClaimCardAdapter(s *claimCardSuite, client *http.Client) extractor.Extractor {
-	return newClaimCardAdapterWithStrategy(s, client, extractor.CandidateStrategyClaimCardV1)
+	return newClaimCardAdapterWithStrategy(s, client, extractor.CandidateStrategyClaimCardV2)
 }
 
 func newClaimCardAdapterWithStrategy(s *claimCardSuite, client *http.Client, strategy string) extractor.Extractor {
@@ -79,7 +79,7 @@ func (s *claimCardSuite) TestRendersCandidateFromPrimaryClaimInsteadOfModelBody(
 	s.Empty(candidate.RelatedSubjects)
 	s.Require().NotNil(candidate.ValidAt)
 	s.Equal(time.Date(2026, time.July, 18, 0, 0, 0, 0, time.UTC), *candidate.ValidAt)
-	s.Equal(extractor.ExtractionVersionClaimCardV1, result.ExtractionVersion)
+	s.Equal(extractor.ExtractionVersionClaimCardV2, result.ExtractionVersion)
 }
 
 func (s *claimCardSuite) TestMapsClaimTypeToConservativeNoteKind() {
