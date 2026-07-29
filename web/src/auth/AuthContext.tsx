@@ -12,7 +12,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { ApiError } from "../api/client";
+import { apiError } from "../api/client";
 import { getMe } from "../api/queries";
 import { logout as logoutAction } from "../api/actions";
 import type { HumanMe } from "../api/types";
@@ -55,9 +55,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const me = await getMe();
       setState(classify(withCapabilities(me)));
     } catch (err) {
-      if (err instanceof ApiError && err.status === 501) {
+      if (apiError(err, 501)) {
         setState({ kind: "not-configured" });
-      } else if (err instanceof ApiError && err.status === 401) {
+      } else if (apiError(err, 401)) {
         setState({ kind: "unauthenticated" });
       } else {
         // Network or unexpected failure: fall back to the login page, which

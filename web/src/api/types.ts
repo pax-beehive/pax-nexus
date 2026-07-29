@@ -1,6 +1,12 @@
 // Types mirror idl/team_memory.thrift exactly; field names are the JSON names
 // produced by the Hertz Thrift binding.
 
+/** Cursor-paginated list response shared by all list endpoints (doc section 3.4). */
+export interface Page<T> {
+  items: T[];
+  nextCursor?: string;
+}
+
 export type Role = "owner" | "admin" | "member";
 export type MembershipStatus = "active" | "suspended" | "removed";
 export type AgentStatus = "active" | "suspended" | "retired";

@@ -19,6 +19,18 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Type guard narrowing an unknown error to ApiError, optionally requiring an
+ * exact status and/or structured error code (doc section 9).
+ */
+export function apiError(err: unknown, status?: number, code?: string): err is ApiError {
+  return (
+    err instanceof ApiError &&
+    (status === undefined || err.status === status) &&
+    (code === undefined || err.code === code)
+  );
+}
+
 export function readCookie(name: string): string | undefined {
   const prefix = `${encodeURIComponent(name)}=`;
   return document.cookie

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ApiError } from "../api/client";
+import { apiError } from "../api/client";
 import { beginAction, createAgent } from "../api/actions";
 import { listMyAgents } from "../api/queries";
 import type { AgentProfile } from "../api/types";
@@ -56,9 +56,9 @@ function CreateAgentModal({
       toast("ok", "Agent created");
       onCreated(agent);
     } catch (err) {
-      if (err instanceof ApiError && err.code === "agent_id_conflict") {
+      if (apiError(err, undefined, "agent_id_conflict")) {
         setFormError("agent_id already exists; choose a different ID");
-      } else if (err instanceof ApiError && err.code === "idempotency_conflict") {
+      } else if (apiError(err, undefined, "idempotency_conflict")) {
         setFormError("This action's Idempotency-Key was already used for a different request; close the dialog and start over");
       } else {
         handleError(err);

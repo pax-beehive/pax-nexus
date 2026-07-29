@@ -7,7 +7,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { ApiError } from "../api/client";
+import { apiError } from "../api/client";
 import {
   listAdminAgents,
   listOperationEvents,
@@ -25,25 +25,19 @@ import {
   operationOutcomeTone,
   relativeAge,
   timeWindow,
-  type OutcomeTone,
+  TONE_BADGE,
 } from "../lib/operations";
-import { noticeForError } from "../lib/statusMessage";
 import { useCountUp } from "../lib/useCountUp";
 import { useErrorHandler } from "../lib/useErrorHandler";
 import { usePolling } from "../lib/usePolling";
+import { usePolledRegion } from "../lib/useRegion";
+import { RegionError } from "../components/RegionError";
 import { useAuth } from "../auth/AuthContext";
 import { hasServerCapability } from "../lib/capabilities";
 
 // Stats and the event feed poll every 10s while the page is visible.
 const POLL_INTERVAL_MS = 10_000;
 const FEED_SIZE = 20;
-
-const TONE_BADGE: Record<OutcomeTone, string> = {
-  ok: "b-active",
-  warn: "b-suspended",
-  bad: "b-retired",
-  muted: "b-expired",
-};
 
 const ACTIVITY_LABEL = {
   active: "Active (within 1 min)",
@@ -55,13 +49,16 @@ const ACTIVITY_LABEL = {
 // Region hooks
 // ---------------------------------------------------------------------------
 
-interface StatsRegion {
+interface StatsSnapshot {
   agents: OperationsAgentStats[];
   fromTime?: string;
   toTime?: string;
   generatedAt?: string;
   /** Note ids first seen in the latest poll; they render with a fade-in. */
   freshNotes: Set<string>;
+}
+
+interface StatsRegion extends StatsSnapshot {
   status: "loading" | "ready" | "error";
   error?: unknown;
 }
@@ -69,16 +66,9 @@ interface StatsRegion {
 function useStatsRegion(
   onAuthError: (err: unknown) => void,
 ): StatsRegion & { retry: () => void } {
-  const [state, setState] = useState<StatsRegion>({
-    agents: [],
-    freshNotes: new Set(),
-    status: "loading",
-  });
-  const [epoch, setEpoch] = useState(0);
   const seenNotesRef = useRef<Set<string> | undefined>();
-
-  usePolling(
-    async (signal) => {
+  const region = usePolledRegion<StatsSnapshot>(
+    async (signal, prev) => {
       const res = await listOperationsAgentStats(timeWindow("1h"), signal);
       const seen = seenNotesRef.current;
       const fresh = new Set<string>();
@@ -90,34 +80,30 @@ function useStatsRegion(
         }
       }
       seenNotesRef.current = nowSeen;
-      setState((prev) => ({
+      return {
         agents: res.items,
         fromTime: res.fromTime,
         toTime: res.toTime,
         generatedAt: res.generatedAt,
         // The first successful load highlights nothing: everything is "new".
         freshNotes: prev.status === "loading" ? new Set() : fresh,
-        status: "ready",
-        error: undefined,
-      }));
+      };
     },
     POLL_INTERVAL_MS,
-    [epoch],
-    useCallback(
-      (err: unknown) => {
-        onAuthError(err);
-        // Keep the last good data and mark it possibly stale.
-        setState((prev) => ({
-          ...prev,
-          status: prev.status === "ready" ? "ready" : "error",
-          error: err,
-        }));
-      },
-      [onAuthError],
-    ),
+    [],
+    onAuthError,
   );
 
-  return { ...state, retry: () => setEpoch((e) => e + 1) };
+  return {
+    agents: region.data?.agents ?? [],
+    fromTime: region.data?.fromTime,
+    toTime: region.data?.toTime,
+    generatedAt: region.data?.generatedAt,
+    freshNotes: region.data?.freshNotes ?? new Set(),
+    status: region.status,
+    error: region.error,
+    retry: region.retry,
+  };
 }
 
 interface FeedRegion {
@@ -214,20 +200,6 @@ function useNow(intervalMs: number): number {
 // ---------------------------------------------------------------------------
 // Small presentational pieces
 // ---------------------------------------------------------------------------
-
-function RegionError({ error, onRetry }: { error: unknown; onRetry?: () => void }) {
-  const notice = noticeForError(error);
-  return (
-    <div className={`note ${notice.kind === "ok" ? "" : notice.kind}`}>
-      {notice.message}
-      {onRetry && (
-        <button className="btn sm" style={{ marginLeft: 10 }} onClick={onRetry}>
-          Retry
-        </button>
-      )}
-    </div>
-  );
-}
 
 /** Inline agent-type glyph; unknown types get the generic mark. */
 function AgentGlyph({ type }: { type?: string }) {
@@ -446,7 +418,7 @@ export function AdminPulsePage() {
   // region-local so a failing poll never spams toasts.
   const onAuthError = useCallback(
     (err: unknown) => {
-      if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
+      if (apiError(err) && (err.status === 401 || err.status === 403)) {
         handleError(err);
       }
     },

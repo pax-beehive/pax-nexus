@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ApiError } from "../api/client";
+import { apiError } from "../api/client";
 import { claimBootstrap } from "../api/actions";
 import { useAuth } from "../auth/AuthContext";
 import { useToast } from "../components/Toasts";
@@ -27,12 +27,12 @@ export function BootstrapPage() {
       await refresh();
       navigate("/agents", { replace: true });
     } catch (err) {
-      if (err instanceof ApiError && err.status === 403) {
+      if (apiError(err, 403)) {
         toast("bad", "403: incorrect bootstrap secret, or this account already has a Membership");
-      } else if (err instanceof ApiError && err.code === "bootstrap_closed") {
+      } else if (apiError(err, undefined, "bootstrap_closed")) {
         toast("warn", "Bootstrap has already been claimed by someone else or is closed");
         await refresh();
-      } else if (err instanceof ApiError && err.status === 401) {
+      } else if (apiError(err, 401)) {
         toast("warn", "Your session has expired; sign in again and retry");
         await refresh();
       } else {

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { listTeamNotes } from "../api/queries";
 import { Badge } from "../components/Badge";
+import { PagedListCard } from "../components/PagedListCard";
 import { formatTime } from "../lib/format";
 import { useErrorHandler } from "../lib/useErrorHandler";
 import { usePagedList } from "../lib/usePagedList";
@@ -86,65 +87,42 @@ export function AdminExplorerPage() {
         </div>
       </div>
 
-      <div className="card">
-        {notes.loading ? (
-          <p className="muted small">Loading…</p>
-        ) : notes.items.length === 0 ? (
-          <p className="muted small">No matching Team Notes.</p>
-        ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>Team Note</th>
-                <th>Kind</th>
-                <th>Agent</th>
-                <th>State</th>
-                <th>Updated</th>
-              </tr>
-            </thead>
-            <tbody>
-              {notes.items.map((note) => (
-                <tr key={note.note_id}>
-                  <td>
-                    <Link to={`/admin/explorer/notes/${encodeURIComponent(note.note_id)}`}>
-                      {note.subject}
-                    </Link>
-                    <div className="small mono faint">
-                      {note.note_id} · revision {note.revision}
-                    </div>
-                    {(note.task_ref || note.thread_ref) && (
-                      <div className="small faint">
-                        {note.task_ref && `task ${note.task_ref}`}
-                        {note.task_ref && note.thread_ref && " · "}
-                        {note.thread_ref && `thread ${note.thread_ref}`}
-                      </div>
-                    )}
-                  </td>
-                  <td>
-                    <span className="badge b-role">{note.kind}</span>
-                  </td>
-                  <td>
-                    <code>{note.origin_agent_id}</code>
-                  </td>
-                  <td>
-                    <Badge status={note.state} />
-                  </td>
-                  <td className="small" title={note.updated_at}>
-                    {formatTime(note.updated_at)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      <PagedListCard
+        list={notes}
+        columns={["Team Note", "Kind", "Agent", "State", "Updated"]}
+        emptyText="No matching Team Notes."
+        renderRow={(note) => (
+          <tr key={note.note_id}>
+            <td>
+              <Link to={`/admin/explorer/notes/${encodeURIComponent(note.note_id)}`}>
+                {note.subject}
+              </Link>
+              <div className="small mono faint">
+                {note.note_id} · revision {note.revision}
+              </div>
+              {(note.task_ref || note.thread_ref) && (
+                <div className="small faint">
+                  {note.task_ref && `task ${note.task_ref}`}
+                  {note.task_ref && note.thread_ref && " · "}
+                  {note.thread_ref && `thread ${note.thread_ref}`}
+                </div>
+              )}
+            </td>
+            <td>
+              <span className="badge b-role">{note.kind}</span>
+            </td>
+            <td>
+              <code>{note.origin_agent_id}</code>
+            </td>
+            <td>
+              <Badge status={note.state} />
+            </td>
+            <td className="small" title={note.updated_at}>
+              {formatTime(note.updated_at)}
+            </td>
+          </tr>
         )}
-        {notes.nextCursor && (
-          <div style={{ marginTop: 12, textAlign: "center" }}>
-            <button className="btn sm" disabled={notes.loadingMore} onClick={notes.loadMore}>
-              {notes.loadingMore ? "Loading…" : "Load more"}
-            </button>
-          </div>
-        )}
-      </div>
+      />
     </>
   );
 }

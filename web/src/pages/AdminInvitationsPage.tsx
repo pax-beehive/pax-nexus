@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ApiError } from "../api/client";
+import { apiError } from "../api/client";
 import { createInvitation, revokeInvitation } from "../api/actions";
 import { listInvitations } from "../api/queries";
 import type { HumanMe, Invitation, Role } from "../api/types";
@@ -11,6 +11,7 @@ import { validateEmail } from "../lib/validation";
 import { Badge, RoleBadge } from "../components/Badge";
 import { Countdown } from "../components/Countdown";
 import { Modal } from "../components/Modal";
+import { PagedListCard } from "../components/PagedListCard";
 import { SecretCard } from "../components/SecretCard";
 import { useToast } from "../components/Toasts";
 
@@ -53,7 +54,7 @@ function CreateInvitationModal({
       });
       onCreated(invitation);
     } catch (err) {
-      if (err instanceof ApiError && err.status < 500) {
+      if (apiError(err) && err.status < 500) {
         handleError(err);
       } else {
         // No Idempotency-Key on invitation creation (doc 3.3): never blind
@@ -176,55 +177,32 @@ export function AdminInvitationsPage({ me }: { me: HumanMe }) {
         ))}
       </div>
 
-      <div className="card">
-        {list.loading ? (
-          <p className="muted small">Loading…</p>
-        ) : list.items.length === 0 ? (
-          <p className="muted small">No matching records.</p>
-        ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>Email</th>
-                <th>Role</th>
-                <th>Status</th>
-                <th>Expires/Created</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {list.items.map((i) => (
-                <tr key={i.invitation_id}>
-                  <td>{i.target_email}</td>
-                  <td>
-                    <RoleBadge role={i.role} />
-                  </td>
-                  <td>
-                    <Badge status={i.status} />
-                  </td>
-                  <td className="small">
-                    {i.status === "pending" ? <Countdown to={i.expires_at} /> : formatTime(i.created_at)}
-                  </td>
-                  <td>
-                    {i.status === "pending" && canRevokeInvitation(actorRole, i.role) && (
-                      <button className="btn sm danger" onClick={() => void revoke(i)}>
-                        Revoke
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      <PagedListCard
+        list={list}
+        columns={["Email", "Role", "Status", "Expires/Created", ""]}
+        emptyText="No matching records."
+        renderRow={(i) => (
+          <tr key={i.invitation_id}>
+            <td>{i.target_email}</td>
+            <td>
+              <RoleBadge role={i.role} />
+            </td>
+            <td>
+              <Badge status={i.status} />
+            </td>
+            <td className="small">
+              {i.status === "pending" ? <Countdown to={i.expires_at} /> : formatTime(i.created_at)}
+            </td>
+            <td>
+              {i.status === "pending" && canRevokeInvitation(actorRole, i.role) && (
+                <button className="btn sm danger" onClick={() => void revoke(i)}>
+                  Revoke
+                </button>
+              )}
+            </td>
+          </tr>
         )}
-      </div>
-      {list.nextCursor && (
-        <div style={{ marginTop: 10, textAlign: "center" }}>
-          <button className="btn sm" disabled={list.loadingMore} onClick={() => void list.loadMore()}>
-            {list.loadingMore ? "Loading…" : "Load more"}
-          </button>
-        </div>
-      )}
+      />
 
       {createOpen && (
         <CreateInvitationModal

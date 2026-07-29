@@ -1,85 +1,25 @@
-import { useCallback, useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
-import { ApiError } from "../api/client";
+import { useParams } from "react-router-dom";
 import { getOwnAgent } from "../api/queries";
-import type { AgentProfile } from "../api/types";
-import { useErrorHandler } from "../lib/useErrorHandler";
-import { AgentArtifacts } from "../components/AgentArtifacts";
-import { AgentGovernanceCard } from "../components/AgentGovernanceCard";
-import { Badge, ProvisionedByBadge } from "../components/Badge";
+import { useAgentDetail } from "../lib/useAgentDetail";
+import { AgentDetailView } from "../components/AgentDetailView";
 
 export function AgentDetailPage() {
   const { agentId = "" } = useParams();
-  const handleError = useErrorHandler();
-  const [agent, setAgent] = useState<AgentProfile | undefined>();
-  const [notFound, setNotFound] = useState(false);
-
-  const refetch = useCallback(async () => {
-    const fresh = await getOwnAgent(agentId);
-    setAgent(fresh);
-    return fresh;
-  }, [agentId]);
-
-  useEffect(() => {
-    let cancelled = false;
-    getOwnAgent(agentId)
-      .then((a) => {
-        if (!cancelled) setAgent(a);
-      })
-      .catch((err: unknown) => {
-        if (cancelled) return;
-        // 404: do not distinguish hidden from nonexistent (doc section 9).
-        if (err instanceof ApiError && err.status === 404) setNotFound(true);
-        else handleError(err);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [agentId, handleError]);
-
-  if (notFound) {
-    return (
-      <div className="card">
-        <h2>404</h2>
-        <p className="muted">
-          Agent does not exist or is not visible. <Link to="/agents">Back to list</Link>
-        </p>
-      </div>
-    );
-  }
-  if (!agent) return <p className="muted">Loading…</p>;
+  const { agent, setAgent, notFound, refetch } = useAgentDetail(getOwnAgent, agentId);
 
   return (
-    <>
-      <div className="page-head">
-        <div>
-          <h1>{agent.display_name}</h1>
-          <div className="row small muted">
-            <code>{agent.agent_id}</code>
-            <Badge status={agent.status} />
-            <ProvisionedByBadge agent={agent} />
-          </div>
-        </div>
-        <Link to="/agents" className="btn ghost">
-          ← Back
-        </Link>
-      </div>
-      <AgentGovernanceCard
-        scope="me"
-        agent={agent}
-        canEdit={!agent.retired_at}
-        canSuspend
-        canResume
-        canRetire
-        onChanged={setAgent}
-        refetch={refetch}
-      />
-      <AgentArtifacts
-        scope="me"
-        agentId={agent.agent_id}
-        agentStatus={agent.status}
-        canIssue={agent.status === "active"}
-      />
-    </>
+    <AgentDetailView
+      scope="me"
+      backTo="/agents"
+      agent={agent}
+      notFound={notFound}
+      canEdit={agent !== undefined && !agent.retired_at}
+      canSuspend
+      canResume
+      canRetire
+      canIssue={agent?.status === "active"}
+      onChanged={setAgent}
+      refetch={refetch}
+    />
   );
 }

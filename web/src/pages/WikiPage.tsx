@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { HumanMe } from "../api/types";
 import {
@@ -10,236 +10,20 @@ import {
   getWikiRevisions,
   searchWiki,
   type WikiLinks,
-  type WikiNavigationPage,
   type WikiNavigationTopic,
-  type WikiResolvedLink,
   type WikiRevision,
   type WikiSearchResult,
   type WikiPage,
 } from "../api/wiki";
 import { beginAction, injectWikiSession, rebuildWiki, setWikiAutoInject } from "../api/actions";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { RelationList } from "../components/wiki/RelationList";
+import { collectPages, Topic } from "../components/wiki/TopicTree";
+import { WikiMarkdown } from "../components/wiki/WikiMarkdown";
+import { isAbortError } from "../lib/usePolling";
 import { useErrorHandler } from "../lib/useErrorHandler";
 
 const EMPTY_LINKS: WikiLinks = { outgoing: [], incoming: [] };
-
-function isAbortError(error: unknown): boolean {
-  return error instanceof DOMException && error.name === "AbortError";
-}
-
-function collectPages(topics: WikiNavigationTopic[]): WikiNavigationPage[] {
-  return topics.flatMap((topic) => [
-    ...(topic.pages ?? []),
-    ...collectPages(topic.children ?? []),
-  ]);
-}
-
-function Topic({
-  topic,
-  selectedSlug,
-  onSelect,
-}: {
-  topic: WikiNavigationTopic;
-  selectedSlug: string;
-  onSelect: (slug: string) => void;
-}) {
-  return (
-    <section className="wiki-topic">
-      <h2>{topic.title}</h2>
-      {(topic.pages ?? []).map((page) => (
-        <button
-          key={page.id}
-          type="button"
-          className={page.slug === selectedSlug ? "wiki-page-link active" : "wiki-page-link"}
-          aria-current={page.slug === selectedSlug ? "page" : undefined}
-          onClick={() => onSelect(page.slug)}
-        >
-          {page.title}
-        </button>
-      ))}
-      {(topic.children ?? []).length > 0 && (
-        <div className="wiki-topic-children">
-          {topic.children.map((child) => (
-            <Topic
-              key={child.id}
-              topic={child}
-              selectedSlug={selectedSlug}
-              onSelect={onSelect}
-            />
-          ))}
-        </div>
-      )}
-    </section>
-  );
-}
-
-function linkedText(
-  text: string,
-  sectionKey: string,
-  relations: WikiResolvedLink[],
-  onSelect: (slug: string) => void,
-): ReactNode[] {
-  const matches = relations
-    .filter((relation) => relation.link.section_key === sectionKey)
-    .map((relation) => ({
-      relation,
-      start: text.indexOf(relation.link.exact_text),
-    }))
-    .filter((match) => match.start >= 0)
-    .sort((left, right) => left.start - right.start);
-  const content: ReactNode[] = [];
-  let cursor = 0;
-  matches.forEach((match) => {
-    const exactText = match.relation.link.exact_text;
-    if (match.start < cursor) return;
-    content.push(text.slice(cursor, match.start));
-    content.push(
-      <a
-        key={`${match.relation.link.id}-${match.start}`}
-        href={`/wiki?page=${encodeURIComponent(match.relation.target_page.slug)}`}
-        className="wiki-inline-link"
-        onClick={(event) => {
-          event.preventDefault();
-          onSelect(match.relation.target_page.slug);
-        }}
-      >
-        {exactText}
-      </a>,
-    );
-    cursor = match.start + exactText.length;
-  });
-  content.push(text.slice(cursor));
-  return content;
-}
-
-function WikiMarkdown({
-  revision,
-  relations,
-  onSelect,
-}: {
-  revision: WikiRevision;
-  relations: WikiResolvedLink[];
-  onSelect: (slug: string) => void;
-}) {
-  const sectionKeys = useMemo(
-    () => new Map((revision.sections ?? []).map((section) => [section.heading, section.key])),
-    [revision.sections],
-  );
-  const blocks: ReactNode[] = [];
-  const evidenceBlocks: ReactNode[] = [];
-  let evidenceHeading = "Source evidence";
-  let evidenceAnchor = -1;
-  let paragraph: string[] = [];
-  let sectionKey = "";
-  let blockKey = 0;
-  const push = (node: ReactNode) => {
-    if (sectionKey === "source-evidence") {
-      if (evidenceAnchor < 0) evidenceAnchor = blocks.length;
-      evidenceBlocks.push(node);
-    } else {
-      blocks.push(node);
-    }
-  };
-  const flush = () => {
-    if (paragraph.length === 0) return;
-    const text = paragraph.join(" ");
-    push(
-      <p key={`p-${blockKey++}`} data-section={sectionKey || undefined}>
-        {linkedText(text, sectionKey, relations, onSelect)}
-      </p>,
-    );
-    paragraph = [];
-  };
-
-  String(revision.markdown ?? "")
-    .split(/\r?\n/)
-    .forEach((rawLine) => {
-      const line = rawLine.trim();
-      if (!line) {
-        flush();
-        return;
-      }
-      if (line.startsWith("### ")) {
-        flush();
-        push(<h3 key={`h3-${blockKey++}`}>{line.slice(4)}</h3>);
-        return;
-      }
-      if (line.startsWith("## ")) {
-        flush();
-        const heading = line.slice(3);
-        sectionKey = sectionKeys.get(heading) ?? "";
-        if (sectionKey === "source-evidence") {
-          evidenceHeading = heading;
-          return;
-        }
-        blocks.push(
-          <h2 key={`h2-${blockKey++}`} data-section={sectionKey || undefined}>
-            {heading}
-          </h2>,
-        );
-        return;
-      }
-      if (line.startsWith("# ")) {
-        flush();
-        return;
-      }
-      paragraph.push(line);
-    });
-  flush();
-
-  if (evidenceBlocks.length > 0) {
-    blocks.splice(
-      evidenceAnchor < 0 ? blocks.length : evidenceAnchor,
-      0,
-      <details key="source-evidence-fold" className="wiki-evidence-fold">
-        <summary>{evidenceHeading}</summary>
-        {evidenceBlocks}
-      </details>,
-    );
-  }
-  return <div className="wiki-markdown">{blocks}</div>;
-}
-
-function RelationList({
-  relations,
-  direction,
-  onSelect,
-}: {
-  relations: WikiResolvedLink[];
-  direction: "outgoing" | "incoming";
-  onSelect: (slug: string) => void;
-}) {
-  if (relations.length === 0) {
-    return (
-      <p className="muted small">
-        {direction === "outgoing" ? "No references from this page." : "No pages point here yet."}
-      </p>
-    );
-  }
-  return (
-    <ul className="wiki-relation-list">
-      {relations.map((relation) => {
-        const page = direction === "outgoing" ? relation.target_page : relation.source_page;
-        return (
-          <li key={`${direction}-${relation.link.id}`}>
-            <a
-              href={`/wiki?page=${encodeURIComponent(page.slug)}`}
-              onClick={(event) => {
-                event.preventDefault();
-                onSelect(page.slug);
-              }}
-            >
-              <strong>
-                {direction === "outgoing" ? "→" : "←"} {page.title}
-              </strong>
-              <span>“{relation.link.exact_text}”</span>
-            </a>
-          </li>
-        );
-      })}
-    </ul>
-  );
-}
 
 export function WikiPage({ me }: { me: HumanMe }) {
   const navigate = useNavigate();

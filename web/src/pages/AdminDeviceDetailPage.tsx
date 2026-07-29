@@ -4,7 +4,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ApiError } from "../api/client";
+import { apiError } from "../api/client";
 import { beginAction, revokeDevice } from "../api/actions";
 import { getDevice } from "../api/queries";
 import type { DeviceDetail, DeviceProvisionedAgent, DeviceSummary } from "../api/types";
@@ -119,7 +119,7 @@ export function AdminDeviceDetailPage() {
       })
       .catch((err: unknown) => {
         if (cancelled) return;
-        if (err instanceof ApiError && err.status === 404) setNotFound(true);
+        if (apiError(err, 404)) setNotFound(true);
         else handleError(err);
       });
     return () => {
