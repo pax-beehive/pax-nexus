@@ -110,6 +110,11 @@ type PagePlacement struct {
 	Rank    int
 }
 
+type TopicTree struct {
+	Topics     []Topic
+	Placements []PagePlacement
+}
+
 type PagePublication struct {
 	Page      Page
 	Revision  PageRevision

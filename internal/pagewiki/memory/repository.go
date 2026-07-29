@@ -756,6 +756,90 @@ func (r *Repository) SearchChunkCount() int {
 	return len(r.searchChunks)
 }
 
+func (r *Repository) TopicTree(_ context.Context) (pagewiki.TopicTree, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	tree := pagewiki.TopicTree{
+		Topics:     make([]pagewiki.Topic, 0, len(r.topics)),
+		Placements: make([]pagewiki.PagePlacement, 0, len(r.placements)),
+	}
+	for _, topic := range r.topics {
+		tree.Topics = append(tree.Topics, topic)
+	}
+	sort.Slice(tree.Topics, func(i, j int) bool {
+		if tree.Topics[i].ParentID != tree.Topics[j].ParentID {
+			return tree.Topics[i].ParentID < tree.Topics[j].ParentID
+		}
+		return tree.Topics[i].Slug < tree.Topics[j].Slug
+	})
+	for _, placement := range r.placements {
+		tree.Placements = append(tree.Placements, placement)
+	}
+	sort.Slice(tree.Placements, func(i, j int) bool {
+		return tree.Placements[i].PageID < tree.Placements[j].PageID
+	})
+	return tree, nil
+}
+
+func (r *Repository) ReplaceTopicTree(_ context.Context, tree pagewiki.TopicTree) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	topics := make(map[string]pagewiki.Topic, len(tree.Topics))
+	for _, topic := range tree.Topics {
+		if topic.ID == "" || topic.Slug == "" || topic.Title == "" {
+			return fmt.Errorf("%w: invalid Topic", pagewiki.ErrRevisionConflict)
+		}
+		if _, duplicate := topics[topic.ID]; duplicate {
+			return fmt.Errorf("%w: duplicate Topic %q", pagewiki.ErrRevisionConflict, topic.ID)
+		}
+		topics[topic.ID] = topic
+	}
+	for _, topic := range tree.Topics {
+		if topic.ParentID != "" {
+			if _, found := topics[topic.ParentID]; !found {
+				return fmt.Errorf(
+					"%w: parent Topic %q is missing",
+					pagewiki.ErrRevisionConflict, topic.ParentID,
+				)
+			}
+		}
+		if topicDepth(topic.ID, topics) > 2 {
+			return fmt.Errorf(
+				"%w: Topic %q exceeds two levels",
+				pagewiki.ErrRevisionConflict, topic.ID,
+			)
+		}
+	}
+	placements := make(map[string]pagewiki.PagePlacement, len(tree.Placements))
+	for _, placement := range tree.Placements {
+		if _, found := r.pages[placement.PageID]; !found {
+			return fmt.Errorf(
+				"%w: placed Page %q is missing",
+				pagewiki.ErrRevisionConflict, placement.PageID,
+			)
+		}
+		if _, found := topics[placement.TopicID]; !found {
+			return fmt.Errorf(
+				"%w: placement Topic %q is missing",
+				pagewiki.ErrRevisionConflict, placement.TopicID,
+			)
+		}
+		if _, duplicate := placements[placement.PageID]; duplicate {
+			return fmt.Errorf(
+				"%w: Page %q is placed twice",
+				pagewiki.ErrRevisionConflict, placement.PageID,
+			)
+		}
+		if placement.Rank < 0 {
+			return fmt.Errorf("%w: invalid Page placement", pagewiki.ErrRevisionConflict)
+		}
+		placements[placement.PageID] = placement
+	}
+	r.topics = topics
+	r.placements = placements
+	return nil
+}
+
 func sourceRevisionsEqual(left, right pagewiki.SourceRevision) bool {
 	return left.ID == right.ID &&
 		left.SourceID == right.SourceID &&
