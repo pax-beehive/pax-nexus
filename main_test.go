@@ -566,6 +566,10 @@ func (*runtimeStub) ObserveSession(context.Context, teamnote.SessionBatch) (team
 	return teamnote.IngestReceipt{}, nil
 }
 
+func (*runtimeStub) ObserveStream(context.Context, teamnote.StreamBatch) (teamnote.IngestReceipt, error) {
+	return teamnote.IngestReceipt{}, nil
+}
+
 func (*runtimeStub) RecallNotes(context.Context, teamnote.RecallRequest) (teamnote.NoteEnvelope, error) {
 	return teamnote.NoteEnvelope{}, nil
 }

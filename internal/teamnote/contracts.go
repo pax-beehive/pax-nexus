@@ -15,6 +15,9 @@ type Actor = session.Actor
 type SessionEvent = session.SessionEvent
 type SessionBatch = session.SessionBatch
 type IngestReceipt = session.IngestReceipt
+type Stream = session.Stream
+type StreamEvent = session.StreamEvent
+type StreamBatch = session.StreamBatch
 
 // RecallRequest describes one authenticated delivery opportunity.
 type RecallRequest struct {
@@ -84,6 +87,7 @@ type RecalledNote struct {
 // Implementations own extraction, admission, canonical state, and delivery.
 type Runtime interface {
 	ObserveSession(context.Context, SessionBatch) (IngestReceipt, error)
+	ObserveStream(context.Context, StreamBatch) (IngestReceipt, error)
 	RecallNotes(context.Context, RecallRequest) (NoteEnvelope, error)
 }
 

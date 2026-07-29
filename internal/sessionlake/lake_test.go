@@ -2,6 +2,7 @@ package sessionlake_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -125,9 +126,37 @@ func (s *lakeSuite) TestChecksExpectedSessionHead() {
 	s.False(current)
 }
 
+func TestObserveStreamRequiresScopeAndDelegates(t *testing.T) {
+	repository := newMemoryRepository()
+	lake := sessionlake.New(repository)
+	batch := session.StreamBatch{Events: []session.StreamEvent{{
+		ID:         "evt-1",
+		Stream:     session.Stream{Source: session.SourceIMChannel, StreamID: "channel-9"},
+		Author:     session.Author{Kind: "user", NativeID: "U0AB12"},
+		Kind:       session.KindText,
+		Type:       "message",
+		Content:    "hello",
+		Visibility: session.VisibilityTeam,
+		OccurredAt: time.Date(2026, 7, 28, 10, 0, 0, 0, time.UTC),
+	}}}
+
+	if _, err := lake.ObserveStream(context.Background(), batch); !errors.Is(err, session.ErrMissingScope) {
+		t.Fatalf("expected missing scope, got %v", err)
+	}
+
+	ctx := session.WithScope(context.Background(), "scope-1")
+	if _, err := lake.ObserveStream(ctx, batch); err != nil {
+		t.Fatalf("expected delegation, got %v", err)
+	}
+	if repository.appendedStreamScope != "scope-1" {
+		t.Fatalf("expected scope forwarded, got %q", repository.appendedStreamScope)
+	}
+}
+
 type memoryRepository struct {
-	events  map[string][]session.SessionEvent
-	cursors map[string]int64
+	events              map[string][]session.SessionEvent
+	cursors             map[string]int64
+	appendedStreamScope string
 }
 
 func newMemoryRepository() *memoryRepository {
@@ -178,6 +207,15 @@ func (r *memoryRepository) ExtractionCursor(_ context.Context, scopeID string, a
 func (r *memoryRepository) AdvanceExtractionCursor(_ context.Context, scopeID string, actor session.Actor, cursor int64) error {
 	r.cursors[streamKey(scopeID, actor)] = cursor
 	return nil
+}
+
+func (r *memoryRepository) AppendStream(_ context.Context, scopeID string, _ session.StreamBatch) (session.IngestReceipt, error) {
+	r.appendedStreamScope = scopeID
+	return session.IngestReceipt{}, nil
+}
+
+func (r *memoryRepository) StreamEvents(_ context.Context, _ string, _ session.Stream, _ int64, _ int) ([]session.StreamEvent, error) {
+	return nil, nil
 }
 
 func lakeEvent(id string, actor session.Actor, sequence int64) session.SessionEvent {

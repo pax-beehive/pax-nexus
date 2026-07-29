@@ -73,6 +73,10 @@ func (r *recordingRuntime) ObserveSession(context.Context, teamnote.SessionBatch
 	return teamnote.IngestReceipt{}, nil
 }
 
+func (r *recordingRuntime) ObserveStream(context.Context, teamnote.StreamBatch) (teamnote.IngestReceipt, error) {
+	return teamnote.IngestReceipt{}, nil
+}
+
 func (r *recordingRuntime) RecallNotes(ctx context.Context, _ teamnote.RecallRequest) (teamnote.NoteEnvelope, error) {
 	scopeID, err := teamnote.ScopeFromContext(ctx)
 	if err != nil {

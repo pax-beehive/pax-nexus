@@ -392,6 +392,14 @@ func (r *runtimeRepository) AdvanceExtractionCursor(_ context.Context, scopeID s
 	return nil
 }
 
+func (r *runtimeRepository) AppendStream(_ context.Context, _ string, _ teamnote.StreamBatch) (teamnote.IngestReceipt, error) {
+	return teamnote.IngestReceipt{}, nil
+}
+
+func (r *runtimeRepository) StreamEvents(_ context.Context, _ string, _ teamnote.Stream, _ int64, _ int) ([]teamnote.StreamEvent, error) {
+	return nil, nil
+}
+
 func runtimeEvent(id string, actor teamnote.Actor) teamnote.SessionEvent {
 	return teamnote.SessionEvent{
 		ID: id, Actor: actor, Sequence: 1, Type: "assistant", Content: "Tests are failing.",
