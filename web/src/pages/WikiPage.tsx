@@ -207,7 +207,9 @@ export function WikiPage({ me }: { me: HumanMe }) {
           ? "Auto inject is on. New Session Lake evidence will appear here."
           : "Auto inject is off.",
       );
-      if (status.auto_inject) setNavigationRevision((current) => current + 1);
+      // No explicit bump here: usePolling's immediate cycle on the
+      // false -> true dependency change already refreshes navigation once
+      // (see the usePolling call above); an extra bump here would double it.
     } catch (error) {
       handleError(error);
     } finally {
