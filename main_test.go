@@ -415,7 +415,9 @@ func (s *configSuite) TestCheckedInCandidateStrategyBuildInterface() {
 		{path: "scripts/load-eval-v2-env.sh", want: `: "${TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY:=source-clause-v1}"`},
 		{path: "scripts/load-eval-v2-env.sh", want: "TEAM_MEMORY_EXTRACTION_VERSION TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY"},
 		{path: "Dockerfile", want: "ARG EXTRACTION_CANDIDATE_STRATEGY=source-clause-v1"},
+		{path: "Dockerfile", want: "case \"${EXTRACTION_CANDIDATE_STRATEGY}\" in \\\n      interaction-slim|source-clause-v1|source-span-v1|source-span-v2|claim-card-v2) ;; \\"},
 		{path: "Makefile", want: "EXTRACTION_CANDIDATE_STRATEGY ?= source-clause-v1"},
+		{path: "README.md", want: "interface. `interaction-slim`, `source-clause-v1`, `source-span-v1`,\n`source-span-v2`, and `claim-card-v2` each"},
 	}
 	for _, test := range tests {
 		s.Run(test.path, func() {

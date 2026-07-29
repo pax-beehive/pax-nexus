@@ -17,7 +17,7 @@
 
 - **Session → Team Note**: Team Note extracts bounded facts from Session Lake events.
 - **Session → PageWiki**: PageWiki maintains durable pages from Session Lake batches.
-- **Recall → Team Note**: Recall routes across product recall paths; product contexts never import Recall.
+- **Recall → Team Note**: Recall routes across product recall paths; product domain packages never import Recall.
 - **Evaluation → products**: Evaluation may exercise any product context; product contexts never import Evaluation.
 - **Platform → products**: Platform adapters implement ports defined by product contexts (dependency points at the domain). Exception: `platform/observability` and `platform/llm` are shared technical services that domains may import.
 - **On-prem Identity → Session/Team Note/PageWiki**: On-prem Identity authenticates principals; product contexts consume the resulting identity but do not own accounts or credentials.
