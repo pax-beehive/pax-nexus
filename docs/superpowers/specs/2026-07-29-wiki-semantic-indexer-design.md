@@ -42,9 +42,19 @@ Format layering the current PageWiki extraction was measured against:
 
 ### C. Semantic indexer
 
-A new LLM role (`llm_tree_indexer.go`, alongside planner and editor,
-using the shared `platform/llm` chat client) rebuilds the whole tree-view
-index from semantics:
+A new LLM role (`llm_tree_indexer.go`, alongside planner and editor)
+rebuilds the whole tree-view index from semantics. It reuses the exact
+LLM wiring the planner and editor already share — the same
+`platform/llm` chat client built from `llmwikiBaseURL`/`llmwikiAPIKey`
+and the same `llmwikiModel` (`main.go` wiring) — no new configuration
+keys.
+
+- **Semantics are the organizing principle, non-negotiable.** Topics
+  group pages by subject matter only. The prompt forbids generic
+  catch-all topics (no "Misc", "Other", "General") and forbids grouping
+  semantically unrelated pages just to satisfy a density rule: when no
+  coherent MIN-sized grouping exists, pages stay at the root. Density
+  rules shape *when* structure appears, never *what* belongs together.
 
 - **Trigger**: at the end of every ingest run whose targets created a page
   or published a revision with a changed title or summary. Runs after
@@ -116,8 +126,9 @@ run wholesale-replaces whatever tree exists.
 - Indexer: unit tests for the deterministic validator (missing page →
   root, duplicate → first wins, depth flattening, underflow collapse,
   unknown slug dropped); request-payload test asserting catalog and
-  previous tree are sent; degraded-path test (LLM failure keeps the old
-  tree and the ingest run still succeeds).
+  previous tree are sent; prompt assertion that it names the
+  semantics-only rule and forbids catch-all topics; degraded-path test
+  (LLM failure keeps the old tree and the ingest run still succeeds).
 - Service: acceptance test that an ingest run that publishes a page ends
   with a replaced tree, and that a run with no catalog change skips the
   indexer.
