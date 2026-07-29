@@ -40,8 +40,14 @@ func sessionEventToDomain(event *api.SessionEvent) (teamnote.SessionEvent, error
 }
 
 func streamBatchToDomain(request *api.StreamBatch) (teamnote.StreamBatch, error) {
+	if request == nil {
+		return teamnote.StreamBatch{}, fmt.Errorf("map stream batch: request is nil")
+	}
 	batch := teamnote.StreamBatch{Complete: request.Complete}
 	for _, wire := range request.Events {
+		if wire == nil || wire.Author == nil {
+			return teamnote.StreamBatch{}, fmt.Errorf("map stream event: event and author are required")
+		}
 		occurredAt, err := time.Parse(time.RFC3339, wire.OccurredAt)
 		if err != nil {
 			return teamnote.StreamBatch{}, fmt.Errorf("event %q occurred_at: %w", wire.ID, err)
