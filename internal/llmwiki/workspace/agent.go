@@ -12,62 +12,15 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/pax-beehive/pax-nexus/internal/platform/llm"
 )
-
-type ToolFunction struct {
-	Name      string `json:"name"`
-	Arguments string `json:"arguments"`
-}
-
-type ToolCall struct {
-	ID       string       `json:"id"`
-	Type     string       `json:"type"`
-	Function ToolFunction `json:"function"`
-}
-
-type ChatMessage struct {
-	Role       string     `json:"role"`
-	Content    string     `json:"content"`
-	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
-	ToolCallID string     `json:"tool_call_id,omitempty"`
-}
-
-type ToolDefinition struct {
-	Type     string             `json:"type"`
-	Function ToolFunctionSchema `json:"function"`
-}
-
-type ToolFunctionSchema struct {
-	Name        string         `json:"name"`
-	Description string         `json:"description"`
-	Parameters  map[string]any `json:"parameters"`
-}
-
-type ChatRequest struct {
-	Model    string
-	Messages []ChatMessage
-	Tools    []ToolDefinition
-}
-
-type TokenUsage struct {
-	InputTokens  int
-	OutputTokens int
-}
-
-type ChatResponse struct {
-	Message ChatMessage
-	Usage   TokenUsage
-}
-
-type ChatClient interface {
-	Complete(context.Context, ChatRequest) (ChatResponse, error)
-}
 
 type AgentConfig struct {
 	Root      string
 	Model     string
 	MaxRounds int
-	Client    ChatClient
+	Client    llm.ChatClient
 	Now       func() time.Time
 }
 
@@ -109,7 +62,7 @@ func RunAgent(
 		Model:     config.Model,
 		StartedAt: config.Now().UTC(),
 	}
-	messages := []ChatMessage{
+	messages := []llm.ChatMessage{
 		{Role: "system", Content: agentSystemPrompt},
 		{Role: "user", Content: strings.TrimSpace(request.Instruction)},
 	}
@@ -117,7 +70,7 @@ func RunAgent(
 	var runErr error
 	for round := 0; round < config.MaxRounds; round++ {
 		audit.Calls++
-		response, err := config.Client.Complete(ctx, ChatRequest{
+		response, err := config.Client.Complete(ctx, llm.ChatRequest{
 			Model: config.Model, Messages: messages, Tools: tools,
 		})
 		if err != nil {
@@ -131,7 +84,7 @@ func RunAgent(
 			for _, call := range response.Message.ToolCalls {
 				audit.ToolCalls++
 				result := executeTool(config.Root, call)
-				messages = append(messages, ChatMessage{
+				messages = append(messages, llm.ChatMessage{
 					Role:       "tool",
 					Content:    result,
 					ToolCallID: call.ID,
@@ -143,7 +96,7 @@ func RunAgent(
 		if audit.Validation.Valid {
 			break
 		}
-		messages = append(messages, ChatMessage{
+		messages = append(messages, llm.ChatMessage{
 			Role: "user",
 			Content: "The deterministic validator failed. Repair the Wiki and " +
 				"run validate before finishing:\n" + audit.Validation.String(),
@@ -226,7 +179,7 @@ func writeAudit(root string, audit RunAudit) error {
 	return nil
 }
 
-func executeTool(root string, call ToolCall) string {
+func executeTool(root string, call llm.ToolCall) string {
 	var value any
 	var err error
 	switch call.Function.Name {
@@ -671,7 +624,7 @@ func rejectSymlinkComponents(root, relative string) error {
 	return nil
 }
 
-func agentTools() []ToolDefinition {
+func agentTools() []llm.ToolDefinition {
 	object := func(properties map[string]any, required ...string) map[string]any {
 		result := map[string]any{
 			"type":                 "object",
@@ -686,10 +639,10 @@ func agentTools() []ToolDefinition {
 	stringProperty := func(description string) map[string]any {
 		return map[string]any{"type": "string", "description": description}
 	}
-	return []ToolDefinition{
+	return []llm.ToolDefinition{
 		{
 			Type: "function",
-			Function: ToolFunctionSchema{
+			Function: llm.ToolFunctionSchema{
 				Name:        "list_files",
 				Description: "List readable workspace files recursively.",
 				Parameters: object(map[string]any{
@@ -699,7 +652,7 @@ func agentTools() []ToolDefinition {
 		},
 		{
 			Type: "function",
-			Function: ToolFunctionSchema{
+			Function: llm.ToolFunctionSchema{
 				Name:        "read_file",
 				Description: "Read AGENTS.md, immutable sources, or Wiki Markdown.",
 				Parameters: object(map[string]any{
@@ -709,7 +662,7 @@ func agentTools() []ToolDefinition {
 		},
 		{
 			Type: "function",
-			Function: ToolFunctionSchema{
+			Function: llm.ToolFunctionSchema{
 				Name:        "grep",
 				Description: "Case-insensitive literal text search over readable files.",
 				Parameters: object(map[string]any{
@@ -720,7 +673,7 @@ func agentTools() []ToolDefinition {
 		},
 		{
 			Type: "function",
-			Function: ToolFunctionSchema{
+			Function: llm.ToolFunctionSchema{
 				Name:        "write_file",
 				Description: "Create a Wiki Markdown file or replace a small scaffold. Use replace_text for an established page.",
 				Parameters: object(map[string]any{
@@ -731,7 +684,7 @@ func agentTools() []ToolDefinition {
 		},
 		{
 			Type: "function",
-			Function: ToolFunctionSchema{
+			Function: llm.ToolFunctionSchema{
 				Name:        "replace_text",
 				Description: "Precisely edit an existing Wiki page by replacing an exact text span while retaining all unrelated content.",
 				Parameters: object(map[string]any{
@@ -748,7 +701,7 @@ func agentTools() []ToolDefinition {
 		},
 		{
 			Type: "function",
-			Function: ToolFunctionSchema{
+			Function: llm.ToolFunctionSchema{
 				Name:        "move_file",
 				Description: "Move or rename one Markdown file within wiki/.",
 				Parameters: object(map[string]any{
@@ -759,7 +712,7 @@ func agentTools() []ToolDefinition {
 		},
 		{
 			Type: "function",
-			Function: ToolFunctionSchema{
+			Function: llm.ToolFunctionSchema{
 				Name:        "delete_file",
 				Description: "Delete one Markdown file under wiki/.",
 				Parameters: object(map[string]any{
@@ -769,7 +722,7 @@ func agentTools() []ToolDefinition {
 		},
 		{
 			Type: "function",
-			Function: ToolFunctionSchema{
+			Function: llm.ToolFunctionSchema{
 				Name:        "validate",
 				Description: "Run deterministic source, link, citation, and reachability checks.",
 				Parameters:  object(map[string]any{}),

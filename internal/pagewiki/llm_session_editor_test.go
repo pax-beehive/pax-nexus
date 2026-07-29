@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pax-beehive/pax-nexus/internal/llmwiki/workspace"
 	"github.com/pax-beehive/pax-nexus/internal/pagewiki"
 	"github.com/pax-beehive/pax-nexus/internal/pagewiki/memory"
+	"github.com/pax-beehive/pax-nexus/internal/platform/llm"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -179,22 +179,22 @@ func (s *llmSessionEditorSuite) TestSendsFullEvidenceContextToTheModel() {
 }
 
 type wikiChatClient struct {
-	requests  []workspace.ChatRequest
+	requests  []llm.ChatRequest
 	responses []string
 	err       error
 }
 
 func (c *wikiChatClient) Complete(
 	_ context.Context,
-	request workspace.ChatRequest,
-) (workspace.ChatResponse, error) {
+	request llm.ChatRequest,
+) (llm.ChatResponse, error) {
 	c.requests = append(c.requests, request)
 	if c.err != nil {
-		return workspace.ChatResponse{}, c.err
+		return llm.ChatResponse{}, c.err
 	}
 	response := c.responses[0]
 	c.responses = c.responses[1:]
-	return workspace.ChatResponse{
-		Message: workspace.ChatMessage{Role: "assistant", Content: response},
+	return llm.ChatResponse{
+		Message: llm.ChatMessage{Role: "assistant", Content: response},
 	}, nil
 }

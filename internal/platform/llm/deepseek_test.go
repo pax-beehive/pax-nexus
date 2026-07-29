@@ -1,4 +1,4 @@
-package workspace_test
+package llm_test
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pax-beehive/pax-nexus/internal/llmwiki/workspace"
+	"github.com/pax-beehive/pax-nexus/internal/platform/llm"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -44,13 +44,13 @@ func (s *deepSeekSuite) TestCallsOfficialCompatibleEndpointAndDecodesTools() {
 		}`), nil
 	})}
 
-	client := workspace.NewDeepSeekClient(workspace.DeepSeekConfig{
+	client := llm.NewDeepSeekClient(llm.DeepSeekConfig{
 		BaseURL: "https://deepseek.example", APIKey: "secret", HTTPClient: httpClient,
 	})
-	response, err := client.Complete(context.Background(), workspace.ChatRequest{
+	response, err := client.Complete(context.Background(), llm.ChatRequest{
 		Model:    "deepseek-v4-pro",
-		Messages: []workspace.ChatMessage{{Role: "user", Content: "work"}},
-		Tools:    []workspace.ToolDefinition{},
+		Messages: []llm.ChatMessage{{Role: "user", Content: "work"}},
+		Tools:    []llm.ToolDefinition{},
 	})
 	s.Require().NoError(err)
 	s.Equal(12, response.Usage.InputTokens)
@@ -69,10 +69,10 @@ func (s *deepSeekSuite) TestReportsProviderErrorWithoutLeakingAPIKey() {
 		), nil
 	})}
 
-	client := workspace.NewDeepSeekClient(workspace.DeepSeekConfig{
+	client := llm.NewDeepSeekClient(llm.DeepSeekConfig{
 		BaseURL: "https://deepseek.example", APIKey: "do-not-leak", HTTPClient: httpClient,
 	})
-	_, err := client.Complete(context.Background(), workspace.ChatRequest{
+	_, err := client.Complete(context.Background(), llm.ChatRequest{
 		Model: "deepseek-v4-pro",
 	})
 	s.Require().ErrorContains(err, "status 401")
@@ -80,8 +80,8 @@ func (s *deepSeekSuite) TestReportsProviderErrorWithoutLeakingAPIKey() {
 }
 
 func (s *deepSeekSuite) TestRejectsMissingCredentialsAndMalformedResponse() {
-	client := workspace.NewDeepSeekClient(workspace.DeepSeekConfig{})
-	_, err := client.Complete(context.Background(), workspace.ChatRequest{})
+	client := llm.NewDeepSeekClient(llm.DeepSeekConfig{})
+	_, err := client.Complete(context.Background(), llm.ChatRequest{})
 	s.Require().ErrorContains(err, "API key")
 
 	httpClient := &http.Client{Transport: roundTripFunc(func(
@@ -89,15 +89,15 @@ func (s *deepSeekSuite) TestRejectsMissingCredentialsAndMalformedResponse() {
 	) (*http.Response, error) {
 		return response(http.StatusOK, `{"choices":[]}`), nil
 	})}
-	client = workspace.NewDeepSeekClient(workspace.DeepSeekConfig{
+	client = llm.NewDeepSeekClient(llm.DeepSeekConfig{
 		BaseURL: "https://deepseek.example", APIKey: "secret", HTTPClient: httpClient,
 	})
-	_, err = client.Complete(context.Background(), workspace.ChatRequest{})
+	_, err = client.Complete(context.Background(), llm.ChatRequest{})
 	s.Require().ErrorContains(err, "no choices")
 }
 
 func (s *deepSeekSuite) TestChatTypesRoundTripToolResults() {
-	message := workspace.ChatMessage{
+	message := llm.ChatMessage{
 		Role:       "tool",
 		Content:    `{"ok":true}`,
 		ToolCallID: "call-1",

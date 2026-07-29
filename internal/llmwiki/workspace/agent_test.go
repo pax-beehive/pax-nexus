@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/pax-beehive/pax-nexus/internal/llmwiki/workspace"
+	"github.com/pax-beehive/pax-nexus/internal/platform/llm"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -64,11 +65,11 @@ func (s *agentSuite) SetupTest() {
 func (s *agentSuite) TestAgentUsesFilesystemToolsAndRecordsUsage() {
 	page := "# Local-first Wiki\n\nSources are immutable " +
 		"([source](../../" + s.sourcePath + "#" + s.anchor + ")).\n"
-	client := &scriptedChatClient{responses: []workspace.ChatResponse{
+	client := &scriptedChatClient{responses: []llm.ChatResponse{
 		{
-			Message: workspace.ChatMessage{
+			Message: llm.ChatMessage{
 				Role: "assistant",
-				ToolCalls: []workspace.ToolCall{
+				ToolCalls: []llm.ToolCall{
 					call("read_file", `{"path":"AGENTS.md"}`),
 					call("read_file", `{"path":"`+s.sourcePath+`"}`),
 					call("write_file", `{"path":"wiki/index.md","content":"# Wiki\n\n- [Local-first](pages/local-first.md)\n"}`),
@@ -78,11 +79,11 @@ func (s *agentSuite) TestAgentUsesFilesystemToolsAndRecordsUsage() {
 					call("validate", `{}`),
 				},
 			},
-			Usage: workspace.TokenUsage{InputTokens: 120, OutputTokens: 80},
+			Usage: llm.TokenUsage{InputTokens: 120, OutputTokens: 80},
 		},
 		{
-			Message: workspace.ChatMessage{Role: "assistant", Content: "Done."},
-			Usage:   workspace.TokenUsage{InputTokens: 30, OutputTokens: 5},
+			Message: llm.ChatMessage{Role: "assistant", Content: "Done."},
+			Usage:   llm.TokenUsage{InputTokens: 30, OutputTokens: 5},
 		},
 	}}
 
@@ -120,24 +121,24 @@ func (s *agentSuite) TestToolSandboxRefusesSourceMutationThenAgentRecovers() {
 	sourceFile := filepath.Join(s.root, filepath.FromSlash(s.sourcePath))
 	before, err := os.ReadFile(sourceFile)
 	s.Require().NoError(err)
-	client := &scriptedChatClient{responses: []workspace.ChatResponse{
+	client := &scriptedChatClient{responses: []llm.ChatResponse{
 		{
-			Message: workspace.ChatMessage{
+			Message: llm.ChatMessage{
 				Role: "assistant",
-				ToolCalls: []workspace.ToolCall{
+				ToolCalls: []llm.ToolCall{
 					call("write_file", `{"path":"`+s.sourcePath+`","content":"tampered"}`),
 				},
 			},
 		},
 		{
-			Message: workspace.ChatMessage{
+			Message: llm.ChatMessage{
 				Role: "assistant",
-				ToolCalls: []workspace.ToolCall{
+				ToolCalls: []llm.ToolCall{
 					call("write_file", `{"path":"wiki/index.md","content":"# Wiki\n"}`),
 				},
 			},
 		},
-		{Message: workspace.ChatMessage{Role: "assistant", Content: "Done."}},
+		{Message: llm.ChatMessage{Role: "assistant", Content: "Done."}},
 	}}
 
 	result, err := workspace.RunAgent(context.Background(), workspace.AgentConfig{
@@ -155,25 +156,25 @@ func (s *agentSuite) TestToolSandboxRefusesSourceMutationThenAgentRecovers() {
 }
 
 func (s *agentSuite) TestAgentFeedsValidationFailureBackForRepair() {
-	client := &scriptedChatClient{responses: []workspace.ChatResponse{
+	client := &scriptedChatClient{responses: []llm.ChatResponse{
 		{
-			Message: workspace.ChatMessage{
+			Message: llm.ChatMessage{
 				Role: "assistant",
-				ToolCalls: []workspace.ToolCall{
+				ToolCalls: []llm.ToolCall{
 					call("write_file", `{"path":"wiki/index.md","content":"# Wiki\n\n- [Missing](pages/missing.md)\n"}`),
 				},
 			},
 		},
-		{Message: workspace.ChatMessage{Role: "assistant", Content: "Done."}},
+		{Message: llm.ChatMessage{Role: "assistant", Content: "Done."}},
 		{
-			Message: workspace.ChatMessage{
+			Message: llm.ChatMessage{
 				Role: "assistant",
-				ToolCalls: []workspace.ToolCall{
+				ToolCalls: []llm.ToolCall{
 					call("write_file", `{"path":"wiki/index.md","content":"# Wiki\n"}`),
 				},
 			},
 		},
-		{Message: workspace.ChatMessage{Role: "assistant", Content: "Repaired."}},
+		{Message: llm.ChatMessage{Role: "assistant", Content: "Repaired."}},
 	}}
 
 	result, err := workspace.RunAgent(context.Background(), workspace.AgentConfig{
@@ -193,11 +194,11 @@ func (s *agentSuite) TestWriteToolRejectsMalformedCitationBeforeReplacingPage() 
 		s.sourcePath + "#" + s.anchor + ")).\n"
 	malformed := "# Cited\n\nA broken fact [source](../../" +
 		s.sourcePath + "#" + s.anchor + "].\n"
-	client := &scriptedChatClient{responses: []workspace.ChatResponse{
+	client := &scriptedChatClient{responses: []llm.ChatResponse{
 		{
-			Message: workspace.ChatMessage{
+			Message: llm.ChatMessage{
 				Role: "assistant",
-				ToolCalls: []workspace.ToolCall{
+				ToolCalls: []llm.ToolCall{
 					call("write_file", `{"path":"wiki/index.md","content":"# Wiki\n\n- [Cited](pages/cited.md)\n"}`),
 					call("write_file", mustArguments(map[string]string{
 						"path": "wiki/pages/cited.md", "content": valid,
@@ -208,18 +209,18 @@ func (s *agentSuite) TestWriteToolRejectsMalformedCitationBeforeReplacingPage() 
 				},
 			},
 		},
-		{Message: workspace.ChatMessage{Role: "assistant", Content: "Done."}},
+		{Message: llm.ChatMessage{Role: "assistant", Content: "Done."}},
 		{
-			Message: workspace.ChatMessage{
+			Message: llm.ChatMessage{
 				Role: "assistant",
-				ToolCalls: []workspace.ToolCall{
+				ToolCalls: []llm.ToolCall{
 					call("write_file", mustArguments(map[string]string{
 						"path": "wiki/pages/cited.md", "content": valid,
 					})),
 				},
 			},
 		},
-		{Message: workspace.ChatMessage{Role: "assistant", Content: "Repaired."}},
+		{Message: llm.ChatMessage{Role: "assistant", Content: "Repaired."}},
 	}}
 
 	result, err := workspace.RunAgent(context.Background(), workspace.AgentConfig{
@@ -259,11 +260,11 @@ func (s *agentSuite) TestRecordsClientFailureReason() {
 }
 
 func (s *agentSuite) TestFilesystemToolMatrixIsBoundedAndComposable() {
-	client := &scriptedChatClient{responses: []workspace.ChatResponse{
+	client := &scriptedChatClient{responses: []llm.ChatResponse{
 		{
-			Message: workspace.ChatMessage{
+			Message: llm.ChatMessage{
 				Role: "assistant",
-				ToolCalls: []workspace.ToolCall{
+				ToolCalls: []llm.ToolCall{
 					call("list_files", `{}`),
 					call("grep", `{"query":"immutable","path":"sources"}`),
 					call("write_file", `{"path":"wiki/pages/draft.md","content":"# Draft\n"}`),
@@ -276,7 +277,7 @@ func (s *agentSuite) TestFilesystemToolMatrixIsBoundedAndComposable() {
 				},
 			},
 		},
-		{Message: workspace.ChatMessage{Role: "assistant", Content: "Done."}},
+		{Message: llm.ChatMessage{Role: "assistant", Content: "Done."}},
 	}}
 
 	result, err := workspace.RunAgent(context.Background(), workspace.AgentConfig{
@@ -316,18 +317,18 @@ func (s *agentSuite) TestPreciseEditPreservesPageAndInvalidEditIsRejected() {
 		[]byte("# Wiki\n\n[Durable](pages/durable.md)\n"),
 		0o644,
 	))
-	client := &scriptedChatClient{responses: []workspace.ChatResponse{
+	client := &scriptedChatClient{responses: []llm.ChatResponse{
 		{
-			Message: workspace.ChatMessage{
+			Message: llm.ChatMessage{
 				Role: "assistant",
-				ToolCalls: []workspace.ToolCall{
+				ToolCalls: []llm.ToolCall{
 					call("write_file", `{"path":"wiki/pages/durable.md","content":"# Lost\n"}`),
 					call("replace_text", `{"path":"wiki/pages/durable.md","old_text":"one sentence changes","new_text":"one precise sentence changes","expected_occurrences":8}`),
 					call("replace_text", `{"path":"wiki/pages/durable.md","old_text":"not present","new_text":"invented"}`),
 				},
 			},
 		},
-		{Message: workspace.ChatMessage{Role: "assistant", Content: "Done."}},
+		{Message: llm.ChatMessage{Role: "assistant", Content: "Done."}},
 	}}
 
 	result, err := workspace.RunAgent(context.Background(), workspace.AgentConfig{
@@ -399,11 +400,11 @@ func (s *agentSuite) TestRejectsInvalidAgentConfigurationAndToolInputs() {
 	))
 	outside := s.T().TempDir()
 	s.Require().NoError(os.Symlink(outside, filepath.Join(s.root, "wiki/link")))
-	client := &scriptedChatClient{responses: []workspace.ChatResponse{
+	client := &scriptedChatClient{responses: []llm.ChatResponse{
 		{
-			Message: workspace.ChatMessage{
+			Message: llm.ChatMessage{
 				Role: "assistant",
-				ToolCalls: []workspace.ToolCall{
+				ToolCalls: []llm.ToolCall{
 					call("grep", `{"query":""}`),
 					call("read_file", `{"path":"wiki/log.md"}`),
 					call("write_file", `{"path":"/tmp/escape.md","content":"x"}`),
@@ -415,7 +416,7 @@ func (s *agentSuite) TestRejectsInvalidAgentConfigurationAndToolInputs() {
 				},
 			},
 		},
-		{Message: workspace.ChatMessage{Role: "assistant", Content: "Done."}},
+		{Message: llm.ChatMessage{Role: "assistant", Content: "Done."}},
 	}}
 	result, err := workspace.RunAgent(context.Background(), workspace.AgentConfig{
 		Root: s.root, Client: client,
@@ -439,29 +440,29 @@ func (s *agentSuite) TestRejectsInvalidAgentConfigurationAndToolInputs() {
 }
 
 type scriptedChatClient struct {
-	responses []workspace.ChatResponse
-	requests  []workspace.ChatRequest
+	responses []llm.ChatResponse
+	requests  []llm.ChatRequest
 	err       error
 }
 
 func (c *scriptedChatClient) Complete(
 	_ context.Context,
-	request workspace.ChatRequest,
-) (workspace.ChatResponse, error) {
+	request llm.ChatRequest,
+) (llm.ChatResponse, error) {
 	c.requests = append(c.requests, request)
 	if c.err != nil {
-		return workspace.ChatResponse{}, c.err
+		return llm.ChatResponse{}, c.err
 	}
 	response := c.responses[0]
 	c.responses = c.responses[1:]
 	return response, nil
 }
 
-func call(name, arguments string) workspace.ToolCall {
-	return workspace.ToolCall{
+func call(name, arguments string) llm.ToolCall {
+	return llm.ToolCall{
 		ID:   "call-" + name,
 		Type: "function",
-		Function: workspace.ToolFunction{
+		Function: llm.ToolFunction{
 			Name: name, Arguments: arguments,
 		},
 	}

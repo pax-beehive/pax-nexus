@@ -8,7 +8,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/pax-beehive/pax-nexus/internal/llmwiki/workspace"
+	"github.com/pax-beehive/pax-nexus/internal/platform/llm"
 )
 
 const editorEvidenceContextBytes = 8 << 10
@@ -16,14 +16,14 @@ const editorEvidenceContextBytes = 8 << 10
 var llmSectionKeyCharacters = regexp.MustCompile(`[^a-z0-9]+`)
 
 type LLMEditorConfig struct {
-	Client workspace.ChatClient
+	Client llm.ChatClient
 	Model  string
 }
 
 // LLMSessionEditor writes reader-facing English prose while deterministic
 // PageWiki code retains control of routing, evidence, links, and publication.
 type LLMSessionEditor struct {
-	client workspace.ChatClient
+	client llm.ChatClient
 	model  string
 }
 
@@ -72,9 +72,9 @@ func (e *LLMSessionEditor) Edit(ctx context.Context, input EditInput) (PageDraft
 	if err != nil {
 		return PageDraft{}, fmt.Errorf("encode Page Wiki LLM request: %w", err)
 	}
-	response, err := e.client.Complete(ctx, workspace.ChatRequest{
+	response, err := e.client.Complete(ctx, llm.ChatRequest{
 		Model: e.model,
-		Messages: []workspace.ChatMessage{
+		Messages: []llm.ChatMessage{
 			{Role: "system", Content: pageWikiEnglishEditorPrompt},
 			{Role: "user", Content: string(payload)},
 		},
