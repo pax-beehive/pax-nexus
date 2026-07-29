@@ -124,6 +124,7 @@ type PagePublication struct {
 
 type Navigation struct {
 	Roots []NavigationTopic
+	Pages []NavigationPage
 }
 
 type NavigationTopic struct {

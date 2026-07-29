@@ -357,6 +357,43 @@ func (s *RepositorySuite) TestGivenPublicationsWhenNavigatedThenCopiesAreSorted(
 	s.Require().Equal("Architecture", again.Roots[0].Children[0].Pages[0].Title)
 }
 
+func (s *RepositorySuite) TestNavigationListsUnplacedPagesAtRoot() {
+	// publish pages "page-1" (slug "alpha") and "page-2" (slug "beta");
+	// place only page-2 under a topic via ReplaceTopicTree
+	page1 := pagewiki.Page{
+		ID:                "page-1",
+		Slug:              "alpha",
+		Title:             "Alpha",
+		CurrentRevisionID: "revision-1",
+	}
+	revision1 := pagewiki.PageRevision{ID: "revision-1", PageID: "page-1"}
+	s.Require().NoError(s.repository.PublishPage(s.ctx, publicationFixture(page1, revision1)))
+
+	page2 := pagewiki.Page{
+		ID:                "page-2",
+		Slug:              "beta",
+		Title:             "Beta",
+		CurrentRevisionID: "revision-2",
+	}
+	revision2 := pagewiki.PageRevision{ID: "revision-2", PageID: "page-2"}
+	publication2 := publicationFixture(page2, revision2)
+	s.Require().NoError(s.repository.PublishPage(s.ctx, publication2))
+
+	tree := pagewiki.TopicTree{
+		Topics:     []pagewiki.Topic{{ID: "topic-a", Slug: "runtime", Title: "Runtime"}},
+		Placements: []pagewiki.PagePlacement{{PageID: "page-2", TopicID: "topic-a"}},
+	}
+	s.Require().NoError(s.repository.ReplaceTopicTree(s.ctx, tree))
+
+	navigation, err := s.repository.Navigation(s.ctx)
+	s.Require().NoError(err)
+	s.Require().Len(navigation.Pages, 1)
+	s.Equal("alpha", navigation.Pages[0].Slug)
+	s.Require().Len(navigation.Roots, 1)
+	s.Require().Len(navigation.Roots[0].Pages, 1)
+	s.Equal("beta", navigation.Roots[0].Pages[0].Slug)
+}
+
 func (s *RepositorySuite) TestGivenEqualScoresWhenSearchedThenResultsAndLinksAreSorted() {
 	sqlitePage, sqliteRevision := searchablePageFixture(
 		"page-sqlite",

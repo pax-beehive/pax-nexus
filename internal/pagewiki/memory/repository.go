@@ -399,8 +399,21 @@ func (r *Repository) Navigation(_ context.Context) (pagewiki.Navigation, error) 
 			Rank:  placement.Rank,
 		})
 	}
+	rootPages := make([]pagewiki.NavigationPage, 0)
+	for id, page := range r.pages {
+		if _, placed := r.placements[id]; placed {
+			continue
+		}
+		rootPages = append(rootPages, pagewiki.NavigationPage{
+			ID: page.ID, Slug: page.Slug, Title: page.Title,
+		})
+	}
+	sort.Slice(rootPages, func(i, j int) bool {
+		return rootPages[i].Slug < rootPages[j].Slug
+	})
 	return pagewiki.Navigation{
 		Roots: buildNavigationTopics("", children, pages),
+		Pages: rootPages,
 	}, nil
 }
 

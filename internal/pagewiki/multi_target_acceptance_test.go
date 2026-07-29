@@ -47,6 +47,9 @@ func (s *MultiTargetAcceptanceSuite) TestGivenTwoValidBriefsWhenInjectedThenBoth
 	navigation, err := s.repository.Navigation(s.ctx)
 	s.Require().NoError(err)
 	s.Require().Empty(navigation.Roots)
+	s.Require().Len(navigation.Pages, 2)
+	s.Require().Equal("sqlite", navigation.Pages[0].Slug)
+	s.Require().Equal("wiki-search", navigation.Pages[1].Slug)
 	s.Require().Zero(s.repository.TopicCount())
 	s.Require().Zero(s.repository.PlacementCount())
 }
@@ -78,6 +81,8 @@ func (s *MultiTargetAcceptanceSuite) TestGivenOneInvalidTargetWhenInjectedThenSi
 	navigation, err := s.repository.Navigation(s.ctx)
 	s.Require().NoError(err)
 	s.Require().Empty(navigation.Roots)
+	s.Require().Len(navigation.Pages, 1)
+	s.Equal("sqlite", navigation.Pages[0].Slug)
 	s.Require().False(navigationContainsTopic(navigation, "Search"))
 }
 

@@ -77,6 +77,8 @@ func (s *UpdateAcceptanceSuite) TestGivenLaterSessionWhenInjectedThenPageIsUpdat
 	navigation, err := s.repository.Navigation(s.ctx)
 	s.Require().NoError(err)
 	s.Require().Empty(navigation.Roots)
+	s.Require().Len(navigation.Pages, 1)
+	s.Equal("sqlite", navigation.Pages[0].Slug)
 	s.Require().Zero(s.repository.TopicCount())
 	s.Require().Zero(s.repository.PlacementCount())
 }

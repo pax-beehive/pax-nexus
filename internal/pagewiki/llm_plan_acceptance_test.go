@@ -75,6 +75,8 @@ func (s *llmPlanAcceptanceSuite) TestNoisySessionProducesOnlyGenuinePages() {
 	navigation, err := repository.Navigation(context.Background())
 	s.Require().NoError(err)
 	s.Empty(navigation.Roots)
+	s.Len(navigation.Pages, 1)
+	s.Equal("recall-strategy", navigation.Pages[0].Slug)
 	s.Zero(repository.TopicCount())
 	s.Zero(repository.PlacementCount())
 
