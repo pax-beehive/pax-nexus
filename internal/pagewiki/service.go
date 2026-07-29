@@ -7,9 +7,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"reflect"
 	"regexp"
 	"strings"
+
+	"github.com/pax-beehive/pax-nexus/internal/platform/observability"
 )
 
 const (
@@ -23,17 +26,43 @@ var (
 )
 
 type Service struct {
-	repository Repository
-	planner    Planner
-	editor     Editor
+	repository  Repository
+	planner     Planner
+	editor      Editor
+	treeIndexer TreeIndexer
+	logger      *slog.Logger
 }
 
-func NewService(repository Repository, planner Planner, editor Editor) *Service {
-	return &Service{
+type ServiceOption func(*Service)
+
+// WithTreeIndexer enables Page Wiki topic-tree reindexing at the end of every
+// ingest run that changed the catalog. It is optional: without it, InjectSession
+// runs exactly as before.
+func WithTreeIndexer(indexer TreeIndexer, logger *slog.Logger) ServiceOption {
+	return func(s *Service) {
+		s.treeIndexer = indexer
+		if logger != nil {
+			s.logger = logger
+		}
+	}
+}
+
+func NewService(
+	repository Repository,
+	planner Planner,
+	editor Editor,
+	options ...ServiceOption,
+) *Service {
+	service := &Service{
 		repository: repository,
 		planner:    planner,
 		editor:     editor,
+		logger:     observability.DiscardLogger(),
 	}
+	for _, option := range options {
+		option(service)
+	}
+	return service
 }
 
 func (s *Service) InjectSession(
@@ -97,10 +126,64 @@ func (s *Service) InjectSession(
 	if err := s.repository.SaveMaintenanceRun(ctx, run); err != nil {
 		return InjectResult{}, fmt.Errorf("save MaintenanceRun: %w", err)
 	}
+	s.maybeReindexTree(ctx, briefs, run.Targets)
 	return InjectResult{
 		SourceRevisionID: sourceRevision.ID,
 		Run:              run,
 	}, nil
+}
+
+// maybeReindexTree runs the topic-tree indexer at the end of an ingest run
+// that changed the Page catalog. It is best-effort: any failure is logged and
+// swallowed so a reindex problem never fails the underlying ingest run, and
+// the previously stored TopicTree is left in place.
+func (s *Service) maybeReindexTree(
+	ctx context.Context,
+	briefs []PageBrief,
+	targets []MaintenanceTarget,
+) {
+	if s.treeIndexer == nil || !catalogChanged(briefs, targets) {
+		return
+	}
+	catalog, err := s.repository.PageCatalog(ctx)
+	if err != nil {
+		s.logger.Warn("Page Wiki tree reindex skipped", "stage", "load catalog", "error", err)
+		return
+	}
+	current, err := s.repository.TopicTree(ctx)
+	if err != nil {
+		s.logger.Warn("Page Wiki tree reindex skipped", "stage", "load tree", "error", err)
+		return
+	}
+	tree, err := s.treeIndexer.Index(ctx, TreeIndexInput{Catalog: catalog, Current: current})
+	if err != nil {
+		s.logger.Warn("Page Wiki tree reindex skipped", "stage", "index", "error", err)
+		return
+	}
+	if err := s.repository.ReplaceTopicTree(ctx, tree); err != nil {
+		s.logger.Warn("Page Wiki tree reindex skipped", "stage", "replace", "error", err)
+	}
+}
+
+// catalogChanged reports whether any successfully processed target in this
+// run actually changed the Page catalog: a new Page was created, or an
+// existing Page was updated to a different revision. targets is appended in
+// brief order by InjectSession, so index pairing with briefs is sound.
+func catalogChanged(briefs []PageBrief, targets []MaintenanceTarget) bool {
+	for index, target := range targets {
+		if index >= len(briefs) || target.Status != TargetStatusSucceeded {
+			continue
+		}
+		switch briefs[index].Action {
+		case PageActionCreate:
+			return true
+		case PageActionUpdate:
+			if target.PageRevisionID != briefs[index].ExpectedBaseRevisionID {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (s *Service) processTarget(
