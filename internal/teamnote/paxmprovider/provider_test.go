@@ -114,6 +114,10 @@ func (s *providerSuite) TestSearchMapsEnvelopeToHighConfidenceHits() {
 	s.Require().True(ok)
 	s.Equal("[blocker] Credentials are missing.", hit["text"])
 	s.InDelta(float64(1), hit["score"], 0.0001)
+	scope, ok := hit["scope"].(map[string]any)
+	s.Require().True(ok, "legacy hits must carry scope attribution")
+	s.Equal("team", scope["type"])
+	s.Equal("local-team", scope["id"])
 }
 
 func (s *providerSuite) TestSearchReturnsPerNoteOriginAttribution() {
@@ -142,6 +146,35 @@ func (s *providerSuite) TestSearchReturnsPerNoteOriginAttribution() {
 	metadata, ok := hit["metadata"].(map[string]any)
 	s.Require().True(ok)
 	s.Equal("proposed", metadata["certainty"])
+	scope, ok := hit["scope"].(map[string]any)
+	s.Require().True(ok, "attributed hits must carry scope attribution")
+	s.Equal("team", scope["type"])
+	s.Equal("local-team", scope["id"])
+}
+
+func (s *providerSuite) TestSearchUsesConfiguredScopeID() {
+	provider, err := paxmprovider.New(paxmprovider.Config{
+		BaseURL: "http://team-memory:8080", APIKey: "scope-key", UserID: "owner",
+		AgentID: "opencode-producer", ScopeID: "acme-team",
+		Client: &http.Client{Transport: s.transport}, Logger: slog.New(slog.NewJSONHandler(&s.logs, nil)),
+	})
+	s.Require().NoError(err)
+	s.provider = provider
+
+	response := s.serve(`{"jsonrpc":"2.0","id":"scope","method":"paxm.search","params":{` +
+		`"text":"continue","limit":5,"metadata":{"session_id":"consumer-session"}}}`)
+	s.Nil(response["error"])
+	result, ok := response["result"].(map[string]any)
+	s.Require().True(ok)
+	hits, ok := result["hits"].([]any)
+	s.Require().True(ok)
+	s.Require().Len(hits, 1)
+	hit, ok := hits[0].(map[string]any)
+	s.Require().True(ok)
+	scope, ok := hit["scope"].(map[string]any)
+	s.Require().True(ok)
+	s.Equal("team", scope["type"])
+	s.Equal("acme-team", scope["id"])
 }
 
 func (s *providerSuite) TestPutAcceptsTopLevelPaxmOrigin() {

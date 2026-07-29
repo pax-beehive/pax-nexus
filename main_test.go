@@ -9,6 +9,7 @@ import (
 
 	"github.com/pax-beehive/pax-nexus/internal/deployment/onprem"
 	"github.com/pax-beehive/pax-nexus/internal/operations"
+	"github.com/pax-beehive/pax-nexus/internal/pagewiki"
 	"github.com/pax-beehive/pax-nexus/internal/sessionlake"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote/extractor"
@@ -77,7 +78,7 @@ func (s *configSuite) SetupTest() {
 		"TEAM_MEMORY_EXTRACTION_COMPACT_START_TOKENS",
 		"TEAM_MEMORY_EXTRACTION_COMPACT_TOKENS", "TEAM_MEMORY_EXTRACTION_COMPACTION_ENABLED",
 		"TEAM_MEMORY_EXTRACTION_SUMMARY_ENABLED", "TEAM_MEMORY_EXTRACTION_SUMMARY_TRIGGER_TOKENS",
-		"TEAM_MEMORY_EXTRACTION_SUMMARY_TAIL_TOKENS",
+		"TEAM_MEMORY_EXTRACTION_SUMMARY_TAIL_TOKENS", "TEAM_MEMORY_EXTRACTION_MAX_PROMPT_TOKENS",
 		"TEAM_MEMORY_EXTRACTION_PROVIDER_TIMEOUT", "TEAM_MEMORY_EXTRACTION_PROVIDER_MAX_ATTEMPTS",
 		"TEAM_MEMORY_EXTRACTION_PROVIDER_RETRY_BACKOFF", "TEAM_MEMORY_EXTRACTION_PROVIDER_MAX_RESPONSE_BYTES",
 		"TEAM_MEMORY_EXTRACTION_PRIMARY_MAX_OUTPUT_TOKENS", "TEAM_MEMORY_EXTRACTION_SUMMARY_MAX_OUTPUT_TOKENS",
@@ -90,6 +91,8 @@ func (s *configSuite) SetupTest() {
 		"TEAM_MEMORY_EMBEDDING_BASE_URL", "TEAM_MEMORY_EMBEDDING_MODEL",
 		"TEAM_MEMORY_EMBEDDING_TIMEOUT", "TEAM_MEMORY_SEMANTIC_THRESHOLD",
 		"TEAM_MEMORY_RETRIEVAL_CANDIDATE_LIMIT", "TEAM_MEMORY_HINT_RECALL_ENABLED", "TEAM_MEMORY_HINT_SEMANTIC_THRESHOLD", "TEAM_MEMORY_HINT_THRESHOLD", "TEAM_MEMORY_HINT_MIN_QUERY_RELEVANCE", "TEAM_MEMORY_HINT_MIN_MARGINAL_UTILITY",
+		"LLMWIKI_ORGANIZER_MODE", "LLMWIKI_LLM_BASE_URL", "LLMWIKI_LLM_API_KEY",
+		"LLMWIKI_LLM_MODEL",
 	} {
 		s.T().Setenv(name, "")
 	}
@@ -114,6 +117,7 @@ func (s *configSuite) TestLoadsNoopConfiguration() {
 	s.Equal(16*1024, config.extractionCompactTokens)
 	s.Equal(8*1024, config.extractionSummaryTriggerTokens)
 	s.Equal(16*1024, config.extractionSummaryTailTokens)
+	s.Equal(128*1024, config.extractionMaxPromptTokens)
 	s.Equal(120*time.Second, config.extractionExecutionPolicy.AttemptTimeout)
 	s.Equal(1, config.extractionExecutionPolicy.MaxAttempts)
 	s.Equal(250*time.Millisecond, config.extractionExecutionPolicy.RetryBackoff)
@@ -138,6 +142,30 @@ func (s *configSuite) TestLoadsNoopConfiguration() {
 	adapter, err := buildExtractor(config)
 	s.Require().NoError(err)
 	s.IsType(extractor.Noop{}, adapter)
+}
+
+func (s *configSuite) TestBuildsConfiguredPageWikiMaintainers() {
+	logger := slog.New(slog.DiscardHandler)
+	localPlanner, localEditor, err := buildPageWikiMaintainers(applicationConfig{}, logger)
+	s.Require().NoError(err)
+	s.IsType(pagewiki.SessionDocumentPlanner{}, localPlanner)
+	s.IsType(pagewiki.SessionDocumentEditor{}, localEditor)
+
+	config := applicationConfig{
+		llmwikiMode: "harness", llmwikiBaseURL: "https://api.deepseek.com",
+		llmwikiAPIKey: "secret", llmwikiModel: "deepseek-v4-pro",
+	}
+	planner, editor, err := buildPageWikiMaintainers(config, logger)
+	s.Require().NoError(err)
+	s.IsType(&pagewiki.LLMSessionPlanner{}, planner)
+	s.IsType(&pagewiki.LLMSessionEditor{}, editor)
+
+	config.llmwikiAPIKey = ""
+	_, _, err = buildPageWikiMaintainers(config, logger)
+	s.Require().ErrorContains(err, "LLMWIKI_LLM_API_KEY")
+	config.llmwikiMode = "unsupported"
+	_, _, err = buildPageWikiMaintainers(config, logger)
+	s.Require().ErrorContains(err, "unsupported LLMWIKI_ORGANIZER_MODE")
 }
 
 func (s *configSuite) TestLoadsOnPremConfiguration() {
@@ -274,13 +302,13 @@ func (s *configSuite) TestRejectsMixedLegacyAndOnPremAuthentication() {
 func (s *configSuite) TestBuildHTTPHandlerKeepsLegacyModeWithoutAdminSecret() {
 	runtime := &runtimeStub{}
 	configured, err := buildHTTPHandler(context.Background(), runtime, nil, nil,
-		applicationConfig{apiKeys: map[string]string{"key": "scope"}}, slog.New(slog.DiscardHandler))
+		applicationConfig{apiKeys: map[string]string{"key": "scope"}}, slog.New(slog.DiscardHandler), nil)
 	s.Require().NoError(err)
 	s.NotNil(configured)
 
 	_, err = buildHTTPHandler(context.Background(), runtime, nil, nil, applicationConfig{
 		apiKeys: map[string]string{"key": "scope"}, adminAPIKey: "admin", credentialRotationOverlap: time.Minute,
-	}, slog.New(slog.DiscardHandler))
+	}, slog.New(slog.DiscardHandler), nil)
 	s.Error(err)
 }
 
@@ -336,6 +364,17 @@ func (s *configSuite) TestAllowsExtractionV2OptIn() {
 	config, err := loadConfig()
 	s.Require().NoError(err)
 	s.Equal("v2", config.extractionVersion)
+}
+
+func (s *configSuite) TestOverridesExtractionMaxPromptTokens() {
+	s.T().Setenv("TEAM_MEMORY_DATABASE_URL", "postgres://database")
+	s.T().Setenv("TEAM_MEMORY_API_KEYS", `{"key":"scope"}`)
+	s.T().Setenv("TEAM_MEMORY_EXTRACTOR_MODE", "noop")
+	s.T().Setenv("TEAM_MEMORY_EXTRACTION_MAX_PROMPT_TOKENS", "65536")
+
+	config, err := loadConfig()
+	s.Require().NoError(err)
+	s.Equal(65536, config.extractionMaxPromptTokens)
 }
 
 func (s *configSuite) TestCheckedInExtractionProtocolDefaults() {
@@ -443,6 +482,7 @@ func (s *configSuite) TestRejectsInvalidWorkerConfiguration() {
 		{name: "TEAM_MEMORY_EXTRACTION_SUMMARY_ENABLED", value: "sometimes"},
 		{name: "TEAM_MEMORY_EXTRACTION_SUMMARY_TRIGGER_TOKENS", value: "0"},
 		{name: "TEAM_MEMORY_EXTRACTION_SUMMARY_TAIL_TOKENS", value: "0"},
+		{name: "TEAM_MEMORY_EXTRACTION_MAX_PROMPT_TOKENS", value: "0"},
 		{name: "TEAM_MEMORY_EMBEDDING_TIMEOUT", value: "0s"},
 		{name: "TEAM_MEMORY_SEMANTIC_THRESHOLD", value: "high"},
 		{name: "TEAM_MEMORY_RETRIEVAL_CANDIDATE_LIMIT", value: "0"},

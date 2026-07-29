@@ -330,3 +330,37 @@ export async function transferAgent(
   );
   return res.agent;
 }
+
+// ---- Wiki ingestion ----
+
+export interface WikiIngestionStatus {
+  auto_inject: boolean;
+}
+
+export function setWikiAutoInject(enabled: boolean): Promise<WikiIngestionStatus> {
+  return humanFetch<WikiIngestionStatus>("/v1/wiki/ingestion", {
+    method: "PUT",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ auto_inject: enabled }),
+  });
+}
+
+export function injectWikiSession(
+  sessionId: string,
+  idempotencyKey: string,
+): Promise<{ processed_streams: number }> {
+  return humanFetch<{ processed_streams: number }>(
+    `/v1/wiki/sessions/${encodeURIComponent(sessionId)}/inject`,
+    {
+      method: "POST",
+      headers: { "Idempotency-Key": idempotencyKey },
+    },
+  );
+}
+
+export function rebuildWiki(idempotencyKey: string): Promise<WikiIngestionStatus> {
+  return humanFetch<WikiIngestionStatus>("/v1/wiki/rebuild", {
+    method: "POST",
+    headers: { "Idempotency-Key": idempotencyKey },
+  });
+}

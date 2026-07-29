@@ -549,6 +549,7 @@ func (s *openAISuite) TestRejectsInvalidConfiguration() {
 		{},
 		{BaseURL: "://bad", Model: "model"},
 		{BaseURL: "http://extractor.test"},
+		{BaseURL: "http://extractor.test", Model: "model", MaxPromptTokens: -1},
 	}
 	for _, config := range tests {
 		_, err := extractor.NewOpenAI(config)
@@ -1257,6 +1258,173 @@ func (s *openAISuite) TestRollingContextCompactsAsynchronouslyAndWaitsAtHardLimi
 	s.Contains(episode.Messages[2].Content, "event-3")
 }
 
+type promptCapCase struct {
+	name            string
+	maxPromptTokens int
+	wantKeptPairs   int
+	wantSaves       int32
+	wantDropped     []string
+}
+
+func (s *openAISuite) TestRollingPromptCapBoundsEpisodeTranscript() {
+	tests := []promptCapCase{
+		{
+			name: "under cap leaves episode untouched", maxPromptTokens: 16384, wantKeptPairs: 4, wantSaves: 1,
+			wantDropped: nil,
+		},
+		{
+			name: "oversized episode drops oldest pairs", maxPromptTokens: 8192, wantKeptPairs: 2, wantSaves: 2,
+			wantDropped: []string{"history-1-user", "history-2-user"},
+		},
+		{
+			name: "smaller cap keeps only the newest pair", maxPromptTokens: 6144, wantKeptPairs: 1, wantSaves: 2,
+			wantDropped: []string{"history-1-user", "history-2-user", "history-3-user"},
+		},
+	}
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			s.runPromptCapCase(test)
+		})
+	}
+}
+
+func (s *openAISuite) runPromptCapCase(test promptCapCase) {
+	mem := newMemoryEpisodeStore()
+	key := extractor.EpisodeKey{ScopeID: "scope-prompt-cap", TaskRef: "release-42"}
+	seed := extractor.Episode{
+		Key: key, ProtocolVersion: extractor.ExtractionVersionV1, Model: "model",
+		Messages: paddedEpisodePairs(4),
+	}
+	s.Require().NoError(mem.SaveEpisode(context.Background(), seed, 0))
+	store := &countingEpisodeStore{EpisodeStore: mem}
+	var bodies []string
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		body, err := io.ReadAll(request.Body)
+		s.Require().NoError(err)
+		bodies = append(bodies, string(body))
+		content := `{"candidates":[{"action":"create","kind":"status","subject":"release","identity_ref":"decision/release","body":"Release state.","evidence_event_ids":["event-1"]}]}`
+		return response(http.StatusOK, fmt.Sprintf(`{"choices":[{"message":{"content":%q}}],"usage":{"prompt_tokens":100,"completion_tokens":10}}`, content)), nil
+	})}
+	adapter, err := extractor.NewOpenAI(extractor.OpenAIConfig{
+		BaseURL: "http://extractor.test", Model: "model", Client: client,
+		ContextMode: extractor.ContextModeRolling, EpisodeStore: store,
+		MaxPromptTokens: test.maxPromptTokens,
+	})
+	s.Require().NoError(err)
+	ctx := teamnote.WithScope(context.Background(), "scope-prompt-cap")
+	result, err := adapter.Extract(ctx, extractorSlice())
+	s.Require().NoError(err)
+	s.Require().Len(result.Candidates, 1)
+	s.Equal(test.wantSaves, store.saves.Load())
+
+	s.assertBoundedRequest(bodies, test)
+	episode, ok, err := mem.LoadEpisode(ctx, key)
+	s.Require().NoError(err)
+	s.True(ok)
+	s.assertTrimmedEpisode(episode, test)
+}
+
+func (s *openAISuite) assertBoundedRequest(bodies []string, test promptCapCase) {
+	s.Require().Len(bodies, 1)
+	var captured struct {
+		Messages []extractor.EpisodeMessage `json:"messages"`
+	}
+	s.Require().NoError(json.Unmarshal([]byte(bodies[0]), &captured))
+	estimate := 0
+	for _, message := range captured.Messages {
+		estimate += 16 + (len(message.Content)+3)/4
+	}
+	s.LessOrEqual(estimate, test.maxPromptTokens, "provider must never receive an over-cap prompt")
+	s.Equal("system", captured.Messages[0].Role)
+	for index, message := range captured.Messages[1:] {
+		s.Equal(pairRole(index), message.Role, "pair boundaries must not orphan an assistant message")
+	}
+	last := captured.Messages[len(captured.Messages)-1]
+	s.Equal("user", last.Role)
+	s.Contains(last.Content, "event-1", "the new user prompt must be preserved")
+	s.Contains(bodies[0], "history-4-user")
+	for _, dropped := range test.wantDropped {
+		s.NotContains(bodies[0], dropped)
+	}
+}
+
+func (s *openAISuite) assertTrimmedEpisode(episode extractor.Episode, test promptCapCase) {
+	s.Require().Len(episode.Messages, 2*test.wantKeptPairs+2)
+	for index, message := range episode.Messages {
+		s.Equal(pairRole(index), message.Role, "persisted episode must keep user/assistant pairs")
+		for _, dropped := range test.wantDropped {
+			s.NotContains(message.Content, dropped)
+		}
+	}
+	s.Contains(episode.Messages[len(episode.Messages)-2].Content, "event-1")
+}
+
+func pairRole(index int) string {
+	if index%2 == 1 {
+		return "assistant"
+	}
+	return "user"
+}
+
+func (s *openAISuite) TestRollingPromptCapTrimConflictRetriesExtraction() {
+	mem := newMemoryEpisodeStore()
+	key := extractor.EpisodeKey{ScopeID: "scope-prompt-cap-conflict", TaskRef: "release-42"}
+	seed := extractor.Episode{
+		Key: key, ProtocolVersion: extractor.ExtractionVersionV1, Model: "model",
+		Messages: paddedEpisodePairs(4),
+	}
+	s.Require().NoError(mem.SaveEpisode(context.Background(), seed, 0))
+	store := &conflictOnceEpisodeStore{memoryEpisodeStore: mem}
+	var calls atomic.Int32
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		calls.Add(1)
+		body, err := io.ReadAll(request.Body)
+		s.Require().NoError(err)
+		s.NotContains(string(body), "history-1-user")
+		content := `{"candidates":[{"action":"create","kind":"status","subject":"release","identity_ref":"decision/release","body":"Release state.","evidence_event_ids":["event-1"]}]}`
+		return response(http.StatusOK, fmt.Sprintf(`{"choices":[{"message":{"content":%q}}],"usage":{"prompt_tokens":100,"completion_tokens":10}}`, content)), nil
+	})}
+	adapter, err := extractor.NewOpenAI(extractor.OpenAIConfig{
+		BaseURL: "http://extractor.test", Model: "model", Client: client,
+		ContextMode: extractor.ContextModeRolling, EpisodeStore: store,
+		MaxPromptTokens: 8192,
+	})
+	s.Require().NoError(err)
+	ctx := teamnote.WithScope(context.Background(), "scope-prompt-cap-conflict")
+	result, err := adapter.Extract(ctx, extractorSlice())
+	s.Require().NoError(err, "the trim conflict must surface as ErrEpisodeConflict and retry")
+	s.Require().Len(result.Candidates, 1)
+	s.Equal(int32(1), calls.Load())
+
+	episode, ok, err := mem.LoadEpisode(ctx, key)
+	s.Require().NoError(err)
+	s.True(ok)
+	s.Require().Len(episode.Messages, 6)
+	s.Equal("user", episode.Messages[0].Role)
+	s.Contains(episode.Messages[0].Content, "history-3-user")
+}
+
+func paddedEpisodePairs(count int) []extractor.EpisodeMessage {
+	messages := make([]extractor.EpisodeMessage, 0, 2*count)
+	for index := 1; index <= count; index++ {
+		messages = append(messages,
+			extractor.EpisodeMessage{Role: "user", Content: fmt.Sprintf("history-%d-user:%s", index, strings.Repeat("u", 3900))},
+			extractor.EpisodeMessage{Role: "assistant", Content: fmt.Sprintf("history-%d-assistant:%s", index, strings.Repeat("a", 3900))},
+		)
+	}
+	return messages
+}
+
+type countingEpisodeStore struct {
+	extractor.EpisodeStore
+	saves atomic.Int32
+}
+
+func (s *countingEpisodeStore) SaveEpisode(ctx context.Context, episode extractor.Episode, expectedVersion int64) error {
+	s.saves.Add(1)
+	return s.EpisodeStore.SaveEpisode(ctx, episode, expectedVersion)
+}
+
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 type memoryEpisodeStore struct {
@@ -1319,6 +1487,118 @@ func response(status int, body string) *http.Response {
 		Header:     make(http.Header),
 		Body:       io.NopCloser(strings.NewReader(body)),
 	}
+}
+
+func (s *openAISuite) TestRollingContextTruncatesEpisodeWhenCompactionKeepsFailing() {
+	store := newMemoryEpisodeStore()
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		body, err := io.ReadAll(request.Body)
+		s.Require().NoError(err)
+		if strings.Contains(string(body), "KNOWLEDGE CONTEXT CHECKPOINT COMPACTION") {
+			return response(http.StatusOK, `{"choices":[{"message":{"content":"not-json"}}]}`), nil
+		}
+		eventID := "event-1"
+		for _, candidate := range []string{"event-2", "event-3"} {
+			if strings.Contains(string(body), candidate) {
+				eventID = candidate
+			}
+		}
+		content := fmt.Sprintf(`{"candidates":[{"action":"create","kind":"status","subject":"release","identity_ref":"decision/release","body":"Release state.","evidence_event_ids":[%q]}]}`, eventID)
+		return response(http.StatusOK, fmt.Sprintf(`{"choices":[{"message":{"content":%q}}]}`, content)), nil
+	})}
+	adapter, err := extractor.NewOpenAI(extractor.OpenAIConfig{
+		BaseURL: "http://extractor.test", Model: "model", Client: client,
+		ContextMode: extractor.ContextModeRolling, EpisodeStore: store,
+		CompactionEnabled: true, CompactStartTokens: 1, CompactTokens: 1,
+		ExecutionPolicy: extractor.ExecutionPolicy{MaxAttempts: 2, RetryBackoff: time.Millisecond},
+	})
+	s.Require().NoError(err)
+	ctx := teamnote.WithScope(context.Background(), "scope-truncate")
+
+	_, err = adapter.Extract(ctx, extractorSlice())
+	s.Require().NoError(err)
+
+	second := extractorSlice()
+	second.InputChecksum = "checksum-2"
+	second.NewEventIDs = []string{"event-2"}
+	second.Events[0].ID = "event-2"
+	_, err = adapter.Extract(ctx, second)
+	s.Require().NoError(err, "hard-limit compaction failure must degrade, not fail the slice")
+
+	third := extractorSlice()
+	third.InputChecksum = "checksum-3"
+	third.NewEventIDs = []string{"event-3"}
+	third.Events[0].ID = "event-3"
+	_, err = adapter.Extract(ctx, third)
+	s.Require().NoError(err, "the episode must never loop on compaction failure")
+
+	episode, ok, err := store.LoadEpisode(ctx, extractor.EpisodeKey{ScopeID: "scope-truncate", TaskRef: "release-42"})
+	s.Require().NoError(err)
+	s.Require().True(ok)
+	s.Zero(episode.CompactionCount)
+	s.GreaterOrEqual(episode.Checkpoint.CompactionFailures, 2)
+	s.Equal(2, episode.Checkpoint.CompactionTruncations)
+	s.Contains(episode.Checkpoint.CompactionLastError, "compact extraction episode")
+	s.Require().NotEmpty(episode.Messages)
+	s.Equal(1+2, len(episode.Messages), "each truncation keeps one message; one exchange appends two")
+}
+
+func (s *openAISuite) TestRollingContextKeepsCompactionCountersAfterLaterSuccess() {
+	store := newMemoryEpisodeStore()
+	var failCompaction atomic.Bool
+	failCompaction.Store(true)
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		body, err := io.ReadAll(request.Body)
+		s.Require().NoError(err)
+		if strings.Contains(string(body), "KNOWLEDGE CONTEXT CHECKPOINT COMPACTION") {
+			if failCompaction.Load() {
+				return response(http.StatusOK, `{"choices":[{"message":{"content":"not-json"}}]}`), nil
+			}
+			checkpoint := `{"active_knowledge":[{"memory_id":"decision/release","kind":"status","subject":"release","body":"Release state.","evidence_event_ids":["event-2"]}],"resolved_knowledge":[],"open_questions":[],"evidence_index":{"decision/release":["event-2"]},"source_cursors":{}}`
+			return response(http.StatusOK, fmt.Sprintf(`{"choices":[{"message":{"content":%q}}]}`, checkpoint)), nil
+		}
+		eventID := "event-1"
+		for _, candidate := range []string{"event-2", "event-3"} {
+			if strings.Contains(string(body), candidate) {
+				eventID = candidate
+			}
+		}
+		content := fmt.Sprintf(`{"candidates":[{"action":"create","kind":"status","subject":"release","identity_ref":"decision/release","body":"Release state.","evidence_event_ids":[%q]}]}`, eventID)
+		return response(http.StatusOK, fmt.Sprintf(`{"choices":[{"message":{"content":%q}}]}`, content)), nil
+	})}
+	adapter, err := extractor.NewOpenAI(extractor.OpenAIConfig{
+		BaseURL: "http://extractor.test", Model: "model", Client: client,
+		ContextMode: extractor.ContextModeRolling, EpisodeStore: store,
+		CompactionEnabled: true, CompactStartTokens: 1, CompactTokens: 1,
+		ExecutionPolicy: extractor.ExecutionPolicy{MaxAttempts: 2, RetryBackoff: time.Millisecond},
+	})
+	s.Require().NoError(err)
+	ctx := teamnote.WithScope(context.Background(), "scope-carryover")
+
+	_, err = adapter.Extract(ctx, extractorSlice())
+	s.Require().NoError(err)
+
+	second := extractorSlice()
+	second.InputChecksum = "checksum-2"
+	second.NewEventIDs = []string{"event-2"}
+	second.Events[0].ID = "event-2"
+	_, err = adapter.Extract(ctx, second)
+	s.Require().NoError(err)
+
+	failCompaction.Store(false)
+	third := extractorSlice()
+	third.InputChecksum = "checksum-3"
+	third.NewEventIDs = []string{"event-3"}
+	third.Events[0].ID = "event-3"
+	_, err = adapter.Extract(ctx, third)
+	s.Require().NoError(err)
+
+	episode, ok, err := store.LoadEpisode(ctx, extractor.EpisodeKey{ScopeID: "scope-carryover", TaskRef: "release-42"})
+	s.Require().NoError(err)
+	s.Require().True(ok)
+	s.Equal(1, episode.CompactionCount)
+	s.GreaterOrEqual(episode.Checkpoint.CompactionFailures, 1)
+	s.Equal(1, episode.Checkpoint.CompactionTruncations)
 }
 
 func extractorSlice() sessionlake.Slice {

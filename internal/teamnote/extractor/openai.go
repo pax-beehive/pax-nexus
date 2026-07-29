@@ -38,6 +38,10 @@ type OpenAIConfig struct {
 	SummaryEnabled       bool
 	SummaryTriggerTokens int
 	SummaryTailTokens    int
+	// MaxPromptTokens caps the estimated size of one extraction request. When
+	// the assembled prompt exceeds it, the episode transcript is trimmed
+	// locally before the provider call. Zero selects the default.
+	MaxPromptTokens      int
 	ProviderCallObserver ProviderCallObserver
 	ExecutionPolicy      ExecutionPolicy
 }
@@ -96,6 +100,19 @@ func normalizeOpenAIConfig(config *OpenAIConfig) error {
 	if err := normalizeExtractionVersion(config); err != nil {
 		return err
 	}
+	if err := normalizeTranscriptBounds(config); err != nil {
+		return err
+	}
+	if err := normalizeExecutionPolicy(&config.ExecutionPolicy); err != nil {
+		return fmt.Errorf("create OpenAI extractor: %w", err)
+	}
+	return nil
+}
+
+// normalizeTranscriptBounds fills defaults and validates the episode
+// transcript bounding knobs: compaction, periodic summary, and the local
+// prompt token cap.
+func normalizeTranscriptBounds(config *OpenAIConfig) error {
 	if config.CompactTokens == 0 {
 		config.CompactTokens = 16 * 1024
 	}
@@ -114,11 +131,14 @@ func normalizeOpenAIConfig(config *OpenAIConfig) error {
 	if config.SummaryTriggerTokens < 1 || config.SummaryTailTokens < 1 {
 		return fmt.Errorf("create OpenAI extractor: summary token thresholds must be positive")
 	}
+	if config.MaxPromptTokens == 0 {
+		config.MaxPromptTokens = 128 * 1024
+	}
+	if config.MaxPromptTokens < 0 {
+		return fmt.Errorf("create OpenAI extractor: max prompt tokens cannot be negative")
+	}
 	if config.CompactionEnabled && config.SummaryEnabled {
 		return fmt.Errorf("create OpenAI extractor: compaction and periodic summary cannot both be enabled")
-	}
-	if err := normalizeExecutionPolicy(&config.ExecutionPolicy); err != nil {
-		return fmt.Errorf("create OpenAI extractor: %w", err)
 	}
 	return nil
 }

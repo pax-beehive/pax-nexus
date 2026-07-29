@@ -37,6 +37,7 @@
 | 邀请 Admin | 是 | 否 | 否 |
 | 查看成员和审计 | 是 | 是 | 否 |
 | 查看 Operations | 是 | 是 | 否 |
+| 查看 Team Memory Explorer（含 Note/Event 正文） | 是 | 否 | 否 |
 | 管理 Member | 是 | 是 | 否 |
 | 管理 Owner/Admin | 是 | 否 | 否 |
 | 管理自己的 Agent | 是 | 是 | 是 |
@@ -241,9 +242,10 @@ flowchart TD
 }
 ```
 
-`capabilities` 是 required string list。当前显式发布 `view.operations`；新增 Operations
-入口应按该服务端 capability 判断，未知值忽略。其他既有入口暂时仍使用角色 matrix，但任何
-前端判定都不能覆盖后端逐请求授权。
+`capabilities` 是 required string list。当前显式发布 `view.operations` 和
+`view.team-memory`。Operations 入口按前者判断；Team Memory Explorer 及其正文诊断入口按
+后者判断。未知值忽略。其他既有入口暂时仍使用角色 matrix，但任何前端判定都不能覆盖后端
+逐请求授权。
 
 建议路由判定：
 
@@ -561,7 +563,7 @@ Content-Type: application/json
 paxl device connect onprem --url ... --device-name todd-macbook-air --enrollment-token tm_enroll_denr_01.secret
 ```
 
-该命令内部调用的仍是 `POST /v1/agent-enrollments/exchange`（与 Agent Enrollment 同一个交换接口），只是这次换回来的是 Device Credential 而不是 Agent Credential——响应结构完全相同（`credential_id`/`api_key`/`user_id`/`permissions`/`kind`/`expires_at`，详见 §7），Device 交换的 `kind` 为 `"device"`、`permissions` 固定为 `["agent_provision"]`，Portal 不需要为 Device 交换单独适配轮询逻辑。之后机器上每个工具都用这份 Device Credential 自助调用 `POST /v1/device/agent-provisions` 铸发自己的 Agent Credential，不再需要 Portal 参与；Portal 只需要在 Devices 详情页把这些自助铸发的 Agent 呈现出来（见 5.10）。
+该命令内部调用的仍是 `POST /v1/agent-enrollments/exchange`（与 Agent Enrollment 同一个交换接口），只是这次换回来的是 Device Credential 而不是 Agent Credential——响应结构完全相同（`credential_id`/`api_key`/`user_id`/`permissions`/`kind`/`expires_at`，详见 §8），Device 交换的 `kind` 为 `"device"`、`permissions` 固定为 `["agent_provision"]`，Portal 不需要为 Device 交换单独适配轮询逻辑。之后机器上每个工具都用这份 Device Credential 自助调用 `POST /v1/device/agent-provisions` 铸发自己的 Agent Credential，不再需要 Portal 参与；Portal 只需要在 Devices 详情页把这些自助铸发的 Agent 呈现出来（见 5.10）。
 
 ### 5.10 Devices 列表、详情与吊销
 
@@ -703,9 +705,27 @@ Invitation、Enrollment 和 Credential revoke 不需要 JSON body；不要为了
 | GET | `/v1/admin/devices/:credential_id` | Owner/Admin | Device 详情 + 铸发的 Agent 历史（级联预览用） |
 | DELETE | `/v1/admin/devices/:credential_id` | Owner/Admin | 吊销 Device，级联吊销其铸发的全部 Agent Credential；需 `Idempotency-Key` |
 
-`status` filter：`active|revoked`。这四个接口都走 Human Cookie + CSRF（GET 不需要 CSRF，POST/DELETE 需要），鉴权模式与 §6.3/6.4 一致；错误响应使用与本文档其余 Human Portal 接口相同的稳定 JSON envelope（详见 §9），**不是**下一节 Device/Agent Bearer 接口使用的纯文本语义。
+`status` filter：`active|revoked`。这四个接口都走 Human Cookie + CSRF（GET 不需要 CSRF，POST/DELETE 需要），鉴权模式与 §6.3/6.4 一致；错误响应使用与本文档其余 Human Portal 接口相同的稳定 JSON envelope（详见 §10），**不是**下一节 Device/Agent Bearer 接口使用的纯文本语义。
 
-## 7. 非 Portal 接口
+## 7. Team Memory Explorer
+
+Explorer 是 Owner-only 的只读诊断入口。它可以展示 Team Note 正文以及作为证据的 Session
+Event 正文，并把 source event → extraction run/candidate → persisted revision → delivery →
+recall decision 串成一条链。Admin 和 Member 即使知道资源 ID 也必须得到 `403 forbidden`。
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/v1/admin/team-notes?q=&kind=&state=&agent_id=&task_ref=&thread_ref=&limit=&cursor=` | 搜索和筛选 Team Notes |
+| GET | `/v1/admin/team-notes/:note_id` | Note 当前态、关系、revision、evidence、delivery 和安全 recall 投影 |
+| GET | `/v1/admin/diagnostics/extractions/:run_id` | extraction run、source events、candidate admission 与结果 Note |
+| GET | `/v1/admin/diagnostics/channels/:envelope_id` | Capsule Channel 安全投影 |
+
+这些接口不返回 recall 原始 query/envelope、Credential/token、Channel `idempotency_key` 或
+存储层原始错误。未知或损坏的 Capsule payload 返回 `payload_status=unavailable`，不会回传
+原始 JSON。列表分页遵循 §3.4。`404 explorer_not_found` 表示资源不存在或已被 retention
+清理。
+
+## 8. 非 Portal 接口
 
 以下接口不要用 Human Cookie 调用：
 
@@ -756,18 +776,18 @@ Agent Directory 只返回可路由的 Agent：Agent active、所属 Membership a
 
 `directory_visible` 只是 discovery 控制，不是发送 ACL。Portal 可以编辑这个字段，但不能把 Human Session 当作目录查询凭据。
 
-**这一整节（含新增的两个 Device 供应接口）的错误响应都不是 §9 描述的 JSON envelope，而是纯文本 body**（内容通常就是操作名，例如 `provision device agent`），只能按 HTTP status 区分语义，不存在 `code` 字段可解析。给这些接口写客户端（包括 paxl/paxm 的自助供应逻辑）时不要尝试 `JSON.parse` body 或匹配文案。`POST`/`GET /v1/device/agent-provisions` 的具体状态语义：
+**这一整节（含新增的两个 Device 供应接口）的错误响应都不是 §10 描述的 JSON envelope，而是纯文本 body**（内容通常就是操作名，例如 `provision device agent`），只能按 HTTP status 区分语义，不存在 `code` 字段可解析。给这些接口写客户端（包括 paxl/paxm 的自助供应逻辑）时不要尝试 `JSON.parse` body 或匹配文案。`POST`/`GET /v1/device/agent-provisions` 的具体状态语义：
 
 - `401`：Bearer key 缺失、格式错误，或校验失败（含用一个已吊销/过期的 Device key 调用）。
 - `403`：Bearer key 是合法的 Agent Credential 而不是 Device Credential，或请求的 `permissions` 超出该 Device 的 `grantable_permissions`。
 - `409`：请求的 `agent_id` 已经被另一个 Device 或人工 Enrollment 铸发/注册占用。同一个 Device 对自己已铸发的 `agent_id` 重复调用不会 409——那会走轮换分支，返回新的 `credential_id`/`api_key` 并把旧 Credential 原子吊销（响应体带 `rotated_from_credential_id`）。
 - `422`：该 Device 的活跃 Agent 数已达到 `TEAM_MEMORY_DEVICE_AGENT_LIMIT`（默认 16，部署可配置 1-1000）上限，或请求体字段校验失败（如缺少必填的 `agent_type`）。
 
-## 8. 响应模型
+## 9. 响应模型
 
 List response 的顶层集合字段分别为 `members`、`invitations`、`agents`、`enrollments`、`credentials`、`audit_events`，并可选返回 `next_cursor`。Single-resource response 通常使用 `member`、`agent`、`enrollment`、`credential` 或 `audit_event` 包裹；`GET /v1/me`、Invitation create/accept 和 Enrollment create 是例外，按本文示例直接读取。
 
-### 8.1 Agent Profile
+### 9.1 Agent Profile
 
 ```json
 {
@@ -790,7 +810,7 @@ List response 的顶层集合字段分别为 `members`、`invitations`、`agents
 
 `provisioned_by` 是新增的可选字段：只有当这个 Agent 是由某个 Device 通过 `POST /v1/device/agent-provisions` 自助注册时才出现，值是铸发它的 Device 的 `credential_id`。人工通过 My Agents/Admin Agents 创建的 Agent **没有这个字段**（不是空字符串或 `null`，是整个字段缺失）。Agent 列表/详情的"人工注册"vs"设备自描述注册"徽标应按字段是否存在判断（`"provisioned_by" in agent`），不要按空字符串判断。Directory 用的 `DirectoryAgent`（Capsule Channel 用）没有这个字段，不受影响。
 
-### 8.2 Enrollment metadata
+### 9.2 Enrollment metadata
 
 ```json
 {
@@ -805,7 +825,7 @@ List response 的顶层集合字段分别为 `members`、`invitations`、`agents
 }
 ```
 
-### 8.3 Credential metadata
+### 9.3 Credential metadata
 
 ```json
 {
@@ -821,7 +841,7 @@ List response 的顶层集合字段分别为 `members`、`invitations`、`agents
 
 这些 metadata 响应不会包含 API key。
 
-### 8.4 Device Enrollment 创建响应
+### 9.4 Device Enrollment 创建响应
 
 `POST /v1/me/device-enrollments` 直接返回（不带包裹字段），与 Invitation/Enrollment create 一致：
 
@@ -837,7 +857,7 @@ List response 的顶层集合字段分别为 `members`、`invitations`、`agents
 
 `grantable_permissions` 是这次创建**实际生效**的授权上限集合：显式传入时原样返回校验后的值，省略时返回后端解析出的部署默认值（`TEAM_MEMORY_MEMBER_GRANTABLE_PERMISSIONS`）——前端不需要、也不应该自己重新计算这个默认值，直接展示响应里的这份列表。
 
-### 8.5 DeviceSummary
+### 9.5 DeviceSummary
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
@@ -854,7 +874,7 @@ List response 的顶层集合字段分别为 `members`、`invitations`、`agents
 
 `GET /v1/admin/devices` 返回 `{ "devices": DeviceSummary[], "next_cursor"?: string }`；`DELETE /v1/admin/devices/:credential_id` 返回 `{ "device": DeviceSummary }`。列表分页规则与 §3.4 一致（`limit` 默认 50、1-100，`next_cursor` 原样透传）。
 
-### 8.6 DeviceProvisionedAgent 与 Device 详情
+### 9.6 DeviceProvisionedAgent 与 Device 详情
 
 ```json
 {
@@ -898,11 +918,11 @@ List response 的顶层集合字段分别为 `members`、`invitations`、`agents
 
 数组按 `agent_id` 分组、同一 `agent_id` 内按 `created_at` 降序排列，包含历史上已被轮换掉的 revoked 行，因此**不能**假设一个 `agent_id` 只出现一次。级联预览（5.10）应先按 `revoked_at` 为空过滤，再按 `agent_id` 去重取最新一行展示。
 
-`GET /v1/device/agent-provisions`（Device Bearer key 自己查询，不是 Portal 接口，见 §7）返回同样的 `agents: DeviceProvisionedAgent[]`，但顶层没有 `device` 包裹字段。
+`GET /v1/device/agent-provisions`（Device Bearer key 自己查询，不是 Portal 接口，见 §8）返回同样的 `agents: DeviceProvisionedAgent[]`，但顶层没有 `device` 包裹字段。
 
-## 9. HTTP 状态与 UI 行为
+## 10. HTTP 状态与 UI 行为
 
-本节的 JSON envelope 与 code 只适用于 Human Portal（Cookie + CSRF）接口，包括本文新增的 §6.6 Device Enrollment/Devices 四个接口。§7 的 Device/Agent Bearer 接口（含 `POST`/`GET /v1/device/agent-provisions`）是纯文本 body，只按 HTTP status 区分，不要在这些接口上套用下表的 code 解析逻辑，具体状态语义见 §7 末尾。
+本节的 JSON envelope 与 code 只适用于 Human Portal（Cookie + CSRF）接口，包括本文新增的 §6.6 Device Enrollment/Devices 四个接口。§8 的 Device/Agent Bearer 接口（含 `POST`/`GET /v1/device/agent-provisions`）是纯文本 body，只按 HTTP status 区分，不要在这些接口上套用下表的 code 解析逻辑，具体状态语义见 §8 末尾。
 
 | Status | 常见 code | 推荐 UI 行为 |
 | --- | --- | --- |
@@ -933,7 +953,7 @@ List response 的顶层集合字段分别为 `members`、`invitations`、`agents
 `diagnostic.includes(...)`。为兼容滚动升级，API wrapper 在收到旧的非 JSON 错误时保留
 status + diagnostic fallback，此时采用对应 status 的保守行为。
 
-## 10. 必测边际场景
+## 11. 必测边际场景
 
 前端集成测试至少覆盖：
 
@@ -958,9 +978,9 @@ status + diagnostic fallback，此时采用对应 status 的保守行为。
 16. Device 详情页展示的级联预览（`agents` 数组）与吊销后 Devices 列表/详情的实际结果一致：吊销后 `provisioned_agent_count` 变为 `0`，预览里列出的 Agent 的 Credential 立即失效（对应 Agent 拿旧 key 请求收到 `401`）。
 17. Device 吊销复用同一个 `Idempotency-Key` 重放，返回同一个已吊销结果，不重复触发级联，也不报错；这一路径**不需要**、也不应该发送 `resource_version`/`If-Match`。
 18. Agent 列表/详情按 `provisioned_by` 字段是否存在（而不是真值）区分人工注册与设备自描述注册徽标。
-19. 调用 `POST`/`GET /v1/device/agent-provisions` 出错时按 HTTP status（而非 body JSON）分支处理，`409` 与 `422` 不会被误当成 §9 的 JSON code 解析。
+19. 调用 `POST`/`GET /v1/device/agent-provisions` 出错时按 HTTP status（而非 body JSON）分支处理，`409` 与 `422` 不会被误当成 §10 的 JSON code 解析。
 
-## 11. 前端交付检查单
+## 12. 前端交付检查单
 
 - 全部 Human API 使用同源相对 URL 和 `credentials: "include"`。
 - Mutation 统一发送 CSRF header。
@@ -975,5 +995,5 @@ status + diagnostic fallback，此时采用对应 status 的保守行为。
 - suspended/removed/retired 等终态和 Credential revocation 在 UI 上不可误解为可恢复。
 - 测试环境覆盖 Secure Cookie、OIDC callback、邀请 continuation 和一次性 token 擦除。
 - Device 吊销确认弹窗直接复用详情接口的 `agents` 数组做级联预览，不额外发请求；确认后不发送 `resource_version`/`If-Match`，只发送 `Idempotency-Key`。
-- Device/Agent Bearer 接口（§7，含两个 Device 供应接口）的错误处理只依赖 HTTP status，不解析 body 为 JSON code。
+- Device/Agent Bearer 接口（§8，含两个 Device 供应接口）的错误处理只依赖 HTTP status，不解析 body 为 JSON code。
 - Agent 卡片/详情的“人工注册”/“设备自描述注册”徽标读取 `provisioned_by` 字段是否存在，不误判缺失字段为空字符串。

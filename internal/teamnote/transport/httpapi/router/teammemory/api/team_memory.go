@@ -33,6 +33,7 @@ func Register(r *server.Hertz) {
 			_admin.GET("/invitations", append(_listmembershipinvitationsMw(), handler.ListMembershipInvitations)...)
 			_admin.POST("/invitations", append(_createmembershipinvitationMw(), handler.CreateMembershipInvitation)...)
 			_admin.GET("/members", append(_listmembersMw(), handler.ListMembers)...)
+			_admin.GET("/team-notes", append(_listteamnotesMw(), handler.ListTeamNotes)...)
 			{
 				_agent_credentials := _admin.Group("/agent-credentials", _agent_credentialsMw()...)
 				_agent_credentials.DELETE("/:credential_id", append(_revokeagentcredentialMw(), handler.RevokeAgentCredential)...)
@@ -67,6 +68,17 @@ func Register(r *server.Hertz) {
 				_devices.GET("/:credential_id", append(_getadmindeviceMw(), handler.GetAdminDevice)...)
 			}
 			{
+				_diagnostics := _admin.Group("/diagnostics", _diagnosticsMw()...)
+				{
+					_channels := _diagnostics.Group("/channels", _channelsMw()...)
+					_channels.GET("/:envelope_id", append(_getchanneldiagnosticMw(), handler.GetChannelDiagnostic)...)
+				}
+				{
+					_extractions := _diagnostics.Group("/extractions", _extractionsMw()...)
+					_extractions.GET("/:run_id", append(_getextractiondiagnosticMw(), handler.GetExtractionDiagnostic)...)
+				}
+			}
+			{
 				_invitations := _admin.Group("/invitations", _invitationsMw()...)
 				_invitations.DELETE("/:invitation_id", append(_revokemembershipinvitationMw(), handler.RevokeMembershipInvitation)...)
 			}
@@ -89,6 +101,10 @@ func Register(r *server.Hertz) {
 					_storage := _operations.Group("/storage", _storageMw()...)
 					_storage.GET("/history", append(_listoperationsstoragehistoryMw(), handler.ListOperationsStorageHistory)...)
 				}
+			}
+			{
+				_team_notes := _admin.Group("/team-notes", _team_notesMw()...)
+				_team_notes.GET("/:note_id", append(_getteamnoteMw(), handler.GetTeamNote)...)
 			}
 		}
 		{
@@ -171,6 +187,19 @@ func Register(r *server.Hertz) {
 		{
 			_notes := _v1.Group("/notes", _notesMw()...)
 			_notes.POST("/recall", append(_recallnotesMw(), handler.RecallNotes)...)
+		}
+		{
+			_wiki := _v1.Group("/wiki", _wikiMw()...)
+			_wiki.GET("/ingestion", append(_getwikiingestionstatusMw(), handler.GetWikiIngestionStatus)...)
+			_wiki.PUT("/ingestion", append(_updatewikiingestionMw(), handler.UpdateWikiIngestion)...)
+			_wiki.POST("/rebuild", append(_rebuildwikiMw(), handler.RebuildWiki)...)
+			{
+				_sessions := _wiki.Group("/sessions", _sessionsMw()...)
+				{
+					_session_id := _sessions.Group("/:session_id", _session_idMw()...)
+					_session_id.POST("/inject", append(_injectwikisessionMw(), handler.InjectWikiSession)...)
+				}
+			}
 		}
 	}
 }

@@ -9,7 +9,9 @@ import (
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/pax-beehive/pax-nexus/internal/deployment/onprem"
+	"github.com/pax-beehive/pax-nexus/internal/explorer"
 	"github.com/pax-beehive/pax-nexus/internal/operations"
+	"github.com/pax-beehive/pax-nexus/internal/pagewiki/sessionconsumer"
 	"github.com/pax-beehive/pax-nexus/internal/recall"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote"
 )
@@ -33,6 +35,8 @@ type Handler struct {
 	oidc         OIDCLifecycle
 	registry     AgentRegistryLifecycle
 	operations   OperationsLifecycle
+	explorer     ExplorerLifecycle
+	wikiControl  WikiControl
 	recorder     operations.Recorder
 	portalURL    string
 	cookieSecure bool
@@ -115,6 +119,20 @@ type OperationsLifecycle interface {
 	AgentStats(context.Context, onprem.HumanPrincipal, operations.TimeFilter) (operations.AgentStatsReport, error)
 }
 
+type ExplorerLifecycle interface {
+	ListTeamNotes(context.Context, onprem.HumanPrincipal, explorer.TeamNoteFilter) ([]explorer.TeamNoteSummary, error)
+	GetTeamNote(context.Context, onprem.HumanPrincipal, string) (explorer.TeamNoteDetail, error)
+	GetExtractionDiagnostic(context.Context, onprem.HumanPrincipal, string) (explorer.ExtractionDiagnostic, error)
+	GetChannelDiagnostic(context.Context, onprem.HumanPrincipal, string) (explorer.ChannelDiagnostic, error)
+}
+
+type WikiControl interface {
+	Status(context.Context, string) (sessionconsumer.Status, error)
+	SetAutoInject(context.Context, string, bool) (sessionconsumer.Status, error)
+	InjectSession(context.Context, string, string) (sessionconsumer.InjectResult, error)
+	Rebuild(context.Context, string) (sessionconsumer.Status, error)
+}
+
 type OnPremOption func(*Handler) error
 
 func WithAgentRegistry(registry AgentRegistryLifecycle) OnPremOption {
@@ -134,6 +152,26 @@ func WithOperations(service OperationsLifecycle, recorder operations.Recorder) O
 		}
 		configured.operations = service
 		configured.recorder = recorder
+		return nil
+	}
+}
+
+func WithExplorer(service ExplorerLifecycle) OnPremOption {
+	return func(configured *Handler) error {
+		if service == nil {
+			return fmt.Errorf("configure explorer: service is required")
+		}
+		configured.explorer = service
+		return nil
+	}
+}
+
+func WithWikiControl(control WikiControl) OnPremOption {
+	return func(configured *Handler) error {
+		if control == nil {
+			return fmt.Errorf("configure Wiki control: control is required")
+		}
+		configured.wikiControl = control
 		return nil
 	}
 }

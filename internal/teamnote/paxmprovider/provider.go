@@ -32,17 +32,23 @@ type Config struct {
 	APIKey         string
 	UserID         string
 	AgentID        string
+	ScopeID        string
 	TokenBudget    int
 	RequestTimeout time.Duration
 	Client         *http.Client
 	Logger         *slog.Logger
 }
 
+// defaultScopeID mirrors onprem.LocalScopeID, the scope every on-prem
+// deployment stores team notes under.
+const defaultScopeID = "local-team"
+
 type Provider struct {
 	baseURL     *url.URL
 	apiKey      string
 	userID      string
 	agentID     string
+	scopeID     string
 	tokenBudget int
 	client      *http.Client
 	logger      *slog.Logger
@@ -144,9 +150,13 @@ func New(config Config) (*Provider, error) {
 	if config.Logger == nil {
 		config.Logger = observability.DiscardLogger()
 	}
+	scopeID := strings.TrimSpace(config.ScopeID)
+	if scopeID == "" {
+		scopeID = defaultScopeID
+	}
 	return &Provider{
 		baseURL: baseURL, apiKey: config.APIKey, userID: config.UserID,
-		agentID: config.AgentID, tokenBudget: tokenBudget, client: client, logger: config.Logger,
+		agentID: config.AgentID, scopeID: scopeID, tokenBudget: tokenBudget, client: client, logger: config.Logger,
 	}, nil
 }
 
@@ -331,9 +341,15 @@ func (p *Provider) search(ctx context.Context, query searchQuery) ([]map[string]
 		return nil, err
 	}
 	if len(envelope.Details) > 0 {
-		return attributedHits(envelope.Details), nil
+		return attributedHits(envelope.Details, p.hitScope()), nil
 	}
-	return legacyHits(envelope.Revision, envelope.Items), nil
+	return legacyHits(envelope.Revision, envelope.Items, p.hitScope()), nil
+}
+
+// hitScope carries the visibility boundary paxm expects on every hit;
+// without it paxm renders "Scope: unknown".
+func (p *Provider) hitScope() map[string]string {
+	return map[string]string{"type": "team", "id": p.scopeID}
 }
 
 type recalledNotePayload struct {
@@ -345,25 +361,27 @@ type recalledNotePayload struct {
 	Certainty string  `json:"certainty"`
 }
 
-func attributedHits(notes []recalledNotePayload) []map[string]any {
+func attributedHits(notes []recalledNotePayload, scope map[string]string) []map[string]any {
 	hits := make([]map[string]any, 0, len(notes))
 	for _, note := range notes {
 		revision := fmt.Sprintf("%s:%d", note.NoteID, note.Revision)
 		hits = append(hits, map[string]any{
 			"provider": "team-memory", "id": revision, "text": note.Text,
 			"relevance": note.Relevance, "score": note.Relevance, "source": "team-note", "origin": note.Origin,
+			"scope":    scope,
 			"metadata": map[string]string{"revision": revision, "certainty": note.Certainty},
 		})
 	}
 	return hits
 }
 
-func legacyHits(revision string, items []string) []map[string]any {
+func legacyHits(revision string, items []string, scope map[string]string) []map[string]any {
 	hits := make([]map[string]any, 0, len(items))
 	for index, item := range items {
 		hits = append(hits, map[string]any{
 			"provider": "team-memory", "id": fmt.Sprintf("%s:%d", revision, index),
 			"text": item, "relevance": 1.0, "score": 1.0, "source": "team-note",
+			"scope":    scope,
 			"metadata": map[string]string{"revision": revision},
 		})
 	}

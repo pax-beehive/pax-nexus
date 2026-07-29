@@ -17,7 +17,10 @@ const (
 
 type HumanCapability string
 
-const CapabilityViewOperations HumanCapability = "view.operations"
+const (
+	CapabilityViewOperations HumanCapability = "view.operations"
+	CapabilityViewTeamMemory HumanCapability = "view.team-memory"
+)
 
 type HumanPrincipal struct {
 	UserID           string
@@ -36,16 +39,22 @@ func (p HumanPrincipal) HasCapability(capability HumanCapability) bool {
 	switch capability {
 	case CapabilityViewOperations:
 		return p.Role == RoleOwner || p.Role == RoleAdmin
+	case CapabilityViewTeamMemory:
+		return p.Role == RoleOwner
 	default:
 		return false
 	}
 }
 
 func (p HumanPrincipal) Capabilities() []HumanCapability {
+	capabilities := make([]HumanCapability, 0, 2)
 	if p.HasCapability(CapabilityViewOperations) {
-		return []HumanCapability{CapabilityViewOperations}
+		capabilities = append(capabilities, CapabilityViewOperations)
 	}
-	return []HumanCapability{}
+	if p.HasCapability(CapabilityViewTeamMemory) {
+		capabilities = append(capabilities, CapabilityViewTeamMemory)
+	}
+	return capabilities
 }
 
 type AgentStatus string

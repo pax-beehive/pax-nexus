@@ -299,6 +299,30 @@ struct HumanMeResponse {
   7: required list<string> capabilities
 }
 
+struct WikiIngestionStatusRequest {}
+
+struct UpdateWikiIngestionRequest {
+  1: required bool auto_inject (api.body="auto_inject")
+}
+
+struct WikiIngestionStatusResponse {
+  1: required bool auto_inject
+}
+
+struct InjectWikiSessionRequest {
+  1: required string session_id (api.path="session_id")
+}
+
+struct InjectWikiSessionResponse {
+  1: required i32 processed_streams
+}
+
+struct RebuildWikiRequest {}
+
+struct RebuildWikiResponse {
+  1: required bool auto_inject
+}
+
 struct ListMembersRequest {
   1: optional string role (api.query="role")
   2: optional string status (api.query="status")
@@ -868,6 +892,186 @@ struct OperationsAgentStatsResponse {
   4: required string generated_at
 }
 
+struct ListTeamNotesRequest {
+  1: optional string q (api.query="q")
+  2: optional string kind (api.query="kind")
+  3: optional string state (api.query="state")
+  4: optional string agent_id (api.query="agent_id")
+  5: optional string task_ref (api.query="task_ref")
+  6: optional string thread_ref (api.query="thread_ref")
+  7: optional i32 limit (api.query="limit")
+  8: optional string cursor (api.query="cursor")
+}
+
+struct TeamNoteByIDRequest {
+  1: required string note_id (api.path="note_id")
+}
+
+struct ExtractionDiagnosticByIDRequest {
+  1: required string run_id (api.path="run_id")
+}
+
+struct ChannelDiagnosticByIDRequest {
+  1: required string envelope_id (api.path="envelope_id")
+}
+
+struct ExplorerTeamNoteSummary {
+  1: required string note_id
+  2: required string kind
+  3: required string subject
+  4: required string state
+  5: optional string task_ref
+  6: optional string thread_ref
+  7: required string origin_agent_id
+  8: required list<string> audience_agent_ids
+  9: required i32 revision
+  10: required string created_at
+  11: required string updated_at
+  12: required string soft_expires_at
+  13: required string hard_expires_at
+}
+
+struct ExplorerTeamNote {
+  1: required ExplorerTeamNoteSummary summary
+  2: required string body
+  3: required string origin_user_id
+  4: required string origin_session_id
+  5: required list<string> related_subjects
+  6: optional string valid_at
+  7: optional string invalid_at
+  8: optional string source_occurred_at
+}
+
+struct ExplorerSourceEvent {
+  1: required string event_id
+  2: required string user_id
+  3: required string agent_id
+  4: required string session_id
+  5: required i64 sequence
+  6: required string type
+  7: required string content
+  8: optional string task_ref
+  9: optional string thread_ref
+  10: required string visibility
+  11: required string occurred_at
+  12: required string captured_at
+  13: optional string extracted_at
+}
+
+struct ExplorerExtractionRun {
+  1: required string run_id
+  2: required string user_id
+  3: required string agent_id
+  4: required string session_id
+  5: required i64 from_sequence
+  6: required i64 to_sequence
+  7: required string model
+  8: required string prompt_version
+  9: required string status
+  10: required i64 input_tokens
+  11: required i64 output_tokens
+  12: optional string error_code
+  13: required string created_at
+  14: optional string completed_at
+}
+
+struct ExplorerCandidate {
+  1: required string candidate_id
+  2: required string action
+  3: required string kind
+  4: required string subject
+  5: required string body
+  6: optional string task_ref
+  7: optional string thread_ref
+  8: required string origin_agent_id
+  9: required list<string> evidence_event_ids
+  10: required string admission_status
+  11: optional string rejection_reason
+  12: required string created_at
+  13: optional string resulting_note_id
+}
+
+struct ExplorerDelivery {
+  1: required string recipient_user_id
+  2: required string recipient_agent_id
+  3: required string recipient_session_id
+  4: required string delivered_at
+  5: required i32 context_tokens
+}
+
+struct ExplorerRevision {
+  1: required i32 revision
+  2: required string candidate_id
+  3: required string operation
+  4: required string body
+  5: required list<string> related_subjects
+  6: optional string valid_at
+  7: optional string invalid_at
+  8: required string created_at
+  9: optional string expired_at
+  10: required ExplorerExtractionRun extraction
+  11: required list<ExplorerSourceEvent> evidence
+  12: required list<ExplorerDelivery> deliveries
+  13: required ExplorerCandidate candidate
+}
+
+struct ExplorerRecallUse {
+  1: required i64 observation_id
+  2: required string recipient_agent_id
+  3: required string recipient_session_id
+  4: required string occurred_at
+  5: optional string disposition
+  6: required bool delivered
+  7: required list<string> rejection_reasons
+  8: required list<string> budget_drop_reasons
+  9: required list<string> hard_gate_failures
+}
+
+struct ListTeamNotesResponse {
+  1: required list<ExplorerTeamNoteSummary> notes
+  2: optional string next_cursor
+}
+
+struct TeamNoteDetailResponse {
+  1: required ExplorerTeamNote note
+  2: required list<ExplorerTeamNoteSummary> related_notes
+  3: required list<ExplorerRevision> revisions
+  4: required list<ExplorerRecallUse> recall_observations
+}
+
+struct ExtractionDiagnosticResponse {
+  1: required ExplorerExtractionRun run
+  2: required list<ExplorerCandidate> candidates
+  3: required list<ExplorerSourceEvent> source_events
+  4: required list<ExplorerTeamNoteSummary> resulting_notes
+}
+
+struct ExplorerKnowledgeCapsule {
+  1: optional string capsule_id
+  2: optional string source_session_id
+  3: optional string source_agent
+  4: optional string keyword
+  5: optional string title
+  6: optional string summary
+  7: optional string content
+  8: optional string status
+  9: optional bool truncated
+  10: optional string route_match_type
+}
+
+struct ChannelDiagnosticResponse {
+  1: required string envelope_id
+  2: required string from_agent_id
+  3: required string to_agent_id
+  4: required string status
+  5: optional string message
+  6: required string payload_status
+  7: required string created_at
+  8: optional string accepted_at
+  9: optional string archived_at
+  10: required ExplorerKnowledgeCapsule capsule
+}
+
 service TeamMemoryService {
   IngestReceipt ObserveSession(1: SessionBatch request) (api.post="/v1/session-batches")
   NoteEnvelope RecallNotes(1: RecallRequest request) (api.post="/v1/notes/recall")
@@ -896,6 +1100,10 @@ service TeamMemoryService {
   EmptyResponse LogoutHuman(1: AuthLogoutRequest request) (api.post="/v1/auth/logout")
   HumanMeResponse ClaimBootstrap(1: BootstrapClaimRequest request) (api.post="/v1/bootstrap/claim")
   HumanMeResponse GetHumanMe(1: HumanMeRequest request) (api.get="/v1/me")
+  WikiIngestionStatusResponse GetWikiIngestionStatus(1: WikiIngestionStatusRequest request) (api.get="/v1/wiki/ingestion")
+  WikiIngestionStatusResponse UpdateWikiIngestion(1: UpdateWikiIngestionRequest request) (api.put="/v1/wiki/ingestion")
+  InjectWikiSessionResponse InjectWikiSession(1: InjectWikiSessionRequest request) (api.post="/v1/wiki/sessions/:session_id/inject")
+  RebuildWikiResponse RebuildWiki(1: RebuildWikiRequest request) (api.post="/v1/wiki/rebuild")
   InvitationResponse CreateMembershipInvitation(1: CreateInvitationRequest request) (api.post="/v1/admin/invitations")
   ListInvitationsResponse ListMembershipInvitations(1: ListInvitationsRequest request) (api.get="/v1/admin/invitations")
   InvitationResponse RevokeMembershipInvitation(1: InvitationByIDRequest request) (api.delete="/v1/admin/invitations/:invitation_id")
@@ -932,4 +1140,8 @@ service TeamMemoryService {
   OperationsStorageResponse GetOperationsStorage(1: OperationsStorageRequest request) (api.get="/v1/admin/operations/storage")
   ListOperationsStorageHistoryResponse ListOperationsStorageHistory(1: ListOperationsStorageHistoryRequest request) (api.get="/v1/admin/operations/storage/history")
   OperationsAgentStatsResponse ListOperationsAgentStats(1: OperationsAgentStatsRequest request) (api.get="/v1/admin/operations/agents")
+  ListTeamNotesResponse ListTeamNotes(1: ListTeamNotesRequest request) (api.get="/v1/admin/team-notes")
+  TeamNoteDetailResponse GetTeamNote(1: TeamNoteByIDRequest request) (api.get="/v1/admin/team-notes/:note_id")
+  ExtractionDiagnosticResponse GetExtractionDiagnostic(1: ExtractionDiagnosticByIDRequest request) (api.get="/v1/admin/diagnostics/extractions/:run_id")
+  ChannelDiagnosticResponse GetChannelDiagnostic(1: ChannelDiagnosticByIDRequest request) (api.get="/v1/admin/diagnostics/channels/:envelope_id")
 }

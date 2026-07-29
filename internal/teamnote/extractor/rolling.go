@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 	"sync"
@@ -227,11 +228,11 @@ func (e *OpenAI) advanceEpisodeAttempt(ctx context.Context, key EpisodeKey, slic
 	if err != nil {
 		return Result{}, err
 	}
-	messages, err := episodeMessages(episode, protocol.systemPrompt)
+	messages, nextVersion, err := e.boundEpisodeMessages(ctx, key, &episode, protocol.systemPrompt, prompt, expectedVersion)
 	if err != nil {
-		return Result{}, fmt.Errorf("build rolling extraction context: %w", err)
+		return Result{}, err
 	}
-	messages = append(messages, chatMessage{Role: "user", Content: prompt})
+	expectedVersion = nextVersion
 	result, raw, err := e.completeWith(ctx, messages, protocol.decodeFresh)
 	if err != nil {
 		return Result{}, err
@@ -271,6 +272,74 @@ func (e *OpenAI) advanceEpisodeAttempt(ctx context.Context, key EpisodeKey, slic
 	result.PromptVersion = e.config.PromptVersion
 	result.ExtractionVersion = e.resultExtractionVersion()
 	return result, nil
+}
+
+// boundEpisodeMessages assembles the extraction request messages and enforces
+// the local prompt cap, rebuilding the messages from the trimmed episode when
+// a trim occurred. It returns the store version after any trim save.
+func (e *OpenAI) boundEpisodeMessages(
+	ctx context.Context,
+	key EpisodeKey,
+	episode *Episode,
+	systemPrompt, prompt string,
+	expectedVersion int64,
+) ([]chatMessage, int64, error) {
+	messages, err := episodeMessages(*episode, systemPrompt)
+	if err != nil {
+		return nil, expectedVersion, fmt.Errorf("build rolling extraction context: %w", err)
+	}
+	messages = append(messages, chatMessage{Role: "user", Content: prompt})
+	expectedVersion, trimmed, err := e.boundEpisodePrompt(ctx, key, episode, messages, expectedVersion)
+	if err != nil || !trimmed {
+		return messages, expectedVersion, err
+	}
+	messages, err = episodeMessages(*episode, systemPrompt)
+	if err != nil {
+		return nil, expectedVersion, fmt.Errorf("build rolling extraction context: %w", err)
+	}
+	return append(messages, chatMessage{Role: "user", Content: prompt}), expectedVersion, nil
+}
+
+// boundEpisodePrompt enforces the provider-independent prompt token cap. When
+// the assembled request exceeds MaxPromptTokens, it drops the oldest
+// user/assistant pairs from the episode transcript until the estimate fits
+// under three quarters of the cap, leaving headroom for the new prompt and
+// the completion, and persists the trimmed episode. An episode that outgrew
+// the provider context before this cap existed therefore self-heals on the
+// next attempt instead of wedging on provider token-limit rejections. It
+// returns the store version after the trim save and whether the caller must
+// rebuild the request messages.
+func (e *OpenAI) boundEpisodePrompt(
+	ctx context.Context,
+	key EpisodeKey,
+	episode *Episode,
+	messages []chatMessage,
+	expectedVersion int64,
+) (int64, bool, error) {
+	before := 0
+	for _, message := range messages {
+		before += estimateTokens(message.Content)
+	}
+	if before <= e.config.MaxPromptTokens {
+		return expectedVersion, false, nil
+	}
+	overhead := before - messageTokens(episode.Messages)
+	trimmed := recentMessageTail(episode.Messages, 3*e.config.MaxPromptTokens/4-overhead)
+	if len(trimmed) == len(episode.Messages) {
+		// The newest pair alone still exceeds a very small cap; nothing more
+		// can be dropped locally, so proceed with the bounded tail.
+		return expectedVersion, false, nil
+	}
+	after := overhead + messageTokens(trimmed)
+	episode.Messages = trimmed
+	episode.EstimatedTokens = estimateEpisodeTokens(episode.Checkpoint, trimmed)
+	if err := e.config.EpisodeStore.SaveEpisode(ctx, *episode, expectedVersion); err != nil {
+		return expectedVersion, false, fmt.Errorf("trim rolling extraction episode to prompt cap: %w", err)
+	}
+	slog.WarnContext(ctx, "trimmed rolling extraction episode to prompt cap",
+		"scope_id", key.ScopeID, "task_ref", key.TaskRef, "thread_ref", key.ThreadRef,
+		"estimated_tokens_before", before, "estimated_tokens_after", after)
+	return expectedVersion + 1, true, nil
 }
 
 func (e *OpenAI) resultExtractionVersion() string {
@@ -373,17 +442,28 @@ func (e *OpenAI) prepareEpisode(ctx context.Context, key EpisodeKey, episode *Ep
 			flightErr = applyErr
 		}
 	}
+	if !errors.Is(flightErr, ErrEpisodeConflict) {
+		recordCompactionFailure(episode, flightErr)
+	}
 	if !hardLimit {
 		return Usage{}, nil
 	}
 	result, err = e.computeCompaction(ctx, *episode)
-	if err != nil {
-		return Usage{}, errors.Join(flightErr, err)
+	if err == nil {
+		if applyErr := applyCompaction(episode, result); applyErr == nil {
+			return result.usage, nil
+		} else {
+			err = applyErr
+		}
 	}
-	if err := applyCompaction(episode, result); err != nil {
-		return Usage{}, err
+	if !errors.Is(err, ErrEpisodeConflict) {
+		recordCompactionFailure(episode, err)
 	}
-	return result.usage, nil
+	dropped := truncateEpisodeMessages(episode, e.config.CompactStartTokens)
+	slog.WarnContext(ctx, "extraction compaction failed; truncated episode deterministically",
+		"scope_id", key.ScopeID, "task_ref", key.TaskRef, "thread_ref", key.ThreadRef,
+		"dropped_messages", dropped, "error", err)
+	return Usage{}, nil
 }
 
 func (e *OpenAI) startCompaction(ctx context.Context, key EpisodeKey, episode Episode) *compactionFlight {
@@ -478,11 +558,35 @@ func applyCompaction(episode *Episode, result compactionResult) error {
 	result.checkpoint.SummaryAttempts = episode.Checkpoint.SummaryAttempts
 	result.checkpoint.SummaryFailures = episode.Checkpoint.SummaryFailures
 	result.checkpoint.SummaryLastError = episode.Checkpoint.SummaryLastError
+	result.checkpoint.CompactionFailures = episode.Checkpoint.CompactionFailures
+	result.checkpoint.CompactionTruncations = episode.Checkpoint.CompactionTruncations
+	result.checkpoint.CompactionLastError = episode.Checkpoint.CompactionLastError
 	episode.Checkpoint = result.checkpoint
 	episode.Messages = tail
 	episode.EstimatedTokens = estimateEpisodeTokens(result.checkpoint, tail)
 	episode.CompactionCount++
 	return nil
+}
+
+func recordCompactionFailure(episode *Episode, err error) {
+	episode.Checkpoint.CompactionFailures++
+	message := err.Error()
+	if len(message) > 500 {
+		message = message[:500]
+	}
+	episode.Checkpoint.CompactionLastError = message
+}
+
+func truncateEpisodeMessages(episode *Episode, limit int) int {
+	dropped := 0
+	for len(episode.Messages) > 1 &&
+		estimateEpisodeTokens(episode.Checkpoint, episode.Messages) >= limit {
+		episode.Messages = episode.Messages[1:]
+		dropped++
+	}
+	episode.Checkpoint.CompactionTruncations++
+	episode.EstimatedTokens = estimateEpisodeTokens(episode.Checkpoint, episode.Messages)
+	return dropped
 }
 
 func digestMessages(messages []EpisodeMessage) [sha256.Size]byte {

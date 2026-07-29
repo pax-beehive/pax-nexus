@@ -341,3 +341,155 @@ export interface OperationsStorageSnapshot {
   other_physical_bytes: number;
   components: StorageComponent[];
 }
+
+// ---- Owner-only Team Memory Explorer ----
+
+export interface TeamNoteSummary {
+  note_id: string;
+  kind: string;
+  subject: string;
+  state: string;
+  task_ref?: string;
+  thread_ref?: string;
+  origin_agent_id: string;
+  audience_agent_ids: string[];
+  revision: number;
+  created_at: string;
+  updated_at: string;
+  soft_expires_at: string;
+  hard_expires_at: string;
+}
+
+export interface ExplorerTeamNote {
+  summary: TeamNoteSummary;
+  body: string;
+  origin_user_id: string;
+  origin_session_id: string;
+  related_subjects: string[];
+  valid_at?: string;
+  invalid_at?: string;
+  source_occurred_at?: string;
+}
+
+export interface ExplorerSourceEvent {
+  event_id: string;
+  user_id: string;
+  agent_id: string;
+  session_id: string;
+  sequence: number;
+  type: string;
+  content: string;
+  task_ref?: string;
+  thread_ref?: string;
+  visibility: string;
+  occurred_at: string;
+  captured_at: string;
+  extracted_at?: string;
+}
+
+export interface ExplorerExtractionRun {
+  run_id: string;
+  user_id: string;
+  agent_id: string;
+  session_id: string;
+  from_sequence: number;
+  to_sequence: number;
+  model: string;
+  prompt_version: string;
+  status: string;
+  input_tokens: number;
+  output_tokens: number;
+  error_code?: string;
+  created_at: string;
+  completed_at?: string;
+}
+
+export interface ExplorerCandidate {
+  candidate_id: string;
+  action: string;
+  kind: string;
+  subject: string;
+  body: string;
+  task_ref?: string;
+  thread_ref?: string;
+  origin_agent_id: string;
+  evidence_event_ids: string[];
+  admission_status: string;
+  rejection_reason?: string;
+  created_at: string;
+  resulting_note_id?: string;
+}
+
+export interface ExplorerDelivery {
+  recipient_user_id: string;
+  recipient_agent_id: string;
+  recipient_session_id: string;
+  delivered_at: string;
+  context_tokens: number;
+}
+
+export interface ExplorerRevision {
+  revision: number;
+  candidate_id: string;
+  operation: string;
+  body: string;
+  related_subjects: string[];
+  valid_at?: string;
+  invalid_at?: string;
+  created_at: string;
+  expired_at?: string;
+  extraction: ExplorerExtractionRun;
+  evidence: ExplorerSourceEvent[];
+  deliveries: ExplorerDelivery[];
+  candidate: ExplorerCandidate;
+}
+
+export interface ExplorerRecallUse {
+  observation_id: number;
+  recipient_agent_id: string;
+  recipient_session_id: string;
+  occurred_at: string;
+  disposition?: string;
+  delivered: boolean;
+  rejection_reasons: string[];
+  budget_drop_reasons: string[];
+  hard_gate_failures: string[];
+}
+
+export interface TeamNoteDetail {
+  note: ExplorerTeamNote;
+  related_notes: TeamNoteSummary[];
+  revisions: ExplorerRevision[];
+  recall_observations: ExplorerRecallUse[];
+}
+
+export interface ExtractionDiagnostic {
+  run: ExplorerExtractionRun;
+  candidates: ExplorerCandidate[];
+  source_events: ExplorerSourceEvent[];
+  resulting_notes: TeamNoteSummary[];
+}
+
+export interface ChannelDiagnostic {
+  envelope_id: string;
+  from_agent_id: string;
+  to_agent_id: string;
+  status: string;
+  message?: string;
+  payload_status: "decoded" | "unavailable" | string;
+  created_at: string;
+  accepted_at?: string;
+  archived_at?: string;
+  capsule: {
+    capsule_id?: string;
+    source_session_id?: string;
+    source_agent?: string;
+    keyword?: string;
+    title?: string;
+    summary?: string;
+    content?: string;
+    status?: string;
+    truncated?: boolean;
+    route_match_type?: string;
+  };
+}
