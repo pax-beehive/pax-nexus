@@ -111,6 +111,27 @@ SELECT EXISTS (
 		s.True(found, "session_events.%s missing", column)
 	}
 
+	for _, column := range []string{"source", "stream_id", "visibility"} {
+		var found bool
+		err := pool.QueryRow(ctx, `
+SELECT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = $1 AND table_name = 'session_streams' AND column_name = $2)`,
+			schema, column).Scan(&found)
+		s.Require().NoError(err)
+		s.True(found, "session_streams.%s missing", column)
+	}
+
+	var oldConstraintExists bool
+	err = pool.QueryRow(ctx, `
+SELECT EXISTS (
+    SELECT 1 FROM pg_constraint c
+    JOIN pg_namespace n ON n.oid = c.connamespace
+    WHERE n.nspname = $1 AND c.conname = 'session_events_scope_id_agent_id_session_id_sequence_key')`,
+		schema).Scan(&oldConstraintExists)
+	s.Require().NoError(err)
+	s.False(oldConstraintExists, "legacy per-(agent,session) unique constraint should have been dropped")
+
 	var streamPK string
 	err = pool.QueryRow(ctx, `
 SELECT string_agg(a.attname, ',' ORDER BY array_position(i.indkey, a.attnum))

@@ -62,6 +62,7 @@ LEFT JOIN session_processor_cursors AS cursor
  AND cursor.session_id = stream.session_id
 WHERE stream.last_sequence > COALESCE(cursor.committed_sequence, 0)
   AND stream.scope_id = $3
+  AND stream.source = 'agent-session'
 ORDER BY stream.updated_at
 LIMIT 100`, sessionconsumer.ProcessorName, sessionconsumer.ProcessorVersion, s.scopeID)
 }

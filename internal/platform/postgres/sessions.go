@@ -88,7 +88,7 @@ func (r *SessionRepository) SessionLatestSequence(ctx context.Context, scopeID s
 	err := r.pool.QueryRow(ctx, `
 SELECT last_sequence
 FROM session_streams
-WHERE scope_id = $1 AND agent_id = $2 AND session_id = $3`, scopeID, actor.AgentID, actor.SessionID).Scan(&sequence)
+WHERE scope_id = $1 AND agent_id = $2 AND session_id = $3 AND source = 'agent-session'`, scopeID, actor.AgentID, actor.SessionID).Scan(&sequence)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return 0, nil
 	}
@@ -106,7 +106,7 @@ func (r *SessionRepository) SessionEvents(ctx context.Context, scopeID string, a
 SELECT event_id, user_id, agent_id, session_id, sequence, event_type, content,
        task_ref, thread_ref, visibility, occurred_at, captured_at, extracted_at, metadata
 FROM session_events
-WHERE scope_id = $1 AND agent_id = $2 AND session_id = $3 AND sequence > $4
+WHERE scope_id = $1 AND agent_id = $2 AND session_id = $3 AND source = 'agent-session' AND sequence > $4
 ORDER BY sequence
 LIMIT $5`, scopeID, actor.AgentID, actor.SessionID, after, limit)
 	if err != nil {
@@ -129,7 +129,7 @@ func (r *SessionRepository) SessionEventsBefore(ctx context.Context, scopeID str
 SELECT event_id, user_id, agent_id, session_id, sequence, event_type, content,
        task_ref, thread_ref, visibility, occurred_at, captured_at, extracted_at, metadata
 FROM session_events
-WHERE scope_id = $1 AND agent_id = $2 AND session_id = $3 AND sequence <= $4
+WHERE scope_id = $1 AND agent_id = $2 AND session_id = $3 AND source = 'agent-session' AND sequence <= $4
 ORDER BY sequence DESC
 LIMIT $5`, scopeID, actor.AgentID, actor.SessionID, atOrBefore, limit)
 	if err != nil {
@@ -151,7 +151,7 @@ func (r *SessionRepository) ExtractionCursor(ctx context.Context, scopeID string
 	err := r.pool.QueryRow(ctx, `
 SELECT extraction_cursor
 FROM session_streams
-WHERE scope_id = $1 AND agent_id = $2 AND session_id = $3`, scopeID, actor.AgentID, actor.SessionID).Scan(&cursor)
+WHERE scope_id = $1 AND agent_id = $2 AND session_id = $3 AND source = 'agent-session'`, scopeID, actor.AgentID, actor.SessionID).Scan(&cursor)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return 0, nil
 	}
@@ -174,7 +174,7 @@ func (r *SessionRepository) AdvanceExtractionCursor(ctx context.Context, scopeID
 	result, err := tx.Exec(ctx, `
 UPDATE session_streams
 SET extraction_cursor = GREATEST(extraction_cursor, $4), updated_at = NOW()
-WHERE scope_id = $1 AND agent_id = $2 AND session_id = $3 AND last_sequence >= $4`,
+WHERE scope_id = $1 AND agent_id = $2 AND session_id = $3 AND source = 'agent-session' AND last_sequence >= $4`,
 		scopeID, actor.AgentID, actor.SessionID, cursor)
 	if err != nil {
 		return fmt.Errorf("advance extraction cursor: %w", err)
@@ -185,7 +185,7 @@ WHERE scope_id = $1 AND agent_id = $2 AND session_id = $3 AND last_sequence >= $
 	if _, err := tx.Exec(ctx, `
 UPDATE session_events
 SET extracted_at = COALESCE(extracted_at, NOW())
-WHERE scope_id = $1 AND agent_id = $2 AND session_id = $3 AND sequence <= $4`,
+WHERE scope_id = $1 AND agent_id = $2 AND session_id = $3 AND source = 'agent-session' AND sequence <= $4`,
 		scopeID, actor.AgentID, actor.SessionID, cursor); err != nil {
 		return fmt.Errorf("mark session events extracted: %w", err)
 	}
