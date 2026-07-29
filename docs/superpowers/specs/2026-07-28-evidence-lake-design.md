@@ -76,7 +76,12 @@ Contract rules:
 
 - **Ordering.** `sequence` is assigned by the lake per stream in ingest order.
   Source ordering is never trusted; backfill and late arrival are normal.
-  Deduplication stays keyed on event `id` within a stream.
+- **Deduplication.** Deduplication is scope-global on event `id`
+  (`ON CONFLICT (scope_id, event_id)`), not per-stream, to avoid a primary-key
+  migration this phase. Connectors MUST supply event ids unique within the
+  whole scope, not merely within their own stream — e.g. prefix a
+  platform-native id with the stream id when the source platform only
+  guarantees per-channel uniqueness. Per-stream dedup is revisited in Plan 2.
 - **Type registries.** `source`, `kind`, and `type` are closed vocabularies
   maintained in the contract documentation. Ingest rejects unregistered
   values, so filters keep stable semantics instead of degrading into free

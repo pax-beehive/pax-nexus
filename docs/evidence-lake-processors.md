@@ -45,7 +45,17 @@ extraction/consumption, `source + native_id → user_id` identity resolution,
 and media/blob storage for non-text kinds are explicitly future plans; the
 generic endpoint currently accepts only `kind="text"` events with
 `visibility="team"` from a registered source and rejects everything else with
-a 400.
+a 400. It also rejects `source="agent-session"`: agent-session evidence must
+enter only through the legacy session ingest path, so the generic path can
+never create empty-actor `session_streams` rows that the PageWiki consumer
+would otherwise mistake for a real session.
+
+Deduplication is scope-global on event `id`
+(`ON CONFLICT (scope_id, event_id)`), not per-stream, so connectors MUST
+supply event ids unique within the whole scope, not merely within their own
+stream — for example, prefix a platform-native id with the stream id when the
+source platform only guarantees per-channel uniqueness. Per-stream dedup is
+revisited in Plan 2.
 
 ## Current ingestion contracts
 
