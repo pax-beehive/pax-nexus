@@ -24,6 +24,7 @@ func Register(r *server.Hertz) {
 		_v1.GET("/me", append(_gethumanmeMw(), handler.GetHumanMe)...)
 		_v1.POST("/observations", append(_observebatchMw(), handler.ObserveBatch)...)
 		_v1.POST("/session-batches", append(_observesessionMw(), handler.ObserveSession)...)
+		_v1.POST("/stream-batches", append(_observestreamMw(), handler.ObserveStream)...)
 		{
 			_admin := _v1.Group("/admin", _adminMw()...)
 			_admin.POST("/agent-enrollments", append(_createagentenrollmentMw(), handler.CreateAgentEnrollment)...)

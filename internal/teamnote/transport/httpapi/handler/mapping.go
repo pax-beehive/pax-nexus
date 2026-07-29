@@ -39,6 +39,35 @@ func sessionEventToDomain(event *api.SessionEvent) (teamnote.SessionEvent, error
 	}, nil
 }
 
+func streamBatchToDomain(request *api.StreamBatch) (teamnote.StreamBatch, error) {
+	batch := teamnote.StreamBatch{Complete: request.Complete}
+	for _, wire := range request.Events {
+		occurredAt, err := time.Parse(time.RFC3339, wire.OccurredAt)
+		if err != nil {
+			return teamnote.StreamBatch{}, fmt.Errorf("event %q occurred_at: %w", wire.ID, err)
+		}
+		event := teamnote.StreamEvent{
+			ID:         wire.ID,
+			Stream:     teamnote.Stream{Source: wire.Source, StreamID: wire.StreamID},
+			Author:     teamnote.Author{Kind: wire.Author.Kind, NativeID: wire.Author.NativeID},
+			Kind:       wire.Kind,
+			Type:       wire.Type,
+			Content:    wire.Content,
+			Visibility: wire.Visibility,
+			OccurredAt: occurredAt.UTC(),
+			Metadata:   wire.Metadata,
+		}
+		if wire.ThreadRef != nil {
+			event.ThreadRef = *wire.ThreadRef
+		}
+		if wire.Author.UserID != nil {
+			event.Author.UserID = *wire.Author.UserID
+		}
+		batch.Events = append(batch.Events, event)
+	}
+	return batch, nil
+}
+
 func recallRequestToDomain(request *api.RecallRequest) (teamnote.RecallRequest, error) {
 	if request == nil || request.Actor == nil {
 		return teamnote.RecallRequest{}, fmt.Errorf("map recall request: request and actor are required")

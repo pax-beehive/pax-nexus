@@ -555,3 +555,8 @@ func _rebuildwikiMw() []app.HandlerFunc {
 	// your code...
 	return nil
 }
+
+func _observestreamMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}

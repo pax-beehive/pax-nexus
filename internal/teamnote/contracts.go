@@ -18,6 +18,16 @@ type IngestReceipt = session.IngestReceipt
 type Stream = session.Stream
 type StreamEvent = session.StreamEvent
 type StreamBatch = session.StreamBatch
+type Author = session.Author
+
+// Stream batch contract error sentinels, re-exported so transports do not
+// need to import internal/session directly.
+var (
+	ErrInvalidStreamBatch = session.ErrInvalidStreamBatch
+	ErrUnregisteredValue  = session.ErrUnregisteredValue
+	ErrVisibilityRejected = session.ErrVisibilityRejected
+	ErrMediaNotEnabled    = session.ErrMediaNotEnabled
+)
 
 // RecallRequest describes one authenticated delivery opportunity.
 type RecallRequest struct {

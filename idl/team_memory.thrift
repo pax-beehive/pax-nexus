@@ -24,6 +24,31 @@ struct SessionBatch {
   2: required bool complete (api.body="complete")
 }
 
+struct StreamAuthor {
+  1: required string kind (api.body="kind")
+  2: required string native_id (api.body="native_id")
+  3: optional string user_id (api.body="user_id")
+}
+
+struct StreamEvent {
+  1: required string id (api.body="id")
+  2: required string source (api.body="source")
+  3: required string stream_id (api.body="stream_id")
+  4: required StreamAuthor author (api.body="author")
+  5: required string kind (api.body="kind")
+  6: required string type (api.body="type")
+  7: required string content (api.body="content")
+  8: optional string thread_ref (api.body="thread_ref")
+  9: required string visibility (api.body="visibility")
+  10: required string occurred_at (api.body="occurred_at")
+  11: optional map<string, string> metadata (api.body="metadata")
+}
+
+struct StreamBatch {
+  1: required list<StreamEvent> events (api.body="events")
+  2: required bool complete (api.body="complete")
+}
+
 struct IngestReceipt {
   1: required i32 accepted
   2: required i32 duplicate
@@ -1074,6 +1099,7 @@ struct ChannelDiagnosticResponse {
 
 service TeamMemoryService {
   IngestReceipt ObserveSession(1: SessionBatch request) (api.post="/v1/session-batches")
+  IngestReceipt ObserveStream(1: StreamBatch request) (api.post="/v1/stream-batches")
   NoteEnvelope RecallNotes(1: RecallRequest request) (api.post="/v1/notes/recall")
   HealthResponse Health(1: HealthRequest request) (api.get="/healthz")
   AgentEnrollmentResponse CreateAgentEnrollment(1: AgentEnrollmentRequest request) (api.post="/v1/admin/agent-enrollments")
