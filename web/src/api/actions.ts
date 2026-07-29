@@ -26,6 +26,7 @@ import type {
   MembershipStatus,
   Role,
 } from "./types";
+import type { WikiIngestionStatus } from "./wiki";
 
 /** "me" = owner's own-agent endpoints, "admin" = governance endpoints. */
 export type AgentScope = "me" | "admin";
@@ -332,10 +333,7 @@ export async function transferAgent(
 }
 
 // ---- Wiki ingestion ----
-
-export interface WikiIngestionStatus {
-  auto_inject: boolean;
-}
+// WikiIngestionStatus is shared with the read side and lives in ./wiki.
 
 export function setWikiAutoInject(enabled: boolean): Promise<WikiIngestionStatus> {
   return humanFetch<WikiIngestionStatus>("/v1/wiki/ingestion", {

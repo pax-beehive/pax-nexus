@@ -83,6 +83,14 @@ export function operationOutcomeTone(outcome: string): OutcomeTone {
   }
 }
 
+/** Badge class per outcome tone, shared by the operations pages. */
+export const TONE_BADGE: Record<OutcomeTone, string> = {
+  ok: "b-active",
+  warn: "b-suspended",
+  bad: "b-retired",
+  muted: "b-expired",
+};
+
 const RECALL_KINDS = new Set<string>(["memory.search", "memory.get", "team_note.recall"]);
 
 /**

@@ -6,7 +6,7 @@
 // resets to fresh data — stale edits are never silently overwritten (doc 3.3).
 
 import { useEffect, useState } from "react";
-import { ApiError } from "../api/client";
+import { apiError } from "../api/client";
 import {
   beginAction,
   retireAgent,
@@ -88,11 +88,7 @@ export function AgentGovernanceCard({
       onChanged(updated);
       toast("ok", `Saved (v${updated.resource_version})`);
     } catch (err) {
-      if (
-        err instanceof ApiError &&
-        err.status === 409 &&
-        err.code === "resource_version_conflict"
-      ) {
+      if (apiError(err, 409, "resource_version_conflict")) {
         await onConflict();
       } else {
         handleError(err);
@@ -128,11 +124,7 @@ export function AgentGovernanceCard({
       }
       setPending(undefined);
     } catch (err) {
-      if (
-        err instanceof ApiError &&
-        err.status === 409 &&
-        err.code === "resource_version_conflict"
-      ) {
+      if (apiError(err, 409, "resource_version_conflict")) {
         setPending(undefined);
         await onConflict();
       } else {

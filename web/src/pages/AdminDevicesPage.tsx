@@ -5,7 +5,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { ApiError } from "../api/client";
+import { apiError } from "../api/client";
 import { createDeviceEnrollment } from "../api/actions";
 import { listAllMembers, listDevices } from "../api/queries";
 import type { DeviceEnrollmentSecret, Member } from "../api/types";
@@ -17,6 +17,7 @@ import { formatTime } from "../lib/format";
 import { validateDeviceName } from "../lib/validation";
 import { Badge } from "../components/Badge";
 import { Modal } from "../components/Modal";
+import { PagedListCard } from "../components/PagedListCard";
 import { SecretCard } from "../components/SecretCard";
 import { useToast } from "../components/Toasts";
 
@@ -54,7 +55,7 @@ function CreateDeviceEnrollmentModal({
       });
       onCreated(secret);
     } catch (err) {
-      if (err instanceof ApiError && err.status < 500) {
+      if (apiError(err) && err.status < 500) {
         // Client-side rejection: keep the form so the user can correct it.
         setFormError(`Request rejected (HTTP ${err.status}); please check the input`);
       } else {
@@ -207,52 +208,29 @@ export function AdminDevicesPage() {
         ))}
       </div>
 
-      <div className="card">
-        {list.loading ? (
-          <p className="muted small">Loading…</p>
-        ) : list.items.length === 0 ? (
-          <p className="muted small">No matching records.</p>
-        ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>Device</th>
-                <th>Creator</th>
-                <th>Agents</th>
-                <th>Last activity</th>
-                <th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {list.items.map((d) => (
-                <tr key={d.credential_id}>
-                  <td>
-                    <Link to={`/admin/devices/${encodeURIComponent(d.credential_id)}`}>
-                      {d.device_name}
-                    </Link>
-                    <div className="small mono faint">{d.credential_id}</div>
-                  </td>
-                  <td className="small">
-                    {creatorLabel(d.created_by_membership_id, d.created_by_user_id)}
-                  </td>
-                  <td className="small">{d.provisioned_agent_count}</td>
-                  <td className="small">{formatTime(d.last_used_at)}</td>
-                  <td>
-                    <Badge status={d.status} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      <PagedListCard
+        list={list}
+        columns={["Device", "Creator", "Agents", "Last activity", "Status"]}
+        emptyText="No devices yet"
+        renderRow={(d) => (
+          <tr key={d.credential_id}>
+            <td>
+              <Link to={`/admin/devices/${encodeURIComponent(d.credential_id)}`}>
+                {d.device_name}
+              </Link>
+              <div className="small mono faint">{d.credential_id}</div>
+            </td>
+            <td className="small">
+              {creatorLabel(d.created_by_membership_id, d.created_by_user_id)}
+            </td>
+            <td className="small">{d.provisioned_agent_count}</td>
+            <td className="small">{formatTime(d.last_used_at)}</td>
+            <td>
+              <Badge status={d.status} />
+            </td>
+          </tr>
         )}
-      </div>
-      {list.nextCursor && (
-        <div style={{ marginTop: 10, textAlign: "center" }}>
-          <button className="btn sm" disabled={list.loadingMore} onClick={() => void list.loadMore()}>
-            {list.loadingMore ? "Loading…" : "Load more"}
-          </button>
-        </div>
-      )}
+      />
 
       {createOpen && (
         <CreateDeviceEnrollmentModal

@@ -100,6 +100,7 @@ export function usePolling(
       document.removeEventListener("visibilitychange", onVisibility);
       poller.stop();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Deps are passed explicitly by the caller; changing them (or intervalMs)
+    // restarts the poller, so run/onError are read through refs instead.
   }, [...deps, intervalMs]);
 }

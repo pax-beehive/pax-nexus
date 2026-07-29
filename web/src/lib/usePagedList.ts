@@ -3,7 +3,7 @@
 // the loaded items, which is what the `deps` argument is for.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Page } from "../api/queries";
+import type { Page } from "../api/types";
 
 export interface PagedList<T> {
   items: T[];
@@ -56,7 +56,8 @@ export function usePagedList<T>(
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Deps are passed explicitly by the caller (filters etc.); a bump of
+    // `epoch` via reload() forces a refetch with the same deps.
   }, [...deps, epoch]);
 
   const loadMore = useCallback(async () => {

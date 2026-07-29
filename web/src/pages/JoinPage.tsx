@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ApiError } from "../api/client";
+import { apiError } from "../api/client";
 import { acceptInvitation, beginAction } from "../api/actions";
 import { useAuth } from "../auth/AuthContext";
 import { useToast } from "../components/Toasts";
@@ -53,17 +53,17 @@ export function JoinPage() {
       await refresh();
       navigate("/agents", { replace: true });
     } catch (err) {
-      if (err instanceof ApiError && err.status === 410) {
+      if (apiError(err, 410)) {
         // Expired / revoked / used / malformed / email mismatch: one uniform
         // invalid state. If another tab already accepted, the refresh below
         // reclassifies us as active and the guards take over.
         clearPendingInvitation();
         setInvalid(true);
         await refresh();
-      } else if (err instanceof ApiError && err.code === "membership_conflict") {
+      } else if (apiError(err, undefined, "membership_conflict")) {
         toast("warn", "This account already has a Membership; the invitation cannot override your existing role");
         await refresh();
-      } else if (err instanceof ApiError && err.status === 401) {
+      } else if (apiError(err, 401)) {
         handleUnauthorized();
       } else {
         const notice = noticeForError(err);
