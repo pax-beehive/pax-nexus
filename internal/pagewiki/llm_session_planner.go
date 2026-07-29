@@ -8,7 +8,7 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/pax-beehive/pax-nexus/internal/llmwiki/workspace"
+	"github.com/pax-beehive/pax-nexus/internal/platform/llm"
 	"github.com/pax-beehive/pax-nexus/internal/platform/observability"
 )
 
@@ -21,7 +21,7 @@ const (
 )
 
 type LLMPlannerConfig struct {
-	Client workspace.ChatClient
+	Client llm.ChatClient
 	Model  string
 	Logger *slog.Logger
 }
@@ -29,7 +29,7 @@ type LLMPlannerConfig struct {
 // LLMSessionPlanner lets the model choose durable pages while deterministic
 // code retains control of identity, evidence validity, and publication.
 type LLMSessionPlanner struct {
-	client workspace.ChatClient
+	client llm.ChatClient
 	model  string
 	logger *slog.Logger
 }
@@ -95,9 +95,9 @@ func (p *LLMSessionPlanner) Plan(
 	}
 	var lastErr error
 	for attempt := 0; attempt < plannerAttempts; attempt++ {
-		response, err := p.client.Complete(ctx, workspace.ChatRequest{
+		response, err := p.client.Complete(ctx, llm.ChatRequest{
 			Model: p.model,
-			Messages: []workspace.ChatMessage{
+			Messages: []llm.ChatMessage{
 				{Role: "system", Content: pageWikiPlannerPrompt},
 				{Role: "user", Content: string(payload)},
 			},

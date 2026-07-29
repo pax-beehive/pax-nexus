@@ -14,12 +14,12 @@ import (
 
 	"github.com/cloudwego/hertz/pkg/app/server"
 	"github.com/pax-beehive/pax-nexus/internal/deployment/onprem"
-	llmwikiworkspace "github.com/pax-beehive/pax-nexus/internal/llmwiki/workspace"
 	"github.com/pax-beehive/pax-nexus/internal/operations"
 	"github.com/pax-beehive/pax-nexus/internal/pagewiki"
 	pagewikipostgres "github.com/pax-beehive/pax-nexus/internal/pagewiki/postgres"
 	"github.com/pax-beehive/pax-nexus/internal/pagewiki/sessionconsumer"
 	pagewikihttp "github.com/pax-beehive/pax-nexus/internal/pagewiki/transport/httpapi"
+	platformllm "github.com/pax-beehive/pax-nexus/internal/platform/llm"
 	"github.com/pax-beehive/pax-nexus/internal/platform/observability"
 	"github.com/pax-beehive/pax-nexus/internal/platform/postgres"
 	"github.com/pax-beehive/pax-nexus/internal/platform/textembedding"
@@ -211,7 +211,7 @@ func buildPageWikiMaintainers(
 					"LLMWIKI_LLM_API_KEY, and LLMWIKI_LLM_MODEL are required",
 			)
 		}
-		client := llmwikiworkspace.NewDeepSeekClient(llmwikiworkspace.DeepSeekConfig{
+		client := platformllm.NewDeepSeekClient(platformllm.DeepSeekConfig{
 			BaseURL: config.llmwikiBaseURL,
 			APIKey:  config.llmwikiAPIKey,
 		})

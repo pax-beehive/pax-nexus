@@ -16,6 +16,7 @@ import (
 	"github.com/pax-beehive/pax-nexus/internal/llmwiki/effecteval"
 	"github.com/pax-beehive/pax-nexus/internal/llmwiki/sessiondataset"
 	"github.com/pax-beehive/pax-nexus/internal/llmwiki/workspace"
+	"github.com/pax-beehive/pax-nexus/internal/platform/llm"
 )
 
 const defaultInstruction = `Maintain the whole human Wiki from every immutable
@@ -179,7 +180,7 @@ func runAgentCommand(ctx context.Context, arguments []string, output io.Writer) 
 	if err := requireFlags(map[string]string{"workspace": *root, "run-id": *runID}); err != nil {
 		return err
 	}
-	client := workspace.NewDeepSeekClient(workspace.DeepSeekConfig{
+	client := llm.NewDeepSeekClient(llm.DeepSeekConfig{
 		BaseURL: *baseURL, APIKey: os.Getenv("DEEPSEEK_API_KEY"),
 	})
 	result, err := workspace.RunAgent(ctx, workspace.AgentConfig{
