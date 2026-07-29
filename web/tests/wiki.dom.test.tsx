@@ -327,7 +327,9 @@ describe("Page Wiki navigation refresh while auto inject is on", () => {
     });
     expect(navCalls()).toHaveLength(1);
 
-    // Switch auto inject on; the toggle itself bumps navigation once.
+    // Switch auto inject on: usePolling's immediate cycle on the deps change
+    // (false -> true) refreshes navigation exactly once. toggleAutoInject
+    // itself no longer bumps navigationRevision, so this must not double up.
     const toggle = screen.getByRole("switch", { name: "Off" });
     fireEvent.click(toggle);
     for (let i = 0; i < 40; i++) {
@@ -337,18 +339,17 @@ describe("Page Wiki navigation refresh while auto inject is on", () => {
       if (toggle.getAttribute("aria-checked") === "true") break;
     }
     expect(toggle.getAttribute("aria-checked")).toBe("true");
-    const afterToggle = navCalls().length;
-    expect(afterToggle).toBeGreaterThan(1);
+    expect(navCalls()).toHaveLength(2);
 
-    // The 3s cadence now runs.
+    // The 3s cadence now runs, one refetch per tick, no duplicates.
     await act(async () => {
       await vi.advanceTimersByTimeAsync(3_000);
     });
-    expect(navCalls().length).toBe(afterToggle + 1);
+    expect(navCalls()).toHaveLength(3);
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(3_000);
     });
-    expect(navCalls().length).toBe(afterToggle + 2);
+    expect(navCalls()).toHaveLength(4);
   });
 });

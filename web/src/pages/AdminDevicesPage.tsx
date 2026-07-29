@@ -211,7 +211,7 @@ export function AdminDevicesPage() {
       <PagedListCard
         list={list}
         columns={["Device", "Creator", "Agents", "Last activity", "Status"]}
-        emptyText="No matching records."
+        emptyText={filter === "all" ? "No devices yet" : "No matching records."}
         renderRow={(d) => (
           <tr key={d.credential_id}>
             <td>
