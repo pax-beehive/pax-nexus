@@ -1,17 +1,7 @@
-// Activity summary cards (operations doc section 7). Stat is the shared
-// label/value cell used across the operations views.
+// Activity summary cards (operations doc section 7).
 
-import type { ReactNode } from "react";
 import type { OperationsSummary } from "../../api/types";
-
-export function Stat({ label, value, title }: { label: string; value: ReactNode; title?: string }) {
-  return (
-    <div className="stat" title={title}>
-      <div className="stat-value">{value}</div>
-      <div className="stat-label">{label}</div>
-    </div>
-  );
-}
+import { Stat } from "./Stat";
 
 export function SummaryCards({ summary }: { summary: OperationsSummary }) {
   const { observations: obs, recalls, latency } = summary;

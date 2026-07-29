@@ -91,7 +91,10 @@ export function PagedListCard<T>({
     <div className="card">
       {header}
       {body}
-      {list.nextCursor ? (
+      {/* A failed "load more" already shows a Retry notice above (in `body`);
+          hiding the button here avoids offering two affordances for the
+          same retry. */}
+      {list.nextCursor && !(list.error && list.items.length > 0) ? (
         <div style={{ marginTop: 12, textAlign: "center" }}>
           <button className="btn sm" disabled={list.loadingMore} onClick={() => void list.loadMore()}>
             {list.loadingMore ? "Loading…" : "Load more"}

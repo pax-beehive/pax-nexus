@@ -20,7 +20,7 @@ import { ConfirmDialog } from "../components/ConfirmDialog";
 import { RelationList } from "../components/wiki/RelationList";
 import { collectPages, Topic } from "../components/wiki/TopicTree";
 import { WikiMarkdown } from "../components/wiki/WikiMarkdown";
-import { isAbortError } from "../lib/usePolling";
+import { isAbortError, usePolling } from "../lib/usePolling";
 import { useErrorHandler } from "../lib/useErrorHandler";
 
 const EMPTY_LINKS: WikiLinks = { outgoing: [], incoming: [] };
@@ -66,13 +66,17 @@ export function WikiPage({ me }: { me: HumanMe }) {
     return () => controller.abort();
   }, [handleError]);
 
-  useEffect(() => {
-    if (!autoInject) return undefined;
-    const timer = window.setInterval(() => {
+  // Refresh the navigation tree while auto inject is on so newly ingested
+  // pages show up without a manual reload; usePolling supplies the
+  // visibility gating and single refresh-on-wake cycle (doc 4.3 pattern).
+  usePolling(
+    async () => {
+      if (!autoInject) return;
       setNavigationRevision((current) => current + 1);
-    }, 3000);
-    return () => window.clearInterval(timer);
-  }, [autoInject]);
+    },
+    3000,
+    [autoInject],
+  );
 
   const updateLocation = useCallback(
     (slug: string, revisionID?: string) => {

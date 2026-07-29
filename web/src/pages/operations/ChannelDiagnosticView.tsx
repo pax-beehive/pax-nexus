@@ -3,7 +3,7 @@
 
 import type { ChannelDiagnostic } from "../../api/types";
 import { formatTime } from "../../lib/format";
-import { Stat } from "./SummaryCards";
+import { Stat } from "./Stat";
 
 export function ChannelDiagnosticView({ diagnostic }: { diagnostic: ChannelDiagnostic }) {
   return (

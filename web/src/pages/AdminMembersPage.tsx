@@ -171,7 +171,9 @@ export function AdminMembersPage({ me }: { me: HumanMe }) {
       <PagedListCard
         list={list}
         columns={["Email", "Role", "Status", "Version", ""]}
-        emptyText="No members yet"
+        emptyText={
+          filter === "all" && roleFilter === "all" ? "No members yet" : "No matching records."
+        }
         renderRow={(m) => {
           const manageable = m.status !== "removed" && canManageTargetRole(actorRole, m.role);
           return (

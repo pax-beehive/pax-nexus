@@ -222,7 +222,7 @@ export function AdminAgentsPage({ me }: { me: HumanMe }) {
       <PagedListCard
         list={list}
         columns={["Agent", "Owner", "Status", "Governance"]}
-        emptyText="No agents yet"
+        emptyText="No matching records."
         renderRow={(a) => {
           const retired = a.status === "retired";
           return (

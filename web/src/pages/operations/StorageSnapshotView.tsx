@@ -10,7 +10,7 @@ import {
   KNOWN_STORAGE_SCHEMA_VERSION,
   storageComponentLabel,
 } from "../../lib/operations";
-import { Stat } from "./SummaryCards";
+import { Stat } from "./Stat";
 
 export function StorageSnapshotView({ snapshot }: { snapshot: OperationsStorageSnapshot }) {
   const partial = snapshot.status === "partial";

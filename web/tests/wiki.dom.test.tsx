@@ -1,6 +1,15 @@
-import { screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
-import { jsonResponse, makeMe, renderApp, setupDomTest } from "./helpers";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import App from "../src/App";
+import {
+  callsTo,
+  jsonResponse,
+  makeMe,
+  renderApp,
+  resetBrowserState,
+  setupDomTest,
+  stubFetch,
+} from "./helpers";
 
 setupDomTest();
 
@@ -277,5 +286,69 @@ describe("Page Wiki portal integration", () => {
     expect(fold?.hasAttribute("open")).toBe(false);
     expect(within(fold as HTMLElement).getByText("Source evidence")).toBeTruthy();
     expect(screen.queryByRole("heading", { level: 2, name: "Source evidence" })).toBeNull();
+  });
+});
+
+// Fake-timer coverage for the 3s navigation refresh added by the usePolling
+// migration (WikiPage no longer hand-rolls setInterval): the poll must run
+// only while auto inject is on, and usePolling's own visibility gating is
+// already proven at a page level in admin-operations-polling.dom.test.tsx,
+// so it is not re-verified here.
+describe("Page Wiki navigation refresh while auto inject is on", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("polls the navigation tree every 3s only once auto inject is switched on", async () => {
+    vi.useFakeTimers();
+    resetBrowserState();
+    window.history.pushState({}, "", "/wiki");
+    const fetchMock = stubFetch((path, init) => {
+      if (path === "/v1/me") return jsonResponse(makeMe({ role: "member" }));
+      if (path === "/v1/wiki/ingestion" && (init?.method ?? "GET") === "PUT") {
+        return jsonResponse({ auto_inject: true });
+      }
+      return wikiFetch(path);
+    });
+    render(<App />);
+
+    const navCalls = () => callsTo(fetchMock, "/v1/wiki/navigation");
+    for (let i = 0; i < 40; i++) {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5);
+      });
+      if (navCalls().length > 0) break;
+    }
+    expect(navCalls()).toHaveLength(1);
+
+    // Auto inject starts off: several 3s ticks must not refetch.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    expect(navCalls()).toHaveLength(1);
+
+    // Switch auto inject on; the toggle itself bumps navigation once.
+    const toggle = screen.getByRole("switch", { name: "Off" });
+    fireEvent.click(toggle);
+    for (let i = 0; i < 40; i++) {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5);
+      });
+      if (toggle.getAttribute("aria-checked") === "true") break;
+    }
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    const afterToggle = navCalls().length;
+    expect(afterToggle).toBeGreaterThan(1);
+
+    // The 3s cadence now runs.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+    expect(navCalls().length).toBe(afterToggle + 1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3_000);
+    });
+    expect(navCalls().length).toBe(afterToggle + 2);
   });
 });

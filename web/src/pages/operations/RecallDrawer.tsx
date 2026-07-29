@@ -8,7 +8,7 @@ import type { RecallDiagnostic } from "../../api/types";
 import { formatTime } from "../../lib/format";
 import { isAbortError } from "../../lib/usePolling";
 import { RegionError } from "../../components/RegionError";
-import { Stat } from "./SummaryCards";
+import { Stat } from "./Stat";
 
 type DrawerState =
   | { status: "loading" }
