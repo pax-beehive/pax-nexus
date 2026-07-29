@@ -94,6 +94,20 @@ func (s *RepositorySuite) TestGivenPagePublicationWhenReadThenNestedRevisionValu
 	s.Require().Equal("SQLite is local.", againHistory[0].Sections[0].Markdown)
 }
 
+func (s *RepositorySuite) TestPageCatalogCarriesCurrentSummary() {
+	page, revision := pageFixture()
+	revision.Summary = "Weekly release cadence."
+	publication := publicationFixture(page, revision)
+
+	err := s.repository.PublishPage(s.ctx, publication)
+	s.Require().NoError(err)
+
+	catalog, err := s.repository.PageCatalog(s.ctx)
+	s.Require().NoError(err)
+	s.Require().Len(catalog, 1)
+	s.Equal("Weekly release cadence.", catalog[0].Summary)
+}
+
 func (s *RepositorySuite) TestGivenInvalidPublicationWhenPublishedThenRepositoryRejectsIt() {
 	page, revision := pageFixture()
 	tests := []struct {

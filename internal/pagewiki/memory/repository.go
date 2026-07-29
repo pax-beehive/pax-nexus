@@ -84,7 +84,13 @@ func (r *Repository) PageCatalog(_ context.Context) (pagewiki.PageCatalog, error
 	defer r.mu.RUnlock()
 	catalog := make(pagewiki.PageCatalog, 0, len(r.pages))
 	for _, page := range r.pages {
-		catalog = append(catalog, pagewiki.PageCatalogEntry(page))
+		catalog = append(catalog, pagewiki.PageCatalogEntry{
+			ID:                page.ID,
+			Slug:              page.Slug,
+			Title:             page.Title,
+			CurrentRevisionID: page.CurrentRevisionID,
+			Summary:           r.pageRevisions[page.CurrentRevisionID].Summary,
+		})
 	}
 	sort.Slice(catalog, func(i, j int) bool {
 		return catalog[i].Slug < catalog[j].Slug

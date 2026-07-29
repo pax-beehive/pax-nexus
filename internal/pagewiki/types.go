@@ -54,6 +54,7 @@ type PageCatalogEntry struct {
 	Slug              string
 	Title             string
 	CurrentRevisionID string
+	Summary           string
 }
 
 type PageCatalog []PageCatalogEntry
