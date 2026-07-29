@@ -41,7 +41,7 @@ func (SessionDocumentPlanner) Plan(_ context.Context, input PlanInput) ([]PageBr
 		brief := PageBrief{
 			Key: unit.key, Action: PageActionCreate,
 			ProposedSlug: unit.slug, ProposedTitle: unit.title,
-			ReaderGoal:       "Understand the durable knowledge supported by Session Lake evidence.",
+			ReaderGoal:       "Understand the durable knowledge supported by Evidence Lake evidence.",
 			EvidenceEventIDs: uniqueStrings(unit.eventIDs),
 			Evidence:         evidence,
 		}
@@ -123,7 +123,7 @@ func (SessionDocumentEditor) Edit(_ context.Context, input EditInput) (PageDraft
 	return PageDraft{
 		Slug: slug, Title: title,
 		Summary: fmt.Sprintf(
-			"Maintained from %d grounded Session Lake evidence item(s).",
+			"Maintained from %d grounded Evidence Lake evidence item(s).",
 			len(selected.quotes),
 		),
 		Sections:  sections,

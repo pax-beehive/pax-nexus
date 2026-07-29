@@ -117,6 +117,108 @@ func observeSessionID(batch teamnote.SessionBatch) string {
 	return batch.Events[0].Actor.SessionID
 }
 
+func (h *Handler) ObserveStream(ctx context.Context, c *app.RequestContext) {
+	startedAt := time.Now().UTC()
+	var principal onprem.Principal
+	if h.credentials != nil {
+		var ok bool
+		var authorizationCode string
+		principal, ok, authorizationCode = h.authorizeAgent(ctx, c, onprem.PermissionObserve)
+		if !ok {
+			h.recordAuthorizationRejection(ctx, principal, operations.KindObservationObserve, startedAt, authorizationCode)
+			return
+		}
+	}
+	var req api.StreamBatch
+	if err := c.BindAndValidate(&req); err != nil {
+		if principal.AgentID != "" {
+			h.recordAgentOperation(ctx, principal, operations.Event{
+				Kind: operations.KindObservationObserve, Outcome: operations.OutcomeRejected,
+				StartedAt: startedAt, ErrorCode: "invalid_request",
+			})
+		}
+		h.logger.WarnContext(ctx, "stream batch rejected", "stage", "bind", "error", err)
+		c.String(consts.StatusBadRequest, "invalid stream batch")
+		return
+	}
+	batch, err := streamBatchToDomain(&req)
+	if err != nil {
+		if principal.AgentID != "" {
+			h.recordAgentOperation(ctx, principal, operations.Event{
+				Kind: operations.KindObservationObserve, Outcome: operations.OutcomeRejected,
+				StartedAt: startedAt, InputItems: int64(len(req.Events)), ErrorCode: "invalid_request",
+			})
+		}
+		h.logger.WarnContext(ctx, "stream batch rejected", "stage", "map", "error", err)
+		c.String(consts.StatusBadRequest, "invalid stream batch")
+		return
+	}
+	scopeID, ok := h.resolveObserveStreamScope(ctx, c, principal)
+	if !ok {
+		return
+	}
+	receipt, err := h.runtime.ObserveStream(teamnote.WithScope(ctx, scopeID), batch)
+	if err != nil {
+		if principal.AgentID != "" {
+			outcome, errorCode := operationFailure(err)
+			h.recordAgentOperation(ctx, principal, operations.Event{
+				Kind: operations.KindObservationObserve, Outcome: outcome, StartedAt: startedAt,
+				SessionID: observeStreamID(batch), InputItems: int64(len(batch.Events)), ErrorCode: errorCode,
+			})
+		}
+		h.logger.ErrorContext(ctx, "observe stream failed", "scope_id", scopeID, "error", err)
+		if errors.Is(err, teamnote.ErrInvalidStreamBatch) || errors.Is(err, teamnote.ErrUnregisteredValue) ||
+			errors.Is(err, teamnote.ErrVisibilityRejected) || errors.Is(err, teamnote.ErrMediaNotEnabled) {
+			c.String(consts.StatusBadRequest, "invalid stream batch")
+			return
+		}
+		c.String(consts.StatusUnprocessableEntity, "observe stream")
+		return
+	}
+	if principal.AgentID != "" {
+		h.recordAgentOperation(ctx, principal, operations.Event{
+			Kind: operations.KindObservationObserve, Outcome: operations.OutcomeSucceeded,
+			StartedAt: startedAt, SessionID: observeStreamID(batch), InputItems: int64(len(batch.Events)),
+			AcceptedItems: int64(receipt.Accepted), DuplicateItems: int64(receipt.Duplicate),
+		})
+	}
+	h.logger.InfoContext(ctx, "stream batch observed",
+		"scope_id", scopeID, "events", len(batch.Events), "accepted", receipt.Accepted,
+		"duplicates", receipt.Duplicate, "cursor", receipt.Cursor, "run_id", receipt.RunID,
+		"duration_ms", time.Since(startedAt).Milliseconds(),
+	)
+	c.JSON(consts.StatusOK, ingestReceiptToAPI(receipt))
+}
+
+func (h *Handler) resolveObserveStreamScope(
+	ctx context.Context,
+	c *app.RequestContext,
+	principal onprem.Principal,
+) (string, bool) {
+	if principal.AgentID != "" {
+		return principal.ScopeID, true
+	}
+	scopeID, err := h.resolver.ResolveScope(c)
+	if errors.Is(err, ErrUnauthorized) {
+		h.logger.WarnContext(ctx, "stream batch rejected", "stage", "authorize")
+		c.String(consts.StatusUnauthorized, "unauthorized")
+		return "", false
+	}
+	if err != nil {
+		h.logger.ErrorContext(ctx, "resolve stream scope failed", "error", err)
+		c.String(consts.StatusInternalServerError, "resolve scope")
+		return "", false
+	}
+	return scopeID, true
+}
+
+func observeStreamID(batch teamnote.StreamBatch) string {
+	if len(batch.Events) == 0 {
+		return ""
+	}
+	return batch.Events[0].Stream.StreamID
+}
+
 func (h *Handler) RecallNotes(ctx context.Context, c *app.RequestContext) {
 	startedAt := time.Now().UTC()
 	var principal onprem.Principal

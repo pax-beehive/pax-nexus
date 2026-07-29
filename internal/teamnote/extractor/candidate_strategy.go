@@ -3,7 +3,7 @@ package extractor
 import (
 	"fmt"
 
-	"github.com/pax-beehive/pax-nexus/internal/sessionlake"
+	"github.com/pax-beehive/pax-nexus/internal/evidencelake"
 )
 
 // buildDefaultCandidateStrategy is injected with -ldflags -X for release
@@ -20,7 +20,7 @@ type candidateStrategy struct {
 	name            string
 	protocolVersion string
 	protocol        extractionProtocol
-	mapResult       func(*Result, sessionlake.Slice)
+	mapResult       func(*Result, evidencelake.Slice)
 	candidateLimit  int
 }
 

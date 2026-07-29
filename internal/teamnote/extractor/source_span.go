@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/pax-beehive/pax-nexus/internal/sessionlake"
+	"github.com/pax-beehive/pax-nexus/internal/evidencelake"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote"
 )
 
@@ -77,7 +77,7 @@ func decodeExtractionContentSourceSpanV1(content string) (Result, error) {
 	}}}, nil
 }
 
-func mapSourceSpanV1(result *Result, slice sessionlake.Slice) {
+func mapSourceSpanV1(result *Result, slice evidencelake.Slice) {
 	if len(slice.NewEventIDs) == 0 {
 		return
 	}
@@ -95,9 +95,9 @@ func mapSourceSpanV1(result *Result, slice sessionlake.Slice) {
 }
 
 // mapSourceSpanV2 preserves every new-event byte in deterministic, bounded
-// source shards. The Session Lake remains the complete immutable archive;
+// source shards. The Evidence Lake remains the complete immutable archive;
 // shards are the retrieval-sized representation of that archive.
-func mapSourceSpanV2(result *Result, slice sessionlake.Slice) {
+func mapSourceSpanV2(result *Result, slice evidencelake.Slice) {
 	if len(slice.NewEventIDs) == 0 {
 		return
 	}
@@ -120,7 +120,7 @@ func mapSourceSpanV2(result *Result, slice sessionlake.Slice) {
 	result.ExtractionVersion = ExtractionVersionSourceSpanV2
 }
 
-func sourceSpanCandidate(slice sessionlake.Slice, metadata SourceSpan) teamnote.Candidate {
+func sourceSpanCandidate(slice evidencelake.Slice, metadata SourceSpan) teamnote.Candidate {
 	identifier := sourceSpanIdentifier(slice, metadata.EvidenceEventIDs)
 	first := sourceSpanFirstEvent(slice, metadata.EvidenceEventIDs)
 	return teamnote.Candidate{
@@ -137,7 +137,7 @@ type sourceSpanShard struct {
 	body             string
 }
 
-func sourceSpanShardCandidate(slice sessionlake.Slice, metadata SourceSpan, shard sourceSpanShard) teamnote.Candidate {
+func sourceSpanShardCandidate(slice evidencelake.Slice, metadata SourceSpan, shard sourceSpanShard) teamnote.Candidate {
 	identifier := sourceSpanShardIdentifier(slice, shard)
 	first := sourceSpanFirstEvent(slice, shard.evidenceEventIDs)
 	return teamnote.Candidate{
@@ -149,21 +149,21 @@ func sourceSpanShardCandidate(slice sessionlake.Slice, metadata SourceSpan, shar
 	}
 }
 
-func sourceSpanIdentifier(slice sessionlake.Slice, evidence []string) string {
+func sourceSpanIdentifier(slice evidencelake.Slice, evidence []string) string {
 	digest := sha256.Sum256([]byte(strings.Join(append([]string{
 		slice.InputChecksum, slice.Actor.UserID, slice.Actor.AgentID, slice.Actor.SessionID,
 	}, evidence...), "\x00")))
 	return hex.EncodeToString(digest[:])
 }
 
-func sourceSpanShardIdentifier(slice sessionlake.Slice, shard sourceSpanShard) string {
+func sourceSpanShardIdentifier(slice evidencelake.Slice, shard sourceSpanShard) string {
 	digest := sha256.Sum256([]byte(strings.Join(append([]string{
 		slice.InputChecksum, slice.Actor.UserID, slice.Actor.AgentID, slice.Actor.SessionID,
 	}, append(shard.evidenceEventIDs, shard.body)...), "\x00")))
 	return hex.EncodeToString(digest[:])
 }
 
-func sourceSpanFirstEvent(slice sessionlake.Slice, evidence []string) teamnote.SessionEvent {
+func sourceSpanFirstEvent(slice evidencelake.Slice, evidence []string) teamnote.SessionEvent {
 	wanted := make(map[string]struct{}, len(evidence))
 	for _, eventID := range evidence {
 		wanted[eventID] = struct{}{}

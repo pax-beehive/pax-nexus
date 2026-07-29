@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"github.com/pax-beehive/pax-nexus/internal/deployment/onprem"
+	"github.com/pax-beehive/pax-nexus/internal/evidencelake"
 	"github.com/pax-beehive/pax-nexus/internal/operations"
 	"github.com/pax-beehive/pax-nexus/internal/pagewiki"
-	"github.com/pax-beehive/pax-nexus/internal/sessionlake"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote/extractor"
 	teamruntime "github.com/pax-beehive/pax-nexus/internal/teamnote/runtime"
@@ -568,11 +568,15 @@ func (*runtimeStub) ObserveSession(context.Context, teamnote.SessionBatch) (team
 	return teamnote.IngestReceipt{}, nil
 }
 
+func (*runtimeStub) ObserveStream(context.Context, teamnote.StreamBatch) (teamnote.IngestReceipt, error) {
+	return teamnote.IngestReceipt{}, nil
+}
+
 func (*runtimeStub) RecallNotes(context.Context, teamnote.RecallRequest) (teamnote.NoteEnvelope, error) {
 	return teamnote.NoteEnvelope{}, nil
 }
 
-func (*lifecycleExtractor) Extract(context.Context, sessionlake.Slice) (extractor.Result, error) {
+func (*lifecycleExtractor) Extract(context.Context, evidencelake.Slice) (extractor.Result, error) {
 	return extractor.Result{}, nil
 }
 

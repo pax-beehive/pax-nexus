@@ -62,6 +62,8 @@ LEFT JOIN session_processor_cursors AS cursor
  AND cursor.session_id = stream.session_id
 WHERE stream.last_sequence > COALESCE(cursor.committed_sequence, 0)
   AND stream.scope_id = $3
+  AND stream.source = 'agent-session'
+  AND stream.agent_id <> ''
 ORDER BY stream.updated_at
 LIMIT 100`, sessionconsumer.ProcessorName, sessionconsumer.ProcessorVersion, s.scopeID)
 }
@@ -74,7 +76,7 @@ func (s *PageWikiConsumerStore) StreamsBySessionID(
 	return s.queryStreams(ctx, `
 SELECT scope_id, user_id, agent_id, session_id, last_sequence
 FROM session_streams
-WHERE scope_id = $1 AND session_id = $2
+WHERE scope_id = $1 AND session_id = $2 AND agent_id <> ''
 ORDER BY agent_id`, scopeID, sessionID)
 }
 
@@ -116,7 +118,7 @@ func (s *PageWikiConsumerStore) SessionEvents(
 SELECT event_id, user_id, agent_id, session_id, sequence, event_type, content,
        task_ref, thread_ref, visibility, occurred_at, captured_at, extracted_at, metadata
 FROM session_events
-WHERE scope_id = $1 AND agent_id = $2 AND session_id = $3 AND sequence <= $4
+WHERE scope_id = $1 AND agent_id = $2 AND session_id = $3 AND sequence <= $4 AND agent_id <> ''
 ORDER BY sequence`, stream.ScopeID, stream.Actor.AgentID, stream.Actor.SessionID, stream.Head)
 	if err != nil {
 		return nil, fmt.Errorf("query Page Wiki session events: %w", err)

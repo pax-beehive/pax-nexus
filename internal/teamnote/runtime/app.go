@@ -7,8 +7,8 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/pax-beehive/pax-nexus/internal/evidencelake"
 	"github.com/pax-beehive/pax-nexus/internal/platform/observability"
-	"github.com/pax-beehive/pax-nexus/internal/sessionlake"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote/extractionbudget"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote/extractor"
@@ -49,13 +49,13 @@ type ExtractionObservation struct {
 }
 
 type App struct {
-	lake      *sessionlake.Lake
+	lake      *evidencelake.Lake
 	extractor extractor.Extractor
 	config    Config
 	logger    *slog.Logger
 }
 
-func New(lake *sessionlake.Lake, candidateExtractor extractor.Extractor, config Config) (*App, error) {
+func New(lake *evidencelake.Lake, candidateExtractor extractor.Extractor, config Config) (*App, error) {
 	if lake == nil || candidateExtractor == nil {
 		return nil, fmt.Errorf("create runtime: lake and extractor are required")
 	}
@@ -97,6 +97,14 @@ func (a *App) ObserveSession(ctx context.Context, batch teamnote.SessionBatch) (
 	return receipt, nil
 }
 
+func (a *App) ObserveStream(ctx context.Context, batch teamnote.StreamBatch) (teamnote.IngestReceipt, error) {
+	receipt, err := a.lake.ObserveStream(ctx, batch)
+	if err != nil {
+		return teamnote.IngestReceipt{}, err
+	}
+	return receipt, nil
+}
+
 func (a *App) ProcessExtraction(ctx context.Context, actor teamnote.Actor, throughCursor int64, requireCurrent bool) (bool, error) {
 	if requireCurrent {
 		current, err := a.lake.IsCurrent(ctx, actor, throughCursor)
@@ -107,7 +115,7 @@ func (a *App) ProcessExtraction(ctx context.Context, actor teamnote.Actor, throu
 			return false, nil
 		}
 	}
-	policy := sessionlake.SlicePolicy{
+	policy := evidencelake.SlicePolicy{
 		EventLimit: a.config.SliceEventLimit, TokenLimit: a.config.SliceTokenLimit,
 		Overlap: a.config.SliceOverlap, ThroughSequence: throughCursor,
 	}
@@ -184,7 +192,7 @@ func (a *App) ProcessExtraction(ctx context.Context, actor teamnote.Actor, throu
 
 func extractionObservation(
 	actor teamnote.Actor,
-	slice sessionlake.Slice,
+	slice evidencelake.Slice,
 	result extractor.Result,
 	startedAt time.Time,
 	status ExtractionStatus,
@@ -222,7 +230,7 @@ func (a *App) RecallNotes(ctx context.Context, request teamnote.RecallRequest) (
 	return a.config.NoteStore.RecallNotes(ctx, scopeID, request)
 }
 
-func (a *App) applyExtractionRun(ctx context.Context, slice sessionlake.Slice, result extractor.Result) error {
+func (a *App) applyExtractionRun(ctx context.Context, slice evidencelake.Slice, result extractor.Result) error {
 	scopeID, err := teamnote.ScopeFromContext(ctx)
 	if err != nil {
 		return fmt.Errorf("apply extraction run: %w", err)

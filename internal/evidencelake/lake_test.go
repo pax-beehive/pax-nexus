@@ -1,21 +1,22 @@
-package sessionlake_test
+package evidencelake_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/pax-beehive/pax-nexus/internal/evidencelake"
 	"github.com/pax-beehive/pax-nexus/internal/session"
-	"github.com/pax-beehive/pax-nexus/internal/sessionlake"
 	"github.com/stretchr/testify/suite"
 )
 
 type lakeSuite struct {
 	suite.Suite
 	repository *memoryRepository
-	lake       *sessionlake.Lake
+	lake       *evidencelake.Lake
 }
 
 func TestLakeSuite(t *testing.T) {
@@ -25,7 +26,7 @@ func TestLakeSuite(t *testing.T) {
 
 func (s *lakeSuite) SetupTest() {
 	s.repository = newMemoryRepository()
-	s.lake = sessionlake.New(s.repository)
+	s.lake = evidencelake.New(s.repository)
 }
 
 func (s *lakeSuite) TestObservePlanAndCommit() {
@@ -39,7 +40,7 @@ func (s *lakeSuite) TestObservePlanAndCommit() {
 	s.Require().NoError(err)
 	s.Equal(2, receipt.Accepted)
 
-	policy := sessionlake.SlicePolicy{EventLimit: 10, TokenLimit: 1000}
+	policy := evidencelake.SlicePolicy{EventLimit: 10, TokenLimit: 1000}
 	planned, err := s.lake.NextSlice(ctx, actor, policy)
 	s.Require().NoError(err)
 	s.Equal(int64(1), planned.FromSequence)
@@ -56,7 +57,7 @@ func (s *lakeSuite) TestScopeIsRequired() {
 	_, err := s.lake.Observe(context.Background(), session.SessionBatch{})
 	s.Require().ErrorIs(err, session.ErrMissingScope)
 
-	_, err = s.lake.NextSlice(context.Background(), session.Actor{}, sessionlake.SlicePolicy{EventLimit: 10, TokenLimit: 1000})
+	_, err = s.lake.NextSlice(context.Background(), session.Actor{}, evidencelake.SlicePolicy{EventLimit: 10, TokenLimit: 1000})
 	s.Require().ErrorIs(err, session.ErrMissingScope)
 }
 
@@ -69,7 +70,7 @@ func (s *lakeSuite) TestPlansBoundedMultiTurnSlicesWithOverlap() {
 	}
 	_, err := s.lake.Observe(ctx, session.SessionBatch{Events: events, Complete: true})
 	s.Require().NoError(err)
-	policy := sessionlake.SlicePolicy{EventLimit: 3, TokenLimit: 1000, Overlap: 2}
+	policy := evidencelake.SlicePolicy{EventLimit: 3, TokenLimit: 1000, Overlap: 2}
 
 	first, err := s.lake.NextSlice(ctx, actor, policy)
 	s.Require().NoError(err)
@@ -94,7 +95,7 @@ func (s *lakeSuite) TestTokenBudgetAlwaysMakesProgress() {
 	_, err := s.lake.Observe(ctx, session.SessionBatch{Events: []session.SessionEvent{first, second}, Complete: true})
 	s.Require().NoError(err)
 
-	slice, err := s.lake.NextSlice(ctx, actor, sessionlake.SlicePolicy{EventLimit: 25, TokenLimit: 64, Overlap: 3})
+	slice, err := s.lake.NextSlice(ctx, actor, evidencelake.SlicePolicy{EventLimit: 25, TokenLimit: 64, Overlap: 3})
 	s.Require().NoError(err)
 	s.Equal([]string{"large-1"}, slice.NewEventIDs)
 	s.Equal(int64(1), slice.ToSequence)
@@ -102,7 +103,7 @@ func (s *lakeSuite) TestTokenBudgetAlwaysMakesProgress() {
 
 func (s *lakeSuite) TestRejectsInvalidSlicePolicy() {
 	ctx := session.WithScope(context.Background(), "scope-invalid")
-	tests := []sessionlake.SlicePolicy{
+	tests := []evidencelake.SlicePolicy{
 		{},
 		{EventLimit: 1, TokenLimit: 1, Overlap: -1},
 	}
@@ -125,9 +126,37 @@ func (s *lakeSuite) TestChecksExpectedSessionHead() {
 	s.False(current)
 }
 
+func TestObserveStreamRequiresScopeAndDelegates(t *testing.T) {
+	repository := newMemoryRepository()
+	lake := evidencelake.New(repository)
+	batch := session.StreamBatch{Events: []session.StreamEvent{{
+		ID:         "evt-1",
+		Stream:     session.Stream{Source: session.SourceIMChannel, StreamID: "channel-9"},
+		Author:     session.Author{Kind: "user", NativeID: "U0AB12"},
+		Kind:       session.KindText,
+		Type:       "message",
+		Content:    "hello",
+		Visibility: session.VisibilityTeam,
+		OccurredAt: time.Date(2026, 7, 28, 10, 0, 0, 0, time.UTC),
+	}}}
+
+	if _, err := lake.ObserveStream(context.Background(), batch); !errors.Is(err, session.ErrMissingScope) {
+		t.Fatalf("expected missing scope, got %v", err)
+	}
+
+	ctx := session.WithScope(context.Background(), "scope-1")
+	if _, err := lake.ObserveStream(ctx, batch); err != nil {
+		t.Fatalf("expected delegation, got %v", err)
+	}
+	if repository.appendedStreamScope != "scope-1" {
+		t.Fatalf("expected scope forwarded, got %q", repository.appendedStreamScope)
+	}
+}
+
 type memoryRepository struct {
-	events  map[string][]session.SessionEvent
-	cursors map[string]int64
+	events              map[string][]session.SessionEvent
+	cursors             map[string]int64
+	appendedStreamScope string
 }
 
 func newMemoryRepository() *memoryRepository {
@@ -178,6 +207,15 @@ func (r *memoryRepository) ExtractionCursor(_ context.Context, scopeID string, a
 func (r *memoryRepository) AdvanceExtractionCursor(_ context.Context, scopeID string, actor session.Actor, cursor int64) error {
 	r.cursors[streamKey(scopeID, actor)] = cursor
 	return nil
+}
+
+func (r *memoryRepository) AppendStream(_ context.Context, scopeID string, _ session.StreamBatch) (session.IngestReceipt, error) {
+	r.appendedStreamScope = scopeID
+	return session.IngestReceipt{}, nil
+}
+
+func (r *memoryRepository) StreamEvents(_ context.Context, _ string, _ session.Stream, _ int64, _ int) ([]session.StreamEvent, error) {
+	return nil, nil
 }
 
 func lakeEvent(id string, actor session.Actor, sequence int64) session.SessionEvent {

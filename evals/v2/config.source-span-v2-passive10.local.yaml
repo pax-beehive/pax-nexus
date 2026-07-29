@@ -1,0 +1,49 @@
+version: v2
+run:
+  id: groupmembench-finance-v2-source-span-v2-passive10-20260719-r1
+  dataset: GroupMemBench
+  manifest: runs/groupmembench-v2-selection/manifest.source-span-passive10.json
+  output_dir: runs/eval-v2/groupmembench-finance-v2-source-span-v2-passive10-20260719-r1
+  parallelism: 2
+store:
+  dsn_env: EVAL_V2_POSTGRES_DSN
+baseline_arm: control
+retry_failed: false
+trial_timeout: 8m
+runtime_env:
+  - OPENCODE_MODEL
+  - OPENCODE_VERSION
+  - EVAL_V2_JUDGE_MODEL
+  - EVAL_V2_JUDGE_THINKING
+  - TEAM_MEMORY_EXTRACTOR_MODEL
+  - TEAM_MEMORY_PROMPT_VERSION
+  - TEAM_MEMORY_EXTRACTION_CONTEXT_MODE
+  - TEAM_MEMORY_EXTRACTION_VERSION
+  - TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY
+  - TEAM_MEMORY_BUILD_EXTRACTION_CANDIDATE_STRATEGY
+  - TEAM_MEMORY_BUILD_RECALL_CANDIDATE_STRATEGY
+  - PAXM_EXPECTED_VERSION
+  - PAXM_PASSIVE_MIN_RELEVANCE
+  - PAXM_PASSIVE_MIN_SCORE
+  - PAXM_PASSIVE_PROVIDER_TIMEOUT
+  - PAXM_INSERTION_MIN_SCORE
+  - PAXM_EVAL_DIAGNOSTICS
+output:
+  formats: [csv, jsonl, html]
+judge:
+  program: scripts/eval-v2-judge.sh
+arms:
+  - name: control
+    consumer:
+      program: scripts/eval-v2-opencode.sh
+      args: [consumer, control]
+  - name: team_note
+    ingest:
+      program: scripts/eval-v2-opencode.sh
+      args: [ingest, team_note]
+    after_producer:
+      program: scripts/eval-v2-opencode.sh
+      args: [ready, team_note]
+    consumer:
+      program: scripts/eval-v2-opencode.sh
+      args: [consumer, team_note]

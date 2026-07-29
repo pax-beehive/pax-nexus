@@ -1,0 +1,36 @@
+version: v2
+run:
+  id: groupmembench-finance-v2-interaction-slim-passive10-raw-bm25-20260719-r1
+  dataset: GroupMemBench
+  manifest: runs/groupmembench-v2-selection/manifest.source-span-passive10.json
+  output_dir: runs/eval-v2/groupmembench-finance-v2-interaction-slim-passive10-raw-bm25-20260719-r1
+  parallelism: 2
+store:
+  dsn_env: EVAL_V2_POSTGRES_DSN
+baseline_arm: control
+retry_failed: false
+trial_timeout: 8m
+runtime_env:
+  - OPENCODE_MODEL
+  - OPENCODE_VERSION
+  - EVAL_V2_JUDGE_MODEL
+  - EVAL_V2_JUDGE_THINKING
+  - PAXM_EXPECTED_VERSION
+  - PAXM_EVAL_DIAGNOSTICS
+output:
+  formats: [csv, jsonl, html]
+judge:
+  program: scripts/eval-v2-judge.sh
+arms:
+  - name: control
+    consumer:
+      program: scripts/eval-v2-opencode.sh
+      args: [consumer, control]
+  - name: raw_bm25
+    consumer:
+      program: scripts/eval-v2-opencode.sh
+      args: [consumer, raw_bm25]
+      env:
+        PAX_EVAL_BM25_CANDIDATE_LIMIT: "8"
+        PAX_EVAL_BM25_TOKEN_BUDGET: "500"
+        PAX_EVAL_BM25_CHUNK_EVENTS: "1"

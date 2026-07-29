@@ -17,9 +17,9 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pax-beehive/pax-nexus/internal/deployment/onprem"
+	"github.com/pax-beehive/pax-nexus/internal/evidencelake"
 	"github.com/pax-beehive/pax-nexus/internal/platform/postgres"
 	"github.com/pax-beehive/pax-nexus/internal/recall"
-	"github.com/pax-beehive/pax-nexus/internal/sessionlake"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote/extractionqueue"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote/extractor"
@@ -86,7 +86,7 @@ func (s *operationsHTTPIntegrationSuite) SetupSuite() {
 	)
 	s.Require().NoError(err)
 	runtime, err := teamruntime.New(
-		sessionlake.New(store.Sessions()), operationsIntegrationExtractor{},
+		evidencelake.New(store.Sessions()), operationsIntegrationExtractor{},
 		teamruntime.Config{
 			NoteStore: noteStore, Logger: slog.New(slog.DiscardHandler),
 			ExtractionObserver: onprem.NewExtractionObserver(store.Operations(), slog.New(slog.DiscardHandler)),
@@ -249,7 +249,7 @@ type operationsIntegrationExtractor struct{}
 
 func (operationsIntegrationExtractor) Extract(
 	ctx context.Context,
-	slice sessionlake.Slice,
+	slice evidencelake.Slice,
 ) (extractor.Result, error) {
 	if err := ctx.Err(); err != nil {
 		return extractor.Result{}, fmt.Errorf("extract operations integration fixture: %w", err)

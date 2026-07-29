@@ -88,7 +88,7 @@ func (r *SessionRepository) SessionLatestSequence(ctx context.Context, scopeID s
 	err := r.pool.QueryRow(ctx, `
 SELECT last_sequence
 FROM session_streams
-WHERE scope_id = $1 AND agent_id = $2 AND session_id = $3`, scopeID, actor.AgentID, actor.SessionID).Scan(&sequence)
+WHERE scope_id = $1 AND agent_id = $2 AND session_id = $3 AND source = 'agent-session'`, scopeID, actor.AgentID, actor.SessionID).Scan(&sequence)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return 0, nil
 	}
@@ -106,7 +106,7 @@ func (r *SessionRepository) SessionEvents(ctx context.Context, scopeID string, a
 SELECT event_id, user_id, agent_id, session_id, sequence, event_type, content,
        task_ref, thread_ref, visibility, occurred_at, captured_at, extracted_at, metadata
 FROM session_events
-WHERE scope_id = $1 AND agent_id = $2 AND session_id = $3 AND sequence > $4
+WHERE scope_id = $1 AND agent_id = $2 AND session_id = $3 AND source = 'agent-session' AND sequence > $4
 ORDER BY sequence
 LIMIT $5`, scopeID, actor.AgentID, actor.SessionID, after, limit)
 	if err != nil {
@@ -129,7 +129,7 @@ func (r *SessionRepository) SessionEventsBefore(ctx context.Context, scopeID str
 SELECT event_id, user_id, agent_id, session_id, sequence, event_type, content,
        task_ref, thread_ref, visibility, occurred_at, captured_at, extracted_at, metadata
 FROM session_events
-WHERE scope_id = $1 AND agent_id = $2 AND session_id = $3 AND sequence <= $4
+WHERE scope_id = $1 AND agent_id = $2 AND session_id = $3 AND source = 'agent-session' AND sequence <= $4
 ORDER BY sequence DESC
 LIMIT $5`, scopeID, actor.AgentID, actor.SessionID, atOrBefore, limit)
 	if err != nil {
@@ -151,7 +151,7 @@ func (r *SessionRepository) ExtractionCursor(ctx context.Context, scopeID string
 	err := r.pool.QueryRow(ctx, `
 SELECT extraction_cursor
 FROM session_streams
-WHERE scope_id = $1 AND agent_id = $2 AND session_id = $3`, scopeID, actor.AgentID, actor.SessionID).Scan(&cursor)
+WHERE scope_id = $1 AND agent_id = $2 AND session_id = $3 AND source = 'agent-session'`, scopeID, actor.AgentID, actor.SessionID).Scan(&cursor)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return 0, nil
 	}
@@ -174,7 +174,7 @@ func (r *SessionRepository) AdvanceExtractionCursor(ctx context.Context, scopeID
 	result, err := tx.Exec(ctx, `
 UPDATE session_streams
 SET extraction_cursor = GREATEST(extraction_cursor, $4), updated_at = NOW()
-WHERE scope_id = $1 AND agent_id = $2 AND session_id = $3 AND last_sequence >= $4`,
+WHERE scope_id = $1 AND agent_id = $2 AND session_id = $3 AND source = 'agent-session' AND last_sequence >= $4`,
 		scopeID, actor.AgentID, actor.SessionID, cursor)
 	if err != nil {
 		return fmt.Errorf("advance extraction cursor: %w", err)
@@ -185,7 +185,7 @@ WHERE scope_id = $1 AND agent_id = $2 AND session_id = $3 AND last_sequence >= $
 	if _, err := tx.Exec(ctx, `
 UPDATE session_events
 SET extracted_at = COALESCE(extracted_at, NOW())
-WHERE scope_id = $1 AND agent_id = $2 AND session_id = $3 AND sequence <= $4`,
+WHERE scope_id = $1 AND agent_id = $2 AND session_id = $3 AND source = 'agent-session' AND sequence <= $4`,
 		scopeID, actor.AgentID, actor.SessionID, cursor); err != nil {
 		return fmt.Errorf("mark session events extracted: %w", err)
 	}
@@ -202,13 +202,18 @@ func appendEvents(ctx context.Context, tx pgx.Tx, scopeID string, batch session.
 		if err != nil {
 			return session.IngestReceipt{}, fmt.Errorf("marshal event %q metadata: %w", event.ID, err)
 		}
+		stream := session.StreamFromActor(event.Actor)
+		author := session.AuthorFromActor(event.Actor)
 		result, err := tx.Exec(ctx, `
 INSERT INTO session_events (
-    scope_id, event_id, user_id, agent_id, session_id, sequence, event_type,
+    scope_id, event_id, source, stream_id, author_kind, author_native_id, author_user_id,
+    user_id, agent_id, session_id, sequence, kind, event_type,
     content, task_ref, thread_ref, visibility, occurred_at, metadata
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'text', $12, $13, $14, $15, $16, $17, $18)
 ON CONFLICT (scope_id, event_id) DO NOTHING`,
-			scopeID, event.ID, event.Actor.UserID, event.Actor.AgentID, event.Actor.SessionID,
+			scopeID, event.ID, stream.Source, stream.StreamID,
+			author.Kind, author.NativeID, author.UserID,
+			event.Actor.UserID, event.Actor.AgentID, event.Actor.SessionID,
 			event.Sequence, event.Type, event.Content, event.TaskRef, event.ThreadRef,
 			event.Visibility, event.OccurredAt, metadata)
 		if err != nil {
@@ -228,14 +233,16 @@ ON CONFLICT (scope_id, event_id) DO NOTHING`,
 
 func upsertStream(ctx context.Context, tx pgx.Tx, scopeID string, batch session.SessionBatch, cursor int64) error {
 	actor := batch.Events[0].Actor
+	stream := session.StreamFromActor(actor)
 	_, err := tx.Exec(ctx, `
 INSERT INTO session_streams (
-    scope_id, user_id, agent_id, session_id, last_sequence, complete
-) VALUES ($1, $2, $3, $4, $5, $6)
-ON CONFLICT (scope_id, agent_id, session_id) DO UPDATE SET
+    scope_id, source, stream_id, user_id, agent_id, session_id, last_sequence, complete
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+ON CONFLICT (scope_id, source, stream_id) DO UPDATE SET
     last_sequence = GREATEST(session_streams.last_sequence, EXCLUDED.last_sequence),
     complete = session_streams.complete OR EXCLUDED.complete,
-    updated_at = NOW()`, scopeID, actor.UserID, actor.AgentID, actor.SessionID, cursor, batch.Complete)
+    updated_at = NOW()`, scopeID, stream.Source, stream.StreamID,
+		actor.UserID, actor.AgentID, actor.SessionID, cursor, batch.Complete)
 	if err != nil {
 		return fmt.Errorf("upsert session stream: %w", err)
 	}

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pax-beehive/pax-nexus/internal/sessionlake"
+	"github.com/pax-beehive/pax-nexus/internal/evidencelake"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote/extractor"
 	"github.com/stretchr/testify/suite"
@@ -24,7 +24,7 @@ func TestExtractionV2Suite(t *testing.T) {
 	suite.Run(t, new(extractionV2Suite))
 }
 
-func v2Slice() sessionlake.Slice {
+func v2Slice() evidencelake.Slice {
 	return extractorSlice()
 }
 

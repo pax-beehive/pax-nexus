@@ -1,7 +1,7 @@
 # PageWiki
 
 The shipping wiki product: durable, cited Wiki Pages created and revised from
-Session Lake evidence, published over HTTP and read in the Human Portal.
+Evidence Lake evidence, published over HTTP and read in the Human Portal.
 
 ## Language
 
@@ -14,7 +14,7 @@ revisions (`llm_session_planner.go`, `llm_session_editor.go`).
 
 ## Relationships
 
-- Consumes Session Lake evidence via the session consumer.
+- Consumes Evidence Lake evidence via the session consumer.
 - Persists through its own repository port (`ports.go`); adapters live in
   `pagewiki/postgres` and `pagewiki/memory`.
 - Uses the shared LLM chat client from `internal/platform/llm`.

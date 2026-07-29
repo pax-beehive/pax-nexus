@@ -20,7 +20,7 @@ flowchart LR
     Client[Agent or paxm client]
     HTTP[Hertz HTTP adapter]
     Runtime[Team Note runtime]
-    Lake[Session Lake]
+    Lake[Evidence Lake]
     Queue[Extraction queue]
     Extractor[Extractor]
     Notes[NoteStore]
@@ -42,8 +42,8 @@ flowchart LR
 Dependency direction is inward toward the product contracts:
 
 - `internal/session` defines product-independent identities and events.
-- `internal/sessionlake` depends on `session`, but not on Team Note.
-- `internal/teamnote` may depend on Session Lake, but not on Evaluation or LLM
+- `internal/evidencelake` depends on `session`, but not on Team Note.
+- `internal/teamnote` may depend on Evidence Lake, but not on Evaluation or LLM
   Wiki.
 - `internal/eval` may depend on product modules; product modules never depend
   on Evaluation.
@@ -57,7 +57,7 @@ rules.
 
 | Module | Interface and seam | Implementation responsibility | Current adapters |
 | --- | --- | --- | --- |
-| Session Lake | `sessionlake.Repository` | Immutable event ingestion, bounded slices, overlap, checksums, and extraction cursors | `postgres.SessionRepository`, test repositories |
+| Evidence Lake | `evidencelake.Repository` | Immutable event ingestion, bounded slices, overlap, checksums, and extraction cursors | `postgres.SessionRepository`, test repositories |
 | Team Note runtime | `teamnote.Runtime`; queue-side `extractionqueue.Processor` | Orchestrates observe, slice, extract, atomic apply, cursor commit, and recall without owning policy details | `runtime.App` |
 | Extraction | `extractor.Extractor`; optional `extractor.Lifecycle` | Converts one Session Slice into candidates and provenance; owns rolling context and provider calls | OpenAI-compatible, fixture, noop |
 | Extraction Episode | `extractor.EpisodeStore` | Loads and optimistically saves rolling model context | `postgres.EpisodeStore`, memory episode store |
@@ -93,7 +93,7 @@ sequenceDiagram
     participant C as Client
     participant H as HTTP Handler
     participant R as runtime.App
-    participant L as Session Lake
+    participant L as Evidence Lake
     participant S as SessionRepository
     participant Q as River Queue
     participant E as Extractor
@@ -119,7 +119,7 @@ Important ordering constraints:
 1. Event persistence and extraction enqueue commit atomically in
    `SessionRepository.AppendSession`.
 2. The runtime persists or quarantines the complete Extraction Run before it
-   advances the Session Lake cursor.
+   advances the Evidence Lake cursor.
 3. Transient extraction or storage errors leave the cursor unchanged so River
    can retry.
 4. Deterministic admission failures are recorded as quarantined runs and allow
@@ -223,7 +223,7 @@ separate evidence.
 `postgres.Store` owns only the connection pool and schema migrations. It
 constructs and returns stable adapters:
 
-- `Sessions()` returns `SessionRepository` for Session Lake storage and atomic
+- `Sessions()` returns `SessionRepository` for Evidence Lake storage and atomic
   queue enqueue.
 - `Episodes()` returns `EpisodeStore` for rolling extractor state.
 - `NewNoteStore` creates the Team Note state and recall adapter with explicit

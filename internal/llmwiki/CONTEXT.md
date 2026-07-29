@@ -5,7 +5,7 @@
 > `cmd/llmwiki-spike` are spike code; the shared LLM chat client formerly in
 > `workspace` now lives in `internal/platform/llm`.
 
-The LLM Wiki context will own durable, actively browsed knowledge derived from Session Lake evidence.
+The LLM Wiki context will own durable, actively browsed knowledge derived from Evidence Lake evidence.
 
 ## Language
 
@@ -14,7 +14,7 @@ A durable file-like knowledge unit maintained from multiple Session Events.
 _Avoid_: Team Note
 
 **Maintenance Batch**:
-A larger Session Lake range processed to create or revise Wiki Pages.
+A larger Evidence Lake range processed to create or revise Wiki Pages.
 
 **Active Recall**:
 Agent-directed browsing or search over Wiki Pages.

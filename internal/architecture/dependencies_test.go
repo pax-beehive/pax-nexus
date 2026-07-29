@@ -59,9 +59,9 @@ var dependencyRules = []dependencyRule{
 		"pagewiki/sessionconsumer", "session", "teamnote"}},
 	{directory: "recall", allowed: []string{"teamnote"}},
 	{directory: "session"},
-	{directory: "sessionlake", allowed: []string{"session"}},
+	{directory: "evidencelake", allowed: []string{"session"}},
 	{directory: "teamnote", excluded: []string{"transport"},
-		allowed: []string{"platform/observability", "session", "sessionlake"}},
+		allowed: []string{"platform/observability", "session", "evidencelake"}},
 	{directory: "teamnote/transport", allowed: []string{"deployment/onprem", "explorer",
 		"operations", "pagewiki/sessionconsumer", "pagewiki/transport/httpapi", "recall", "teamnote"}},
 }

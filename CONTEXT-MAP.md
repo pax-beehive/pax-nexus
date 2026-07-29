@@ -2,7 +2,7 @@
 
 ## Contexts
 
-- [Session](./internal/session/CONTEXT.md) — shared agent identity and immutable session evidence.
+- [Session](./internal/session/CONTEXT.md) — shared identity contracts and the immutable Evidence Lake (source-agnostic evidence streams).
 - [Team Note](./internal/teamnote/CONTEXT.md) — short-lived passive collaboration recall.
 - [PageWiki](./internal/pagewiki/CONTEXT.md) — the shipping wiki product: durable, cited pages maintained from session evidence.
 - Recall (`internal/recall`) — routes recall requests across product paths; owns no adapters.
@@ -15,8 +15,8 @@
 
 ## Relationships
 
-- **Session → Team Note**: Team Note extracts bounded facts from Session Lake events.
-- **Session → PageWiki**: PageWiki maintains durable pages from Session Lake batches.
+- **Session → Team Note**: Team Note extracts bounded facts from Evidence Lake events.
+- **Session → PageWiki**: PageWiki maintains durable pages from Evidence Lake batches.
 - **Recall → Team Note**: Recall routes across product recall paths; product domain packages never import Recall.
 - **Evaluation → products**: Evaluation may exercise any product context; product contexts never import Evaluation.
 - **Platform → products**: Platform adapters implement ports defined by product contexts (dependency points at the domain). Exception: `platform/observability` and `platform/llm` are shared technical services that domains may import.
@@ -27,7 +27,7 @@
 The dependency rules are enforced by `internal/architecture/dependencies_test.go`.
 
 The implementation boundary and extension rules are documented in the
-[Session Lake processor guide](./docs/session-lake-processors.md).
+[Evidence Lake processor guide](./docs/evidence-lake-processors.md).
 The Human Portal contract, role-aware user journeys, and frontend edge cases
 are documented in the
 [on-prem identity frontend integration guide](./docs/on-prem-identity-frontend-integration.md).
