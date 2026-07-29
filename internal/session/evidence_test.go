@@ -44,6 +44,7 @@ func TestValidateStreamBatchRejections(t *testing.T) {
 		{"missing id", func(e *session.StreamEvent) { e.ID = "" }, session.ErrInvalidStreamBatch},
 		{"zero occurred_at", func(e *session.StreamEvent) { e.OccurredAt = time.Time{} }, session.ErrInvalidStreamBatch},
 		{"caller-set sequence", func(e *session.StreamEvent) { e.Sequence = 7 }, session.ErrInvalidStreamBatch},
+		{"agent-session source", func(e *session.StreamEvent) { e.Stream.Source = session.SourceAgentSession }, session.ErrInvalidStreamBatch},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -67,6 +68,15 @@ func TestValidateStreamBatchRejectsEmptyAndMixedStreams(t *testing.T) {
 	err := session.ValidateStreamBatch(session.StreamBatch{Events: []session.StreamEvent{first, second}})
 	if !errors.Is(err, session.ErrInvalidStreamBatch) {
 		t.Fatalf("expected mixed-stream rejection, got %v", err)
+	}
+}
+
+func TestValidateStreamBatchRejectsEmptyStreamID(t *testing.T) {
+	event := validEvent()
+	event.Stream.StreamID = "   "
+	err := session.ValidateStreamBatch(session.StreamBatch{Events: []session.StreamEvent{event}})
+	if !errors.Is(err, session.ErrInvalidStreamBatch) {
+		t.Fatalf("expected empty stream id rejection, got %v", err)
 	}
 }
 
