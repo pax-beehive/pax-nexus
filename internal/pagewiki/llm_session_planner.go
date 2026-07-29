@@ -57,8 +57,9 @@ type llmPlanEvent struct {
 }
 
 type llmPlanPage struct {
-	Slug  string `json:"slug"`
-	Title string `json:"title"`
+	Slug    string `json:"slug"`
+	Title   string `json:"title"`
+	Summary string `json:"summary,omitempty"`
 }
 
 type llmPlanRequest struct {
@@ -142,7 +143,7 @@ func planRequest(input PlanInput) llmPlanRequest {
 	}
 	for _, page := range input.PageCatalog {
 		request.Pages = append(request.Pages, llmPlanPage{
-			Slug: page.Slug, Title: page.Title,
+			Slug: page.Slug, Title: page.Title, Summary: page.Summary,
 		})
 	}
 	return request
@@ -302,7 +303,7 @@ func sourceOnlyBrief(key string, revision SourceRevision) PageBrief {
 }
 
 const pageWikiPlannerPrompt = `You are the maintenance planner of a durable, evidence-backed team Wiki.
-You receive one JSON object: {"events":[{"id","content","truncated"}],"pages":[{"slug","title"}]}.
+You receive one JSON object: {"events":[{"id","content","truncated"}],"pages":[{"slug","title","summary"}]}.
 Return exactly one JSON object and no Markdown fence:
 {"briefs":[{"action":"create|update|skip_noise","target_slug":"existing page slug, update only","proposed_slug":"kebab-case, create only","proposed_title":"English title, create only","reader_goal":"one English sentence","topic_path":["Area","Subarea"],"evidence":[{"event_id":"...","exact_quote":"verbatim substring of that event's content"}]}]}
 
@@ -321,7 +322,7 @@ pages covers the same subject or a parent subject, or the new evidence
 continues that subject's story, the action MUST be update with that page's
 slug. Creating a page whose subject overlaps an existing page is an error.
 Group related evidence aggressively into one page; most sessions should
-yield zero to two briefs. Every exact_quote must be copied verbatim from
+yield zero to two briefs. Judge subject overlap with each page's summary, not its title alone. Every exact_quote must be copied verbatim from
 the event content and must genuinely support the page. topic_path has at
 most two segments, for example ["Engineering","Runtime"]. Account for every
 event with either a page brief or skip_noise. Return at most 8 briefs and

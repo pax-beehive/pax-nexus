@@ -320,3 +320,25 @@ func (s *llmSessionPlannerSuite) TestPlannerPromptPinsUpdateRuleAndNoisePolicy()
 	s.Contains(system, "one-off session narratives")
 	s.Contains(system, "MUST be update")
 }
+
+func (s *llmSessionPlannerSuite) TestPlanRequestCarriesCatalogSummaries() {
+	client := &wikiChatClient{responses: []string{`{"briefs":[]}`}}
+	planner, err := pagewiki.NewLLMSessionPlanner(pagewiki.LLMPlannerConfig{
+		Client: client, Model: "test-model",
+	})
+	s.Require().NoError(err)
+
+	_, err = planner.Plan(context.Background(), pagewiki.PlanInput{
+		SourceRevision: plannerRevision(),
+		PageCatalog: pagewiki.PageCatalog{{
+			ID: "page-1", Slug: "existing-page", Title: "Existing Page",
+			CurrentRevisionID: "revision-1",
+			Summary:           "How weekly releases are cut.",
+		}},
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(client.requests, 1)
+	s.Contains(client.requests[0].Messages[1].Content, "How weekly releases are cut.")
+	s.Contains(client.requests[0].Messages[0].Content, "summary")
+}
