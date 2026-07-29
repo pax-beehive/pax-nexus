@@ -60,3 +60,28 @@ func (s *onPremHandlerSuite) TestObserveStreamRejectsContractViolations() {
 	}`, "agent")
 	s.Equal(consts.StatusBadRequest, response.Code)
 }
+
+func (s *onPremHandlerSuite) TestObserveStreamRejectsNullEvents() {
+	// No EXPECT() set on s.runtime: a null array element must be rejected by
+	// mapping before the runtime is ever called, otherwise gomock fails the
+	// test on the unexpected call.
+	response := perform(s.handler.ObserveStream, http.MethodPost,
+		`{"events": [null], "complete": false}`, "agent")
+	s.Equal(consts.StatusBadRequest, response.Code)
+
+	responseNilAuthor := perform(s.handler.ObserveStream, http.MethodPost, `{
+		"events": [{
+			"id": "evt-1",
+			"source": "im-channel",
+			"stream_id": "channel-9",
+			"author": null,
+			"kind": "text",
+			"type": "message",
+			"content": "x",
+			"visibility": "team",
+			"occurred_at": "2026-07-28T10:00:00Z"
+		}],
+		"complete": false
+	}`, "agent")
+	s.Equal(consts.StatusBadRequest, responseNilAuthor.Code)
+}
