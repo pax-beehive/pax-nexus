@@ -10,6 +10,7 @@ import {
   getWikiRevisions,
   searchWiki,
   type WikiLinks,
+  type WikiNavigationPage,
   type WikiNavigationTopic,
   type WikiRevision,
   type WikiSearchResult,
@@ -18,7 +19,7 @@ import {
 import { beginAction, injectWikiSession, rebuildWiki, setWikiAutoInject } from "../api/actions";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { RelationList } from "../components/wiki/RelationList";
-import { collectPages, Topic } from "../components/wiki/TopicTree";
+import { collectPages, RootPageList, Topic } from "../components/wiki/TopicTree";
 import { WikiMarkdown } from "../components/wiki/WikiMarkdown";
 import { isAbortError, usePolling } from "../lib/usePolling";
 import { useErrorHandler } from "../lib/useErrorHandler";
@@ -29,6 +30,7 @@ export function WikiPage({ me }: { me: HumanMe }) {
   const navigate = useNavigate();
   const handleError = useErrorHandler();
   const [topics, setTopics] = useState<WikiNavigationTopic[]>([]);
+  const [rootPages, setRootPages] = useState<WikiNavigationPage[]>([]);
   const [navigationLoading, setNavigationLoading] = useState(true);
   const [selectedSlug, setSelectedSlug] = useState(
     () => new URLSearchParams(window.location.search).get("page") ?? "",
@@ -103,8 +105,10 @@ export function WikiPage({ me }: { me: HumanMe }) {
     getWikiNavigation(controller.signal)
       .then((navigation) => {
         const roots = navigation.roots ?? [];
-        const pages = collectPages(roots);
+        const rootLevelPages = navigation.pages ?? [];
+        const pages = [...rootLevelPages, ...collectPages(roots)];
         setTopics(roots);
+        setRootPages(rootLevelPages);
         const requestedSlug = new URLSearchParams(window.location.search).get("page") ?? "";
         if (pages.length > 0 && !pages.some((candidate) => candidate.slug === requestedSlug)) {
           setSelectedSlug(pages[0].slug);
@@ -242,6 +246,7 @@ export function WikiPage({ me }: { me: HumanMe }) {
       const status = await rebuildWiki(beginAction());
       setAutoInject(status.auto_inject);
       setTopics([]);
+      setRootPages([]);
       setSelectedSlug("");
       setPage(undefined);
       setRevision(undefined);
@@ -259,7 +264,7 @@ export function WikiPage({ me }: { me: HumanMe }) {
     }
   };
 
-  const pages = collectPages(topics);
+  const pages = [...rootPages, ...collectPages(topics)];
   const historical = Boolean(page && revision && revision.id !== page.current_revision_id);
   const inlineRelations = historical ? [] : links.outgoing;
 
@@ -397,6 +402,7 @@ export function WikiPage({ me }: { me: HumanMe }) {
               <span>Topics</span>
               <span className="faint small">{pages.length} pages</span>
             </div>
+            <RootPageList pages={rootPages} selectedSlug={selectedSlug} onSelect={selectPage} />
             {topics.map((topic) => (
               <Topic
                 key={topic.id}

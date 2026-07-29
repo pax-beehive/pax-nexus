@@ -55,6 +55,7 @@ func (s *repositorySuite) TearDownTest() {
 		"DELETE FROM pagewiki_maintenance_runs WHERE scope_id = $1",
 		"DELETE FROM pagewiki_publications WHERE scope_id = $1",
 		"DELETE FROM pagewiki_source_revisions WHERE scope_id = $1",
+		"DELETE FROM pagewiki_topic_trees WHERE scope_id = $1",
 	} {
 		_, err := s.store.Pool().Exec(s.ctx, query, s.scopeID)
 		s.Require().NoError(err)
@@ -118,6 +119,57 @@ func (s *repositorySuite) TestPersistsAndHydratesCompleteWikiState() {
 	s.Require().NoError(err)
 	s.Equal(result.Run.ID, run.ID)
 	s.Require().NoError(reloaded.RebuildSearchIndex(s.ctx))
+}
+
+func (s *repositorySuite) TestTopicTreeSurvivesRehydration() {
+	repository, err := pagewikipostgres.NewRepository(s.ctx, s.store.Pool(), s.scopeID)
+	s.Require().NoError(err)
+	service := pagewiki.NewService(
+		repository,
+		pagewiki.SessionDocumentPlanner{},
+		pagewiki.SessionDocumentEditor{},
+	)
+	raw := "[event:runtime-event sequence:1 type:assistant] Runtime verification passed."
+	result, err := service.InjectSession(s.ctx, pagewiki.InjectSessionRequest{
+		SourceID:       "session:local-team:runtime-agent:runtime-session",
+		IdempotencyKey: "manual-1",
+		Raw:            []byte(raw),
+		Events: []pagewiki.SourceEventInput{{
+			ID: "runtime-event", StartByte: 0, EndByte: len(raw),
+		}},
+	})
+	s.Require().NoError(err)
+	catalog, err := repository.PageCatalog(s.ctx)
+	s.Require().NoError(err)
+	s.Require().Len(catalog, 1)
+	pageID := catalog[0].ID
+
+	tree := pagewiki.TopicTree{
+		Topics:     []pagewiki.Topic{{ID: "topic-a", Slug: "runtime", Title: "Runtime"}},
+		Placements: []pagewiki.PagePlacement{{PageID: pageID, TopicID: "topic-a"}},
+	}
+	s.Require().NoError(repository.ReplaceTopicTree(s.ctx, tree))
+
+	reopened, err := pagewikipostgres.NewRepository(s.ctx, s.store.Pool(), s.scopeID)
+	s.Require().NoError(err)
+	loaded, err := reopened.TopicTree(s.ctx)
+	s.Require().NoError(err)
+	s.Equal(tree, loaded)
+
+	s.Require().NoError(reopened.RebuildPageWiki(s.ctx, s.scopeID, "page_wiki", "v1"))
+	rebuilt, err := reopened.TopicTree(s.ctx)
+	s.Require().NoError(err)
+	s.Empty(rebuilt.Topics)
+	s.Empty(rebuilt.Placements)
+
+	afterRebuild, err := pagewikipostgres.NewRepository(s.ctx, s.store.Pool(), s.scopeID)
+	s.Require().NoError(err)
+	afterRebuildTree, err := afterRebuild.TopicTree(s.ctx)
+	s.Require().NoError(err)
+	s.Empty(afterRebuildTree.Topics)
+	s.Empty(afterRebuildTree.Placements)
+
+	_ = result
 }
 
 func (s *repositorySuite) TestRejectsInvalidConfigurationAndCorruptSnapshots() {

@@ -1,0 +1,62 @@
+# Local demo overlay: on-prem identity mode with a mock OIDC provider, so the
+# portal (login, bootstrap, enrollments) and the operations event pipeline
+# (Pulse / Operations pages) work end to end without a real IdP.
+#
+# Usage (from the repository root):
+#   docker compose -p pax-nexus-demo \
+#     -f compose.yaml -f deploy/demo/compose.yaml \
+#     --env-file .env --env-file deploy/demo/.env \
+#     up -d --build --wait
+#
+# Prerequisites:
+#   - deploy/demo/.env with bootstrap/pepper/flow secrets (see README below or
+#     generate with `openssl rand -hex 32`)
+#   - /etc/hosts entry: 127.0.0.1 host.docker.internal
+#     (the browser must reach the mock OIDC issuer; containers reach it via
+#     extra_hosts, macOS does not resolve it on the host by default)
+#   - the portal is served by the Vite dev server: cd web && npm run dev
+#
+# After startup: http://localhost:5173/ -> Continue with OIDC (auto-approves
+# as owner@example.com) -> claim the first Owner with the bootstrap secret.
+
+services:
+  postgres:
+    ports: !override
+      - "127.0.0.1:55460:5432"
+
+  team-memory:
+    environment:
+      # On-prem identity mode: never set TEAM_MEMORY_API_KEYS here; the static
+      # Admin key stays empty so bootstrap + OIDC own the human plane.
+      TEAM_MEMORY_ADMIN_API_KEY: ""
+      TEAM_MEMORY_BOOTSTRAP_SECRET: ${TEAM_MEMORY_BOOTSTRAP_SECRET:?set it in deploy/demo/.env}
+      TEAM_MEMORY_SECRET_PEPPER: ${TEAM_MEMORY_SECRET_PEPPER:?set it in deploy/demo/.env}
+      TEAM_MEMORY_OIDC_ISSUER: http://host.docker.internal:8082
+      TEAM_MEMORY_OIDC_CLIENT_ID: team-memory-demo
+      TEAM_MEMORY_OIDC_CLIENT_SECRET: team-memory-demo-client-secret
+      TEAM_MEMORY_OIDC_REDIRECT_URL: http://localhost:5173/v1/auth/callback
+      TEAM_MEMORY_OIDC_FLOW_SECRET: ${TEAM_MEMORY_OIDC_FLOW_SECRET:?set it in deploy/demo/.env}
+      TEAM_MEMORY_PORTAL_URL: http://localhost:5173/
+      TEAM_MEMORY_HUMAN_COOKIE_SECURE: "false"
+      TEAM_MEMORY_EXTRACTOR_MODE: openai
+      TEAM_MEMORY_EXTRACTOR_BASE_URL: ${TEAM_MEMORY_EXTRACTOR_BASE_URL:-https://api.deepseek.com}
+      TEAM_MEMORY_EXTRACTOR_API_KEY: ${TEAM_MEMORY_EXTRACTOR_API_KEY:?set it in .env}
+      TEAM_MEMORY_EXTRACTOR_MODEL: ${TEAM_MEMORY_EXTRACTOR_MODEL:-deepseek-v4-flash}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  mock-oidc:
+    build:
+      context: .
+      dockerfile: tests/onprem-e2e/Dockerfile
+      target: mock-oidc
+    environment:
+      MOCK_OIDC_ISSUER: http://host.docker.internal:8082
+      MOCK_OIDC_CLIENT_ID: team-memory-demo
+    ports:
+      - "127.0.0.1:8082:8082"
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/mock-oidc", "healthcheck"]
+      interval: 1s
+      timeout: 2s
+      retries: 30

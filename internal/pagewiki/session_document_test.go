@@ -18,7 +18,7 @@ func TestSessionDocumentSuite(t *testing.T) {
 	suite.Run(t, new(sessionDocumentSuite))
 }
 
-func (s *sessionDocumentSuite) TestCreatesKnowledgePagesUnderSemanticTopics() {
+func (s *sessionDocumentSuite) TestCreatesKnowledgePagesFlatWithoutTopics() {
 	repository := memory.NewRepository()
 	service := pagewiki.NewService(
 		repository,
@@ -32,20 +32,18 @@ func (s *sessionDocumentSuite) TestCreatesKnowledgePagesUnderSemanticTopics() {
 	s.Require().NoError(err)
 	s.Equal(pagewiki.RunStatusSucceeded, created.Run.Status)
 	s.Require().Len(created.Run.Targets, 2)
+	s.Equal(2, repository.PageCount())
+	s.Zero(repository.TopicCount())
+	s.Zero(repository.PlacementCount())
 	navigation, err := repository.Navigation(context.Background())
 	s.Require().NoError(err)
-	s.Require().Len(navigation.Roots, 1)
-	s.Equal("Engineering", navigation.Roots[0].Title)
-	s.Require().Len(navigation.Roots[0].Children, 2)
-	s.Equal([]string{"Retrieval", "Wiki Architecture"}, []string{
-		navigation.Roots[0].Children[0].Title,
-		navigation.Roots[0].Children[1].Title,
-	})
-	for _, child := range navigation.Roots[0].Children {
-		for _, page := range child.Pages {
-			s.NotContains(page.Title, "runtime-demo")
-			s.NotContains(page.Slug, "session-")
-		}
+	s.Require().Empty(navigation.Roots)
+	catalog, err := repository.PageCatalog(context.Background())
+	s.Require().NoError(err)
+	s.Require().Len(catalog, 2)
+	for _, entry := range catalog {
+		s.NotContains(entry.Title, "runtime-demo")
+		s.NotContains(entry.Slug, "session-")
 	}
 }
 

@@ -8,6 +8,34 @@ export function collectPages(topics: WikiNavigationTopic[]): WikiNavigationPage[
   ]);
 }
 
+/** Renders unplaced (root-level) pages as a flat list above the topic groups. */
+export function RootPageList({
+  pages,
+  selectedSlug,
+  onSelect,
+}: {
+  pages: WikiNavigationPage[];
+  selectedSlug: string;
+  onSelect: (slug: string) => void;
+}) {
+  if (pages.length === 0) return null;
+  return (
+    <section className="wiki-topic">
+      {pages.map((page) => (
+        <button
+          key={page.id}
+          type="button"
+          className={page.slug === selectedSlug ? "wiki-page-link active" : "wiki-page-link"}
+          aria-current={page.slug === selectedSlug ? "page" : undefined}
+          onClick={() => onSelect(page.slug)}
+        >
+          {page.title}
+        </button>
+      ))}
+    </section>
+  );
+}
+
 /**
  * One topic in the wiki rail: its pages as selectable buttons, with child
  * topics nested recursively.

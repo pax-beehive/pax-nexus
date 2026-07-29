@@ -25,7 +25,7 @@ func (s *MultiTargetAcceptanceSuite) SetupTest() {
 	s.repository = memory.NewRepository()
 }
 
-func (s *MultiTargetAcceptanceSuite) TestGivenTwoValidBriefsWhenInjectedThenBothPagesAreNavigable() {
+func (s *MultiTargetAcceptanceSuite) TestGivenTwoValidBriefsWhenInjectedThenBothPagesArePublishedFlat() {
 	service := pagewiki.NewService(
 		s.repository,
 		pagewiki.ScriptedPlanner{Briefs: multiPageBriefs()},
@@ -39,13 +39,19 @@ func (s *MultiTargetAcceptanceSuite) TestGivenTwoValidBriefsWhenInjectedThenBoth
 	s.Require().Len(result.Run.Targets, 2)
 	s.Require().Equal(2, s.repository.PageCount())
 
+	_, err = s.repository.PageBySlug(s.ctx, "sqlite")
+	s.Require().NoError(err)
+	_, err = s.repository.PageBySlug(s.ctx, "wiki-search")
+	s.Require().NoError(err)
+
 	navigation, err := s.repository.Navigation(s.ctx)
 	s.Require().NoError(err)
-	s.Require().True(navigationContainsPage(navigation, "sqlite"))
-	s.Require().True(navigationContainsPage(navigation, "wiki-search"))
-	s.Require().False(navigationContainsTopic(navigation, "Inbox"))
-	s.Require().LessOrEqual(navigationDepthForPage(navigation, "sqlite"), 2)
-	s.Require().LessOrEqual(navigationDepthForPage(navigation, "wiki-search"), 2)
+	s.Require().Empty(navigation.Roots)
+	s.Require().Len(navigation.Pages, 2)
+	s.Require().Equal("sqlite", navigation.Pages[0].Slug)
+	s.Require().Equal("wiki-search", navigation.Pages[1].Slug)
+	s.Require().Zero(s.repository.TopicCount())
+	s.Require().Zero(s.repository.PlacementCount())
 }
 
 func (s *MultiTargetAcceptanceSuite) TestGivenOneInvalidTargetWhenInjectedThenSiblingRemainsPublished() {
@@ -74,8 +80,9 @@ func (s *MultiTargetAcceptanceSuite) TestGivenOneInvalidTargetWhenInjectedThenSi
 
 	navigation, err := s.repository.Navigation(s.ctx)
 	s.Require().NoError(err)
-	s.Require().True(navigationContainsPage(navigation, "sqlite"))
-	s.Require().False(navigationContainsPage(navigation, "wiki-search"))
+	s.Require().Empty(navigation.Roots)
+	s.Require().Len(navigation.Pages, 1)
+	s.Equal("sqlite", navigation.Pages[0].Slug)
 	s.Require().False(navigationContainsTopic(navigation, "Search"))
 }
 
@@ -136,7 +143,6 @@ func multiPageBriefs() []pagewiki.PageBrief {
 			Action:           pagewiki.PageActionCreate,
 			ProposedSlug:     "sqlite",
 			ProposedTitle:    "SQLite",
-			TopicPath:        []string{"Engineering", "Storage"},
 			EvidenceEventIDs: []string{"event-storage"},
 		},
 		{
@@ -144,7 +150,6 @@ func multiPageBriefs() []pagewiki.PageBrief {
 			Action:           pagewiki.PageActionCreate,
 			ProposedSlug:     "wiki-search",
 			ProposedTitle:    "Wiki Search",
-			TopicPath:        []string{"Engineering", "Search"},
 			EvidenceEventIDs: []string{"event-search"},
 		},
 	}
@@ -231,28 +236,6 @@ func multiPageSource() pagewiki.InjectSessionRequest {
 			},
 		},
 	}
-}
-
-func navigationContainsPage(navigation pagewiki.Navigation, slug string) bool {
-	return navigationDepthForPage(navigation, slug) > 0
-}
-
-func navigationDepthForPage(navigation pagewiki.Navigation, slug string) int {
-	for _, root := range navigation.Roots {
-		for _, page := range root.Pages {
-			if page.Slug == slug {
-				return 1
-			}
-		}
-		for _, child := range root.Children {
-			for _, page := range child.Pages {
-				if page.Slug == slug {
-					return 2
-				}
-			}
-		}
-	}
-	return 0
 }
 
 func navigationContainsTopic(navigation pagewiki.Navigation, title string) bool {

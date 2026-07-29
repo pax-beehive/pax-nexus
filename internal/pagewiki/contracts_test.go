@@ -29,11 +29,24 @@ func (s *ContractsSuite) TestGivenCatalogPageWhenUpdateBriefUsesCurrentBaseThenI
 		Action:                 pagewiki.PageActionUpdate,
 		TargetPageID:           "page-adoption",
 		ExpectedBaseRevisionID: "revision-1",
-		TopicPath:              []string{"Journeys", "Adoption"},
 		EvidenceEventIDs:       []string{"event-2"},
 	}
 
 	err := pagewiki.ValidatePageBrief(brief, catalog)
+
+	s.Require().NoError(err)
+}
+
+func (s *ContractsSuite) TestGivenCreateBriefWithoutTopicPathThenItIsValid() {
+	brief := pagewiki.PageBrief{
+		Key:              "new-page",
+		Action:           pagewiki.PageActionCreate,
+		ProposedSlug:     "new-page",
+		ProposedTitle:    "New Page",
+		EvidenceEventIDs: []string{"event-1"},
+	}
+
+	err := pagewiki.ValidatePageBrief(brief, pagewiki.PageCatalog{})
 
 	s.Require().NoError(err)
 }
@@ -72,27 +85,6 @@ func (s *ContractsSuite) TestGivenCatalogWhenBriefIsInvalidThenValidationFails()
 			},
 		},
 		{
-			name: "topic path exceeds two levels",
-			brief: pagewiki.PageBrief{
-				Key:              "new-page",
-				Action:           pagewiki.PageActionCreate,
-				ProposedSlug:     "new-page",
-				ProposedTitle:    "New Page",
-				TopicPath:        []string{"Engineering", "Storage", "SQLite"},
-				EvidenceEventIDs: []string{"event-1"},
-			},
-		},
-		{
-			name: "create omits topic path",
-			brief: pagewiki.PageBrief{
-				Key:              "new-page",
-				Action:           pagewiki.PageActionCreate,
-				ProposedSlug:     "new-page",
-				ProposedTitle:    "New Page",
-				EvidenceEventIDs: []string{"event-1"},
-			},
-		},
-		{
 			name: "create attempts to choose page identity",
 			brief: pagewiki.PageBrief{
 				Key:              "new-page",
@@ -100,7 +92,6 @@ func (s *ContractsSuite) TestGivenCatalogWhenBriefIsInvalidThenValidationFails()
 				TargetPageID:     "invented-page",
 				ProposedSlug:     "new-page",
 				ProposedTitle:    "New Page",
-				TopicPath:        []string{"Engineering"},
 				EvidenceEventIDs: []string{"event-1"},
 			},
 		},

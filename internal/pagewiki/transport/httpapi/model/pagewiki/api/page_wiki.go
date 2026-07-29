@@ -8667,6 +8667,7 @@ func (p *NavigationRequest) String() string {
 
 type NavigationResponse struct {
 	Roots []*NavigationTopic `thrift:"roots,1,required,list<NavigationTopic>" form:"roots,required" json:"roots,required" query:"roots,required"`
+	Pages []*NavigationPage  `thrift:"pages,2,required,list<NavigationPage>" form:"pages,required" json:"pages,required" query:"pages,required"`
 }
 
 func NewNavigationResponse() *NavigationResponse {
@@ -8680,8 +8681,13 @@ func (p *NavigationResponse) GetRoots() (v []*NavigationTopic) {
 	return p.Roots
 }
 
+func (p *NavigationResponse) GetPages() (v []*NavigationPage) {
+	return p.Pages
+}
+
 var fieldIDToName_NavigationResponse = map[int16]string{
 	1: "roots",
+	2: "pages",
 }
 
 func (p *NavigationResponse) Read(iprot thrift.TProtocol) (err error) {
@@ -8689,6 +8695,7 @@ func (p *NavigationResponse) Read(iprot thrift.TProtocol) (err error) {
 	var fieldTypeId thrift.TType
 	var fieldId int16
 	var issetRoots bool = false
+	var issetPages bool = false
 
 	if _, err = iprot.ReadStructBegin(); err != nil {
 		goto ReadStructBeginError
@@ -8713,6 +8720,15 @@ func (p *NavigationResponse) Read(iprot thrift.TProtocol) (err error) {
 			} else if err = iprot.Skip(fieldTypeId); err != nil {
 				goto SkipFieldError
 			}
+		case 2:
+			if fieldTypeId == thrift.LIST {
+				if err = p.ReadField2(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetPages = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
 		default:
 			if err = iprot.Skip(fieldTypeId); err != nil {
 				goto SkipFieldError
@@ -8728,6 +8744,11 @@ func (p *NavigationResponse) Read(iprot thrift.TProtocol) (err error) {
 
 	if !issetRoots {
 		fieldId = 1
+		goto RequiredFieldNotSetError
+	}
+
+	if !issetPages {
+		fieldId = 2
 		goto RequiredFieldNotSetError
 	}
 	return nil
@@ -8771,6 +8792,29 @@ func (p *NavigationResponse) ReadField1(iprot thrift.TProtocol) error {
 	p.Roots = _field
 	return nil
 }
+func (p *NavigationResponse) ReadField2(iprot thrift.TProtocol) error {
+	_, size, err := iprot.ReadListBegin()
+	if err != nil {
+		return err
+	}
+	_field := make([]*NavigationPage, 0, size)
+	values := make([]NavigationPage, size)
+	for i := 0; i < size; i++ {
+		_elem := &values[i]
+		_elem.InitDefault()
+
+		if err := _elem.Read(iprot); err != nil {
+			return err
+		}
+
+		_field = append(_field, _elem)
+	}
+	if err := iprot.ReadListEnd(); err != nil {
+		return err
+	}
+	p.Pages = _field
+	return nil
+}
 
 func (p *NavigationResponse) Write(oprot thrift.TProtocol) (err error) {
 	var fieldId int16
@@ -8780,6 +8824,10 @@ func (p *NavigationResponse) Write(oprot thrift.TProtocol) (err error) {
 	if p != nil {
 		if err = p.writeField1(oprot); err != nil {
 			fieldId = 1
+			goto WriteFieldError
+		}
+		if err = p.writeField2(oprot); err != nil {
+			fieldId = 2
 			goto WriteFieldError
 		}
 	}
@@ -8823,6 +8871,31 @@ WriteFieldBeginError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 1 begin error: ", p), err)
 WriteFieldEndError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 1 end error: ", p), err)
+}
+
+func (p *NavigationResponse) writeField2(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("pages", thrift.LIST, 2); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteListBegin(thrift.STRUCT, len(p.Pages)); err != nil {
+		return err
+	}
+	for _, v := range p.Pages {
+		if err := v.Write(oprot); err != nil {
+			return err
+		}
+	}
+	if err := oprot.WriteListEnd(); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 2 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 2 end error: ", p), err)
 }
 
 func (p *NavigationResponse) String() string {

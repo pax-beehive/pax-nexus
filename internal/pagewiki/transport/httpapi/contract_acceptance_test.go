@@ -83,6 +83,29 @@ func (s *ContractAcceptanceSuite) TestGivenInjectedSessionWhenReadThenEveryWikiR
 	s.Require().Len(injection.Run.Targets, 1)
 	revisionID := injection.Run.Targets[0].PageRevisionID
 
+	// Publish a second page directly through the repository and place it
+	// under a topic, so navigation exercises both a placed page (nested
+	// under "roots") and the unplaced "sqlite" page injected above (listed
+	// under "pages"). Post-flat-write-path, every published page is
+	// unplaced until ReplaceTopicTree is called explicitly.
+	placedPage := pagewiki.Page{
+		ID:                "page-placed",
+		Slug:              "placed-topic-page",
+		Title:             "Placed Topic Page",
+		CurrentRevisionID: "revision-placed",
+	}
+	placedRevision := pagewiki.PageRevision{ID: "revision-placed", PageID: "page-placed"}
+	s.Require().NoError(s.repository.PublishPage(context.Background(), pagewiki.PagePublication{
+		Page:     placedPage,
+		Revision: placedRevision,
+	}))
+	s.Require().NoError(s.repository.ReplaceTopicTree(context.Background(), pagewiki.TopicTree{
+		Topics: []pagewiki.Topic{{ID: "topic-runtime", Slug: "runtime", Title: "Runtime"}},
+		Placements: []pagewiki.PagePlacement{
+			{PageID: "page-placed", TopicID: "topic-runtime"},
+		},
+	}))
+
 	tests := []struct {
 		name       string
 		path       string
@@ -169,7 +192,18 @@ func (s *ContractAcceptanceSuite) TestGivenInjectedSessionWhenReadThenEveryWikiR
 			assertBody: func(body map[string]any) {
 				roots := requireList(s.T(), body["roots"])
 				s.Require().Len(roots, 1)
-				s.Equal("Engineering", requireObject(s.T(), roots[0])["title"])
+				root := requireObject(s.T(), roots[0])
+				s.Equal("runtime", root["slug"])
+				rootPages := requireList(s.T(), root["pages"])
+				s.Require().Len(rootPages, 1)
+				s.Equal(
+					"placed-topic-page",
+					requireObject(s.T(), rootPages[0])["slug"],
+				)
+
+				pages := requireList(s.T(), body["pages"])
+				s.Require().Len(pages, 1)
+				s.Equal("sqlite", requireObject(s.T(), pages[0])["slug"])
 			},
 		},
 	}
@@ -389,7 +423,6 @@ func (contractPlanner) Plan(
 			Action:           pagewiki.PageActionCreate,
 			ProposedSlug:     "sqlite",
 			ProposedTitle:    "SQLite",
-			TopicPath:        []string{"Engineering", "Storage"},
 			EvidenceEventIDs: []string{"event-sqlite"},
 		},
 	}, nil

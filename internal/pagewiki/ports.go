@@ -22,6 +22,15 @@ type Editor interface {
 	Edit(context.Context, EditInput) (PageDraft, error)
 }
 
+type TreeIndexInput struct {
+	Catalog PageCatalog
+	Current TopicTree
+}
+
+type TreeIndexer interface {
+	Index(context.Context, TreeIndexInput) (TopicTree, error)
+}
+
 type Repository interface {
 	SaveSourceRevision(context.Context, SourceRevision) error
 	SourceRevision(context.Context, string) (SourceRevision, error)
@@ -38,4 +47,6 @@ type Repository interface {
 	RebuildSearchIndex(context.Context) error
 	MaintenanceRun(context.Context, string) (MaintenanceRun, error)
 	SaveMaintenanceRun(context.Context, MaintenanceRun) error
+	TopicTree(context.Context) (TopicTree, error)
+	ReplaceTopicTree(context.Context, TopicTree) error
 }
