@@ -116,15 +116,12 @@ replaying an incompatible response history. The paired evidence and rollout
 decisions remain recorded in the extraction ADRs.
 
 V2 extraction candidate strategies are packaged behind the same `Extractor`
-interface. `current`, `interaction-slim`, `evidence-fidelity-v1`,
-`source-clause-v1`, `source-clause-implicit-state-v1`, `typed-2`,
-`source-span-v1`, `source-span-v2`, `claim-card-v1`, and `claim-card-v2` each
+interface. `interaction-slim`, `source-clause-v1`, `source-span-v1`,
+`source-span-v2`, and `claim-card-v2` each
 bind their prompt, response decoder, and rolling episode protocol revision in
-one registry. `source-clause-v1` is the v2 evaluation default. The implicit-state,
-Evidence Fidelity, Source Span, and Claim Card candidates are retained only for
-evaluation reproducibility. Build
+one registry. `source-clause-v1` is the v2 evaluation default. Build
 a distribution with a selected default using
-`make build EXTRACTION_CANDIDATE_STRATEGY=typed-2`, or pass the same build
+`make build EXTRACTION_CANDIDATE_STRATEGY=claim-card-v2`, or pass the same build
 argument to Docker as `EXTRACTION_CANDIDATE_STRATEGY`. At runtime,
 `TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY` overrides the embedded default;
 an empty value uses the build default. The extractor model remains independent,
