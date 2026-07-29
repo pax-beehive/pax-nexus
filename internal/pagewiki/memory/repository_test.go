@@ -117,6 +117,11 @@ func (s *RepositorySuite) TestGivenInvalidPublicationWhenPublishedThenRepository
 		wantErr     error
 	}{
 		{
+			name:        "empty publication has no page identity",
+			publication: pagewiki.PagePublication{},
+			wantErr:     pagewiki.ErrRevisionConflict,
+		},
+		{
 			name: "page points at another revision",
 			publication: publicationFixture(
 				pagewiki.Page{ID: "page-1", Slug: "sqlite", CurrentRevisionID: "other"},

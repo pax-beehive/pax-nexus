@@ -220,6 +220,9 @@ func (r *Repository) PublishPage(
 func (r *Repository) validatePublication(publication pagewiki.PagePublication) error {
 	page := publication.Page
 	revision := publication.Revision
+	if page.ID == "" || page.Slug == "" || revision.ID == "" {
+		return fmt.Errorf("%w: Page identity is incomplete", pagewiki.ErrRevisionConflict)
+	}
 	if page.CurrentRevisionID != revision.ID || page.ID != revision.PageID {
 		return fmt.Errorf("%w: Page and revision identities differ", pagewiki.ErrRevisionConflict)
 	}
