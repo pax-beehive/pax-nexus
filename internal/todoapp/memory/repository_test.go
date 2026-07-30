@@ -2,7 +2,6 @@ package memory_test
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 
@@ -39,7 +38,7 @@ func (s *RepositorySuite) TestTodoRoundtripAndNotFound() {
 	s.Require().NoError(err)
 	s.Require().Equal(todo, loaded)
 	_, err = s.repo.TodoByID(s.ctx, "missing")
-	s.Require().True(errors.Is(err, todoapp.ErrNotFound))
+	s.Require().ErrorIs(err, todoapp.ErrNotFound)
 }
 
 func (s *RepositorySuite) TestListTodosFiltersByStatus() {
@@ -127,6 +126,29 @@ func (s *RepositorySuite) TestTodoListOrderingByUpdatedAtAndID() {
 	s.Require().Equal([]string{"t3", "t2", "t1"}, ids, "should sort by ID descending when UpdatedAt is equal")
 }
 
+func (s *RepositorySuite) TestTodoListOrderingPreservesSubsecondPrecision() {
+	// Test that sorting preserves sub-second timestamp precision
+	t1 := time.Unix(200, 0)
+	t2 := time.Unix(200, 500_000_000) // 200.5 seconds
+	s.Require().NoError(s.repo.SaveTodo(s.ctx, todoapp.Todo{
+		ID:        "t1",
+		Title:     "older",
+		UpdatedAt: t1,
+	}))
+	s.Require().NoError(s.repo.SaveTodo(s.ctx, todoapp.Todo{
+		ID:        "t2",
+		Title:     "newer",
+		UpdatedAt: t2,
+	}))
+
+	listed, err := s.repo.ListTodos(s.ctx, "")
+	s.Require().NoError(err)
+	s.Require().Len(listed, 2)
+	// t2 has later UpdatedAt (200.5s > 200.0s), should come first
+	s.Require().Equal("t2", listed[0].ID)
+	s.Require().Equal("t1", listed[1].ID)
+}
+
 func (s *RepositorySuite) TestSuggestionRoundtrip() {
 	suggestion := todoapp.Suggestion{
 		ID:          "s1",
@@ -144,7 +166,7 @@ func (s *RepositorySuite) TestSuggestionRoundtrip() {
 	s.Require().NoError(err)
 	s.Require().Equal(suggestion, loaded)
 	_, err = s.repo.SuggestionByID(s.ctx, "missing")
-	s.Require().True(errors.Is(err, todoapp.ErrNotFound))
+	s.Require().ErrorIs(err, todoapp.ErrNotFound)
 }
 
 func (s *RepositorySuite) TestListSuggestionsFiltersByStatus() {

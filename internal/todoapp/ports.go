@@ -6,8 +6,8 @@ import (
 )
 
 var (
-	ErrNotFound         = errors.New("todoapp: not found")
-	ErrInvalidInput     = errors.New("todoapp: invalid input")
+	ErrNotFound          = errors.New("todoapp: not found")
+	ErrInvalidInput      = errors.New("todoapp: invalid input")
 	ErrInvalidTransition = errors.New("todoapp: invalid transition")
 )
 

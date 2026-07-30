@@ -56,8 +56,8 @@ func (r *Repository) ListTodos(ctx context.Context, status todoapp.TodoStatus) (
 
 	// Sort by UpdatedAt descending, then by ID descending for determinism.
 	sort.Slice(todos, func(i, j int) bool {
-		if todos[i].UpdatedAt.Unix() != todos[j].UpdatedAt.Unix() {
-			return todos[i].UpdatedAt.Unix() > todos[j].UpdatedAt.Unix()
+		if !todos[i].UpdatedAt.Equal(todos[j].UpdatedAt) {
+			return todos[i].UpdatedAt.After(todos[j].UpdatedAt)
 		}
 		return todos[i].ID > todos[j].ID
 	})
@@ -98,8 +98,8 @@ func (r *Repository) ListSuggestions(ctx context.Context, status todoapp.Suggest
 
 	// Sort by UpdatedAt descending, then by ID descending for determinism.
 	sort.Slice(suggestions, func(i, j int) bool {
-		if suggestions[i].UpdatedAt.Unix() != suggestions[j].UpdatedAt.Unix() {
-			return suggestions[i].UpdatedAt.Unix() > suggestions[j].UpdatedAt.Unix()
+		if !suggestions[i].UpdatedAt.Equal(suggestions[j].UpdatedAt) {
+			return suggestions[i].UpdatedAt.After(suggestions[j].UpdatedAt)
 		}
 		return suggestions[i].ID > suggestions[j].ID
 	})
