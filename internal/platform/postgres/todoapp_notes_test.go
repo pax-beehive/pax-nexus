@@ -42,6 +42,15 @@ func TestTodoNoteDirectory_ListOpenActionItems(t *testing.T) {
 		subject: "Active status", body: "status body", state: "active",
 		updatedAt: base.Add(30 * time.Second),
 	})
+	seedTeamNote(t, store.Pool(), teamNoteSeed{
+		scopeID: scopeID, noteID: "note-blocker-expired", kind: "blocker",
+		subject: "Expired blocker", body: "expired body", state: "active",
+		updatedAt: base.Add(40 * time.Second),
+		// Active by state, but past its TTL: must be excluded from results
+		// the same way notes.go's canonical active-note predicate excludes
+		// TTL-expired notes elsewhere.
+		expiresAt: base.Add(-1 * time.Hour),
+	})
 
 	directory, err := postgres.NewTodoNoteDirectory(store.Pool(), scopeID)
 	require.NoError(t, err)
@@ -84,6 +93,9 @@ type teamNoteSeed struct {
 	body      string
 	state     string
 	updatedAt time.Time
+	// expiresAt overrides soft_expires_at/hard_expires_at when non-zero;
+	// otherwise both default to updatedAt+24h (well in the future).
+	expiresAt time.Time
 }
 
 // seedTeamNote inserts a row directly into team_notes, filling every NOT
@@ -91,6 +103,10 @@ type teamNoteSeed struct {
 // note extraction pipeline.
 func seedTeamNote(t *testing.T, pool *pgxpool.Pool, seed teamNoteSeed) {
 	t.Helper()
+	expiresAt := seed.expiresAt
+	if expiresAt.IsZero() {
+		expiresAt = seed.updatedAt.Add(24 * time.Hour)
+	}
 	_, err := pool.Exec(context.Background(), `
 INSERT INTO team_notes (
     scope_id, note_id, note_key, kind, subject, body,
@@ -104,7 +120,7 @@ INSERT INTO team_notes (
     $8, $8, $9, $9
 )`,
 		seed.scopeID, seed.noteID, seed.scopeID+":"+seed.noteID, seed.kind, seed.subject, seed.body,
-		seed.state, seed.updatedAt.Add(24*time.Hour), seed.updatedAt,
+		seed.state, expiresAt, seed.updatedAt,
 	)
 	require.NoError(t, err)
 }

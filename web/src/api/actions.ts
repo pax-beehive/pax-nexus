@@ -365,10 +365,13 @@ export function rebuildWiki(idempotencyKey: string): Promise<WikiIngestionStatus
 }
 
 // ---- Todos ----
-// Todo/suggestion transitions (create, complete, accept, dismiss) are
-// idempotent state machines on the backend: repeating a transition against
-// an already-transitioned record is a no-op, not a conflict. So unlike the
-// mutations above, none of these send an Idempotency-Key or If-Match.
+// Todo/suggestion transitions (create, complete, accept, dismiss) are state
+// machines on the backend, but not uniformly idempotent: complete is a
+// no-op when repeated, while accept/dismiss reject repeats against an
+// already-transitioned record with 409 invalid_transition, which the UI
+// surfaces after a refetch. Either way a retry is safe to send as-is, so
+// unlike the mutations above, none of these send an Idempotency-Key or
+// If-Match.
 
 export function createTodo(title: string, body: string): Promise<TodoItem> {
   return humanFetch<TodoItem>("/v1/todo/todos", {

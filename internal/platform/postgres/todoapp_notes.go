@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pax-beehive/pax-nexus/internal/todoapp"
@@ -30,12 +31,14 @@ func (d *TodoNoteDirectory) ListOpenActionItems(ctx context.Context, limit int) 
 	if limit <= 0 {
 		limit = 50
 	}
+	now := time.Now().UTC()
 	rows, err := d.pool.Query(ctx, `
 SELECT note_id, kind, subject, body, updated_at
 FROM team_notes
 WHERE scope_id = $1 AND kind IN ('blocker', 'handoff') AND state = 'active'
+  AND soft_expires_at > $2 AND hard_expires_at > $2
 ORDER BY updated_at DESC, note_id DESC
-LIMIT $2`, d.scopeID, limit)
+LIMIT $3`, d.scopeID, now, limit)
 	if err != nil {
 		return nil, fmt.Errorf("list todoapp open action items: %w", err)
 	}

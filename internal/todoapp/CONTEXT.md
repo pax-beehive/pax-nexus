@@ -19,4 +19,4 @@ Accepts tasks and completions from the human operator, reports actions as Eviden
   - **NoteDirectory** (read.list): retrieves active blocker and handoff notes as suggestion sources.
   - **EvidenceSink** (report): reports operator actions as `app:todo` evidence streams (human-only source).
 - Does not write to the Evidence Lake or Team Note knowledge directly.
-- Uses the shared LLM chat client from `internal/platform/llm` for local suggestion ranking.
+- Uses the shared LLM chat client from `internal/platform/llm` to rewrite blocker/handoff note copy into actionable todo title/body text (no ranking is performed).
