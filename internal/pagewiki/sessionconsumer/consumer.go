@@ -117,7 +117,7 @@ func (c *Controller) Status(ctx context.Context, scopeID string) (Status, error)
 	status := Status{AutoInject: enabled}
 	progress, err := c.store.Progress(ctx, scopeID)
 	if err != nil {
-		c.logger.Warn("read Page Wiki ingestion progress", "error", err)
+		c.logger.WarnContext(ctx, "read Page Wiki ingestion progress", "error", err)
 		return status, nil
 	}
 	status.Progress = &progress
