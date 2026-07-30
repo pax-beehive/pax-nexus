@@ -16,20 +16,25 @@ const (
 	treeIndexerAttempts = 2
 	treeMinTopicPages   = 3
 	treeMaxDirectPages  = 10
+	treeDefaultMaxDepth = 5
 )
 
 type LLMTreeIndexerConfig struct {
 	Client llm.ChatClient
 	Model  string
 	Logger *slog.Logger
+	// MaxDepth caps topic nesting (root topics are level 1); 0 means the
+	// default. Deeper LLM output is flattened into the level-MaxDepth topic.
+	MaxDepth int
 }
 
 // LLMTreeIndexer organizes published pages into the reader-facing topic
 // tree while deterministic code enforces coverage, depth, and density.
 type LLMTreeIndexer struct {
-	client llm.ChatClient
-	model  string
-	logger *slog.Logger
+	client   llm.ChatClient
+	model    string
+	logger   *slog.Logger
+	maxDepth int
 }
 
 func NewLLMTreeIndexer(config LLMTreeIndexerConfig) (*LLMTreeIndexer, error) {
@@ -43,8 +48,16 @@ func NewLLMTreeIndexer(config LLMTreeIndexerConfig) (*LLMTreeIndexer, error) {
 	if logger == nil {
 		logger = observability.DiscardLogger()
 	}
+	maxDepth := config.MaxDepth
+	if maxDepth == 0 {
+		maxDepth = treeDefaultMaxDepth
+	}
+	if maxDepth < 1 {
+		return nil, errors.New("create Page Wiki tree indexer: max depth must be positive")
+	}
 	return &LLMTreeIndexer{
-		client: config.Client, model: strings.TrimSpace(config.Model), logger: logger,
+		client: config.Client, model: strings.TrimSpace(config.Model),
+		logger: logger, maxDepth: maxDepth,
 	}, nil
 }
 
@@ -84,7 +97,7 @@ func (x *LLMTreeIndexer) Index(
 		response, err := x.client.Complete(ctx, llm.ChatRequest{
 			Model: x.model,
 			Messages: []llm.ChatMessage{
-				{Role: "system", Content: pageWikiTreeIndexerPrompt},
+				{Role: "system", Content: treeIndexerPrompt(x.maxDepth)},
 				{Role: "user", Content: string(payload)},
 			},
 		})
@@ -188,101 +201,16 @@ func (x *LLMTreeIndexer) normalizeTree(
 	for _, slug := range decoded.RootPages {
 		claim(slug)
 	}
-	roots := make([]*draftTopic, 0, len(decoded.Topics))
-	rootIndex := make(map[string]*draftTopic)
-	for _, node := range decoded.Topics {
-		slug := topicSlug(node.Title)
-		if slug == "" {
-			continue
-		}
-		root, found := rootIndex[slug]
-		if !found {
-			root = &draftTopic{slug: slug, title: strings.TrimSpace(node.Title)}
-			rootIndex[slug] = root
-			roots = append(roots, root)
-		}
-		for _, pageSlug := range node.Pages {
-			if pageID, ok := claim(pageSlug); ok {
-				root.pageIDs = append(root.pageIDs, pageID)
-			}
-		}
-		childIndex := make(map[string]*draftTopic)
-		for _, existing := range root.children {
-			childIndex[existing.slug] = existing
-		}
-		for _, childNode := range node.Children {
-			childSlug := topicSlug(childNode.Title)
-			if childSlug == "" || childSlug == slug {
-				for _, pageSlug := range collectNodePages(childNode) {
-					if pageID, ok := claim(pageSlug); ok {
-						root.pageIDs = append(root.pageIDs, pageID)
-					}
-				}
-				continue
-			}
-			child, exists := childIndex[childSlug]
-			if !exists {
-				child = &draftTopic{slug: childSlug, title: strings.TrimSpace(childNode.Title)}
-				childIndex[childSlug] = child
-				root.children = append(root.children, child)
-			}
-			for _, pageSlug := range collectNodePages(childNode) {
-				if pageID, ok := claim(pageSlug); ok {
-					child.pageIDs = append(child.pageIDs, pageID)
-				}
-			}
-		}
-	}
+	roots, absorbed := buildDraftTopics(decoded.Topics, claim, "", 1, x.maxDepth)
+	kept, folded := pruneDraftTopics(roots)
 	tree := TopicTree{Topics: make([]Topic, 0), Placements: make([]PagePlacement, 0)}
-	unplacedBudget := 0
+	unplacedBudget := len(absorbed) + len(folded)
 	for _, page := range catalog {
 		if _, found := placed[page.ID]; !found {
 			unplacedBudget++
 		}
 	}
-	for _, root := range roots {
-		kept := root.children[:0]
-		for _, child := range root.children {
-			if len(child.pageIDs) < treeMinTopicPages {
-				root.pageIDs = append(root.pageIDs, child.pageIDs...)
-				continue
-			}
-			kept = append(kept, child)
-		}
-		root.children = kept
-		total := len(root.pageIDs)
-		for _, child := range root.children {
-			total += len(child.pageIDs)
-		}
-		if total < treeMinTopicPages {
-			unplacedBudget += total
-			continue
-		}
-		rootID := stableID("topic", "", root.slug)
-		tree.Topics = append(tree.Topics, Topic{
-			ID: rootID, Slug: root.slug, Title: root.title,
-		})
-		appendPlacements(&tree, rootID, root.pageIDs)
-		if len(root.pageIDs) > treeMaxDirectPages {
-			x.logger.Warn(
-				"Page Wiki topic exceeds the direct-page target",
-				"topic", root.slug, "pages", len(root.pageIDs),
-			)
-		}
-		for _, child := range root.children {
-			childID := stableID("topic", rootID, child.slug)
-			tree.Topics = append(tree.Topics, Topic{
-				ID: childID, ParentID: rootID, Slug: child.slug, Title: child.title,
-			})
-			appendPlacements(&tree, childID, child.pageIDs)
-			if len(child.pageIDs) > treeMaxDirectPages {
-				x.logger.Warn(
-					"Page Wiki topic exceeds the direct-page target",
-					"topic", child.slug, "pages", len(child.pageIDs),
-				)
-			}
-		}
-	}
+	x.emitTopics(&tree, "", kept)
 	if unplacedBudget > treeMaxDirectPages {
 		x.logger.Warn(
 			"Page Wiki root exceeds the direct-page target",
@@ -290,6 +218,151 @@ func (x *LLMTreeIndexer) normalizeTree(
 		)
 	}
 	return tree
+}
+
+// buildDraftTopics converts LLM nodes at one level into draft topics,
+// merging duplicate slugs and processing each node fully depth-first — a
+// node's own pages are claimed and its children are recursed into
+// immediately, before its next sibling is touched — matching the
+// pre-refactor claim order so that a page slug repeated across branches is
+// always won by the earliest branch in document order. Nodes at maxDepth
+// keep their whole subtree's pages instead of recursing. Returns the
+// topics plus page IDs the caller must absorb (child nodes whose slug is
+// empty or repeats the parent's). At the root level (empty parentSlug) an
+// empty-slug node is skipped without claiming, preserving the previous
+// behavior.
+func buildDraftTopics(
+	nodes []llmTreeNode,
+	claim func(string) (string, bool),
+	parentSlug string,
+	depth, maxDepth int,
+) ([]*draftTopic, []string) {
+	topics := make([]*draftTopic, 0, len(nodes))
+	index := make(map[string]*draftTopic)
+	absorbed := make([]string, 0)
+	for _, node := range nodes {
+		slug := topicSlug(node.Title)
+		if slug == "" && parentSlug == "" {
+			continue
+		}
+		if slug == "" || slug == parentSlug {
+			absorbed = append(absorbed, claimPages(collectNodePages(node), claim)...)
+			continue
+		}
+		topic, found := index[slug]
+		if !found {
+			topic = &draftTopic{slug: slug, title: strings.TrimSpace(node.Title)}
+			index[slug] = topic
+			topics = append(topics, topic)
+		}
+		claimNodeIntoTopic(topic, node, claim, depth, maxDepth)
+	}
+	return topics, absorbed
+}
+
+// claimNodeIntoTopic claims node's own pages onto topic, then — unless
+// depth has reached maxDepth, in which case node's whole flattened subtree
+// is claimed instead — immediately recurses into node's children and
+// merges the resulting child topics into topic.children. Doing this before
+// buildDraftTopics moves to node's next sibling is what makes claim order
+// depth-first.
+func claimNodeIntoTopic(
+	topic *draftTopic,
+	node llmTreeNode,
+	claim func(string) (string, bool),
+	depth, maxDepth int,
+) {
+	if depth == maxDepth {
+		topic.pageIDs = append(topic.pageIDs, claimPages(collectNodePages(node), claim)...)
+		return
+	}
+	topic.pageIDs = append(topic.pageIDs, claimPages(node.Pages, claim)...)
+	if len(node.Children) == 0 {
+		return
+	}
+	children, absorbed := buildDraftTopics(node.Children, claim, topic.slug, depth+1, maxDepth)
+	topic.pageIDs = append(topic.pageIDs, absorbed...)
+	mergeChildTopics(topic, children)
+}
+
+// claimPages claims each slug in order and returns the page IDs that were
+// newly claimed.
+func claimPages(slugs []string, claim func(string) (string, bool)) []string {
+	ids := make([]string, 0, len(slugs))
+	for _, slug := range slugs {
+		if pageID, ok := claim(slug); ok {
+			ids = append(ids, pageID)
+		}
+	}
+	return ids
+}
+
+// mergeChildTopics folds children into parent.children, matching by slug so
+// that a parent slug repeated across separate LLM branches accumulates all
+// occurrences' descendants into one subtree instead of duplicating topics.
+func mergeChildTopics(parent *draftTopic, children []*draftTopic) {
+	index := make(map[string]*draftTopic, len(parent.children))
+	for _, existing := range parent.children {
+		index[existing.slug] = existing
+	}
+	for _, child := range children {
+		existing, found := index[child.slug]
+		if !found {
+			index[child.slug] = child
+			parent.children = append(parent.children, child)
+			continue
+		}
+		existing.pageIDs = append(existing.pageIDs, child.pageIDs...)
+		mergeChildTopics(existing, child.children)
+	}
+}
+
+// pruneDraftTopics enforces the minimum-pages rule bottom-up: a topic whose
+// subtree holds fewer than treeMinTopicPages pages folds its pages into its
+// parent (or, at the root level, back into the unplaced budget).
+func pruneDraftTopics(topics []*draftTopic) ([]*draftTopic, []string) {
+	kept := make([]*draftTopic, 0, len(topics))
+	folded := make([]string, 0)
+	for _, topic := range topics {
+		children, childFolded := pruneDraftTopics(topic.children)
+		topic.children = children
+		topic.pageIDs = append(topic.pageIDs, childFolded...)
+		if len(subtreePageIDs(topic)) < treeMinTopicPages {
+			folded = append(folded, subtreePageIDs(topic)...)
+			continue
+		}
+		kept = append(kept, topic)
+	}
+	return kept, folded
+}
+
+func subtreePageIDs(topic *draftTopic) []string {
+	ids := append([]string(nil), topic.pageIDs...)
+	for _, child := range topic.children {
+		ids = append(ids, subtreePageIDs(child)...)
+	}
+	return ids
+}
+
+func (x *LLMTreeIndexer) emitTopics(
+	tree *TopicTree,
+	parentID string,
+	topics []*draftTopic,
+) {
+	for _, topic := range topics {
+		id := stableID("topic", parentID, topic.slug)
+		tree.Topics = append(tree.Topics, Topic{
+			ID: id, ParentID: parentID, Slug: topic.slug, Title: topic.title,
+		})
+		appendPlacements(tree, id, topic.pageIDs)
+		if len(topic.pageIDs) > treeMaxDirectPages {
+			x.logger.Warn(
+				"Page Wiki topic exceeds the direct-page target",
+				"topic", topic.slug, "pages", len(topic.pageIDs),
+			)
+		}
+		x.emitTopics(tree, id, topic.children)
+	}
 }
 
 func appendPlacements(tree *TopicTree, topicID string, pageIDs []string) {
@@ -314,12 +387,16 @@ func topicSlug(title string) string {
 	), "-")
 }
 
-const pageWikiTreeIndexerPrompt = `You are the librarian of a durable, evidence-backed team Wiki.
+func treeIndexerPrompt(maxDepth int) string {
+	return fmt.Sprintf(pageWikiTreeIndexerPromptTemplate, maxDepth)
+}
+
+const pageWikiTreeIndexerPromptTemplate = `You are the librarian of a durable, evidence-backed team Wiki.
 You organize finished pages into a reader-facing topic tree; you never rewrite pages.
 You receive one JSON object: {"pages":[{"slug","title","summary"}],"current_root_pages":[...],"current_topics":[{"title","pages","children"}]}.
 current_root_pages and current_topics describe the tree as it stands today.
 Return exactly one JSON object and no Markdown fence:
-{"root_pages":["slug"],"topics":[{"title":"English topic name","pages":["slug"],"children":[{"title":"...","pages":["slug"]}]}]}
+{"root_pages":["slug"],"topics":[{"title":"English topic name","pages":["slug"],"children":[{"title":"...","pages":["slug"],"children":[{"title":"...","pages":["slug"]}]}]}]}
 
 Semantics are the only grouping principle. Group pages strictly by subject
 matter. Never invent a catch-all topic such as "Misc", "Other", or
@@ -328,7 +405,7 @@ coherent group exists, leave those pages in root_pages. Flat first: a
 small wiki needs no topics at all. Introduce a topic only when more than
 10 pages would otherwise sit together and a coherent group of at least 3
 pages exists. Split a topic holding more than 10 direct pages into child
-topics of at least 3 pages each, at most two levels deep. Preserve the
+topics of at least 3 pages each, at most %d levels of topics deep. Preserve the
 current tree's topic names and placements unless a rule above is violated
 or a placement is clearly wrong: evolve the tree, do not reinvent it.
 Every page slug must appear exactly once, in root_pages or under exactly
