@@ -20,7 +20,7 @@ import { AdminOperationsPage } from "./AdminOperationsPage";
 import { AdminPulsePage } from "./AdminPulsePage";
 import { AdminExplorerPage } from "./AdminExplorerPage";
 import { AdminTeamNoteDetailPage } from "./AdminTeamNoteDetailPage";
-import { WikiPage } from "./WikiPage";
+import { WikiStatusPage } from "./WikiStatusPage";
 
 function navClass({ isActive }: { isActive: boolean }): string {
   return isActive ? "active" : "";
@@ -180,7 +180,7 @@ export function PortalShell({ me }: { me: HumanMe }) {
           </>
         )}
       </aside>
-      <main className={location.pathname === "/wiki" ? "main main-wide" : "main"}>
+      <main className="main">
         {/* Route-level boundary: a failing route keeps the shell and nav
             usable. Keying by pathname remounts the boundary on navigation,
             so moving to another route always recovers the content area. */}
@@ -193,7 +193,7 @@ export function PortalShell({ me }: { me: HumanMe }) {
           <Routes>
             <Route path="/agents" element={<MyAgentsPage />} />
             <Route path="/agents/:agentId" element={<AgentDetailPage />} />
-            <Route path="/wiki" element={<WikiPage me={me} />} />
+            <Route path="/wiki" element={<WikiStatusPage me={me} />} />
             <Route
               path="/admin/members"
               element={
