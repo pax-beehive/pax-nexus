@@ -68,6 +68,39 @@ ORDER BY stream.updated_at
 LIMIT 100`, sessionconsumer.ProcessorName, sessionconsumer.ProcessorVersion, s.scopeID)
 }
 
+// Progress reports the ingestion backlog for the status page. Unlike
+// PendingStreams it does not gate on auto_inject: the backlog is shown
+// even while automatic injection is off.
+func (s *PageWikiConsumerStore) Progress(
+	ctx context.Context,
+	scopeID string,
+) (sessionconsumer.Progress, error) {
+	var progress sessionconsumer.Progress
+	err := s.pool.QueryRow(ctx, `
+SELECT
+  (SELECT COUNT(*)
+   FROM session_streams AS stream
+   LEFT JOIN session_processor_cursors AS cursor
+     ON cursor.processor_name = $1
+    AND cursor.processor_version = $2
+    AND cursor.scope_id = stream.scope_id
+    AND cursor.agent_id = stream.agent_id
+    AND cursor.session_id = stream.session_id
+   WHERE stream.last_sequence > COALESCE(cursor.committed_sequence, 0)
+     AND stream.scope_id = $3
+     AND stream.source = 'agent-session'
+     AND stream.agent_id <> ''),
+  (SELECT MAX(updated_at)
+   FROM session_processor_cursors
+   WHERE processor_name = $1 AND processor_version = $2 AND scope_id = $3)`,
+		sessionconsumer.ProcessorName, sessionconsumer.ProcessorVersion, scopeID,
+	).Scan(&progress.PendingSessions, &progress.LastProcessedAt)
+	if err != nil {
+		return sessionconsumer.Progress{}, fmt.Errorf("read Page Wiki ingestion progress: %w", err)
+	}
+	return progress, nil
+}
+
 func (s *PageWikiConsumerStore) StreamsBySessionID(
 	ctx context.Context,
 	scopeID string,

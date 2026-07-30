@@ -167,6 +167,41 @@ func (s *postgresConsumerSuite) TestAutoSettingSelectsPendingStreams() {
 	s.Equal("runtime-session", streams[0].Actor.SessionID)
 }
 
+func (s *postgresConsumerSuite) TestProgressCountsBacklogAndLastProcessed() {
+	s.seedSession()
+	consumerStore, err := platformpostgres.NewPageWikiConsumerStore(s.store.Pool(), s.scopeID)
+	s.Require().NoError(err)
+
+	// Backlog is visible even though auto inject was never enabled.
+	progress, err := consumerStore.Progress(s.ctx, s.scopeID)
+	s.Require().NoError(err)
+	s.Equal(1, progress.PendingSessions)
+	s.Nil(progress.LastProcessedAt)
+
+	repository, err := pagewikipostgres.NewRepository(s.ctx, s.store.Pool(), s.scopeID)
+	s.Require().NoError(err)
+	controller, err := sessionconsumer.New(
+		consumerStore,
+		pagewiki.NewService(
+			repository,
+			pagewiki.SessionDocumentPlanner{},
+			pagewiki.SessionDocumentEditor{},
+		),
+		repository,
+		slog.New(slog.DiscardHandler),
+		time.Hour,
+	)
+	s.Require().NoError(err)
+	_, err = controller.InjectSession(s.ctx, s.scopeID, "runtime-session")
+	s.Require().NoError(err)
+
+	progress, err = consumerStore.Progress(s.ctx, s.scopeID)
+	s.Require().NoError(err)
+	s.Zero(progress.PendingSessions)
+	s.Require().NotNil(progress.LastProcessedAt)
+	s.WithinDuration(time.Now(), *progress.LastProcessedAt, time.Minute)
+}
+
 func (s *postgresConsumerSuite) seedSession() {
 	_, err := s.store.Pool().Exec(s.ctx, `
 INSERT INTO session_streams (
