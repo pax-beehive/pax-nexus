@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"testing"
 	"time"
 
@@ -67,6 +68,13 @@ func (f *fakeRepository) ListTodos(_ context.Context, status todoapp.TodoStatus)
 			result = append(result, todo)
 		}
 	}
+	// Sort deterministically: UpdatedAt descending, then ID descending
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].UpdatedAt != result[j].UpdatedAt {
+			return result[i].UpdatedAt.After(result[j].UpdatedAt)
+		}
+		return result[i].ID > result[j].ID
+	})
 	return result, nil
 }
 
@@ -90,6 +98,13 @@ func (f *fakeRepository) ListSuggestions(_ context.Context, status todoapp.Sugge
 			result = append(result, suggestion)
 		}
 	}
+	// Sort deterministically: UpdatedAt descending, then ID descending
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].UpdatedAt != result[j].UpdatedAt {
+			return result[i].UpdatedAt.After(result[j].UpdatedAt)
+		}
+		return result[i].ID > result[j].ID
+	})
 	return result, nil
 }
 
@@ -269,24 +284,31 @@ func (s *ServiceSuite) TestRefreshCreatesPendingSuggestionsWithCitation() {
 	s.Require().NoError(err)
 	s.Require().Len(suggestions, 2)
 
-	// Verify rewritten titles and fingerprints
-	for i, sugg := range suggestions {
+	// Map suggestions by NoteID for order-independent verification
+	suggestionsByNoteID := make(map[string]todoapp.Suggestion)
+	for _, sugg := range suggestions {
+		suggestionsByNoteID[sugg.NoteID] = sugg
+	}
+
+	// Verify both pending with correct data
+	for _, sugg := range suggestions {
 		s.Require().Equal(todoapp.SuggestionPending, sugg.Status)
 		s.Require().NotEmpty(sugg.ID)
-		if i == 0 {
-			s.Require().Equal("note-1", sugg.NoteID)
-			s.Require().Equal("note-1", sugg.Fingerprint)
-			s.Require().Equal("action", sugg.Kind)
-			s.Require().Equal("[SUGGESTED] Fix bug", sugg.Title)
-			s.Require().Equal("rewritten: Critical", sugg.Body)
-		} else {
-			s.Require().Equal("note-2", sugg.NoteID)
-			s.Require().Equal("note-2", sugg.Fingerprint)
-			s.Require().Equal("followup", sugg.Kind)
-			s.Require().Equal("[SUGGESTED] Review PR", sugg.Title)
-			s.Require().Equal("rewritten: Urgent", sugg.Body)
-		}
 	}
+
+	// Verify note-1 suggestion
+	sugg1 := suggestionsByNoteID["note-1"]
+	s.Require().Equal("note-1", sugg1.Fingerprint)
+	s.Require().Equal("action", sugg1.Kind)
+	s.Require().Equal("[SUGGESTED] Fix bug", sugg1.Title)
+	s.Require().Equal("rewritten: Critical", sugg1.Body)
+
+	// Verify note-2 suggestion
+	sugg2 := suggestionsByNoteID["note-2"]
+	s.Require().Equal("note-2", sugg2.Fingerprint)
+	s.Require().Equal("followup", sugg2.Kind)
+	s.Require().Equal("[SUGGESTED] Review PR", sugg2.Title)
+	s.Require().Equal("rewritten: Urgent", sugg2.Body)
 }
 
 func (s *ServiceSuite) TestRefreshDeduplicatesByFingerprint() {
