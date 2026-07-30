@@ -215,6 +215,17 @@ func buildPageWikiMaintainers(
 					"LLMWIKI_LLM_API_KEY, and LLMWIKI_LLM_MODEL are required",
 			)
 		}
+		maxDepth := 0
+		if raw := strings.TrimSpace(config.llmwikiTreeMaxDepth); raw != "" {
+			parsed, err := strconv.Atoi(raw)
+			if err != nil || parsed < 1 {
+				return nil, nil, nil, fmt.Errorf(
+					"initialize Page Wiki LLM maintainers: LLMWIKI_TREE_MAX_DEPTH must be a positive integer, got %q",
+					raw,
+				)
+			}
+			maxDepth = parsed
+		}
 		client := platformllm.NewDeepSeekClient(platformllm.DeepSeekConfig{
 			BaseURL: config.llmwikiBaseURL,
 			APIKey:  config.llmwikiAPIKey,
@@ -232,7 +243,7 @@ func buildPageWikiMaintainers(
 			return nil, nil, nil, err
 		}
 		indexer, err := pagewiki.NewLLMTreeIndexer(pagewiki.LLMTreeIndexerConfig{
-			Client: client, Model: config.llmwikiModel, Logger: logger,
+			Client: client, Model: config.llmwikiModel, Logger: logger, MaxDepth: maxDepth,
 		})
 		if err != nil {
 			return nil, nil, nil, err
@@ -361,6 +372,7 @@ type applicationConfig struct {
 	llmwikiBaseURL                 string
 	llmwikiAPIKey                  string
 	llmwikiModel                   string
+	llmwikiTreeMaxDepth            string
 }
 
 func loadConfig() (applicationConfig, error) {
@@ -370,6 +382,7 @@ func loadConfig() (applicationConfig, error) {
 		extractorAPIKey: os.Getenv("TEAM_MEMORY_EXTRACTOR_API_KEY"), extractorModel: os.Getenv("TEAM_MEMORY_EXTRACTOR_MODEL"),
 		llmwikiMode: os.Getenv("LLMWIKI_ORGANIZER_MODE"), llmwikiBaseURL: os.Getenv("LLMWIKI_LLM_BASE_URL"),
 		llmwikiAPIKey: os.Getenv("LLMWIKI_LLM_API_KEY"), llmwikiModel: os.Getenv("LLMWIKI_LLM_MODEL"),
+		llmwikiTreeMaxDepth: os.Getenv("LLMWIKI_TREE_MAX_DEPTH"),
 		promptVersion:               os.Getenv("TEAM_MEMORY_PROMPT_VERSION"),
 		extractionContextMode:       os.Getenv("TEAM_MEMORY_EXTRACTION_CONTEXT_MODE"),
 		extractionVersion:           os.Getenv("TEAM_MEMORY_EXTRACTION_VERSION"),
