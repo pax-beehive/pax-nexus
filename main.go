@@ -31,6 +31,9 @@ import (
 	"github.com/pax-beehive/pax-nexus/internal/teamnote/extractor"
 	teamruntime "github.com/pax-beehive/pax-nexus/internal/teamnote/runtime"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote/transport/httpapi/handler"
+	"github.com/pax-beehive/pax-nexus/internal/todoapp"
+	todoapppostgres "github.com/pax-beehive/pax-nexus/internal/todoapp/postgres"
+	todoapphttp "github.com/pax-beehive/pax-nexus/internal/todoapp/transport/httpapi"
 )
 
 const embeddingBackfillBatchSize = 32
@@ -100,7 +103,8 @@ func run(ctx context.Context, logger *slog.Logger) error {
 		operationRecorder = dropCountingRecorder
 		runtimeConfig.ExtractionObserver = onprem.NewExtractionObserver(operationRecorder, logger)
 	}
-	runtime, err := teamruntime.New(evidencelake.New(sessions), candidateExtractor, runtimeConfig)
+	lake := evidencelake.New(sessions)
+	runtime, err := teamruntime.New(lake, candidateExtractor, runtimeConfig)
 	if err != nil {
 		return fmt.Errorf("initialize runtime: %w", err)
 	}
@@ -118,11 +122,12 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	if err := sessions.ConfigureExtractionEnqueuer(queue); err != nil {
 		return fmt.Errorf("connect extraction queue: %w", err)
 	}
-	httpHandler, pageWikiHandler, err := buildApplicationHTTPHandlers(
+	httpHandler, pageWikiHandler, todoHandler, stopTodoRefresh, err := buildApplicationHTTPHandlers(
 		ctx,
 		runtime,
 		store,
 		operationRecorder,
+		lake,
 		config,
 		logger,
 	)
@@ -141,6 +146,7 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	h := server.Default(server.WithHostPorts(config.listenAddress))
 	h.Use(handler.InstanceMiddleware(httpHandler))
 	h.Use(pagewikihttp.InstanceMiddleware(pageWikiHandler))
+	h.Use(todoapphttp.InstanceMiddleware(todoHandler))
 	register(h)
 	logger.Info("team-memory started", "listen_address", config.listenAddress, "worker_shards", config.workerShards,
 		"extraction_version", config.extractionVersion,
@@ -148,6 +154,7 @@ func run(ctx context.Context, logger *slog.Logger) error {
 		"recall_candidate_strategy", config.recallCandidateStrategy.Name)
 	h.Spin()
 	stopOperations()
+	stopTodoRefresh()
 	queueStopContext, cancelQueueStop := context.WithTimeout(context.Background(), config.workerStopTimeout)
 	queueErr := queue.Stop(queueStopContext)
 	cancelQueueStop()
@@ -251,14 +258,15 @@ func buildApplicationHTTPHandlers(
 	runtime teamnote.Runtime,
 	store *postgres.Store,
 	operationRecorder operations.Recorder,
+	lake *evidencelake.Lake,
 	config applicationConfig,
 	logger *slog.Logger,
-) (*handler.Handler, *pagewikihttp.Handler, error) {
+) (*handler.Handler, *pagewikihttp.Handler, *todoapphttp.Handler, func(), error) {
 	pageHandler, wikiControl, err := buildPageWikiHTTPHandler(ctx, store, config, logger)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, nil, err
 	}
-	teamHandler, err := buildHTTPHandler(
+	teamHandler, identity, err := buildHTTPHandler(
 		ctx,
 		runtime,
 		store,
@@ -268,9 +276,86 @@ func buildApplicationHTTPHandlers(
 		wikiControl,
 	)
 	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	todoHandler, stopTodoRefresh, err := buildTodoApp(ctx, store, lake, identity, config, logger)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	return teamHandler, pageHandler, todoHandler, stopTodoRefresh, nil
+}
+
+// buildTodoApp wires the Todo App domain service, its Postgres-backed
+// repository and note directory, its evidence-lake reporter, an optional LLM
+// rewriter reusing the LLMWIKI_LLM_* configuration, the HTTP transport, and
+// the background suggestion-refresh scheduler. identity may be nil (legacy
+// API-key mode); the transport then answers 501 for every route.
+func buildTodoApp(
+	ctx context.Context,
+	store *postgres.Store,
+	lake *evidencelake.Lake,
+	identity *onprem.IdentityService,
+	config applicationConfig,
+	logger *slog.Logger,
+) (*todoapphttp.Handler, func(), error) {
+	todoRepository, err := todoapppostgres.NewRepository(ctx, store.Pool(), onprem.LocalScopeID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("initialize Todo App repository: %w", err)
+	}
+	noteDirectory, err := postgres.NewTodoNoteDirectory(store.Pool(), onprem.LocalScopeID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("initialize Todo App note directory: %w", err)
+	}
+	reporter, err := todoapp.NewLakeReporter(lake, onprem.LocalScopeID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("initialize Todo App reporter: %w", err)
+	}
+	rewriter, err := buildTodoRewriter(config, logger)
+	if err != nil {
 		return nil, nil, err
 	}
-	return teamHandler, pageHandler, nil
+	service, err := todoapp.NewService(todoapp.ServiceConfig{
+		Repository: todoRepository, Notes: noteDirectory, Rewriter: rewriter, Reporter: reporter, Logger: logger,
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("initialize Todo App service: %w", err)
+	}
+	// identity is a typed *onprem.IdentityService; only pass it through as the
+	// HumanAuthenticator interface when it is actually configured, so a nil
+	// identity produces a true nil interface (routes then answer 501).
+	var authenticator todoapphttp.HumanAuthenticator
+	if identity != nil {
+		authenticator = identity
+	}
+	configured, err := todoapphttp.New(service, authenticator)
+	if err != nil {
+		return nil, nil, fmt.Errorf("initialize Todo App HTTP handler: %w", err)
+	}
+	stop := todoapp.StartSuggestionRefresh(ctx, service, config.todoRefreshInterval, logger)
+	return configured, stop, nil
+}
+
+// buildTodoRewriter returns an LLM-backed Rewriter when the LLMWIKI_LLM_*
+// settings are fully configured, reusing the same environment as Page Wiki's
+// LLM maintainers (see buildPageWikiMaintainers). Otherwise it returns a nil
+// Rewriter, and the service falls back to verbatim copy.
+func buildTodoRewriter(config applicationConfig, logger *slog.Logger) (todoapp.Rewriter, error) {
+	if strings.TrimSpace(config.llmwikiBaseURL) == "" ||
+		strings.TrimSpace(config.llmwikiAPIKey) == "" ||
+		strings.TrimSpace(config.llmwikiModel) == "" {
+		return nil, nil
+	}
+	client := platformllm.NewDeepSeekClient(platformllm.DeepSeekConfig{
+		BaseURL: config.llmwikiBaseURL,
+		APIKey:  config.llmwikiAPIKey,
+	})
+	rewriter, err := todoapp.NewLLMRewriter(todoapp.LLMRewriterConfig{
+		Client: client, Model: config.llmwikiModel, Logger: logger,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("initialize Todo App LLM rewriter: %w", err)
+	}
+	return rewriter, nil
 }
 
 func closeExtractor(ctx context.Context, candidateExtractor extractor.Extractor) error {
@@ -361,6 +446,7 @@ type applicationConfig struct {
 	llmwikiBaseURL                 string
 	llmwikiAPIKey                  string
 	llmwikiModel                   string
+	todoRefreshInterval            time.Duration
 }
 
 func loadConfig() (applicationConfig, error) {
@@ -397,6 +483,9 @@ func loadConfig() (applicationConfig, error) {
 		return applicationConfig{}, err
 	}
 	if err = loadRetrievalConfig(&config); err != nil {
+		return applicationConfig{}, err
+	}
+	if config.todoRefreshInterval, err = durationEnvironment("TODOAPP_REFRESH_INTERVAL", time.Hour); err != nil {
 		return applicationConfig{}, err
 	}
 	if config.listenAddress == "" {
@@ -596,6 +685,10 @@ func (config applicationConfig) humanIdentitySettingCount() int {
 	return configured
 }
 
+// buildHTTPHandler configures the team-memory HTTP transport. It also
+// returns the *onprem.IdentityService built for the human portal (nil in
+// legacy API-key mode), so callers can share it with other handlers that
+// authenticate Human Portal sessions, such as the Todo App transport.
 func buildHTTPHandler(
 	ctx context.Context,
 	runtime teamnote.Runtime,
@@ -604,22 +697,22 @@ func buildHTTPHandler(
 	config applicationConfig,
 	logger *slog.Logger,
 	wikiControl handler.WikiControl,
-) (*handler.Handler, error) {
+) (*handler.Handler, *onprem.IdentityService, error) {
 	if len(config.apiKeys) > 0 && (strings.TrimSpace(config.adminAPIKey) != "" || config.humanIdentityConfigured()) {
-		return nil, fmt.Errorf("configure HTTP transport: legacy and on-prem authentication are mutually exclusive")
+		return nil, nil, fmt.Errorf("configure HTTP transport: legacy and on-prem authentication are mutually exclusive")
 	}
 	if len(config.apiKeys) > 0 {
 		configured, err := handler.New(runtime, handler.StaticAPIKeys(config.apiKeys), logger)
 		if err != nil {
-			return nil, fmt.Errorf("configure HTTP transport: %w", err)
+			return nil, nil, fmt.Errorf("configure HTTP transport: %w", err)
 		}
-		return configured, nil
+		return configured, nil, nil
 	}
 	if store == nil {
-		return nil, fmt.Errorf("configure on-prem HTTP transport: postgres store is required")
+		return nil, nil, fmt.Errorf("configure on-prem HTTP transport: postgres store is required")
 	}
 	if operationRecorder == nil {
-		return nil, fmt.Errorf("configure on-prem HTTP transport: operations recorder is required")
+		return nil, nil, fmt.Errorf("configure on-prem HTTP transport: operations recorder is required")
 	}
 	credentials, err := onprem.NewCredentialService(store.Credentials(), onprem.CredentialConfig{
 		AdminAPIKey: config.adminAPIKey, RotationOverlap: config.credentialRotationOverlap,
@@ -627,32 +720,32 @@ func buildHTTPHandler(
 		PortalURL: config.portalURL, DeviceAgentLimit: config.deviceAgentLimit,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("configure on-prem credentials: %w", err)
+		return nil, nil, fmt.Errorf("configure on-prem credentials: %w", err)
 	}
 	memory, err := recall.NewRouter(runtime, nil, recall.Config{EnablePassiveWikiHint: config.wikiHintEnabled})
 	if err != nil {
-		return nil, fmt.Errorf("configure recall router: %w", err)
+		return nil, nil, fmt.Errorf("configure recall router: %w", err)
 	}
 	channel, err := onprem.NewChannelService(store.Channel())
 	if err != nil {
-		return nil, fmt.Errorf("configure on-prem channel: %w", err)
+		return nil, nil, fmt.Errorf("configure on-prem channel: %w", err)
 	}
 	registry, err := onprem.NewRegistryService(store.Registry(), onprem.RegistryConfig{
 		SecretPepper: config.secretPepper, MemberGrantablePermissions: config.memberGrantablePermissions,
 		PortalURL: config.portalURL,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("configure on-prem agent registry: %w", err)
+		return nil, nil, fmt.Errorf("configure on-prem agent registry: %w", err)
 	}
 	operationsService, err := onprem.NewOperationsService(store.Operations(), onprem.OperationsConfig{
 		EventRetention: config.operationsEventRetention, StorageRetention: config.operationsStorageRetention,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("configure on-prem operations: %w", err)
+		return nil, nil, fmt.Errorf("configure on-prem operations: %w", err)
 	}
 	explorerService, err := onprem.NewExplorerService(store.Explorer())
 	if err != nil {
-		return nil, fmt.Errorf("configure team memory explorer: %w", err)
+		return nil, nil, fmt.Errorf("configure team memory explorer: %w", err)
 	}
 	options := []handler.OnPremOption{
 		handler.WithAgentRegistry(registry), handler.WithOperations(operationsService, operationRecorder),
@@ -661,13 +754,14 @@ func buildHTTPHandler(
 	if wikiControl != nil {
 		options = append(options, handler.WithWikiControl(wikiControl))
 	}
+	var identityService *onprem.IdentityService
 	if config.humanIdentityConfigured() {
 		identity, err := onprem.NewIdentityService(store.Identity(), onprem.IdentityConfig{
 			BootstrapSecret: config.bootstrapSecret, SessionTTL: 12 * time.Hour,
 			InvitationTTL: 24 * time.Hour, SecretPepper: config.secretPepper,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("configure on-prem human identity: %w", err)
+			return nil, nil, fmt.Errorf("configure on-prem human identity: %w", err)
 		}
 		oidcAuthenticator, err := onprem.NewOIDCAuthenticator(ctx, onprem.OIDCConfig{
 			Issuer: config.oidcIssuer, ClientID: config.oidcClientID,
@@ -675,17 +769,18 @@ func buildHTTPHandler(
 			FlowSecret: config.oidcFlowSecret,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("configure on-prem OIDC: %w", err)
+			return nil, nil, fmt.Errorf("configure on-prem OIDC: %w", err)
 		}
 		options = append(options, handler.WithHumanIdentity(
 			identity, oidcAuthenticator, config.portalURL, config.humanCookieSecure,
 		))
+		identityService = identity
 	}
 	configured, err := handler.NewOnPrem(runtime, credentials, memory, channel, logger, options...)
 	if err != nil {
-		return nil, fmt.Errorf("configure on-prem HTTP transport: %w", err)
+		return nil, nil, fmt.Errorf("configure on-prem HTTP transport: %w", err)
 	}
-	return configured, nil
+	return configured, identityService, nil
 }
 
 type operationsMaintenanceStore interface {
