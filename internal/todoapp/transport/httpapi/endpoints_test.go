@@ -175,6 +175,186 @@ func TestGivenUnconfiguredIdentityWhenListTodosThenNotImplemented(t *testing.T) 
 	require.Equal(t, "not_configured", body["code"])
 }
 
+func TestGivenInvalidSessionWhenListTodosThenUnauthorized(t *testing.T) {
+	t.Parallel()
+	hertz := newTestServer(t, &fakeService{}, fakeAuthenticator{err: onprem.ErrUnauthorized})
+
+	response := performJSON(hertz, http.MethodGet, "/v1/todo/todos", "", sessionCookieHeader())
+
+	require.Equal(t, http.StatusUnauthorized, response.Code)
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
+	require.Equal(t, "unauthenticated", body["code"])
+}
+
+func TestGivenMalformedBodyWhenCreateTodoThenBindingErrorIsReturned(t *testing.T) {
+	t.Parallel()
+	hertz := newTestServer(t, &fakeService{}, fakeAuthenticator{principal: onprem.HumanPrincipal{UserID: "user-1"}})
+
+	response := performJSON(
+		hertz, http.MethodPost, "/v1/todo/todos", `{`,
+		sessionCookieHeader(),
+		ut.Header{Key: "X-CSRF-Token", Value: csrfValue},
+	)
+
+	require.Equal(t, http.StatusBadRequest, response.Code)
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
+	require.Equal(t, "invalid_request", body["code"])
+}
+
+func TestGivenMalformedBodyWhenMutationRoutesAreCalledThenBindingErrorIsReturned(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		path string
+	}{
+		{name: "complete todo", path: "/v1/todo/todos/todo-1/complete"},
+		{name: "accept suggestion", path: "/v1/todo/suggestions/suggestion-1/accept"},
+		{name: "dismiss suggestion", path: "/v1/todo/suggestions/suggestion-1/dismiss"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			hertz := newTestServer(t, &fakeService{}, fakeAuthenticator{principal: onprem.HumanPrincipal{UserID: "user-1"}})
+
+			response := performJSON(
+				hertz, http.MethodPost, tt.path, `{`,
+				sessionCookieHeader(),
+				ut.Header{Key: "X-CSRF-Token", Value: csrfValue},
+			)
+
+			require.Equal(t, http.StatusBadRequest, response.Code)
+			var body map[string]any
+			require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
+			require.Equal(t, "invalid_request", body["code"])
+		})
+	}
+}
+
+func TestGivenAuthenticatedRequestWhenCompleteTodoThenTodoIsCompleted(t *testing.T) {
+	t.Parallel()
+	fake := &fakeService{}
+	hertz := newTestServer(t, fake, fakeAuthenticator{principal: onprem.HumanPrincipal{UserID: "user-1"}})
+
+	response := performJSON(
+		hertz, http.MethodPost, "/v1/todo/todos/todo-1/complete", "",
+		sessionCookieHeader(),
+		ut.Header{Key: "X-CSRF-Token", Value: csrfValue},
+	)
+
+	require.Equal(t, http.StatusOK, response.Code)
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
+	require.Equal(t, "todo-1", body["todo_id"])
+	require.Equal(t, "done", body["status"])
+	require.Equal(t, "note-1", body["note_id"])
+}
+
+func TestGivenUnknownTodoWhenCompleteTodoThenNotFound(t *testing.T) {
+	t.Parallel()
+	fake := &fakeService{completeErr: todoapp.ErrNotFound}
+	hertz := newTestServer(t, fake, fakeAuthenticator{principal: onprem.HumanPrincipal{UserID: "user-1"}})
+
+	response := performJSON(
+		hertz, http.MethodPost, "/v1/todo/todos/missing/complete", "",
+		sessionCookieHeader(),
+		ut.Header{Key: "X-CSRF-Token", Value: csrfValue},
+	)
+
+	require.Equal(t, http.StatusNotFound, response.Code)
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
+	require.Equal(t, "not_found", body["code"])
+}
+
+func TestGivenAuthenticatedRequestWhenListTodoSuggestionsThenSuggestionsAreMapped(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 7, 29, 12, 0, 0, 0, time.UTC)
+	fake := &fakeService{
+		suggestions: []todoapp.Suggestion{
+			{
+				ID:        "suggestion-1",
+				NoteID:    "note-1",
+				Kind:      "action_item",
+				Title:     "Follow up",
+				Body:      "Ping the customer",
+				Status:    todoapp.SuggestionPending,
+				CreatedAt: now,
+			},
+		},
+	}
+	hertz := newTestServer(t, fake, fakeAuthenticator{principal: onprem.HumanPrincipal{UserID: "user-1"}})
+
+	response := performJSON(hertz, http.MethodGet, "/v1/todo/suggestions", "", sessionCookieHeader())
+
+	require.Equal(t, http.StatusOK, response.Code)
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
+	suggestions, ok := body["suggestions"].([]any)
+	require.True(t, ok)
+	require.Len(t, suggestions, 1)
+	item, ok := suggestions[0].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "suggestion-1", item["suggestion_id"])
+	require.Equal(t, "note-1", item["note_id"])
+	require.Equal(t, "action_item", item["kind"])
+	require.Equal(t, "Follow up", item["title"])
+	require.Equal(t, "Ping the customer", item["body"])
+	require.Equal(t, "pending", item["status"])
+	require.Equal(t, now.Format(time.RFC3339), item["created_at"])
+}
+
+func TestGivenAuthenticatedRequestWhenRefreshTodoSuggestionsThenCreatedCountIsReturned(t *testing.T) {
+	t.Parallel()
+	fake := &fakeService{refreshCreated: 3}
+	hertz := newTestServer(t, fake, fakeAuthenticator{principal: onprem.HumanPrincipal{UserID: "user-1"}})
+
+	response := performJSON(
+		hertz, http.MethodPost, "/v1/todo/suggestions/refresh", "",
+		sessionCookieHeader(),
+		ut.Header{Key: "X-CSRF-Token", Value: csrfValue},
+	)
+
+	require.Equal(t, http.StatusOK, response.Code)
+	var body struct {
+		Created int `json:"created"`
+	}
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
+	require.Equal(t, 3, body.Created)
+}
+
+func TestGivenAuthenticatedRequestWhenDismissTodoSuggestionThenSuccess(t *testing.T) {
+	t.Parallel()
+	fake := &fakeService{}
+	hertz := newTestServer(t, fake, fakeAuthenticator{principal: onprem.HumanPrincipal{UserID: "user-1"}})
+
+	response := performJSON(
+		hertz, http.MethodPost, "/v1/todo/suggestions/suggestion-1/dismiss", "",
+		sessionCookieHeader(),
+		ut.Header{Key: "X-CSRF-Token", Value: csrfValue},
+	)
+
+	require.Equal(t, http.StatusOK, response.Code)
+}
+
+func TestGivenInvalidTransitionWhenDismissTodoSuggestionThenConflict(t *testing.T) {
+	t.Parallel()
+	fake := &fakeService{dismissErr: todoapp.ErrInvalidTransition}
+	hertz := newTestServer(t, fake, fakeAuthenticator{principal: onprem.HumanPrincipal{UserID: "user-1"}})
+
+	response := performJSON(
+		hertz, http.MethodPost, "/v1/todo/suggestions/suggestion-1/dismiss", "",
+		sessionCookieHeader(),
+		ut.Header{Key: "X-CSRF-Token", Value: csrfValue},
+	)
+
+	require.Equal(t, http.StatusConflict, response.Code)
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
+	require.Equal(t, "invalid_transition", body["code"])
+}
+
 // fakeAuthenticator satisfies httpapi.HumanAuthenticator.
 type fakeAuthenticator struct {
 	principal onprem.HumanPrincipal
@@ -231,7 +411,7 @@ func (f *fakeService) CompleteTodo(_ context.Context, userID, todoID string) (to
 	if f.completeErr != nil {
 		return todoapp.Todo{}, f.completeErr
 	}
-	return todoapp.Todo{ID: todoID, Status: todoapp.TodoDone, CreatedBy: userID}, nil
+	return todoapp.Todo{ID: todoID, Status: todoapp.TodoDone, CreatedBy: userID, NoteID: "note-1"}, nil
 }
 
 func (f *fakeService) ListTodos(_ context.Context, status todoapp.TodoStatus) ([]todoapp.Todo, error) {
