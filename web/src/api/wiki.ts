@@ -102,6 +102,8 @@ export interface WikiSearchResult {
 
 export interface WikiIngestionStatus {
   auto_inject: boolean;
+  pending_sessions?: number;
+  last_processed_at?: string;
 }
 
 function get<T>(path: string, signal?: AbortSignal): Promise<T> {

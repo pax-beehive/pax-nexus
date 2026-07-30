@@ -11,6 +11,7 @@ import { JoinPage } from "./pages/JoinPage";
 import { EntryPage } from "./pages/EntryPage";
 import { SuspendedPage } from "./pages/SuspendedPage";
 import { PortalShell } from "./pages/PortalShell";
+import { WikiBrowsePage } from "./pages/WikiBrowsePage";
 
 /**
  * After the OIDC round trip the backend always lands on the fixed
@@ -67,7 +68,19 @@ function AppRoutes() {
         </>
       )}
       {state.kind === "suspended" && <Route path="*" element={<SuspendedPage />} />}
-      {state.kind === "active" && <Route path="*" element={<PortalShell me={state.me} />} />}
+      {state.kind === "active" && (
+        <>
+          <Route
+            path="/wiki/browse"
+            element={
+              <ErrorBoundary region="route" fullPage>
+                <WikiBrowsePage />
+              </ErrorBoundary>
+            }
+          />
+          <Route path="*" element={<PortalShell me={state.me} />} />
+        </>
+      )}
     </Routes>
   );
 }
