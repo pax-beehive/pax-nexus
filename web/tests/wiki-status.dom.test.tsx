@@ -15,7 +15,7 @@
 import { describe, expect, it } from "vitest";
 import { screen, waitFor, within } from "@testing-library/react";
 import { callsTo, jsonResponse, makeMe, renderApp, setupDomTest } from "./helpers";
-import { wikiFetch } from "./wiki-browse.dom.test";
+import { wikiFetch } from "./wikiFixtures";
 
 setupDomTest();
 
