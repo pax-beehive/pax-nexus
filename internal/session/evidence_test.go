@@ -80,6 +80,22 @@ func TestValidateStreamBatchRejectsEmptyStreamID(t *testing.T) {
 	}
 }
 
+func TestValidateStreamBatchAcceptsAppTodoSource(t *testing.T) {
+	batch := session.StreamBatch{Events: []session.StreamEvent{{
+		ID:         "app-todo-evt-1",
+		Stream:     session.Stream{Source: session.SourceAppTodo, StreamID: "app-todo"},
+		Author:     session.Author{Kind: "user", NativeID: "user-1", UserID: "user-1"},
+		Kind:       session.KindText,
+		Type:       "message",
+		Content:    "User completed todo fix-provider-credential.",
+		Visibility: session.VisibilityTeam,
+		OccurredAt: time.Now().UTC(),
+	}}}
+	if err := session.ValidateStreamBatch(batch); err != nil {
+		t.Fatalf("expected app:todo batch to validate, got %v", err)
+	}
+}
+
 func TestStreamFromActorDerivesLegacyIdentity(t *testing.T) {
 	actor := session.Actor{UserID: "todd", AgentID: "agent-7", SessionID: "sess-42"}
 	stream := session.StreamFromActor(actor)
