@@ -250,6 +250,13 @@ func (s *llmTreeIndexerSuite) TestPromptStatesConfiguredMaxDepth() {
 	s.Require().NoError(err)
 	s.Require().Len(client.requests, 1)
 	s.Contains(client.requests[0].Messages[0].Content, "at most 3 levels")
+	// The example response shows a nested "children" key inside a child
+	// object, so the LLM does not imitate a flat two-level schema example
+	// instead of the "at most N levels" prose.
+	s.Contains(
+		client.requests[0].Messages[0].Content,
+		`"children":[{"title":"...","pages":["slug"],"children":`,
+	)
 }
 
 // A page slug duplicated across sibling branches is claimed depth-first:

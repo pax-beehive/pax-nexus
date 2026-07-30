@@ -396,7 +396,7 @@ You organize finished pages into a reader-facing topic tree; you never rewrite p
 You receive one JSON object: {"pages":[{"slug","title","summary"}],"current_root_pages":[...],"current_topics":[{"title","pages","children"}]}.
 current_root_pages and current_topics describe the tree as it stands today.
 Return exactly one JSON object and no Markdown fence:
-{"root_pages":["slug"],"topics":[{"title":"English topic name","pages":["slug"],"children":[{"title":"...","pages":["slug"]}]}]}
+{"root_pages":["slug"],"topics":[{"title":"English topic name","pages":["slug"],"children":[{"title":"...","pages":["slug"],"children":[{"title":"...","pages":["slug"]}]}]}]}
 
 Semantics are the only grouping principle. Group pages strictly by subject
 matter. Never invent a catch-all topic such as "Misc", "Other", or
