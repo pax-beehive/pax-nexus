@@ -255,14 +255,14 @@ export function WikiBrowsePage() {
       )}
 
       {!navigationLoading && pages.length === 0 ? (
-        <section className="card wiki-empty">
+        <section className="wiki-empty">
           <span className="wiki-empty-mark" aria-hidden="true">W</span>
           <h2>Your wiki is ready for its first page</h2>
           <p className="muted">Pages will appear here after a Page Wiki source is processed.</p>
         </section>
       ) : (
         <div className="wiki-layout">
-          <nav className="card wiki-topic-rail" aria-label="Wiki topics">
+          <nav className="wiki-topic-rail" aria-label="Wiki topics">
             <div className="wiki-rail-heading">
               <span>Topics</span>
               <span className="faint small">{pages.length} pages</span>
@@ -279,7 +279,7 @@ export function WikiBrowsePage() {
             {navigationLoading && <p className="muted small">Loading topics…</p>}
           </nav>
 
-          <article className="card wiki-article" aria-busy={pageLoading}>
+          <article className="wiki-article" aria-busy={pageLoading}>
             {pageError ? (
               <div className="wiki-empty compact">
                 <h2>This wiki page could not be loaded</h2>
