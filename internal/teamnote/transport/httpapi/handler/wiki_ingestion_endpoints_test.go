@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/cloudwego/hertz/pkg/app/server"
 	"github.com/cloudwego/hertz/pkg/common/ut"
@@ -83,6 +84,31 @@ func (s *wikiIngestionHandlerSuite) TestRebuildFailureUsesStableInternalError() 
 	)
 }
 
+func (s *wikiIngestionHandlerSuite) TestStatusIncludesProgressWhenAvailable() {
+	processed := time.Date(2026, 7, 29, 8, 0, 0, 0, time.UTC)
+	s.wikiControl.status = sessionconsumer.Status{
+		AutoInject: true,
+		Progress:   &sessionconsumer.Progress{PendingSessions: 3, LastProcessedAt: &processed},
+	}
+
+	response := s.perform(http.MethodGet, "/v1/wiki/ingestion", false)
+
+	s.Equal(consts.StatusOK, response.Code)
+	s.JSONEq(
+		`{"auto_inject":true,"pending_sessions":3,"last_processed_at":"2026-07-29T08:00:00Z"}`,
+		response.Body.String(),
+	)
+}
+
+func (s *wikiIngestionHandlerSuite) TestStatusOmitsProgressWhenUnavailable() {
+	s.wikiControl.status = sessionconsumer.Status{AutoInject: true}
+
+	response := s.perform(http.MethodGet, "/v1/wiki/ingestion", false)
+
+	s.Equal(consts.StatusOK, response.Code)
+	s.JSONEq(`{"auto_inject":true}`, response.Body.String())
+}
+
 func (s *wikiIngestionHandlerSuite) TestGeneratedRebuildRouteRequiresConfiguredRuntime() {
 	hertz := server.New()
 	router.GeneratedRegister(hertz)
@@ -116,10 +142,11 @@ func (s *wikiIngestionHandlerSuite) perform(method, path string, csrf bool) *ut.
 type wikiControlService struct {
 	rebuilds   int
 	rebuildErr error
+	status     sessionconsumer.Status
 }
 
 func (s *wikiControlService) Status(context.Context, string) (sessionconsumer.Status, error) {
-	return sessionconsumer.Status{}, nil
+	return s.status, nil
 }
 
 func (s *wikiControlService) SetAutoInject(
