@@ -242,11 +242,7 @@ func buildDraftTopics(
 			continue
 		}
 		if slug == "" || slug == parentSlug {
-			for _, pageSlug := range collectNodePages(node) {
-				if pageID, ok := claim(pageSlug); ok {
-					absorbed = append(absorbed, pageID)
-				}
-			}
+			absorbed = append(absorbed, absorbNodePages(node, claim)...)
 			continue
 		}
 		topic, found := index[slug]
@@ -268,6 +264,32 @@ func buildDraftTopics(
 			grouped[slug] = append(grouped[slug], node.Children...)
 		}
 	}
+	buildDraftTopicChildren(topics, grouped, claim, depth, maxDepth)
+	return topics, absorbed
+}
+
+// absorbNodePages claims and returns the page IDs beneath node. It is used
+// when a node's slug is empty or repeats its parent's, so the node's pages
+// fold into the parent rather than becoming their own topic.
+func absorbNodePages(node llmTreeNode, claim func(string) (string, bool)) []string {
+	absorbed := make([]string, 0)
+	for _, pageSlug := range collectNodePages(node) {
+		if pageID, ok := claim(pageSlug); ok {
+			absorbed = append(absorbed, pageID)
+		}
+	}
+	return absorbed
+}
+
+// buildDraftTopicChildren recurses each topic's grouped child nodes (one
+// level deeper) into its draftTopic.children, folding any absorbed page IDs
+// from that recursion onto the topic itself.
+func buildDraftTopicChildren(
+	topics []*draftTopic,
+	grouped map[string][]llmTreeNode,
+	claim func(string) (string, bool),
+	depth, maxDepth int,
+) {
 	for _, topic := range topics {
 		children := grouped[topic.slug]
 		if len(children) == 0 {
@@ -277,7 +299,6 @@ func buildDraftTopics(
 		topic.children = built
 		topic.pageIDs = append(topic.pageIDs, childAbsorbed...)
 	}
-	return topics, absorbed
 }
 
 // pruneDraftTopics enforces the minimum-pages rule bottom-up: a topic whose

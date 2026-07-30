@@ -175,7 +175,7 @@ func (s *llmTreeIndexerSuite) TestKeepsThreeLevelTreeUnderDefaultDepth() {
 	s.Require().NoError(err)
 	s.Require().Len(tree.Topics, 3)
 	engineering, backend, storage := tree.Topics[0], tree.Topics[1], tree.Topics[2]
-	s.Equal("", engineering.ParentID)
+	s.Empty(engineering.ParentID)
 	s.Equal(engineering.ID, backend.ParentID)
 	s.Equal(backend.ID, storage.ParentID)
 	s.Equal("storage", storage.Slug)
