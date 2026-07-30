@@ -1,24 +1,27 @@
 # PAX Nexus Application Platform — 架构愿景设计
 
-日期：2026-07-29
-状态：愿景已定，子项目 1 待细化为实现计划
+日期：2026-07-29（同日修订：app 模型从 "manifest 存于 nexus" 改为 "自有状态 + read/report 契约"）
+状态：愿景与 MVP 已定，MVP（LLM todo list app）待细化为实现计划
 
 ## 1. 愿景
 
 把 pax-nexus（Evidence Lake + Team Memory + LLM Wiki）从"一组内置产品"演进为
-"一个可在其上搭建 application 的平台层"：
+"一个可在其上搭建 application 的知识底座"：
 
 ```
-输入侧                     pax-nexus layer                    应用层
-paxm ─────────┐   ┌──────────────────────────────┐   preset application 1..3
-connectors ───┼──▶│ source database (Evidence Lake) │◀── Software 3.0
-voice/videos ─┘   │ team memory   ·   LLM Wiki      │   (agent 自动生成的 app)
-                  └──────────────────────────────┘
+        ┌────────────── app（自有数据库、自有状态、自有 UI）──────────────┐
+        │                                                              │
+   read │ 拉取组织知识（recall/wiki 查询）        report │ 上报用户行为    │
+        ▼                                              ▼               │
+┌─────────────────────────── pax-nexus ────────────────────────────────┐
+│  knowledge（team memory / wiki）◀── 提炼 ── session lake（evidence）   │
+│                                              ▲                       │
+│              paxm / connectors / voice-videos┘（其余输入源）           │
+└───────────────────────────────────────────────────────────────────────┘
 ```
 
-下层组件在代码库中已经存在（见 `CONTEXT-MAP.md`）。本设计的核心不是新组件，
-而是一次**边界翻转**：今天 teamnote、pagewiki 是仓库内的 bounded context，
-目标形态里应用是跑在平台契约之上的消费者。
+下层组件在代码库中已经存在（见 `CONTEXT-MAP.md`）。核心工程不是新组件，
+而是一次**边界翻转**：应用成为 nexus 契约的消费者。
 
 ## 2. 已确认的产品裁定
 
@@ -27,81 +30,102 @@ voice/videos ─┘   │ team memory   ·   LLM Wiki      │   (agent 自动�
 | application 的作者与用户 | 第一方开发 preset application，与 pax-nexus 同版本打包 ship 给客户 |
 | 自动生成发生在哪里 | 客户部署现场，daily 使用过程中持续做 pattern recognition |
 | application 的最终形态 | Web 页面/视图 + 自动化任务（不做对话式 macro） |
+| app 与 nexus 的关系 | app 自有数据库与状态；与 nexus 只有 read + report 两个动词 |
+| MVP | 基于记忆知识库的 LLM todo list app |
 
-推论：
+## 3. App 模型：自有状态 + read/report 契约
 
-- API 是**内部契约**，与 app 同版本发布，无跨版本对外兼容义务；
-  主要兼容压力来自客户升级时"现场已生成的 app"能否存活。
-- 客户现场无人审核即生成，安全边界必须靠平台机制而非人工把关。
+app 拥有自己的数据库和状态，nexus 对 app 只暴露两个动词：
 
-## 3. 选定路线：App 即 Manifest（路线 A）
+- **read**：拉取组织知识（recall/wiki 查询），app 据此派生自己的数据。
+- **report**：上报用户在 app 内的行为，作为一条新的 evidence source
+  进入 session lake，供未来的知识提炼消费。
 
-application 不是代码，是**一份声明式 manifest，作为数据存在数据库里**，
-由平台内置的统一 runtime 执行：
+该模型的三个关键性质：
 
-```
-Application manifest
-├── identity + scopes     # 能读哪些 evidence stream / recall 范围
-├── triggers              # cron 或 evidence 事件订阅
-├── tasks                 # 每个 trigger 绑定一段 prompt + 工具集（recall/wiki/ingest）
-└── views                 # 声明式页面：数据绑定（recall 查询/任务产出）+ 受限组件模板
-```
+1. **app 是与 paxm、connectors 平级的第四路输入源。**
+   Evidence Lake 本就 source-agnostic，report 通道复用现有 ingest 路径，
+   source 标记为 `app:<name>`。
+2. **app 永远不直接写知识。** report 只进不可变的 session lake，
+   是否进入知识由提炼管线（teamnote 抽取、pagewiki 维护）决定。
+3. **app 的技术形态被解耦。** 契约只有 read + report：
+   preset app 可以是真代码（进程内模块或独立服务，用 read/report SDK），
+   表达力无上限；自动生成的 app 跑在受限的 manifest 托管 runtime 上
+   （声明式 triggers/tasks/views + 平台供给的通用状态存储）。
+   manifest 从"唯一形态"降级为"generated app 的托管形态"。
 
-- preset app = 手写 manifest，随版本 ship，加载即生效。
-- Software 3.0 的字面含义在此成立：manifest 主体（task 的 prompt、view 的说明）
-  就是自然语言；agent 生成一个 app = 生成一份 manifest。
-- **沙箱问题几乎消失**：runtime 只执行声明式配置 + 带 scope 的 LLM 调用，
-  没有任意代码执行；客户现场自动生成的安全边界靠 scope。
-- **升级兼容 = 可再生（regenerable）**：底层 schema 变更后重新生成 manifest，
-  不做 manifest 迁移。generated app 被视为可丢弃、可再生的产物，而非需长期维护的资产。
+### provenance 细分（report schema 的硬性要求）
 
-现有挂点：
+- **app 观察到的人的行为**（接受/完成/忽略/纠正）：高价值信号，进提炼。
+- **app 自己生成的内容**（建议正文、摘要正文）：不是人的行为，
+  不上报或标记后排除在模式识别之外。
+  两类必须在 report schema 中显式区分，不允许事后推断。
 
-- evidence lake processor（`docs/evidence-lake-processors.md`）→ 事件订阅扩展点
-- `internal/recall` → view/task 的数据绑定查询层
-- web 端新增一个通用 app 页面渲染器
+### 自有数据库的供给方式
 
-### 已否决的路线
+同一 Postgres 实例内每 app 一个 schema（`app_<name>`），平台负责建；
+将来 generated app 使用平台提供的通用 JSONB 状态存储。
+不做每 app 独立数据库实例（on-prem 运维成本不可接受）。
 
-- **B：App 即生成代码**（agent 生成真实页面/job 代码，沙箱运行）。
-  表达力无上限，但"客户现场无人审核 + 任意代码执行"的组合需要真代码沙箱、
-  资源限额、安全审查、升级破损处理，现阶段风险收益不成比例。
-- **C：先做完整平台化**（nexus API 抽成对外服务契约，app 全部独立进程接入）。
-  边界最干净，但所有 app 均为第一方且同版本 ship，
-  跨进程/跨版本契约成本花在没有第三方的地方，属过度设计。
+### 已否决的方案
 
-后续若声明式 view 模板表达力不足，可仅在 view 层引入受限组件 DSL 内的
-LLM 生成页面（吸收 B 的表达力），不放开任意代码。
+- **artifact 存于 nexus 数据库**（本设计初版）：让知识层替应用层保管状态，边界糊。
+- **App 即生成代码 + 客户现场沙箱执行**：无人审核 + 任意代码执行的组合，
+  现阶段风险收益不成比例。生成的 app 限定为 manifest。
+- **先做完整对外平台化**：app 均为第一方同版本 ship，跨进程/跨版本契约
+  成本花在没有第三方的地方。
 
 ## 4. 主要难点（按严重程度排序）
 
-1. **Manifest DSL 表达力是天花板，也是核心设计难题。**
-   太窄做不出有用的 app；太宽退化为任意代码（路线 B）。
-   验证方式：先用 1 个真实 preset app 场景验算 DSL 能否表达它。
-2. **契约冻结时机。** recall 语义仍在 optimization round 演进中；
-   manifest 所依赖的查询/schema 需要区分"保证语义"与"尽力语义"，并版本化。
-3. **授权与数据边界。** app 级 scope 是 on-prem identity 之上的新增维度；
-   自动生成的 app 继承谁的权限必须显式裁定，默认最小权限。
-4. **生成容易，生命周期难。** 版本、eval 门禁、安装/停用、schema 变更后的再生成。
-   对策即"可再生"取舍（见上）。
-5. **反馈污染。** app 产出若回写为 evidence 会形成自我强化回路。
-   强制 provenance 标记（human vs app 产生），pattern recognition
-   一律排除 app 产生的 evidence。
-6. **模式识别冷启动。** 小团队 session 中真实模式稀疏，agent 易从噪声中"发现"模式。
-   必须有置信阈值 + 人工确认闸门（"我注意到你每周做 X，要生成一个 app 吗？"），
-   冷启动期禁止无确认自动上线。
-7. **voice/video 是独立大工程。** 转写、说话人分离、identity 对齐、成本控制；
-   仅是 ingest 侧多一路，独立排期，不阻塞平台化。
+1. **report 的语义粒度。** 原始点击流会把 session lake 灌成垃圾场，太抽象又丢信号。
+   定在"语义事件"级：用户查看/采纳/纠正/忽略了什么知识。事件词表在 MVP 中打磨。
+2. **契约冻结时机。** recall 语义仍在演进；read 契约需区分"保证语义"与
+   "尽力语义"，并版本化。
+3. **授权与数据边界。** app 级 read scope 与 report 身份是 on-prem identity
+   之上的新增维度；generated app 默认最小权限。
+4. **app 自有数据的新鲜度。** 知识更新后 app 派生数据会陈旧；
+   第一版任务触发时重新 read（拉模式），订阅/失效通知后置。
+5. **反馈污染。** 靠 provenance 细分（见 §3）解决；pattern recognition
+   一律排除 app 生成的内容，仅消费人的行为事件。
+6. **模式识别冷启动。** 小团队 session 中真实模式稀疏；置信阈值 +
+   人工确认闸门，冷启动期禁止无确认自动上线。
+7. **voice/video 是独立大工程。** 仅是 ingest 侧多一路，独立排期，不阻塞平台化。
 
-## 5. 落地顺序（四个可独立交付的子项目）
+## 5. MVP：基于记忆知识库的 LLM todo list app
 
-1. **App manifest + runtime**：scheduler、evidence 事件订阅、通用页面渲染器；
-   用 1 个手写 preset app 验证 DSL 表达力。← 地基，先做
-2. **再补 2 个 preset app**：用真实需求把 DSL 打磨到"够用"。
-3. **Pattern recognition → 建议流水线**：一个 evidence lake 消费者，
-   检测重复模式（重复 recall 查询、周期性 session 主题）→ 置信度 →
-   用户确认 → agent 生成 manifest → eval → 安装。
+选 todo 的理由：它天生有自有状态（任务与状态明确是 app 数据）；
+read 通道有杀手级用法（从 session 证据提炼行动项建议）；
+report 事件天然是语义级的；且它补上 team memory 的盲区——
+session 记录**意图**（"我们决定做 X"），todo 上报**结果**（"X 完成/被放弃"），
+忽略建议本身就是对知识质量的纠错反馈。
+
+### 功能切法（按价值排序）
+
+1. 手动增删改完成 todo（基线）。
+2. "从团队记忆生成建议"任务（定时 + 手动触发）：
+   recall 搜索 → LLM 抽行动项（**必须带引用，无引用不出建议**）→
+   建议收件箱 → 接受成为 todo / 忽略。
+3. report 三类事件（source `app:todo`）：接受建议、完成任务、忽略建议。
+4. 验收：explorer 中可见 `app:todo` 来源的 evidence stream
+   （闭环入口已验证；提炼管线消费该流不在 MVP 内）。
+
+### MVP 内必须面对的风险
+
+- **建议质量冷启动**：建议强制带 citation；dismiss 交互零摩擦；
+  实施前先拿工作站现有数据跑 recall 冒烟测试，验证证据中是否存在行动项。
+- **重复建议**：app 自有库存建议指纹 + dismissed 记录做去重——
+  这是 app 状态的核心表，不是附属品。
+- **归属身份**：MVP 做团队共享列表（建议进公共收件箱，认领制），
+  个人化分派后置。
+
+## 6. 落地顺序
+
+1. **MVP：todo list app**（含 read/report 契约的第一次落地、`app_todo` schema、
+   建议流水线、report ingest 路径）。← 先做
+2. **第二个 preset app**：验证 read/report SDK 与契约的复用性。
+3. **generated app 的 manifest 托管 runtime** + pattern recognition →
+   建议 → 确认 → 生成流水线。
 4. **voice/video connector**：独立排期。
 
 每个子项目走各自的 spec → plan → implementation 循环；
-下一步是把子项目 1 细化为设计与实现计划。
+下一步是把 MVP 细化为实现计划。
