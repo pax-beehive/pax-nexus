@@ -1,7 +1,7 @@
 # PAX Nexus Application Platform — 架构愿景设计
 
 日期：2026-07-29（同日修订：app 模型从 "manifest 存于 nexus" 改为 "自有状态 + read/report 契约"）
-状态：愿景与 MVP 已定，MVP（LLM todo list app）待细化为实现计划
+状态：MVP（LLM todo list app）已在 feat/todoapp-mvp 分支实现（含 read.list 原语、app:todo report 通道、门户页面）；后续见 §6 落地顺序
 
 ## 1. 愿景
 
