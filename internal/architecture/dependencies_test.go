@@ -59,16 +59,16 @@ var dependencyRules = []dependencyRule{
 		"pagewiki/sessionconsumer", "session", "teamnote", "todoapp"}},
 	{directory: "todoapp", excluded: []string{"transport"},
 		allowed: []string{"platform/llm", "platform/observability", "session"}},
-	// TODO(Task 11): uncomment when todoapp/transport directory is created
-	// {directory: "todoapp/transport",
-	// 	allowed: []string{"deployment/onprem", "todoapp", "teamnote/transport/httpapi/router/todoapp/api"}},
+	{directory: "todoapp/transport",
+		allowed: []string{"deployment/onprem", "todoapp"}},
 	{directory: "recall", allowed: []string{"teamnote"}},
 	{directory: "session"},
 	{directory: "evidencelake", allowed: []string{"session"}},
 	{directory: "teamnote", excluded: []string{"transport"},
 		allowed: []string{"platform/observability", "session", "evidencelake"}},
 	{directory: "teamnote/transport", allowed: []string{"deployment/onprem", "explorer",
-		"operations", "pagewiki/sessionconsumer", "pagewiki/transport/httpapi", "recall", "teamnote"}},
+		"operations", "pagewiki/sessionconsumer", "pagewiki/transport/httpapi", "recall", "teamnote",
+		"todoapp/transport/httpapi"}},
 }
 
 func (s *dependencySuite) TestEveryInternalPackageIsRegistered() {
