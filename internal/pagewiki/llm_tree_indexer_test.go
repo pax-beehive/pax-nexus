@@ -251,3 +251,44 @@ func (s *llmTreeIndexerSuite) TestPromptStatesConfiguredMaxDepth() {
 	s.Require().Len(client.requests, 1)
 	s.Contains(client.requests[0].Messages[0].Content, "at most 3 levels")
 }
+
+// A page slug duplicated across sibling branches is claimed depth-first:
+// the first branch's subtree wins, matching the pre-refactor behavior. A
+// has no own pages but a child holding page-01..03 (child needs >=3 pages
+// to survive pruning); B lists page-01 among its own pages too, plus
+// enough other pages to survive pruning on its own. page-01 must land
+// under A's child, not B.
+func (s *llmTreeIndexerSuite) TestDuplicatePageAcrossBranchesClaimsDepthFirst() {
+	indexer, _ := newIndexer(s, `{"root_pages":[],"topics":[
+		{"title":"A","children":[
+			{"title":"AChild","pages":["page-01","page-02","page-03"]}
+		]},
+		{"title":"B","pages":["page-01","page-04","page-05","page-06"]}
+	]}`)
+	tree, err := indexer.Index(context.Background(), pagewiki.TreeIndexInput{
+		Catalog: indexerCatalog(7),
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(tree.Topics, 3)
+	var aChildID, bID string
+	for _, topic := range tree.Topics {
+		switch topic.Slug {
+		case "achild":
+			aChildID = topic.ID
+		case "b":
+			bID = topic.ID
+		}
+	}
+	s.Require().NotEmpty(aChildID)
+	s.Require().NotEmpty(bID)
+	placementsByTopic := make(map[string][]string)
+	for _, placement := range tree.Placements {
+		placementsByTopic[placement.TopicID] = append(placementsByTopic[placement.TopicID], placement.PageID)
+	}
+	s.Contains(placementsByTopic[aChildID], "id-page-01")
+	s.NotContains(placementsByTopic[bID], "id-page-01")
+	s.Len(placementsByTopic[aChildID], 3)
+	s.Len(placementsByTopic[bID], 3)
+	s.Len(tree.Placements, 6)
+}

@@ -221,11 +221,16 @@ func (x *LLMTreeIndexer) normalizeTree(
 }
 
 // buildDraftTopics converts LLM nodes at one level into draft topics,
-// merging duplicate slugs and recursing until maxDepth. Nodes at maxDepth
-// keep their whole subtree's pages. Returns the topics plus page IDs the
-// caller must absorb (child nodes whose slug is empty or repeats the
-// parent's). At the root level (empty parentSlug) an empty-slug node is
-// skipped without claiming, preserving the previous behavior.
+// merging duplicate slugs and processing each node fully depth-first — a
+// node's own pages are claimed and its children are recursed into
+// immediately, before its next sibling is touched — matching the
+// pre-refactor claim order so that a page slug repeated across branches is
+// always won by the earliest branch in document order. Nodes at maxDepth
+// keep their whole subtree's pages instead of recursing. Returns the
+// topics plus page IDs the caller must absorb (child nodes whose slug is
+// empty or repeats the parent's). At the root level (empty parentSlug) an
+// empty-slug node is skipped without claiming, preserving the previous
+// behavior.
 func buildDraftTopics(
 	nodes []llmTreeNode,
 	claim func(string) (string, bool),
@@ -234,7 +239,6 @@ func buildDraftTopics(
 ) ([]*draftTopic, []string) {
 	topics := make([]*draftTopic, 0, len(nodes))
 	index := make(map[string]*draftTopic)
-	grouped := make(map[string][]llmTreeNode)
 	absorbed := make([]string, 0)
 	for _, node := range nodes {
 		slug := topicSlug(node.Title)
@@ -242,7 +246,7 @@ func buildDraftTopics(
 			continue
 		}
 		if slug == "" || slug == parentSlug {
-			absorbed = append(absorbed, absorbNodePages(node, claim)...)
+			absorbed = append(absorbed, claimPages(collectNodePages(node), claim)...)
 			continue
 		}
 		topic, found := index[slug]
@@ -251,53 +255,65 @@ func buildDraftTopics(
 			index[slug] = topic
 			topics = append(topics, topic)
 		}
-		pages := node.Pages
-		if depth == maxDepth {
-			pages = collectNodePages(node)
-		}
-		for _, pageSlug := range pages {
-			if pageID, ok := claim(pageSlug); ok {
-				topic.pageIDs = append(topic.pageIDs, pageID)
-			}
-		}
-		if depth < maxDepth {
-			grouped[slug] = append(grouped[slug], node.Children...)
-		}
+		claimNodeIntoTopic(topic, node, claim, depth, maxDepth)
 	}
-	buildDraftTopicChildren(topics, grouped, claim, depth, maxDepth)
 	return topics, absorbed
 }
 
-// absorbNodePages claims and returns the page IDs beneath node. It is used
-// when a node's slug is empty or repeats its parent's, so the node's pages
-// fold into the parent rather than becoming their own topic.
-func absorbNodePages(node llmTreeNode, claim func(string) (string, bool)) []string {
-	absorbed := make([]string, 0)
-	for _, pageSlug := range collectNodePages(node) {
-		if pageID, ok := claim(pageSlug); ok {
-			absorbed = append(absorbed, pageID)
-		}
-	}
-	return absorbed
-}
-
-// buildDraftTopicChildren recurses each topic's grouped child nodes (one
-// level deeper) into its draftTopic.children, folding any absorbed page IDs
-// from that recursion onto the topic itself.
-func buildDraftTopicChildren(
-	topics []*draftTopic,
-	grouped map[string][]llmTreeNode,
+// claimNodeIntoTopic claims node's own pages onto topic, then — unless
+// depth has reached maxDepth, in which case node's whole flattened subtree
+// is claimed instead — immediately recurses into node's children and
+// merges the resulting child topics into topic.children. Doing this before
+// buildDraftTopics moves to node's next sibling is what makes claim order
+// depth-first.
+func claimNodeIntoTopic(
+	topic *draftTopic,
+	node llmTreeNode,
 	claim func(string) (string, bool),
 	depth, maxDepth int,
 ) {
-	for _, topic := range topics {
-		children := grouped[topic.slug]
-		if len(children) == 0 {
+	if depth == maxDepth {
+		topic.pageIDs = append(topic.pageIDs, claimPages(collectNodePages(node), claim)...)
+		return
+	}
+	topic.pageIDs = append(topic.pageIDs, claimPages(node.Pages, claim)...)
+	if len(node.Children) == 0 {
+		return
+	}
+	children, absorbed := buildDraftTopics(node.Children, claim, topic.slug, depth+1, maxDepth)
+	topic.pageIDs = append(topic.pageIDs, absorbed...)
+	mergeChildTopics(topic, children)
+}
+
+// claimPages claims each slug in order and returns the page IDs that were
+// newly claimed.
+func claimPages(slugs []string, claim func(string) (string, bool)) []string {
+	ids := make([]string, 0, len(slugs))
+	for _, slug := range slugs {
+		if pageID, ok := claim(slug); ok {
+			ids = append(ids, pageID)
+		}
+	}
+	return ids
+}
+
+// mergeChildTopics folds children into parent.children, matching by slug so
+// that a parent slug repeated across separate LLM branches accumulates all
+// occurrences' descendants into one subtree instead of duplicating topics.
+func mergeChildTopics(parent *draftTopic, children []*draftTopic) {
+	index := make(map[string]*draftTopic, len(parent.children))
+	for _, existing := range parent.children {
+		index[existing.slug] = existing
+	}
+	for _, child := range children {
+		existing, found := index[child.slug]
+		if !found {
+			index[child.slug] = child
+			parent.children = append(parent.children, child)
 			continue
 		}
-		built, childAbsorbed := buildDraftTopics(children, claim, topic.slug, depth+1, maxDepth)
-		topic.children = built
-		topic.pageIDs = append(topic.pageIDs, childAbsorbed...)
+		existing.pageIDs = append(existing.pageIDs, child.pageIDs...)
+		mergeChildTopics(existing, child.children)
 	}
 }
 
