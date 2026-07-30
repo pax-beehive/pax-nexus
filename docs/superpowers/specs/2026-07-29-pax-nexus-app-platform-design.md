@@ -109,10 +109,30 @@ session 记录**意图**（"我们决定做 X"），todo 上报**结果**（"X �
 4. 验收：explorer 中可见 `app:todo` 来源的 evidence stream
    （闭环入口已验证；提炼管线消费该流不在 MVP 内）。
 
+### recall 冒烟测试结果（2026-07-29，对 workstation 真实数据）
+
+- **行动项存在且已半结构化。** team note 抽取管线已产出
+  `kind=blocker/handoff` 且带 `certainty=unresolved/resolved` 标记的 note；
+  真实样例：`[blocker certainty=unresolved] Team provider credential rejected;
+  paxm LTM write failed. Requires paxl device connect onprem ... first.`
+  ——这就是一条现成的 todo 建议。
+- **passive recall 不是建议任务的正确读取原语。**
+  枚举式查询（"有哪些待办"）与通用英文查询全部 0 命中；
+  只有已知主题的具体查询能命中。passive 路径为高精度被动注入调参，
+  无法做"找出所有未解决行动项"。
+- **跨语言 gap**：中文查询打不中英文 note，MVP 内查询语言需与 note 语言对齐。
+- **推论（改变 read 契约设计）**：read 需要两个原语——
+  `read.search`（语义检索，现有 recall）与
+  `read.list`（结构化枚举：按 kind/certainty/时间窗过滤，**现无 API，
+  是 MVP 要新增的第一个平台能力**，实现上是 NoteStore 的一个过滤查询）。
+  建议流水线主路径走 `read.list(kind in blocker,handoff; certainty=unresolved)`，
+  LLM 负责改写成可执行的 todo 文案并附引用；`read.search` 仅作上下文补充。
+  blocker 翻转为 resolved 时，app 还可自动提示关闭对应 todo。
+
 ### MVP 内必须面对的风险
 
-- **建议质量冷启动**：建议强制带 citation；dismiss 交互零摩擦；
-  实施前先拿工作站现有数据跑 recall 冒烟测试，验证证据中是否存在行动项。
+- **建议质量冷启动**：建议强制带 citation；dismiss 交互零摩擦。
+  （冒烟测试已证实真实数据中存在可用行动项，风险降级。）
 - **重复建议**：app 自有库存建议指纹 + dismissed 记录做去重——
   这是 app 状态的核心表，不是附属品。
 - **归属身份**：MVP 做团队共享列表（建议进公共收件箱，认领制），
