@@ -56,7 +56,12 @@ var dependencyRules = []dependencyRule{
 	{directory: "pagewiki/transport",
 		allowed: []string{"pagewiki", "teamnote/transport/httpapi/router/pagewiki/api"}},
 	{directory: "platform", allowed: []string{"deployment/onprem", "explorer", "operations",
-		"pagewiki/sessionconsumer", "session", "teamnote"}},
+		"pagewiki/sessionconsumer", "session", "teamnote", "todoapp"}},
+	{directory: "todoapp", excluded: []string{"transport"},
+		allowed: []string{"platform/llm", "platform/observability", "session"}},
+	// TODO(Task 11): uncomment when todoapp/transport directory is created
+	// {directory: "todoapp/transport",
+	// 	allowed: []string{"deployment/onprem", "todoapp", "teamnote/transport/httpapi/router/todoapp/api"}},
 	{directory: "recall", allowed: []string{"teamnote"}},
 	{directory: "session"},
 	{directory: "evidencelake", allowed: []string{"session"}},
