@@ -301,12 +301,13 @@ func (s *configSuite) TestRejectsMixedLegacyAndOnPremAuthentication() {
 
 func (s *configSuite) TestBuildHTTPHandlerKeepsLegacyModeWithoutAdminSecret() {
 	runtime := &runtimeStub{}
-	configured, err := buildHTTPHandler(context.Background(), runtime, nil, nil,
+	configured, identity, err := buildHTTPHandler(context.Background(), runtime, nil, nil,
 		applicationConfig{apiKeys: map[string]string{"key": "scope"}}, slog.New(slog.DiscardHandler), nil)
 	s.Require().NoError(err)
 	s.NotNil(configured)
+	s.Nil(identity)
 
-	_, err = buildHTTPHandler(context.Background(), runtime, nil, nil, applicationConfig{
+	_, _, err = buildHTTPHandler(context.Background(), runtime, nil, nil, applicationConfig{
 		apiKeys: map[string]string{"key": "scope"}, adminAPIKey: "admin", credentialRotationOverlap: time.Minute,
 	}, slog.New(slog.DiscardHandler), nil)
 	s.Error(err)
