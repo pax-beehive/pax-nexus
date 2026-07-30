@@ -38,6 +38,17 @@ func newIndexer(s *llmTreeIndexerSuite, responses ...string) (*pagewiki.LLMTreeI
 	return indexer, client
 }
 
+func newDepthIndexer(
+	s *llmTreeIndexerSuite, maxDepth int, responses ...string,
+) (*pagewiki.LLMTreeIndexer, *wikiChatClient) {
+	client := &wikiChatClient{responses: responses}
+	indexer, err := pagewiki.NewLLMTreeIndexer(pagewiki.LLMTreeIndexerConfig{
+		Client: client, Model: "test-model", MaxDepth: maxDepth,
+	})
+	s.Require().NoError(err)
+	return indexer, client
+}
+
 func (s *llmTreeIndexerSuite) TestBuildsTwoLevelTreeWithStableIDs() {
 	indexer, client := newIndexer(s, `{"root_pages":["page-00"],"topics":[
 		{"title":"Engineering","pages":["page-01","page-02","page-03"]}
@@ -145,4 +156,98 @@ func (s *llmTreeIndexerSuite) TestRequestCarriesCurrentTree() {
 	s.Require().NoError(err)
 	s.Require().Len(client.requests, 1)
 	s.Contains(client.requests[0].Messages[1].Content, "Existing Topic")
+}
+
+// Three-level response survives intact under the default depth (5): each
+// level gets its own topic with a parent-chained stable ID and placements.
+func (s *llmTreeIndexerSuite) TestKeepsThreeLevelTreeUnderDefaultDepth() {
+	indexer, _ := newIndexer(s, `{"root_pages":[],"topics":[
+		{"title":"Engineering","pages":["page-00","page-01","page-02"],"children":[
+			{"title":"Backend","pages":["page-03","page-04","page-05"],"children":[
+				{"title":"Storage","pages":["page-06","page-07","page-08"]}
+			]}
+		]}
+	]}`)
+	tree, err := indexer.Index(context.Background(), pagewiki.TreeIndexInput{
+		Catalog: indexerCatalog(9),
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(tree.Topics, 3)
+	engineering, backend, storage := tree.Topics[0], tree.Topics[1], tree.Topics[2]
+	s.Equal("", engineering.ParentID)
+	s.Equal(engineering.ID, backend.ParentID)
+	s.Equal(backend.ID, storage.ParentID)
+	s.Equal("storage", storage.Slug)
+	s.Len(tree.Placements, 9)
+	placementsByTopic := make(map[string]int)
+	for _, placement := range tree.Placements {
+		placementsByTopic[placement.TopicID]++
+	}
+	s.Equal(3, placementsByTopic[storage.ID])
+}
+
+// Levels beyond MaxDepth flatten into the deepest kept topic.
+func (s *llmTreeIndexerSuite) TestFlattensLevelsBeyondMaxDepth() {
+	indexer, _ := newDepthIndexer(s, 2, `{"root_pages":[],"topics":[
+		{"title":"Engineering","pages":["page-00","page-01","page-02"],"children":[
+			{"title":"Backend","pages":["page-03","page-04","page-05"],"children":[
+				{"title":"Storage","pages":["page-06","page-07","page-08"]}
+			]}
+		]}
+	]}`)
+	tree, err := indexer.Index(context.Background(), pagewiki.TreeIndexInput{
+		Catalog: indexerCatalog(9),
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(tree.Topics, 2)
+	backend := tree.Topics[1]
+	s.Equal("backend", backend.Slug)
+	placementsByTopic := make(map[string]int)
+	for _, placement := range tree.Placements {
+		placementsByTopic[placement.TopicID]++
+	}
+	// Backend keeps its own 3 pages plus Storage's 3 flattened pages.
+	s.Equal(6, placementsByTopic[backend.ID])
+}
+
+// A deep topic below the minimum folds its pages into its parent, recursively.
+func (s *llmTreeIndexerSuite) TestFoldsUndersizedDeepTopicIntoParent() {
+	indexer, _ := newIndexer(s, `{"root_pages":[],"topics":[
+		{"title":"Engineering","pages":["page-00","page-01","page-02"],"children":[
+			{"title":"Backend","pages":["page-03","page-04","page-05"],"children":[
+				{"title":"Storage","pages":["page-06"]}
+			]}
+		]}
+	]}`)
+	tree, err := indexer.Index(context.Background(), pagewiki.TreeIndexInput{
+		Catalog: indexerCatalog(7),
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(tree.Topics, 2)
+	backend := tree.Topics[1]
+	placementsByTopic := make(map[string]int)
+	for _, placement := range tree.Placements {
+		placementsByTopic[placement.TopicID]++
+	}
+	s.Equal(4, placementsByTopic[backend.ID])
+}
+
+func (s *llmTreeIndexerSuite) TestRejectsNegativeMaxDepth() {
+	_, err := pagewiki.NewLLMTreeIndexer(pagewiki.LLMTreeIndexerConfig{
+		Client: &wikiChatClient{}, Model: "test-model", MaxDepth: -1,
+	})
+	s.Require().ErrorContains(err, "max depth")
+}
+
+func (s *llmTreeIndexerSuite) TestPromptStatesConfiguredMaxDepth() {
+	indexer, client := newDepthIndexer(s, 3, `{"root_pages":["page-00"],"topics":[]}`)
+	_, err := indexer.Index(context.Background(), pagewiki.TreeIndexInput{
+		Catalog: indexerCatalog(1),
+	})
+	s.Require().NoError(err)
+	s.Require().Len(client.requests, 1)
+	s.Contains(client.requests[0].Messages[0].Content, "at most 3 levels")
 }
