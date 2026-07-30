@@ -22,25 +22,35 @@ type LakeReporter struct {
 	newID   func() string
 }
 
+// lakeReporterOption is a functional option for LakeReporter.
+type lakeReporterOption func(*LakeReporter)
+
+// WithLakeReporterNewID returns an option that sets the ID generator for LakeReporter.
+func WithLakeReporterNewID(fn func() string) lakeReporterOption {
+	return func(r *LakeReporter) {
+		r.newID = fn
+	}
+}
+
 // NewLakeReporter creates a new LakeReporter with the given sink and scope ID.
 // It returns an error if sink is nil or scope ID is blank.
-func NewLakeReporter(sink EvidenceSink, scopeID string) (*LakeReporter, error) {
+// Optional functional options can be passed to customize the reporter.
+func NewLakeReporter(sink EvidenceSink, scopeID string, opts ...lakeReporterOption) (*LakeReporter, error) {
 	if sink == nil {
 		return nil, fmt.Errorf("new lake reporter: %w", ErrInvalidInput)
 	}
 	if scopeID == "" {
 		return nil, fmt.Errorf("new lake reporter: %w", ErrInvalidInput)
 	}
-	return &LakeReporter{
+	r := &LakeReporter{
 		sink:    sink,
 		scopeID: scopeID,
 		newID:   generateRandomID,
-	}, nil
-}
-
-// SetNewID sets the ID generator function. Used for testing.
-func (r *LakeReporter) SetNewID(fn func() string) {
-	r.newID = fn
+	}
+	for _, opt := range opts {
+		opt(r)
+	}
+	return r, nil
 }
 
 // Report reports a ReportEvent to the evidence lake.

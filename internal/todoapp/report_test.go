@@ -3,6 +3,7 @@ package todoapp_test
 import (
 	"context"
 	"errors"
+	"strconv"
 	"testing"
 	"time"
 
@@ -182,15 +183,18 @@ func TestLakeReporter_Report(t *testing.T) {
 func TestLakeReporter_InjectableNewID(t *testing.T) {
 	t.Run("custom id generator", func(t *testing.T) {
 		sink := &fakeSink{}
-		reporter, err := todoapp.NewLakeReporter(sink, "local-team")
-		require.NoError(t, err)
 
-		// Override newID
+		// Inject custom newID via functional option
 		counter := 0
-		reporter.SetNewID(func() string {
-			counter++
-			return "custom-id-" + string(rune(counter))
-		})
+		reporter, err := todoapp.NewLakeReporter(
+			sink,
+			"local-team",
+			todoapp.WithLakeReporterNewID(func() string {
+				counter++
+				return "custom-id-" + strconv.Itoa(counter)
+			}),
+		)
+		require.NoError(t, err)
 
 		ctx := context.Background()
 		event := todoapp.ReportEvent{
