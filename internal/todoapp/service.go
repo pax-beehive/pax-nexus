@@ -283,6 +283,7 @@ func (s *Service) AcceptSuggestion(ctx context.Context, userID, suggestionID str
 }
 
 // DismissSuggestion marks a pending suggestion as dismissed.
+// The suggestion must be in pending status, otherwise returns ErrInvalidTransition.
 // Reports EventSuggestionDismissed.
 // If reporting fails, logs a warning but succeeds.
 func (s *Service) DismissSuggestion(ctx context.Context, userID, suggestionID string) error {
@@ -290,6 +291,11 @@ func (s *Service) DismissSuggestion(ctx context.Context, userID, suggestionID st
 	suggestion, err := s.repo.SuggestionByID(ctx, suggestionID)
 	if err != nil {
 		return err
+	}
+
+	// Verify it's pending
+	if suggestion.Status != SuggestionPending {
+		return fmt.Errorf("dismiss suggestion %s: %w", suggestionID, ErrInvalidTransition)
 	}
 
 	// Mark as dismissed

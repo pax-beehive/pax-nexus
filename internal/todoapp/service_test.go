@@ -550,6 +550,76 @@ func (s *ServiceSuite) TestDismissReports() {
 	s.Require().Equal(fmt.Sprintf("User dismissed suggested todo %q as not useful.", "[SUGGESTED] Fix bug"), event.Summary)
 }
 
+func (s *ServiceSuite) TestDismissRejectsNonPending() {
+	rewriter := scriptedRewriter{prefix: "[SUGGESTED] "}
+	service, err := todoapp.NewService(todoapp.ServiceConfig{
+		Repository: s.repo,
+		Notes:      s.notes,
+		Rewriter:   rewriter,
+		Reporter:   s.reporter,
+		Clock:      s.clock,
+		NewID: func() string {
+			id := s.nextID
+			s.nextID++
+			return string(rune(int('a') + id))
+		},
+	})
+	s.Require().NoError(err)
+
+	s.notes.items = []todoapp.ActionItem{
+		{NoteID: "note-1", Kind: "action", Subject: "Fix bug", Body: "Critical"},
+	}
+
+	// Create a suggestion
+	count, err := service.RefreshSuggestions(s.ctx)
+	s.Require().NoError(err)
+	s.Require().Equal(1, count)
+
+	suggestions, err := s.repo.ListSuggestions(s.ctx, todoapp.SuggestionPending)
+	s.Require().NoError(err)
+	s.Require().Len(suggestions, 1)
+	sugg := suggestions[0]
+
+	// Test 1: Dismiss twice → second call should return ErrInvalidTransition
+	err = service.DismissSuggestion(s.ctx, "user-1", sugg.ID)
+	s.Require().NoError(err)
+	s.Require().Len(s.reporter.events, 1)
+
+	// Try to dismiss again
+	err = service.DismissSuggestion(s.ctx, "user-1", sugg.ID)
+	s.Require().Error(err)
+	s.Require().ErrorIs(err, todoapp.ErrInvalidTransition)
+	// Verify no extra event was fired
+	s.Require().Len(s.reporter.events, 1)
+
+	// Test 2: Accept then dismiss → should return ErrInvalidTransition
+	// Create another suggestion
+	s.reporter.events = []todoapp.ReportEvent{}
+	s.notes.items = []todoapp.ActionItem{
+		{NoteID: "note-2", Kind: "action", Subject: "Review PR", Body: "Urgent"},
+	}
+
+	count, err = service.RefreshSuggestions(s.ctx)
+	s.Require().NoError(err)
+	s.Require().Equal(1, count)
+
+	suggestions, err = s.repo.ListSuggestions(s.ctx, todoapp.SuggestionPending)
+	s.Require().NoError(err)
+	sugg2 := suggestions[0]
+
+	// Accept the suggestion
+	_, err = service.AcceptSuggestion(s.ctx, "user-1", sugg2.ID)
+	s.Require().NoError(err)
+	s.Require().Len(s.reporter.events, 1) // One accept event
+
+	// Try to dismiss after accepting
+	err = service.DismissSuggestion(s.ctx, "user-1", sugg2.ID)
+	s.Require().Error(err)
+	s.Require().ErrorIs(err, todoapp.ErrInvalidTransition)
+	// Verify no dismiss event was fired
+	s.Require().Len(s.reporter.events, 1)
+}
+
 func (s *ServiceSuite) TestPendingSuggestions() {
 	rewriter := scriptedRewriter{prefix: "[SUGGESTED] "}
 	service, err := todoapp.NewService(todoapp.ServiceConfig{
