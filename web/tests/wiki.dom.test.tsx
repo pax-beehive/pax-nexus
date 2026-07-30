@@ -166,6 +166,30 @@ describe("Page Wiki portal integration", () => {
     expect(screen.queryByText("Xanadu map")).toBeNull();
   });
 
+  it("renders root-level pages above topic groups", async () => {
+    await renderApp({
+      route: "/wiki?page=sqlite",
+      me: makeMe({ role: "member" }),
+      fetch: (path) => {
+        if (path === "/v1/wiki/navigation") {
+          return jsonResponse({
+            ...navigation,
+            pages: [{ id: "page-alpha", slug: "alpha", title: "Alpha", rank: 0 }],
+          });
+        }
+        return wikiFetch(path);
+      },
+    });
+
+    await screen.findByRole("heading", { name: "SQLite" });
+    const rail = screen.getByRole("navigation", { name: "Wiki topics" });
+    const alphaButton = within(rail).getByRole("button", { name: "Alpha" });
+    const topicHeading = within(rail).getByRole("heading", { name: "Engineering" });
+    expect(
+      alphaButton.compareDocumentPosition(topicHeading) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
   it("searches current revisions and opens a historical revision", async () => {
     const { user } = await renderApp({
       route: "/wiki?page=sqlite",

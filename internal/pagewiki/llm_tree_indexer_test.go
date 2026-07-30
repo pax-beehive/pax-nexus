@@ -1,0 +1,148 @@
+package pagewiki_test
+
+import (
+	"context"
+	"fmt"
+	"testing"
+
+	"github.com/pax-beehive/pax-nexus/internal/pagewiki"
+	"github.com/stretchr/testify/suite"
+)
+
+type llmTreeIndexerSuite struct {
+	suite.Suite
+}
+
+func TestLLMTreeIndexerSuite(t *testing.T) {
+	suite.Run(t, new(llmTreeIndexerSuite))
+}
+
+func indexerCatalog(size int) pagewiki.PageCatalog {
+	catalog := make(pagewiki.PageCatalog, 0, size)
+	for index := 0; index < size; index++ {
+		slug := fmt.Sprintf("page-%02d", index)
+		catalog = append(catalog, pagewiki.PageCatalogEntry{
+			ID: "id-" + slug, Slug: slug, Title: "Page " + slug,
+			CurrentRevisionID: "revision-" + slug, Summary: "Summary of " + slug,
+		})
+	}
+	return catalog
+}
+
+func newIndexer(s *llmTreeIndexerSuite, responses ...string) (*pagewiki.LLMTreeIndexer, *wikiChatClient) {
+	client := &wikiChatClient{responses: responses}
+	indexer, err := pagewiki.NewLLMTreeIndexer(pagewiki.LLMTreeIndexerConfig{
+		Client: client, Model: "test-model",
+	})
+	s.Require().NoError(err)
+	return indexer, client
+}
+
+func (s *llmTreeIndexerSuite) TestBuildsTwoLevelTreeWithStableIDs() {
+	indexer, client := newIndexer(s, `{"root_pages":["page-00"],"topics":[
+		{"title":"Engineering","pages":["page-01","page-02","page-03"]}
+	]}`)
+	tree, err := indexer.Index(context.Background(), pagewiki.TreeIndexInput{
+		Catalog: indexerCatalog(4),
+	})
+	s.Require().NoError(err)
+	s.Require().Len(tree.Topics, 1)
+	s.Equal("engineering", tree.Topics[0].Slug)
+	s.Equal("", tree.Topics[0].ParentID)
+	s.Require().Len(tree.Placements, 3)
+	s.Equal("id-page-01", tree.Placements[0].PageID)
+	s.Equal(tree.Topics[0].ID, tree.Placements[0].TopicID)
+	s.Equal(0, tree.Placements[0].Rank)
+	s.Equal(1, tree.Placements[1].Rank)
+	// request carried summaries and the current tree shape
+	s.Contains(client.requests[0].Messages[1].Content, "Summary of page-01")
+	s.Contains(client.requests[0].Messages[0].Content, "Misc")
+}
+
+func (s *llmTreeIndexerSuite) TestCollapsesUnderfullTopicsAndCoversEveryPage() {
+	indexer, _ := newIndexer(s, `{"root_pages":[],"topics":[
+		{"title":"Engineering","pages":["page-01","page-02","page-03"],
+		 "children":[{"title":"Tiny","pages":["page-04"]}]},
+		{"title":"Lonely","pages":["page-05"]},
+		{"title":"Ghost","pages":["missing-slug","page-01"]}
+	]}`)
+	tree, err := indexer.Index(context.Background(), pagewiki.TreeIndexInput{
+		Catalog: indexerCatalog(7),
+	})
+	s.Require().NoError(err)
+	// "Tiny" (1 page) collapsed into Engineering; "Lonely" (1 page) collapsed
+	// to root; "Ghost" kept nothing: unknown slug dropped, page-01 already placed.
+	s.Require().Len(tree.Topics, 1)
+	s.Equal("engineering", tree.Topics[0].Slug)
+	s.Require().Len(tree.Placements, 4) // page-01..04 under Engineering
+	placed := make(map[string]struct{})
+	for _, placement := range tree.Placements {
+		placed[placement.PageID] = struct{}{}
+	}
+	s.Contains(placed, "id-page-04")
+	s.NotContains(placed, "id-page-05") // at root: page-00, 05, 06
+}
+
+func (s *llmTreeIndexerSuite) TestFlattensThirdLevelIntoSecond() {
+	indexer, _ := newIndexer(s, `{"root_pages":[],"topics":[
+		{"title":"Engineering","pages":["page-00"],"children":[
+			{"title":"Runtime","pages":["page-01","page-02"],"children":[
+				{"title":"Deep","pages":["page-03"]}
+			]}
+		]}
+	]}`)
+	tree, err := indexer.Index(context.Background(), pagewiki.TreeIndexInput{
+		Catalog: indexerCatalog(4),
+	})
+	s.Require().NoError(err)
+	s.Require().Len(tree.Topics, 2)
+	byID := make(map[string]pagewiki.Topic)
+	for _, topic := range tree.Topics {
+		byID[topic.ID] = topic
+	}
+	for _, placement := range tree.Placements {
+		s.Contains(byID, placement.TopicID)
+	}
+	// page-03 landed under Runtime (level 2), not a third level
+	var runtimeID string
+	for _, topic := range tree.Topics {
+		if topic.Slug == "runtime" {
+			runtimeID = topic.ID
+		}
+	}
+	counted := 0
+	for _, placement := range tree.Placements {
+		if placement.TopicID == runtimeID {
+			counted++
+		}
+	}
+	s.Equal(3, counted)
+}
+
+func (s *llmTreeIndexerSuite) TestRetriesOnceThenFails() {
+	indexer, client := newIndexer(s, "not json", "still not json")
+	_, err := indexer.Index(context.Background(), pagewiki.TreeIndexInput{
+		Catalog: indexerCatalog(2),
+	})
+	s.Require().Error(err)
+	s.Len(client.requests, 2)
+}
+
+func (s *llmTreeIndexerSuite) TestRequestCarriesCurrentTree() {
+	indexer, client := newIndexer(s, `{"root_pages":["page-00"],"topics":[]}`)
+	current := pagewiki.TopicTree{
+		Topics: []pagewiki.Topic{
+			{ID: "topic-1", Slug: "existing", Title: "Existing Topic"},
+		},
+		Placements: []pagewiki.PagePlacement{
+			{PageID: "id-page-00", TopicID: "topic-1", Rank: 0},
+		},
+	}
+	_, err := indexer.Index(context.Background(), pagewiki.TreeIndexInput{
+		Catalog: indexerCatalog(1),
+		Current: current,
+	})
+	s.Require().NoError(err)
+	s.Require().Len(client.requests, 1)
+	s.Contains(client.requests[0].Messages[1].Content, "Existing Topic")
+}

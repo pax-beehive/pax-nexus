@@ -74,8 +74,11 @@ func (s *llmPlanAcceptanceSuite) TestNoisySessionProducesOnlyGenuinePages() {
 
 	navigation, err := repository.Navigation(context.Background())
 	s.Require().NoError(err)
-	s.Require().Len(navigation.Roots, 1)
-	s.Equal("Engineering", navigation.Roots[0].Title)
+	s.Empty(navigation.Roots)
+	s.Len(navigation.Pages, 1)
+	s.Equal("recall-strategy", navigation.Pages[0].Slug)
+	s.Zero(repository.TopicCount())
+	s.Zero(repository.PlacementCount())
 
 	_, err = repository.PageBySlug(context.Background(), "knowledge-checklist")
 	s.Require().ErrorIs(err, pagewiki.ErrNotFound)

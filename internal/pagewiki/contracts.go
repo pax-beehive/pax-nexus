@@ -31,14 +31,6 @@ func ValidatePageBrief(brief PageBrief, catalog PageCatalog) error {
 	if strings.TrimSpace(brief.Key) == "" {
 		return fmt.Errorf("%w: key is required", ErrInvalidPageBrief)
 	}
-	if len(brief.TopicPath) > 2 {
-		return fmt.Errorf("%w: topic path exceeds two levels", ErrInvalidPageBrief)
-	}
-	for _, segment := range brief.TopicPath {
-		if strings.TrimSpace(segment) == "" {
-			return fmt.Errorf("%w: topic path contains an empty segment", ErrInvalidPageBrief)
-		}
-	}
 	if hasBlankOrDuplicate(brief.EvidenceEventIDs) {
 		return fmt.Errorf("%w: evidence event IDs must be unique and non-empty", ErrInvalidPageBrief)
 	}
@@ -46,9 +38,6 @@ func ValidatePageBrief(brief PageBrief, catalog PageCatalog) error {
 	case PageActionCreate:
 		if brief.TargetPageID != "" || brief.ExpectedBaseRevisionID != "" {
 			return fmt.Errorf("%w: create cannot choose page identity", ErrInvalidPageBrief)
-		}
-		if len(brief.TopicPath) == 0 {
-			return fmt.Errorf("%w: create requires a topic path", ErrInvalidPageBrief)
 		}
 		if strings.TrimSpace(brief.ProposedSlug) == "" ||
 			strings.TrimSpace(brief.ProposedTitle) == "" {

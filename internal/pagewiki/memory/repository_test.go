@@ -94,6 +94,20 @@ func (s *RepositorySuite) TestGivenPagePublicationWhenReadThenNestedRevisionValu
 	s.Require().Equal("SQLite is local.", againHistory[0].Sections[0].Markdown)
 }
 
+func (s *RepositorySuite) TestPageCatalogCarriesCurrentSummary() {
+	page, revision := pageFixture()
+	revision.Summary = "Weekly release cadence."
+	publication := publicationFixture(page, revision)
+
+	err := s.repository.PublishPage(s.ctx, publication)
+	s.Require().NoError(err)
+
+	catalog, err := s.repository.PageCatalog(s.ctx)
+	s.Require().NoError(err)
+	s.Require().Len(catalog, 1)
+	s.Equal("Weekly release cadence.", catalog[0].Summary)
+}
+
 func (s *RepositorySuite) TestGivenInvalidPublicationWhenPublishedThenRepositoryRejectsIt() {
 	page, revision := pageFixture()
 	tests := []struct {
@@ -102,6 +116,11 @@ func (s *RepositorySuite) TestGivenInvalidPublicationWhenPublishedThenRepository
 		publication pagewiki.PagePublication
 		wantErr     error
 	}{
+		{
+			name:        "empty publication has no page identity",
+			publication: pagewiki.PagePublication{},
+			wantErr:     pagewiki.ErrRevisionConflict,
+		},
 		{
 			name: "page points at another revision",
 			publication: publicationFixture(
@@ -343,6 +362,43 @@ func (s *RepositorySuite) TestGivenPublicationsWhenNavigatedThenCopiesAreSorted(
 	s.Require().Equal("Architecture", again.Roots[0].Children[0].Pages[0].Title)
 }
 
+func (s *RepositorySuite) TestNavigationListsUnplacedPagesAtRoot() {
+	// publish pages "page-1" (slug "alpha") and "page-2" (slug "beta");
+	// place only page-2 under a topic via ReplaceTopicTree
+	page1 := pagewiki.Page{
+		ID:                "page-1",
+		Slug:              "alpha",
+		Title:             "Alpha",
+		CurrentRevisionID: "revision-1",
+	}
+	revision1 := pagewiki.PageRevision{ID: "revision-1", PageID: "page-1"}
+	s.Require().NoError(s.repository.PublishPage(s.ctx, publicationFixture(page1, revision1)))
+
+	page2 := pagewiki.Page{
+		ID:                "page-2",
+		Slug:              "beta",
+		Title:             "Beta",
+		CurrentRevisionID: "revision-2",
+	}
+	revision2 := pagewiki.PageRevision{ID: "revision-2", PageID: "page-2"}
+	publication2 := publicationFixture(page2, revision2)
+	s.Require().NoError(s.repository.PublishPage(s.ctx, publication2))
+
+	tree := pagewiki.TopicTree{
+		Topics:     []pagewiki.Topic{{ID: "topic-a", Slug: "runtime", Title: "Runtime"}},
+		Placements: []pagewiki.PagePlacement{{PageID: "page-2", TopicID: "topic-a"}},
+	}
+	s.Require().NoError(s.repository.ReplaceTopicTree(s.ctx, tree))
+
+	navigation, err := s.repository.Navigation(s.ctx)
+	s.Require().NoError(err)
+	s.Require().Len(navigation.Pages, 1)
+	s.Equal("alpha", navigation.Pages[0].Slug)
+	s.Require().Len(navigation.Roots, 1)
+	s.Require().Len(navigation.Roots[0].Pages, 1)
+	s.Equal("beta", navigation.Roots[0].Pages[0].Slug)
+}
+
 func (s *RepositorySuite) TestGivenEqualScoresWhenSearchedThenResultsAndLinksAreSorted() {
 	sqlitePage, sqliteRevision := searchablePageFixture(
 		"page-sqlite",
@@ -483,6 +539,164 @@ func (s *RepositorySuite) TestGivenMissingValuesWhenReadThenNotFoundIsReturned()
 	s.Require().ErrorIs(revisionErr, pagewiki.ErrNotFound)
 	s.Require().ErrorIs(historyErr, pagewiki.ErrNotFound)
 	s.Require().ErrorIs(runErr, pagewiki.ErrNotFound)
+}
+
+func (s *RepositorySuite) TestReplaceTopicTreeSwapsWholeTree() {
+	// publish two pages (existing helper)
+	page1, revision1 := pageFixture()
+	s.Require().NoError(s.repository.PublishPage(s.ctx, publicationFixture(page1, revision1)))
+
+	page2 := pagewiki.Page{
+		ID:                "page-2",
+		Slug:              "architecture",
+		Title:             "Architecture",
+		CurrentRevisionID: "revision-2",
+	}
+	revision2 := pagewiki.PageRevision{ID: "revision-2", PageID: "page-2"}
+	s.Require().NoError(s.repository.PublishPage(s.ctx, publicationFixture(page2, revision2)))
+
+	first := pagewiki.TopicTree{
+		Topics:     []pagewiki.Topic{{ID: "topic-a", Slug: "runtime", Title: "Runtime"}},
+		Placements: []pagewiki.PagePlacement{{PageID: "page-1", TopicID: "topic-a"}},
+	}
+	s.Require().NoError(s.repository.ReplaceTopicTree(s.ctx, first))
+
+	second := pagewiki.TopicTree{
+		Topics:     []pagewiki.Topic{{ID: "topic-b", Slug: "storage", Title: "Storage"}},
+		Placements: []pagewiki.PagePlacement{{PageID: "page-2", TopicID: "topic-b"}},
+	}
+	s.Require().NoError(s.repository.ReplaceTopicTree(s.ctx, second))
+
+	tree, err := s.repository.TopicTree(s.ctx)
+	s.Require().NoError(err)
+	s.Equal(second, tree)
+}
+
+func (s *RepositorySuite) TestReplaceTopicTreeRejectsInvalidTrees() {
+	// Publish pages so we can reference them in placements (without topics)
+	page1, revision1 := pageFixture()
+	publication1 := publicationFixture(page1, revision1)
+	publication1.Topics = nil // clear topics to avoid interference
+	publication1.Placement = nil
+	s.Require().NoError(s.repository.PublishPage(s.ctx, publication1))
+
+	page2 := pagewiki.Page{
+		ID:                "page-2",
+		Slug:              "architecture",
+		Title:             "Architecture",
+		CurrentRevisionID: "revision-2",
+	}
+	revision2 := pagewiki.PageRevision{ID: "revision-2", PageID: "page-2"}
+	publication2 := publicationFixture(page2, revision2)
+	publication2.Topics = nil // clear topics to avoid interference
+	publication2.Placement = nil
+	s.Require().NoError(s.repository.PublishPage(s.ctx, publication2))
+
+	cases := []struct {
+		name string
+		tree pagewiki.TopicTree
+	}{
+		{"unknown page", pagewiki.TopicTree{
+			Topics:     []pagewiki.Topic{{ID: "t", Slug: "s", Title: "S"}},
+			Placements: []pagewiki.PagePlacement{{PageID: "ghost", TopicID: "t"}},
+		}},
+		{"unknown topic", pagewiki.TopicTree{
+			Placements: []pagewiki.PagePlacement{{PageID: "page-1", TopicID: "ghost"}},
+		}},
+		{"missing parent", pagewiki.TopicTree{
+			Topics: []pagewiki.Topic{{ID: "t", ParentID: "ghost", Slug: "s", Title: "S"}},
+		}},
+		{"three levels", pagewiki.TopicTree{
+			Topics: []pagewiki.Topic{
+				{ID: "a", Slug: "a", Title: "A"},
+				{ID: "b", ParentID: "a", Slug: "b", Title: "B"},
+				{ID: "c", ParentID: "b", Slug: "c", Title: "C"},
+			},
+		}},
+		{"duplicate placement", pagewiki.TopicTree{
+			Topics: []pagewiki.Topic{{ID: "t", Slug: "s", Title: "S"}},
+			Placements: []pagewiki.PagePlacement{
+				{PageID: "page-1", TopicID: "t"},
+				{PageID: "page-1", TopicID: "t"},
+			},
+		}},
+		{"empty topic ID", pagewiki.TopicTree{
+			Topics: []pagewiki.Topic{{ID: "", Slug: "s", Title: "S"}},
+		}},
+		{"empty topic slug", pagewiki.TopicTree{
+			Topics: []pagewiki.Topic{{ID: "t", Slug: "", Title: "S"}},
+		}},
+		{"empty topic title", pagewiki.TopicTree{
+			Topics: []pagewiki.Topic{{ID: "t", Slug: "s", Title: ""}},
+		}},
+		{"duplicate topic IDs", pagewiki.TopicTree{
+			Topics: []pagewiki.Topic{
+				{ID: "t", Slug: "s1", Title: "S1"},
+				{ID: "t", Slug: "s2", Title: "S2"},
+			},
+		}},
+		{"negative placement rank", pagewiki.TopicTree{
+			Topics:     []pagewiki.Topic{{ID: "t", Slug: "s", Title: "S"}},
+			Placements: []pagewiki.PagePlacement{{PageID: "page-1", TopicID: "t", Rank: -1}},
+		}},
+	}
+	for _, testCase := range cases {
+		err := s.repository.ReplaceTopicTree(s.ctx, testCase.tree)
+		s.Require().ErrorIs(err, pagewiki.ErrRevisionConflict, testCase.name)
+	}
+	// prior valid state is untouched (should be empty since no successful ReplaceTopicTree calls)
+	tree, err := s.repository.TopicTree(s.ctx)
+	s.Require().NoError(err)
+	s.Empty(tree.Topics)
+}
+
+func (s *RepositorySuite) TestReplaceTopicTreeAtomicityPreservesValidState() {
+	// Publish pages so we can reference them
+	page1, revision1 := pageFixture()
+	publication1 := publicationFixture(page1, revision1)
+	publication1.Topics = nil
+	publication1.Placement = nil
+	s.Require().NoError(s.repository.PublishPage(s.ctx, publication1))
+
+	page2 := pagewiki.Page{
+		ID:                "page-2",
+		Slug:              "architecture",
+		Title:             "Architecture",
+		CurrentRevisionID: "revision-2",
+	}
+	revision2 := pagewiki.PageRevision{ID: "revision-2", PageID: "page-2"}
+	publication2 := publicationFixture(page2, revision2)
+	publication2.Topics = nil
+	publication2.Placement = nil
+	s.Require().NoError(s.repository.PublishPage(s.ctx, publication2))
+
+	// Step 1: Perform successful ReplaceTopicTree with valid non-empty tree
+	validTree := pagewiki.TopicTree{
+		Topics: []pagewiki.Topic{
+			{ID: "topic-1", Slug: "runtime", Title: "Runtime"},
+			{ID: "topic-2", ParentID: "topic-1", Slug: "memory", Title: "Memory"},
+		},
+		Placements: []pagewiki.PagePlacement{
+			{PageID: "page-1", TopicID: "topic-1", Rank: 0},
+			{PageID: "page-2", TopicID: "topic-2", Rank: 1},
+		},
+	}
+	s.Require().NoError(s.repository.ReplaceTopicTree(s.ctx, validTree))
+
+	// Step 2: Attempt invalid ReplaceTopicTree (references non-existent topic)
+	invalidTree := pagewiki.TopicTree{
+		Topics: []pagewiki.Topic{{ID: "t", Slug: "s", Title: "S"}},
+		Placements: []pagewiki.PagePlacement{
+			{PageID: "page-1", TopicID: "ghost"}, // ghost topic doesn't exist
+		},
+	}
+	err := s.repository.ReplaceTopicTree(s.ctx, invalidTree)
+	s.Require().ErrorIs(err, pagewiki.ErrRevisionConflict)
+
+	// Step 3: Verify the valid tree is still there (atomicity preserved)
+	tree, err := s.repository.TopicTree(s.ctx)
+	s.Require().NoError(err)
+	s.Equal(validTree, tree)
 }
 
 func sourceRevisionFixture() pagewiki.SourceRevision {

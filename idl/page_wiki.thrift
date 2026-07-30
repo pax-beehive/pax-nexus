@@ -192,6 +192,7 @@ struct NavigationRequest {}
 
 struct NavigationResponse {
   1: required list<NavigationTopic> roots
+  2: required list<NavigationPage> pages
 }
 
 struct ReaderRequest {}

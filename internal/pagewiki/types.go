@@ -54,6 +54,7 @@ type PageCatalogEntry struct {
 	Slug              string
 	Title             string
 	CurrentRevisionID string
+	Summary           string
 }
 
 type PageCatalog []PageCatalogEntry
@@ -109,6 +110,11 @@ type PagePlacement struct {
 	Rank    int
 }
 
+type TopicTree struct {
+	Topics     []Topic
+	Placements []PagePlacement
+}
+
 type PagePublication struct {
 	Page      Page
 	Revision  PageRevision
@@ -118,6 +124,7 @@ type PagePublication struct {
 
 type Navigation struct {
 	Roots []NavigationTopic
+	Pages []NavigationPage
 }
 
 type NavigationTopic struct {
@@ -188,7 +195,6 @@ type PageBrief struct {
 	ProposedSlug           string
 	ProposedTitle          string
 	ReaderGoal             string
-	TopicPath              []string
 	EvidenceEventIDs       []string
 	Evidence               []EvidenceQuoteDraft
 	RelatedPages           []RelatedPage

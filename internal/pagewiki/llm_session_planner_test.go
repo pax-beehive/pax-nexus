@@ -64,7 +64,6 @@ func (s *llmSessionPlannerSuite) TestPlansCreateUpdateAndDropsNoise() {
 	s.Equal("release-policy", create.ProposedSlug)
 	s.Equal("release-policy", create.Key)
 	s.Equal("Release Policy", create.ProposedTitle)
-	s.Equal([]string{"Engineering", "Runtime"}, create.TopicPath)
 	s.Equal([]string{"event-1"}, create.EvidenceEventIDs)
 	s.Require().Len(create.Evidence, 1)
 	s.Equal("releases ship weekly", create.Evidence[0].ExactText)
@@ -75,7 +74,6 @@ func (s *llmSessionPlannerSuite) TestPlansCreateUpdateAndDropsNoise() {
 	s.Equal("revision-1", update.ExpectedBaseRevisionID)
 	s.Equal("existing-page", update.Key)
 	s.Empty(update.ProposedSlug)
-	s.Empty(update.TopicPath)
 
 	s.Require().Len(client.requests, 1)
 	s.Equal("test-model", client.requests[0].Model)
@@ -112,7 +110,6 @@ func (s *llmSessionPlannerSuite) TestRemapsCreateToUpdateWhenSlugMatchesCatalog(
 	s.Equal("revision-1", update.ExpectedBaseRevisionID)
 	s.Empty(update.ProposedSlug)
 	s.Empty(update.ProposedTitle)
-	s.Empty(update.TopicPath)
 }
 
 func (s *llmSessionPlannerSuite) TestDropsLaterQuoteThatDuplicatesAnAcceptedQuoteAcrossEvents() {
@@ -319,4 +316,26 @@ func (s *llmSessionPlannerSuite) TestPlannerPromptPinsUpdateRuleAndNoisePolicy()
 	s.Contains(system, "still need in a month")
 	s.Contains(system, "one-off session narratives")
 	s.Contains(system, "MUST be update")
+}
+
+func (s *llmSessionPlannerSuite) TestPlanRequestCarriesCatalogSummaries() {
+	client := &wikiChatClient{responses: []string{`{"briefs":[]}`}}
+	planner, err := pagewiki.NewLLMSessionPlanner(pagewiki.LLMPlannerConfig{
+		Client: client, Model: "test-model",
+	})
+	s.Require().NoError(err)
+
+	_, err = planner.Plan(context.Background(), pagewiki.PlanInput{
+		SourceRevision: plannerRevision(),
+		PageCatalog: pagewiki.PageCatalog{{
+			ID: "page-1", Slug: "existing-page", Title: "Existing Page",
+			CurrentRevisionID: "revision-1",
+			Summary:           "How weekly releases are cut.",
+		}},
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(client.requests, 1)
+	s.Contains(client.requests[0].Messages[1].Content, "How weekly releases are cut.")
+	s.Contains(client.requests[0].Messages[0].Content, "summary")
 }

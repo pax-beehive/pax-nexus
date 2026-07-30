@@ -24,6 +24,7 @@ export interface WikiNavigationTopic {
 
 export interface WikiNavigation {
   roots: WikiNavigationTopic[];
+  pages: WikiNavigationPage[];
 }
 
 export interface WikiSourceAnchor {

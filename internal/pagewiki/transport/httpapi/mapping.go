@@ -235,7 +235,10 @@ func sourceBacklinksToAPI(
 }
 
 func navigationToAPI(navigation pagewiki.Navigation) *api.NavigationResponse {
-	return &api.NavigationResponse{Roots: navigationTopicsToAPI(navigation.Roots)}
+	return &api.NavigationResponse{
+		Roots: navigationTopicsToAPI(navigation.Roots),
+		Pages: navigationPagesToAPI(navigation.Pages),
+	}
 }
 
 func navigationTopicsToAPI(
@@ -243,21 +246,27 @@ func navigationTopicsToAPI(
 ) []*api.NavigationTopic {
 	result := make([]*api.NavigationTopic, 0, len(topics))
 	for _, topic := range topics {
-		pages := make([]*api.NavigationPage, 0, len(topic.Pages))
-		for _, page := range topic.Pages {
-			pages = append(pages, &api.NavigationPage{
-				ID:    page.ID,
-				Slug:  page.Slug,
-				Title: page.Title,
-				Rank:  int32(page.Rank),
-			})
-		}
 		result = append(result, &api.NavigationTopic{
 			ID:       topic.ID,
 			Slug:     topic.Slug,
 			Title:    topic.Title,
 			Children: navigationTopicsToAPI(topic.Children),
-			Pages:    pages,
+			Pages:    navigationPagesToAPI(topic.Pages),
+		})
+	}
+	return result
+}
+
+func navigationPagesToAPI(
+	pages []pagewiki.NavigationPage,
+) []*api.NavigationPage {
+	result := make([]*api.NavigationPage, 0, len(pages))
+	for _, page := range pages {
+		result = append(result, &api.NavigationPage{
+			ID:    page.ID,
+			Slug:  page.Slug,
+			Title: page.Title,
+			Rank:  int32(page.Rank),
 		})
 	}
 	return result
