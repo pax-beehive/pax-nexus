@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/pax-beehive/pax-nexus/internal/platform/observability"
@@ -32,6 +33,7 @@ type Service struct {
 	logger   *slog.Logger
 	clock    func() time.Time
 	newID    func() string
+	mu       sync.Mutex // protects RefreshSuggestions
 }
 
 // NewService creates a new Service with the given configuration.
@@ -145,6 +147,176 @@ func (s *Service) CompleteTodo(ctx context.Context, userID, todoID string) (Todo
 // If status is empty, returns all todos.
 func (s *Service) ListTodos(ctx context.Context, status TodoStatus) ([]Todo, error) {
 	return s.repo.ListTodos(ctx, status)
+}
+
+// RefreshSuggestions fetches open action items from the NoteDirectory,
+// creates pending suggestions for new items (using fingerprint deduplication),
+// and returns the count of newly created suggestions.
+// Serialized with a sync.Mutex to prevent concurrent updates.
+func (s *Service) RefreshSuggestions(ctx context.Context) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Load open action items from notes
+	items, err := s.notes.ListOpenActionItems(ctx, 50)
+	if err != nil {
+		return 0, fmt.Errorf("refresh suggestions: %w", err)
+	}
+
+	// Load existing fingerprints to avoid duplicates
+	fingerprints, err := s.repo.SuggestionFingerprints(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("refresh suggestions: %w", err)
+	}
+
+	var created int
+	now := s.clock()
+
+	// Process each action item
+	for _, item := range items {
+		// Skip if fingerprint already exists
+		if _, exists := fingerprints[item.NoteID]; exists {
+			continue
+		}
+
+		// Get title and body: use Rewriter if available, else verbatim
+		title := item.Subject
+		body := item.Body
+
+		if s.rewriter != nil {
+			var err error
+			title, body, err = s.rewriter.Rewrite(ctx, item)
+			if err != nil {
+				s.logger.Warn("rewriter failed", "error", err, "note_id", item.NoteID)
+				continue
+			}
+		}
+
+		// Create and save suggestion
+		suggestion := Suggestion{
+			ID:          s.newID(),
+			Fingerprint: item.NoteID,
+			NoteID:      item.NoteID,
+			Kind:        item.Kind,
+			Title:       title,
+			Body:        body,
+			Status:      SuggestionPending,
+			CreatedAt:   now,
+			UpdatedAt:   now,
+		}
+
+		if err := s.repo.SaveSuggestion(ctx, suggestion); err != nil {
+			s.logger.Warn("failed to save suggestion", "error", err, "note_id", item.NoteID)
+			continue
+		}
+
+		created++
+	}
+
+	return created, nil
+}
+
+// PendingSuggestions returns all pending suggestions.
+func (s *Service) PendingSuggestions(ctx context.Context) ([]Suggestion, error) {
+	return s.repo.ListSuggestions(ctx, SuggestionPending)
+}
+
+// AcceptSuggestion converts a pending suggestion into a todo.
+// The suggestion must be in pending status, otherwise returns ErrInvalidTransition.
+// Creates a todo with source TodoSourceSuggestion and reports EventSuggestionAccepted.
+// If reporting fails, logs a warning but succeeds.
+func (s *Service) AcceptSuggestion(ctx context.Context, userID, suggestionID string) (Todo, error) {
+	// Get the suggestion
+	suggestion, err := s.repo.SuggestionByID(ctx, suggestionID)
+	if err != nil {
+		return Todo{}, err
+	}
+
+	// Verify it's pending
+	if suggestion.Status != SuggestionPending {
+		return Todo{}, fmt.Errorf("accept suggestion %s: %w", suggestionID, ErrInvalidTransition)
+	}
+
+	// Create the todo
+	now := s.clock()
+	todo := Todo{
+		ID:           s.newID(),
+		Title:        suggestion.Title,
+		Body:         suggestion.Body,
+		Status:       TodoOpen,
+		Source:       TodoSourceSuggestion,
+		SuggestionID: suggestion.ID,
+		NoteID:       suggestion.NoteID,
+		CreatedBy:    userID,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+
+	// Save the todo
+	if err := s.repo.SaveTodo(ctx, todo); err != nil {
+		return Todo{}, err
+	}
+
+	// Mark suggestion as accepted
+	suggestion.Status = SuggestionAccepted
+	suggestion.UpdatedAt = now
+	if err := s.repo.SaveSuggestion(ctx, suggestion); err != nil {
+		return Todo{}, err
+	}
+
+	// Report the event
+	event := ReportEvent{
+		Type:         EventSuggestionAccepted,
+		UserID:       userID,
+		SuggestionID: suggestion.ID,
+		NoteID:       suggestion.NoteID,
+		Summary:      fmt.Sprintf("User accepted suggested todo %q from team memory.", suggestion.Title),
+		OccurredAt:   now,
+	}
+
+	if err := s.reporter.Report(ctx, event); err != nil {
+		s.logger.Warn("suggestion report failed", "error", err, "suggestion_id", suggestionID)
+		// Report failure must not fail the call
+	}
+
+	return todo, nil
+}
+
+// DismissSuggestion marks a pending suggestion as dismissed.
+// Reports EventSuggestionDismissed.
+// If reporting fails, logs a warning but succeeds.
+func (s *Service) DismissSuggestion(ctx context.Context, userID, suggestionID string) error {
+	// Get the suggestion
+	suggestion, err := s.repo.SuggestionByID(ctx, suggestionID)
+	if err != nil {
+		return err
+	}
+
+	// Mark as dismissed
+	now := s.clock()
+	suggestion.Status = SuggestionDismissed
+	suggestion.UpdatedAt = now
+
+	if err := s.repo.SaveSuggestion(ctx, suggestion); err != nil {
+		return err
+	}
+
+	// Report the event
+	event := ReportEvent{
+		Type:         EventSuggestionDismissed,
+		UserID:       userID,
+		SuggestionID: suggestion.ID,
+		NoteID:       suggestion.NoteID,
+		Summary:      fmt.Sprintf("User dismissed suggested todo %q as not useful.", suggestion.Title),
+		OccurredAt:   now,
+	}
+
+	if err := s.reporter.Report(ctx, event); err != nil {
+		s.logger.Warn("suggestion report failed", "error", err, "suggestion_id", suggestionID)
+		// Report failure must not fail the call
+	}
+
+	return nil
 }
 
 // defaultNewID generates a random 16-byte hex ID.
