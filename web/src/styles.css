@@ -239,6 +239,12 @@ tr:last-child td { border-bottom: none; }
   .wiki-relation-grid { grid-template-columns: 1fr; }
 }
 
+/* Full-viewport wiki browse route (outside the portal shell). */
+.wiki-browse { min-height: 100vh; padding: 20px clamp(16px, 3vw, 44px) 32px; }
+.wiki-browse .wiki-layout { grid-template-columns: clamp(240px, 20vw, 380px) minmax(0, 1fr); }
+.wiki-back { display: inline-block; margin-bottom: 6px; color: var(--muted); font-size: 12.5px; text-decoration: none; }
+.wiki-back:hover { color: var(--text); text-decoration: underline; }
+
 /* team pulse */
 .pulse-card { display: flex; flex-direction: column; gap: 10px; }
 .pulse-name { font-family: var(--serif); font-size: 15.5px; font-weight: 600; }
