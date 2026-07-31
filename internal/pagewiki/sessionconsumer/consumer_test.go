@@ -142,6 +142,31 @@ func (s *consumerSuite) TestEmptySessionDoesNotInjectOrAdvance() {
 	s.Zero(s.store.advances)
 }
 
+func (s *consumerSuite) TestStatusIncludesProgress() {
+	s.store.enabled["local-team"] = true
+	processed := time.Date(2026, 7, 29, 8, 0, 0, 0, time.UTC)
+	s.store.progress = sessionconsumer.Progress{PendingSessions: 3, LastProcessedAt: &processed}
+
+	status, err := s.consumer.Status(context.Background(), "local-team")
+
+	s.Require().NoError(err)
+	s.True(status.AutoInject)
+	s.Require().NotNil(status.Progress)
+	s.Equal(3, status.Progress.PendingSessions)
+	s.Equal(processed, *status.Progress.LastProcessedAt)
+}
+
+func (s *consumerSuite) TestStatusDegradesWhenProgressQueryFails() {
+	s.store.enabled["local-team"] = true
+	s.store.progressErr = errors.New("progress query failed")
+
+	status, err := s.consumer.Status(context.Background(), "local-team")
+
+	s.Require().NoError(err)
+	s.True(status.AutoInject)
+	s.Nil(status.Progress)
+}
+
 func (s *consumerSuite) TestDoesNotAdvanceWhenMaintenanceRunIsNotSuccessful() {
 	s.injector.status = pagewiki.RunStatusPartialSuccess
 
@@ -238,17 +263,19 @@ func (s *consumerSuite) TestStoreFailuresAreReported() {
 }
 
 type consumerStore struct {
-	enabled    map[string]bool
-	streams    []sessionconsumer.Stream
-	events     []session.SessionEvent
-	advances   int
-	statusErr  error
-	settingErr error
-	streamErr  error
-	pendingErr error
-	eventsErr  error
-	advanceErr error
-	advanced   chan struct{}
+	enabled     map[string]bool
+	streams     []sessionconsumer.Stream
+	events      []session.SessionEvent
+	advances    int
+	statusErr   error
+	settingErr  error
+	streamErr   error
+	pendingErr  error
+	eventsErr   error
+	advanceErr  error
+	advanced    chan struct{}
+	progress    sessionconsumer.Progress
+	progressErr error
 }
 
 func (s *consumerStore) AutoInjectEnabled(_ context.Context, scopeID string) (bool, error) {
@@ -310,6 +337,13 @@ func (s *consumerStore) AdvanceCursor(context.Context, sessionconsumer.Stream) e
 	default:
 	}
 	return nil
+}
+
+func (s *consumerStore) Progress(context.Context, string) (sessionconsumer.Progress, error) {
+	if s.progressErr != nil {
+		return sessionconsumer.Progress{}, s.progressErr
+	}
+	return s.progress, nil
 }
 
 type recordingInjector struct {

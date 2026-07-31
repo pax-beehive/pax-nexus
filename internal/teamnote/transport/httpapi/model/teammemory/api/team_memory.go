@@ -15249,7 +15249,9 @@ func (p *UpdateWikiIngestionRequest) String() string {
 }
 
 type WikiIngestionStatusResponse struct {
-	AutoInject bool `thrift:"auto_inject,1,required" form:"auto_inject,required" json:"auto_inject,required" query:"auto_inject,required"`
+	AutoInject      bool    `thrift:"auto_inject,1,required" form:"auto_inject,required" json:"auto_inject,required" query:"auto_inject,required"`
+	PendingSessions *int32  `thrift:"pending_sessions,2,optional" form:"pending_sessions" json:"pending_sessions,omitempty" query:"pending_sessions"`
+	LastProcessedAt *string `thrift:"last_processed_at,3,optional" form:"last_processed_at" json:"last_processed_at,omitempty" query:"last_processed_at"`
 }
 
 func NewWikiIngestionStatusResponse() *WikiIngestionStatusResponse {
@@ -15263,8 +15265,36 @@ func (p *WikiIngestionStatusResponse) GetAutoInject() (v bool) {
 	return p.AutoInject
 }
 
+var WikiIngestionStatusResponse_PendingSessions_DEFAULT int32
+
+func (p *WikiIngestionStatusResponse) GetPendingSessions() (v int32) {
+	if !p.IsSetPendingSessions() {
+		return WikiIngestionStatusResponse_PendingSessions_DEFAULT
+	}
+	return *p.PendingSessions
+}
+
+var WikiIngestionStatusResponse_LastProcessedAt_DEFAULT string
+
+func (p *WikiIngestionStatusResponse) GetLastProcessedAt() (v string) {
+	if !p.IsSetLastProcessedAt() {
+		return WikiIngestionStatusResponse_LastProcessedAt_DEFAULT
+	}
+	return *p.LastProcessedAt
+}
+
 var fieldIDToName_WikiIngestionStatusResponse = map[int16]string{
 	1: "auto_inject",
+	2: "pending_sessions",
+	3: "last_processed_at",
+}
+
+func (p *WikiIngestionStatusResponse) IsSetPendingSessions() bool {
+	return p.PendingSessions != nil
+}
+
+func (p *WikiIngestionStatusResponse) IsSetLastProcessedAt() bool {
+	return p.LastProcessedAt != nil
 }
 
 func (p *WikiIngestionStatusResponse) Read(iprot thrift.TProtocol) (err error) {
@@ -15293,6 +15323,22 @@ func (p *WikiIngestionStatusResponse) Read(iprot thrift.TProtocol) (err error) {
 					goto ReadFieldError
 				}
 				issetAutoInject = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 2:
+			if fieldTypeId == thrift.I32 {
+				if err = p.ReadField2(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 3:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField3(iprot); err != nil {
+					goto ReadFieldError
+				}
 			} else if err = iprot.Skip(fieldTypeId); err != nil {
 				goto SkipFieldError
 			}
@@ -15342,6 +15388,28 @@ func (p *WikiIngestionStatusResponse) ReadField1(iprot thrift.TProtocol) error {
 	p.AutoInject = _field
 	return nil
 }
+func (p *WikiIngestionStatusResponse) ReadField2(iprot thrift.TProtocol) error {
+
+	var _field *int32
+	if v, err := iprot.ReadI32(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.PendingSessions = _field
+	return nil
+}
+func (p *WikiIngestionStatusResponse) ReadField3(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.LastProcessedAt = _field
+	return nil
+}
 
 func (p *WikiIngestionStatusResponse) Write(oprot thrift.TProtocol) (err error) {
 	var fieldId int16
@@ -15351,6 +15419,14 @@ func (p *WikiIngestionStatusResponse) Write(oprot thrift.TProtocol) (err error) 
 	if p != nil {
 		if err = p.writeField1(oprot); err != nil {
 			fieldId = 1
+			goto WriteFieldError
+		}
+		if err = p.writeField2(oprot); err != nil {
+			fieldId = 2
+			goto WriteFieldError
+		}
+		if err = p.writeField3(oprot); err != nil {
+			fieldId = 3
 			goto WriteFieldError
 		}
 	}
@@ -15386,6 +15462,44 @@ WriteFieldBeginError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 1 begin error: ", p), err)
 WriteFieldEndError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 1 end error: ", p), err)
+}
+
+func (p *WikiIngestionStatusResponse) writeField2(oprot thrift.TProtocol) (err error) {
+	if p.IsSetPendingSessions() {
+		if err = oprot.WriteFieldBegin("pending_sessions", thrift.I32, 2); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteI32(*p.PendingSessions); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 2 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 2 end error: ", p), err)
+}
+
+func (p *WikiIngestionStatusResponse) writeField3(oprot thrift.TProtocol) (err error) {
+	if p.IsSetLastProcessedAt() {
+		if err = oprot.WriteFieldBegin("last_processed_at", thrift.STRING, 3); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.LastProcessedAt); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 end error: ", p), err)
 }
 
 func (p *WikiIngestionStatusResponse) String() string {

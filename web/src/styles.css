@@ -49,7 +49,6 @@ code, .mono { font-family: var(--mono); font-size: 12.5px; background: var(--sur
 .nav a.active { background: var(--accent-soft); color: var(--accent-hover); font-weight: 600; }
 .side-foot { flex: none; border-top: 1px solid var(--border); padding-top: 12px; }
 .main { flex: 1; min-width: 0; padding: 34px 40px 120px; max-width: 1000px; margin: 0 auto; }
-.main.main-wide { max-width: 1480px; }
 .page-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; gap: 16px; }
 
 /* components */
@@ -148,6 +147,10 @@ tr:last-child td { border-bottom: none; }
 .wiki-search input[type=search]:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
 .wiki-ingestion { display: grid; grid-template-columns: minmax(240px, 1fr) auto minmax(360px, 1.25fr); align-items: center; gap: 18px; padding: 14px 16px; margin-bottom: 18px; }
 .wiki-ingestion-copy { display: flex; flex-direction: column; gap: 2px; }
+.wiki-progress { display: grid; grid-template-columns: minmax(240px, 1fr) auto; align-items: center; gap: 18px; padding: 14px 16px; margin-bottom: 18px; }
+.wiki-progress-stats { display: flex; gap: 32px; }
+.wiki-progress-stats > div { display: flex; flex-direction: column; gap: 2px; }
+.wiki-progress-figure { font-size: 18px; }
 .wiki-fixed-session { display: grid; grid-template-columns: minmax(170px, 1fr) auto; align-items: end; gap: 8px; }
 .wiki-fixed-session label { grid-column: 1 / -1; color: var(--muted); font-size: 11px; font-weight: 650; }
 .wiki-fixed-session input { width: 100%; min-width: 0; padding: 8px 10px; border: 1px solid var(--border-strong); border-radius: 8px; background: #fff; color: var(--text); font: 12px var(--mono); }
@@ -238,6 +241,19 @@ tr:last-child td { border-bottom: none; }
   .wiki-meta code, .wiki-meta .mono { overflow-wrap: anywhere; }
   .wiki-relation-grid { grid-template-columns: 1fr; }
 }
+
+/* Full-viewport wiki browse route (outside the portal shell). The rail and
+   article render flat on the page background — only the search-results
+   overlay keeps the card treatment. */
+.wiki-browse { min-height: 100vh; padding: 20px clamp(16px, 3vw, 44px) 32px; }
+.wiki-browse .wiki-layout { grid-template-columns: clamp(300px, 26vw, 460px) minmax(0, 1fr); gap: 28px; }
+.wiki-browse .wiki-topic-rail { padding: 4px 22px 20px 2px; border-right: 1px solid var(--border); }
+.wiki-browse .wiki-article { padding: 4px 12px 48px 4px; }
+@media (max-width: 920px) {
+  .wiki-browse .wiki-topic-rail { border-right: none; padding-right: 0; }
+}
+.wiki-back { display: inline-block; margin-bottom: 6px; color: var(--muted); font-size: 12.5px; text-decoration: none; }
+.wiki-back:hover { color: var(--text); text-decoration: underline; }
 
 /* team pulse */
 .pulse-card { display: flex; flex-direction: column; gap: 10px; }
