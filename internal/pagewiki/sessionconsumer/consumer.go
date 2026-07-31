@@ -14,9 +14,23 @@ import (
 )
 
 const (
-	ProcessorName    = "page_wiki"
-	ProcessorVersion = "knowledge-llm-v1"
+	ProcessorName     = "page_wiki"
+	ProcessorVersion  = "knowledge-llm-v1"
+	failureBackoffCap = 10 * time.Minute
 )
+
+// failureRecord tracks one stream's consecutive injection failures at a
+// given head. It lives only in process memory: a restart resets all backoff,
+// which is the desired behavior on a single-team workstation deployment.
+type failureRecord struct {
+	head        int64
+	attempts    int
+	nextRetryAt time.Time
+}
+
+func streamKey(stream Stream) string {
+	return stream.ScopeID + "/" + stream.Actor.AgentID + "/" + stream.Actor.SessionID
+}
 
 var ErrSessionNotFound = errors.New("session not found")
 
@@ -59,6 +73,8 @@ type Controller struct {
 	interval  time.Duration
 	trigger   chan struct{}
 	mu        sync.Mutex
+	failures  map[string]failureRecord
+	now       func() time.Time
 }
 
 func New(
@@ -79,6 +95,8 @@ func New(
 	return &Controller{
 		store: store, injector: injector, rebuilder: rebuilder,
 		logger: logger, interval: interval, trigger: make(chan struct{}, 1),
+		failures: make(map[string]failureRecord),
+		now:      time.Now,
 	}, nil
 }
 
@@ -124,6 +142,9 @@ func (c *Controller) Rebuild(ctx context.Context, scopeID string) (Status, error
 	}
 	c.mu.Lock()
 	err := c.rebuilder.RebuildPageWiki(ctx, scopeID, ProcessorName, ProcessorVersion)
+	if err == nil {
+		c.failures = make(map[string]failureRecord)
+	}
 	c.mu.Unlock()
 	if err != nil {
 		return Status{}, fmt.Errorf("rebuild Page Wiki: %w", err)
@@ -153,6 +174,7 @@ func (c *Controller) InjectSession(
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	for _, stream := range streams {
+		delete(c.failures, streamKey(stream))
 		if err := c.consume(ctx, stream); err != nil {
 			return InjectResult{}, err
 		}
@@ -168,15 +190,24 @@ func (c *Controller) scan(ctx context.Context) {
 		c.logger.ErrorContext(ctx, "Page Wiki scan failed", "error", err)
 		return
 	}
+	now := c.now()
 	for _, stream := range streams {
+		if c.backedOff(stream, now) {
+			continue
+		}
 		if err := c.consume(ctx, stream); err != nil {
+			record := c.recordFailure(stream)
 			c.logger.ErrorContext(ctx, "Page Wiki session injection failed",
 				"scope_id", stream.ScopeID,
 				"agent_id", stream.Actor.AgentID,
 				"session_id", stream.Actor.SessionID,
+				"attempts", record.attempts,
+				"next_retry_at", record.nextRetryAt,
 				"error", err,
 			)
+			continue
 		}
+		delete(c.failures, streamKey(stream))
 	}
 }
 
@@ -227,4 +258,37 @@ func injectionRequest(stream Stream, events []session.SessionEvent) pagewiki.Inj
 		IdempotencyKey: fmt.Sprintf("%s/%s/%d", ProcessorName, ProcessorVersion, stream.Head),
 		Raw:            []byte(raw.String()), Events: inputs,
 	}
+}
+
+// backedOff reports whether the stream is still inside its retry window. A
+// head advance (new session events) always clears the way immediately.
+func (c *Controller) backedOff(stream Stream, now time.Time) bool {
+	record, found := c.failures[streamKey(stream)]
+	if !found || record.head != stream.Head {
+		return false
+	}
+	return now.Before(record.nextRetryAt)
+}
+
+func (c *Controller) recordFailure(stream Stream) failureRecord {
+	key := streamKey(stream)
+	record := c.failures[key]
+	if record.head != stream.Head {
+		record = failureRecord{head: stream.Head}
+	}
+	record.attempts++
+	record.nextRetryAt = c.now().Add(c.backoffDelay(record.attempts))
+	c.failures[key] = record
+	return record
+}
+
+func (c *Controller) backoffDelay(attempts int) time.Duration {
+	if attempts >= 16 {
+		return failureBackoffCap
+	}
+	delay := c.interval << attempts
+	if delay <= 0 || delay > failureBackoffCap {
+		return failureBackoffCap
+	}
+	return delay
 }
