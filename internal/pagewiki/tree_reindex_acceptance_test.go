@@ -128,6 +128,8 @@ func (s *treeReindexSuite) TestSuccessfulRunReplacesTree() {
 
 	s.Require().NoError(err)
 	s.Require().Equal(pagewiki.RunStatusSucceeded, result.Run.Status)
+
+	service.FlushTreeReindex(context.Background())
 	s.Require().Equal(1, indexer.calls)
 
 	tree, err := s.repository.TopicTree(context.Background())
@@ -168,6 +170,8 @@ func (s *treeReindexSuite) TestSourceOnlyRunSkipsIndexer() {
 
 	s.Require().NoError(err)
 	s.Require().Equal(pagewiki.RunStatusSucceeded, result.Run.Status)
+
+	service.FlushTreeReindex(context.Background())
 	s.Require().Equal(0, indexer.calls)
 }
 
@@ -189,6 +193,8 @@ func (s *treeReindexSuite) TestIndexerFailureKeepsRunAndOldTree() {
 
 	s.Require().NoError(err)
 	s.Require().Equal(pagewiki.RunStatusSucceeded, result.Run.Status)
+
+	service.FlushTreeReindex(context.Background())
 	s.Require().Equal(1, indexer.calls)
 
 	tree, err := s.repository.TopicTree(context.Background())
@@ -209,4 +215,75 @@ func (s *treeReindexSuite) TestServiceWithoutIndexerStillWorks() {
 	s.Require().NoError(err)
 	s.Require().Empty(tree.Topics)
 	s.Require().Empty(tree.Placements)
+}
+
+func (s *treeReindexSuite) TestTwoRunsThenOneFlushReindexOnce() {
+	planner, editor, request := s.createBriefAndEditor()
+	indexer := &recordingIndexer{}
+	service := pagewiki.NewService(s.repository, planner, editor, pagewiki.WithTreeIndexer(indexer, nil))
+
+	first, err := service.InjectSession(context.Background(), request)
+	s.Require().NoError(err)
+	s.Require().Equal(pagewiki.RunStatusSucceeded, first.Run.Status)
+
+	secondRaw := []byte("event-2: The wiki search stays lexical for now.")
+	secondText := "The wiki search stays lexical for now."
+	secondStart := len("event-2: ")
+	secondPlanner := pagewiki.ScriptedPlanner{
+		Briefs: []pagewiki.PageBrief{{
+			Key:              "wiki-search",
+			Action:           pagewiki.PageActionCreate,
+			ProposedSlug:     "wiki-search",
+			ProposedTitle:    "Wiki Search",
+			EvidenceEventIDs: []string{"event-2"},
+		}},
+	}
+	secondEditor := pagewiki.ScriptedEditor{
+		Drafts: map[string]pagewiki.PageDraft{
+			"wiki-search": {
+				Slug:    "wiki-search",
+				Title:   "Wiki Search",
+				Summary: "Wiki search stays lexical in this iteration.",
+				Sections: []pagewiki.SectionDraft{{
+					Key:      "retrieval",
+					Heading:  "Retrieval",
+					Markdown: "The wiki search stays lexical for now.",
+				}},
+				Citations: []pagewiki.CitationDraft{{
+					SectionKey: "retrieval",
+					ExactText:  "stays lexical",
+					Evidence: []pagewiki.EvidenceQuoteDraft{{
+						EventID:   "event-2",
+						ExactText: secondText,
+					}},
+				}},
+			},
+		},
+	}
+	secondService := pagewiki.NewService(
+		s.repository, secondPlanner, secondEditor, pagewiki.WithTreeIndexer(indexer, nil),
+	)
+	second, err := secondService.InjectSession(context.Background(), pagewiki.InjectSessionRequest{
+		SourceID:       "session-2",
+		IdempotencyKey: "session-2-injection",
+		Raw:            secondRaw,
+		Events: []pagewiki.SourceEventInput{{
+			ID:        "event-2",
+			StartByte: secondStart,
+			EndByte:   secondStart + len(secondText),
+		}},
+	})
+	s.Require().NoError(err)
+	s.Require().Equal(pagewiki.RunStatusSucceeded, second.Run.Status)
+
+	// Neither run reindexed inline; each service instance carries its own
+	// dirty flag, so flushing both yields exactly one reindex per dirty
+	// service — the coalescing win is per service instance.
+	s.Require().Equal(0, indexer.calls)
+	secondService.FlushTreeReindex(context.Background())
+	s.Require().Equal(1, indexer.calls)
+	secondService.FlushTreeReindex(context.Background())
+	s.Require().Equal(1, indexer.calls)
+	service.FlushTreeReindex(context.Background())
+	s.Require().Equal(2, indexer.calls)
 }

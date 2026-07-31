@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"regexp"
 	"strings"
+	"time"
 
 	"golang.org/x/sync/errgroup"
 
@@ -18,9 +19,11 @@ import (
 )
 
 const (
-	minPlannedPages = 1
-	maxPlannedPages = 8
-	editConcurrency = 4
+	minPlannedPages    = 1
+	maxPlannedPages    = 8
+	editConcurrency    = 4
+	treeReindexQuiet   = 5 * time.Second
+	treeReindexMaxWait = 60 * time.Second
 )
 
 var (
@@ -34,6 +37,9 @@ type Service struct {
 	editor      Editor
 	treeIndexer TreeIndexer
 	logger      *slog.Logger
+	treeDirty   chan struct{}
+	treeQuiet   time.Duration
+	treeMaxWait time.Duration
 }
 
 type ServiceOption func(*Service)
@@ -62,6 +68,9 @@ func NewService(
 		editor:     editor,
 		logger:     observability.DiscardLogger(),
 	}
+	service.treeDirty = make(chan struct{}, 1)
+	service.treeQuiet = treeReindexQuiet
+	service.treeMaxWait = treeReindexMaxWait
 	for _, option := range options {
 		option(service)
 	}
@@ -129,25 +138,88 @@ func (s *Service) InjectSession(
 	if err := s.repository.SaveMaintenanceRun(ctx, run); err != nil {
 		return InjectResult{}, fmt.Errorf("save MaintenanceRun: %w", err)
 	}
-	s.maybeReindexTree(ctx, briefs, run.Targets)
+	if s.treeIndexer != nil && catalogChanged(briefs, run.Targets) {
+		s.markTreeDirty()
+	}
 	return InjectResult{
 		SourceRevisionID: sourceRevision.ID,
 		Run:              run,
 	}, nil
 }
 
-// maybeReindexTree runs the topic-tree indexer at the end of an ingest run
-// that changed the Page catalog. It is best-effort: any failure is logged and
-// swallowed so a reindex problem never fails the underlying ingest run, and
-// the previously stored TopicTree is left in place.
-func (s *Service) maybeReindexTree(
-	ctx context.Context,
-	briefs []PageBrief,
-	targets []MaintenanceTarget,
-) {
-	if s.treeIndexer == nil || !catalogChanged(briefs, targets) {
+// markTreeDirty records that the Page catalog changed since the last topic
+// tree rebuild. The channel is buffered(1): an already-pending mark absorbs
+// further marks, and the eventual rebuild reads the latest catalog anyway.
+func (s *Service) markTreeDirty() {
+	select {
+	case s.treeDirty <- struct{}{}:
+	default:
+	}
+}
+
+// StartTreeMaintenance runs topic-tree rebuilds in the background: a dirty
+// mark opens a debounce window (treeQuiet of silence, capped at treeMaxWait)
+// and then rebuilds once. This keeps the rebuild off the ingest critical
+// path and coalesces a replay's many runs into one rebuild. A mark pending
+// when ctx is cancelled is dropped; the tree is a derived view and the next
+// catalog change re-marks it.
+func (s *Service) StartTreeMaintenance(ctx context.Context) {
+	if s.treeIndexer == nil {
 		return
 	}
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-s.treeDirty:
+				s.debounceThenReindex(ctx)
+			}
+		}
+	}()
+}
+
+func (s *Service) debounceThenReindex(ctx context.Context) {
+	quiet := time.NewTimer(s.treeQuiet)
+	defer quiet.Stop()
+	deadline := time.NewTimer(s.treeMaxWait)
+	defer deadline.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-s.treeDirty:
+			if !quiet.Stop() {
+				<-quiet.C
+			}
+			quiet.Reset(s.treeQuiet)
+		case <-quiet.C:
+			s.reindexTree(ctx)
+			return
+		case <-deadline.C:
+			s.reindexTree(ctx)
+			return
+		}
+	}
+}
+
+// FlushTreeReindex rebuilds the topic tree now if a dirty mark is pending.
+// Tests and the rebuild flow use it to make the async contract synchronous.
+func (s *Service) FlushTreeReindex(ctx context.Context) {
+	if s.treeIndexer == nil {
+		return
+	}
+	select {
+	case <-s.treeDirty:
+		s.reindexTree(ctx)
+	default:
+	}
+}
+
+// reindexTree is best-effort: any failure is logged and swallowed so a
+// reindex problem never fails or delays ingestion, and the previously
+// stored TopicTree stays in place.
+func (s *Service) reindexTree(ctx context.Context) {
 	catalog, err := s.repository.PageCatalog(ctx)
 	if err != nil {
 		s.logger.Warn("Page Wiki tree reindex skipped", "stage", "load catalog", "error", err)
