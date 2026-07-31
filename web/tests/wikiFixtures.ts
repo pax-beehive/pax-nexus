@@ -17,12 +17,36 @@ export const REVISION = {
   links: [],
 };
 
+export const llmUsageFixture = {
+  rows: [
+    {
+      component: "extractor",
+      model: "deepseek-chat",
+      calls: 12,
+      input_tokens: 120000,
+      cache_hit_tokens: 90000,
+      cache_miss_tokens: 30000,
+      output_tokens: 8000,
+    },
+    {
+      component: "wiki-editor",
+      model: "deepseek-chat",
+      calls: 30,
+      input_tokens: 400000,
+      cache_hit_tokens: 250000,
+      cache_miss_tokens: 150000,
+      output_tokens: 60000,
+    },
+  ],
+};
+
 export function wikiFetch(path: string): Response {
   if (path === "/v1/wiki/navigation") {
     return jsonResponse({ roots: [], pages: [{ id: "p1", slug: "alpha", title: "Alpha", rank: 1 }] });
   }
   if (path === "/v1/wiki/ingestion") return jsonResponse({ auto_inject: false });
   if (path === "/v1/wiki/settings") return jsonResponse({ language: "", custom_instructions: "" });
+  if (path.startsWith("/v1/llm-usage")) return jsonResponse(llmUsageFixture);
   if (path === "/v1/wiki/pages/alpha") {
     return jsonResponse({
       id: "p1", slug: "alpha", title: "Alpha", current_revision_id: "rev-1", revision: REVISION,

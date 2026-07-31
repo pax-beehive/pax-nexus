@@ -146,7 +146,7 @@ func (s *configSuite) TestLoadsNoopConfiguration() {
 
 func (s *configSuite) TestBuildsConfiguredPageWikiMaintainers() {
 	logger := slog.New(slog.DiscardHandler)
-	localPlanner, localEditor, localIndexer, err := buildPageWikiMaintainers(applicationConfig{}, logger)
+	localPlanner, localEditor, localIndexer, err := buildPageWikiMaintainers(nil, applicationConfig{}, logger)
 	s.Require().NoError(err)
 	s.IsType(pagewiki.SessionDocumentPlanner{}, localPlanner)
 	s.IsType(pagewiki.SessionDocumentEditor{}, localEditor)
@@ -156,17 +156,17 @@ func (s *configSuite) TestBuildsConfiguredPageWikiMaintainers() {
 		llmwikiMode: "harness", llmwikiBaseURL: "https://api.deepseek.com",
 		llmwikiAPIKey: "secret", llmwikiModel: "deepseek-v4-pro",
 	}
-	planner, editor, indexer, err := buildPageWikiMaintainers(config, logger)
+	planner, editor, indexer, err := buildPageWikiMaintainers(nil, config, logger)
 	s.Require().NoError(err)
 	s.IsType(&pagewiki.LLMSessionPlanner{}, planner)
 	s.IsType(&pagewiki.LLMSessionEditor{}, editor)
 	s.IsType(&pagewiki.LLMTreeIndexer{}, indexer)
 
 	config.llmwikiAPIKey = ""
-	_, _, _, err = buildPageWikiMaintainers(config, logger)
+	_, _, _, err = buildPageWikiMaintainers(nil, config, logger)
 	s.Require().ErrorContains(err, "LLMWIKI_LLM_API_KEY")
 	config.llmwikiMode = "unsupported"
-	_, _, _, err = buildPageWikiMaintainers(config, logger)
+	_, _, _, err = buildPageWikiMaintainers(nil, config, logger)
 	s.Require().ErrorContains(err, "unsupported LLMWIKI_ORGANIZER_MODE")
 }
 
@@ -303,13 +303,13 @@ func (s *configSuite) TestRejectsMixedLegacyAndOnPremAuthentication() {
 
 func (s *configSuite) TestBuildHTTPHandlerKeepsLegacyModeWithoutAdminSecret() {
 	runtime := &runtimeStub{}
-	configured, identity, err := buildHTTPHandler(context.Background(), runtime, nil, nil,
+	configured, identity, err := buildHTTPHandler(context.Background(), runtime, nil, nil, nil,
 		applicationConfig{apiKeys: map[string]string{"key": "scope"}}, slog.New(slog.DiscardHandler), nil, nil)
 	s.Require().NoError(err)
 	s.NotNil(configured)
 	s.Nil(identity)
 
-	_, _, err = buildHTTPHandler(context.Background(), runtime, nil, nil, applicationConfig{
+	_, _, err = buildHTTPHandler(context.Background(), runtime, nil, nil, nil, applicationConfig{
 		apiKeys: map[string]string{"key": "scope"}, adminAPIKey: "admin", credentialRotationOverlap: time.Minute,
 	}, slog.New(slog.DiscardHandler), nil, nil)
 	s.Error(err)

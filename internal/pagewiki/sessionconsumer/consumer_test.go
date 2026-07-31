@@ -70,6 +70,16 @@ func (s *consumerSuite) TestFailedInjectionDoesNotAdvanceCursor() {
 	s.Zero(s.store.advances)
 }
 
+func (s *consumerSuite) TestInjectionContextCarriesStreamScope() {
+	_, err := s.consumer.InjectSession(context.Background(), "local-team", "runtime-demo")
+
+	s.Require().NoError(err)
+	s.Require().Len(s.injector.contexts, 1)
+	scopeID, err := session.ScopeFromContext(s.injector.contexts[0])
+	s.Require().NoError(err)
+	s.Equal("local-team", scopeID)
+}
+
 func (s *consumerSuite) TestAutoSettingRoundTrips() {
 	status, err := s.consumer.SetAutoInject(context.Background(), "local-team", true)
 	s.Require().NoError(err)
@@ -350,6 +360,7 @@ func (s *consumerStore) Progress(context.Context, string) (sessionconsumer.Progr
 
 type recordingInjector struct {
 	requests []pagewiki.InjectSessionRequest
+	contexts []context.Context
 	err      error
 	status   pagewiki.RunStatus
 }
@@ -379,10 +390,11 @@ func (r *recordingRebuilder) RebuildPageWiki(
 }
 
 func (i *recordingInjector) InjectSession(
-	_ context.Context,
+	ctx context.Context,
 	request pagewiki.InjectSessionRequest,
 ) (pagewiki.InjectResult, error) {
 	i.requests = append(i.requests, request)
+	i.contexts = append(i.contexts, ctx)
 	if i.err != nil {
 		return pagewiki.InjectResult{}, i.err
 	}

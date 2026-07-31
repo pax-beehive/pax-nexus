@@ -236,6 +236,7 @@ func (c *Controller) consume(ctx context.Context, stream Stream) error {
 		return nil
 	}
 	request := injectionRequest(stream, events)
+	ctx = session.WithScope(ctx, stream.ScopeID)
 	result, err := c.injector.InjectSession(ctx, request)
 	if err != nil {
 		return fmt.Errorf("inject Page Wiki session: %w", err)

@@ -41,8 +41,10 @@ type ChatRequest struct {
 }
 
 type TokenUsage struct {
-	InputTokens  int
-	OutputTokens int
+	InputTokens           int
+	OutputTokens          int
+	PromptCacheHitTokens  int
+	PromptCacheMissTokens int
 }
 
 type ChatResponse struct {

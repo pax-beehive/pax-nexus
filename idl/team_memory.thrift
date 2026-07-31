@@ -364,6 +364,24 @@ struct WikiGenerationSettingsResponse {
   2: required string custom_instructions
 }
 
+struct LlmUsageRequest {
+  1: optional i32 days (api.query="days")
+}
+
+struct LlmUsageRow {
+  1: required string component
+  2: required string model
+  3: required i64 calls
+  4: required i64 input_tokens
+  5: required i64 cache_hit_tokens
+  6: required i64 cache_miss_tokens
+  7: required i64 output_tokens
+}
+
+struct LlmUsageResponse {
+  1: required list<LlmUsageRow> rows
+}
+
 struct ListMembersRequest {
   1: optional string role (api.query="role")
   2: optional string status (api.query="status")
@@ -1148,6 +1166,7 @@ service TeamMemoryService {
   RebuildWikiResponse RebuildWiki(1: RebuildWikiRequest request) (api.post="/v1/wiki/rebuild")
   WikiGenerationSettingsResponse GetWikiGenerationSettings(1: WikiGenerationSettingsRequest request) (api.get="/v1/wiki/settings")
   WikiGenerationSettingsResponse UpdateWikiGenerationSettings(1: UpdateWikiGenerationSettingsRequest request) (api.put="/v1/wiki/settings")
+  LlmUsageResponse GetLlmUsage(1: LlmUsageRequest request) (api.get="/v1/llm-usage")
   InvitationResponse CreateMembershipInvitation(1: CreateInvitationRequest request) (api.post="/v1/admin/invitations")
   ListInvitationsResponse ListMembershipInvitations(1: ListInvitationsRequest request) (api.get="/v1/admin/invitations")
   InvitationResponse RevokeMembershipInvitation(1: InvitationByIDRequest request) (api.delete="/v1/admin/invitations/:invitation_id")
