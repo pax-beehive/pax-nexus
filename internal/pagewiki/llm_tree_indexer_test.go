@@ -30,7 +30,7 @@ func indexerCatalog(size int) pagewiki.PageCatalog {
 }
 
 func newIndexer(s *llmTreeIndexerSuite, responses ...string) (*pagewiki.LLMTreeIndexer, *wikiChatClient) {
-	client := &wikiChatClient{responses: responses}
+	client := &wikiChatClient{responsesByIndex: responses}
 	indexer, err := pagewiki.NewLLMTreeIndexer(pagewiki.LLMTreeIndexerConfig{
 		Client: client, Model: "test-model",
 	})

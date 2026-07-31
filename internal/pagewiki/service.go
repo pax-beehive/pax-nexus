@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -40,6 +41,7 @@ type Service struct {
 	treeDirty   chan struct{}
 	treeQuiet   time.Duration
 	treeMaxWait time.Duration
+	treeReindexMu sync.Mutex
 }
 
 type ServiceOption func(*Service)
@@ -218,8 +220,11 @@ func (s *Service) FlushTreeReindex(ctx context.Context) {
 
 // reindexTree is best-effort: any failure is logged and swallowed so a
 // reindex problem never fails or delays ingestion, and the previously
-// stored TopicTree stays in place.
+// stored TopicTree stays in place. The mutex serializes concurrent calls
+// from FlushTreeReindex and the background maintenance goroutine.
 func (s *Service) reindexTree(ctx context.Context) {
+	s.treeReindexMu.Lock()
+	defer s.treeReindexMu.Unlock()
 	catalog, err := s.repository.PageCatalog(ctx)
 	if err != nil {
 		s.logger.Warn("Page Wiki tree reindex skipped", "stage", "load catalog", "error", err)
