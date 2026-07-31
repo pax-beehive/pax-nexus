@@ -24,8 +24,8 @@ func TestLLMSessionEditorSuite(t *testing.T) {
 
 func (s *llmSessionEditorSuite) TestWritesEnglishPagesWithDeterministicEvidenceAndXanaduLinks() {
 	client := &wikiChatClient{responses: map[string]string{
-		"Wiki Data Model": `{"title":"Wiki Data Architecture","summary":"How immutable revisions preserve the Wiki model.","sections":[{"key":"design","heading":"Design","markdown":"The Wiki stores immutable revisions as its durable publication boundary."}]}`,
-		"Evidence Grounding":     `{"title":"Evidence Grounding","summary":"How claims remain traceable to immutable source material.","sections":[{"key":"grounding","heading":"Grounding","markdown":"Published knowledge remains auditable through exact source anchors."}]}`,
+		"Wiki Data Model":    `{"title":"Wiki Data Architecture","summary":"How immutable revisions preserve the Wiki model.","sections":[{"key":"design","heading":"Design","markdown":"The Wiki stores immutable revisions as its durable publication boundary."}]}`,
+		"Evidence Grounding": `{"title":"Evidence Grounding","summary":"How claims remain traceable to immutable source material.","sections":[{"key":"grounding","heading":"Grounding","markdown":"Published knowledge remains auditable through exact source anchors."}]}`,
 	}}
 	editor, err := pagewiki.NewLLMSessionEditor(pagewiki.LLMEditorConfig{
 		Client: client, Model: "test-model",
@@ -180,8 +180,12 @@ func (s *llmSessionEditorSuite) TestSendsFullEvidenceContextToTheModel() {
 }
 
 type wikiChatClient struct {
-	mu               sync.Mutex
-	requests         []llm.ChatRequest
+	mu       sync.Mutex
+	requests []llm.ChatRequest
+	// responses is written only at construction (test setup) and must stay
+	// immutable afterward: Complete reads it concurrently below without
+	// holding mu, which is only safe because no goroutine ever mutates it
+	// post-construction.
 	responses        map[string]string // keyed by Topic from editor requests
 	responsesByIndex []string          // FIFO queue for planner/indexer (non-editor) requests
 	responseIndex    int

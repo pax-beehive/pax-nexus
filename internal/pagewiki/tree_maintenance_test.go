@@ -87,6 +87,53 @@ func TestFlushTreeReindexRunsOnlyWhenDirty(t *testing.T) {
 	require.EqualValues(t, 1, indexer.calls.Load())
 }
 
+// TestTreeMaintenanceFiresOnMaxWaitDeadlineEvenWithoutQuiet exercises the
+// treeMaxWait branch of debounceThenReindex: marks keep arriving faster than
+// the quiet window can expire, so the reindex must still fire once the max
+// wait deadline elapses. It asserts "deadline fires while marks keep
+// arriving," not an exact call count, to stay robust on a loaded machine.
+func TestTreeMaintenanceFiresOnMaxWaitDeadlineEvenWithoutQuiet(t *testing.T) {
+	indexer := &countingTreeIndexer{}
+	repository := &stubTreeRepository{}
+	service := NewService(
+		repository, ScriptedPlanner{}, ScriptedEditor{},
+		WithTreeIndexer(indexer, nil),
+	)
+	service.treeQuiet = 50 * time.Millisecond
+	service.treeMaxWait = 150 * time.Millisecond
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	service.StartTreeMaintenance(ctx)
+
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		ticker := time.NewTicker(20 * time.Millisecond)
+		defer ticker.Stop()
+		deadline := time.After(400 * time.Millisecond)
+		service.markTreeDirty()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-deadline:
+				return
+			case <-ticker.C:
+				service.markTreeDirty()
+			}
+		}
+	}()
+
+	require.Eventually(t, func() bool {
+		return indexer.calls.Load() >= 1
+	}, 300*time.Millisecond, 5*time.Millisecond,
+		"reindex never ran despite the max-wait deadline elapsing")
+
+	close(stop)
+	<-done
+}
+
 func TestStartTreeMaintenanceWithoutIndexerIsANoOp(t *testing.T) {
 	service := NewService(&stubTreeRepository{}, ScriptedPlanner{}, ScriptedEditor{})
 	ctx, cancel := context.WithCancel(context.Background())

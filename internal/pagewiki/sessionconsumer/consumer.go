@@ -197,7 +197,7 @@ func (c *Controller) scan(ctx context.Context) {
 		}
 		if err := c.consume(ctx, stream); err != nil {
 			record := c.recordFailure(stream)
-			c.logger.ErrorContext(ctx, "Page Wiki session injection failed",
+			c.logger.WarnContext(ctx, "Page Wiki session injection failed",
 				"scope_id", stream.ScopeID,
 				"agent_id", stream.Actor.AgentID,
 				"session_id", stream.Actor.SessionID,

@@ -33,22 +33,25 @@ var (
 )
 
 type Service struct {
-	repository  Repository
-	planner     Planner
-	editor      Editor
-	treeIndexer TreeIndexer
-	logger      *slog.Logger
-	treeDirty   chan struct{}
-	treeQuiet   time.Duration
-	treeMaxWait time.Duration
+	repository    Repository
+	planner       Planner
+	editor        Editor
+	treeIndexer   TreeIndexer
+	logger        *slog.Logger
+	treeDirty     chan struct{}
+	treeQuiet     time.Duration
+	treeMaxWait   time.Duration
 	treeReindexMu sync.Mutex
 }
 
 type ServiceOption func(*Service)
 
-// WithTreeIndexer enables Page Wiki topic-tree reindexing at the end of every
-// ingest run that changed the catalog. It is optional: without it, InjectSession
-// runs exactly as before.
+// WithTreeIndexer enables Page Wiki topic-tree reindexing. When set,
+// InjectSession marks the topic tree dirty after any run that changed the
+// catalog; the actual rebuild happens off that path, either in the
+// background via StartTreeMaintenance (debounced) or synchronously via
+// FlushTreeReindex. It remains optional: without it, marks are never
+// recorded and no reindex ever runs.
 func WithTreeIndexer(indexer TreeIndexer, logger *slog.Logger) ServiceOption {
 	return func(s *Service) {
 		s.treeIndexer = indexer
@@ -207,6 +210,11 @@ func (s *Service) debounceThenReindex(ctx context.Context) {
 
 // FlushTreeReindex rebuilds the topic tree now if a dirty mark is pending.
 // Tests and the rebuild flow use it to make the async contract synchronous.
+// If StartTreeMaintenance is already running, its background drainer may
+// have already claimed the pending mark off treeDirty before Flush observes
+// it; Flush then no-ops even though a debounced rebuild is still in flight.
+// Flush guarantees "rebuild now if a mark is pending", not "the tree is
+// fresh once this call returns".
 func (s *Service) FlushTreeReindex(ctx context.Context) {
 	if s.treeIndexer == nil {
 		return
