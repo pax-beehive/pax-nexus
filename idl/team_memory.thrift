@@ -344,7 +344,9 @@ struct InjectWikiSessionResponse {
   1: required i32 processed_streams
 }
 
-struct RebuildWikiRequest {}
+struct RebuildWikiRequest {
+  1: optional string since (api.body="since")
+}
 
 struct RebuildWikiResponse {
   1: required bool auto_inject

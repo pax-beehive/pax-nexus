@@ -15807,6 +15807,7 @@ func (p *InjectWikiSessionResponse) String() string {
 }
 
 type RebuildWikiRequest struct {
+	Since *string `thrift:"since,1,optional" form:"since" json:"since,omitempty"`
 }
 
 func NewRebuildWikiRequest() *RebuildWikiRequest {
@@ -15816,7 +15817,22 @@ func NewRebuildWikiRequest() *RebuildWikiRequest {
 func (p *RebuildWikiRequest) InitDefault() {
 }
 
-var fieldIDToName_RebuildWikiRequest = map[int16]string{}
+var RebuildWikiRequest_Since_DEFAULT string
+
+func (p *RebuildWikiRequest) GetSince() (v string) {
+	if !p.IsSetSince() {
+		return RebuildWikiRequest_Since_DEFAULT
+	}
+	return *p.Since
+}
+
+var fieldIDToName_RebuildWikiRequest = map[int16]string{
+	1: "since",
+}
+
+func (p *RebuildWikiRequest) IsSetSince() bool {
+	return p.Since != nil
+}
 
 func (p *RebuildWikiRequest) Read(iprot thrift.TProtocol) (err error) {
 
@@ -15835,8 +15851,20 @@ func (p *RebuildWikiRequest) Read(iprot thrift.TProtocol) (err error) {
 		if fieldTypeId == thrift.STOP {
 			break
 		}
-		if err = iprot.Skip(fieldTypeId); err != nil {
-			goto SkipFieldTypeError
+
+		switch fieldId {
+		case 1:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField1(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
 		}
 		if err = iprot.ReadFieldEnd(); err != nil {
 			goto ReadFieldEndError
@@ -15851,8 +15879,10 @@ ReadStructBeginError:
 	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
 ReadFieldBeginError:
 	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
-SkipFieldTypeError:
-	return thrift.PrependError(fmt.Sprintf("%T skip field type %d error", p, fieldTypeId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_RebuildWikiRequest[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
 
 ReadFieldEndError:
 	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
@@ -15860,11 +15890,28 @@ ReadStructEndError:
 	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
 }
 
+func (p *RebuildWikiRequest) ReadField1(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.Since = _field
+	return nil
+}
+
 func (p *RebuildWikiRequest) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
 	if err = oprot.WriteStructBegin("RebuildWikiRequest"); err != nil {
 		goto WriteStructBeginError
 	}
 	if p != nil {
+		if err = p.writeField1(oprot); err != nil {
+			fieldId = 1
+			goto WriteFieldError
+		}
 	}
 	if err = oprot.WriteFieldStop(); err != nil {
 		goto WriteFieldStopError
@@ -15875,10 +15922,31 @@ func (p *RebuildWikiRequest) Write(oprot thrift.TProtocol) (err error) {
 	return nil
 WriteStructBeginError:
 	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
 WriteFieldStopError:
 	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
 WriteStructEndError:
 	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *RebuildWikiRequest) writeField1(oprot thrift.TProtocol) (err error) {
+	if p.IsSetSince() {
+		if err = oprot.WriteFieldBegin("since", thrift.STRING, 1); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.Since); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 end error: ", p), err)
 }
 
 func (p *RebuildWikiRequest) String() string {

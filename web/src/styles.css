@@ -156,6 +156,9 @@ tr:last-child td { border-bottom: none; }
 .wiki-fixed-session input { width: 100%; min-width: 0; padding: 8px 10px; border: 1px solid var(--border-strong); border-radius: 8px; background: #fff; color: var(--text); font: 12px var(--mono); }
 .wiki-reset { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 18px; padding-top: 12px; border-top: 1px solid var(--border); }
 .wiki-reset > div { display: flex; flex-direction: column; gap: 2px; }
+.wiki-rebuild-since { display: flex; flex-direction: column; gap: 4px; margin: 8px 0; }
+.wiki-rebuild-since label { color: var(--muted); font-size: 11px; font-weight: 650; }
+.wiki-rebuild-since input { width: max-content; padding: 8px 10px; border: 1px solid var(--border-strong); border-radius: 8px; background: #fff; color: var(--text); font: inherit; }
 .wiki-switch { display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--border-strong); border-radius: 99px; padding: 5px 9px 5px 5px; background: var(--surface-2); color: var(--muted); font: 650 12px var(--sans); cursor: pointer; }
 .wiki-switch span { display: block; width: 18px; height: 18px; border-radius: 50%; background: var(--faint); transition: background .15s ease; }
 .wiki-switch.active { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-hover); }

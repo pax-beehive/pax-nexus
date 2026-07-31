@@ -13,7 +13,7 @@
 // this status page.
 
 import { describe, expect, it } from "vitest";
-import { screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { callsTo, jsonResponse, makeMe, renderApp, setupDomTest } from "./helpers";
 import { wikiFetch } from "./wikiFixtures";
 
@@ -152,6 +152,70 @@ describe("wiki status page ingestion controls", () => {
 
     await screen.findByText("Wiki cleared. Rebuilding from Session Lake…");
     expect(callsTo(fetchMock, "/v1/wiki/rebuild", "POST")).toHaveLength(1);
+  });
+
+  it("sends the lookback cutoff when a rebuild date is picked", async () => {
+    const { user, fetchMock } = await renderApp({
+      route: "/wiki",
+      me: makeMe({ role: "owner" }),
+      fetch: (path, init) => {
+        const method = init?.method ?? "GET";
+        if (path === "/v1/wiki/rebuild" && method === "POST") {
+          return jsonResponse({ auto_inject: true });
+        }
+        if (path === "/v1/wiki/ingestion") return jsonResponse({ auto_inject: false });
+        if (path === "/v1/wiki/settings") {
+          return jsonResponse({ language: "", custom_instructions: "" });
+        }
+        throw new Error(`unexpected fetch: ${path}`);
+      },
+    });
+
+    await screen.findByRole("switch");
+    await user.click(screen.getByRole("button", { name: "Reset & rebuild" }));
+    const dialog = screen.getByRole("dialog", { name: "Reset and rebuild Wiki" });
+    fireEvent.change(within(dialog).getByLabelText("Replay sessions since (optional)"), {
+      target: { value: "2026-07-01" },
+    });
+    expect(
+      within(dialog).getByText(/Only sessions with activity on or after 2026-07-01/),
+    ).toBeTruthy();
+    await user.click(within(dialog).getByRole("button", { name: "Confirm reset & rebuild" }));
+
+    await screen.findByText("Wiki cleared. Rebuilding from Session Lake…");
+    const calls = callsTo(fetchMock, "/v1/wiki/rebuild", "POST");
+    expect(calls).toHaveLength(1);
+    expect(JSON.parse(String(calls[0].init?.body))).toEqual({
+      since: new Date("2026-07-01T00:00:00").toISOString(),
+    });
+  });
+
+  it("omits since when the rebuild date is left empty", async () => {
+    const { user, fetchMock } = await renderApp({
+      route: "/wiki",
+      me: makeMe({ role: "owner" }),
+      fetch: (path, init) => {
+        const method = init?.method ?? "GET";
+        if (path === "/v1/wiki/rebuild" && method === "POST") {
+          return jsonResponse({ auto_inject: true });
+        }
+        if (path === "/v1/wiki/ingestion") return jsonResponse({ auto_inject: false });
+        if (path === "/v1/wiki/settings") {
+          return jsonResponse({ language: "", custom_instructions: "" });
+        }
+        throw new Error(`unexpected fetch: ${path}`);
+      },
+    });
+
+    await screen.findByRole("switch");
+    await user.click(screen.getByRole("button", { name: "Reset & rebuild" }));
+    const dialog = screen.getByRole("dialog", { name: "Reset and rebuild Wiki" });
+    await user.click(within(dialog).getByRole("button", { name: "Confirm reset & rebuild" }));
+
+    await screen.findByText("Wiki cleared. Rebuilding from Session Lake…");
+    const calls = callsTo(fetchMock, "/v1/wiki/rebuild", "POST");
+    expect(calls).toHaveLength(1);
+    expect(JSON.parse(String(calls[0].init?.body))).toEqual({});
   });
 
   it("hides the destructive rebuild control from members", async () => {

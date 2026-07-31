@@ -60,7 +60,9 @@ func (i *flakyInjector) InjectSession(
 
 type noopRebuilder struct{}
 
-func (noopRebuilder) RebuildPageWiki(context.Context, string, string, string) error { return nil }
+func (noopRebuilder) RebuildPageWiki(context.Context, string, string, string, time.Time) error {
+	return nil
+}
 
 func newBackoffFixture(t *testing.T) (*backoffStore, *flakyInjector, *Controller, *time.Time) {
 	t.Helper()
@@ -159,7 +161,7 @@ func TestRebuildClearsAllBackoff(t *testing.T) {
 	controller.scan(ctx)
 	require.NotEmpty(t, controller.failures)
 
-	_, err := controller.Rebuild(ctx, "local-team")
+	_, err := controller.Rebuild(ctx, "local-team", time.Time{})
 	require.NoError(t, err)
 	require.Empty(t, controller.failures)
 }
