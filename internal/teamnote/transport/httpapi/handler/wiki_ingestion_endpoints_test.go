@@ -109,6 +109,31 @@ func (s *wikiIngestionHandlerSuite) TestStatusOmitsProgressWhenUnavailable() {
 	s.JSONEq(`{"auto_inject":true}`, response.Body.String())
 }
 
+func (s *wikiIngestionHandlerSuite) TestRebuildForwardsParsedSinceCutoff() {
+	response := s.performWithBody(http.MethodPost, "/v1/wiki/rebuild", true,
+		`{"since":"2026-07-01T00:00:00Z"}`)
+
+	s.Equal(consts.StatusOK, response.Code)
+	s.Equal(1, s.wikiControl.rebuilds)
+	s.Equal(time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), s.wikiControl.since)
+}
+
+func (s *wikiIngestionHandlerSuite) TestRebuildRejectsMalformedSince() {
+	response := s.performWithBody(http.MethodPost, "/v1/wiki/rebuild", true,
+		`{"since":"yesterday"}`)
+
+	s.Equal(consts.StatusBadRequest, response.Code)
+	s.Equal(0, s.wikiControl.rebuilds)
+}
+
+func (s *wikiIngestionHandlerSuite) TestRebuildWithoutSincePassesZeroTime() {
+	response := s.perform(http.MethodPost, "/v1/wiki/rebuild", true)
+
+	s.Equal(consts.StatusOK, response.Code)
+	s.Equal(1, s.wikiControl.rebuilds)
+	s.True(s.wikiControl.since.IsZero())
+}
+
 func (s *wikiIngestionHandlerSuite) TestGeneratedRebuildRouteRequiresConfiguredRuntime() {
 	hertz := server.New()
 	router.GeneratedRegister(hertz)
@@ -125,6 +150,14 @@ func (s *wikiIngestionHandlerSuite) TestGeneratedRebuildRouteRequiresConfiguredR
 }
 
 func (s *wikiIngestionHandlerSuite) perform(method, path string, csrf bool) *ut.ResponseRecorder {
+	return s.performWithBody(method, path, csrf, `{}`)
+}
+
+func (s *wikiIngestionHandlerSuite) performWithBody(
+	method, path string,
+	csrf bool,
+	body string,
+) *ut.ResponseRecorder {
 	hertz := server.New()
 	hertz.Use(handler.InstanceMiddleware(s.handler))
 	router.GeneratedRegister(hertz)
@@ -135,8 +168,8 @@ func (s *wikiIngestionHandlerSuite) perform(method, path string, csrf bool) *ut.
 	if csrf {
 		headers = append(headers, ut.Header{Key: "X-CSRF-Token", Value: "csrf"})
 	}
-	body := &ut.Body{Body: bytes.NewBufferString(`{}`), Len: 2}
-	return ut.PerformRequest(hertz.Engine, method, path, body, headers...)
+	payload := &ut.Body{Body: bytes.NewBufferString(body), Len: len(body)}
+	return ut.PerformRequest(hertz.Engine, method, path, payload, headers...)
 }
 
 type wikiControlService struct {

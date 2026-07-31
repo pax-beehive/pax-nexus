@@ -77,7 +77,22 @@ func (h *Handler) RebuildWiki(ctx context.Context, c *app.RequestContext) {
 		writeHumanAPIError(c, consts.StatusForbidden, "forbidden", "the operation is not permitted")
 		return
 	}
-	status, err := h.wikiControl.Rebuild(ctx, onprem.LocalScopeID, time.Time{})
+	var request api.RebuildWikiRequest
+	if err := c.BindAndValidate(&request); err != nil {
+		writeHumanAPIError(c, consts.StatusBadRequest, "invalid_request", "the request is invalid")
+		return
+	}
+	var since time.Time
+	if request.Since != nil && strings.TrimSpace(*request.Since) != "" {
+		parsed, err := time.Parse(time.RFC3339, strings.TrimSpace(*request.Since))
+		if err != nil {
+			writeHumanAPIError(c, consts.StatusBadRequest, "invalid_request",
+				"since must be an RFC3339 timestamp")
+			return
+		}
+		since = parsed
+	}
+	status, err := h.wikiControl.Rebuild(ctx, onprem.LocalScopeID, since)
 	if err != nil {
 		h.writeWikiControlError(c, "rebuild Wiki", err)
 		return
