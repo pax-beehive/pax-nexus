@@ -33,7 +33,7 @@ func plannerRevision() pagewiki.SourceRevision {
 }
 
 func (s *llmSessionPlannerSuite) TestPlansCreateUpdateAndDropsNoise() {
-	client := &wikiChatClient{responses: []string{`{"briefs":[
+	client := &wikiChatClient{responsesByIndex: []string{`{"briefs":[
 		{"action":"create","proposed_slug":"Release  Policy","proposed_title":"Release Policy",
 		 "reader_goal":"Understand the release cadence.","topic_path":["Engineering","Runtime"],
 		 "evidence":[{"event_id":"event-1","exact_quote":"releases ship weekly"}]},
@@ -82,7 +82,7 @@ func (s *llmSessionPlannerSuite) TestPlansCreateUpdateAndDropsNoise() {
 }
 
 func (s *llmSessionPlannerSuite) TestRemapsCreateToUpdateWhenSlugMatchesCatalog() {
-	client := &wikiChatClient{responses: []string{`{"briefs":[
+	client := &wikiChatClient{responsesByIndex: []string{`{"briefs":[
 		{"action":"create","proposed_slug":"Existing  Page","proposed_title":"Existing Page",
 		 "reader_goal":"Refresh the existing page.","topic_path":["Engineering"],
 		 "evidence":[{"event_id":"event-1","exact_quote":"decision:"}]}
@@ -124,7 +124,7 @@ func (s *llmSessionPlannerSuite) TestDropsLaterQuoteThatDuplicatesAnAcceptedQuot
 			{ID: "event-2", StartByte: len(eventOneContent), EndByte: len(raw)},
 		},
 	}
-	client := &wikiChatClient{responses: []string{`{"briefs":[
+	client := &wikiChatClient{responsesByIndex: []string{`{"briefs":[
 		{"action":"create","proposed_slug":"release-cadence","proposed_title":"Release Cadence",
 		 "topic_path":["Engineering"],
 		 "evidence":[
@@ -161,7 +161,7 @@ func (s *llmSessionPlannerSuite) TestDropsLaterQuoteThatIsASubstringOfAnAccepted
 			{ID: "event-2", StartByte: len(eventOneContent), EndByte: len(raw)},
 		},
 	}
-	client := &wikiChatClient{responses: []string{`{"briefs":[
+	client := &wikiChatClient{responsesByIndex: []string{`{"briefs":[
 		{"action":"create","proposed_slug":"release-policy","proposed_title":"Release Policy",
 		 "topic_path":["Engineering"],
 		 "evidence":[
@@ -207,7 +207,7 @@ func (s *llmSessionPlannerSuite) TestLogsTheLastAttemptErrorWhenDegraded() {
 }
 
 func (s *llmSessionPlannerSuite) TestDropsInvalidEvidenceAndBriefs() {
-	client := &wikiChatClient{responses: []string{`{"briefs":[
+	client := &wikiChatClient{responsesByIndex: []string{`{"briefs":[
 		{"action":"create","proposed_slug":"ghost","proposed_title":"Ghost",
 		 "topic_path":["Engineering"],
 		 "evidence":[{"event_id":"missing-event","exact_quote":"decision:"}]},
@@ -237,7 +237,7 @@ func (s *llmSessionPlannerSuite) TestDropsInvalidEvidenceAndBriefs() {
 }
 
 func (s *llmSessionPlannerSuite) TestRetriesOnceThenDegradesToSourceOnly() {
-	client := &wikiChatClient{responses: []string{"not-json", "still-not-json"}}
+	client := &wikiChatClient{responsesByIndex: []string{"not-json", "still-not-json"}}
 	planner, err := pagewiki.NewLLMSessionPlanner(pagewiki.LLMPlannerConfig{
 		Client: client, Model: "test-model",
 	})
@@ -285,7 +285,7 @@ func (s *llmSessionPlannerSuite) TestCapsAcceptedBriefsAtEight() {
 			index, index)
 	}
 	body.WriteString(`]}`)
-	client := &wikiChatClient{responses: []string{body.String()}}
+	client := &wikiChatClient{responsesByIndex: []string{body.String()}}
 	planner, err := pagewiki.NewLLMSessionPlanner(pagewiki.LLMPlannerConfig{
 		Client: client, Model: "test-model",
 	})
@@ -300,7 +300,7 @@ func (s *llmSessionPlannerSuite) TestCapsAcceptedBriefsAtEight() {
 }
 
 func (s *llmSessionPlannerSuite) TestPlannerPromptPinsUpdateRuleAndNoisePolicy() {
-	client := &wikiChatClient{responses: []string{`{"briefs":[]}`}}
+	client := &wikiChatClient{responsesByIndex: []string{`{"briefs":[]}`}}
 	planner, err := pagewiki.NewLLMSessionPlanner(pagewiki.LLMPlannerConfig{
 		Client: client, Model: "test-model",
 	})
@@ -319,7 +319,7 @@ func (s *llmSessionPlannerSuite) TestPlannerPromptPinsUpdateRuleAndNoisePolicy()
 }
 
 func (s *llmSessionPlannerSuite) TestPlanRequestCarriesCatalogSummaries() {
-	client := &wikiChatClient{responses: []string{`{"briefs":[]}`}}
+	client := &wikiChatClient{responsesByIndex: []string{`{"briefs":[]}`}}
 	planner, err := pagewiki.NewLLMSessionPlanner(pagewiki.LLMPlannerConfig{
 		Client: client, Model: "test-model",
 	})
@@ -341,7 +341,7 @@ func (s *llmSessionPlannerSuite) TestPlanRequestCarriesCatalogSummaries() {
 }
 
 func (s *llmSessionPlannerSuite) TestAppliesGenerationDirectivesToSystemPrompt() {
-	client := &wikiChatClient{responses: []string{`{"briefs":[]}`}}
+	client := &wikiChatClient{responsesByIndex: []string{`{"briefs":[]}`}}
 	planner, err := pagewiki.NewLLMSessionPlanner(pagewiki.LLMPlannerConfig{
 		Client: client, Model: "test-model",
 	})
@@ -363,7 +363,7 @@ func (s *llmSessionPlannerSuite) TestAppliesGenerationDirectivesToSystemPrompt()
 }
 
 func (s *llmSessionPlannerSuite) TestZeroGenerationDirectivesLeaveSystemPromptUnchanged() {
-	client := &wikiChatClient{responses: []string{`{"briefs":[]}`}}
+	client := &wikiChatClient{responsesByIndex: []string{`{"briefs":[]}`}}
 	planner, err := pagewiki.NewLLMSessionPlanner(pagewiki.LLMPlannerConfig{
 		Client: client, Model: "test-model",
 	})

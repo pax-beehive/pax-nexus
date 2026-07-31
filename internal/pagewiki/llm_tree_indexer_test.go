@@ -31,7 +31,7 @@ func indexerCatalog(size int) pagewiki.PageCatalog {
 }
 
 func newIndexer(s *llmTreeIndexerSuite, responses ...string) (*pagewiki.LLMTreeIndexer, *wikiChatClient) {
-	client := &wikiChatClient{responses: responses}
+	client := &wikiChatClient{responsesByIndex: responses}
 	indexer, err := pagewiki.NewLLMTreeIndexer(pagewiki.LLMTreeIndexerConfig{
 		Client: client, Model: "test-model",
 	})
@@ -42,7 +42,7 @@ func newIndexer(s *llmTreeIndexerSuite, responses ...string) (*pagewiki.LLMTreeI
 func newDepthIndexer(
 	s *llmTreeIndexerSuite, maxDepth int, responses ...string,
 ) (*pagewiki.LLMTreeIndexer, *wikiChatClient) {
-	client := &wikiChatClient{responses: responses}
+	client := &wikiChatClient{responsesByIndex: responses}
 	indexer, err := pagewiki.NewLLMTreeIndexer(pagewiki.LLMTreeIndexerConfig{
 		Client: client, Model: "test-model", MaxDepth: maxDepth,
 	})
@@ -60,7 +60,7 @@ func (s *llmTreeIndexerSuite) TestBuildsTwoLevelTreeWithStableIDs() {
 	s.Require().NoError(err)
 	s.Require().Len(tree.Topics, 1)
 	s.Equal("engineering", tree.Topics[0].Slug)
-	s.Equal("", tree.Topics[0].ParentID)
+	s.Empty(tree.Topics[0].ParentID)
 	s.Require().Len(tree.Placements, 3)
 	s.Equal("id-page-01", tree.Placements[0].PageID)
 	s.Equal(tree.Topics[0].ID, tree.Placements[0].TopicID)

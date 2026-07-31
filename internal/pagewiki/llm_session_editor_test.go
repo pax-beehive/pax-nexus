@@ -2,7 +2,10 @@ package pagewiki_test
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/pax-beehive/pax-nexus/internal/pagewiki"
@@ -20,9 +23,9 @@ func TestLLMSessionEditorSuite(t *testing.T) {
 }
 
 func (s *llmSessionEditorSuite) TestWritesEnglishPagesWithDeterministicEvidenceAndXanaduLinks() {
-	client := &wikiChatClient{responses: []string{
-		`{"title":"Wiki Data Architecture","summary":"How immutable revisions preserve the Wiki model.","sections":[{"key":"design","heading":"Design","markdown":"The Wiki stores immutable revisions as its durable publication boundary."}]}`,
-		`{"title":"Evidence Grounding","summary":"How claims remain traceable to immutable source material.","sections":[{"key":"grounding","heading":"Grounding","markdown":"Published knowledge remains auditable through exact source anchors."}]}`,
+	client := &wikiChatClient{responses: map[string]string{
+		"Wiki Data Model":    `{"title":"Wiki Data Architecture","summary":"How immutable revisions preserve the Wiki model.","sections":[{"key":"design","heading":"Design","markdown":"The Wiki stores immutable revisions as its durable publication boundary."}]}`,
+		"Evidence Grounding": `{"title":"Evidence Grounding","summary":"How claims remain traceable to immutable source material.","sections":[{"key":"grounding","heading":"Grounding","markdown":"Published knowledge remains auditable through exact source anchors."}]}`,
 	}}
 	editor, err := pagewiki.NewLLMSessionEditor(pagewiki.LLMEditorConfig{
 		Client: client, Model: "test-model",
@@ -78,7 +81,7 @@ func (s *llmSessionEditorSuite) TestRejectsInvalidConfigurationAndMalformedRespo
 	})
 	s.Require().ErrorContains(err, "model is required")
 
-	client := &wikiChatClient{responses: []string{"not-json"}}
+	client := &wikiChatClient{responsesByIndex: []string{"not-json"}}
 	editor, err := pagewiki.NewLLMSessionEditor(pagewiki.LLMEditorConfig{
 		Client: client, Model: "test-model",
 	})
@@ -96,8 +99,8 @@ func (s *llmSessionEditorSuite) TestRejectsInvalidConfigurationAndMalformedRespo
 }
 
 func (s *llmSessionEditorSuite) TestUsesBriefEvidenceInsteadOfHeadingChunks() {
-	client := &wikiChatClient{responses: []string{
-		`{"title":"Release Policy","summary":"How the team ships releases.","sections":[{"key":"policy","heading":"Policy","markdown":"Releases ship weekly after the validation gate passes."}]}`,
+	client := &wikiChatClient{responses: map[string]string{
+		"Release Policy": `{"title":"Release Policy","summary":"How the team ships releases.","sections":[{"key":"policy","heading":"Policy","markdown":"Releases ship weekly after the validation gate passes."}]}`,
 	}}
 	editor, err := pagewiki.NewLLMSessionEditor(pagewiki.LLMEditorConfig{
 		Client: client, Model: "test-model",
@@ -139,8 +142,8 @@ func (s *llmSessionEditorSuite) TestUsesBriefEvidenceInsteadOfHeadingChunks() {
 }
 
 func (s *llmSessionEditorSuite) TestSendsFullEvidenceContextToTheModel() {
-	client := &wikiChatClient{responses: []string{
-		`{"title":"Release Policy","summary":"How the team ships.","sections":[{"key":"policy","heading":"Policy","markdown":"Ships weekly."}]}`,
+	client := &wikiChatClient{responses: map[string]string{
+		"Release Policy": `{"title":"Release Policy","summary":"How the team ships.","sections":[{"key":"policy","heading":"Policy","markdown":"Ships weekly."}]}`,
 	}}
 	editor, err := pagewiki.NewLLMSessionEditor(pagewiki.LLMEditorConfig{
 		Client: client, Model: "test-model",
@@ -177,7 +180,7 @@ func (s *llmSessionEditorSuite) TestSendsFullEvidenceContextToTheModel() {
 }
 
 func (s *llmSessionEditorSuite) TestAppliesGenerationDirectivesToSystemPrompt() {
-	client := &wikiChatClient{responses: []string{
+	client := &wikiChatClient{responsesByIndex: []string{
 		`{"title":"Release Policy","summary":"How the team ships.","sections":[{"key":"policy","heading":"Policy","markdown":"Ships weekly."}]}`,
 	}}
 	editor, err := pagewiki.NewLLMSessionEditor(pagewiki.LLMEditorConfig{
@@ -207,7 +210,7 @@ func (s *llmSessionEditorSuite) TestAppliesGenerationDirectivesToSystemPrompt() 
 }
 
 func (s *llmSessionEditorSuite) TestZeroGenerationDirectivesLeaveSystemPromptUnchanged() {
-	client := &wikiChatClient{responses: []string{
+	client := &wikiChatClient{responsesByIndex: []string{
 		`{"title":"Release Policy","summary":"How the team ships.","sections":[{"key":"policy","heading":"Policy","markdown":"Ships weekly."}]}`,
 	}}
 	editor, err := pagewiki.NewLLMSessionEditor(pagewiki.LLMEditorConfig{
@@ -231,21 +234,55 @@ func (s *llmSessionEditorSuite) TestZeroGenerationDirectivesLeaveSystemPromptUnc
 }
 
 type wikiChatClient struct {
-	requests  []llm.ChatRequest
-	responses []string
-	err       error
+	mu       sync.Mutex
+	requests []llm.ChatRequest
+	// responses is written only at construction (test setup) and must stay
+	// immutable afterward: Complete reads it concurrently below without
+	// holding mu, which is only safe because no goroutine ever mutates it
+	// post-construction.
+	responses        map[string]string // keyed by Topic from editor requests
+	responsesByIndex []string          // FIFO queue for planner/indexer (non-editor) requests
+	responseIndex    int
+	err              error
 }
 
 func (c *wikiChatClient) Complete(
 	_ context.Context,
 	request llm.ChatRequest,
 ) (llm.ChatResponse, error) {
+	c.mu.Lock()
 	c.requests = append(c.requests, request)
 	if c.err != nil {
+		c.mu.Unlock()
 		return llm.ChatResponse{}, c.err
 	}
-	response := c.responses[0]
-	c.responses = c.responses[1:]
+	c.mu.Unlock()
+
+	// Try to extract Topic from the user message (editor requests have a Topic field)
+	var editRequest struct {
+		Topic string `json:"topic"`
+	}
+	if err := json.Unmarshal([]byte(request.Messages[1].Content), &editRequest); err == nil && editRequest.Topic != "" && len(c.responses) > 0 {
+		// Editor request with map-based responses: match by topic for concurrent safety
+		response, found := c.responses[editRequest.Topic]
+		if !found {
+			return llm.ChatResponse{}, fmt.Errorf("no response registered for topic %q in test fake", editRequest.Topic)
+		}
+		return llm.ChatResponse{
+			Message: llm.ChatMessage{Role: "assistant", Content: response},
+		}, nil
+	}
+
+	// Use FIFO queue for all other cases:
+	// - Planner/indexer requests (no Topic field)
+	// - Editor requests with FIFO-style setup (len(responses) == 0)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.responseIndex >= len(c.responsesByIndex) {
+		return llm.ChatResponse{}, fmt.Errorf("no more responses available for request in test fake (index %d, len %d)", c.responseIndex, len(c.responsesByIndex))
+	}
+	response := c.responsesByIndex[c.responseIndex]
+	c.responseIndex++
 	return llm.ChatResponse{
 		Message: llm.ChatMessage{Role: "assistant", Content: response},
 	}, nil

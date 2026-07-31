@@ -24,7 +24,7 @@ func (s *llmPlanAcceptanceSuite) TestNoisySessionProducesOnlyGenuinePages() {
 	raw := skillDoc + codeDiff + knowledge
 
 	planner, err := pagewiki.NewLLMSessionPlanner(pagewiki.LLMPlannerConfig{
-		Client: &wikiChatClient{responses: []string{`{"briefs":[
+		Client: &wikiChatClient{responsesByIndex: []string{`{"briefs":[
 			{"action":"skip_noise","reader_goal":"agent skill instructions",
 			 "evidence":[{"event_id":"event-skill","exact_quote":"## Checklist"}]},
 			{"action":"skip_noise","reader_goal":"code diff",
@@ -37,8 +37,8 @@ func (s *llmPlanAcceptanceSuite) TestNoisySessionProducesOnlyGenuinePages() {
 	})
 	s.Require().NoError(err)
 	editor, err := pagewiki.NewLLMSessionEditor(pagewiki.LLMEditorConfig{
-		Client: &wikiChatClient{responses: []string{
-			`{"title":"Recall Strategy","summary":"BM25 is the default recall path.","sections":[{"key":"decision","heading":"Decision","markdown":"The team defaults recall to BM25 and treats vector recall as a supplement."}]}`,
+		Client: &wikiChatClient{responses: map[string]string{
+			"Recall Strategy": `{"title":"Recall Strategy","summary":"BM25 is the default recall path.","sections":[{"key":"decision","heading":"Decision","markdown":"The team defaults recall to BM25 and treats vector recall as a supplement."}]}`,
 		}},
 		Model: "test-model",
 	})
@@ -85,7 +85,7 @@ func (s *llmPlanAcceptanceSuite) TestNoisySessionProducesOnlyGenuinePages() {
 }
 
 func (s *llmPlanAcceptanceSuite) TestUpdatePathRevisesAnExistingPageThroughInjectSession() {
-	plannerClient := &wikiChatClient{responses: []string{
+	plannerClient := &wikiChatClient{responsesByIndex: []string{
 		`{"briefs":[
 			{"action":"create","proposed_slug":"release-policy","proposed_title":"Release Policy",
 			 "reader_goal":"Understand the release cadence.","topic_path":["Engineering","Runtime"],
@@ -97,7 +97,7 @@ func (s *llmPlanAcceptanceSuite) TestUpdatePathRevisesAnExistingPageThroughInjec
 			 "evidence":[{"event_id":"event-2","exact_quote":"releases ship twice weekly now"}]}
 		]}`,
 	}}
-	editorClient := &wikiChatClient{responses: []string{
+	editorClient := &wikiChatClient{responsesByIndex: []string{
 		`{"title":"Release Policy","summary":"How the team ships releases.","sections":[{"key":"policy","heading":"Policy","markdown":"Releases ship weekly."}]}`,
 		`{"title":"Release Policy","summary":"How the team ships releases, revised.","sections":[{"key":"policy","heading":"Policy","markdown":"Releases ship twice weekly now."}]}`,
 	}}

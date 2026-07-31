@@ -123,6 +123,9 @@ func TestGivenStoredDirectivesWhenInjectSessionRunsThenPlannerEditorAndIndexerRe
 	require.Equal(t, pagewiki.RunStatusSucceeded, result.Run.Status)
 	require.Equal(t, directives, capturedPlan.Directives)
 	require.Equal(t, directives, capturedEdit.Directives)
+	// Reindexing is debounced off the ingest path; flush runs it now. The
+	// indexer reads the stored settings at rebuild time.
+	service.FlushTreeReindex(context.Background())
 	require.Equal(t, 1, indexer.calls)
 	require.Equal(t, directives, indexer.lastInput.Directives)
 }

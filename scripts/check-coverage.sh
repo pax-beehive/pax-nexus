@@ -20,8 +20,9 @@ awk '
 NR == 1 { print; next }
 $1 !~ /\/internal\/teamnote\/transport\/httpapi\/(model|router)\// &&
 $1 !~ /\/internal\/pagewiki\/transport\/httpapi\/model\// &&
+$1 !~ /\/internal\/todoapp\/transport\/httpapi\/model\// &&
 $1 !~ /\/internal\/eval\/v2\/postgresstore\// && $1 !~ /\/mocks\// &&
-$1 !~ /\/cmd\// && $1 !~ /\.gen\.go:/ { print }
+$1 !~ /\/cmd\// && $1 !~ /pax-nexus\/main\.go:/ && $1 !~ /\.gen\.go:/ { print }
 ' "${combined_profile}" > "${profile}"
 
 total="$(go tool cover -func="${profile}" | awk '/^total:/ { gsub("%", "", $3); print $3 }')"
