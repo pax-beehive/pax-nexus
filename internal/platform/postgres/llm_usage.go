@@ -41,23 +41,11 @@ VALUES ($1, $2, $3, $4, $5, $6, $7)`,
 	return nil
 }
 
-// LLMUsageRow is a per-(component, model) aggregate over the requested
-// window.
-type LLMUsageRow struct {
-	Component       string
-	Model           string
-	Calls           int64
-	InputTokens     int64
-	CacheHitTokens  int64
-	CacheMissTokens int64
-	OutputTokens    int64
-}
-
 func (s *LLMUsageStore) UsageSummary(
 	ctx context.Context,
 	scopeID string,
 	window time.Duration,
-) ([]LLMUsageRow, error) {
+) ([]llm.LLMUsageRow, error) {
 	if strings.TrimSpace(scopeID) == "" {
 		return nil, errors.New("summarize LLM usage: scope is required")
 	}
@@ -80,9 +68,9 @@ ORDER BY component, model`,
 		return nil, fmt.Errorf("summarize LLM usage: %w", err)
 	}
 	defer rows.Close()
-	var summary []LLMUsageRow
+	var summary []llm.LLMUsageRow
 	for rows.Next() {
-		var row LLMUsageRow
+		var row llm.LLMUsageRow
 		if err := rows.Scan(
 			&row.Component, &row.Model, &row.Calls, &row.InputTokens,
 			&row.CacheHitTokens, &row.CacheMissTokens, &row.OutputTokens,

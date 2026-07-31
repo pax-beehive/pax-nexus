@@ -23,6 +23,21 @@ type UsageSink interface {
 	RecordLLMUsage(ctx context.Context, event UsageEvent) error
 }
 
+// LLMUsageRow is a per-(component, model) aggregate over a requested window,
+// as returned by a UsageSink's windowed summary (e.g.
+// postgres.LLMUsageStore.UsageSummary). It lives here, next to UsageEvent,
+// so that consumers of usage summaries (such as the HTTP handler package)
+// depend on shared LLM types instead of the Postgres-backed store.
+type LLMUsageRow struct {
+	Component       string
+	Model           string
+	Calls           int64
+	InputTokens     int64
+	CacheHitTokens  int64
+	CacheMissTokens int64
+	OutputTokens    int64
+}
+
 // MeteredConfig configures a MeteredChatClient.
 type MeteredConfig struct {
 	Client       ChatClient   // required
