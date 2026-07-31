@@ -57,17 +57,32 @@ export function decomposeInstructions(stored: string): {
   selectedIds: string[];
   additional: string;
 } {
-  let remainder = stored;
+  const lines = stored.split("\n");
   const selectedIds: string[] = [];
-  for (const preset of INSTRUCTION_PRESETS) {
-    if (remainder.includes(preset.sentence)) {
-      selectedIds.push(preset.id);
-      remainder = remainder.replace(preset.sentence, "");
+  const remainingLines: string[] = [];
+
+  for (const line of lines) {
+    const trimmedLine = line.trim();
+    let matched = false;
+
+    for (const preset of INSTRUCTION_PRESETS) {
+      if (trimmedLine === preset.sentence) {
+        selectedIds.push(preset.id);
+        matched = true;
+        break;
+      }
+    }
+
+    if (!matched) {
+      remainingLines.push(line);
     }
   }
+
+  const additional = remainingLines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+
   return {
     selectedIds,
-    additional: remainder.replace(/\n{3,}/g, "\n\n").trim(),
+    additional,
   };
 }
 

@@ -39,4 +39,11 @@ describe("instruction presets", () => {
     expect(codePointLength("语言ab")).toBe(4);
     expect(codePointLength("𝄞")).toBe(1); // astral char is 2 UTF-16 units
   });
+
+  it("ignores preset sentences embedded in other text (not whole-line match)", () => {
+    const embedded = "Also, " + tables.sentence + " when listing steps.";
+    const result = decomposeInstructions(embedded);
+    expect(result.selectedIds).toEqual([]);
+    expect(result.additional).toBe(embedded);
+  });
 });
