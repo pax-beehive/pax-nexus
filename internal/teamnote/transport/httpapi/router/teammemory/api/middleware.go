@@ -570,3 +570,8 @@ func _updatewikigenerationsettingsMw() []app.HandlerFunc {
 	// your code...
 	return nil
 }
+
+func _getllmusageMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}

@@ -21,6 +21,7 @@ func Register(r *server.Hertz) {
 	{
 		_v1 := root.Group("/v1", _v1Mw()...)
 		_v1.GET("/agent-identity", append(_getagentidentityMw(), handler.GetAgentIdentity)...)
+		_v1.GET("/llm-usage", append(_getllmusageMw(), handler.GetLlmUsage)...)
 		_v1.GET("/me", append(_gethumanmeMw(), handler.GetHumanMe)...)
 		_v1.POST("/observations", append(_observebatchMw(), handler.ObserveBatch)...)
 		_v1.POST("/session-batches", append(_observesessionMw(), handler.ObserveSession)...)
