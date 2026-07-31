@@ -357,6 +357,7 @@ func (s *llmSessionPlannerSuite) TestAppliesGenerationDirectivesToSystemPrompt()
 	s.Require().NoError(err)
 	s.Require().NotEmpty(client.requests)
 	system := client.requests[0].Messages[0].Content
+	s.True(strings.HasPrefix(system, pagewiki.PageWikiPlannerPromptForTest))
 	s.Contains(system, "in 简体中文.")
 	s.Contains(system, "prefer tables")
 }

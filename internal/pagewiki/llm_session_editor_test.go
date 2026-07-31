@@ -201,6 +201,7 @@ func (s *llmSessionEditorSuite) TestAppliesGenerationDirectivesToSystemPrompt() 
 	s.Require().NoError(err)
 	s.Require().Len(client.requests, 1)
 	system := client.requests[0].Messages[0].Content
+	s.True(strings.HasPrefix(system, pagewiki.PageWikiEnglishEditorPromptForTest))
 	s.Contains(system, "in 简体中文.")
 	s.Contains(system, "prefer tables")
 }

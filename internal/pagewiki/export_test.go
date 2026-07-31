@@ -6,6 +6,7 @@ package pagewiki
 const (
 	PageWikiPlannerPromptForTest       = pageWikiPlannerPrompt
 	PageWikiEnglishEditorPromptForTest = pageWikiEnglishEditorPrompt
+	TreeDefaultMaxDepthForTest         = treeDefaultMaxDepth
 )
 
 func TreeIndexerPromptForTest(maxDepth int) string {

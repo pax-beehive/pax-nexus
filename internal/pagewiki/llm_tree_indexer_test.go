@@ -3,6 +3,7 @@ package pagewiki_test
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/pax-beehive/pax-nexus/internal/pagewiki"
@@ -313,6 +314,7 @@ func (s *llmTreeIndexerSuite) TestAppliesGenerationDirectivesToSystemPrompt() {
 	s.Require().NoError(err)
 	s.Require().Len(client.requests, 1)
 	system := client.requests[0].Messages[0].Content
+	s.True(strings.HasPrefix(system, pagewiki.TreeIndexerPromptForTest(pagewiki.TreeDefaultMaxDepthForTest)))
 	s.Contains(system, "in 简体中文.")
 	s.Contains(system, "prefer tables")
 }
