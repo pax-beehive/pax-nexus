@@ -59,7 +59,7 @@ func (s *llmTreeIndexerSuite) TestBuildsTwoLevelTreeWithStableIDs() {
 	s.Require().NoError(err)
 	s.Require().Len(tree.Topics, 1)
 	s.Equal("engineering", tree.Topics[0].Slug)
-	s.Equal("", tree.Topics[0].ParentID)
+	s.Empty(tree.Topics[0].ParentID)
 	s.Require().Len(tree.Placements, 3)
 	s.Equal("id-page-01", tree.Placements[0].PageID)
 	s.Equal(tree.Topics[0].ID, tree.Placements[0].TopicID)
