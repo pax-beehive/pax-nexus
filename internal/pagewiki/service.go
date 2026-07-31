@@ -202,6 +202,28 @@ type preparedTarget struct {
 	ready           bool
 }
 
+// duplicateUpdateTargets flags every update brief whose non-empty
+// TargetPageID already appeared on an earlier brief. The first brief keeps
+// the page; later ones would only burn an editor call before failing the
+// base-revision check at publish, so they fail up front with the same
+// conflict outcome. Create briefs carry no TargetPageID and are never
+// flagged.
+func duplicateUpdateTargets(briefs []PageBrief) map[int]struct{} {
+	duplicates := make(map[int]struct{})
+	seen := make(map[string]struct{}, len(briefs))
+	for index, brief := range briefs {
+		if brief.Action != PageActionUpdate || brief.TargetPageID == "" {
+			continue
+		}
+		if _, found := seen[brief.TargetPageID]; found {
+			duplicates[index] = struct{}{}
+			continue
+		}
+		seen[brief.TargetPageID] = struct{}{}
+	}
+	return duplicates
+}
+
 // prepareTargets runs the expensive per-brief work (validation, page
 // resolution, and the editor LLM call) concurrently. Each brief writes its
 // outcome into its own slot so one target's failure never affects siblings.
@@ -217,7 +239,24 @@ func (s *Service) prepareTargets(
 	prepared := make([]preparedTarget, len(briefs))
 	var group errgroup.Group
 	group.SetLimit(editConcurrency)
+	duplicates := duplicateUpdateTargets(briefs)
 	for index, brief := range briefs {
+		if _, duplicate := duplicates[index]; duplicate {
+			prepared[index] = preparedTarget{
+				brief: brief,
+				target: failTarget(MaintenanceTarget{
+					ID:       stableID("target", runID, brief.Key),
+					BriefKey: brief.Key,
+					Action:   brief.Action,
+					Status:   TargetStatusFailed,
+				}, TargetFailurePublicationConflict, fmt.Errorf(
+					"%w: Page %q is already targeted by an earlier brief in this run",
+					ErrRevisionConflict,
+					brief.TargetPageID,
+				)),
+			}
+			continue
+		}
 		group.Go(func() error {
 			prepared[index] = s.prepareTarget(ctx, runID, sourceRevision, catalog, brief)
 			return nil
