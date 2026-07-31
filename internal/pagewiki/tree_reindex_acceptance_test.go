@@ -18,6 +18,10 @@ type recordingIndexer struct {
 	// catalog the service loaded, letting tests reference page IDs that are
 	// only known after the run has published a page.
 	build func(pagewiki.PageCatalog) pagewiki.TopicTree
+	// lastInput records the TreeIndexInput the last Index call was given,
+	// letting tests assert what the service threaded in (e.g. the loaded
+	// GenerationDirectives).
+	lastInput pagewiki.TreeIndexInput
 }
 
 func (r *recordingIndexer) Index(
@@ -25,6 +29,7 @@ func (r *recordingIndexer) Index(
 	input pagewiki.TreeIndexInput,
 ) (pagewiki.TopicTree, error) {
 	r.calls++
+	r.lastInput = input
 	if r.err != nil {
 		return pagewiki.TopicTree{}, r.err
 	}
