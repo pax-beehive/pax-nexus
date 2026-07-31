@@ -699,6 +699,24 @@ func (s *RepositorySuite) TestReplaceTopicTreeAtomicityPreservesValidState() {
 	s.Equal(validTree, tree)
 }
 
+func (s *RepositorySuite) TestGenerationSettingsRoundTrip() {
+	directives, err := s.repository.GenerationSettings(s.ctx)
+	s.Require().NoError(err)
+	s.Require().True(directives.IsZero())
+
+	want := pagewiki.GenerationDirectives{Language: "简体中文", CustomInstructions: "prefer tables"}
+	s.Require().NoError(s.repository.SetGenerationSettings(s.ctx, want))
+	got, err := s.repository.GenerationSettings(s.ctx)
+	s.Require().NoError(err)
+	s.Require().Equal(want, got)
+
+	// Second write overwrites (upsert semantics).
+	s.Require().NoError(s.repository.SetGenerationSettings(s.ctx, pagewiki.GenerationDirectives{Language: "English"}))
+	got, err = s.repository.GenerationSettings(s.ctx)
+	s.Require().NoError(err)
+	s.Require().Equal(pagewiki.GenerationDirectives{Language: "English"}, got)
+}
+
 func sourceRevisionFixture() pagewiki.SourceRevision {
 	return pagewiki.SourceRevision{
 		ID:       "source-revision-1",

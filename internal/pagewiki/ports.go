@@ -49,4 +49,6 @@ type Repository interface {
 	SaveMaintenanceRun(context.Context, MaintenanceRun) error
 	TopicTree(context.Context) (TopicTree, error)
 	ReplaceTopicTree(context.Context, TopicTree) error
+	GenerationSettings(context.Context) (GenerationDirectives, error)
+	SetGenerationSettings(context.Context, GenerationDirectives) error
 }
