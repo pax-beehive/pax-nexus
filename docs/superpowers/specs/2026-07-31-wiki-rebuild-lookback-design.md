@@ -78,8 +78,8 @@ No new tables, no migration.
 
   Streams with recent activity get no cursor row, so `PendingStreams`
   (`last_sequence > COALESCE(cursor, 0)`) replays them from 0.
-- The in-memory pagewiki repository used by tests mirrors the new
-  `RebuildPageWiki` signature.
+- Only the postgres repository implements `Rebuilder`; the consumer and
+  handler tests use local fakes, which pick up the new signature.
 
 ## Frontend
 
