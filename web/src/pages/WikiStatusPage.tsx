@@ -363,6 +363,7 @@ export function WikiStatusPage({ me }: { me: HumanMe }) {
           <label htmlFor="wiki-generation-instructions">Additional instructions</label>
           <textarea
             id="wiki-generation-instructions"
+            placeholder="Stacks with the selected presets above."
             value={instructions}
             disabled={settingsBusy}
             onChange={(event) => setInstructions(event.target.value)}

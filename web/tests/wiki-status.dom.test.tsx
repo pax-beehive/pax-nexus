@@ -200,6 +200,7 @@ describe("wiki status page generation settings", () => {
       screen.getByRole("button", { name: "Follow source evidence" }).getAttribute("aria-pressed"),
     ).toBe("true");
     expect(screen.queryByLabelText("Custom language")).toBeNull();
+    expect(screen.getByPlaceholderText("Stacks with the selected presets above.")).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "简体中文" }));
     await user.click(screen.getByRole("button", { name: "Save generation settings" }));
