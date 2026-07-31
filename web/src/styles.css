@@ -169,6 +169,11 @@ tr:last-child td { border-bottom: none; }
 .wiki-generation-fields textarea { width: 100%; padding: 8px 10px; border: 1px solid var(--border-strong); border-radius: 8px; background: #fff; color: var(--text); font: inherit; }
 .wiki-generation-fields textarea { min-height: 90px; resize: vertical; font: 12px var(--mono); }
 .wiki-generation-fields button { justify-self: start; }
+.wiki-preset-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 2px; }
+.chip { border: 1px solid var(--border-strong); border-radius: 99px; padding: 5px 11px; background: var(--surface-2); color: var(--muted); font: 650 12px var(--sans); cursor: pointer; }
+.chip:hover:not(:disabled) { border-color: var(--accent); }
+.chip.selected { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-hover); }
+.chip:disabled { opacity: .6; cursor: default; }
 .wiki-layout { display: grid; grid-template-columns: clamp(220px, 22vw, 320px) minmax(420px, 1fr); gap: 14px; align-items: start; }
 .wiki-topic-rail { position: sticky; top: 18px; max-height: calc(100vh - 36px); overflow-y: auto; }
 .wiki-rail-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding-bottom: 10px; margin-bottom: 10px; border-bottom: 1px solid var(--border); font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
