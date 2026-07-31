@@ -106,6 +106,11 @@ export interface WikiIngestionStatus {
   last_processed_at?: string;
 }
 
+export interface WikiGenerationSettings {
+  language: string;
+  custom_instructions: string;
+}
+
 function get<T>(path: string, signal?: AbortSignal): Promise<T> {
   return humanFetch<T>(path, { signal });
 }
@@ -116,6 +121,10 @@ export function getWikiNavigation(signal?: AbortSignal): Promise<WikiNavigation>
 
 export function getWikiIngestionStatus(signal?: AbortSignal): Promise<WikiIngestionStatus> {
   return get<WikiIngestionStatus>("/v1/wiki/ingestion", signal);
+}
+
+export function getWikiSettings(signal?: AbortSignal): Promise<WikiGenerationSettings> {
+  return get<WikiGenerationSettings>("/v1/wiki/settings", signal);
 }
 
 export function getWikiPage(slug: string, signal?: AbortSignal): Promise<WikiPage> {

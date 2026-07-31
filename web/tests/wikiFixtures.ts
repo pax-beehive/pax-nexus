@@ -22,6 +22,7 @@ export function wikiFetch(path: string): Response {
     return jsonResponse({ roots: [], pages: [{ id: "p1", slug: "alpha", title: "Alpha", rank: 1 }] });
   }
   if (path === "/v1/wiki/ingestion") return jsonResponse({ auto_inject: false });
+  if (path === "/v1/wiki/settings") return jsonResponse({ language: "", custom_instructions: "" });
   if (path === "/v1/wiki/pages/alpha") {
     return jsonResponse({
       id: "p1", slug: "alpha", title: "Alpha", current_revision_id: "rev-1", revision: REVISION,
