@@ -40,6 +40,8 @@ export function WikiStatusPage({ me }: { me: HumanMe }) {
   );
   const [message, setMessage] = useState("");
   const [rebuildOpen, setRebuildOpen] = useState(false);
+  // Calendar cutoff for Reset & rebuild (YYYY-MM-DD); empty = full history.
+  const [rebuildSince, setRebuildSince] = useState("");
 
   // Generation settings: loaded once (not polled — the editor owns the
   // value while the user works on it, and settings don't change underneath
@@ -153,13 +155,21 @@ export function WikiStatusPage({ me }: { me: HumanMe }) {
     }
   };
 
+  const closeRebuild = () => {
+    setRebuildOpen(false);
+    setRebuildSince("");
+  };
+
   const confirmRebuild = async () => {
     setBusy(true);
     setMessage("");
     try {
-      const updated = await rebuildWiki(beginAction());
+      const since = rebuildSince
+        ? new Date(`${rebuildSince}T00:00:00`).toISOString()
+        : undefined;
+      const updated = await rebuildWiki(beginAction(), since);
       setAutoInject(updated.auto_inject);
-      setRebuildOpen(false);
+      closeRebuild();
       setMessage("Wiki cleared. Rebuilding from Session Lake…");
     } catch (error) {
       handleError(error);
@@ -324,15 +334,31 @@ export function WikiStatusPage({ me }: { me: HumanMe }) {
           title="Reset and rebuild Wiki"
           consequences={[
             "All PageWiki pages, revisions, links, citations, and maintenance runs will be deleted.",
-            "PageWiki ingestion cursors will reset and every Session Lake stream will be processed again.",
+            rebuildSince
+              ? `Only sessions with activity on or after ${rebuildSince} will be replayed; older sessions will be skipped until a wider rebuild.`
+              : "PageWiki ingestion cursors will reset and every Session Lake stream will be processed again.",
             "Session Lake events and Team Notes are preserved.",
             "An LLM-backed rebuild may make paid provider calls.",
           ]}
           confirmLabel="Confirm reset & rebuild"
           busy={busy}
           onConfirm={() => void confirmRebuild()}
-          onClose={() => setRebuildOpen(false)}
-        />
+          onClose={closeRebuild}
+        >
+          <div className="wiki-rebuild-since">
+            <label htmlFor="wiki-rebuild-since">Replay sessions since (optional)</label>
+            <input
+              id="wiki-rebuild-since"
+              type="date"
+              value={rebuildSince}
+              onChange={(event) => setRebuildSince(event.target.value)}
+              disabled={busy}
+            />
+            <span className="muted small">
+              Leave empty to replay the full Session Lake history.
+            </span>
+          </div>
+        </ConfirmDialog>
       )}
     </div>
   );
