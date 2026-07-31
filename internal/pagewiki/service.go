@@ -14,8 +14,6 @@ import (
 	"sync"
 	"time"
 
-	"golang.org/x/sync/errgroup"
-
 	"github.com/pax-beehive/pax-nexus/internal/platform/observability"
 )
 
@@ -322,8 +320,8 @@ func (s *Service) prepareTargets(
 	briefs []PageBrief,
 ) []preparedTarget {
 	prepared := make([]preparedTarget, len(briefs))
-	var group errgroup.Group
-	group.SetLimit(editConcurrency)
+	var wait sync.WaitGroup
+	slots := make(chan struct{}, editConcurrency)
 	duplicates := duplicateUpdateTargets(briefs)
 	for index, brief := range briefs {
 		if _, duplicate := duplicates[index]; duplicate {
@@ -342,12 +340,13 @@ func (s *Service) prepareTargets(
 			}
 			continue
 		}
-		group.Go(func() error {
+		wait.Go(func() {
+			slots <- struct{}{}
+			defer func() { <-slots }()
 			prepared[index] = s.prepareTarget(ctx, runID, sourceRevision, catalog, brief)
-			return nil
 		})
 	}
-	_ = group.Wait()
+	wait.Wait()
 	return prepared
 }
 
