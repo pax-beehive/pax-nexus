@@ -558,63 +558,17 @@ func (t *recordingTransport) RoundTrip(request *http.Request) (*http.Response, e
 	case "/healthz":
 		responseBody = `{"status":"ok"}`
 	case "/v1/session-batches":
-		var payload struct {
-			Events []struct {
-				Actor struct {
-					SessionID string `json:"session_id"`
-				} `json:"actor"`
-			} `json:"events"`
-		}
-		if err := json.Unmarshal(body, &payload); err != nil {
+		var err error
+		responseBody, err = t.sessionBatchResponse(body)
+		if err != nil {
 			return nil, err
 		}
-		if len(payload.Events) > 0 {
-			t.observedSessionID = payload.Events[0].Actor.SessionID
-		}
-		responseBody = t.teamReceipt
-		if responseBody == "" {
-			responseBody = `{"accepted":1,"duplicate":0,"cursor":1}`
-		}
 	case "/v1/notes/recall":
-		t.recallCount++
-		originSessionID := t.observedSessionID
-		switch {
-		case t.recallAlwaysEmpty:
-			originSessionID = "no-such-session"
-		case t.recallSucceedAt > 0:
-			if t.recallCount != t.recallSucceedAt {
-				originSessionID = "no-such-session"
-			}
-		case t.recallCount <= t.staleRecallCount:
-			originSessionID = "stale-run"
-		}
-		responseBody = fmt.Sprintf(`{"revision":"1","items":["Confirmed active for this run."],"tokens":1,"details":[{"origin":{"session_id":%q}}]}`, originSessionID)
+		responseBody = t.recallResponse()
 	case "/memories":
-		if t.memoryResponseIdx < len(t.memoryResponses) {
-			responseBody = t.memoryResponses[t.memoryResponseIdx]
-			t.memoryResponseIdx++
-		} else {
-			responseBody = t.memoryResponse
-		}
-		if responseBody == "" {
-			responseBody = `{"results":[{"id":"mem-1","event":"ADD"}]}`
-		}
+		responseBody = t.memoryResponseBody()
 	case "/search":
-		t.searchCount++
-		switch {
-		case t.searchAlwaysEmpty:
-			responseBody = `{"results":[]}`
-		case t.searchSucceedAt > 0:
-			if t.searchCount == t.searchSucceedAt {
-				responseBody = `{"results":[{"id":"mem-1","memory":"Retain the verification state."}]}`
-			} else {
-				responseBody = `{"results":[]}`
-			}
-		case t.searchCount == 1:
-			responseBody = `{"results":[{"id":"mem-1","memory":"Retain the verification state."}]}`
-		default:
-			responseBody = `{"results":[]}`
-		}
+		responseBody = t.searchResponse()
 	}
 	return &http.Response{
 		StatusCode: http.StatusOK,
@@ -622,6 +576,73 @@ func (t *recordingTransport) RoundTrip(request *http.Request) (*http.Response, e
 		Header:     make(http.Header),
 		Request:    request,
 	}, nil
+}
+
+// The response helpers below are called with t.mu held by RoundTrip.
+
+func (t *recordingTransport) sessionBatchResponse(body []byte) (string, error) {
+	var payload struct {
+		Events []struct {
+			Actor struct {
+				SessionID string `json:"session_id"`
+			} `json:"actor"`
+		} `json:"events"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return "", err
+	}
+	if len(payload.Events) > 0 {
+		t.observedSessionID = payload.Events[0].Actor.SessionID
+	}
+	if t.teamReceipt != "" {
+		return t.teamReceipt, nil
+	}
+	return `{"accepted":1,"duplicate":0,"cursor":1}`, nil
+}
+
+func (t *recordingTransport) recallResponse() string {
+	t.recallCount++
+	originSessionID := t.observedSessionID
+	switch {
+	case t.recallAlwaysEmpty:
+		originSessionID = "no-such-session"
+	case t.recallSucceedAt > 0:
+		if t.recallCount != t.recallSucceedAt {
+			originSessionID = "no-such-session"
+		}
+	case t.recallCount <= t.staleRecallCount:
+		originSessionID = "stale-run"
+	}
+	return fmt.Sprintf(`{"revision":"1","items":["Confirmed active for this run."],"tokens":1,"details":[{"origin":{"session_id":%q}}]}`, originSessionID)
+}
+
+func (t *recordingTransport) memoryResponseBody() string {
+	responseBody := t.memoryResponse
+	if t.memoryResponseIdx < len(t.memoryResponses) {
+		responseBody = t.memoryResponses[t.memoryResponseIdx]
+		t.memoryResponseIdx++
+	}
+	if responseBody == "" {
+		return `{"results":[{"id":"mem-1","event":"ADD"}]}`
+	}
+	return responseBody
+}
+
+func (t *recordingTransport) searchResponse() string {
+	t.searchCount++
+	switch {
+	case t.searchAlwaysEmpty:
+		return `{"results":[]}`
+	case t.searchSucceedAt > 0:
+		if t.searchCount == t.searchSucceedAt {
+			return `{"results":[{"id":"mem-1","memory":"Retain the verification state."}]}`
+		}
+		return `{"results":[]}`
+	case t.searchCount == 1:
+		return `{"results":[{"id":"mem-1","memory":"Retain the verification state."}]}`
+	default:
+		return `{"results":[]}`
+	}
 }
 
 func (t *recordingTransport) snapshot() []recordedCall {

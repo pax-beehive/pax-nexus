@@ -477,12 +477,3 @@ func (suite *PaxlSessionSuite) writePaxlExport(
 	suite.Require().NoError(os.WriteFile(path, []byte(content.String()), 0o600))
 	return path
 }
-
-func navigationPageCount(topics []pagewiki.NavigationTopic) int {
-	count := 0
-	for _, topic := range topics {
-		count += len(topic.Pages)
-		count += navigationPageCount(topic.Children)
-	}
-	return count
-}

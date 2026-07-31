@@ -91,8 +91,8 @@ func (s *postgresConsumerSuite) TestManualInjectionPersistsPageAndIndependentCur
 	s.Equal(1, result.ProcessedStreams)
 	navigation, err := repository.Navigation(s.ctx)
 	s.Require().NoError(err)
-	s.Require().Len(navigation.Roots, 1)
-	s.Require().Len(navigation.Roots[0].Pages, 1)
+	s.Require().Empty(navigation.Roots)
+	s.Require().Len(navigation.Pages, 1)
 	var cursor int64
 	err = s.store.Pool().QueryRow(s.ctx, `
 SELECT committed_sequence

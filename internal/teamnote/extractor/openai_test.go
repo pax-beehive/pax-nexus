@@ -1540,7 +1540,7 @@ func (s *openAISuite) TestRollingContextTruncatesEpisodeWhenCompactionKeepsFaili
 	s.Equal(2, episode.Checkpoint.CompactionTruncations)
 	s.Contains(episode.Checkpoint.CompactionLastError, "compact extraction episode")
 	s.Require().NotEmpty(episode.Messages)
-	s.Equal(1+2, len(episode.Messages), "each truncation keeps one message; one exchange appends two")
+	s.Len(episode.Messages, 1+2, "each truncation keeps one message; one exchange appends two")
 }
 
 func (s *openAISuite) TestRollingContextKeepsCompactionCountersAfterLaterSuccess() {
