@@ -560,3 +560,13 @@ func _observestreamMw() []app.HandlerFunc {
 	// your code...
 	return nil
 }
+
+func _getwikigenerationsettingsMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _updatewikigenerationsettingsMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}

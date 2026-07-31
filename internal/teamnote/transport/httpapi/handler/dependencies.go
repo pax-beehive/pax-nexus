@@ -11,6 +11,7 @@ import (
 	"github.com/pax-beehive/pax-nexus/internal/deployment/onprem"
 	"github.com/pax-beehive/pax-nexus/internal/explorer"
 	"github.com/pax-beehive/pax-nexus/internal/operations"
+	"github.com/pax-beehive/pax-nexus/internal/pagewiki"
 	"github.com/pax-beehive/pax-nexus/internal/pagewiki/sessionconsumer"
 	"github.com/pax-beehive/pax-nexus/internal/recall"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote"
@@ -37,6 +38,7 @@ type Handler struct {
 	operations   OperationsLifecycle
 	explorer     ExplorerLifecycle
 	wikiControl  WikiControl
+	wikiSettings WikiSettings
 	recorder     operations.Recorder
 	portalURL    string
 	cookieSecure bool
@@ -133,6 +135,11 @@ type WikiControl interface {
 	Rebuild(context.Context, string) (sessionconsumer.Status, error)
 }
 
+type WikiSettings interface {
+	GenerationSettings(context.Context) (pagewiki.GenerationDirectives, error)
+	SetGenerationSettings(context.Context, pagewiki.GenerationDirectives) (pagewiki.GenerationDirectives, error)
+}
+
 type OnPremOption func(*Handler) error
 
 func WithAgentRegistry(registry AgentRegistryLifecycle) OnPremOption {
@@ -172,6 +179,13 @@ func WithWikiControl(control WikiControl) OnPremOption {
 			return fmt.Errorf("configure Wiki control: control is required")
 		}
 		configured.wikiControl = control
+		return nil
+	}
+}
+
+func WithWikiSettings(settings WikiSettings) OnPremOption {
+	return func(configured *Handler) error {
+		configured.wikiSettings = settings
 		return nil
 	}
 }
