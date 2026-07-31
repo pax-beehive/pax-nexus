@@ -11,13 +11,18 @@ import (
 	"reflect"
 	"regexp"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/pax-beehive/pax-nexus/internal/platform/observability"
 )
 
 const (
-	minPlannedPages = 1
-	maxPlannedPages = 8
+	minPlannedPages    = 1
+	maxPlannedPages    = 8
+	editConcurrency    = 4
+	treeReindexQuiet   = 5 * time.Second
+	treeReindexMaxWait = 60 * time.Second
 )
 
 var (
@@ -26,18 +31,25 @@ var (
 )
 
 type Service struct {
-	repository  Repository
-	planner     Planner
-	editor      Editor
-	treeIndexer TreeIndexer
-	logger      *slog.Logger
+	repository    Repository
+	planner       Planner
+	editor        Editor
+	treeIndexer   TreeIndexer
+	logger        *slog.Logger
+	treeDirty     chan struct{}
+	treeQuiet     time.Duration
+	treeMaxWait   time.Duration
+	treeReindexMu sync.Mutex
 }
 
 type ServiceOption func(*Service)
 
-// WithTreeIndexer enables Page Wiki topic-tree reindexing at the end of every
-// ingest run that changed the catalog. It is optional: without it, InjectSession
-// runs exactly as before.
+// WithTreeIndexer enables Page Wiki topic-tree reindexing. When set,
+// InjectSession marks the topic tree dirty after any run that changed the
+// catalog; the actual rebuild happens off that path, either in the
+// background via StartTreeMaintenance (debounced) or synchronously via
+// FlushTreeReindex. It remains optional: without it, marks are never
+// recorded and no reindex ever runs.
 func WithTreeIndexer(indexer TreeIndexer, logger *slog.Logger) ServiceOption {
 	return func(s *Service) {
 		s.treeIndexer = indexer
@@ -59,6 +71,9 @@ func NewService(
 		editor:     editor,
 		logger:     observability.DiscardLogger(),
 	}
+	service.treeDirty = make(chan struct{}, 1)
+	service.treeQuiet = treeReindexQuiet
+	service.treeMaxWait = treeReindexMaxWait
 	for _, option := range options {
 		option(service)
 	}
@@ -118,33 +133,104 @@ func (s *Service) InjectSession(
 		SourceRevisionID: sourceRevision.ID,
 		Targets:          make([]MaintenanceTarget, 0, len(briefs)),
 	}
-	for _, brief := range briefs {
-		target := s.processTarget(ctx, run.ID, sourceRevision, catalog, brief)
-		run.Targets = append(run.Targets, target)
+	prepared := s.prepareTargets(ctx, run.ID, sourceRevision, catalog, briefs)
+	for index := range prepared {
+		run.Targets = append(run.Targets, s.commitTarget(ctx, sourceRevision, prepared[index]))
 	}
 	run.Status = summarizeRun(run.Targets)
 	if err := s.repository.SaveMaintenanceRun(ctx, run); err != nil {
 		return InjectResult{}, fmt.Errorf("save MaintenanceRun: %w", err)
 	}
-	s.maybeReindexTree(ctx, briefs, run.Targets)
+	if s.treeIndexer != nil && catalogChanged(briefs, run.Targets) {
+		s.markTreeDirty()
+	}
 	return InjectResult{
 		SourceRevisionID: sourceRevision.ID,
 		Run:              run,
 	}, nil
 }
 
-// maybeReindexTree runs the topic-tree indexer at the end of an ingest run
-// that changed the Page catalog. It is best-effort: any failure is logged and
-// swallowed so a reindex problem never fails the underlying ingest run, and
-// the previously stored TopicTree is left in place.
-func (s *Service) maybeReindexTree(
-	ctx context.Context,
-	briefs []PageBrief,
-	targets []MaintenanceTarget,
-) {
-	if s.treeIndexer == nil || !catalogChanged(briefs, targets) {
+// markTreeDirty records that the Page catalog changed since the last topic
+// tree rebuild. The channel is buffered(1): an already-pending mark absorbs
+// further marks, and the eventual rebuild reads the latest catalog anyway.
+func (s *Service) markTreeDirty() {
+	select {
+	case s.treeDirty <- struct{}{}:
+	default:
+	}
+}
+
+// StartTreeMaintenance runs topic-tree rebuilds in the background: a dirty
+// mark opens a debounce window (treeQuiet of silence, capped at treeMaxWait)
+// and then rebuilds once. This keeps the rebuild off the ingest critical
+// path and coalesces a replay's many runs into one rebuild. A mark pending
+// when ctx is cancelled is dropped; the tree is a derived view and the next
+// catalog change re-marks it.
+func (s *Service) StartTreeMaintenance(ctx context.Context) {
+	if s.treeIndexer == nil {
 		return
 	}
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-s.treeDirty:
+				s.debounceThenReindex(ctx)
+			}
+		}
+	}()
+}
+
+func (s *Service) debounceThenReindex(ctx context.Context) {
+	quiet := time.NewTimer(s.treeQuiet)
+	defer quiet.Stop()
+	deadline := time.NewTimer(s.treeMaxWait)
+	defer deadline.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-s.treeDirty:
+			if !quiet.Stop() {
+				<-quiet.C
+			}
+			quiet.Reset(s.treeQuiet)
+		case <-quiet.C:
+			s.reindexTree(ctx)
+			return
+		case <-deadline.C:
+			s.reindexTree(ctx)
+			return
+		}
+	}
+}
+
+// FlushTreeReindex rebuilds the topic tree now if a dirty mark is pending.
+// Tests and the rebuild flow use it to make the async contract synchronous.
+// If StartTreeMaintenance is already running, its background drainer may
+// have already claimed the pending mark off treeDirty before Flush observes
+// it; Flush then no-ops even though a debounced rebuild is still in flight.
+// Flush guarantees "rebuild now if a mark is pending", not "the tree is
+// fresh once this call returns".
+func (s *Service) FlushTreeReindex(ctx context.Context) {
+	if s.treeIndexer == nil {
+		return
+	}
+	select {
+	case <-s.treeDirty:
+		s.reindexTree(ctx)
+	default:
+	}
+}
+
+// reindexTree is best-effort: any failure is logged and swallowed so a
+// reindex problem never fails or delays ingestion, and the previously
+// stored TopicTree stays in place. The mutex serializes concurrent calls
+// from FlushTreeReindex and the background maintenance goroutine.
+func (s *Service) reindexTree(ctx context.Context) {
+	s.treeReindexMu.Lock()
+	defer s.treeReindexMu.Unlock()
 	catalog, err := s.repository.PageCatalog(ctx)
 	if err != nil {
 		s.logger.Warn("Page Wiki tree reindex skipped", "stage", "load catalog", "error", err)
@@ -186,37 +272,120 @@ func catalogChanged(briefs []PageBrief, targets []MaintenanceTarget) bool {
 	return false
 }
 
-func (s *Service) processTarget(
+// preparedTarget carries one brief's prepare-phase outcome into the serial
+// commit phase. ready is true only when validation, page resolution, and the
+// edit all succeeded; otherwise target already holds the final failed or
+// terminal (source-only / ambiguous) state.
+type preparedTarget struct {
+	target          MaintenanceTarget
+	brief           PageBrief
+	page            *Page
+	currentRevision *PageRevision
+	draft           PageDraft
+	ready           bool
+}
+
+// duplicateUpdateTargets flags every update brief whose non-empty
+// TargetPageID already appeared on an earlier brief. The first brief keeps
+// the page; later ones would only burn an editor call before failing the
+// base-revision check at publish, so they fail up front with the same
+// conflict outcome. Create briefs carry no TargetPageID and are never
+// flagged.
+func duplicateUpdateTargets(briefs []PageBrief) map[int]struct{} {
+	duplicates := make(map[int]struct{})
+	seen := make(map[string]struct{}, len(briefs))
+	for index, brief := range briefs {
+		if brief.Action != PageActionUpdate || brief.TargetPageID == "" {
+			continue
+		}
+		if _, found := seen[brief.TargetPageID]; found {
+			duplicates[index] = struct{}{}
+			continue
+		}
+		seen[brief.TargetPageID] = struct{}{}
+	}
+	return duplicates
+}
+
+// prepareTargets runs the expensive per-brief work (validation, page
+// resolution, and the editor LLM call) concurrently. Each brief writes its
+// outcome into its own slot so one target's failure never affects siblings.
+// Publication stays out of this phase: commitTarget runs serially in brief
+// order so publish semantics are identical to the previous sequential loop.
+func (s *Service) prepareTargets(
+	ctx context.Context,
+	runID string,
+	sourceRevision SourceRevision,
+	catalog PageCatalog,
+	briefs []PageBrief,
+) []preparedTarget {
+	prepared := make([]preparedTarget, len(briefs))
+	var wait sync.WaitGroup
+	slots := make(chan struct{}, editConcurrency)
+	duplicates := duplicateUpdateTargets(briefs)
+	for index, brief := range briefs {
+		if _, duplicate := duplicates[index]; duplicate {
+			prepared[index] = preparedTarget{
+				brief: brief,
+				target: failTarget(MaintenanceTarget{
+					ID:       stableID("target", runID, brief.Key),
+					BriefKey: brief.Key,
+					Action:   brief.Action,
+					Status:   TargetStatusFailed,
+				}, TargetFailurePublicationConflict, fmt.Errorf(
+					"%w: Page %q is already targeted by an earlier brief in this run",
+					ErrRevisionConflict,
+					brief.TargetPageID,
+				)),
+			}
+			continue
+		}
+		wait.Go(func() {
+			slots <- struct{}{}
+			defer func() { <-slots }()
+			prepared[index] = s.prepareTarget(ctx, runID, sourceRevision, catalog, brief)
+		})
+	}
+	wait.Wait()
+	return prepared
+}
+
+func (s *Service) prepareTarget(
 	ctx context.Context,
 	runID string,
 	sourceRevision SourceRevision,
 	catalog PageCatalog,
 	brief PageBrief,
-) MaintenanceTarget {
-	target := MaintenanceTarget{
-		ID:       stableID("target", runID, brief.Key),
-		BriefKey: brief.Key,
-		Action:   brief.Action,
-		Status:   TargetStatusFailed,
+) preparedTarget {
+	result := preparedTarget{
+		brief: brief,
+		target: MaintenanceTarget{
+			ID:       stableID("target", runID, brief.Key),
+			BriefKey: brief.Key,
+			Action:   brief.Action,
+			Status:   TargetStatusFailed,
+		},
 	}
 	if err := ValidatePageBrief(brief, catalog); err != nil {
-		return failTarget(target, TargetFailureInvalidBrief, err)
+		result.target = failTarget(result.target, TargetFailureInvalidBrief, err)
+		return result
 	}
 	if err := validateBriefEvidence(brief, sourceRevision); err != nil {
-		return failTarget(target, TargetFailureInvalidBrief, err)
+		result.target = failTarget(result.target, TargetFailureInvalidBrief, err)
+		return result
 	}
 	if brief.Action == PageActionSourceOnly || brief.Action == PageActionAmbiguous {
 		if brief.Action == PageActionSourceOnly {
-			target.Status = TargetStatusSucceeded
+			result.target.Status = TargetStatusSucceeded
 		} else {
-			target.Status = TargetStatusPending
+			result.target.Status = TargetStatusPending
 		}
-		return target
+		return result
 	}
-
 	page, currentRevision, err := s.resolvePage(ctx, sourceRevision.ID, brief)
 	if err != nil {
-		return failTarget(target, TargetFailurePublicationConflict, err)
+		result.target = failTarget(result.target, TargetFailurePublicationConflict, err)
+		return result
 	}
 	draft, err := s.editor.Edit(ctx, EditInput{
 		SourceRevision:  sourceRevision,
@@ -225,25 +394,42 @@ func (s *Service) processTarget(
 		CurrentRevision: currentRevision,
 	})
 	if err != nil {
-		return failTarget(target, TargetFailureInvalidDraft, err)
+		result.target = failTarget(result.target, TargetFailureInvalidDraft, err)
+		return result
 	}
+	result.page = page
+	result.currentRevision = currentRevision
+	result.draft = draft
+	result.ready = true
+	return result
+}
+
+func (s *Service) commitTarget(
+	ctx context.Context,
+	sourceRevision SourceRevision,
+	prepared preparedTarget,
+) MaintenanceTarget {
+	if !prepared.ready {
+		return prepared.target
+	}
+	target := prepared.target
 	pageValue, revision, reason, err := s.buildPublication(
 		ctx,
 		sourceRevision,
-		brief,
-		page,
-		currentRevision,
-		draft,
+		prepared.brief,
+		prepared.page,
+		prepared.currentRevision,
+		prepared.draft,
 	)
 	if err != nil {
 		return failTarget(target, reason, err)
 	}
-	if currentRevision != nil &&
-		page.Slug == pageValue.Slug &&
-		page.Title == pageValue.Title &&
-		revisionsEquivalent(*currentRevision, revision) {
-		target.PageID = page.ID
-		target.PageRevisionID = currentRevision.ID
+	if prepared.currentRevision != nil &&
+		prepared.page.Slug == pageValue.Slug &&
+		prepared.page.Title == pageValue.Title &&
+		revisionsEquivalent(*prepared.currentRevision, revision) {
+		target.PageID = prepared.page.ID
+		target.PageRevisionID = prepared.currentRevision.ID
 		target.Status = TargetStatusSucceeded
 		return target
 	}

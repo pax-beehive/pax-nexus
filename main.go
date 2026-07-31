@@ -202,6 +202,7 @@ func buildPageWikiHTTPHandler(
 	if err != nil {
 		return nil, nil, fmt.Errorf("initialize Page Wiki HTTP handler: %w", err)
 	}
+	service.StartTreeMaintenance(ctx)
 	controller.Start(ctx)
 	return configured, controller, nil
 }

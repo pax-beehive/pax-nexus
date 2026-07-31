@@ -86,9 +86,9 @@ func (s *repositorySuite) TestPersistsAndHydratesCompleteWikiState() {
 	s.Require().NoError(err)
 	navigation, err := reloaded.Navigation(s.ctx)
 	s.Require().NoError(err)
-	s.Require().Len(navigation.Roots, 1)
-	s.Require().Len(navigation.Roots[0].Pages, 1)
-	pageSummary := navigation.Roots[0].Pages[0]
+	s.Require().Empty(navigation.Roots)
+	s.Require().Len(navigation.Pages, 1)
+	pageSummary := navigation.Pages[0]
 	page, err := reloaded.PageByID(s.ctx, pageSummary.ID)
 	s.Require().NoError(err)
 	bySlug, err := reloaded.PageBySlug(s.ctx, page.Slug)

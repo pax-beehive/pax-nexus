@@ -106,6 +106,12 @@ func Validate(config v2.Config) error {
 	default:
 		return fmt.Errorf("validate eval v3 config: unknown arm_set %q", config.ArmSet)
 	}
+	return validateArms(config)
+}
+
+// validateArms enforces that the configured arms are exactly the required
+// set for the arm_set and reuse the full-domain memory built by before_run.
+func validateArms(config v2.Config) error {
 	requiredArms := ArmsFor(config.ArmSet)
 	requiredSet := make(map[string]struct{}, len(requiredArms))
 	for _, name := range requiredArms {
