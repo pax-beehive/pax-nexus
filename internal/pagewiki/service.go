@@ -12,12 +12,15 @@ import (
 	"regexp"
 	"strings"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/pax-beehive/pax-nexus/internal/platform/observability"
 )
 
 const (
 	minPlannedPages = 1
 	maxPlannedPages = 8
+	editConcurrency = 4
 )
 
 var (
@@ -118,9 +121,9 @@ func (s *Service) InjectSession(
 		SourceRevisionID: sourceRevision.ID,
 		Targets:          make([]MaintenanceTarget, 0, len(briefs)),
 	}
-	for _, brief := range briefs {
-		target := s.processTarget(ctx, run.ID, sourceRevision, catalog, brief)
-		run.Targets = append(run.Targets, target)
+	prepared := s.prepareTargets(ctx, run.ID, sourceRevision, catalog, briefs)
+	for index := range prepared {
+		run.Targets = append(run.Targets, s.commitTarget(ctx, sourceRevision, prepared[index]))
 	}
 	run.Status = summarizeRun(run.Targets)
 	if err := s.repository.SaveMaintenanceRun(ctx, run); err != nil {
@@ -186,37 +189,80 @@ func catalogChanged(briefs []PageBrief, targets []MaintenanceTarget) bool {
 	return false
 }
 
-func (s *Service) processTarget(
+// preparedTarget carries one brief's prepare-phase outcome into the serial
+// commit phase. ready is true only when validation, page resolution, and the
+// edit all succeeded; otherwise target already holds the final failed or
+// terminal (source-only / ambiguous) state.
+type preparedTarget struct {
+	target          MaintenanceTarget
+	brief           PageBrief
+	page            *Page
+	currentRevision *PageRevision
+	draft           PageDraft
+	ready           bool
+}
+
+// prepareTargets runs the expensive per-brief work (validation, page
+// resolution, and the editor LLM call) concurrently. Each brief writes its
+// outcome into its own slot so one target's failure never affects siblings.
+// Publication stays out of this phase: commitTarget runs serially in brief
+// order so publish semantics are identical to the previous sequential loop.
+func (s *Service) prepareTargets(
+	ctx context.Context,
+	runID string,
+	sourceRevision SourceRevision,
+	catalog PageCatalog,
+	briefs []PageBrief,
+) []preparedTarget {
+	prepared := make([]preparedTarget, len(briefs))
+	var group errgroup.Group
+	group.SetLimit(editConcurrency)
+	for index, brief := range briefs {
+		group.Go(func() error {
+			prepared[index] = s.prepareTarget(ctx, runID, sourceRevision, catalog, brief)
+			return nil
+		})
+	}
+	_ = group.Wait()
+	return prepared
+}
+
+func (s *Service) prepareTarget(
 	ctx context.Context,
 	runID string,
 	sourceRevision SourceRevision,
 	catalog PageCatalog,
 	brief PageBrief,
-) MaintenanceTarget {
-	target := MaintenanceTarget{
-		ID:       stableID("target", runID, brief.Key),
-		BriefKey: brief.Key,
-		Action:   brief.Action,
-		Status:   TargetStatusFailed,
+) preparedTarget {
+	result := preparedTarget{
+		brief: brief,
+		target: MaintenanceTarget{
+			ID:       stableID("target", runID, brief.Key),
+			BriefKey: brief.Key,
+			Action:   brief.Action,
+			Status:   TargetStatusFailed,
+		},
 	}
 	if err := ValidatePageBrief(brief, catalog); err != nil {
-		return failTarget(target, TargetFailureInvalidBrief, err)
+		result.target = failTarget(result.target, TargetFailureInvalidBrief, err)
+		return result
 	}
 	if err := validateBriefEvidence(brief, sourceRevision); err != nil {
-		return failTarget(target, TargetFailureInvalidBrief, err)
+		result.target = failTarget(result.target, TargetFailureInvalidBrief, err)
+		return result
 	}
 	if brief.Action == PageActionSourceOnly || brief.Action == PageActionAmbiguous {
 		if brief.Action == PageActionSourceOnly {
-			target.Status = TargetStatusSucceeded
+			result.target.Status = TargetStatusSucceeded
 		} else {
-			target.Status = TargetStatusPending
+			result.target.Status = TargetStatusPending
 		}
-		return target
+		return result
 	}
-
 	page, currentRevision, err := s.resolvePage(ctx, sourceRevision.ID, brief)
 	if err != nil {
-		return failTarget(target, TargetFailurePublicationConflict, err)
+		result.target = failTarget(result.target, TargetFailurePublicationConflict, err)
+		return result
 	}
 	draft, err := s.editor.Edit(ctx, EditInput{
 		SourceRevision:  sourceRevision,
@@ -225,25 +271,42 @@ func (s *Service) processTarget(
 		CurrentRevision: currentRevision,
 	})
 	if err != nil {
-		return failTarget(target, TargetFailureInvalidDraft, err)
+		result.target = failTarget(result.target, TargetFailureInvalidDraft, err)
+		return result
 	}
+	result.page = page
+	result.currentRevision = currentRevision
+	result.draft = draft
+	result.ready = true
+	return result
+}
+
+func (s *Service) commitTarget(
+	ctx context.Context,
+	sourceRevision SourceRevision,
+	prepared preparedTarget,
+) MaintenanceTarget {
+	if !prepared.ready {
+		return prepared.target
+	}
+	target := prepared.target
 	pageValue, revision, reason, err := s.buildPublication(
 		ctx,
 		sourceRevision,
-		brief,
-		page,
-		currentRevision,
-		draft,
+		prepared.brief,
+		prepared.page,
+		prepared.currentRevision,
+		prepared.draft,
 	)
 	if err != nil {
 		return failTarget(target, reason, err)
 	}
-	if currentRevision != nil &&
-		page.Slug == pageValue.Slug &&
-		page.Title == pageValue.Title &&
-		revisionsEquivalent(*currentRevision, revision) {
-		target.PageID = page.ID
-		target.PageRevisionID = currentRevision.ID
+	if prepared.currentRevision != nil &&
+		prepared.page.Slug == pageValue.Slug &&
+		prepared.page.Title == pageValue.Title &&
+		revisionsEquivalent(*prepared.currentRevision, revision) {
+		target.PageID = prepared.page.ID
+		target.PageRevisionID = prepared.currentRevision.ID
 		target.Status = TargetStatusSucceeded
 		return target
 	}
