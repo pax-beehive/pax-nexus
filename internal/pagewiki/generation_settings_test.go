@@ -16,14 +16,28 @@ func TestValidateGenerationDirectivesTrimsAndBoundsFields(t *testing.T) {
 	require.Equal(t, "prefer tables", valid.CustomInstructions)
 
 	_, err = ValidateGenerationDirectives(GenerationDirectives{
-		Language: strings.Repeat("a", 65),
+		Language: strings.Repeat("语", 65),
 	})
 	require.ErrorIs(t, err, ErrInvalidGenerationSettings)
 
 	_, err = ValidateGenerationDirectives(GenerationDirectives{
-		CustomInstructions: strings.Repeat("b", 2001),
+		CustomInstructions: strings.Repeat("语", 2001),
 	})
 	require.ErrorIs(t, err, ErrInvalidGenerationSettings)
+}
+
+func TestValidateGenerationDirectivesCountsRunesNotBytes(t *testing.T) {
+	valid, err := ValidateGenerationDirectives(GenerationDirectives{
+		Language: strings.Repeat("语", 64),
+	})
+	require.NoError(t, err)
+	require.Equal(t, strings.Repeat("语", 64), valid.Language)
+
+	valid, err = ValidateGenerationDirectives(GenerationDirectives{
+		CustomInstructions: strings.Repeat("语", 2000),
+	})
+	require.NoError(t, err)
+	require.Equal(t, strings.Repeat("语", 2000), valid.CustomInstructions)
 }
 
 func TestGenerationDirectivesPromptIsEmptyForZeroValue(t *testing.T) {

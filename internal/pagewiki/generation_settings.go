@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 )
 
 const (
@@ -28,12 +29,12 @@ func (d GenerationDirectives) IsZero() bool {
 func ValidateGenerationDirectives(d GenerationDirectives) (GenerationDirectives, error) {
 	d.Language = strings.TrimSpace(d.Language)
 	d.CustomInstructions = strings.TrimSpace(d.CustomInstructions)
-	if len(d.Language) > generationLanguageMaxLength {
+	if utf8.RuneCountInString(d.Language) > generationLanguageMaxLength {
 		return GenerationDirectives{}, fmt.Errorf(
 			"%w: language exceeds %d characters", ErrInvalidGenerationSettings, generationLanguageMaxLength,
 		)
 	}
-	if len(d.CustomInstructions) > generationInstructionsMaxLength {
+	if utf8.RuneCountInString(d.CustomInstructions) > generationInstructionsMaxLength {
 		return GenerationDirectives{}, fmt.Errorf(
 			"%w: custom instructions exceed %d characters", ErrInvalidGenerationSettings, generationInstructionsMaxLength,
 		)
