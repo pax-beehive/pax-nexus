@@ -16,15 +16,28 @@ import {
 } from "../api/actions";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { formatTime } from "../lib/format";
+import {
+  codePointLength,
+  composeInstructions,
+  decomposeInstructions,
+  INSTRUCTION_PRESETS,
+  INSTRUCTIONS_LIMIT,
+} from "../lib/instructionPresets";
 import { isAbortError, usePolling } from "../lib/usePolling";
 import { useErrorHandler } from "../lib/useErrorHandler";
 
-// Presets shown in the language select; "" is "Follow source evidence".
-// Loading a language outside this list (i.e. previously set to a free-form
-// value) falls back to the "Custom…" option with the value in a text input.
+// Presets shown as language chips; "" is "Follow source evidence". Loading a
+// language outside this list (i.e. previously set to a free-form value)
+// falls back to the "Custom…" chip with the value in a text input.
 const LANGUAGE_PRESETS = ["", "简体中文", "English"];
 const CUSTOM_LANGUAGE = "custom";
-const INSTRUCTIONS_MAX_LENGTH = 2000;
+const LANGUAGE_CHIP_VALUES = [...LANGUAGE_PRESETS, CUSTOM_LANGUAGE];
+
+function languageChipLabel(value: string): string {
+  if (value === "") return "Follow source evidence";
+  if (value === CUSTOM_LANGUAGE) return "Custom…";
+  return value;
+}
 
 export function WikiStatusPage({ me }: { me: HumanMe }) {
   const navigate = useNavigate();
@@ -46,6 +59,7 @@ export function WikiStatusPage({ me }: { me: HumanMe }) {
   // them from elsewhere).
   const [language, setLanguage] = useState("");
   const [customLanguage, setCustomLanguage] = useState("");
+  const [selectedPresets, setSelectedPresets] = useState<string[]>([]);
   const [instructions, setInstructions] = useState("");
   const [settingsBusy, setSettingsBusy] = useState(false);
   const [settingsMessage, setSettingsMessage] = useState("");
@@ -78,7 +92,9 @@ export function WikiStatusPage({ me }: { me: HumanMe }) {
   );
 
   const applySettings = (settings: WikiGenerationSettings) => {
-    setInstructions(settings.custom_instructions);
+    const decomposed = decomposeInstructions(settings.custom_instructions);
+    setSelectedPresets(decomposed.selectedIds);
+    setInstructions(decomposed.additional);
     if (LANGUAGE_PRESETS.includes(settings.language)) {
       setLanguage(settings.language);
       setCustomLanguage("");
@@ -87,6 +103,22 @@ export function WikiStatusPage({ me }: { me: HumanMe }) {
       setCustomLanguage(settings.language);
     }
   };
+
+  // Preserve INSTRUCTION_PRESETS array order in state: re-derive via filter
+  // rather than tracking toggle (push) order.
+  const togglePreset = (id: string) => {
+    setSelectedPresets((current) => {
+      const next = current.includes(id)
+        ? current.filter((existing) => existing !== id)
+        : [...current, id];
+      return INSTRUCTION_PRESETS.filter((preset) => next.includes(preset.id)).map(
+        (preset) => preset.id,
+      );
+    });
+  };
+
+  const composedInstructions = composeInstructions(selectedPresets, instructions);
+  const instructionsRemaining = INSTRUCTIONS_LIMIT - codePointLength(composedInstructions);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -105,7 +137,7 @@ export function WikiStatusPage({ me }: { me: HumanMe }) {
       const effectiveLanguage = language === CUSTOM_LANGUAGE ? customLanguage.trim() : language;
       const updated = await updateWikiSettings({
         language: effectiveLanguage,
-        custom_instructions: instructions.trim(),
+        custom_instructions: composedInstructions,
       });
       applySettings(updated);
       setSettingsMessage(
@@ -272,18 +304,28 @@ export function WikiStatusPage({ me }: { me: HumanMe }) {
           </span>
         </div>
         <div className="wiki-generation-fields">
-          <label htmlFor="wiki-generation-language">Language</label>
-          <select
-            id="wiki-generation-language"
-            value={language}
-            disabled={settingsBusy}
-            onChange={(event) => setLanguage(event.target.value)}
+          <label id="wiki-language-chips-label">Language</label>
+          <div
+            className="wiki-preset-chips"
+            role="group"
+            aria-labelledby="wiki-language-chips-label"
           >
-            <option value="">Follow source evidence</option>
-            <option value="简体中文">简体中文</option>
-            <option value="English">English</option>
-            <option value={CUSTOM_LANGUAGE}>Custom…</option>
-          </select>
+            {LANGUAGE_CHIP_VALUES.map((value) => {
+              const selected = language === value;
+              return (
+                <button
+                  key={value === "" ? "default" : value}
+                  type="button"
+                  className={selected ? "chip selected" : "chip"}
+                  aria-pressed={selected}
+                  disabled={settingsBusy}
+                  onClick={() => setLanguage(value)}
+                >
+                  {languageChipLabel(value)}
+                </button>
+              );
+            })}
+          </div>
           {language === CUSTOM_LANGUAGE && (
             <>
               <label htmlFor="wiki-generation-custom-language">Custom language</label>
@@ -296,21 +338,40 @@ export function WikiStatusPage({ me }: { me: HumanMe }) {
               />
             </>
           )}
-          <label htmlFor="wiki-generation-instructions">Custom instructions</label>
+          <label id="wiki-style-chips-label">Style presets</label>
+          <div
+            className="wiki-preset-chips"
+            role="group"
+            aria-labelledby="wiki-style-chips-label"
+          >
+            {INSTRUCTION_PRESETS.map((preset) => {
+              const selected = selectedPresets.includes(preset.id);
+              return (
+                <button
+                  key={preset.id}
+                  type="button"
+                  className={selected ? "chip selected" : "chip"}
+                  aria-pressed={selected}
+                  disabled={settingsBusy}
+                  onClick={() => togglePreset(preset.id)}
+                >
+                  {preset.label}
+                </button>
+              );
+            })}
+          </div>
+          <label htmlFor="wiki-generation-instructions">Additional instructions</label>
           <textarea
             id="wiki-generation-instructions"
             value={instructions}
-            maxLength={INSTRUCTIONS_MAX_LENGTH}
             disabled={settingsBusy}
             onChange={(event) => setInstructions(event.target.value)}
           />
-          <span className="muted small">
-            {INSTRUCTIONS_MAX_LENGTH - instructions.length} characters left
-          </span>
+          <span className="muted small">{instructionsRemaining} characters left</span>
           <button
             className="btn primary"
             type="button"
-            disabled={settingsBusy}
+            disabled={settingsBusy || instructionsRemaining < 0}
             onClick={() => void saveSettings()}
           >
             {settingsBusy ? "Saving…" : "Save generation settings"}
