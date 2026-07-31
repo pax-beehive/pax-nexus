@@ -75,6 +75,19 @@ func (s *wikiSettingsHandlerSuite) TestPutRejectsOverLongLanguage() {
 	s.Contains(response.Body.String(), `"code":"invalid_request"`)
 }
 
+func (s *wikiSettingsHandlerSuite) TestSettingsRequireMembershipAndCSRF() {
+	s.identity.principal.MembershipStatus = onprem.MembershipStatusSuspended
+	response := s.perform(http.MethodGet, "/v1/wiki/settings", false, "")
+	s.Equal(consts.StatusForbidden, response.Code)
+	s.Contains(response.Body.String(), `"code":"membership_required"`)
+
+	s.identity.principal.MembershipStatus = onprem.MembershipStatusActive
+	response = s.perform(http.MethodPut, "/v1/wiki/settings", false,
+		`{"language":"","custom_instructions":""}`)
+	s.Equal(consts.StatusForbidden, response.Code)
+	s.Contains(response.Body.String(), `"code":"csrf_invalid"`)
+}
+
 func (s *wikiSettingsHandlerSuite) TestRoutesRequireConfiguredWikiSettings() {
 	unconfigured, err := handler.NewOnPrem(
 		mocks.NewMockRuntime(s.controller), &credentialService{}, &memoryService{}, &channelService{},
