@@ -113,9 +113,14 @@ func (s *Service) InjectSession(
 	if err != nil {
 		return InjectResult{}, fmt.Errorf("load Page catalog: %w", err)
 	}
+	directives, err := s.repository.GenerationSettings(ctx)
+	if err != nil {
+		return InjectResult{}, fmt.Errorf("load generation settings: %w", err)
+	}
 	briefs, err := s.planner.Plan(ctx, PlanInput{
 		SourceRevision: sourceRevision,
 		PageCatalog:    catalog,
+		Directives:     directives,
 	})
 	if err != nil {
 		return InjectResult{}, fmt.Errorf("plan pages: %w", err)
@@ -133,7 +138,7 @@ func (s *Service) InjectSession(
 		SourceRevisionID: sourceRevision.ID,
 		Targets:          make([]MaintenanceTarget, 0, len(briefs)),
 	}
-	prepared := s.prepareTargets(ctx, run.ID, sourceRevision, catalog, briefs)
+	prepared := s.prepareTargets(ctx, run.ID, sourceRevision, catalog, briefs, directives)
 	for index := range prepared {
 		run.Targets = append(run.Targets, s.commitTarget(ctx, sourceRevision, prepared[index]))
 	}
@@ -148,6 +153,32 @@ func (s *Service) InjectSession(
 		SourceRevisionID: sourceRevision.ID,
 		Run:              run,
 	}, nil
+}
+
+// GenerationSettings returns the team's stored Page Wiki generation
+// directives.
+func (s *Service) GenerationSettings(ctx context.Context) (GenerationDirectives, error) {
+	directives, err := s.repository.GenerationSettings(ctx)
+	if err != nil {
+		return GenerationDirectives{}, fmt.Errorf("load generation settings: %w", err)
+	}
+	return directives, nil
+}
+
+// SetGenerationSettings validates and persists the team's Page Wiki
+// generation directives, returning the stored (trimmed) value.
+func (s *Service) SetGenerationSettings(
+	ctx context.Context,
+	directives GenerationDirectives,
+) (GenerationDirectives, error) {
+	valid, err := ValidateGenerationDirectives(directives)
+	if err != nil {
+		return GenerationDirectives{}, err
+	}
+	if err := s.repository.SetGenerationSettings(ctx, valid); err != nil {
+		return GenerationDirectives{}, fmt.Errorf("save generation settings: %w", err)
+	}
+	return valid, nil
 }
 
 // markTreeDirty records that the Page catalog changed since the last topic
@@ -236,12 +267,21 @@ func (s *Service) reindexTree(ctx context.Context) {
 		s.logger.Warn("Page Wiki tree reindex skipped", "stage", "load catalog", "error", err)
 		return
 	}
+	directives, err := s.repository.GenerationSettings(ctx)
+	if err != nil {
+		s.logger.Warn("Page Wiki tree reindex skipped", "stage", "load settings", "error", err)
+		return
+	}
 	current, err := s.repository.TopicTree(ctx)
 	if err != nil {
 		s.logger.Warn("Page Wiki tree reindex skipped", "stage", "load tree", "error", err)
 		return
 	}
-	tree, err := s.treeIndexer.Index(ctx, TreeIndexInput{Catalog: catalog, Current: current})
+	tree, err := s.treeIndexer.Index(ctx, TreeIndexInput{
+		Catalog:    catalog,
+		Current:    current,
+		Directives: directives,
+	})
 	if err != nil {
 		s.logger.Warn("Page Wiki tree reindex skipped", "stage", "index", "error", err)
 		return
@@ -318,6 +358,7 @@ func (s *Service) prepareTargets(
 	sourceRevision SourceRevision,
 	catalog PageCatalog,
 	briefs []PageBrief,
+	directives GenerationDirectives,
 ) []preparedTarget {
 	prepared := make([]preparedTarget, len(briefs))
 	var wait sync.WaitGroup
@@ -343,7 +384,7 @@ func (s *Service) prepareTargets(
 		wait.Go(func() {
 			slots <- struct{}{}
 			defer func() { <-slots }()
-			prepared[index] = s.prepareTarget(ctx, runID, sourceRevision, catalog, brief)
+			prepared[index] = s.prepareTarget(ctx, runID, sourceRevision, catalog, brief, directives)
 		})
 	}
 	wait.Wait()
@@ -356,6 +397,7 @@ func (s *Service) prepareTarget(
 	sourceRevision SourceRevision,
 	catalog PageCatalog,
 	brief PageBrief,
+	directives GenerationDirectives,
 ) preparedTarget {
 	result := preparedTarget{
 		brief: brief,
@@ -392,6 +434,7 @@ func (s *Service) prepareTarget(
 		Brief:           brief,
 		CurrentPage:     page,
 		CurrentRevision: currentRevision,
+		Directives:      directives,
 	})
 	if err != nil {
 		result.target = failTarget(result.target, TargetFailureInvalidDraft, err)

@@ -36,6 +36,10 @@ func (r *stubTreeRepository) TopicTree(context.Context) (TopicTree, error) {
 	return TopicTree{}, nil
 }
 
+func (r *stubTreeRepository) GenerationSettings(context.Context) (GenerationDirectives, error) {
+	return GenerationDirectives{}, nil
+}
+
 func (r *stubTreeRepository) ReplaceTopicTree(context.Context, TopicTree) error {
 	r.replaced.Add(1)
 	return nil

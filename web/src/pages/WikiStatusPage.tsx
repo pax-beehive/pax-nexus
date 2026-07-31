@@ -1,12 +1,30 @@
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import type { HumanMe } from "../api/types";
-import { getWikiIngestionStatus, type WikiIngestionStatus } from "../api/wiki";
-import { beginAction, injectWikiSession, rebuildWiki, setWikiAutoInject } from "../api/actions";
+import {
+  getWikiIngestionStatus,
+  getWikiSettings,
+  type WikiGenerationSettings,
+  type WikiIngestionStatus,
+} from "../api/wiki";
+import {
+  beginAction,
+  injectWikiSession,
+  rebuildWiki,
+  setWikiAutoInject,
+  updateWikiSettings,
+} from "../api/actions";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { formatTime } from "../lib/format";
 import { isAbortError, usePolling } from "../lib/usePolling";
 import { useErrorHandler } from "../lib/useErrorHandler";
+
+// Presets shown in the language select; "" is "Follow source evidence".
+// Loading a language outside this list (i.e. previously set to a free-form
+// value) falls back to the "Custom…" option with the value in a text input.
+const LANGUAGE_PRESETS = ["", "简体中文", "English"];
+const CUSTOM_LANGUAGE = "custom";
+const INSTRUCTIONS_MAX_LENGTH = 2000;
 
 export function WikiStatusPage({ me }: { me: HumanMe }) {
   const navigate = useNavigate();
@@ -22,6 +40,15 @@ export function WikiStatusPage({ me }: { me: HumanMe }) {
   );
   const [message, setMessage] = useState("");
   const [rebuildOpen, setRebuildOpen] = useState(false);
+
+  // Generation settings: loaded once (not polled — the editor owns the
+  // value while the user works on it, and settings don't change underneath
+  // them from elsewhere).
+  const [language, setLanguage] = useState("");
+  const [customLanguage, setCustomLanguage] = useState("");
+  const [instructions, setInstructions] = useState("");
+  const [settingsBusy, setSettingsBusy] = useState(false);
+  const [settingsMessage, setSettingsMessage] = useState("");
 
   // Legacy deep links: /wiki?page=<slug> used to render the wiki inline
   // here. Forward the whole query string so revision links keep working.
@@ -49,6 +76,47 @@ export function WikiStatusPage({ me }: { me: HumanMe }) {
     5000,
     [],
   );
+
+  const applySettings = (settings: WikiGenerationSettings) => {
+    setInstructions(settings.custom_instructions);
+    if (LANGUAGE_PRESETS.includes(settings.language)) {
+      setLanguage(settings.language);
+      setCustomLanguage("");
+    } else {
+      setLanguage(CUSTOM_LANGUAGE);
+      setCustomLanguage(settings.language);
+    }
+  };
+
+  useEffect(() => {
+    const controller = new AbortController();
+    getWikiSettings(controller.signal)
+      .then(applySettings)
+      .catch((error: unknown) => {
+        if (!isAbortError(error)) handleError(error);
+      });
+    return () => controller.abort();
+  }, [handleError]);
+
+  const saveSettings = async () => {
+    setSettingsBusy(true);
+    setSettingsMessage("");
+    try {
+      const effectiveLanguage = language === CUSTOM_LANGUAGE ? customLanguage.trim() : language;
+      const updated = await updateWikiSettings({
+        language: effectiveLanguage,
+        custom_instructions: instructions.trim(),
+      });
+      applySettings(updated);
+      setSettingsMessage(
+        "Generation settings saved. They apply to future runs only; use Rebuild to regenerate existing pages.",
+      );
+    } catch (error) {
+      handleError(error);
+    } finally {
+      setSettingsBusy(false);
+    }
+  };
 
   const toggleAutoInject = async () => {
     setBusy(true);
@@ -193,6 +261,62 @@ export function WikiStatusPage({ me }: { me: HumanMe }) {
           </div>
         )}
         {message && <p className="wiki-ingestion-message">{message}</p>}
+      </section>
+
+      <section className="card wiki-generation" aria-label="Wiki generation settings">
+        <div className="wiki-ingestion-copy">
+          <span className="wiki-eyebrow">Generation</span>
+          <strong>Language & instructions</strong>
+          <span className="muted small">
+            Applies to future generation runs only. Use Rebuild to switch the whole wiki.
+          </span>
+        </div>
+        <div className="wiki-generation-fields">
+          <label htmlFor="wiki-generation-language">Language</label>
+          <select
+            id="wiki-generation-language"
+            value={language}
+            disabled={settingsBusy}
+            onChange={(event) => setLanguage(event.target.value)}
+          >
+            <option value="">Follow source evidence</option>
+            <option value="简体中文">简体中文</option>
+            <option value="English">English</option>
+            <option value={CUSTOM_LANGUAGE}>Custom…</option>
+          </select>
+          {language === CUSTOM_LANGUAGE && (
+            <>
+              <label htmlFor="wiki-generation-custom-language">Custom language</label>
+              <input
+                id="wiki-generation-custom-language"
+                value={customLanguage}
+                placeholder="e.g. 日本語"
+                disabled={settingsBusy}
+                onChange={(event) => setCustomLanguage(event.target.value)}
+              />
+            </>
+          )}
+          <label htmlFor="wiki-generation-instructions">Custom instructions</label>
+          <textarea
+            id="wiki-generation-instructions"
+            value={instructions}
+            maxLength={INSTRUCTIONS_MAX_LENGTH}
+            disabled={settingsBusy}
+            onChange={(event) => setInstructions(event.target.value)}
+          />
+          <span className="muted small">
+            {INSTRUCTIONS_MAX_LENGTH - instructions.length} characters left
+          </span>
+          <button
+            className="btn primary"
+            type="button"
+            disabled={settingsBusy}
+            onClick={() => void saveSettings()}
+          >
+            {settingsBusy ? "Saving…" : "Save generation settings"}
+          </button>
+        </div>
+        {settingsMessage && <p className="wiki-ingestion-message">{settingsMessage}</p>}
       </section>
 
       {rebuildOpen && (

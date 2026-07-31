@@ -251,6 +251,30 @@ func (s *repositorySuite) TestRebuildReportsCanceledTransactionStart() {
 	s.Require().ErrorIs(err, context.Canceled)
 }
 
+func (s *repositorySuite) TestGenerationSettingsRoundTrip() {
+	repository, err := pagewikipostgres.NewRepository(s.ctx, s.store.Pool(), s.scopeID)
+	s.Require().NoError(err)
+
+	directives, err := repository.GenerationSettings(s.ctx)
+	s.Require().NoError(err)
+	s.Require().True(directives.IsZero())
+
+	want := pagewiki.GenerationDirectives{Language: "简体中文", CustomInstructions: "prefer tables"}
+	s.Require().NoError(repository.SetGenerationSettings(s.ctx, want))
+	got, err := repository.GenerationSettings(s.ctx)
+	s.Require().NoError(err)
+	s.Require().Equal(want, got)
+
+	// Second write overwrites (upsert semantics).
+	s.Require().NoError(repository.SetGenerationSettings(s.ctx, pagewiki.GenerationDirectives{Language: "English"}))
+	got, err = repository.GenerationSettings(s.ctx)
+	s.Require().NoError(err)
+	s.Require().Equal(pagewiki.GenerationDirectives{Language: "English"}, got)
+
+	_, err = s.store.Pool().Exec(s.ctx, "DELETE FROM pagewiki_generation_settings WHERE scope_id = $1", s.scopeID)
+	s.Require().NoError(err)
+}
+
 func (s *repositorySuite) TestRebuildRollsBackWhenPersistentStateCannotBeCleared() {
 	dsn := os.Getenv("TEAM_MEMORY_TEST_POSTGRES_DSN") + "&default_transaction_read_only=on"
 	readOnlyPool, err := pgxpool.New(s.ctx, dsn)

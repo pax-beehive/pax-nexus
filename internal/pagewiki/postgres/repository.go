@@ -168,6 +168,34 @@ SET payload = EXCLUDED.payload, updated_at = NOW()`, r.scopeID, payload); err !=
 	return nil
 }
 
+func (r *Repository) GenerationSettings(ctx context.Context) (pagewiki.GenerationDirectives, error) {
+	var directives pagewiki.GenerationDirectives
+	err := r.pool.QueryRow(ctx, `
+SELECT language, custom_instructions
+FROM pagewiki_generation_settings
+WHERE scope_id = $1`, r.scopeID).Scan(&directives.Language, &directives.CustomInstructions)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		return pagewiki.GenerationDirectives{}, nil
+	case err != nil:
+		return pagewiki.GenerationDirectives{}, fmt.Errorf("load Page Wiki generation settings: %w", err)
+	}
+	return directives, nil
+}
+
+func (r *Repository) SetGenerationSettings(ctx context.Context, directives pagewiki.GenerationDirectives) error {
+	if _, err := r.pool.Exec(ctx, `
+INSERT INTO pagewiki_generation_settings (scope_id, language, custom_instructions)
+VALUES ($1, $2, $3)
+ON CONFLICT (scope_id) DO UPDATE
+SET language = EXCLUDED.language,
+    custom_instructions = EXCLUDED.custom_instructions,
+    updated_at = NOW()`, r.scopeID, directives.Language, directives.CustomInstructions); err != nil {
+		return fmt.Errorf("save Page Wiki generation settings: %w", err)
+	}
+	return nil
+}
+
 func (r *Repository) RebuildPageWiki(
 	ctx context.Context,
 	scopeID string,

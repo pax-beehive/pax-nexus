@@ -24,6 +24,7 @@ type Repository struct {
 	placements      map[string]pagewiki.PagePlacement
 	searchChunks    map[string]pagewiki.SearchChunk
 	runs            map[string]pagewiki.MaintenanceRun
+	generation      pagewiki.GenerationDirectives
 }
 
 func NewRepository() *Repository {
@@ -43,6 +44,7 @@ func (r *Repository) Reset() {
 	r.placements = make(map[string]pagewiki.PagePlacement)
 	r.searchChunks = make(map[string]pagewiki.SearchChunk)
 	r.runs = make(map[string]pagewiki.MaintenanceRun)
+	r.generation = pagewiki.GenerationDirectives{}
 }
 
 func (r *Repository) SaveSourceRevision(
@@ -853,6 +855,19 @@ func (r *Repository) ReplaceTopicTree(_ context.Context, tree pagewiki.TopicTree
 	}
 	r.topics = topics
 	r.placements = placements
+	return nil
+}
+
+func (r *Repository) GenerationSettings(_ context.Context) (pagewiki.GenerationDirectives, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.generation, nil
+}
+
+func (r *Repository) SetGenerationSettings(_ context.Context, directives pagewiki.GenerationDirectives) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.generation = directives
 	return nil
 }
 
