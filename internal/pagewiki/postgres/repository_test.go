@@ -56,6 +56,9 @@ func (s *repositorySuite) TearDownTest() {
 		"DELETE FROM pagewiki_publications WHERE scope_id = $1",
 		"DELETE FROM pagewiki_source_revisions WHERE scope_id = $1",
 		"DELETE FROM pagewiki_topic_trees WHERE scope_id = $1",
+		"DELETE FROM session_processor_cursors WHERE scope_id = $1",
+		"DELETE FROM session_events WHERE scope_id = $1",
+		"DELETE FROM session_streams WHERE scope_id = $1",
 	} {
 		_, err := s.store.Pool().Exec(s.ctx, query, s.scopeID)
 		s.Require().NoError(err)
@@ -156,7 +159,7 @@ func (s *repositorySuite) TestTopicTreeSurvivesRehydration() {
 	s.Require().NoError(err)
 	s.Equal(tree, loaded)
 
-	s.Require().NoError(reopened.RebuildPageWiki(s.ctx, s.scopeID, "page_wiki", "v1"))
+	s.Require().NoError(reopened.RebuildPageWiki(s.ctx, s.scopeID, "page_wiki", "v1", time.Time{}))
 	rebuilt, err := reopened.TopicTree(s.ctx)
 	s.Require().NoError(err)
 	s.Empty(rebuilt.Topics)
@@ -233,6 +236,7 @@ func (s *repositorySuite) TestRebuildRejectsInvalidScopeAndProcessorIdentity() {
 				test.scopeID,
 				test.processorName,
 				test.processorVersion,
+				time.Time{},
 			)
 			s.Require().ErrorContains(err, "scope and processor identity are required")
 		})
@@ -245,7 +249,7 @@ func (s *repositorySuite) TestRebuildReportsCanceledTransactionStart() {
 	ctx, cancel := context.WithCancel(s.ctx)
 	cancel()
 
-	err = repository.RebuildPageWiki(ctx, s.scopeID, "page_wiki", "v1")
+	err = repository.RebuildPageWiki(ctx, s.scopeID, "page_wiki", "v1", time.Time{})
 
 	s.Require().ErrorContains(err, "begin transaction")
 	s.Require().ErrorIs(err, context.Canceled)
@@ -283,8 +287,72 @@ func (s *repositorySuite) TestRebuildRollsBackWhenPersistentStateCannotBeCleared
 	repository, err := pagewikipostgres.NewRepository(s.ctx, readOnlyPool, s.scopeID)
 	s.Require().NoError(err)
 
-	err = repository.RebuildPageWiki(s.ctx, s.scopeID, "page_wiki", "v1")
+	err = repository.RebuildPageWiki(s.ctx, s.scopeID, "page_wiki", "v1", time.Time{})
 
 	s.Require().ErrorContains(err, "clear derived state")
 	s.Require().ErrorContains(err, "read-only transaction")
+}
+
+func (s *repositorySuite) seedStream(agentID, sessionID string, lastSequence int64, occurredAt []time.Time) {
+	s.T().Helper()
+	_, err := s.store.Pool().Exec(s.ctx, `
+INSERT INTO session_streams (scope_id, user_id, agent_id, session_id, last_sequence, stream_id)
+VALUES ($1, 'user-1', $2, $3, $4, $3)`, s.scopeID, agentID, sessionID, lastSequence)
+	s.Require().NoError(err)
+	for index, at := range occurredAt {
+		_, err := s.store.Pool().Exec(s.ctx, `
+INSERT INTO session_events
+    (scope_id, event_id, user_id, agent_id, session_id, sequence, event_type, content, occurred_at, stream_id)
+VALUES ($1, $2, 'user-1', $3, $4, $5, 'message', 'event content', $6, $4)`,
+			s.scopeID, fmt.Sprintf("%s-event-%d", sessionID, index+1),
+			agentID, sessionID, int64(index+1), at)
+		s.Require().NoError(err)
+	}
+}
+
+func (s *repositorySuite) processorCursors() map[string]int64 {
+	s.T().Helper()
+	rows, err := s.store.Pool().Query(s.ctx, `
+SELECT session_id, committed_sequence FROM session_processor_cursors
+WHERE scope_id = $1 AND processor_name = 'page_wiki' AND processor_version = 'v1'`, s.scopeID)
+	s.Require().NoError(err)
+	defer rows.Close()
+	cursors := map[string]int64{}
+	for rows.Next() {
+		var sessionID string
+		var committed int64
+		s.Require().NoError(rows.Scan(&sessionID, &committed))
+		cursors[sessionID] = committed
+	}
+	s.Require().NoError(rows.Err())
+	return cursors
+}
+
+func (s *repositorySuite) TestRebuildWithLookbackSkipsStaleStreamsAndReplaysActiveOnes() {
+	repository, err := pagewikipostgres.NewRepository(s.ctx, s.store.Pool(), s.scopeID)
+	s.Require().NoError(err)
+	cutoff := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	// Entirely before the cutoff: must be skipped (cursor = last_sequence).
+	s.seedStream("agent-1", "stale-session", 2,
+		[]time.Time{cutoff.Add(-48 * time.Hour), cutoff.Add(-24 * time.Hour)})
+	// Straddles the cutoff: must replay in full (no cursor row).
+	s.seedStream("agent-1", "straddling-session", 2,
+		[]time.Time{cutoff.Add(-24 * time.Hour), cutoff.Add(24 * time.Hour)})
+	// Entirely after the cutoff: must replay in full (no cursor row).
+	s.seedStream("agent-1", "fresh-session", 1, []time.Time{cutoff.Add(48 * time.Hour)})
+
+	s.Require().NoError(repository.RebuildPageWiki(s.ctx, s.scopeID, "page_wiki", "v1", cutoff))
+
+	s.Equal(map[string]int64{"stale-session": 2}, s.processorCursors())
+}
+
+func (s *repositorySuite) TestRebuildWithZeroSinceSeedsNoCursors() {
+	repository, err := pagewikipostgres.NewRepository(s.ctx, s.store.Pool(), s.scopeID)
+	s.Require().NoError(err)
+	s.seedStream("agent-1", "old-session", 1,
+		[]time.Time{time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)})
+
+	s.Require().NoError(repository.RebuildPageWiki(s.ctx, s.scopeID, "page_wiki", "v1", time.Time{}))
+
+	s.Empty(s.processorCursors())
 }

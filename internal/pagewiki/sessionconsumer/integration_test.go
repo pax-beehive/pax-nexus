@@ -128,7 +128,7 @@ func (s *postgresConsumerSuite) TestRebuildClearsDerivedWikiAndMakesSessionPendi
 	_, err = controller.InjectSession(s.ctx, s.scopeID, "runtime-session")
 	s.Require().NoError(err)
 
-	status, err := controller.Rebuild(s.ctx, s.scopeID)
+	status, err := controller.Rebuild(s.ctx, s.scopeID, time.Time{})
 
 	s.Require().NoError(err)
 	s.True(status.AutoInject)

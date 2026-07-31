@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -201,6 +202,7 @@ func (r *Repository) RebuildPageWiki(
 	scopeID string,
 	processorName string,
 	processorVersion string,
+	since time.Time,
 ) (returnedErr error) {
 	if strings.TrimSpace(scopeID) == "" || scopeID != r.scopeID ||
 		strings.TrimSpace(processorName) == "" || strings.TrimSpace(processorVersion) == "" {
@@ -238,6 +240,24 @@ WHERE processor_name = $1 AND processor_version = $2 AND scope_id = $3`,
 		processorName, processorVersion, scopeID,
 	); err != nil {
 		return fmt.Errorf("rebuild Page Wiki: reset ingestion cursors: %w", err)
+	}
+	if !since.IsZero() {
+		if _, err := tx.Exec(ctx, `
+INSERT INTO session_processor_cursors
+    (processor_name, processor_version, scope_id, agent_id, session_id, committed_sequence)
+SELECT $1, $2, stream.scope_id, stream.agent_id, stream.session_id, stream.last_sequence
+FROM session_streams AS stream
+WHERE stream.scope_id = $3
+  AND stream.agent_id <> ''
+  AND NOT EXISTS (
+    SELECT 1 FROM session_events AS event
+    WHERE event.scope_id = stream.scope_id
+      AND event.agent_id = stream.agent_id
+      AND event.session_id = stream.session_id
+      AND event.occurred_at >= $4
+  )`, processorName, processorVersion, scopeID, since); err != nil {
+			return fmt.Errorf("rebuild Page Wiki: seed lookback cursors: %w", err)
+		}
 	}
 	if _, err := tx.Exec(ctx, `
 INSERT INTO pagewiki_ingestion_settings (scope_id, auto_inject)

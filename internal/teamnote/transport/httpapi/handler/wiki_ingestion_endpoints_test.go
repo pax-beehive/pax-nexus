@@ -143,6 +143,7 @@ type wikiControlService struct {
 	rebuilds   int
 	rebuildErr error
 	status     sessionconsumer.Status
+	since      time.Time
 }
 
 func (s *wikiControlService) Status(context.Context, string) (sessionconsumer.Status, error) {
@@ -165,7 +166,8 @@ func (s *wikiControlService) InjectSession(
 	return sessionconsumer.InjectResult{}, nil
 }
 
-func (s *wikiControlService) Rebuild(context.Context, string) (sessionconsumer.Status, error) {
+func (s *wikiControlService) Rebuild(_ context.Context, _ string, since time.Time) (sessionconsumer.Status, error) {
 	s.rebuilds++
+	s.since = since
 	return sessionconsumer.Status{AutoInject: true}, s.rebuildErr
 }

@@ -81,7 +81,8 @@ func (s *consumerSuite) TestAutoSettingRoundTrips() {
 }
 
 func (s *consumerSuite) TestRebuildResetsDerivedWikiStateAndSchedulesFreshConsumption() {
-	status, err := s.consumer.Rebuild(context.Background(), "local-team")
+	cutoff := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	status, err := s.consumer.Rebuild(context.Background(), "local-team", cutoff)
 
 	s.Require().NoError(err)
 	s.True(status.AutoInject)
@@ -89,6 +90,7 @@ func (s *consumerSuite) TestRebuildResetsDerivedWikiStateAndSchedulesFreshConsum
 	s.Equal("local-team", s.rebuilder.scopeID)
 	s.Equal(sessionconsumer.ProcessorName, s.rebuilder.processorName)
 	s.Equal(sessionconsumer.ProcessorVersion, s.rebuilder.processorVersion)
+	s.Equal(cutoff, s.rebuilder.since)
 }
 
 func (s *consumerSuite) TestRejectsMissingSession() {
@@ -127,7 +129,7 @@ func (s *consumerSuite) TestValidationRejectsIncompleteConfigurationAndInput() {
 	s.Require().Error(err)
 	_, err = s.consumer.InjectSession(context.Background(), "local-team", "")
 	s.Require().Error(err)
-	_, err = s.consumer.Rebuild(context.Background(), "")
+	_, err = s.consumer.Rebuild(context.Background(), "", time.Time{})
 	s.Require().Error(err)
 }
 
@@ -244,7 +246,7 @@ func (s *consumerSuite) TestStoreFailuresAreReported() {
 				s.rebuilder.err = errors.New("rebuild unavailable")
 			},
 			run: func() error {
-				_, err := s.consumer.Rebuild(context.Background(), "local-team")
+				_, err := s.consumer.Rebuild(context.Background(), "local-team", time.Time{})
 				return err
 			},
 			contains: "rebuild unavailable",
@@ -357,6 +359,7 @@ type recordingRebuilder struct {
 	scopeID          string
 	processorName    string
 	processorVersion string
+	since            time.Time
 	err              error
 }
 
@@ -365,11 +368,13 @@ func (r *recordingRebuilder) RebuildPageWiki(
 	scopeID string,
 	processorName string,
 	processorVersion string,
+	since time.Time,
 ) error {
 	r.calls++
 	r.scopeID = scopeID
 	r.processorName = processorName
 	r.processorVersion = processorVersion
+	r.since = since
 	return r.err
 }
 

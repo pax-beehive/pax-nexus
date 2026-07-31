@@ -71,7 +71,7 @@ type Injector interface {
 }
 
 type Rebuilder interface {
-	RebuildPageWiki(context.Context, string, string, string) error
+	RebuildPageWiki(context.Context, string, string, string, time.Time) error
 }
 
 type Controller struct {
@@ -152,12 +152,12 @@ func (c *Controller) SetAutoInject(ctx context.Context, scopeID string, enabled 
 	return Status{AutoInject: enabled}, nil
 }
 
-func (c *Controller) Rebuild(ctx context.Context, scopeID string) (Status, error) {
+func (c *Controller) Rebuild(ctx context.Context, scopeID string, since time.Time) (Status, error) {
 	if strings.TrimSpace(scopeID) == "" {
 		return Status{}, fmt.Errorf("rebuild Page Wiki: scope is required")
 	}
 	c.mu.Lock()
-	err := c.rebuilder.RebuildPageWiki(ctx, scopeID, ProcessorName, ProcessorVersion)
+	err := c.rebuilder.RebuildPageWiki(ctx, scopeID, ProcessorName, ProcessorVersion, since)
 	if err == nil {
 		c.failures = make(map[string]failureRecord)
 	}

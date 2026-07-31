@@ -77,7 +77,7 @@ func (h *Handler) RebuildWiki(ctx context.Context, c *app.RequestContext) {
 		writeHumanAPIError(c, consts.StatusForbidden, "forbidden", "the operation is not permitted")
 		return
 	}
-	status, err := h.wikiControl.Rebuild(ctx, onprem.LocalScopeID)
+	status, err := h.wikiControl.Rebuild(ctx, onprem.LocalScopeID, time.Time{})
 	if err != nil {
 		h.writeWikiControlError(c, "rebuild Wiki", err)
 		return
