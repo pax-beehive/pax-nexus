@@ -176,6 +176,59 @@ func (s *llmSessionEditorSuite) TestSendsFullEvidenceContextToTheModel() {
 	s.NotContains(payload, "TAIL-MARKER")
 }
 
+func (s *llmSessionEditorSuite) TestAppliesGenerationDirectivesToSystemPrompt() {
+	client := &wikiChatClient{responses: []string{
+		`{"title":"Release Policy","summary":"How the team ships.","sections":[{"key":"policy","heading":"Policy","markdown":"Ships weekly."}]}`,
+	}}
+	editor, err := pagewiki.NewLLMSessionEditor(pagewiki.LLMEditorConfig{
+		Client: client, Model: "test-model",
+	})
+	s.Require().NoError(err)
+
+	_, err = editor.Edit(context.Background(), pagewiki.EditInput{
+		SourceRevision: pagewiki.SourceRevision{
+			Raw: []byte("Evidence grounding: exact anchors."),
+			Events: []pagewiki.SourceEvent{{
+				ID: "event-1", StartByte: 0, EndByte: len("Evidence grounding: exact anchors."),
+			}},
+		},
+		Brief: pagewiki.PageBrief{Key: "release-policy"},
+		Directives: pagewiki.GenerationDirectives{
+			Language: "简体中文", CustomInstructions: "prefer tables",
+		},
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(client.requests, 1)
+	system := client.requests[0].Messages[0].Content
+	s.Contains(system, "in 简体中文.")
+	s.Contains(system, "prefer tables")
+}
+
+func (s *llmSessionEditorSuite) TestZeroGenerationDirectivesLeaveSystemPromptUnchanged() {
+	client := &wikiChatClient{responses: []string{
+		`{"title":"Release Policy","summary":"How the team ships.","sections":[{"key":"policy","heading":"Policy","markdown":"Ships weekly."}]}`,
+	}}
+	editor, err := pagewiki.NewLLMSessionEditor(pagewiki.LLMEditorConfig{
+		Client: client, Model: "test-model",
+	})
+	s.Require().NoError(err)
+
+	_, err = editor.Edit(context.Background(), pagewiki.EditInput{
+		SourceRevision: pagewiki.SourceRevision{
+			Raw: []byte("Evidence grounding: exact anchors."),
+			Events: []pagewiki.SourceEvent{{
+				ID: "event-1", StartByte: 0, EndByte: len("Evidence grounding: exact anchors."),
+			}},
+		},
+		Brief: pagewiki.PageBrief{Key: "release-policy"},
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(client.requests, 1)
+	s.Equal(pagewiki.PageWikiEnglishEditorPromptForTest, client.requests[0].Messages[0].Content)
+}
+
 type wikiChatClient struct {
 	requests  []llm.ChatRequest
 	responses []string

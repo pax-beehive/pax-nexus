@@ -75,7 +75,7 @@ func (e *LLMSessionEditor) Edit(ctx context.Context, input EditInput) (PageDraft
 	response, err := e.client.Complete(ctx, llm.ChatRequest{
 		Model: e.model,
 		Messages: []llm.ChatMessage{
-			{Role: "system", Content: pageWikiEnglishEditorPrompt},
+			{Role: "system", Content: pageWikiEnglishEditorPrompt + generationDirectivesPrompt(input.Directives)},
 			{Role: "user", Content: string(payload)},
 		},
 	})

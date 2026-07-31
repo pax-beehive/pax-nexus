@@ -299,3 +299,32 @@ func (s *llmTreeIndexerSuite) TestDuplicatePageAcrossBranchesClaimsDepthFirst() 
 	s.Len(placementsByTopic[bID], 3)
 	s.Len(tree.Placements, 6)
 }
+
+func (s *llmTreeIndexerSuite) TestAppliesGenerationDirectivesToSystemPrompt() {
+	indexer, client := newIndexer(s, `{"root_pages":["page-00"],"topics":[]}`)
+
+	_, err := indexer.Index(context.Background(), pagewiki.TreeIndexInput{
+		Catalog: indexerCatalog(1),
+		Directives: pagewiki.GenerationDirectives{
+			Language: "简体中文", CustomInstructions: "prefer tables",
+		},
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(client.requests, 1)
+	system := client.requests[0].Messages[0].Content
+	s.Contains(system, "in 简体中文.")
+	s.Contains(system, "prefer tables")
+}
+
+func (s *llmTreeIndexerSuite) TestZeroGenerationDirectivesLeaveSystemPromptUnchanged() {
+	indexer, client := newDepthIndexer(s, 3, `{"root_pages":["page-00"],"topics":[]}`)
+
+	_, err := indexer.Index(context.Background(), pagewiki.TreeIndexInput{
+		Catalog: indexerCatalog(1),
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(client.requests, 1)
+	s.Equal(pagewiki.TreeIndexerPromptForTest(3), client.requests[0].Messages[0].Content)
+}

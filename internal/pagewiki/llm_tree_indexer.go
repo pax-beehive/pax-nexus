@@ -92,12 +92,13 @@ func (x *LLMTreeIndexer) Index(
 	if err != nil {
 		return TopicTree{}, fmt.Errorf("encode Page Wiki tree request: %w", err)
 	}
+	systemPrompt := treeIndexerPrompt(x.maxDepth) + generationDirectivesPrompt(input.Directives)
 	var lastErr error
 	for attempt := 0; attempt < treeIndexerAttempts; attempt++ {
 		response, err := x.client.Complete(ctx, llm.ChatRequest{
 			Model: x.model,
 			Messages: []llm.ChatMessage{
-				{Role: "system", Content: treeIndexerPrompt(x.maxDepth)},
+				{Role: "system", Content: systemPrompt},
 				{Role: "user", Content: string(payload)},
 			},
 		})
