@@ -1,7 +1,7 @@
 # PAX Nexus Application Platform — 架构愿景设计
 
 日期：2026-07-29（同日修订：app 模型从 "manifest 存于 nexus" 改为 "自有状态 + read/report 契约"）
-状态：愿景与 MVP 已定，MVP（LLM todo list app）待细化为实现计划
+状态：MVP（LLM todo list app）已在 feat/todoapp-mvp 分支实现（含 read.list 原语、app:todo report 通道、门户页面）；后续见 §6 落地顺序
 
 ## 1. 愿景
 
@@ -141,7 +141,17 @@ session 记录**意图**（"我们决定做 X"），todo 上报**结果**（"X �
 ## 6. 落地顺序
 
 1. **MVP：todo list app**（含 read/report 契约的第一次落地、`app_todo` schema、
-   建议流水线、report ingest 路径）。← 先做
+   建议流水线、report ingest 路径）。← 已完成（PR #35）
+1.5. **前端 app 插件区**：把 app 前端从门户核心收进 `web/src/apps/<name>/**`，
+   门户核心只认识一个 **app 注册表**（每 app 声明导航名、路由、入口组件），
+   `PortalShell` 遍历注册表渲染，不再 import 具体 app。
+   仍是单 bundle 单构建（第一方 preset app 同版本 ship 的裁定不变），
+   但新增/移除 app 变为"一个目录 + 一行注册"。
+   该注册表同时是未来 generated app **通用 manifest 渲染器**的挂载点
+   （注册表项既可指向手写组件，也可指向"渲染器 + manifest id"）——
+   所以这不是临时方案，是通往目标架构的一步。
+   独立多 bundle / 独立域名的更重分离方案已评估并否决：
+   在"app 需要独立于门户发版"的真实需求出现之前均属过度设计。
 2. **第二个 preset app**：验证 read/report SDK 与契约的复用性。
 3. **generated app 的 manifest 托管 runtime** + pattern recognition →
    建议 → 确认 → 生成流水线。

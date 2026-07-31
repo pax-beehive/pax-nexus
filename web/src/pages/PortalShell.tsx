@@ -21,6 +21,7 @@ import { AdminPulsePage } from "./AdminPulsePage";
 import { AdminExplorerPage } from "./AdminExplorerPage";
 import { AdminTeamNoteDetailPage } from "./AdminTeamNoteDetailPage";
 import { WikiStatusPage } from "./WikiStatusPage";
+import { TodoPage } from "./TodoPage";
 
 function navClass({ isActive }: { isActive: boolean }): string {
   return isActive ? "active" : "";
@@ -130,6 +131,9 @@ export function PortalShell({ me }: { me: HumanMe }) {
           <NavLink to="/wiki" className={navClass} end>
             Wiki
           </NavLink>
+          <NavLink to="/todo" className={navClass} end>
+            Todos
+          </NavLink>
           {adminLike && (
             <>
               <div className="nav-label">Directory</div>
@@ -194,6 +198,7 @@ export function PortalShell({ me }: { me: HumanMe }) {
             <Route path="/agents" element={<MyAgentsPage />} />
             <Route path="/agents/:agentId" element={<AgentDetailPage />} />
             <Route path="/wiki" element={<WikiStatusPage me={me} />} />
+            <Route path="/todo" element={<TodoPage />} />
             <Route
               path="/admin/members"
               element={

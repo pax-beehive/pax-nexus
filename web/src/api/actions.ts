@@ -27,6 +27,7 @@ import type {
   Role,
 } from "./types";
 import type { WikiIngestionStatus } from "./wiki";
+import type { TodoItem } from "./todo";
 
 /** "me" = owner's own-agent endpoints, "admin" = governance endpoints. */
 export type AgentScope = "me" | "admin";
@@ -361,4 +362,45 @@ export function rebuildWiki(idempotencyKey: string): Promise<WikiIngestionStatus
     method: "POST",
     headers: { "Idempotency-Key": idempotencyKey },
   });
+}
+
+// ---- Todos ----
+// Todo/suggestion transitions (create, complete, accept, dismiss) are state
+// machines on the backend, but not uniformly idempotent: complete is a
+// no-op when repeated, while accept/dismiss reject repeats against an
+// already-transitioned record with 409 invalid_transition, which the UI
+// surfaces after a refetch. Either way a retry is safe to send as-is, so
+// unlike the mutations above, none of these send an Idempotency-Key or
+// If-Match.
+
+export function createTodo(title: string, body: string): Promise<TodoItem> {
+  return humanFetch<TodoItem>("/v1/todo/todos", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ title, body }),
+  });
+}
+
+export function completeTodo(todoId: string): Promise<TodoItem> {
+  return humanFetch<TodoItem>(`/v1/todo/todos/${encodeURIComponent(todoId)}/complete`, {
+    method: "POST",
+  });
+}
+
+export function refreshTodoSuggestions(): Promise<{ created: number }> {
+  return humanFetch<{ created: number }>("/v1/todo/suggestions/refresh", { method: "POST" });
+}
+
+export function acceptTodoSuggestion(suggestionId: string): Promise<TodoItem> {
+  return humanFetch<TodoItem>(
+    `/v1/todo/suggestions/${encodeURIComponent(suggestionId)}/accept`,
+    { method: "POST" },
+  );
+}
+
+export function dismissTodoSuggestion(suggestionId: string): Promise<void> {
+  return humanFetch<void>(
+    `/v1/todo/suggestions/${encodeURIComponent(suggestionId)}/dismiss`,
+    { method: "POST" },
+  );
 }

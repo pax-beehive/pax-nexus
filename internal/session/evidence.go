@@ -14,6 +14,7 @@ import (
 const (
 	SourceAgentSession = "agent-session"
 	SourceIMChannel    = "im-channel"
+	SourceAppTodo      = "app:todo"
 
 	KindText  = "text"
 	KindAudio = "audio"
@@ -31,7 +32,7 @@ var (
 	ErrMediaNotEnabled    = errors.New("media ingestion not enabled")
 )
 
-var registeredSources = map[string]struct{}{SourceAgentSession: {}, SourceIMChannel: {}}
+var registeredSources = map[string]struct{}{SourceAgentSession: {}, SourceIMChannel: {}, SourceAppTodo: {}}
 
 var registeredKinds = map[string]struct{}{
 	KindText: {}, KindAudio: {}, KindImage: {}, KindVideo: {}, KindFile: {},
