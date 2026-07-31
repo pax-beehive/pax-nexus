@@ -98,9 +98,14 @@ func (s *Service) InjectSession(
 	if err != nil {
 		return InjectResult{}, fmt.Errorf("load Page catalog: %w", err)
 	}
+	directives, err := s.repository.GenerationSettings(ctx)
+	if err != nil {
+		return InjectResult{}, fmt.Errorf("load generation settings: %w", err)
+	}
 	briefs, err := s.planner.Plan(ctx, PlanInput{
 		SourceRevision: sourceRevision,
 		PageCatalog:    catalog,
+		Directives:     directives,
 	})
 	if err != nil {
 		return InjectResult{}, fmt.Errorf("plan pages: %w", err)
@@ -119,18 +124,44 @@ func (s *Service) InjectSession(
 		Targets:          make([]MaintenanceTarget, 0, len(briefs)),
 	}
 	for _, brief := range briefs {
-		target := s.processTarget(ctx, run.ID, sourceRevision, catalog, brief)
+		target := s.processTarget(ctx, run.ID, sourceRevision, catalog, brief, directives)
 		run.Targets = append(run.Targets, target)
 	}
 	run.Status = summarizeRun(run.Targets)
 	if err := s.repository.SaveMaintenanceRun(ctx, run); err != nil {
 		return InjectResult{}, fmt.Errorf("save MaintenanceRun: %w", err)
 	}
-	s.maybeReindexTree(ctx, briefs, run.Targets)
+	s.maybeReindexTree(ctx, briefs, run.Targets, directives)
 	return InjectResult{
 		SourceRevisionID: sourceRevision.ID,
 		Run:              run,
 	}, nil
+}
+
+// GenerationSettings returns the team's stored Page Wiki generation
+// directives.
+func (s *Service) GenerationSettings(ctx context.Context) (GenerationDirectives, error) {
+	directives, err := s.repository.GenerationSettings(ctx)
+	if err != nil {
+		return GenerationDirectives{}, fmt.Errorf("load generation settings: %w", err)
+	}
+	return directives, nil
+}
+
+// SetGenerationSettings validates and persists the team's Page Wiki
+// generation directives, returning the stored (trimmed) value.
+func (s *Service) SetGenerationSettings(
+	ctx context.Context,
+	directives GenerationDirectives,
+) (GenerationDirectives, error) {
+	valid, err := ValidateGenerationDirectives(directives)
+	if err != nil {
+		return GenerationDirectives{}, err
+	}
+	if err := s.repository.SetGenerationSettings(ctx, valid); err != nil {
+		return GenerationDirectives{}, fmt.Errorf("save generation settings: %w", err)
+	}
+	return valid, nil
 }
 
 // maybeReindexTree runs the topic-tree indexer at the end of an ingest run
@@ -141,6 +172,7 @@ func (s *Service) maybeReindexTree(
 	ctx context.Context,
 	briefs []PageBrief,
 	targets []MaintenanceTarget,
+	directives GenerationDirectives,
 ) {
 	if s.treeIndexer == nil || !catalogChanged(briefs, targets) {
 		return
@@ -155,7 +187,11 @@ func (s *Service) maybeReindexTree(
 		s.logger.Warn("Page Wiki tree reindex skipped", "stage", "load tree", "error", err)
 		return
 	}
-	tree, err := s.treeIndexer.Index(ctx, TreeIndexInput{Catalog: catalog, Current: current})
+	tree, err := s.treeIndexer.Index(ctx, TreeIndexInput{
+		Catalog:    catalog,
+		Current:    current,
+		Directives: directives,
+	})
 	if err != nil {
 		s.logger.Warn("Page Wiki tree reindex skipped", "stage", "index", "error", err)
 		return
@@ -192,6 +228,7 @@ func (s *Service) processTarget(
 	sourceRevision SourceRevision,
 	catalog PageCatalog,
 	brief PageBrief,
+	directives GenerationDirectives,
 ) MaintenanceTarget {
 	target := MaintenanceTarget{
 		ID:       stableID("target", runID, brief.Key),
@@ -223,6 +260,7 @@ func (s *Service) processTarget(
 		Brief:           brief,
 		CurrentPage:     page,
 		CurrentRevision: currentRevision,
+		Directives:      directives,
 	})
 	if err != nil {
 		return failTarget(target, TargetFailureInvalidDraft, err)

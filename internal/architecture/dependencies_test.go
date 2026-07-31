@@ -67,7 +67,7 @@ var dependencyRules = []dependencyRule{
 	{directory: "teamnote", excluded: []string{"transport"},
 		allowed: []string{"platform/observability", "session", "evidencelake"}},
 	{directory: "teamnote/transport", allowed: []string{"deployment/onprem", "explorer",
-		"operations", "pagewiki/sessionconsumer", "pagewiki/transport/httpapi", "recall", "teamnote",
+		"operations", "pagewiki", "pagewiki/sessionconsumer", "pagewiki/transport/httpapi", "recall", "teamnote",
 		"todoapp/transport/httpapi"}},
 }
 

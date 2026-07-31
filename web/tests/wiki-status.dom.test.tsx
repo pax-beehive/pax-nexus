@@ -73,6 +73,9 @@ describe("wiki status page", () => {
       me: makeMe(),
       fetch: (path) => {
         if (path === "/v1/wiki/ingestion") return jsonResponse({ auto_inject: false });
+        if (path === "/v1/wiki/settings") {
+          return jsonResponse({ language: "", custom_instructions: "" });
+        }
         if (path.startsWith("/v1/me/agents")) return jsonResponse({ agents: [] });
         throw new Error(`unexpected fetch: ${path}`);
       },
@@ -102,6 +105,9 @@ describe("wiki status page ingestion controls", () => {
           return jsonResponse({ auto_inject: true });
         }
         if (path === "/v1/wiki/ingestion") return jsonResponse({ auto_inject: false });
+        if (path === "/v1/wiki/settings") {
+          return jsonResponse({ language: "", custom_instructions: "" });
+        }
         if (path === "/v1/wiki/sessions/runtime-session/inject") {
           return jsonResponse({ processed_streams: 1 });
         }
@@ -131,6 +137,9 @@ describe("wiki status page ingestion controls", () => {
           return jsonResponse({ auto_inject: true });
         }
         if (path === "/v1/wiki/ingestion") return jsonResponse({ auto_inject: false });
+        if (path === "/v1/wiki/settings") {
+          return jsonResponse({ language: "", custom_instructions: "" });
+        }
         throw new Error(`unexpected fetch: ${path}`);
       },
     });
@@ -151,11 +160,97 @@ describe("wiki status page ingestion controls", () => {
       me: makeMe({ role: "member" }),
       fetch: (path) => {
         if (path === "/v1/wiki/ingestion") return jsonResponse({ auto_inject: false });
+        if (path === "/v1/wiki/settings") {
+          return jsonResponse({ language: "", custom_instructions: "" });
+        }
         throw new Error(`unexpected fetch: ${path}`);
       },
     });
 
     await screen.findByRole("switch");
     expect(screen.queryByRole("button", { name: "Reset & rebuild" })).toBeNull();
+  });
+});
+
+// -- generation settings card (spec 2026-07-30-wiki-generation-settings) --
+describe("wiki status page generation settings", () => {
+  it("renders defaults when no language or instructions are configured", async () => {
+    await renderApp({
+      route: "/wiki",
+      me: makeMe(),
+      fetch: (path, init) => {
+        const method = init?.method ?? "GET";
+        if (path === "/v1/wiki/ingestion") return jsonResponse({ auto_inject: false });
+        if (path === "/v1/wiki/settings" && method === "GET") {
+          return jsonResponse({ language: "", custom_instructions: "" });
+        }
+        throw new Error(`unexpected fetch: ${path}`);
+      },
+    });
+
+    const languageSelect = (await screen.findByLabelText("Language")) as HTMLSelectElement;
+    expect(languageSelect.value).toBe("");
+    const selectedOption = within(languageSelect).getByRole("option", {
+      name: "Follow source evidence",
+    }) as HTMLOptionElement;
+    expect(selectedOption.selected).toBe(true);
+    const instructionsField = screen.getByLabelText(
+      "Custom instructions",
+    ) as HTMLTextAreaElement;
+    expect(instructionsField.value).toBe("");
+    expect(screen.queryByLabelText("Custom language")).toBeNull();
+  });
+
+  it("saves the selected language and instructions", async () => {
+    const { user, fetchMock } = await renderApp({
+      route: "/wiki",
+      me: makeMe(),
+      fetch: (path, init) => {
+        const method = init?.method ?? "GET";
+        if (path === "/v1/wiki/ingestion") return jsonResponse({ auto_inject: false });
+        if (path === "/v1/wiki/settings" && method === "PUT") {
+          return jsonResponse({ language: "简体中文", custom_instructions: "Keep it short." });
+        }
+        if (path === "/v1/wiki/settings") {
+          return jsonResponse({ language: "", custom_instructions: "" });
+        }
+        throw new Error(`unexpected fetch: ${path}`);
+      },
+    });
+
+    await screen.findByLabelText("Language");
+    await user.selectOptions(screen.getByLabelText("Language"), "简体中文");
+    await user.type(screen.getByLabelText("Custom instructions"), "Keep it short.");
+    await user.click(screen.getByRole("button", { name: "Save generation settings" }));
+
+    await screen.findByText(
+      "Generation settings saved. They apply to future runs only; use Rebuild to regenerate existing pages.",
+    );
+    const calls = callsTo(fetchMock, "/v1/wiki/settings", "PUT");
+    expect(calls).toHaveLength(1);
+    expect(JSON.parse(calls[0].init.body as string)).toEqual({
+      language: "简体中文",
+      custom_instructions: "Keep it short.",
+    });
+  });
+
+  it("falls back to a custom-language input for a value outside the presets", async () => {
+    await renderApp({
+      route: "/wiki",
+      me: makeMe(),
+      fetch: (path, init) => {
+        const method = init?.method ?? "GET";
+        if (path === "/v1/wiki/ingestion") return jsonResponse({ auto_inject: false });
+        if (path === "/v1/wiki/settings" && method === "GET") {
+          return jsonResponse({ language: "日本語", custom_instructions: "" });
+        }
+        throw new Error(`unexpected fetch: ${path}`);
+      },
+    });
+
+    const languageSelect = (await screen.findByLabelText("Language")) as HTMLSelectElement;
+    await waitFor(() => expect(languageSelect.value).toBe("custom"));
+    const customInput = (await screen.findByLabelText("Custom language")) as HTMLInputElement;
+    expect(customInput.value).toBe("日本語");
   });
 });

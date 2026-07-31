@@ -20,3 +20,9 @@ revisions (`llm_session_planner.go`, `llm_session_editor.go`).
 - Uses the shared LLM chat client from `internal/platform/llm`.
 - Does not import Team Note domain packages, and Team Note does not import
   PageWiki domain packages.
+- Team-configurable generation settings (`GenerationDirectives`,
+  `generation_settings.go`) are loaded once per `InjectSession` run and
+  threaded into the planner, editor, and tree indexer inputs
+  (`PlanInput`/`EditInput`/`TreeIndexInput.Directives` in `ports.go`,
+  `service.go`); `Service.GenerationSettings`/`SetGenerationSettings` expose
+  the repository-backed store to the HTTP layer.

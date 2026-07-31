@@ -176,14 +176,14 @@ func buildPageWikiHTTPHandler(
 	store *postgres.Store,
 	config applicationConfig,
 	logger *slog.Logger,
-) (*pagewikihttp.Handler, *sessionconsumer.Controller, error) {
+) (*pagewikihttp.Handler, *sessionconsumer.Controller, *pagewiki.Service, error) {
 	repository, err := pagewikipostgres.NewRepository(ctx, store.Pool(), onprem.LocalScopeID)
 	if err != nil {
-		return nil, nil, fmt.Errorf("initialize Page Wiki repository: %w", err)
+		return nil, nil, nil, fmt.Errorf("initialize Page Wiki repository: %w", err)
 	}
 	planner, editor, indexer, err := buildPageWikiMaintainers(config, logger)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	options := make([]pagewiki.ServiceOption, 0, 1)
 	if indexer != nil {
@@ -192,18 +192,18 @@ func buildPageWikiHTTPHandler(
 	service := pagewiki.NewService(repository, planner, editor, options...)
 	consumerStore, err := postgres.NewPageWikiConsumerStore(store.Pool(), onprem.LocalScopeID)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	controller, err := sessionconsumer.New(consumerStore, service, repository, logger, 2*time.Second)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	configured, err := pagewikihttp.New(service, repository)
 	if err != nil {
-		return nil, nil, fmt.Errorf("initialize Page Wiki HTTP handler: %w", err)
+		return nil, nil, nil, fmt.Errorf("initialize Page Wiki HTTP handler: %w", err)
 	}
 	controller.Start(ctx)
-	return configured, controller, nil
+	return configured, controller, service, nil
 }
 
 func buildPageWikiMaintainers(
@@ -273,7 +273,7 @@ func buildApplicationHTTPHandlers(
 	config applicationConfig,
 	logger *slog.Logger,
 ) (*handler.Handler, *pagewikihttp.Handler, *todoapphttp.Handler, func(), error) {
-	pageHandler, wikiControl, err := buildPageWikiHTTPHandler(ctx, store, config, logger)
+	pageHandler, wikiControl, wikiSettings, err := buildPageWikiHTTPHandler(ctx, store, config, logger)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
@@ -285,6 +285,7 @@ func buildApplicationHTTPHandlers(
 		config,
 		logger,
 		wikiControl,
+		wikiSettings,
 	)
 	if err != nil {
 		return nil, nil, nil, nil, err
@@ -710,6 +711,7 @@ func buildHTTPHandler(
 	config applicationConfig,
 	logger *slog.Logger,
 	wikiControl handler.WikiControl,
+	wikiSettings handler.WikiSettings,
 ) (*handler.Handler, *onprem.IdentityService, error) {
 	if len(config.apiKeys) > 0 && (strings.TrimSpace(config.adminAPIKey) != "" || config.humanIdentityConfigured()) {
 		return nil, nil, fmt.Errorf("configure HTTP transport: legacy and on-prem authentication are mutually exclusive")
@@ -766,6 +768,9 @@ func buildHTTPHandler(
 	}
 	if wikiControl != nil {
 		options = append(options, handler.WithWikiControl(wikiControl))
+	}
+	if wikiSettings != nil {
+		options = append(options, handler.WithWikiSettings(wikiSettings))
 	}
 	var identityService *onprem.IdentityService
 	if config.humanIdentityConfigured() {

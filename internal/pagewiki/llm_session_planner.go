@@ -98,7 +98,7 @@ func (p *LLMSessionPlanner) Plan(
 		response, err := p.client.Complete(ctx, llm.ChatRequest{
 			Model: p.model,
 			Messages: []llm.ChatMessage{
-				{Role: "system", Content: pageWikiPlannerPrompt},
+				{Role: "system", Content: pageWikiPlannerPrompt + generationDirectivesPrompt(input.Directives)},
 				{Role: "user", Content: string(payload)},
 			},
 		})

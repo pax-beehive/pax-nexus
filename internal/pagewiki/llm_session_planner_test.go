@@ -339,3 +339,41 @@ func (s *llmSessionPlannerSuite) TestPlanRequestCarriesCatalogSummaries() {
 	s.Contains(client.requests[0].Messages[1].Content, "How weekly releases are cut.")
 	s.Contains(client.requests[0].Messages[0].Content, "summary")
 }
+
+func (s *llmSessionPlannerSuite) TestAppliesGenerationDirectivesToSystemPrompt() {
+	client := &wikiChatClient{responses: []string{`{"briefs":[]}`}}
+	planner, err := pagewiki.NewLLMSessionPlanner(pagewiki.LLMPlannerConfig{
+		Client: client, Model: "test-model",
+	})
+	s.Require().NoError(err)
+
+	_, err = planner.Plan(context.Background(), pagewiki.PlanInput{
+		SourceRevision: plannerRevision(),
+		Directives: pagewiki.GenerationDirectives{
+			Language: "简体中文", CustomInstructions: "prefer tables",
+		},
+	})
+
+	s.Require().NoError(err)
+	s.Require().NotEmpty(client.requests)
+	system := client.requests[0].Messages[0].Content
+	s.True(strings.HasPrefix(system, pagewiki.PageWikiPlannerPromptForTest))
+	s.Contains(system, "in 简体中文.")
+	s.Contains(system, "prefer tables")
+}
+
+func (s *llmSessionPlannerSuite) TestZeroGenerationDirectivesLeaveSystemPromptUnchanged() {
+	client := &wikiChatClient{responses: []string{`{"briefs":[]}`}}
+	planner, err := pagewiki.NewLLMSessionPlanner(pagewiki.LLMPlannerConfig{
+		Client: client, Model: "test-model",
+	})
+	s.Require().NoError(err)
+
+	_, err = planner.Plan(context.Background(), pagewiki.PlanInput{
+		SourceRevision: plannerRevision(),
+	})
+
+	s.Require().NoError(err)
+	s.Require().NotEmpty(client.requests)
+	s.Equal(pagewiki.PageWikiPlannerPromptForTest, client.requests[0].Messages[0].Content)
+}

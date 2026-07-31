@@ -26,7 +26,7 @@ import type {
   MembershipStatus,
   Role,
 } from "./types";
-import type { WikiIngestionStatus } from "./wiki";
+import type { WikiGenerationSettings, WikiIngestionStatus } from "./wiki";
 import type { TodoItem } from "./todo";
 
 /** "me" = owner's own-agent endpoints, "admin" = governance endpoints. */
@@ -341,6 +341,16 @@ export function setWikiAutoInject(enabled: boolean): Promise<WikiIngestionStatus
     method: "PUT",
     headers: JSON_HEADERS,
     body: JSON.stringify({ auto_inject: enabled }),
+  });
+}
+
+export function updateWikiSettings(
+  settings: WikiGenerationSettings,
+): Promise<WikiGenerationSettings> {
+  return humanFetch<WikiGenerationSettings>("/v1/wiki/settings", {
+    method: "PUT",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(settings),
   });
 }
 
