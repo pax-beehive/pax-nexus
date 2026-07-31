@@ -380,46 +380,53 @@ export function WikiStatusPage({ me }: { me: HumanMe }) {
             </select>
           </div>
         </div>
-        {usageError ? (
+        {usageError && usage.length === 0 ? (
           <p className="muted small">LLM usage is unavailable.</p>
         ) : usage.length === 0 ? (
           <p className="muted small">No LLM calls recorded in this window.</p>
         ) : (
-          <table className="wiki-llm-usage-table">
-            <thead>
-              <tr>
-                <th>Component</th>
-                <th>Model</th>
-                <th>Calls</th>
-                <th>Input</th>
-                <th>Cache hit</th>
-                <th>Cache miss</th>
-                <th>Output</th>
-              </tr>
-            </thead>
-            <tbody>
-              {usage.map((row) => (
-                <tr key={`${row.component}-${row.model}`}>
-                  <td>{row.component}</td>
-                  <td>{row.model}</td>
-                  <td>{row.calls.toLocaleString()}</td>
-                  <td>{row.input_tokens.toLocaleString()}</td>
-                  <td>{row.cache_hit_tokens.toLocaleString()}</td>
-                  <td>{row.cache_miss_tokens.toLocaleString()}</td>
-                  <td>{row.output_tokens.toLocaleString()}</td>
+          <>
+            {usageError && (
+              <p className="muted small">
+                LLM usage refresh failed; showing the last successful window.
+              </p>
+            )}
+            <table className="wiki-llm-usage-table">
+              <thead>
+                <tr>
+                  <th>Component</th>
+                  <th>Model</th>
+                  <th>Calls</th>
+                  <th>Input</th>
+                  <th>Cache hit</th>
+                  <th>Cache miss</th>
+                  <th>Output</th>
                 </tr>
-              ))}
-              <tr className="wiki-llm-usage-totals">
-                <td>Total</td>
-                <td />
-                <td>{usageTotals.calls.toLocaleString()}</td>
-                <td>{usageTotals.input_tokens.toLocaleString()}</td>
-                <td>{usageTotals.cache_hit_tokens.toLocaleString()}</td>
-                <td>{usageTotals.cache_miss_tokens.toLocaleString()}</td>
-                <td>{usageTotals.output_tokens.toLocaleString()}</td>
-              </tr>
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {usage.map((row) => (
+                  <tr key={`${row.component}-${row.model}`}>
+                    <td>{row.component}</td>
+                    <td>{row.model}</td>
+                    <td>{row.calls.toLocaleString()}</td>
+                    <td>{row.input_tokens.toLocaleString()}</td>
+                    <td>{row.cache_hit_tokens.toLocaleString()}</td>
+                    <td>{row.cache_miss_tokens.toLocaleString()}</td>
+                    <td>{row.output_tokens.toLocaleString()}</td>
+                  </tr>
+                ))}
+                <tr className="wiki-llm-usage-totals">
+                  <td>Total</td>
+                  <td />
+                  <td>{usageTotals.calls.toLocaleString()}</td>
+                  <td>{usageTotals.input_tokens.toLocaleString()}</td>
+                  <td>{usageTotals.cache_hit_tokens.toLocaleString()}</td>
+                  <td>{usageTotals.cache_miss_tokens.toLocaleString()}</td>
+                  <td>{usageTotals.output_tokens.toLocaleString()}</td>
+                </tr>
+              </tbody>
+            </table>
+          </>
         )}
       </section>
 

@@ -7,6 +7,7 @@ import (
 
 	"github.com/pax-beehive/pax-nexus/internal/platform/llm"
 	"github.com/pax-beehive/pax-nexus/internal/platform/postgres"
+	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -54,6 +55,22 @@ func (s *llmUsageSuite) newScope(label string) string {
 
 func TestLLMUsageSuite(t *testing.T) {
 	suite.Run(t, new(llmUsageSuite))
+}
+
+// TestNilStoreDegradesInsteadOfPanicking exercises a typed-nil
+// *postgres.LLMUsageStore, as flows through llm.UsageSink when the store is
+// wired but never opened (or its constructor is bypassed via a zero value).
+// It does not need a DSN: the guard must fire before the pool is touched.
+func TestNilStoreDegradesInsteadOfPanicking(t *testing.T) {
+	var store *postgres.LLMUsageStore
+
+	err := store.RecordLLMUsage(context.Background(), llm.UsageEvent{
+		ScopeID: "scope", Component: "component",
+	})
+	require.Error(t, err)
+
+	_, err = store.UsageSummary(context.Background(), "scope", time.Hour)
+	require.Error(t, err)
 }
 
 func (s *llmUsageSuite) TestRecordAndSummarize() {

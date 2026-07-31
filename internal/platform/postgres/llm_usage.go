@@ -25,6 +25,9 @@ func NewLLMUsageStore(pool *pgxpool.Pool) (*LLMUsageStore, error) {
 }
 
 func (s *LLMUsageStore) RecordLLMUsage(ctx context.Context, event llm.UsageEvent) error {
+	if s == nil || s.pool == nil {
+		return errors.New("record LLM usage: store is not configured")
+	}
 	if strings.TrimSpace(event.ScopeID) == "" || strings.TrimSpace(event.Component) == "" {
 		return errors.New("record LLM usage: scope and component are required")
 	}
@@ -46,6 +49,9 @@ func (s *LLMUsageStore) UsageSummary(
 	scopeID string,
 	window time.Duration,
 ) ([]llm.LLMUsageRow, error) {
+	if s == nil || s.pool == nil {
+		return nil, errors.New("summarize LLM usage: store is not configured")
+	}
 	if strings.TrimSpace(scopeID) == "" {
 		return nil, errors.New("summarize LLM usage: scope is required")
 	}

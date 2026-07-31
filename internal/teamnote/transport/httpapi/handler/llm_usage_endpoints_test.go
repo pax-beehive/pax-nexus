@@ -3,6 +3,7 @@ package handler_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"testing"
@@ -81,6 +82,18 @@ func (s *llmUsageHandlerSuite) TestGetRejectsOutOfRangeDays() {
 	response = s.perform("/v1/llm-usage?days=400")
 	s.Equal(consts.StatusBadRequest, response.Code)
 	s.Contains(response.Body.String(), `"code":"invalid_request"`)
+}
+
+func (s *llmUsageHandlerSuite) TestGetFailureUsesStableInternalError() {
+	s.llmUsage.err = errors.New("database unavailable")
+
+	response := s.perform("/v1/llm-usage")
+
+	s.Equal(consts.StatusInternalServerError, response.Code)
+	s.JSONEq(
+		`{"code":"internal_error","message":"the request could not be completed"}`,
+		response.Body.String(),
+	)
 }
 
 func (s *llmUsageHandlerSuite) TestGetRequiresConfiguredLLMUsage() {
