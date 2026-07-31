@@ -14,8 +14,8 @@
 
 import { describe, expect, it } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { callsTo, jsonResponse, makeMe, renderApp, setupDomTest } from "./helpers";
-import { wikiFetch } from "./wikiFixtures";
+import { apiErrorResponse, callsTo, jsonResponse, makeMe, renderApp, setupDomTest } from "./helpers";
+import { llmUsageFixture, wikiFetch } from "./wikiFixtures";
 
 setupDomTest();
 
@@ -77,6 +77,7 @@ describe("wiki status page", () => {
           return jsonResponse({ language: "", custom_instructions: "" });
         }
         if (path.startsWith("/v1/me/agents")) return jsonResponse({ agents: [] });
+        if (path.startsWith("/v1/llm-usage")) return jsonResponse(llmUsageFixture);
         throw new Error(`unexpected fetch: ${path}`);
       },
     });
@@ -111,6 +112,7 @@ describe("wiki status page ingestion controls", () => {
         if (path === "/v1/wiki/sessions/runtime-session/inject") {
           return jsonResponse({ processed_streams: 1 });
         }
+        if (path.startsWith("/v1/llm-usage")) return jsonResponse(llmUsageFixture);
         throw new Error(`unexpected fetch: ${path}`);
       },
     });
@@ -140,6 +142,7 @@ describe("wiki status page ingestion controls", () => {
         if (path === "/v1/wiki/settings") {
           return jsonResponse({ language: "", custom_instructions: "" });
         }
+        if (path.startsWith("/v1/llm-usage")) return jsonResponse(llmUsageFixture);
         throw new Error(`unexpected fetch: ${path}`);
       },
     });
@@ -167,6 +170,7 @@ describe("wiki status page ingestion controls", () => {
         if (path === "/v1/wiki/settings") {
           return jsonResponse({ language: "", custom_instructions: "" });
         }
+        if (path.startsWith("/v1/llm-usage")) return jsonResponse(llmUsageFixture);
         throw new Error(`unexpected fetch: ${path}`);
       },
     });
@@ -203,6 +207,7 @@ describe("wiki status page ingestion controls", () => {
         if (path === "/v1/wiki/settings") {
           return jsonResponse({ language: "", custom_instructions: "" });
         }
+        if (path.startsWith("/v1/llm-usage")) return jsonResponse(llmUsageFixture);
         throw new Error(`unexpected fetch: ${path}`);
       },
     });
@@ -227,6 +232,7 @@ describe("wiki status page ingestion controls", () => {
         if (path === "/v1/wiki/settings") {
           return jsonResponse({ language: "", custom_instructions: "" });
         }
+        if (path.startsWith("/v1/llm-usage")) return jsonResponse(llmUsageFixture);
         throw new Error(`unexpected fetch: ${path}`);
       },
     });
@@ -248,6 +254,7 @@ describe("wiki status page generation settings", () => {
         if (path === "/v1/wiki/settings" && method === "GET") {
           return jsonResponse({ language: "", custom_instructions: "" });
         }
+        if (path.startsWith("/v1/llm-usage")) return jsonResponse(llmUsageFixture);
         throw new Error(`unexpected fetch: ${path}`);
       },
     });
@@ -278,6 +285,7 @@ describe("wiki status page generation settings", () => {
         if (path === "/v1/wiki/settings") {
           return jsonResponse({ language: "", custom_instructions: "" });
         }
+        if (path.startsWith("/v1/llm-usage")) return jsonResponse(llmUsageFixture);
         throw new Error(`unexpected fetch: ${path}`);
       },
     });
@@ -308,6 +316,7 @@ describe("wiki status page generation settings", () => {
         if (path === "/v1/wiki/settings" && method === "GET") {
           return jsonResponse({ language: "日本語", custom_instructions: "" });
         }
+        if (path.startsWith("/v1/llm-usage")) return jsonResponse(llmUsageFixture);
         throw new Error(`unexpected fetch: ${path}`);
       },
     });
@@ -316,5 +325,48 @@ describe("wiki status page generation settings", () => {
     await waitFor(() => expect(languageSelect.value).toBe("custom"));
     const customInput = (await screen.findByLabelText("Custom language")) as HTMLInputElement;
     expect(customInput.value).toBe("日本語");
+  });
+});
+
+// -- LLM usage card (2026-07-31-llm-token-metering task 4) --
+describe("wiki status page LLM usage", () => {
+  it("renders a table with a row per component plus a totals row", async () => {
+    await renderApp({ route: "/wiki", me: makeMe(), fetch: wikiFetch });
+
+    const card = await screen.findByRole("region", { name: "LLM token usage" });
+    within(card).getByText("extractor");
+    within(card).getByText("wiki-editor");
+    within(card).getByText("120,000");
+    within(card).getByText("400,000");
+    // Totals row: calls 12+30=42, input 120000+400000=520,000.
+    within(card).getByText("42");
+    within(card).getByText("520,000");
+  });
+
+  it("refetches with the selected window when the select changes", async () => {
+    const { user, fetchMock } = await renderApp({ route: "/wiki", me: makeMe(), fetch: wikiFetch });
+
+    const card = await screen.findByRole("region", { name: "LLM token usage" });
+    expect(callsTo(fetchMock, "/v1/llm-usage?days=7")).toHaveLength(1);
+
+    await user.selectOptions(within(card).getByLabelText("Window"), "30");
+
+    await waitFor(() => expect(callsTo(fetchMock, "/v1/llm-usage?days=30")).toHaveLength(1));
+  });
+
+  it("shows an unavailable note when the usage endpoint fails, page otherwise intact", async () => {
+    await renderApp({
+      route: "/wiki",
+      me: makeMe(),
+      fetch: (path) => {
+        if (path.startsWith("/v1/llm-usage")) return apiErrorResponse(500, "internal", "boom");
+        return wikiFetch(path);
+      },
+    });
+
+    await screen.findByRole("switch");
+    const card = await screen.findByRole("region", { name: "LLM token usage" });
+    within(card).getByText("LLM usage is unavailable.");
+    expect(screen.queryByText("extractor")).toBeNull();
   });
 });

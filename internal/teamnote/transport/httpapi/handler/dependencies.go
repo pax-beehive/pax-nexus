@@ -14,6 +14,7 @@ import (
 	"github.com/pax-beehive/pax-nexus/internal/operations"
 	"github.com/pax-beehive/pax-nexus/internal/pagewiki"
 	"github.com/pax-beehive/pax-nexus/internal/pagewiki/sessionconsumer"
+	platformllm "github.com/pax-beehive/pax-nexus/internal/platform/llm"
 	"github.com/pax-beehive/pax-nexus/internal/recall"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote"
 )
@@ -40,6 +41,7 @@ type Handler struct {
 	explorer     ExplorerLifecycle
 	wikiControl  WikiControl
 	wikiSettings WikiSettings
+	llmUsage     LLMUsage
 	recorder     operations.Recorder
 	portalURL    string
 	cookieSecure bool
@@ -141,6 +143,10 @@ type WikiSettings interface {
 	SetGenerationSettings(context.Context, pagewiki.GenerationDirectives) (pagewiki.GenerationDirectives, error)
 }
 
+type LLMUsage interface {
+	UsageSummary(ctx context.Context, scopeID string, window time.Duration) ([]platformllm.LLMUsageRow, error)
+}
+
 type OnPremOption func(*Handler) error
 
 func WithAgentRegistry(registry AgentRegistryLifecycle) OnPremOption {
@@ -187,6 +193,13 @@ func WithWikiControl(control WikiControl) OnPremOption {
 func WithWikiSettings(settings WikiSettings) OnPremOption {
 	return func(configured *Handler) error {
 		configured.wikiSettings = settings
+		return nil
+	}
+}
+
+func WithLLMUsage(usage LLMUsage) OnPremOption {
+	return func(configured *Handler) error {
+		configured.llmUsage = usage
 		return nil
 	}
 }
