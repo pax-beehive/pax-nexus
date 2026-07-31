@@ -118,6 +118,15 @@ func (s *wikiIngestionHandlerSuite) TestRebuildForwardsParsedSinceCutoff() {
 	s.Equal(time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), s.wikiControl.since)
 }
 
+func (s *wikiIngestionHandlerSuite) TestRebuildAcceptsFractionalSecondSince() {
+	response := s.performWithBody(http.MethodPost, "/v1/wiki/rebuild", true,
+		`{"since":"2026-06-30T16:00:00.000Z"}`)
+
+	s.Equal(consts.StatusOK, response.Code)
+	s.Equal(1, s.wikiControl.rebuilds)
+	s.Equal(time.Date(2026, 6, 30, 16, 0, 0, 0, time.UTC), s.wikiControl.since)
+}
+
 func (s *wikiIngestionHandlerSuite) TestRebuildRejectsMalformedSince() {
 	response := s.performWithBody(http.MethodPost, "/v1/wiki/rebuild", true,
 		`{"since":"yesterday"}`)

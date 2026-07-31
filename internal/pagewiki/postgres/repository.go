@@ -248,6 +248,7 @@ INSERT INTO session_processor_cursors
 SELECT $1, $2, stream.scope_id, stream.agent_id, stream.session_id, stream.last_sequence
 FROM session_streams AS stream
 WHERE stream.scope_id = $3
+  AND stream.source = 'agent-session'
   AND stream.agent_id <> ''
   AND NOT EXISTS (
     SELECT 1 FROM session_events AS event

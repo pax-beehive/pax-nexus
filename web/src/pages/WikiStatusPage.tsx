@@ -351,6 +351,7 @@ export function WikiStatusPage({ me }: { me: HumanMe }) {
               id="wiki-rebuild-since"
               type="date"
               value={rebuildSince}
+              max={new Intl.DateTimeFormat("en-CA").format(new Date())}
               onChange={(event) => setRebuildSince(event.target.value)}
               disabled={busy}
             />

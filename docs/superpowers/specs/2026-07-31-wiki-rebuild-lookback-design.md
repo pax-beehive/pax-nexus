@@ -28,7 +28,9 @@ skipped.
 - **Empty date = full rebuild** — exactly today's behavior.
 - **Skipping is durable.** Skipped streams get their cursor set to
   `last_sequence`, so subsequent automatic scans do not pick them up. They
-  return only via a later rebuild with an earlier date or no date.
+  return via a later rebuild with an earlier date or no date, or on their
+  own once new events land — new activity is always at or after any past
+  cutoff, so replaying the stream in full from sequence 0 is correct.
 - **Cutoff timestamp.** The browser converts the picked calendar date to
   local midnight and sends RFC3339. The backend treats it as an opaque
   instant; comparison is `occurred_at >= since`.
