@@ -50,13 +50,43 @@ func (s *deepSeekSuite) TestCallsOfficialCompatibleEndpointAndDecodesTools() {
 	response, err := client.Complete(context.Background(), llm.ChatRequest{
 		Model:    "deepseek-v4-pro",
 		Messages: []llm.ChatMessage{{Role: "user", Content: "work"}},
-		Tools:    []llm.ToolDefinition{},
+		Tools: []llm.ToolDefinition{{
+			Type:     "function",
+			Function: llm.ToolFunctionSchema{Name: "read_file"},
+		}},
 	})
 	s.Require().NoError(err)
 	s.Equal(12, response.Usage.InputTokens)
 	s.Equal(4, response.Usage.OutputTokens)
 	s.Require().Len(response.Message.ToolCalls, 1)
 	s.Equal("read_file", response.Message.ToolCalls[0].Function.Name)
+}
+
+func (s *deepSeekSuite) TestOmitsToolChoiceWhenNoToolsAreSent() {
+	httpClient := &http.Client{Transport: roundTripFunc(func(
+		request *http.Request,
+	) (*http.Response, error) {
+		body, err := io.ReadAll(request.Body)
+		s.Require().NoError(err)
+		// OpenAI-compatible endpoints reject tool_choice without tools;
+		// only DeepSeek's own endpoint tolerates the combination.
+		s.NotContains(string(body), "tool_choice")
+		s.NotContains(string(body), `"tools"`)
+		return response(http.StatusOK, `{
+		  "choices": [{"message": {"role": "assistant", "content": "done"}}],
+		  "usage": {"prompt_tokens": 3, "completion_tokens": 1}
+		}`), nil
+	})}
+
+	client := llm.NewDeepSeekClient(llm.DeepSeekConfig{
+		BaseURL: "https://deepseek.example", APIKey: "secret", HTTPClient: httpClient,
+	})
+	chatResponse, err := client.Complete(context.Background(), llm.ChatRequest{
+		Model:    "deepseek-v4-pro",
+		Messages: []llm.ChatMessage{{Role: "user", Content: "work"}},
+	})
+	s.Require().NoError(err)
+	s.Equal("done", chatResponse.Message.Content)
 }
 
 func (s *deepSeekSuite) TestReportsProviderErrorWithoutLeakingAPIKey() {

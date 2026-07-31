@@ -34,8 +34,16 @@ func streamKey(stream Stream) string {
 
 var ErrSessionNotFound = errors.New("session not found")
 
+type Progress struct {
+	PendingSessions int
+	LastProcessedAt *time.Time
+}
+
 type Status struct {
 	AutoInject bool
+	// Progress is nil when the progress query failed; ingestion status
+	// stays available so the toggle keeps working (spec section 4).
+	Progress *Progress
 }
 
 type InjectResult struct {
@@ -55,6 +63,7 @@ type Store interface {
 	StreamsBySessionID(context.Context, string, string) ([]Stream, error)
 	SessionEvents(context.Context, Stream) ([]session.SessionEvent, error)
 	AdvanceCursor(context.Context, Stream) error
+	Progress(context.Context, string) (Progress, error)
 }
 
 type Injector interface {
@@ -123,7 +132,14 @@ func (c *Controller) Status(ctx context.Context, scopeID string) (Status, error)
 	if err != nil {
 		return Status{}, fmt.Errorf("read Page Wiki ingestion status: %w", err)
 	}
-	return Status{AutoInject: enabled}, nil
+	status := Status{AutoInject: enabled}
+	progress, err := c.store.Progress(ctx, scopeID)
+	if err != nil {
+		c.logger.WarnContext(ctx, "read Page Wiki ingestion progress", "error", err)
+		return status, nil
+	}
+	status.Progress = &progress
+	return status, nil
 }
 
 func (c *Controller) SetAutoInject(ctx context.Context, scopeID string, enabled bool) (Status, error) {

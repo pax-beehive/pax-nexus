@@ -37,6 +37,9 @@ func (s *backoffStore) SessionEvents(context.Context, Stream) ([]session.Session
 	return append([]session.SessionEvent(nil), s.events...), nil
 }
 func (s *backoffStore) AdvanceCursor(context.Context, Stream) error { return nil }
+func (s *backoffStore) Progress(context.Context, string) (Progress, error) {
+	return Progress{}, nil
+}
 
 type flakyInjector struct {
 	err   error

@@ -332,6 +332,8 @@ struct UpdateWikiIngestionRequest {
 
 struct WikiIngestionStatusResponse {
   1: required bool auto_inject
+  2: optional i32 pending_sessions
+  3: optional string last_processed_at
 }
 
 struct InjectWikiSessionRequest {

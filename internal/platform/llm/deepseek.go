@@ -45,6 +45,12 @@ func (c *DeepSeekClient) Complete(
 	if c.apiKey == "" {
 		return ChatResponse{}, errors.New("DeepSeek API key is required")
 	}
+	// OpenAI-compatible endpoints reject tool_choice without tools; only
+	// DeepSeek's own endpoint tolerates the combination.
+	toolChoice := ""
+	if len(request.Tools) > 0 {
+		toolChoice = "auto"
+	}
 	payload := struct {
 		Model      string           `json:"model"`
 		Messages   []ChatMessage    `json:"messages"`
@@ -53,7 +59,7 @@ func (c *DeepSeekClient) Complete(
 		Stream     bool             `json:"stream"`
 	}{
 		Model: request.Model, Messages: request.Messages, Tools: request.Tools,
-		ToolChoice: "auto", Stream: false,
+		ToolChoice: toolChoice, Stream: false,
 	}
 	encoded, err := json.Marshal(payload)
 	if err != nil {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
@@ -21,7 +22,16 @@ func (h *Handler) GetWikiIngestionStatus(ctx context.Context, c *app.RequestCont
 		h.writeWikiControlError(c, "get Wiki ingestion status", err)
 		return
 	}
-	c.JSON(consts.StatusOK, &api.WikiIngestionStatusResponse{AutoInject: status.AutoInject})
+	response := &api.WikiIngestionStatusResponse{AutoInject: status.AutoInject}
+	if status.Progress != nil {
+		pending := int32(status.Progress.PendingSessions)
+		response.PendingSessions = &pending
+		if status.Progress.LastProcessedAt != nil {
+			formatted := status.Progress.LastProcessedAt.UTC().Format(time.RFC3339)
+			response.LastProcessedAt = &formatted
+		}
+	}
+	c.JSON(consts.StatusOK, response)
 }
 
 func (h *Handler) UpdateWikiIngestion(ctx context.Context, c *app.RequestContext) {
