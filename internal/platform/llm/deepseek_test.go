@@ -126,6 +126,55 @@ func (s *deepSeekSuite) TestRejectsMissingCredentialsAndMalformedResponse() {
 	s.Require().ErrorContains(err, "no choices")
 }
 
+func (s *deepSeekSuite) TestDecodesPromptCacheSplitUsage() {
+	httpClient := &http.Client{Transport: roundTripFunc(func(
+		_ *http.Request,
+	) (*http.Response, error) {
+		return response(http.StatusOK, `{
+		  "choices": [{"message": {"role": "assistant", "content": "done"}}],
+		  "usage": {
+		    "prompt_tokens": 100,
+		    "completion_tokens": 40,
+		    "prompt_cache_hit_tokens": 70,
+		    "prompt_cache_miss_tokens": 30
+		  }
+		}`), nil
+	})}
+
+	client := llm.NewDeepSeekClient(llm.DeepSeekConfig{
+		BaseURL: "https://deepseek.example", APIKey: "secret", HTTPClient: httpClient,
+	})
+	chatResponse, err := client.Complete(context.Background(), llm.ChatRequest{
+		Model: "deepseek-v4-pro",
+	})
+	s.Require().NoError(err)
+	s.Equal(llm.TokenUsage{
+		InputTokens: 100, OutputTokens: 40,
+		PromptCacheHitTokens: 70, PromptCacheMissTokens: 30,
+	}, chatResponse.Usage)
+}
+
+func (s *deepSeekSuite) TestDecodesZeroCacheUsageWhenFieldsAbsent() {
+	httpClient := &http.Client{Transport: roundTripFunc(func(
+		_ *http.Request,
+	) (*http.Response, error) {
+		return response(http.StatusOK, `{
+		  "choices": [{"message": {"role": "assistant", "content": "done"}}],
+		  "usage": {"prompt_tokens": 3, "completion_tokens": 1}
+		}`), nil
+	})}
+
+	client := llm.NewDeepSeekClient(llm.DeepSeekConfig{
+		BaseURL: "https://deepseek.example", APIKey: "secret", HTTPClient: httpClient,
+	})
+	chatResponse, err := client.Complete(context.Background(), llm.ChatRequest{
+		Model: "deepseek-v4-pro",
+	})
+	s.Require().NoError(err)
+	s.Equal(0, chatResponse.Usage.PromptCacheHitTokens)
+	s.Equal(0, chatResponse.Usage.PromptCacheMissTokens)
+}
+
 func (s *deepSeekSuite) TestChatTypesRoundTripToolResults() {
 	message := llm.ChatMessage{
 		Role:       "tool",

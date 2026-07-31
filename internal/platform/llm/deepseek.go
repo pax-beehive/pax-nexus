@@ -100,8 +100,10 @@ func (c *DeepSeekClient) Complete(
 			Message ChatMessage `json:"message"`
 		} `json:"choices"`
 		Usage struct {
-			PromptTokens     int `json:"prompt_tokens"`
-			CompletionTokens int `json:"completion_tokens"`
+			PromptTokens          int `json:"prompt_tokens"`
+			CompletionTokens      int `json:"completion_tokens"`
+			PromptCacheHitTokens  int `json:"prompt_cache_hit_tokens"`
+			PromptCacheMissTokens int `json:"prompt_cache_miss_tokens"`
 		} `json:"usage"`
 	}
 	if err := json.Unmarshal(body, &decoded); err != nil {
@@ -113,8 +115,10 @@ func (c *DeepSeekClient) Complete(
 	return ChatResponse{
 		Message: decoded.Choices[0].Message,
 		Usage: TokenUsage{
-			InputTokens:  decoded.Usage.PromptTokens,
-			OutputTokens: decoded.Usage.CompletionTokens,
+			InputTokens:           decoded.Usage.PromptTokens,
+			OutputTokens:          decoded.Usage.CompletionTokens,
+			PromptCacheHitTokens:  decoded.Usage.PromptCacheHitTokens,
+			PromptCacheMissTokens: decoded.Usage.PromptCacheMissTokens,
 		},
 	}, nil
 }

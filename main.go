@@ -76,24 +76,15 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	if err != nil {
 		return fmt.Errorf("initialize embedding adapter: %w", err)
 	}
-	noteStore, err := postgres.NewNoteStore(store, teamnote.DefaultTTLPolicy(), teamnote.SystemClock{}, postgres.RetrievalConfig{
-		Embedder: embedder, EmbeddingModel: config.embeddingModel,
-		Policy: config.recallCandidateStrategy.Policy,
-	})
+	noteStore, usageStore, err := initializeStores(ctx, store, embedder, config, logger)
 	if err != nil {
-		return fmt.Errorf("initialize note store: %w", err)
-	}
-	backfilled, err := noteStore.BackfillEmbeddings(ctx, embeddingBackfillBatchSize)
-	if err != nil {
-		return fmt.Errorf("backfill note embeddings: %w", err)
-	}
-	if backfilled > 0 {
-		logger.Info("team note embeddings backfilled", "notes", backfilled, "model", config.embeddingModel)
+		return err
 	}
 	var operationRecorder operations.Recorder
 	runtimeConfig := teamruntime.Config{
 		NoteStore: noteStore, Logger: logger, SliceEventLimit: config.sliceEventLimit, SliceTokenLimit: config.sliceTokenLimit,
 		SliceOverlap: config.sliceOverlap, MaxSlicesPerJob: config.maxSlicesPerJob,
+		UsageRecorder: extractionUsageRecorder(usageStore, logger),
 	}
 	if len(config.apiKeys) == 0 {
 		dropCountingRecorder, recorderErr := operations.NewDropCountingRecorder(store.Operations())
@@ -128,6 +119,7 @@ func run(ctx context.Context, logger *slog.Logger) error {
 		store,
 		operationRecorder,
 		lake,
+		usageStore,
 		config,
 		logger,
 	)
@@ -171,9 +163,41 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	return nil
 }
 
+// initializeStores builds the note store (backfilling any pending
+// embeddings) and the LLM usage store on top of an already-open Postgres
+// store, keeping run's own branching within the linter's complexity budget.
+func initializeStores(
+	ctx context.Context,
+	store *postgres.Store,
+	embedder textembedding.Embedder,
+	config applicationConfig,
+	logger *slog.Logger,
+) (*postgres.NoteStore, *postgres.LLMUsageStore, error) {
+	noteStore, err := postgres.NewNoteStore(store, teamnote.DefaultTTLPolicy(), teamnote.SystemClock{}, postgres.RetrievalConfig{
+		Embedder: embedder, EmbeddingModel: config.embeddingModel,
+		Policy: config.recallCandidateStrategy.Policy,
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("initialize note store: %w", err)
+	}
+	backfilled, err := noteStore.BackfillEmbeddings(ctx, embeddingBackfillBatchSize)
+	if err != nil {
+		return nil, nil, fmt.Errorf("backfill note embeddings: %w", err)
+	}
+	if backfilled > 0 {
+		logger.Info("team note embeddings backfilled", "notes", backfilled, "model", config.embeddingModel)
+	}
+	usageStore, err := postgres.NewLLMUsageStore(store.Pool())
+	if err != nil {
+		return nil, nil, fmt.Errorf("initialize LLM usage store: %w", err)
+	}
+	return noteStore, usageStore, nil
+}
+
 func buildPageWikiHTTPHandler(
 	ctx context.Context,
 	store *postgres.Store,
+	usageStore *postgres.LLMUsageStore,
 	config applicationConfig,
 	logger *slog.Logger,
 ) (*pagewikihttp.Handler, *sessionconsumer.Controller, *pagewiki.Service, error) {
@@ -181,7 +205,7 @@ func buildPageWikiHTTPHandler(
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("initialize Page Wiki repository: %w", err)
 	}
-	planner, editor, indexer, err := buildPageWikiMaintainers(config, logger)
+	planner, editor, indexer, err := buildPageWikiMaintainers(usageStore, config, logger)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -208,6 +232,7 @@ func buildPageWikiHTTPHandler(
 }
 
 func buildPageWikiMaintainers(
+	usageStore *postgres.LLMUsageStore,
 	config applicationConfig,
 	logger *slog.Logger,
 ) (pagewiki.Planner, pagewiki.Editor, pagewiki.TreeIndexer, error) {
@@ -238,20 +263,33 @@ func buildPageWikiMaintainers(
 			BaseURL: config.llmwikiBaseURL,
 			APIKey:  config.llmwikiAPIKey,
 		})
+		metered := meteredClientFactory(client, usageStore, logger)
+		plannerClient, err := metered("wiki-planner")
+		if err != nil {
+			return nil, nil, nil, err
+		}
 		planner, err := pagewiki.NewLLMSessionPlanner(pagewiki.LLMPlannerConfig{
-			Client: client, Model: config.llmwikiModel, Logger: logger,
+			Client: plannerClient, Model: config.llmwikiModel, Logger: logger,
 		})
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		editorClient, err := metered("wiki-editor")
 		if err != nil {
 			return nil, nil, nil, err
 		}
 		editor, err := pagewiki.NewLLMSessionEditor(pagewiki.LLMEditorConfig{
-			Client: client, Model: config.llmwikiModel,
+			Client: editorClient, Model: config.llmwikiModel,
 		})
 		if err != nil {
 			return nil, nil, nil, err
 		}
+		indexerClient, err := metered("wiki-indexer")
+		if err != nil {
+			return nil, nil, nil, err
+		}
 		indexer, err := pagewiki.NewLLMTreeIndexer(pagewiki.LLMTreeIndexerConfig{
-			Client: client, Model: config.llmwikiModel, Logger: logger, MaxDepth: maxDepth,
+			Client: indexerClient, Model: config.llmwikiModel, Logger: logger, MaxDepth: maxDepth,
 		})
 		if err != nil {
 			return nil, nil, nil, err
@@ -271,10 +309,11 @@ func buildApplicationHTTPHandlers(
 	store *postgres.Store,
 	operationRecorder operations.Recorder,
 	lake *evidencelake.Lake,
+	usageStore *postgres.LLMUsageStore,
 	config applicationConfig,
 	logger *slog.Logger,
 ) (*handler.Handler, *pagewikihttp.Handler, *todoapphttp.Handler, func(), error) {
-	pageHandler, wikiControl, wikiSettings, err := buildPageWikiHTTPHandler(ctx, store, config, logger)
+	pageHandler, wikiControl, wikiSettings, err := buildPageWikiHTTPHandler(ctx, store, usageStore, config, logger)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
@@ -283,6 +322,7 @@ func buildApplicationHTTPHandlers(
 		runtime,
 		store,
 		operationRecorder,
+		usageStore,
 		config,
 		logger,
 		wikiControl,
@@ -291,7 +331,7 @@ func buildApplicationHTTPHandlers(
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
-	todoHandler, stopTodoRefresh, err := buildTodoApp(ctx, store, lake, identity, config, logger)
+	todoHandler, stopTodoRefresh, err := buildTodoApp(ctx, store, lake, usageStore, identity, config, logger)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
@@ -307,6 +347,7 @@ func buildTodoApp(
 	ctx context.Context,
 	store *postgres.Store,
 	lake *evidencelake.Lake,
+	usageStore *postgres.LLMUsageStore,
 	identity *onprem.IdentityService,
 	config applicationConfig,
 	logger *slog.Logger,
@@ -323,7 +364,7 @@ func buildTodoApp(
 	if err != nil {
 		return nil, nil, fmt.Errorf("initialize Todo App reporter: %w", err)
 	}
-	rewriter, err := buildTodoRewriter(config, logger)
+	rewriter, err := buildTodoRewriter(usageStore, config, logger)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -352,7 +393,9 @@ func buildTodoApp(
 // settings are fully configured, reusing the same environment as Page Wiki's
 // LLM maintainers (see buildPageWikiMaintainers). Otherwise it returns a nil
 // Rewriter, and the service falls back to verbatim copy.
-func buildTodoRewriter(config applicationConfig, logger *slog.Logger) (todoapp.Rewriter, error) {
+func buildTodoRewriter(
+	usageStore *postgres.LLMUsageStore, config applicationConfig, logger *slog.Logger,
+) (todoapp.Rewriter, error) {
 	if strings.TrimSpace(config.llmwikiBaseURL) == "" ||
 		strings.TrimSpace(config.llmwikiAPIKey) == "" ||
 		strings.TrimSpace(config.llmwikiModel) == "" {
@@ -362,13 +405,63 @@ func buildTodoRewriter(config applicationConfig, logger *slog.Logger) (todoapp.R
 		BaseURL: config.llmwikiBaseURL,
 		APIKey:  config.llmwikiAPIKey,
 	})
+	meteredClient, err := meteredClientFactory(client, usageStore, logger)("todo-rewriter")
+	if err != nil {
+		return nil, fmt.Errorf("initialize Todo App LLM rewriter: %w", err)
+	}
 	rewriter, err := todoapp.NewLLMRewriter(todoapp.LLMRewriterConfig{
-		Client: client, Model: config.llmwikiModel, Logger: logger,
+		Client: meteredClient, Model: config.llmwikiModel, Logger: logger,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("initialize Todo App LLM rewriter: %w", err)
 	}
 	return rewriter, nil
+}
+
+// meteredClientFactory returns a closure that wraps client in a
+// MeteredChatClient attributing usage to the given component, reporting to
+// usageStore under onprem.LocalScopeID by default (overridden per call by
+// any scope carried on the request context).
+func meteredClientFactory(
+	client platformllm.ChatClient, usageStore *postgres.LLMUsageStore, logger *slog.Logger,
+) func(component string) (platformllm.ChatClient, error) {
+	return func(component string) (platformllm.ChatClient, error) {
+		metered, err := platformllm.NewMeteredChatClient(platformllm.MeteredConfig{
+			Client: client, Sink: usageStore, Component: component,
+			DefaultScope: onprem.LocalScopeID, Logger: logger,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("initialize metered LLM client for %s: %w", component, err)
+		}
+		return metered, nil
+	}
+}
+
+// extractionUsageRecorder adapts extraction's slice-level usage reporting to
+// llm.UsageSink, attributing usage to the "extractor" component under the
+// scope carried on the extraction context (falling back to
+// onprem.LocalScopeID when none is present). Recording is best-effort: a
+// sink failure is logged and never fails extraction.
+func extractionUsageRecorder(
+	usageStore *postgres.LLMUsageStore, logger *slog.Logger,
+) func(context.Context, string, extractor.Usage) {
+	return func(ctx context.Context, model string, usage extractor.Usage) {
+		scopeID, err := teamnote.ScopeFromContext(ctx)
+		if err != nil || strings.TrimSpace(scopeID) == "" {
+			scopeID = onprem.LocalScopeID
+		}
+		event := platformllm.UsageEvent{
+			ScopeID: scopeID, Component: "extractor", Model: model,
+			Usage: platformllm.TokenUsage{
+				InputTokens: usage.InputTokens, OutputTokens: usage.OutputTokens,
+				PromptCacheHitTokens: usage.PromptCacheHitTokens, PromptCacheMissTokens: usage.PromptCacheMissTokens,
+			},
+		}
+		if recordErr := usageStore.RecordLLMUsage(ctx, event); recordErr != nil {
+			logger.WarnContext(ctx, "record extraction LLM usage failed",
+				"scope_id", scopeID, "model", model, "error", recordErr)
+		}
+	}
 }
 
 func closeExtractor(ctx context.Context, candidateExtractor extractor.Extractor) error {
@@ -709,6 +802,7 @@ func buildHTTPHandler(
 	runtime teamnote.Runtime,
 	store *postgres.Store,
 	operationRecorder operations.Recorder,
+	usageStore *postgres.LLMUsageStore,
 	config applicationConfig,
 	logger *slog.Logger,
 	wikiControl handler.WikiControl,
@@ -763,16 +857,9 @@ func buildHTTPHandler(
 	if err != nil {
 		return nil, nil, fmt.Errorf("configure team memory explorer: %w", err)
 	}
-	options := []handler.OnPremOption{
-		handler.WithAgentRegistry(registry), handler.WithOperations(operationsService, operationRecorder),
-		handler.WithExplorer(explorerService),
-	}
-	if wikiControl != nil {
-		options = append(options, handler.WithWikiControl(wikiControl))
-	}
-	if wikiSettings != nil {
-		options = append(options, handler.WithWikiSettings(wikiSettings))
-	}
+	options := onPremHandlerOptions(
+		registry, operationsService, operationRecorder, explorerService, usageStore, wikiControl, wikiSettings,
+	)
 	var identityService *onprem.IdentityService
 	if config.humanIdentityConfigured() {
 		identity, err := onprem.NewIdentityService(store.Identity(), onprem.IdentityConfig{
@@ -800,6 +887,35 @@ func buildHTTPHandler(
 		return nil, nil, fmt.Errorf("configure on-prem HTTP transport: %w", err)
 	}
 	return configured, identityService, nil
+}
+
+// onPremHandlerOptions assembles the OnPremOption list for buildHTTPHandler,
+// keeping that function's own branching within the linter's complexity
+// budget. usageStore, wikiControl, and wikiSettings are optional; each is
+// wired only when its dependency is configured.
+func onPremHandlerOptions(
+	registry *onprem.RegistryService,
+	operationsService *onprem.OperationsService,
+	operationRecorder operations.Recorder,
+	explorerService *onprem.ExplorerService,
+	usageStore *postgres.LLMUsageStore,
+	wikiControl handler.WikiControl,
+	wikiSettings handler.WikiSettings,
+) []handler.OnPremOption {
+	options := []handler.OnPremOption{
+		handler.WithAgentRegistry(registry), handler.WithOperations(operationsService, operationRecorder),
+		handler.WithExplorer(explorerService),
+	}
+	if usageStore != nil {
+		options = append(options, handler.WithLLMUsage(usageStore))
+	}
+	if wikiControl != nil {
+		options = append(options, handler.WithWikiControl(wikiControl))
+	}
+	if wikiSettings != nil {
+		options = append(options, handler.WithWikiSettings(wikiSettings))
+	}
+	return options
 }
 
 type operationsMaintenanceStore interface {
