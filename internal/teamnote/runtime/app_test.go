@@ -137,6 +137,40 @@ func (s *appSuite) TestProcessExtractionCommitsZeroCandidateRunProvenance() {
 	s.Empty(run.Candidates)
 }
 
+func (s *appSuite) TestProcessExtractionInvokesUsageRecorderOnSuccess() {
+	var recorderCalled bool
+	var recordedModel string
+	var recordedUsage extractor.Usage
+	app, err := teamruntime.New(evidencelake.New(s.repository), s.extractor, teamruntime.Config{
+		UsageRecorder: func(_ context.Context, model string, usage extractor.Usage) {
+			recorderCalled = true
+			recordedModel = model
+			recordedUsage = usage
+		},
+	})
+	s.Require().NoError(err)
+	ctx := teamnote.WithScope(context.Background(), "scope-usage-recorder")
+	actor := teamnote.Actor{UserID: "owner", AgentID: "producer", SessionID: "producer-session"}
+	event := runtimeEvent("event-usage-recorder", actor)
+	s.extractor.result = extractor.Result{
+		Usage: extractor.Usage{
+			InputTokens: 41, OutputTokens: 3, PromptCacheHitTokens: 5, PromptCacheMissTokens: 36,
+		},
+		Model: "extractor-model", PromptVersion: "prompt-v2",
+	}
+	_, err = app.ObserveSession(ctx, teamnote.SessionBatch{Events: []teamnote.SessionEvent{event}, Complete: true})
+	s.Require().NoError(err)
+
+	more, err := app.ProcessExtraction(ctx, actor, 1, false)
+	s.Require().NoError(err)
+	s.False(more)
+	s.True(recorderCalled)
+	s.Equal("extractor-model", recordedModel)
+	s.Equal(extractor.Usage{
+		InputTokens: 41, OutputTokens: 3, PromptCacheHitTokens: 5, PromptCacheMissTokens: 36,
+	}, recordedUsage)
+}
+
 func (s *appSuite) TestExtractionV2UsesProtocolScopedRunIdentity() {
 	store := newRecordingNoteStore()
 	app, err := teamruntime.New(evidencelake.New(s.repository), s.extractor, teamruntime.Config{NoteStore: store})

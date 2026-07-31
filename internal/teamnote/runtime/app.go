@@ -24,6 +24,10 @@ type Config struct {
 	NoteStore          teamnote.NoteStore
 	Logger             *slog.Logger
 	ExtractionObserver func(context.Context, ExtractionObservation)
+	// UsageRecorder reports the LLM token usage of each successful
+	// extraction slice, for downstream metering. Optional: nil disables
+	// recording.
+	UsageRecorder func(ctx context.Context, model string, usage extractor.Usage)
 }
 
 type ExtractionStatus string
@@ -177,6 +181,9 @@ func (a *App) ProcessExtraction(ctx context.Context, actor teamnote.Actor, throu
 			)
 		}
 		a.logger.InfoContext(ctx, "extraction slice completed", attrs...)
+		if a.config.UsageRecorder != nil {
+			a.config.UsageRecorder(ctx, result.Model, result.Usage)
+		}
 		status := ExtractionCompleted
 		if quarantined {
 			status = ExtractionQuarantined
