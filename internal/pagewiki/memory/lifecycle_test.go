@@ -94,6 +94,40 @@ func (s *LifecycleSuite) TestGivenUnknownPageWhenRetiredThenNotFound() {
 	s.Require().ErrorIs(err, pagewiki.ErrNotFound)
 }
 
+func (s *LifecycleSuite) TestGivenAlreadyRetiredPageWhenRetiredAgainThenConflictAndSuccessorUnchanged() {
+	page, revision := lifecyclePageFixture()
+	s.Require().NoError(s.repository.PublishPage(s.ctx, pagewiki.PagePublication{
+		Page:     page,
+		Revision: revision,
+	}))
+	s.Require().NoError(s.repository.RetirePage(s.ctx, pagewiki.RetireRequest{
+		PageID:                 "page-1",
+		ExpectedBaseRevisionID: "rev-1",
+		SuccessorPageID:        "page-2",
+		RunID:                  "run-1",
+	}))
+
+	// A second retire attempt against the same page — e.g. a different
+	// candidate lane re-discovering an already-merged page in the same
+	// curation round — must not silently succeed and wipe the successor: CAS
+	// on ExpectedBaseRevisionID alone would pass here since retiring never
+	// changes CurrentRevisionID, so an explicit already-retired guard is
+	// required.
+	err := s.repository.RetirePage(s.ctx, pagewiki.RetireRequest{
+		PageID:                 "page-1",
+		ExpectedBaseRevisionID: "rev-1",
+		SuccessorPageID:        "",
+		RunID:                  "run-2",
+	})
+	s.Require().ErrorIs(err, pagewiki.ErrRevisionConflict)
+
+	stored, err := s.repository.PageByID(s.ctx, "page-1")
+	s.Require().NoError(err)
+	s.Require().True(stored.Retired())
+	s.Require().Equal("page-2", stored.SuccessorPageID, "second retire must not overwrite the successor")
+	s.Require().Equal("run-1", stored.RetiredByRunID, "second retire must not overwrite the retiring run")
+}
+
 func (s *LifecycleSuite) TestGivenRetiredPageWhenUpdatePublishedThenConflict() {
 	page, revision := lifecyclePageFixture()
 	s.Require().NoError(s.repository.PublishPage(s.ctx, pagewiki.PagePublication{

@@ -224,6 +224,7 @@ func (s *curationAcceptanceSuite) TestGivenSkepticVerifyRefutesMergeThenNoWrites
 
 	s.Require().Equal(beforePages, s.repository.PageCount())
 	s.Require().Equal(beforeRevisions, s.repository.PageRevisionCount())
+	s.Require().False(service.TreeDirtyForTest(), "a refuted verdict must not mark the topic tree dirty")
 }
 
 func (s *curationAcceptanceSuite) TestGivenQualityCandidateWhenRetiredThenRevisionsStayIntact() {
@@ -345,6 +346,7 @@ func (s *curationAcceptanceSuite) TestGivenUnresolvableConflictWithNoDraftThenCa
 
 	s.Require().Equal(beforePages, s.repository.PageCount())
 	s.Require().Equal(beforeRevisions, s.repository.PageRevisionCount())
+	s.Require().False(service.TreeDirtyForTest(), "a degraded-to-keep candidate must not mark the topic tree dirty")
 }
 
 func (s *curationAcceptanceSuite) TestGivenUnchangedCatalogWhenRunTwiceThenSecondRunIsAnIdempotentSkip() {
@@ -439,7 +441,7 @@ func (s *curationAcceptanceSuite) TestGivenCASRaceOnSurvivorWhenExecutingMergeTh
 	s.Require().Len(run.Outcomes, 1)
 	outcome := run.Outcomes[0]
 	s.Require().Equal(pagewiki.TargetStatusFailed, outcome.Status)
-	s.Require().NotEmpty(outcome.Error)
+	s.Require().Contains(outcome.Error, pagewiki.ErrRevisionConflict.Error(), "the failure must specifically be a CAS/revision conflict")
 
 	loser, err := s.repository.PageByID(ctx, loserID)
 	s.Require().NoError(err)
@@ -479,6 +481,232 @@ func (s *curationAcceptanceSuite) TestGivenEmbedderFailureThenPairLaneIsEmptyBut
 	s.Require().Equal([]string{qualityPage.ID}, outcome.PageIDs)
 	s.Require().Equal(pagewiki.CurationVerdictKeep, outcome.Verdict)
 	s.Require().Equal(1, judgeCalls)
+}
+
+func (s *curationAcceptanceSuite) TestGivenTwoOrphanNearDuplicateStubsWhenMergedThenQualityLaneDoesNotRetireTheLoserAgain() {
+	ctx := context.Background()
+	titleA, summaryA, quoteA := "Deploy Stub", "A short deploy stub.", "The team picked Buildkite."
+	titleB, summaryB, quoteB := "Deployment Stub", "A short deployment stub.", "The team later confirmed Buildkite."
+	// Both pages are short-bodied and orphaned (no links either way), so
+	// each independently clears the quality lane's >=2-signal threshold —
+	// exactly the reviewer's repro: a page merged by the pair lane must not
+	// also be judged, and retired again, by the quality lane in the same
+	// round.
+	pageA := s.seedQualityPage("session-a", "deploy-stub", titleA, summaryA, quoteA)
+	pageB := s.seedQualityPage("session-b", "deployment-stub", titleB, summaryB, quoteB)
+
+	pairKey := pagewiki.PairKey(pageA.ID, pageB.ID)
+	var judgeCalls int
+	curator := pagewiki.ScriptedCurator{
+		PairVerdicts: map[string]pagewiki.PairVerdict{
+			pairKey: {
+				Verdict:   pagewiki.CurationVerdictMerge,
+				Rationale: "near-duplicate orphaned stubs",
+				Draft: &pagewiki.CurationDraft{
+					Title:   "Deploy Stub",
+					Summary: "Unified deploy stub.",
+					Sections: []pagewiki.SectionDraft{{
+						Key: "overview", Heading: "Overview", Markdown: "Unified stub body.",
+					}},
+				},
+			},
+		},
+		Verifies: map[string]pagewiki.VerifyVerdict{
+			pairKey:  {Refuted: false},
+			pageA.ID: {Refuted: false},
+			pageB.ID: {Refuted: false},
+		},
+		// Both pages also carry a Retire page-verdict: if the quality-lane
+		// exclusion regresses, the quality lane would judge and retire the
+		// already-merged loser a second time, wiping its SuccessorPageID.
+		PageVerdicts: map[string]pagewiki.PageVerdict{
+			pageA.ID: {Verdict: pagewiki.CurationVerdictRetire, Rationale: "would incorrectly re-retire after merge"},
+			pageB.ID: {Verdict: pagewiki.CurationVerdictRetire, Rationale: "would incorrectly re-retire after merge"},
+		},
+		JudgeCalls: &judgeCalls,
+	}
+	embedder := pagewiki.ScriptedEmbedder{Vectors: map[string][]float32{
+		titleA + "\n" + summaryA: embeddingVector(),
+		titleB + "\n" + summaryB: embeddingVector(),
+	}}
+	service := pagewiki.NewService(
+		s.repository, pagewiki.ScriptedPlanner{}, pagewiki.ScriptedEditor{},
+		pagewiki.WithCurator(curator, embedder, pagewiki.CurationConfig{}, nil),
+	)
+
+	run, err := service.RunCurationRound(ctx)
+	s.Require().NoError(err)
+	s.Require().Len(run.Outcomes, 1, "the quality lane must not independently judge either merged page")
+	outcome := run.Outcomes[0]
+	s.Require().Equal("pair", outcome.Kind)
+	s.Require().Equal(pagewiki.CurationVerdictMerge, outcome.Verdict)
+	s.Require().Equal(pagewiki.TargetStatusSucceeded, outcome.Status)
+	s.Require().Equal(1, judgeCalls, "only the pair judgement must have run")
+
+	survivorID, loserID := pageA.ID, pageB.ID
+	if pageB.ID < pageA.ID {
+		survivorID, loserID = pageB.ID, pageA.ID
+	}
+	loser, err := s.repository.PageByID(ctx, loserID)
+	s.Require().NoError(err)
+	s.Require().True(loser.Retired())
+	s.Require().Equal(survivorID, loser.SuccessorPageID, "the successor must survive a would-be conflicting second retire")
+	s.Require().Equal(run.ID, loser.RetiredByRunID)
+}
+
+func (s *curationAcceptanceSuite) TestGivenJudgeErrorThenCandidateDegradesImmediatelyWithExactlyOneJudgeCallAndNoWrites() {
+	ctx := context.Background()
+	page := s.seedQualityPage(
+		"session-judge-error", "judge-error-stub", "Judge Error Stub",
+		"A stub whose curator call always errors.", "Nothing about this stub needs to change.",
+	)
+
+	var judgeCalls int
+	curator := pagewiki.ScriptedCurator{
+		Errs:       map[string]error{page.ID: errors.New("curator backend unavailable")},
+		JudgeCalls: &judgeCalls,
+	}
+	beforePages := s.repository.PageCount()
+	beforeRevisions := s.repository.PageRevisionCount()
+
+	service := pagewiki.NewService(
+		s.repository, pagewiki.ScriptedPlanner{}, pagewiki.ScriptedEditor{},
+		pagewiki.WithCurator(curator, pagewiki.ScriptedEmbedder{}, pagewiki.CurationConfig{}, nil),
+	)
+	run, err := service.RunCurationRound(ctx)
+	s.Require().NoError(err)
+	s.Require().Len(run.Outcomes, 1)
+	outcome := run.Outcomes[0]
+	s.Require().Equal(pagewiki.CurationVerdictKeep, outcome.Verdict)
+	s.Require().Equal(pagewiki.TargetStatusFailed, outcome.Status)
+	s.Require().NotEmpty(outcome.Error)
+	s.Require().Equal(1, judgeCalls, "a judge error must degrade immediately: no adapter-owned retry belongs here")
+
+	s.Require().Equal(beforePages, s.repository.PageCount())
+	s.Require().Equal(beforeRevisions, s.repository.PageRevisionCount())
+}
+
+func (s *curationAcceptanceSuite) TestGivenAllFailedRoundWhenRerunWithWorkingCuratorThenItRejudgesAndSucceeds() {
+	ctx := context.Background()
+	page := s.seedQualityPage(
+		"session-retry", "retry-stub", "Retry Stub",
+		"A stub whose curator call fails once.", "Nothing about this stub needs to change yet.",
+	)
+
+	erroringCurator := pagewiki.ScriptedCurator{
+		Errs: map[string]error{page.ID: errors.New("curator backend unavailable")},
+	}
+	firstService := pagewiki.NewService(
+		s.repository, pagewiki.ScriptedPlanner{}, pagewiki.ScriptedEditor{},
+		pagewiki.WithCurator(erroringCurator, pagewiki.ScriptedEmbedder{}, pagewiki.CurationConfig{}, nil),
+	)
+	firstRun, err := firstService.RunCurationRound(ctx)
+	s.Require().NoError(err)
+	s.Require().Equal(pagewiki.RunStatusFailed, firstRun.Status)
+	s.Require().Len(firstRun.Outcomes, 1)
+	s.Require().Equal(pagewiki.TargetStatusFailed, firstRun.Outcomes[0].Status)
+
+	storedFailed, err := s.repository.CurationRun(ctx, firstRun.ID)
+	s.Require().NoError(err)
+	s.Require().Equal(pagewiki.RunStatusFailed, storedFailed.Status, "an all-failed round must still be persisted for audit")
+
+	workingCurator := pagewiki.ScriptedCurator{
+		PageVerdicts: map[string]pagewiki.PageVerdict{page.ID: {Verdict: pagewiki.CurationVerdictKeep}},
+	}
+	secondService := pagewiki.NewService(
+		s.repository, pagewiki.ScriptedPlanner{}, pagewiki.ScriptedEditor{},
+		pagewiki.WithCurator(workingCurator, pagewiki.ScriptedEmbedder{}, pagewiki.CurationConfig{}, nil),
+	)
+	secondRun, err := secondService.RunCurationRound(ctx)
+	s.Require().NoError(err)
+	s.Require().Equal(firstRun.ID, secondRun.ID, "the fingerprint is unchanged, so the run ID must match")
+	s.Require().Equal(pagewiki.RunStatusSucceeded, secondRun.Status)
+	s.Require().Len(secondRun.Outcomes, 1)
+	s.Require().Equal(pagewiki.TargetStatusSucceeded, secondRun.Outcomes[0].Status)
+
+	storedSucceeded, err := s.repository.CurationRun(ctx, secondRun.ID)
+	s.Require().NoError(err)
+	s.Require().Equal(pagewiki.RunStatusSucceeded, storedSucceeded.Status, "the successful re-run must overwrite the stored failed record")
+}
+
+func (s *curationAcceptanceSuite) TestGivenServiceWithoutCuratorWhenRunCurationRoundThenErrorNotPanic() {
+	ctx := context.Background()
+	service := pagewiki.NewService(s.repository, pagewiki.ScriptedPlanner{}, pagewiki.ScriptedEditor{})
+
+	s.Require().NotPanics(func() {
+		_, err := service.RunCurationRound(ctx)
+		s.Require().Error(err)
+	})
+}
+
+func (s *curationAcceptanceSuite) TestGivenEmbedderReturningWrongVectorCountThenPairLaneIsEmpty() {
+	ctx := context.Background()
+	titleA, summaryA, quoteA := "Deploy Pipeline", "How the deploy pipeline works.", "The team chose Buildkite for deploys."
+	titleB, summaryB, quoteB := "Deployment Pipeline", "How the deployment pipeline works.", "The team later confirmed Buildkite for prod releases."
+	s.seedPairPage("session-a", "deploy-pipeline", titleA, summaryA, quoteA)
+	s.seedPairPage("session-b", "deployment-pipeline", titleB, summaryB, quoteB)
+
+	service := pagewiki.NewService(
+		s.repository, pagewiki.ScriptedPlanner{}, pagewiki.ScriptedEditor{},
+		pagewiki.WithCurator(pagewiki.ScriptedCurator{}, shortEmbedder{}, pagewiki.CurationConfig{}, nil),
+	)
+
+	run, err := service.RunCurationRound(ctx)
+	s.Require().NoError(err)
+	s.Require().Empty(run.Outcomes, "a vector-count mismatch must disable the pair lane entirely, not partially")
+}
+
+func (s *curationAcceptanceSuite) TestGivenVerifyErrorThenVerdictIsTreatedAsRefuted() {
+	ctx := context.Background()
+	page := s.seedQualityPage(
+		"session-verify-err", "verify-err-stub", "Verify Err Stub",
+		"A stub the curator wants retired.", "Nothing here needs to change but the curator wants it retired.",
+	)
+
+	scripted := pagewiki.ScriptedCurator{
+		PageVerdicts: map[string]pagewiki.PageVerdict{
+			page.ID: {Verdict: pagewiki.CurationVerdictRetire, Rationale: "looks retireable"},
+		},
+	}
+	curator := erroringVerifyCurator{Curator: scripted, err: errors.New("skeptic unreachable")}
+	beforePages := s.repository.PageCount()
+
+	service := pagewiki.NewService(
+		s.repository, pagewiki.ScriptedPlanner{}, pagewiki.ScriptedEditor{},
+		pagewiki.WithCurator(curator, pagewiki.ScriptedEmbedder{}, pagewiki.CurationConfig{}, nil),
+	)
+	run, err := service.RunCurationRound(ctx)
+	s.Require().NoError(err)
+	s.Require().Len(run.Outcomes, 1)
+	outcome := run.Outcomes[0]
+	s.Require().True(outcome.Refuted, "a Verify error must be treated as a conservative refutation")
+	s.Require().Equal(pagewiki.TargetStatusSucceeded, outcome.Status)
+	s.Require().Equal(pagewiki.CurationVerdictRetire, outcome.Verdict)
+	s.Require().Equal(beforePages, s.repository.PageCount())
+	s.Require().False(service.TreeDirtyForTest())
+}
+
+// shortEmbedder always returns fewer vectors than texts requested,
+// regardless of input, to exercise curationVectors' length-mismatch guard.
+type shortEmbedder struct{}
+
+func (shortEmbedder) Embed(_ context.Context, texts []string) ([][]float32, error) {
+	if len(texts) == 0 {
+		return nil, nil
+	}
+	return [][]float32{{1, 0, 0}}, nil
+}
+
+// erroringVerifyCurator delegates JudgePair/JudgePage to the embedded
+// Curator and always fails Verify, to test that a Verify error is treated as
+// a conservative refutation independent of the underlying judge verdict.
+type erroringVerifyCurator struct {
+	pagewiki.Curator
+	err error
+}
+
+func (c erroringVerifyCurator) Verify(context.Context, pagewiki.VerifyInput) (pagewiki.VerifyVerdict, error) {
+	return pagewiki.VerifyVerdict{}, c.err
 }
 
 // racingCurator delegates JudgePair/JudgePage to the embedded Curator and

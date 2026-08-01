@@ -6,23 +6,26 @@ import (
 	"fmt"
 )
 
-// curatorAttempts is the total number of times a single JudgePair/JudgePage
-// call is attempted before the candidate degrades: one call plus one retry.
-// The adapter (a later task) owns LLM-level retries; this is a
-// candidate-isolation safety net around a single Curator call.
-const curatorAttempts = 2
-
 // RunCurationRound runs one curation pass over the Page catalog: it detects
 // duplicate-page and low-quality-page candidates, judges each with the
 // configured Curator, verifies destructive verdicts, and executes the ones
 // that survive. It is idempotent for an unchanged catalog: a round is keyed
 // by a fingerprint of the catalog's (pageID, currentRevisionID) pairs, and a
 // repeat call for the same fingerprint returns the stored run untouched,
-// without invoking the curator or embedder at all.
+// without invoking the curator or embedder at all — unless that stored run's
+// Status is RunStatusFailed, which is re-run rather than treated as a
+// permanent skip: an all-failed round (e.g. the curator was unreachable) must
+// not poison its fingerprint and block every future retry against an
+// unchanged catalog. All-failed runs are still persisted for audit; only the
+// idempotent-skip decision treats them as not-yet-succeeded.
 //
 // curationMu serializes rounds on this Service instance; a round is never
 // run concurrently with itself.
 func (s *Service) RunCurationRound(ctx context.Context) (CurationRun, error) {
+	if s.curator == nil || s.curationEmbedder == nil {
+		return CurationRun{}, errors.New("Page Wiki curation is not configured: use WithCurator")
+	}
+
 	s.curationMu.Lock()
 	defer s.curationMu.Unlock()
 
@@ -33,9 +36,9 @@ func (s *Service) RunCurationRound(ctx context.Context) (CurationRun, error) {
 	fingerprint := catalogFingerprint(catalog)
 	runID := stableID("curation-run", fingerprint)
 	switch existing, err := s.repository.CurationRun(ctx, runID); {
-	case err == nil:
+	case err == nil && existing.Status != RunStatusFailed:
 		return existing, nil
-	case !errors.Is(err, ErrNotFound):
+	case err != nil && !errors.Is(err, ErrNotFound):
 		return CurationRun{}, fmt.Errorf("load CurationRun: %w", err)
 	}
 
@@ -71,7 +74,29 @@ func (s *Service) RunCurationRound(ctx context.Context) (CurationRun, error) {
 
 	vectors := s.curationVectors(ctx, catalog)
 	pairs := duplicatePairs(catalog, vectors, tree, s.curationConfig.PairLimit)
-	quality := qualityCandidates(catalog, revisions, incomingLinks, s.curationConfig.PageLimit)
+
+	// A page the pair lane is already judging (and may merge, conflict, or
+	// leave in place) is excluded from the quality lane in the same round: a
+	// page the pair lane retires (as a merge loser) would otherwise still be
+	// a quality-lane candidate against the round-start snapshot, and its
+	// retire would pass repository CAS (retiring never changes
+	// CurrentRevisionID) and clobber the successor the pair lane just set.
+	touchedByPairs := make(map[string]struct{}, 2*len(pairs))
+	for _, pair := range pairs {
+		touchedByPairs[pair.AID] = struct{}{}
+		touchedByPairs[pair.BID] = struct{}{}
+	}
+	qualityCatalog := catalog
+	if len(touchedByPairs) > 0 {
+		qualityCatalog = make(PageCatalog, 0, len(catalog))
+		for _, entry := range catalog {
+			if _, touched := touchedByPairs[entry.ID]; touched {
+				continue
+			}
+			qualityCatalog = append(qualityCatalog, entry)
+		}
+	}
+	quality := qualityCandidates(qualityCatalog, revisions, incomingLinks, s.curationConfig.PageLimit)
 
 	changed := false
 	outcomes := make([]CurationOutcome, 0, len(pairs)+len(quality))
@@ -145,10 +170,14 @@ func (s *Service) curationVectors(ctx context.Context, catalog PageCatalog) map[
 		s.logger.Warn("Page Wiki curation embeddings skipped", "stage", "embed", "error", err)
 		return nil
 	}
+	if len(embedded) != len(texts) {
+		s.logger.Warn(
+			"Page Wiki curation embeddings skipped", "stage", "embed",
+			"error", fmt.Errorf("expected %d vectors, got %d", len(texts), len(embedded)),
+		)
+		return nil
+	}
 	for index, entry := range stale {
-		if index >= len(embedded) {
-			break
-		}
 		vector := embedded[index]
 		vectors[entry.ID] = vector
 		embedding := PageEmbedding{PageID: entry.ID, RevisionID: entry.CurrentRevisionID, Vector: vector}
@@ -207,7 +236,7 @@ func (s *Service) processPairCandidate(
 	viewA := s.curationPageView(entryA, revisionA, ordinals)
 	viewB := s.curationPageView(entryB, revisionB, ordinals)
 
-	verdict, err := s.judgePairWithRetry(ctx, PairJudgeInput{A: viewA, B: viewB, Directives: directives})
+	verdict, err := s.curator.JudgePair(ctx, PairJudgeInput{A: viewA, B: viewB, Directives: directives})
 	if err != nil {
 		return degradeToKeep(outcome, err), false
 	}
@@ -293,7 +322,7 @@ func (s *Service) processQualityCandidate(
 	revision := revisions[candidate.PageID]
 	view := s.curationPageView(entry, revision, ordinals)
 
-	verdict, err := s.judgePageWithRetry(ctx, PageJudgeInput{Page: view, Signals: candidate.Signals, Directives: directives})
+	verdict, err := s.curator.JudgePage(ctx, PageJudgeInput{Page: view, Signals: candidate.Signals, Directives: directives})
 	if err != nil {
 		return degradeToKeep(outcome, err), false
 	}
@@ -346,34 +375,6 @@ func (s *Service) processQualityCandidate(
 	default:
 		return degradeToKeep(outcome, fmt.Errorf("unexpected page verdict %q", verdict.Verdict)), false
 	}
-}
-
-// judgePairWithRetry calls Curator.JudgePair, retrying once (curatorAttempts
-// total) on error.
-func (s *Service) judgePairWithRetry(ctx context.Context, input PairJudgeInput) (PairVerdict, error) {
-	var verdict PairVerdict
-	var err error
-	for attempt := 0; attempt < curatorAttempts; attempt++ {
-		verdict, err = s.curator.JudgePair(ctx, input)
-		if err == nil {
-			return verdict, nil
-		}
-	}
-	return PairVerdict{}, err
-}
-
-// judgePageWithRetry calls Curator.JudgePage, retrying once (curatorAttempts
-// total) on error.
-func (s *Service) judgePageWithRetry(ctx context.Context, input PageJudgeInput) (PageVerdict, error) {
-	var verdict PageVerdict
-	var err error
-	for attempt := 0; attempt < curatorAttempts; attempt++ {
-		verdict, err = s.curator.JudgePage(ctx, input)
-		if err == nil {
-			return verdict, nil
-		}
-	}
-	return PageVerdict{}, err
 }
 
 // verifyDestructive asks the Curator to double-check a merge/conflict/retire

@@ -198,6 +198,13 @@ func (r *Repository) RetirePage(
 	if !found {
 		return fmt.Errorf("%w: Page %q", pagewiki.ErrNotFound, request.PageID)
 	}
+	if page.Retired() {
+		return fmt.Errorf(
+			"retire Page %q: %w: page is already retired",
+			request.PageID,
+			pagewiki.ErrRevisionConflict,
+		)
+	}
 	if page.CurrentRevisionID != request.ExpectedBaseRevisionID {
 		return fmt.Errorf(
 			"retire Page %q: %w: revision changed",
@@ -819,13 +826,22 @@ func (r *Repository) MaintenanceRun(
 	return cloneRun(run), nil
 }
 
+// SaveCurationRun is immutable for a completed run (a stored run whose
+// Status is not "failed" may not be overwritten with different content) but
+// tolerates replacing an all-failed run: an all-failed round is deliberately
+// re-run against the same (catalog-derived) run ID rather than treated as a
+// permanent skip, so its record must be replaceable once a later attempt
+// against the same unchanged catalog produces a different (possibly
+// successful) outcome.
 func (r *Repository) SaveCurationRun(
 	_ context.Context,
 	run pagewiki.CurationRun,
 ) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if existing, found := r.curationRuns[run.ID]; found && !reflect.DeepEqual(existing, run) {
+	if existing, found := r.curationRuns[run.ID]; found &&
+		existing.Status != pagewiki.RunStatusFailed &&
+		!reflect.DeepEqual(existing, run) {
 		return fmt.Errorf("%w: CurationRun %q", pagewiki.ErrImmutableConflict, run.ID)
 	}
 	r.curationRuns[run.ID] = cloneCurationRun(run)
