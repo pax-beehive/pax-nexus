@@ -184,17 +184,22 @@ export function WikiStatusPage({ me }: { me: HumanMe }) {
   };
 
   const confirmRebuild = async () => {
+    const since = rebuildSince
+      ? new Date(`${rebuildSince}T00:00:00`).toISOString()
+      : undefined;
     setBusy(true);
-    setMessage("");
+    // Close before awaiting: the rebuild endpoint queues behind any
+    // in-flight injection sweep and can take minutes to answer. The dialog
+    // must not hold the page hostage while it waits; busy keeps the
+    // ingestion-card controls disabled until the server confirms.
+    closeRebuild();
+    setMessage("Reset & rebuild triggered. Waiting for the server to clear the wiki…");
     try {
-      const since = rebuildSince
-        ? new Date(`${rebuildSince}T00:00:00`).toISOString()
-        : undefined;
       const updated = await rebuildWiki(beginAction(), since);
       setAutoInject(updated.auto_inject);
-      closeRebuild();
       setMessage("Wiki cleared. Rebuilding from Session Lake…");
     } catch (error) {
+      setMessage("");
       handleError(error);
     } finally {
       setBusy(false);
