@@ -40,6 +40,19 @@ type Service struct {
 	treeQuiet     time.Duration
 	treeMaxWait   time.Duration
 	treeReindexMu sync.Mutex
+
+	curator          Curator
+	curationEmbedder TextEmbedder
+	curationConfig   CurationConfig
+	curationMu       sync.Mutex
+}
+
+// CurationConfig controls the Page Wiki curation round: candidate limits and
+// (in a later task) the background loop interval.
+type CurationConfig struct {
+	Interval  time.Duration // 0 disables the background loop (Task 8)
+	PairLimit int           // 0 → curationDefaultPairLimit
+	PageLimit int           // 0 → curationDefaultPageLimit
 }
 
 type ServiceOption func(*Service)
@@ -53,6 +66,33 @@ type ServiceOption func(*Service)
 func WithTreeIndexer(indexer TreeIndexer, logger *slog.Logger) ServiceOption {
 	return func(s *Service) {
 		s.treeIndexer = indexer
+		if logger != nil {
+			s.logger = logger
+		}
+	}
+}
+
+// WithCurator enables Page Wiki curation rounds: RunCurationRound judges
+// duplicate-page and low-quality-page candidates and executes the verdicts
+// it accepts. PairLimit/PageLimit zero-values fall back to
+// curationDefaultPairLimit/curationDefaultPageLimit; Interval is stored for
+// the background loop a later task adds and otherwise ignored here.
+func WithCurator(
+	curator Curator,
+	embedder TextEmbedder,
+	config CurationConfig,
+	logger *slog.Logger,
+) ServiceOption {
+	return func(s *Service) {
+		s.curator = curator
+		s.curationEmbedder = embedder
+		if config.PairLimit <= 0 {
+			config.PairLimit = curationDefaultPairLimit
+		}
+		if config.PageLimit <= 0 {
+			config.PageLimit = curationDefaultPageLimit
+		}
+		s.curationConfig = config
 		if logger != nil {
 			s.logger = logger
 		}
