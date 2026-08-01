@@ -112,6 +112,38 @@ func (s *llmSessionPlannerSuite) TestRemapsCreateToUpdateWhenSlugMatchesCatalog(
 	s.Empty(update.ProposedTitle)
 }
 
+func (s *llmSessionPlannerSuite) TestRemapsCreateToUpdateEvenWithSentenceShapedTitle() {
+	sentenceTitle := "Fixing the planner so that xanadu links are created on the LLM planner path"
+	client := &wikiChatClient{responsesByIndex: []string{fmt.Sprintf(`{"briefs":[
+		{"action":"create","proposed_slug":"Existing  Page","proposed_title":%q,
+		 "reader_goal":"Refresh the existing page.","topic_path":["Engineering"],
+		 "evidence":[{"event_id":"event-1","exact_quote":"decision:"}]}
+	]}`, sentenceTitle)}}
+	planner, err := pagewiki.NewLLMSessionPlanner(pagewiki.LLMPlannerConfig{
+		Client: client, Model: "test-model",
+	})
+	s.Require().NoError(err)
+
+	briefs, err := planner.Plan(context.Background(), pagewiki.PlanInput{
+		SourceRevision: plannerRevision(),
+		PageCatalog: pagewiki.PageCatalog{{
+			ID: "page-1", Slug: "existing-page", Title: "Existing Page",
+			CurrentRevisionID: "revision-1",
+		}},
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(briefs, 1)
+
+	update := briefs[0]
+	s.Equal(pagewiki.PageActionUpdate, update.Action)
+	s.Equal("existing-page", update.Key)
+	s.Equal("page-1", update.TargetPageID)
+	s.Equal("revision-1", update.ExpectedBaseRevisionID)
+	s.Empty(update.ProposedSlug)
+	s.Empty(update.ProposedTitle)
+}
+
 func (s *llmSessionPlannerSuite) TestDropsLaterQuoteThatDuplicatesAnAcceptedQuoteAcrossEvents() {
 	eventOneContent := "Team ships weekly. ship weekly cadence recorded here."
 	eventTwoContent := "Second mention of ship weekly cadence appears here."
@@ -493,6 +525,31 @@ func (s *llmSessionPlannerSuite) TestRejectsSentenceShapedTitles() {
 	s.Require().Len(briefs, 1)
 	s.Equal("nine-word-title", briefs[0].ProposedSlug)
 	s.Equal("One Two Three Four Five Six Seven Eight Nine", briefs[0].ProposedTitle)
+}
+
+func (s *llmSessionPlannerSuite) TestRejectsTitlesPastTheExactRuneCap() {
+	exactly80Runes := strings.Repeat("a", 80) // at the cap: one word, passes
+	exactly81Runes := strings.Repeat("a", 81) // one over the cap: rejected
+	client := &wikiChatClient{responsesByIndex: []string{fmt.Sprintf(`{"briefs":[
+		{"action":"create","proposed_slug":"eighty-rune-title","proposed_title":%q,
+		 "evidence":[{"event_id":"event-1","exact_quote":"decision:"}]},
+		{"action":"create","proposed_slug":"eighty-one-rune-title","proposed_title":%q,
+		 "evidence":[{"event_id":"event-1","exact_quote":"decision:"}]}
+	]}`, exactly80Runes, exactly81Runes)}}
+	planner, err := pagewiki.NewLLMSessionPlanner(pagewiki.LLMPlannerConfig{
+		Client: client, Model: "test-model",
+	})
+	s.Require().NoError(err)
+
+	briefs, err := planner.Plan(context.Background(), pagewiki.PlanInput{
+		SourceRevision: plannerRevision(),
+	})
+
+	// The 80-rune title is exactly at the cap and survives; 81 runes drops the brief.
+	s.Require().NoError(err)
+	s.Require().Len(briefs, 1)
+	s.Equal("eighty-rune-title", briefs[0].ProposedSlug)
+	s.Equal(exactly80Runes, briefs[0].ProposedTitle)
 }
 
 func (s *llmSessionPlannerSuite) TestPlannerPromptPinsConceptIdentityAndTitleStyle() {

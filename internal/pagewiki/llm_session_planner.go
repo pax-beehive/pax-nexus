@@ -250,12 +250,15 @@ func acceptBrief(candidate llmPlanBrief, input PlanInput) (PageBrief, bool) {
 		slug := strings.Trim(nonSlugCharacter.ReplaceAllString(
 			strings.ToLower(candidate.ProposedSlug), "-",
 		), "-")
-		title := normalizeProposedTitle(candidate.ProposedTitle)
-		if slug == "" || title == "" {
+		if slug == "" {
 			return PageBrief{}, false
 		}
 		if page, found := catalogBySlug(input.PageCatalog, slug); found {
 			return updateBrief(page, candidate, eventIDs, evidence), true
+		}
+		title := normalizeProposedTitle(candidate.ProposedTitle)
+		if title == "" {
+			return PageBrief{}, false
 		}
 		return PageBrief{
 			Key: slug, Action: PageActionCreate,
