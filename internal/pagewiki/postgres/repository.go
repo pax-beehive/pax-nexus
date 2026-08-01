@@ -438,15 +438,30 @@ func (r *Repository) MaintenanceRun(ctx context.Context, id string) (pagewiki.Ma
 }
 
 // SaveCurationRun delegates to the in-memory repository so it validates
-// immutability, then persists the run for hydration replay.
+// immutability/resave legality first, then upserts the run for hydration
+// replay: the memory layer accepts a same-ID resave only when the stored
+// run's Status was failed (a re-run against an unchanged catalog fingerprint,
+// e.g. after a transient curator outage), so any write that reaches this
+// point is legitimate to persist even when a row already exists. DO NOTHING
+// would silently drop that resave, leaving the stale failed payload in
+// place; hydration would then replay it back into memory on the next
+// restart, reverting an otherwise-durable success to failed forever.
 func (r *Repository) SaveCurationRun(ctx context.Context, run pagewiki.CurationRun) error {
 	if err := r.memory.SaveCurationRun(ctx, run); err != nil {
 		return err
 	}
-	return r.insertJSON(ctx, `
+	payload, err := json.Marshal(run)
+	if err != nil {
+		return fmt.Errorf("marshal Page Wiki record %q: %w", run.ID, err)
+	}
+	if _, err := r.pool.Exec(ctx, `
 INSERT INTO pagewiki_curation_runs (scope_id, run_id, payload)
 VALUES ($1, $2, $3)
-ON CONFLICT (scope_id, run_id) DO NOTHING`, run.ID, run)
+ON CONFLICT (scope_id, run_id) DO UPDATE
+SET payload = EXCLUDED.payload, created_at = NOW()`, r.scopeID, run.ID, payload); err != nil {
+		return fmt.Errorf("persist Page Wiki record %q: %w", run.ID, err)
+	}
+	return nil
 }
 
 // CurationRun reads from the in-memory repository, which is hydrated from

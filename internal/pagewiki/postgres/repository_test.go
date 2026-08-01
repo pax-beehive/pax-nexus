@@ -275,6 +275,58 @@ func (s *repositorySuite) TestCurationRunAndPageEmbeddingSurviveRehydration() {
 	s.Require().Equal(embedding, embeddings[0])
 }
 
+// TestCurationRunResaveAfterFailurePersistsAcrossRehydration guards against a
+// regression where SaveCurationRun's SQL used ON CONFLICT DO NOTHING: a
+// same-run-ID resave (which the memory layer only permits when the
+// previously stored run's Status was failed — see RunCurationRound's
+// idempotent-skip semantics) would silently drop, leaving the stale failed
+// payload in place. On the next hydration that stale row would replay back
+// into memory, reverting an otherwise-durable success to failed forever.
+func (s *repositorySuite) TestCurationRunResaveAfterFailurePersistsAcrossRehydration() {
+	repository, err := pagewikipostgres.NewRepository(s.ctx, s.store.Pool(), s.scopeID)
+	s.Require().NoError(err)
+
+	failedRun := pagewiki.CurationRun{
+		ID:          "curation-run-retry",
+		Fingerprint: "fingerprint-retry",
+		Status:      pagewiki.RunStatusFailed,
+		Outcomes: []pagewiki.CurationOutcome{
+			{
+				Kind:    "page",
+				PageIDs: []string{"page-1"},
+				Verdict: pagewiki.CurationVerdictKeep,
+				Status:  pagewiki.TargetStatusFailed,
+				Error:   "curator backend unavailable",
+			},
+		},
+	}
+	s.Require().NoError(repository.SaveCurationRun(s.ctx, failedRun))
+
+	succeededRun := pagewiki.CurationRun{
+		ID:          failedRun.ID,
+		Fingerprint: failedRun.Fingerprint,
+		Status:      pagewiki.RunStatusSucceeded,
+		Outcomes: []pagewiki.CurationOutcome{
+			{
+				Kind:    "page",
+				PageIDs: []string{"page-1"},
+				Verdict: pagewiki.CurationVerdictKeep,
+				Status:  pagewiki.TargetStatusSucceeded,
+			},
+		},
+	}
+	s.Require().NoError(repository.SaveCurationRun(s.ctx, succeededRun))
+
+	reopened, err := pagewikipostgres.NewRepository(s.ctx, s.store.Pool(), s.scopeID)
+	s.Require().NoError(err)
+
+	storedRun, err := reopened.CurationRun(s.ctx, failedRun.ID)
+	s.Require().NoError(err)
+	s.Require().Equal(pagewiki.RunStatusSucceeded, storedRun.Status,
+		"the resaved successful run must survive rehydration, not revert to the stale failed payload")
+	s.Require().Equal(succeededRun, storedRun)
+}
+
 func (s *repositorySuite) TestRebuildClearsLifecycleCurationAndEmbeddingTables() {
 	repository, err := pagewikipostgres.NewRepository(s.ctx, s.store.Pool(), s.scopeID)
 	s.Require().NoError(err)
