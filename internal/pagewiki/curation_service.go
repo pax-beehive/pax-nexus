@@ -23,7 +23,7 @@ import (
 // curationMu serializes rounds on this Service instance; a round is never
 // run concurrently with itself.
 func (s *Service) RunCurationRound(ctx context.Context) (CurationRun, error) {
-	if s.curator == nil || s.curationEmbedder == nil {
+	if s.curator == nil {
 		return CurationRun{}, errors.New("Page Wiki curation is not configured: use WithCurator")
 	}
 
@@ -165,8 +165,15 @@ func (s *Service) StartCurationMaintenance(ctx context.Context) {
 // batch call. On any load or embed failure, the pair lane is disabled for
 // this round: it logs a warning and returns nil rather than a partial map, so
 // duplicatePairs never mixes freshly embedded and stale-but-cached vectors
-// with vectors it never got a chance to refresh.
+// with vectors it never got a chance to refresh. When no embedder was
+// configured (WithCurator was called with a nil embedder), the pair lane is
+// disabled the same way: this is the "embedding service unavailable" case,
+// and only the quality lane needs to keep running.
 func (s *Service) curationVectors(ctx context.Context, catalog PageCatalog) map[string][]float32 {
+	if s.curationEmbedder == nil {
+		s.logger.Warn("Page Wiki curation embeddings skipped", "stage", "embed", "error", "no embedder configured")
+		return nil
+	}
 	cached, err := s.repository.PageEmbeddings(ctx)
 	if err != nil {
 		s.logger.Warn("Page Wiki curation embeddings skipped", "stage", "load cache", "error", err)

@@ -262,6 +262,48 @@ func (s *curationAcceptanceSuite) TestGivenQualityCandidateWhenRetiredThenRevisi
 	s.Require().True(service.TreeDirtyForTest())
 }
 
+// TestGivenNilEmbedderThenQualityLaneStillRunsWithEmptyPairLane covers the
+// "embedding service unavailable" degradation: WithCurator is given a nil
+// TextEmbedder (what buildEmbedder returns when embedding env is unset), so
+// the pair lane has no vectors to work with and produces no pair candidates,
+// but the quality lane — which needs no embeddings — still judges and
+// retires a low-quality orphan page, and the round is saved normally.
+func (s *curationAcceptanceSuite) TestGivenNilEmbedderThenQualityLaneStillRunsWithEmptyPairLane() {
+	ctx := context.Background()
+	badTitle := "This orphaned page has a title that reads like a full sentence instead of a concept"
+	page := s.seedQualityPage("session-no-embedder", "no-embedder-stub", badTitle, "A short orphaned stub.", "The stub was never linked from anywhere.")
+
+	curator := pagewiki.ScriptedCurator{
+		PageVerdicts: map[string]pagewiki.PageVerdict{
+			page.ID: {Verdict: pagewiki.CurationVerdictRetire, Rationale: "orphaned low-quality stub"},
+		},
+		Verifies: map[string]pagewiki.VerifyVerdict{page.ID: {Refuted: false}},
+	}
+
+	s.Require().NotPanics(func() {
+		service := pagewiki.NewService(
+			s.repository, pagewiki.ScriptedPlanner{}, pagewiki.ScriptedEditor{},
+			pagewiki.WithCurator(curator, nil, pagewiki.CurationConfig{}, nil),
+		)
+		run, err := service.RunCurationRound(ctx)
+		s.Require().NoError(err)
+		s.Require().Equal(pagewiki.RunStatusSucceeded, run.Status)
+		s.Require().Len(run.Outcomes, 1)
+		outcome := run.Outcomes[0]
+		s.Require().Equal(pagewiki.CurationVerdictRetire, outcome.Verdict)
+		s.Require().Equal(pagewiki.TargetStatusSucceeded, outcome.Status)
+		s.Require().False(outcome.Refuted)
+
+		retired, err := s.repository.PageByID(ctx, page.ID)
+		s.Require().NoError(err)
+		s.Require().True(retired.Retired())
+
+		storedRun, err := s.repository.CurationRun(ctx, run.ID)
+		s.Require().NoError(err)
+		s.Require().Equal(run, storedRun)
+	})
+}
+
 func (s *curationAcceptanceSuite) TestGivenQualityCandidateWhenRewrittenThenNewRevisionCarriesAnchorsAndSlugStaysStable() {
 	ctx := context.Background()
 	badTitle := "This orphaned page has a title that reads like a full sentence instead of a concept"

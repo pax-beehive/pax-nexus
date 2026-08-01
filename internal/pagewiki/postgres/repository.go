@@ -496,8 +496,10 @@ SET payload = EXCLUDED.payload, updated_at = NOW()`, r.scopeID, embedding.PageID
 	return nil
 }
 
-// SourceRevisionOrdinals delegates to the in-memory repository so the
-// interface is satisfied; Task 3 adds persistence and hydration replay.
+// SourceRevisionOrdinals delegates to the in-memory repository, which
+// derives ordinals from the created_at replay order of
+// pagewiki_source_revisions during hydration; there is no separate
+// persistence for ordinals, nor is one needed.
 func (r *Repository) SourceRevisionOrdinals(ctx context.Context) (map[string]int, error) {
 	return r.memory.SourceRevisionOrdinals(ctx)
 }

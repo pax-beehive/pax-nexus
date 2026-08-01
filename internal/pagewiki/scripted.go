@@ -59,25 +59,6 @@ func (e ScriptedEditor) Edit(
 	return draft, nil
 }
 
-type ScriptedTreeIndexer struct {
-	Tree     TopicTree
-	Err      error
-	Captured *TreeIndexInput
-}
-
-func (t ScriptedTreeIndexer) Index(
-	_ context.Context,
-	input TreeIndexInput,
-) (TopicTree, error) {
-	if t.Captured != nil {
-		*t.Captured = input
-	}
-	if t.Err != nil {
-		return TopicTree{}, t.Err
-	}
-	return t.Tree, nil
-}
-
 type ScriptedCurator struct {
 	PairVerdicts map[string]PairVerdict // key: sorted "idA|idB"
 	PageVerdicts map[string]PageVerdict // key: pageID
