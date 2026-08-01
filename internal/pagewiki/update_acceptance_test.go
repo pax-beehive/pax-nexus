@@ -2,6 +2,7 @@ package pagewiki_test
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -150,6 +151,65 @@ func (s *UpdateAcceptanceSuite) TestGivenCompletedInjectionWhenRetriedThenItIsId
 	s.Require().Equal(2, s.repository.PageCount())
 	s.Require().Equal(2, s.repository.PageRevisionCount())
 	s.Require().Equal(1, s.repository.MaintenanceRunCount())
+}
+
+func (s *UpdateAcceptanceSuite) TestGivenFailedInjectionWhenRetriedThenItRunsAgain() {
+	request := multiPageSource()
+	request.IdempotencyKey = "multi-page-injection"
+	editorDown := errors.New("decode Page Wiki LLM response: unexpected end of JSON input")
+	broken := pagewiki.NewService(
+		s.repository,
+		pagewiki.ScriptedPlanner{Briefs: multiPageBriefs()},
+		pagewiki.ScriptedEditor{Errors: map[string]error{
+			"sqlite": editorDown, "wiki-search": editorDown,
+		}},
+	)
+	first, err := broken.InjectSession(s.ctx, request)
+	s.Require().NoError(err)
+	s.Require().Equal(pagewiki.RunStatusFailed, first.Run.Status)
+
+	healed := pagewiki.NewService(
+		s.repository,
+		pagewiki.ScriptedPlanner{Briefs: multiPageBriefs()},
+		pagewiki.ScriptedEditor{Drafts: multiPageDrafts(false)},
+	)
+	second, err := healed.InjectSession(s.ctx, request)
+
+	s.Require().NoError(err)
+	s.Require().Equal(pagewiki.RunStatusSucceeded, second.Run.Status)
+	s.Require().Equal(first.Run.ID, second.Run.ID)
+	s.Require().Equal(2, s.repository.PageCount())
+	s.Require().Equal(1, s.repository.MaintenanceRunCount())
+}
+
+func (s *UpdateAcceptanceSuite) TestGivenPartialSuccessInjectionWhenRetriedThenItRunsAgain() {
+	request := multiPageSource()
+	request.IdempotencyKey = "multi-page-injection"
+	broken := pagewiki.NewService(
+		s.repository,
+		pagewiki.ScriptedPlanner{Briefs: multiPageBriefs()},
+		pagewiki.ScriptedEditor{
+			Drafts: multiPageDrafts(false),
+			Errors: map[string]error{
+				"wiki-search": errors.New("decode Page Wiki LLM response: unexpected end of JSON input"),
+			},
+		},
+	)
+	first, err := broken.InjectSession(s.ctx, request)
+	s.Require().NoError(err)
+	s.Require().Equal(pagewiki.RunStatusPartialSuccess, first.Run.Status)
+
+	healed := pagewiki.NewService(
+		s.repository,
+		pagewiki.ScriptedPlanner{Briefs: multiPageBriefs()},
+		pagewiki.ScriptedEditor{Drafts: multiPageDrafts(false)},
+	)
+	second, err := healed.InjectSession(s.ctx, request)
+
+	s.Require().NoError(err)
+	s.Require().Equal(pagewiki.RunStatusSucceeded, second.Run.Status)
+	s.Require().Equal(first.Run.ID, second.Run.ID)
+	s.Require().Equal(2, s.repository.PageCount())
 }
 
 func (s *UpdateAcceptanceSuite) TestGivenEquivalentUpdateWhenInjectedThenNoRevisionIsAdded() {

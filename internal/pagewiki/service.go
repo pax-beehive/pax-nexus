@@ -139,15 +139,15 @@ func (s *Service) InjectSession(
 		sourceRevision.ID,
 		strings.TrimSpace(request.IdempotencyKey),
 	)
-	existingRun, err := s.repository.MaintenanceRun(ctx, runID)
-	switch {
-	case err == nil:
+	existingRun, done, err := s.succeededRun(ctx, runID)
+	if err != nil {
+		return InjectResult{}, err
+	}
+	if done {
 		return InjectResult{
 			SourceRevisionID: sourceRevision.ID,
 			Run:              existingRun,
 		}, nil
-	case !errors.Is(err, ErrNotFound):
-		return InjectResult{}, fmt.Errorf("load MaintenanceRun: %w", err)
 	}
 	catalog, err := s.repository.PageCatalog(ctx)
 	if err != nil {
@@ -211,6 +211,25 @@ func (s *Service) InjectSession(
 		SourceRevisionID: sourceRevision.ID,
 		Run:              run,
 	}, nil
+}
+
+// succeededRun loads runID and reports whether it already completed
+// successfully — only that satisfies the idempotency check. Failed and
+// partial_success runs report false so the injection runs again: the
+// consumer retries on non-succeeded statuses, and returning the stored run
+// would pin the failure forever without ever re-running the injection.
+func (s *Service) succeededRun(
+	ctx context.Context,
+	runID string,
+) (MaintenanceRun, bool, error) {
+	run, err := s.repository.MaintenanceRun(ctx, runID)
+	switch {
+	case errors.Is(err, ErrNotFound):
+		return MaintenanceRun{}, false, nil
+	case err != nil:
+		return MaintenanceRun{}, false, fmt.Errorf("load MaintenanceRun: %w", err)
+	}
+	return run, run.Status == RunStatusSucceeded, nil
 }
 
 // GenerationSettings returns the team's stored Page Wiki generation
@@ -680,9 +699,24 @@ func (s *Service) resolvePage(
 				}
 				return &existing, &revision, true, nil
 			}
-			// Slug is taken by an active Page: keep today's behavior and
-			// mint a fresh Page below; the slug conflict surfaces as a
-			// publication failure at commit, same as before this change.
+			if existing.ID == stableID("page", sourceRevisionID, brief.Key) {
+				// This active Page was created by an earlier attempt of the
+				// same idempotent run (same source and brief key mint the
+				// same Page ID). The retry must update it in place: minting
+				// a fresh Page would only conflict at publish and pin the
+				// run in partial_success forever.
+				revision, revErr := s.repository.PageRevision(ctx, existing.CurrentRevisionID)
+				if revErr != nil {
+					return nil, nil, false, fmt.Errorf(
+						"load retried Page current PageRevision: %w",
+						revErr,
+					)
+				}
+				return &existing, &revision, false, nil
+			}
+			// Slug is taken by an unrelated active Page: keep today's
+			// behavior and mint a fresh Page below; the slug conflict
+			// surfaces as a publication failure at commit, same as before.
 		case !errors.Is(err, ErrNotFound):
 			return nil, nil, false, fmt.Errorf("load Page by slug: %w", err)
 		}
