@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { apiError } from "../api/client";
 import { claimBootstrap } from "../api/actions";
 import { useAuth } from "../auth/AuthContext";
+import { Button } from "../components/Button";
 import { useToast } from "../components/Toasts";
 
 /**
@@ -60,12 +61,12 @@ export function BootstrapPage() {
           autoComplete="off"
         />
         <div style={{ marginTop: 14 }} className="row">
-          <button className="btn primary" disabled={!secret || busy} onClick={() => void claim()}>
+          <Button variant="primary" disabled={!secret || busy} onClick={() => void claim()}>
             {busy ? "Claiming…" : "Claim Owner"}
-          </button>
-          <button className="btn ghost" onClick={() => navigate("/")}>
+          </Button>
+          <Button variant="ghost" onClick={() => navigate("/")}>
             Back
-          </button>
+          </Button>
         </div>
         <p className="small faint" style={{ marginTop: 12 }}>
           Once claimed, bootstrap is permanently closed and the legacy static Admin key stops working. If multiple

@@ -31,7 +31,7 @@ describe("wiki browse route", () => {
     // No portal navigation: the shell's nav links must not render.
     expect(screen.queryByText("My Agents")).toBeNull();
     // Back link to the portal status page is present.
-    expect(screen.getByRole("link", { name: /back to portal/i })).toBeTruthy();
+    expect(screen.getByRole("link", { name: /all apps/i })).toBeTruthy();
     // Selecting the first page rewrote the URL under /wiki/browse.
     expect(window.location.pathname).toBe("/wiki/browse");
     expect(window.location.search).toBe("?page=alpha");

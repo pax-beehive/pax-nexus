@@ -1,5 +1,6 @@
 import { isInternalPath, peekPendingInvitation, saveReturnUrl } from "../lib/continuations";
 import { useAuth } from "../auth/AuthContext";
+import { Button } from "../components/Button";
 
 /**
  * Login is a top-level navigation to /v1/auth/login (302 to the OIDC
@@ -26,19 +27,19 @@ export function LoginPage() {
         {hasInvitation && (
           <div className="note">Your invitation continuation is preserved (sessionStorage); after signing in you will return to the invitation acceptance flow.</div>
         )}
-        <button
-          className="btn primary"
+        <Button
+          variant="primary"
           style={{ width: "100%", justifyContent: "center", padding: 10 }}
           onClick={startOidcLogin}
         >
           Continue with OIDC →
-        </button>
+        </Button>
         <p className="small faint" style={{ marginTop: 14 }}>
           Top-level navigation <code>GET /v1/auth/login</code> (302 → OIDC Provider), not a fetch call
         </p>
-        <button className="btn ghost sm" onClick={() => void refresh()}>
+        <Button variant="ghost" size="sm" onClick={() => void refresh()}>
           Already signed in? Click to retry
-        </button>
+        </Button>
       </div>
     </div>
   );

@@ -16,6 +16,7 @@ import { useErrorHandler } from "../lib/useErrorHandler";
 import { formatTime } from "../lib/format";
 import { validateDeviceName } from "../lib/validation";
 import { Badge } from "../components/Badge";
+import { Button } from "../components/Button";
 import { Modal } from "../components/Modal";
 import { PagedListCard } from "../components/PagedListCard";
 import { SecretCard } from "../components/SecretCard";
@@ -100,12 +101,12 @@ function CreateDeviceEnrollmentModal({
         record was created.
       </div>
       <div className="row" style={{ justifyContent: "flex-end" }}>
-        <button className="btn ghost" onClick={onClose} disabled={busy}>
+        <Button variant="ghost" onClick={onClose} disabled={busy}>
           Cancel
-        </button>
-        <button className="btn primary" disabled={busy} onClick={() => void submit()}>
+        </Button>
+        <Button variant="primary" disabled={busy} onClick={() => void submit()}>
           {busy ? "Creating…" : "Create"}
-        </button>
+        </Button>
       </div>
     </Modal>
   );
@@ -152,14 +153,14 @@ export function AdminDevicesPage() {
       <div className="page-head">
         <div>
           <h1>Devices</h1>
-          <p className="muted" style={{ margin: 0 }}>
+          <p className="muted flush">
             Machine-level onboarding: one Device Enrollment provisions an entire machine, and the
             Agents on it self-mint Credentials
           </p>
         </div>
-        <button className="btn primary" onClick={() => setCreateOpen(true)}>
+        <Button variant="primary" onClick={() => setCreateOpen(true)}>
           + Create Device Enrollment
-        </button>
+        </Button>
       </div>
 
       {secret && (
@@ -174,8 +175,8 @@ export function AdminDevicesPage() {
               : "The token is never written to durable storage, logs, or analytics. If it is lost, you can only revoke the Device and create a new enrollment; run paxl device connect on the target machine to finish onboarding."
           }
           extraActions={
-            <button
-              className="btn sm"
+            <Button
+              size="sm"
               onClick={() => {
                 const command = deviceConnectCommand(
                   secret.token,
@@ -189,13 +190,13 @@ export function AdminDevicesPage() {
               }}
             >
               Copy client command
-            </button>
+            </Button>
           }
           onClose={() => setSecret(undefined)}
         />
       )}
 
-      <div className="tabs" role="group" aria-label="device status">
+      <div className="seg" role="group" aria-label="device status">
         {STATUS_FILTERS.map((s) => (
           <button
             key={s}

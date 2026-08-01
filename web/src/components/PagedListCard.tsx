@@ -6,6 +6,7 @@
 
 import type { ReactNode } from "react";
 import type { PagedList } from "../lib/usePagedList";
+import { Button } from "./Button";
 
 interface PagedListCardProps<T> {
   /** The usePagedList result driving this table. */
@@ -22,15 +23,11 @@ interface PagedListCardProps<T> {
 
 function ErrorNotice({ message, onRetry }: { message: string; onRetry: () => void }) {
   return (
-    <div
-      className="note bad row"
-      role="alert"
-      style={{ justifyContent: "space-between", alignItems: "center" }}
-    >
+    <div className="note bad row between" role="alert">
       <span>{message}</span>
-      <button className="btn sm" onClick={onRetry}>
+      <Button size="sm" onClick={onRetry}>
         Retry
-      </button>
+      </Button>
     </div>
   );
 }
@@ -96,9 +93,9 @@ export function PagedListCard<T>({
           same retry. */}
       {list.nextCursor && !(list.error && list.items.length > 0) ? (
         <div style={{ marginTop: 12, textAlign: "center" }}>
-          <button className="btn sm" disabled={list.loadingMore} onClick={() => void list.loadMore()}>
+          <Button size="sm" disabled={list.loadingMore} onClick={() => void list.loadMore()}>
             {list.loadingMore ? "Loading…" : "Load more"}
-          </button>
+          </Button>
         </div>
       ) : null}
     </div>

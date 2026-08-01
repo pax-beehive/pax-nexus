@@ -9,6 +9,7 @@
 // or raw query/hit content.
 
 import { Component, type ReactNode } from "react";
+import { Button } from "./Button";
 
 interface ErrorBoundaryProps {
   /** Short region name used in the log line ("app", "route", "modal"). */
@@ -55,9 +56,9 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
               The interface hit an unexpected error; no changes were made. Reloading usually
               recovers it — if the problem persists, contact your administrator.
             </p>
-            <button className="btn primary" onClick={() => window.location.reload()}>
+            <Button variant="primary" onClick={() => window.location.reload()}>
               Reload
-            </button>
+            </Button>
           </div>
         </div>
       );
@@ -70,13 +71,13 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
           You can retry or leave this section.
         </p>
         <div className="row">
-          <button className="btn sm" onClick={this.reset}>
+          <Button size="sm" onClick={this.reset}>
             Retry
-          </button>
+          </Button>
           {this.props.onEscape && (
-            <button className="btn ghost sm" onClick={this.props.onEscape}>
+            <Button variant="ghost" size="sm" onClick={this.props.onEscape}>
               {this.props.escapeLabel ?? "Close"}
-            </button>
+            </Button>
           )}
         </div>
       </div>

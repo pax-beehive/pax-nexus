@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Button } from "./Button";
 import { Modal } from "./Modal";
 
 /**
@@ -34,12 +35,12 @@ export function ConfirmDialog({
       </div>
       {children}
       <div className="row" style={{ justifyContent: "flex-end" }}>
-        <button className="btn ghost" onClick={onClose} disabled={busy}>
+        <Button variant="ghost" onClick={onClose} disabled={busy}>
           Cancel
-        </button>
-        <button className="btn danger" onClick={onConfirm} disabled={busy}>
+        </Button>
+        <Button variant="danger" onClick={onConfirm} disabled={busy}>
           {busy ? "Processing…" : confirmLabel}
-        </button>
+        </Button>
       </div>
     </Modal>
   );

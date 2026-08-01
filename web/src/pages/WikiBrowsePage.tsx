@@ -15,6 +15,7 @@ import {
   type WikiSearchResult,
   type WikiPage,
 } from "../api/wiki";
+import { Button } from "../components/Button";
 import { RelationList } from "../components/wiki/RelationList";
 import { collectPages, RootPageList, Topic } from "../components/wiki/TopicTree";
 import { WikiMarkdown } from "../components/wiki/WikiMarkdown";
@@ -194,7 +195,7 @@ export function WikiBrowsePage() {
     <div className="wiki wiki-browse">
       <header className="wiki-header">
         <div>
-          <Link className="wiki-back" to="/wiki">← Back to portal</Link>
+          <Link className="app-back" to="/apps">← All apps</Link>
           <h1>Wiki</h1>
           <p className="muted">Durable pages, revision history, and evidence in one place.</p>
         </div>
@@ -217,9 +218,9 @@ export function WikiBrowsePage() {
             value={searchInput}
             onChange={(event) => setSearchInput(event.target.value)}
           />
-          <button className="btn primary" type="submit" disabled={searching}>
+          <Button variant="primary" type="submit" disabled={searching}>
             {searching ? "Searching…" : "Search"}
-          </button>
+          </Button>
         </form>
       </header>
 
@@ -230,9 +231,9 @@ export function WikiBrowsePage() {
               <span className="wiki-eyebrow">Current revisions</span>
               <h2>Search results</h2>
             </div>
-            <button className="btn ghost sm" type="button" onClick={() => setSearchOpen(false)}>
+            <Button variant="ghost" size="sm" type="button" onClick={() => setSearchOpen(false)}>
               Close
-            </button>
+            </Button>
           </div>
           {!searching && searchResults.length === 0 ? (
             <p className="muted small">No current revision matches.</p>

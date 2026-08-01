@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { savePendingInvitation } from "../lib/continuations";
 import { useAuth } from "../auth/AuthContext";
+import { Button } from "../components/Button";
 
 /**
  * Landing page for an authenticated user without a Membership (doc section
@@ -40,17 +41,17 @@ export function EntryPage() {
             autoComplete="off"
           />
           <div style={{ marginTop: 10 }}>
-            <button className="btn primary" disabled={!token.trim()} onClick={useToken}>
+            <Button variant="primary" disabled={!token.trim()} onClick={useToken}>
               Continue
-            </button>
+            </Button>
           </div>
         </div>
         <div className="card">
           <h3 style={{ marginTop: 0 }}>First-time install</h3>
           <p className="small muted">The first user after deployment can claim the initial Owner.</p>
-          <button className="btn" onClick={() => navigate("/bootstrap")}>
+          <Button onClick={() => navigate("/bootstrap")}>
             Claim Bootstrap Owner
-          </button>
+          </Button>
         </div>
         <p className="small muted" style={{ textAlign: "center" }}>
           Neither applies? Contact your team's Owner for an invitation.

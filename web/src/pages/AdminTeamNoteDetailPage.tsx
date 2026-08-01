@@ -120,7 +120,7 @@ export function AdminTeamNoteDetailPage() {
         revisions.map((revision) => (
           <section className="card explorer-revision" key={revision.revision}>
             <div className="row between wrap">
-              <h2 style={{ margin: 0 }}>Revision {revision.revision}</h2>
+              <h2 className="flush">Revision {revision.revision}</h2>
               <span className="badge b-role">{revision.operation}</span>
             </div>
             <div className="explorer-stage">

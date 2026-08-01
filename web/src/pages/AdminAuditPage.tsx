@@ -4,6 +4,7 @@ import type { AgentProfile, AuditEvent, Member } from "../api/types";
 import { usePagedList } from "../lib/usePagedList";
 import { useErrorHandler } from "../lib/useErrorHandler";
 import { formatTime } from "../lib/format";
+import { Button } from "../components/Button";
 import { PagedListCard } from "../components/PagedListCard";
 
 // Fixed kind vocabularies from the backend audit schema (migration 017).
@@ -145,13 +146,13 @@ export function AdminAuditPage() {
       <div className="page-head">
         <div>
           <h1>Audit Events</h1>
-          <p className="muted" style={{ margin: 0 }}>
+          <p className="muted flush">
             Immutable audit; label enrichment is a non-authoritative frontend mapping, and
             raw IDs stay visible after objects are deleted
           </p>
         </div>
       </div>
-      <div className="row wrap" style={{ marginBottom: 14, gap: 10 }}>
+      <div className="toolbar" style={{ marginBottom: 14 }}>
         <select
           aria-label="Filter by actor_kind"
           value={actorKind}
@@ -178,7 +179,6 @@ export function AdminAuditPage() {
         </select>
         <input
           type="text"
-          style={{ width: 220 }}
           placeholder="action (e.g. agent.create)"
           value={actionInput}
           onChange={(e) => setActionInput(e.target.value)}
@@ -194,7 +194,6 @@ export function AdminAuditPage() {
         </datalist>
         <input
           type="text"
-          style={{ width: 220 }}
           placeholder="target_id"
           value={targetInput}
           onChange={(e) => setTargetInput(e.target.value)}
@@ -202,9 +201,9 @@ export function AdminAuditPage() {
             if (e.key === "Enter") applyFilters();
           }}
         />
-        <button className="btn sm" onClick={applyFilters}>
+        <Button size="sm" onClick={applyFilters}>
           Apply filters
-        </button>
+        </Button>
       </div>
       <PagedListCard
         list={list}
@@ -224,14 +223,14 @@ export function AdminAuditPage() {
                 <Label id={e.target_id} directory={directory} />
               </td>
               <td>
-                <button
-                  className="btn sm"
+                <Button
+                  size="sm"
                   onClick={() =>
                     setExpandedId(expandedId === e.audit_event_id ? null : e.audit_event_id)
                   }
                 >
                   {expandedId === e.audit_event_id ? "Collapse" : "Details"}
-                </button>
+                </Button>
               </td>
             </tr>
             {expandedId === e.audit_event_id && (

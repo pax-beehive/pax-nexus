@@ -12,6 +12,7 @@ import { EntryPage } from "./pages/EntryPage";
 import { SuspendedPage } from "./pages/SuspendedPage";
 import { PortalShell } from "./pages/PortalShell";
 import { WikiBrowsePage } from "./pages/WikiBrowsePage";
+import { TodoPage } from "./pages/TodoPage";
 
 /**
  * After the OIDC round trip the backend always lands on the fixed
@@ -75,6 +76,14 @@ function AppRoutes() {
             element={
               <ErrorBoundary region="route" fullPage>
                 <WikiBrowsePage />
+              </ErrorBoundary>
+            }
+          />
+          <Route
+            path="/todo"
+            element={
+              <ErrorBoundary region="route" fullPage>
+                <TodoPage />
               </ErrorBoundary>
             }
           />

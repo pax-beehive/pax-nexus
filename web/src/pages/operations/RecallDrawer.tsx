@@ -7,6 +7,7 @@ import { getRecallDiagnostic } from "../../api/queries";
 import type { RecallDiagnostic } from "../../api/types";
 import { formatTime } from "../../lib/format";
 import { isAbortError } from "../../lib/usePolling";
+import { Button } from "../../components/Button";
 import { RegionError } from "../../components/RegionError";
 import { Stat } from "./Stat";
 
@@ -75,10 +76,10 @@ export function RecallDrawer({
       <div className="drawer-backdrop" onClick={onClose} />
       <aside className="drawer">
         <div className="row between" style={{ marginBottom: 12 }}>
-          <h2 style={{ margin: 0 }}>Recall #{observationId}</h2>
-          <button className="btn ghost sm" onClick={onClose}>
+          <h2 className="flush">Recall #{observationId}</h2>
+          <Button variant="ghost" size="sm" onClick={onClose}>
             Close
-          </button>
+          </Button>
         </div>
         {state.status === "loading" && <p className="muted small">Loading…</p>}
         {state.status === "not-found" && (

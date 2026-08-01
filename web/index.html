@@ -4,6 +4,13 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Team Memory Portal</title>
+    <script>
+      /* Apply the stored theme before first paint to avoid a light flash. */
+      try {
+        var t = localStorage.getItem("portal-theme");
+        if (t === "dark" || t === "arcade") document.documentElement.dataset.theme = t;
+      } catch (e) { /* storage unavailable: fall back to default theme */ }
+    </script>
   </head>
   <body>
     <div id="root"></div>

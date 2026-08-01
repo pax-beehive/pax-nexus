@@ -4,6 +4,8 @@ import { useAuth } from "../auth/AuthContext";
 import { can, hasServerCapability, type Capability } from "../lib/capabilities";
 import { peekPendingInvitation, peekReturnUrl } from "../lib/continuations";
 import { RoleBadge } from "../components/Badge";
+import { Button } from "../components/Button";
+import { THEMES, THEME_LABELS, useTheme, type Theme } from "../lib/theme";
 import { ErrorBoundary } from "../components/ErrorBoundary";
 import { useToast } from "../components/Toasts";
 import type { HumanMe } from "../api/types";
@@ -21,7 +23,7 @@ import { AdminPulsePage } from "./AdminPulsePage";
 import { AdminExplorerPage } from "./AdminExplorerPage";
 import { AdminTeamNoteDetailPage } from "./AdminTeamNoteDetailPage";
 import { WikiStatusPage } from "./WikiStatusPage";
-import { TodoPage } from "./TodoPage";
+import { AppsPage } from "./AppsPage";
 
 function navClass({ isActive }: { isActive: boolean }): string {
   return isActive ? "active" : "";
@@ -83,6 +85,7 @@ export function PortalShell({ me }: { me: HumanMe }) {
   const navigate = useNavigate();
   const location = useLocation();
   const adminLike = can(me.role, "view.members");
+  const [theme, setTheme] = useTheme();
   const [sideCollapsed, setSideCollapsed] = useState(
     () => localStorage.getItem(SIDE_COLLAPSED_KEY) === "1",
   );
@@ -128,11 +131,8 @@ export function PortalShell({ me }: { me: HumanMe }) {
             My Agents
           </NavLink>
           <div className="nav-label">Knowledge</div>
-          <NavLink to="/wiki" className={navClass} end>
-            Wiki
-          </NavLink>
-          <NavLink to="/todo" className={navClass} end>
-            Todos
+          <NavLink to="/apps" className={navClass}>
+            Apps
           </NavLink>
           {adminLike && (
             <>
@@ -173,12 +173,25 @@ export function PortalShell({ me }: { me: HumanMe }) {
           )}
         </nav>
         <div className="side-foot">
+          <div className="theme-picker">
+            <select
+              aria-label="Theme"
+              value={theme}
+              onChange={(event) => setTheme(event.target.value as Theme)}
+            >
+              {THEMES.map((t) => (
+                <option key={t} value={t}>
+                  {THEME_LABELS[t]} theme
+                </option>
+              ))}
+            </select>
+          </div>
           <div className="small">{me.email ?? me.user_id}</div>
           <div className="row between" style={{ marginTop: 4 }}>
             <RoleBadge role={me.role ?? "member"} />
-            <button className="btn ghost sm" onClick={() => void onLogout()}>
+            <Button variant="ghost" size="sm" onClick={() => void onLogout()}>
               Sign out
-            </button>
+            </Button>
           </div>
         </div>
           </>
@@ -197,8 +210,8 @@ export function PortalShell({ me }: { me: HumanMe }) {
           <Routes>
             <Route path="/agents" element={<MyAgentsPage />} />
             <Route path="/agents/:agentId" element={<AgentDetailPage />} />
+            <Route path="/apps" element={<AppsPage />} />
             <Route path="/wiki" element={<WikiStatusPage me={me} />} />
-            <Route path="/todo" element={<TodoPage />} />
             <Route
               path="/admin/members"
               element={
