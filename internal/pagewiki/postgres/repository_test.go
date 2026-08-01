@@ -59,6 +59,7 @@ func (s *repositorySuite) TearDownTest() {
 		"DELETE FROM pagewiki_page_lifecycle WHERE scope_id = $1",
 		"DELETE FROM pagewiki_curation_runs WHERE scope_id = $1",
 		"DELETE FROM pagewiki_page_embeddings WHERE scope_id = $1",
+		"DELETE FROM pagewiki_type_registry WHERE scope_id = $1",
 		"DELETE FROM session_processor_cursors WHERE scope_id = $1",
 		"DELETE FROM session_events WHERE scope_id = $1",
 		"DELETE FROM session_streams WHERE scope_id = $1",
@@ -350,6 +351,35 @@ func (s *repositorySuite) TestCurationRunResaveAfterFailurePersistsAcrossRehydra
 	s.Require().Equal(pagewiki.RunStatusSucceeded, storedRun.Status,
 		"the resaved successful run must survive rehydration, not revert to the stale failed payload")
 	s.Require().Equal(succeededRun, storedRun)
+}
+
+func (s *repositorySuite) TestTypeRegistryEntrySurvivesRehydration() {
+	repository, err := pagewikipostgres.NewRepository(s.ctx, s.store.Pool(), s.scopeID)
+	s.Require().NoError(err)
+
+	entry := pagewiki.TypeRegistryEntry{
+		Kind:        pagewiki.TypeKindEntity,
+		Name:        "incident",
+		Description: "An operational incident under investigation or resolved.",
+		Status:      pagewiki.TypeStatusCandidate,
+	}
+	s.Require().NoError(repository.SaveTypeRegistryEntry(s.ctx, entry))
+
+	reopened, err := pagewikipostgres.NewRepository(s.ctx, s.store.Pool(), s.scopeID)
+	s.Require().NoError(err)
+
+	registry, err := reopened.TypeRegistry(s.ctx)
+	s.Require().NoError(err)
+	s.Require().Len(registry, 12)
+	var found *pagewiki.TypeRegistryEntry
+	for index := range registry {
+		if registry[index].Kind == pagewiki.TypeKindEntity && registry[index].Name == "incident" {
+			found = &registry[index]
+			break
+		}
+	}
+	s.Require().NotNil(found, "expected incident entity type row to survive rehydration")
+	s.Require().Equal(pagewiki.TypeStatusCandidate, found.Status)
 }
 
 func (s *repositorySuite) TestRebuildClearsLifecycleCurationAndEmbeddingTables() {
