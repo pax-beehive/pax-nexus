@@ -103,7 +103,23 @@ WHERE scope_id = $1`, func(payload []byte) error {
 	// overwrites the matching seed, so Phase 2 candidate/active/retired
 	// transitions on seed types — and any newly registered candidate types —
 	// survive a restart.
-	if err := r.loadRows(ctx, `
+	if err := r.hydrateTypeRegistry(ctx); err != nil {
+		return fmt.Errorf("hydrate Page Wiki type registry: %w", err)
+	}
+	return nil
+}
+
+// hydrateTypeRegistry replays pagewiki_type_registry rows into the in-memory
+// repository over its built-in seeds. It is shared by hydrate() (initial
+// construction) and RebuildPageWiki() (which resets the in-memory
+// repository but — unlike every other table it clears — deliberately does
+// not delete pagewiki_type_registry, since the registry is taxonomy state,
+// not per-rebuild derived state; without this replay, RebuildPageWiki's
+// r.memory.Reset() would silently drop live candidate/active/retired rows
+// from the running process until its next restart, even though the DB rows
+// survive).
+func (r *Repository) hydrateTypeRegistry(ctx context.Context) error {
+	return r.loadRows(ctx, `
 SELECT payload FROM pagewiki_type_registry
 WHERE scope_id = $1 ORDER BY created_at, kind, name`, func(payload []byte) error {
 		var entry pagewiki.TypeRegistryEntry
@@ -111,10 +127,7 @@ WHERE scope_id = $1 ORDER BY created_at, kind, name`, func(payload []byte) error
 			return err
 		}
 		return r.memory.SaveTypeRegistryEntry(ctx, entry)
-	}); err != nil {
-		return fmt.Errorf("hydrate Page Wiki type registry: %w", err)
-	}
-	return nil
+	})
 }
 
 // hydratePublications replays the publication log. A payload is either a
@@ -381,6 +394,9 @@ SET auto_inject = TRUE, updated_at = NOW()`, scopeID); err != nil {
 	}
 	committed = true
 	r.memory.Reset()
+	if err := r.hydrateTypeRegistry(ctx); err != nil {
+		return fmt.Errorf("rebuild Page Wiki: replay type registry: %w", err)
+	}
 	return nil
 }
 
