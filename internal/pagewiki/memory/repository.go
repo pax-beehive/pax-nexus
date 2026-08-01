@@ -25,6 +25,9 @@ type Repository struct {
 	searchChunks    map[string]pagewiki.SearchChunk
 	runs            map[string]pagewiki.MaintenanceRun
 	generation      pagewiki.GenerationDirectives
+	curationRuns    map[string]pagewiki.CurationRun
+	pageEmbeddings  map[string]pagewiki.PageEmbedding
+	sourceOrder     map[string]int
 }
 
 func NewRepository() *Repository {
@@ -45,6 +48,9 @@ func (r *Repository) Reset() {
 	r.searchChunks = make(map[string]pagewiki.SearchChunk)
 	r.runs = make(map[string]pagewiki.MaintenanceRun)
 	r.generation = pagewiki.GenerationDirectives{}
+	r.curationRuns = make(map[string]pagewiki.CurationRun)
+	r.pageEmbeddings = make(map[string]pagewiki.PageEmbedding)
+	r.sourceOrder = make(map[string]int)
 }
 
 func (r *Repository) SaveSourceRevision(
@@ -61,6 +67,9 @@ func (r *Repository) SaveSourceRevision(
 		return nil
 	}
 	r.sourceRevisions[revision.ID] = cloneSourceRevision(revision)
+	if _, ordinalAssigned := r.sourceOrder[revision.ID]; !ordinalAssigned {
+		r.sourceOrder[revision.ID] = len(r.sourceOrder)
+	}
 	return nil
 }
 
@@ -810,6 +819,73 @@ func (r *Repository) MaintenanceRun(
 	return cloneRun(run), nil
 }
 
+func (r *Repository) SaveCurationRun(
+	_ context.Context,
+	run pagewiki.CurationRun,
+) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if existing, found := r.curationRuns[run.ID]; found && !reflect.DeepEqual(existing, run) {
+		return fmt.Errorf("%w: CurationRun %q", pagewiki.ErrImmutableConflict, run.ID)
+	}
+	r.curationRuns[run.ID] = cloneCurationRun(run)
+	return nil
+}
+
+func (r *Repository) CurationRun(
+	_ context.Context,
+	id string,
+) (pagewiki.CurationRun, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	run, found := r.curationRuns[id]
+	if !found {
+		return pagewiki.CurationRun{}, fmt.Errorf(
+			"%w: CurationRun %q",
+			pagewiki.ErrNotFound,
+			id,
+		)
+	}
+	return cloneCurationRun(run), nil
+}
+
+func (r *Repository) PageEmbeddings(
+	_ context.Context,
+) ([]pagewiki.PageEmbedding, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	embeddings := make([]pagewiki.PageEmbedding, 0, len(r.pageEmbeddings))
+	for _, embedding := range r.pageEmbeddings {
+		embeddings = append(embeddings, clonePageEmbedding(embedding))
+	}
+	sort.Slice(embeddings, func(i, j int) bool {
+		return embeddings[i].PageID < embeddings[j].PageID
+	})
+	return embeddings, nil
+}
+
+func (r *Repository) SavePageEmbedding(
+	_ context.Context,
+	embedding pagewiki.PageEmbedding,
+) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.pageEmbeddings[embedding.PageID] = clonePageEmbedding(embedding)
+	return nil
+}
+
+func (r *Repository) SourceRevisionOrdinals(
+	_ context.Context,
+) (map[string]int, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	ordinals := make(map[string]int, len(r.sourceOrder))
+	for id, ordinal := range r.sourceOrder {
+		ordinals[id] = ordinal
+	}
+	return ordinals, nil
+}
+
 func (r *Repository) PageCount() int {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -985,4 +1061,20 @@ func clonePageRevision(revision pagewiki.PageRevision) pagewiki.PageRevision {
 func cloneRun(run pagewiki.MaintenanceRun) pagewiki.MaintenanceRun {
 	run.Targets = append([]pagewiki.MaintenanceTarget(nil), run.Targets...)
 	return run
+}
+
+func cloneCurationRun(run pagewiki.CurationRun) pagewiki.CurationRun {
+	run.Outcomes = append([]pagewiki.CurationOutcome(nil), run.Outcomes...)
+	for index := range run.Outcomes {
+		run.Outcomes[index].PageIDs = append(
+			[]string(nil),
+			run.Outcomes[index].PageIDs...,
+		)
+	}
+	return run
+}
+
+func clonePageEmbedding(embedding pagewiki.PageEmbedding) pagewiki.PageEmbedding {
+	embedding.Vector = append([]float32(nil), embedding.Vector...)
+	return embedding
 }

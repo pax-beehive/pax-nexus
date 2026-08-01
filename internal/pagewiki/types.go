@@ -307,6 +307,40 @@ type MaintenanceRun struct {
 	Targets          []MaintenanceTarget
 }
 
+type CurationVerdict string
+
+const (
+	CurationVerdictMerge    CurationVerdict = "merge"
+	CurationVerdictConflict CurationVerdict = "conflict"
+	CurationVerdictDistinct CurationVerdict = "distinct"
+	CurationVerdictRetire   CurationVerdict = "retire"
+	CurationVerdictRewrite  CurationVerdict = "rewrite"
+	CurationVerdictKeep     CurationVerdict = "keep"
+)
+
+type CurationOutcome struct {
+	Kind      string // "pair" | "page"
+	PageIDs   []string
+	Verdict   CurationVerdict
+	Rationale string
+	Refuted   bool
+	Status    TargetStatus
+	Error     string
+}
+
+type CurationRun struct {
+	ID          string
+	Fingerprint string
+	Status      RunStatus
+	Outcomes    []CurationOutcome
+}
+
+type PageEmbedding struct {
+	PageID     string
+	RevisionID string
+	Vector     []float32
+}
+
 type InjectSessionRequest struct {
 	SourceID       string
 	IdempotencyKey string

@@ -381,4 +381,34 @@ func (r *Repository) MaintenanceRun(ctx context.Context, id string) (pagewiki.Ma
 	return r.memory.MaintenanceRun(ctx, id)
 }
 
+// SaveCurationRun delegates to the in-memory repository so the interface is
+// satisfied; Task 3 adds persistence and hydration replay.
+func (r *Repository) SaveCurationRun(ctx context.Context, run pagewiki.CurationRun) error {
+	return r.memory.SaveCurationRun(ctx, run)
+}
+
+// CurationRun delegates to the in-memory repository so the interface is
+// satisfied; Task 3 adds persistence and hydration replay.
+func (r *Repository) CurationRun(ctx context.Context, id string) (pagewiki.CurationRun, error) {
+	return r.memory.CurationRun(ctx, id)
+}
+
+// PageEmbeddings delegates to the in-memory repository so the interface is
+// satisfied; Task 3 adds persistence and hydration replay.
+func (r *Repository) PageEmbeddings(ctx context.Context) ([]pagewiki.PageEmbedding, error) {
+	return r.memory.PageEmbeddings(ctx)
+}
+
+// SavePageEmbedding delegates to the in-memory repository so the interface is
+// satisfied; Task 3 adds persistence and hydration replay.
+func (r *Repository) SavePageEmbedding(ctx context.Context, embedding pagewiki.PageEmbedding) error {
+	return r.memory.SavePageEmbedding(ctx, embedding)
+}
+
+// SourceRevisionOrdinals delegates to the in-memory repository so the
+// interface is satisfied; Task 3 adds persistence and hydration replay.
+func (r *Repository) SourceRevisionOrdinals(ctx context.Context) (map[string]int, error) {
+	return r.memory.SourceRevisionOrdinals(ctx)
+}
+
 var _ pagewiki.Repository = (*Repository)(nil)

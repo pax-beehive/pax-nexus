@@ -63,4 +63,12 @@ type Repository interface {
 	ReplaceTopicTree(context.Context, TopicTree) error
 	GenerationSettings(context.Context) (GenerationDirectives, error)
 	SetGenerationSettings(context.Context, GenerationDirectives) error
+	SaveCurationRun(context.Context, CurationRun) error
+	CurationRun(context.Context, string) (CurationRun, error)
+	PageEmbeddings(context.Context) ([]PageEmbedding, error)
+	SavePageEmbedding(context.Context, PageEmbedding) error
+	// SourceRevisionOrdinals returns the 0-based order in which source
+	// revisions were saved (postgres hydration replays in created_at order,
+	// so the ordinal is a chronology proxy for evidence recency).
+	SourceRevisionOrdinals(context.Context) (map[string]int, error)
 }
