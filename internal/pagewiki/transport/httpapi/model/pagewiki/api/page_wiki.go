@@ -1489,13 +1489,14 @@ func (p *PageCitation) String() string {
 }
 
 type PageLink struct {
-	ID             string `thrift:"id,1,required" form:"id,required" json:"id,required" query:"id,required"`
-	PageRevisionID string `thrift:"page_revision_id,2,required" form:"page_revision_id,required" json:"page_revision_id,required" query:"page_revision_id,required"`
-	SectionKey     string `thrift:"section_key,3,required" form:"section_key,required" json:"section_key,required" query:"section_key,required"`
-	StartByte      int32  `thrift:"start_byte,4,required" form:"start_byte,required" json:"start_byte,required" query:"start_byte,required"`
-	EndByte        int32  `thrift:"end_byte,5,required" form:"end_byte,required" json:"end_byte,required" query:"end_byte,required"`
-	ExactText      string `thrift:"exact_text,6,required" form:"exact_text,required" json:"exact_text,required" query:"exact_text,required"`
-	TargetPageID   string `thrift:"target_page_id,7,required" form:"target_page_id,required" json:"target_page_id,required" query:"target_page_id,required"`
+	ID             string  `thrift:"id,1,required" form:"id,required" json:"id,required" query:"id,required"`
+	PageRevisionID string  `thrift:"page_revision_id,2,required" form:"page_revision_id,required" json:"page_revision_id,required" query:"page_revision_id,required"`
+	SectionKey     string  `thrift:"section_key,3,required" form:"section_key,required" json:"section_key,required" query:"section_key,required"`
+	StartByte      int32   `thrift:"start_byte,4,required" form:"start_byte,required" json:"start_byte,required" query:"start_byte,required"`
+	EndByte        int32   `thrift:"end_byte,5,required" form:"end_byte,required" json:"end_byte,required" query:"end_byte,required"`
+	ExactText      string  `thrift:"exact_text,6,required" form:"exact_text,required" json:"exact_text,required" query:"exact_text,required"`
+	TargetPageID   string  `thrift:"target_page_id,7,required" form:"target_page_id,required" json:"target_page_id,required" query:"target_page_id,required"`
+	RelationType   *string `thrift:"relation_type,8,optional" form:"relation_type" json:"relation_type,omitempty" query:"relation_type"`
 }
 
 func NewPageLink() *PageLink {
@@ -1533,6 +1534,15 @@ func (p *PageLink) GetTargetPageID() (v string) {
 	return p.TargetPageID
 }
 
+var PageLink_RelationType_DEFAULT string
+
+func (p *PageLink) GetRelationType() (v string) {
+	if !p.IsSetRelationType() {
+		return PageLink_RelationType_DEFAULT
+	}
+	return *p.RelationType
+}
+
 var fieldIDToName_PageLink = map[int16]string{
 	1: "id",
 	2: "page_revision_id",
@@ -1541,6 +1551,11 @@ var fieldIDToName_PageLink = map[int16]string{
 	5: "end_byte",
 	6: "exact_text",
 	7: "target_page_id",
+	8: "relation_type",
+}
+
+func (p *PageLink) IsSetRelationType() bool {
+	return p.RelationType != nil
 }
 
 func (p *PageLink) Read(iprot thrift.TProtocol) (err error) {
@@ -1629,6 +1644,14 @@ func (p *PageLink) Read(iprot thrift.TProtocol) (err error) {
 					goto ReadFieldError
 				}
 				issetTargetPageID = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 8:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField8(iprot); err != nil {
+					goto ReadFieldError
+				}
 			} else if err = iprot.Skip(fieldTypeId); err != nil {
 				goto SkipFieldError
 			}
@@ -1774,6 +1797,17 @@ func (p *PageLink) ReadField7(iprot thrift.TProtocol) error {
 	p.TargetPageID = _field
 	return nil
 }
+func (p *PageLink) ReadField8(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.RelationType = _field
+	return nil
+}
 
 func (p *PageLink) Write(oprot thrift.TProtocol) (err error) {
 	var fieldId int16
@@ -1807,6 +1841,10 @@ func (p *PageLink) Write(oprot thrift.TProtocol) (err error) {
 		}
 		if err = p.writeField7(oprot); err != nil {
 			fieldId = 7
+			goto WriteFieldError
+		}
+		if err = p.writeField8(oprot); err != nil {
+			fieldId = 8
 			goto WriteFieldError
 		}
 	}
@@ -1944,6 +1982,25 @@ WriteFieldBeginError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 7 begin error: ", p), err)
 WriteFieldEndError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 7 end error: ", p), err)
+}
+
+func (p *PageLink) writeField8(oprot thrift.TProtocol) (err error) {
+	if p.IsSetRelationType() {
+		if err = oprot.WriteFieldBegin("relation_type", thrift.STRING, 8); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.RelationType); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 8 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 8 end error: ", p), err)
 }
 
 func (p *PageLink) String() string {
@@ -2845,10 +2902,11 @@ func (p *PageRevision) String() string {
 }
 
 type Page struct {
-	ID                string `thrift:"id,1,required" form:"id,required" json:"id,required" query:"id,required"`
-	Slug              string `thrift:"slug,2,required" form:"slug,required" json:"slug,required" query:"slug,required"`
-	Title             string `thrift:"title,3,required" form:"title,required" json:"title,required" query:"title,required"`
-	CurrentRevisionID string `thrift:"current_revision_id,4,required" form:"current_revision_id,required" json:"current_revision_id,required" query:"current_revision_id,required"`
+	ID                string  `thrift:"id,1,required" form:"id,required" json:"id,required" query:"id,required"`
+	Slug              string  `thrift:"slug,2,required" form:"slug,required" json:"slug,required" query:"slug,required"`
+	Title             string  `thrift:"title,3,required" form:"title,required" json:"title,required" query:"title,required"`
+	CurrentRevisionID string  `thrift:"current_revision_id,4,required" form:"current_revision_id,required" json:"current_revision_id,required" query:"current_revision_id,required"`
+	EntityType        *string `thrift:"entity_type,5,optional" form:"entity_type" json:"entity_type,omitempty" query:"entity_type"`
 }
 
 func NewPage() *Page {
@@ -2874,11 +2932,25 @@ func (p *Page) GetCurrentRevisionID() (v string) {
 	return p.CurrentRevisionID
 }
 
+var Page_EntityType_DEFAULT string
+
+func (p *Page) GetEntityType() (v string) {
+	if !p.IsSetEntityType() {
+		return Page_EntityType_DEFAULT
+	}
+	return *p.EntityType
+}
+
 var fieldIDToName_Page = map[int16]string{
 	1: "id",
 	2: "slug",
 	3: "title",
 	4: "current_revision_id",
+	5: "entity_type",
+}
+
+func (p *Page) IsSetEntityType() bool {
+	return p.EntityType != nil
 }
 
 func (p *Page) Read(iprot thrift.TProtocol) (err error) {
@@ -2937,6 +3009,14 @@ func (p *Page) Read(iprot thrift.TProtocol) (err error) {
 					goto ReadFieldError
 				}
 				issetCurrentRevisionID = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 5:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField5(iprot); err != nil {
+					goto ReadFieldError
+				}
 			} else if err = iprot.Skip(fieldTypeId); err != nil {
 				goto SkipFieldError
 			}
@@ -3034,6 +3114,17 @@ func (p *Page) ReadField4(iprot thrift.TProtocol) error {
 	p.CurrentRevisionID = _field
 	return nil
 }
+func (p *Page) ReadField5(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.EntityType = _field
+	return nil
+}
 
 func (p *Page) Write(oprot thrift.TProtocol) (err error) {
 	var fieldId int16
@@ -3055,6 +3146,10 @@ func (p *Page) Write(oprot thrift.TProtocol) (err error) {
 		}
 		if err = p.writeField4(oprot); err != nil {
 			fieldId = 4
+			goto WriteFieldError
+		}
+		if err = p.writeField5(oprot); err != nil {
+			fieldId = 5
 			goto WriteFieldError
 		}
 	}
@@ -3141,6 +3236,25 @@ WriteFieldBeginError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 4 begin error: ", p), err)
 WriteFieldEndError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 4 end error: ", p), err)
+}
+
+func (p *Page) writeField5(oprot thrift.TProtocol) (err error) {
+	if p.IsSetEntityType() {
+		if err = oprot.WriteFieldBegin("entity_type", thrift.STRING, 5); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.EntityType); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 5 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 5 end error: ", p), err)
 }
 
 func (p *Page) String() string {
@@ -4725,6 +4839,7 @@ type CurrentPageResponse struct {
 	Revision          *PageRevision `thrift:"revision,5,required" form:"revision,required" json:"revision,required" query:"revision,required"`
 	Status            *string       `thrift:"status,6,optional" form:"status" json:"status,omitempty" query:"status"`
 	SuccessorSlug     *string       `thrift:"successor_slug,7,optional" form:"successor_slug" json:"successor_slug,omitempty" query:"successor_slug"`
+	EntityType        *string       `thrift:"entity_type,8,optional" form:"entity_type" json:"entity_type,omitempty" query:"entity_type"`
 }
 
 func NewCurrentPageResponse() *CurrentPageResponse {
@@ -4777,6 +4892,15 @@ func (p *CurrentPageResponse) GetSuccessorSlug() (v string) {
 	return *p.SuccessorSlug
 }
 
+var CurrentPageResponse_EntityType_DEFAULT string
+
+func (p *CurrentPageResponse) GetEntityType() (v string) {
+	if !p.IsSetEntityType() {
+		return CurrentPageResponse_EntityType_DEFAULT
+	}
+	return *p.EntityType
+}
+
 var fieldIDToName_CurrentPageResponse = map[int16]string{
 	1: "id",
 	2: "slug",
@@ -4785,6 +4909,7 @@ var fieldIDToName_CurrentPageResponse = map[int16]string{
 	5: "revision",
 	6: "status",
 	7: "successor_slug",
+	8: "entity_type",
 }
 
 func (p *CurrentPageResponse) IsSetRevision() bool {
@@ -4797,6 +4922,10 @@ func (p *CurrentPageResponse) IsSetStatus() bool {
 
 func (p *CurrentPageResponse) IsSetSuccessorSlug() bool {
 	return p.SuccessorSlug != nil
+}
+
+func (p *CurrentPageResponse) IsSetEntityType() bool {
+	return p.EntityType != nil
 }
 
 func (p *CurrentPageResponse) Read(iprot thrift.TProtocol) (err error) {
@@ -4879,6 +5008,14 @@ func (p *CurrentPageResponse) Read(iprot thrift.TProtocol) (err error) {
 		case 7:
 			if fieldTypeId == thrift.STRING {
 				if err = p.ReadField7(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 8:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField8(iprot); err != nil {
 					goto ReadFieldError
 				}
 			} else if err = iprot.Skip(fieldTypeId); err != nil {
@@ -5013,6 +5150,17 @@ func (p *CurrentPageResponse) ReadField7(iprot thrift.TProtocol) error {
 	p.SuccessorSlug = _field
 	return nil
 }
+func (p *CurrentPageResponse) ReadField8(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.EntityType = _field
+	return nil
+}
 
 func (p *CurrentPageResponse) Write(oprot thrift.TProtocol) (err error) {
 	var fieldId int16
@@ -5046,6 +5194,10 @@ func (p *CurrentPageResponse) Write(oprot thrift.TProtocol) (err error) {
 		}
 		if err = p.writeField7(oprot); err != nil {
 			fieldId = 7
+			goto WriteFieldError
+		}
+		if err = p.writeField8(oprot); err != nil {
+			fieldId = 8
 			goto WriteFieldError
 		}
 	}
@@ -5187,6 +5339,25 @@ WriteFieldBeginError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 7 begin error: ", p), err)
 WriteFieldEndError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 7 end error: ", p), err)
+}
+
+func (p *CurrentPageResponse) writeField8(oprot thrift.TProtocol) (err error) {
+	if p.IsSetEntityType() {
+		if err = oprot.WriteFieldBegin("entity_type", thrift.STRING, 8); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.EntityType); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 8 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 8 end error: ", p), err)
 }
 
 func (p *CurrentPageResponse) String() string {

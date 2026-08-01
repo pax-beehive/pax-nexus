@@ -547,7 +547,9 @@ func selectSurvivor(
 // relatedPages unions the outgoing-link targets of one or more link sets into
 // RelatedPage values resolved against the catalog, skipping any target in
 // exclude and deduping by target ID. Order follows first appearance across
-// linkSets in argument order.
+// linkSets in argument order, and the kept RelatedPage carries that
+// first-seen link's RelationType — a rewrite or merge republish must not
+// downgrade a prior typed relation (e.g. depends-on) back to relates-to.
 func relatedPages(
 	catalogByID map[string]PageCatalogEntry,
 	exclude map[string]struct{},
@@ -568,7 +570,7 @@ func relatedPages(
 				continue
 			}
 			seen[link.TargetPageID] = struct{}{}
-			related = append(related, RelatedPage{ID: entry.ID, Title: entry.Title})
+			related = append(related, RelatedPage{ID: entry.ID, Title: entry.Title, Relation: link.RelationType})
 		}
 	}
 	return related
@@ -584,6 +586,7 @@ func pageFromCatalogEntry(entry PageCatalogEntry) Page {
 		Slug:              entry.Slug,
 		Title:             entry.Title,
 		CurrentRevisionID: entry.CurrentRevisionID,
+		EntityType:        entry.EntityType,
 	}
 }
 
@@ -627,6 +630,9 @@ func buildCurationCitations(
 // CitationDraft.Anchors (buildCurationCitations) instead of re-resolving
 // Evidence against a brief and source revision. linkable is always nil: a
 // curation draft's links only ever target already-published catalog pages.
+// It also mirrors buildPublication's never-downgrade EntityType guard: page
+// (built by pageFromCatalogEntry) already carries the stored type, and this
+// never lets a curation republish downgrade it to empty/concept.
 func (s *Service) buildCurationPublication(
 	ctx context.Context,
 	page Page,
@@ -665,6 +671,16 @@ func (s *Service) buildCurationPublication(
 	pageValue.Slug = draft.Slug
 	pageValue.Title = draft.Title
 	pageValue.CurrentRevisionID = revision.ID
+	// Mirror buildPublication's never-downgrade guard: a CurationDraft never
+	// specifies an EntityType (curators judge quality/duplication, not
+	// typing), so the only source of truth here is the stored page's
+	// existing type. Keep it when established; fall back to the untyped
+	// concept only when the page had no type to begin with.
+	if page.EntityType != "" {
+		pageValue.EntityType = page.EntityType
+	} else {
+		pageValue.EntityType = EntityTypeConcept
+	}
 	return pageValue, revision, nil
 }
 

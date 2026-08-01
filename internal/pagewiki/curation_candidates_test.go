@@ -283,6 +283,64 @@ func TestGivenMoreCandidatesThanLimitWhenScoredThenResultsAreCappedAndOrdered(t 
 	assert.Equal(t, "page-b-two-signals", candidates[1].PageID, "ties broken by PageID ascending")
 }
 
+func TestGivenDifferentEntityTypesWhenPairsAreDetectedThenIncompatibleTypesAreFiltered(t *testing.T) {
+	t.Parallel()
+
+	// Two pages with identical vectors (similarity 1.0) but different entity types
+	// (person vs system) should NOT be paired.
+	catalog := PageCatalog{
+		{ID: "page-person", Title: "Alice", EntityType: EntityTypePerson},
+		{ID: "page-system", Title: "Alice", EntityType: EntityTypeSystem},
+	}
+	vectors := map[string][]float32{
+		"page-person": {1, 0, 0},
+		"page-system": {1, 0, 0}, // identical
+	}
+
+	pairs := duplicatePairs(catalog, vectors, TopicTree{}, 8)
+	assert.Empty(t, pairs, "person and system pages with identical vectors should not pair")
+}
+
+func TestGivenSameBothSystemWhenPairsAreDetectedThenCompatibleTypesArePaired(t *testing.T) {
+	t.Parallel()
+
+	// Two pages with identical vectors (similarity 1.0) and same entity type (system)
+	// should be paired.
+	catalog := PageCatalog{
+		{ID: "page-system-a", Title: "Service A", EntityType: EntityTypeSystem},
+		{ID: "page-system-b", Title: "Service A", EntityType: EntityTypeSystem},
+	}
+	vectors := map[string][]float32{
+		"page-system-a": {1, 0, 0},
+		"page-system-b": {1, 0, 0}, // identical
+	}
+
+	pairs := duplicatePairs(catalog, vectors, TopicTree{}, 8)
+	require.Len(t, pairs, 1)
+	assert.Equal(t, "page-system-a", pairs[0].AID)
+	assert.Equal(t, "page-system-b", pairs[0].BID)
+}
+
+func TestGivenOneConceptTypeWhenPairsAreDetectedThenFallbackTypeIsPaired(t *testing.T) {
+	t.Parallel()
+
+	// One page with concept type (fallback) and another with a specific type
+	// should be paired (concept is a wildcard).
+	catalog := PageCatalog{
+		{ID: "page-concept", Title: "Deploy", EntityType: EntityTypeConcept},
+		{ID: "page-system", Title: "Deploy", EntityType: EntityTypeSystem},
+	}
+	vectors := map[string][]float32{
+		"page-concept": {1, 0, 0},
+		"page-system":  {1, 0, 0}, // identical
+	}
+
+	pairs := duplicatePairs(catalog, vectors, TopicTree{}, 8)
+	require.Len(t, pairs, 1)
+	assert.Equal(t, "page-concept", pairs[0].AID)
+	assert.Equal(t, "page-system", pairs[0].BID)
+}
+
 func longMarkdown() string {
 	body := make([]byte, curationBodyByteFloor+50)
 	for i := range body {

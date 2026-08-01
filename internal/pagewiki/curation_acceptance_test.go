@@ -40,14 +40,41 @@ func (s *curationAcceptanceSuite) seedPairPage(sourceID, slug, title, summary, q
 	return s.seedPage(sourceID, slug, title, summary, quote, quote+"\n\n"+filler)
 }
 
+// seedTypedPairPage is seedPairPage with an explicit EntityType on the
+// creating brief, for tests asserting a typed page's EntityType survives a
+// curation merge republish.
+func (s *curationAcceptanceSuite) seedTypedPairPage(
+	sourceID, slug, title, summary, quote string, entityType pagewiki.EntityType,
+) pagewiki.Page {
+	paragraph := "Additional background detail that keeps this page's body comfortably " +
+		"above the short-body threshold so it never doubles as a quality candidate. "
+	filler := paragraph + paragraph + paragraph
+	return s.seedTypedPage(sourceID, slug, title, summary, quote, quote+"\n\n"+filler, entityType)
+}
+
 // seedQualityPage creates one page whose body stays short and has no links,
 // so it lands in the quality lane (orphan + short-body signals at least).
 func (s *curationAcceptanceSuite) seedQualityPage(sourceID, slug, title, summary, quote string) pagewiki.Page {
 	return s.seedPage(sourceID, slug, title, summary, quote, quote)
 }
 
+// seedTypedQualityPage is seedQualityPage with an explicit EntityType on the
+// creating brief, for tests asserting a typed page's EntityType survives a
+// curation quality-lane rewrite republish.
+func (s *curationAcceptanceSuite) seedTypedQualityPage(
+	sourceID, slug, title, summary, quote string, entityType pagewiki.EntityType,
+) pagewiki.Page {
+	return s.seedTypedPage(sourceID, slug, title, summary, quote, quote, entityType)
+}
+
 func (s *curationAcceptanceSuite) seedPage(
 	sourceID, slug, title, summary, quote, sectionMarkdown string,
+) pagewiki.Page {
+	return s.seedTypedPage(sourceID, slug, title, summary, quote, sectionMarkdown, "")
+}
+
+func (s *curationAcceptanceSuite) seedTypedPage(
+	sourceID, slug, title, summary, quote, sectionMarkdown string, entityType pagewiki.EntityType,
 ) pagewiki.Page {
 	ctx := context.Background()
 	raw := []byte("event-1: " + quote)
@@ -59,6 +86,7 @@ func (s *curationAcceptanceSuite) seedPage(
 			ProposedSlug:     slug,
 			ProposedTitle:    title,
 			EvidenceEventIDs: []string{"event-1"},
+			EntityType:       entityType,
 		}},
 	}
 	editor := pagewiki.ScriptedEditor{
@@ -352,6 +380,225 @@ func (s *curationAcceptanceSuite) TestGivenQualityCandidateWhenRewrittenThenNewR
 	s.Require().Len(newRevision.Citations, 1)
 	s.Require().Len(newRevision.Citations[0].SourceAnchors, 1)
 	s.Require().Equal(originalAnchorID, newRevision.Citations[0].SourceAnchors[0].ID, "anchors must carry forward verbatim")
+}
+
+// Regression test for a Critical final-review finding: pageFromCatalogEntry
+// (which buildCurationPublication's Page value is seeded from) did not copy
+// entry.EntityType, so every quality-lane rewrite silently wiped a typed
+// page's EntityType back to "" (read as concept forever) on republish.
+func (s *curationAcceptanceSuite) TestGivenTypedQualityCandidateWhenRewrittenThenEntityTypeSurvivesRepublish() {
+	ctx := context.Background()
+	badTitle := "This orphaned page has a title that reads like a full sentence instead of a concept"
+	quote := "The stub was never linked from anywhere."
+	page := s.seedTypedQualityPage(
+		"session-typed-rewrite", "typed-rewrite-stub", badTitle,
+		"A short stub awaiting rewrite.", quote, pagewiki.EntityTypeSystem,
+	)
+	s.Require().Equal(pagewiki.EntityTypeSystem, page.EntityType, "sanity: seeded page must carry the type under test")
+
+	curator := pagewiki.ScriptedCurator{
+		PageVerdicts: map[string]pagewiki.PageVerdict{
+			page.ID: {
+				Verdict: pagewiki.CurationVerdictRewrite,
+				Draft: &pagewiki.CurationDraft{
+					Title:   "Rewrite Stub Concept",
+					Summary: "A properly concept-shaped rewrite of the stub.",
+					Sections: []pagewiki.SectionDraft{{
+						Key: "overview", Heading: "Overview", Markdown: "A rewritten overview.",
+					}},
+				},
+			},
+		},
+	}
+	service := pagewiki.NewService(
+		s.repository, pagewiki.ScriptedPlanner{}, pagewiki.ScriptedEditor{},
+		pagewiki.WithCurator(curator, pagewiki.ScriptedEmbedder{}, pagewiki.CurationConfig{}, nil),
+	)
+	run, err := service.RunCurationRound(ctx)
+	s.Require().NoError(err)
+	s.Require().Len(run.Outcomes, 1)
+	s.Require().Equal(pagewiki.CurationVerdictRewrite, run.Outcomes[0].Verdict)
+	s.Require().Equal(pagewiki.TargetStatusSucceeded, run.Outcomes[0].Status)
+
+	rewritten, err := s.repository.PageByID(ctx, page.ID)
+	s.Require().NoError(err)
+	s.Require().Equal(
+		pagewiki.EntityTypeSystem, rewritten.EntityType,
+		"a curation rewrite republish must not wipe the page's established EntityType",
+	)
+}
+
+// Regression test for the same Critical finding's merge/pair-lane path: the
+// survivor Page a merge republishes is also built via pageFromCatalogEntry,
+// so a typed survivor's type was silently wiped the same way.
+func (s *curationAcceptanceSuite) TestGivenTypedSurvivorWhenMergedThenEntityTypeSurvivesRepublish() {
+	ctx := context.Background()
+	titleA, summaryA, quoteA := "Deploy Pipeline", "How the deploy pipeline works.", "The team chose Buildkite for deploys."
+	titleB, summaryB, quoteB := "Deployment Pipeline", "How the deployment pipeline works.", "The team later confirmed Buildkite for prod releases."
+	pageA := s.seedTypedPairPage("session-a", "deploy-pipeline-typed", titleA, summaryA, quoteA, pagewiki.EntityTypeSystem)
+	pageB := s.seedTypedPairPage("session-b", "deployment-pipeline-typed", titleB, summaryB, quoteB, pagewiki.EntityTypeSystem)
+	s.Require().Equal(pagewiki.EntityTypeSystem, pageA.EntityType, "sanity: both merge inputs must carry the type under test")
+	s.Require().Equal(pagewiki.EntityTypeSystem, pageB.EntityType, "sanity: both merge inputs must carry the type under test")
+
+	pairKey := pagewiki.PairKey(pageA.ID, pageB.ID)
+	curator := pagewiki.ScriptedCurator{
+		PairVerdicts: map[string]pagewiki.PairVerdict{
+			pairKey: {
+				Verdict:   pagewiki.CurationVerdictMerge,
+				Rationale: "near-duplicate typed deploy pipeline pages",
+				Draft: &pagewiki.CurationDraft{
+					Title:   "Deploy Pipeline",
+					Summary: "Unified deploy pipeline page.",
+					Sections: []pagewiki.SectionDraft{{
+						Key: "overview", Heading: "Overview",
+						Markdown: "The deploy pipeline covers build and release.",
+					}},
+				},
+			},
+		},
+		Verifies: map[string]pagewiki.VerifyVerdict{pairKey: {Refuted: false}},
+	}
+	embedder := pagewiki.ScriptedEmbedder{Vectors: map[string][]float32{
+		titleA + "\n" + summaryA: embeddingVector(),
+		titleB + "\n" + summaryB: embeddingVector(),
+	}}
+	service := pagewiki.NewService(
+		s.repository, pagewiki.ScriptedPlanner{}, pagewiki.ScriptedEditor{},
+		pagewiki.WithCurator(curator, embedder, pagewiki.CurationConfig{}, nil),
+	)
+
+	run, err := service.RunCurationRound(ctx)
+	s.Require().NoError(err)
+	s.Require().Len(run.Outcomes, 1)
+	s.Require().Equal(pagewiki.TargetStatusSucceeded, run.Outcomes[0].Status)
+	s.Require().False(run.Outcomes[0].Refuted)
+
+	survivorID := pageA.ID
+	if pageB.ID < pageA.ID {
+		survivorID = pageB.ID
+	}
+	survivor, err := s.repository.PageByID(ctx, survivorID)
+	s.Require().NoError(err)
+	s.Require().Equal(
+		pagewiki.EntityTypeSystem, survivor.EntityType,
+		"a curation merge republish must not wipe the survivor's established EntityType",
+	)
+}
+
+// Regression test for an Important final-review finding: relatedPages (which
+// rebuilds RelatedPage values from an existing revision's typed outgoing
+// links for a curation republish) dropped link.RelationType, so
+// relatedKnowledgeSection downstream stamped every carried-forward link
+// relates-to even when the prior revision had a typed relation such as
+// depends-on.
+func (s *curationAcceptanceSuite) TestGivenTypedLinkQualityCandidateWhenRewrittenThenRelationTypeSurvivesRepublish() {
+	ctx := context.Background()
+	target := s.seedPairPage(
+		"session-typed-link-target", "typed-link-target",
+		"SQLite Storage", "How SQLite stores data.", "The team chose SQLite for storage.",
+	)
+
+	badTitle := "This orphaned page has a title that reads like a full sentence instead of a concept"
+	quote := "The stub links out to another page for storage."
+	slug := "typed-link-stub"
+	raw := []byte("event-1: " + quote)
+	eventStart := len("event-1: ")
+	planner := pagewiki.ScriptedPlanner{
+		Briefs: []pagewiki.PageBrief{{
+			Key:              slug,
+			Action:           pagewiki.PageActionCreate,
+			ProposedSlug:     slug,
+			ProposedTitle:    badTitle,
+			EvidenceEventIDs: []string{"event-1"},
+			RelatedPages: []pagewiki.RelatedPage{
+				{ID: target.ID, Title: target.Title, Relation: pagewiki.RelationTypeDependsOn},
+			},
+		}},
+	}
+	editor := pagewiki.ScriptedEditor{
+		Drafts: map[string]pagewiki.PageDraft{
+			slug: {
+				Slug:    slug,
+				Title:   badTitle,
+				Summary: "A short stub that depends on another page.",
+				Sections: []pagewiki.SectionDraft{
+					{Key: "background", Heading: "Background", Markdown: quote},
+					{Key: "related-knowledge", Heading: "Related knowledge", Markdown: "See also: " + target.Title + "."},
+				},
+				Citations: []pagewiki.CitationDraft{{
+					SectionKey: "background",
+					ExactText:  quote,
+					Evidence: []pagewiki.EvidenceQuoteDraft{{
+						EventID:   "event-1",
+						ExactText: quote,
+					}},
+				}},
+				Links: []pagewiki.LinkDraft{{
+					SectionKey:   "related-knowledge",
+					ExactText:    target.Title,
+					TargetPageID: target.ID,
+					RelationType: pagewiki.RelationTypeDependsOn,
+				}},
+			},
+		},
+	}
+	service := pagewiki.NewService(s.repository, planner, editor)
+	result, err := service.InjectSession(ctx, pagewiki.InjectSessionRequest{
+		SourceID:       "session-typed-link",
+		IdempotencyKey: "session-typed-link-injection",
+		Raw:            raw,
+		Events: []pagewiki.SourceEventInput{{
+			ID:        "event-1",
+			StartByte: eventStart,
+			EndByte:   eventStart + len(quote),
+		}},
+	})
+	s.Require().NoError(err)
+	s.Require().Equal(pagewiki.RunStatusSucceeded, result.Run.Status)
+	page, err := s.repository.PageBySlug(ctx, slug)
+	s.Require().NoError(err)
+
+	originalRevision, err := s.repository.PageRevision(ctx, page.CurrentRevisionID)
+	s.Require().NoError(err)
+	s.Require().Len(originalRevision.Links, 1)
+	s.Require().Equal(
+		pagewiki.RelationTypeDependsOn, originalRevision.Links[0].RelationType,
+		"sanity: seeded page must carry the typed link under test",
+	)
+
+	curator := pagewiki.ScriptedCurator{
+		PageVerdicts: map[string]pagewiki.PageVerdict{
+			page.ID: {
+				Verdict: pagewiki.CurationVerdictRewrite,
+				Draft: &pagewiki.CurationDraft{
+					Title:   "Typed Link Stub Concept",
+					Summary: "A properly concept-shaped rewrite that still depends on the target.",
+					Sections: []pagewiki.SectionDraft{{
+						Key: "overview", Heading: "Overview", Markdown: "A rewritten overview.",
+					}},
+				},
+			},
+		},
+	}
+	curationService := pagewiki.NewService(
+		s.repository, pagewiki.ScriptedPlanner{}, pagewiki.ScriptedEditor{},
+		pagewiki.WithCurator(curator, pagewiki.ScriptedEmbedder{}, pagewiki.CurationConfig{}, nil),
+	)
+	run, err := curationService.RunCurationRound(ctx)
+	s.Require().NoError(err)
+	s.Require().Len(run.Outcomes, 1)
+	s.Require().Equal(pagewiki.CurationVerdictRewrite, run.Outcomes[0].Verdict)
+	s.Require().Equal(pagewiki.TargetStatusSucceeded, run.Outcomes[0].Status)
+
+	rewritten, err := s.repository.PageByID(ctx, page.ID)
+	s.Require().NoError(err)
+	newRevision, err := s.repository.PageRevision(ctx, rewritten.CurrentRevisionID)
+	s.Require().NoError(err)
+	s.Require().Len(newRevision.Links, 1)
+	s.Require().Equal(
+		pagewiki.RelationTypeDependsOn, newRevision.Links[0].RelationType,
+		"republish must preserve the prior revision's typed relation, not downgrade it to relates-to",
+	)
 }
 
 func (s *curationAcceptanceSuite) TestGivenUnresolvableConflictWithNoDraftThenCandidateDegradesToKeepAndPagesStayUntouched() {

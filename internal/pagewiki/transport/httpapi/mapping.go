@@ -69,6 +69,26 @@ func optionalString(value string) *string {
 	return &value
 }
 
+// entityTypeOrFallback maps a domain EntityType to the API string, mapping
+// empty (legacy/zero) values to the untyped fallback so the API never emits
+// an empty entity_type.
+func entityTypeOrFallback(entityType pagewiki.EntityType) string {
+	if entityType == "" {
+		return string(pagewiki.EntityTypeConcept)
+	}
+	return string(entityType)
+}
+
+// relationTypeOrFallback maps a domain RelationType to the API string,
+// mapping empty (legacy/zero) values to the untyped fallback so the API
+// never emits an empty relation_type.
+func relationTypeOrFallback(relationType pagewiki.RelationType) string {
+	if relationType == "" {
+		return string(pagewiki.RelationTypeRelatesTo)
+	}
+	return string(relationType)
+}
+
 func currentPageToAPI(
 	page pagewiki.Page,
 	revision pagewiki.PageRevision,
@@ -80,6 +100,7 @@ func currentPageToAPI(
 		Title:             page.Title,
 		CurrentRevisionID: page.CurrentRevisionID,
 		Revision:          pageRevisionToAPI(revision),
+		EntityType:        optionalString(entityTypeOrFallback(page.EntityType)),
 	}
 	if page.Retired() {
 		response.Status = optionalString(string(pagewiki.PageStatusRetired))
@@ -94,6 +115,7 @@ func pageToAPI(page pagewiki.Page) *api.Page {
 		Slug:              page.Slug,
 		Title:             page.Title,
 		CurrentRevisionID: page.CurrentRevisionID,
+		EntityType:        optionalString(entityTypeOrFallback(page.EntityType)),
 	}
 }
 
@@ -159,6 +181,7 @@ func linksToAPI(links []pagewiki.PageLink) []*api.PageLink {
 			EndByte:        int32(link.EndByte),
 			ExactText:      link.ExactText,
 			TargetPageID:   link.TargetPageID,
+			RelationType:   optionalString(relationTypeOrFallback(link.RelationType)),
 		})
 	}
 	return result

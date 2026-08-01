@@ -93,30 +93,17 @@ func (x *LLMTreeIndexer) Index(
 		return TopicTree{}, fmt.Errorf("encode Page Wiki tree request: %w", err)
 	}
 	systemPrompt := treeIndexerPrompt(x.maxDepth) + generationDirectivesPrompt(input.Directives)
-	var lastErr error
-	for attempt := 0; attempt < treeIndexerAttempts; attempt++ {
-		response, err := x.client.Complete(ctx, llm.ChatRequest{
-			Model: x.model,
-			Messages: []llm.ChatMessage{
-				{Role: "system", Content: systemPrompt},
-				{Role: "user", Content: string(payload)},
-			},
-		})
-		if err != nil {
-			lastErr = err
-			continue
-		}
-		var decoded llmTreeResponse
-		if err := json.Unmarshal(
-			[]byte(trimJSONFence(response.Message.Content)),
-			&decoded,
-		); err != nil {
-			lastErr = err
-			continue
-		}
-		return x.normalizeTree(decoded, input.Catalog), nil
+	decoded, err := llm.CompleteJSON[llmTreeResponse](ctx, x.client, llm.ChatRequest{
+		Model: x.model,
+		Messages: []llm.ChatMessage{
+			{Role: "system", Content: systemPrompt},
+			{Role: "user", Content: string(payload)},
+		},
+	}, treeIndexerAttempts)
+	if err != nil {
+		return TopicTree{}, fmt.Errorf("index Page Wiki tree: %w", err)
 	}
-	return TopicTree{}, fmt.Errorf("index Page Wiki tree: %w", lastErr)
+	return x.normalizeTree(decoded, input.Catalog), nil
 }
 
 func treeRequest(input TreeIndexInput) llmTreeRequest {

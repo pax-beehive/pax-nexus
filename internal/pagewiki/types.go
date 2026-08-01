@@ -49,6 +49,32 @@ const (
 	PageStatusRetired PageStatus = "retired"
 )
 
+// EntityType classifies what a Page is about, drawn from a TypeRegistry
+// (typed values) with EntityTypeConcept as the untyped fallback.
+type EntityType string
+
+const (
+	EntityTypePerson     EntityType = "person"
+	EntityTypeSystem     EntityType = "system"
+	EntityTypeDecision   EntityType = "decision"
+	EntityTypeConvention EntityType = "convention"
+	EntityTypeConcept    EntityType = "concept" // fallback
+)
+
+// RelationType classifies how a PageLink relates its source and target,
+// drawn from a TypeRegistry (typed values) with RelationTypeRelatesTo as the
+// untyped fallback.
+type RelationType string
+
+const (
+	RelationTypeOwns       RelationType = "owns"
+	RelationTypeDependsOn  RelationType = "depends-on"
+	RelationTypePartOf     RelationType = "part-of"
+	RelationTypeSupersedes RelationType = "supersedes"
+	RelationTypeAffects    RelationType = "affects"
+	RelationTypeRelatesTo  RelationType = "relates-to" // fallback
+)
+
 type Page struct {
 	ID                string
 	Slug              string
@@ -57,6 +83,7 @@ type Page struct {
 	Status            PageStatus
 	SuccessorPageID   string
 	RetiredByRunID    string
+	EntityType        EntityType
 }
 
 func (p Page) Retired() bool { return p.Status == PageStatusRetired }
@@ -76,6 +103,7 @@ type PageCatalogEntry struct {
 	Title             string
 	CurrentRevisionID string
 	Summary           string
+	EntityType        EntityType
 }
 
 type PageCatalog []PageCatalogEntry
@@ -116,6 +144,7 @@ type PageLink struct {
 	EndByte        int
 	ExactText      string
 	TargetPageID   string
+	RelationType   RelationType
 }
 
 type Topic struct {
@@ -222,11 +251,13 @@ type PageBrief struct {
 	EvidenceEventIDs       []string
 	Evidence               []EvidenceQuoteDraft
 	RelatedPages           []RelatedPage
+	EntityType             EntityType
 }
 
 type RelatedPage struct {
-	ID    string
-	Title string
+	ID       string
+	Title    string
+	Relation RelationType
 }
 
 type PageDraft struct {
@@ -264,6 +295,7 @@ type LinkDraft struct {
 	SectionKey   string
 	ExactText    string
 	TargetPageID string
+	RelationType RelationType
 }
 
 type RunStatus string

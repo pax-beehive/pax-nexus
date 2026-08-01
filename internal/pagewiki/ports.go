@@ -6,6 +6,7 @@ type PlanInput struct {
 	SourceRevision SourceRevision
 	PageCatalog    PageCatalog
 	Directives     GenerationDirectives
+	Types          TypeRegistry
 }
 
 type Planner interface {
@@ -135,4 +136,7 @@ type Repository interface {
 	// revisions were saved (postgres hydration replays in created_at order,
 	// so the ordinal is a chronology proxy for evidence recency).
 	SourceRevisionOrdinals(context.Context) (map[string]int, error)
+	TypeRegistry(context.Context) ([]TypeRegistryEntry, error)
+	// SaveTypeRegistryEntry upserts by (Kind, Name).
+	SaveTypeRegistryEntry(context.Context, TypeRegistryEntry) error
 }

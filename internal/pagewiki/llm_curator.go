@@ -116,32 +116,17 @@ func (c *LLMCurator) JudgePair(ctx context.Context, input PairJudgeInput) (PairV
 		return PairVerdict{}, fmt.Errorf("encode Page Wiki curator pair request: %w", err)
 	}
 	systemPrompt := pageWikiCuratorPairPrompt + generationDirectivesPrompt(input.Directives)
-	var lastErr error
-	for attempt := 0; attempt < curatorAttempts; attempt++ {
-		response, err := c.client.Complete(ctx, llm.ChatRequest{
-			Model: c.model,
-			Messages: []llm.ChatMessage{
-				{Role: "system", Content: systemPrompt},
-				{Role: "user", Content: string(payload)},
-			},
-		})
-		if err != nil {
-			lastErr = err
-			continue
-		}
-		var decoded llmCuratorPairResponse
-		if err := json.Unmarshal([]byte(trimJSONFence(response.Message.Content)), &decoded); err != nil {
-			lastErr = err
-			continue
-		}
-		verdict, err := decodePairVerdict(decoded)
-		if err != nil {
-			lastErr = err
-			continue
-		}
-		return verdict, nil
+	verdict, err := llm.CompleteJSONAs(ctx, c.client, llm.ChatRequest{
+		Model: c.model,
+		Messages: []llm.ChatMessage{
+			{Role: "system", Content: systemPrompt},
+			{Role: "user", Content: string(payload)},
+		},
+	}, curatorAttempts, decodePairVerdict)
+	if err != nil {
+		return PairVerdict{}, fmt.Errorf("judge Page Wiki curator pair: %w", err)
 	}
-	return PairVerdict{}, fmt.Errorf("judge Page Wiki curator pair: %w", lastErr)
+	return verdict, nil
 }
 
 func (c *LLMCurator) JudgePage(ctx context.Context, input PageJudgeInput) (PageVerdict, error) {
@@ -153,32 +138,17 @@ func (c *LLMCurator) JudgePage(ctx context.Context, input PageJudgeInput) (PageV
 		return PageVerdict{}, fmt.Errorf("encode Page Wiki curator page request: %w", err)
 	}
 	systemPrompt := pageWikiCuratorPagePrompt + generationDirectivesPrompt(input.Directives)
-	var lastErr error
-	for attempt := 0; attempt < curatorAttempts; attempt++ {
-		response, err := c.client.Complete(ctx, llm.ChatRequest{
-			Model: c.model,
-			Messages: []llm.ChatMessage{
-				{Role: "system", Content: systemPrompt},
-				{Role: "user", Content: string(payload)},
-			},
-		})
-		if err != nil {
-			lastErr = err
-			continue
-		}
-		var decoded llmCuratorPageResponse
-		if err := json.Unmarshal([]byte(trimJSONFence(response.Message.Content)), &decoded); err != nil {
-			lastErr = err
-			continue
-		}
-		verdict, err := decodePageVerdict(decoded)
-		if err != nil {
-			lastErr = err
-			continue
-		}
-		return verdict, nil
+	verdict, err := llm.CompleteJSONAs(ctx, c.client, llm.ChatRequest{
+		Model: c.model,
+		Messages: []llm.ChatMessage{
+			{Role: "system", Content: systemPrompt},
+			{Role: "user", Content: string(payload)},
+		},
+	}, curatorAttempts, decodePageVerdict)
+	if err != nil {
+		return PageVerdict{}, fmt.Errorf("judge Page Wiki curator page: %w", err)
 	}
-	return PageVerdict{}, fmt.Errorf("judge Page Wiki curator page: %w", lastErr)
+	return verdict, nil
 }
 
 func (c *LLMCurator) Verify(ctx context.Context, input VerifyInput) (VerifyVerdict, error) {
@@ -193,27 +163,17 @@ func (c *LLMCurator) Verify(ctx context.Context, input VerifyInput) (VerifyVerdi
 		return VerifyVerdict{}, fmt.Errorf("encode Page Wiki curator verify request: %w", err)
 	}
 	systemPrompt := pageWikiCuratorVerifyPrompt + generationDirectivesPrompt(input.Directives)
-	var lastErr error
-	for attempt := 0; attempt < curatorAttempts; attempt++ {
-		response, err := c.client.Complete(ctx, llm.ChatRequest{
-			Model: c.model,
-			Messages: []llm.ChatMessage{
-				{Role: "system", Content: systemPrompt},
-				{Role: "user", Content: string(payload)},
-			},
-		})
-		if err != nil {
-			lastErr = err
-			continue
-		}
-		var decoded llmCuratorVerifyResponse
-		if err := json.Unmarshal([]byte(trimJSONFence(response.Message.Content)), &decoded); err != nil {
-			lastErr = err
-			continue
-		}
-		return VerifyVerdict(decoded), nil
+	decoded, err := llm.CompleteJSON[llmCuratorVerifyResponse](ctx, c.client, llm.ChatRequest{
+		Model: c.model,
+		Messages: []llm.ChatMessage{
+			{Role: "system", Content: systemPrompt},
+			{Role: "user", Content: string(payload)},
+		},
+	}, curatorAttempts)
+	if err != nil {
+		return VerifyVerdict{}, fmt.Errorf("verify Page Wiki curator action: %w", err)
 	}
-	return VerifyVerdict{}, fmt.Errorf("verify Page Wiki curator action: %w", lastErr)
+	return VerifyVerdict(decoded), nil
 }
 
 // curatorPageViewRequest builds the wire payload for a page view. PageID is

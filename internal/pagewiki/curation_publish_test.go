@@ -182,8 +182,14 @@ func TestGivenRelatedPagesWhenDraftIsAssembledThenRelatedSectionAndLinksAreEmitt
 	assert.Equal(t, "See also: Foo; Baz.", result.Sections[2].Markdown)
 
 	require.Len(t, result.Links, 2)
-	assert.Equal(t, LinkDraft{SectionKey: "related-knowledge", ExactText: "Foo", TargetPageID: "page-foo"}, result.Links[0])
-	assert.Equal(t, LinkDraft{SectionKey: "related-knowledge", ExactText: "Baz", TargetPageID: "page-baz"}, result.Links[1])
+	assert.Equal(t, LinkDraft{
+		SectionKey: "related-knowledge", ExactText: "Foo", TargetPageID: "page-foo",
+		RelationType: RelationTypeRelatesTo,
+	}, result.Links[0])
+	assert.Equal(t, LinkDraft{
+		SectionKey: "related-knowledge", ExactText: "Baz", TargetPageID: "page-baz",
+		RelationType: RelationTypeRelatesTo,
+	}, result.Links[1])
 }
 
 func TestGivenNoRelatedPagesWhenDraftIsAssembledThenNoRelatedSectionIsEmitted(t *testing.T) {

@@ -97,7 +97,37 @@ WHERE scope_id = $1`, func(payload []byte) error {
 	}); err != nil {
 		return fmt.Errorf("hydrate Page Wiki topic tree: %w", err)
 	}
+	// Type registry rows are replayed last and after the in-memory repository
+	// has already seeded its built-in entries (memory.NewRepository, called
+	// from NewRepository above): a persisted row for the same (Kind, Name)
+	// overwrites the matching seed, so Phase 2 candidate/active/retired
+	// transitions on seed types — and any newly registered candidate types —
+	// survive a restart.
+	if err := r.hydrateTypeRegistry(ctx); err != nil {
+		return fmt.Errorf("hydrate Page Wiki type registry: %w", err)
+	}
 	return nil
+}
+
+// hydrateTypeRegistry replays pagewiki_type_registry rows into the in-memory
+// repository over its built-in seeds. It is shared by hydrate() (initial
+// construction) and RebuildPageWiki() (which resets the in-memory
+// repository but — unlike every other table it clears — deliberately does
+// not delete pagewiki_type_registry, since the registry is taxonomy state,
+// not per-rebuild derived state; without this replay, RebuildPageWiki's
+// r.memory.Reset() would silently drop live candidate/active/retired rows
+// from the running process until its next restart, even though the DB rows
+// survive).
+func (r *Repository) hydrateTypeRegistry(ctx context.Context) error {
+	return r.loadRows(ctx, `
+SELECT payload FROM pagewiki_type_registry
+WHERE scope_id = $1 ORDER BY created_at, kind, name`, func(payload []byte) error {
+		var entry pagewiki.TypeRegistryEntry
+		if err := json.Unmarshal(payload, &entry); err != nil {
+			return err
+		}
+		return r.memory.SaveTypeRegistryEntry(ctx, entry)
+	})
 }
 
 // hydratePublications replays the publication log. A payload is either a
@@ -364,6 +394,9 @@ SET auto_inject = TRUE, updated_at = NOW()`, scopeID); err != nil {
 	}
 	committed = true
 	r.memory.Reset()
+	if err := r.hydrateTypeRegistry(ctx); err != nil {
+		return fmt.Errorf("rebuild Page Wiki: replay type registry: %w", err)
+	}
 	return nil
 }
 
@@ -505,6 +538,34 @@ SET payload = EXCLUDED.payload, updated_at = NOW()`, r.scopeID, embedding.PageID
 // persistence for ordinals, nor is one needed.
 func (r *Repository) SourceRevisionOrdinals(ctx context.Context) (map[string]int, error) {
 	return r.memory.SourceRevisionOrdinals(ctx)
+}
+
+// TypeRegistry reads from the in-memory repository, which is hydrated from
+// pagewiki_type_registry (over the built-in seeds) on startup.
+func (r *Repository) TypeRegistry(ctx context.Context) ([]pagewiki.TypeRegistryEntry, error) {
+	return r.memory.TypeRegistry(ctx)
+}
+
+// SaveTypeRegistryEntry delegates to the in-memory repository for the
+// (Kind, Name) upsert, then persists the row so it survives rehydration:
+// the registry's primary key is (scope_id, kind, name), not a single opaque
+// ID, so this writes directly rather than through insertJSON.
+func (r *Repository) SaveTypeRegistryEntry(ctx context.Context, entry pagewiki.TypeRegistryEntry) error {
+	if err := r.memory.SaveTypeRegistryEntry(ctx, entry); err != nil {
+		return err
+	}
+	payload, err := json.Marshal(entry)
+	if err != nil {
+		return fmt.Errorf("marshal Page Wiki type registry entry %q/%q: %w", entry.Kind, entry.Name, err)
+	}
+	if _, err := r.pool.Exec(ctx, `
+INSERT INTO pagewiki_type_registry (scope_id, kind, name, payload)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT (scope_id, kind, name) DO UPDATE
+SET payload = EXCLUDED.payload`, r.scopeID, string(entry.Kind), entry.Name, payload); err != nil {
+		return fmt.Errorf("persist Page Wiki type registry entry %q/%q: %w", entry.Kind, entry.Name, err)
+	}
+	return nil
 }
 
 var _ pagewiki.Repository = (*Repository)(nil)

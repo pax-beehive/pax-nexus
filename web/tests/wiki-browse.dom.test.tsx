@@ -317,6 +317,65 @@ describe("wiki browse route retired page banner", () => {
   });
 });
 
+describe("wiki browse route entity ontology", () => {
+  function typedFetch(path: string): Response {
+    if (path === "/v1/wiki/pages/sqlite") {
+      return jsonResponse({ ...sqlitePage, entity_type: "system" });
+    }
+    if (path === "/v1/wiki/pages/sqlite/backlinks") {
+      return jsonResponse({
+        outgoing: [
+          {
+            ...sqliteLinks.outgoing[0],
+            link: { ...sqliteLinks.outgoing[0].link, relation_type: "depends-on" },
+          },
+        ],
+        incoming: [],
+      });
+    }
+    return sqliteFetch(path);
+  }
+
+  function fallbackFetch(path: string): Response {
+    if (path === "/v1/wiki/pages/sqlite") {
+      return jsonResponse({ ...sqlitePage, entity_type: "concept" });
+    }
+    if (path === "/v1/wiki/pages/sqlite/backlinks") {
+      return jsonResponse({
+        outgoing: [
+          {
+            ...sqliteLinks.outgoing[0],
+            link: { ...sqliteLinks.outgoing[0].link, relation_type: "relates-to" },
+          },
+        ],
+        incoming: [],
+      });
+    }
+    return sqliteFetch(path);
+  }
+
+  it("shows the entity type badge and relation label when they say something", async () => {
+    await renderApp({ route: "/wiki/browse?page=sqlite", me: makeMe(), fetch: typedFetch });
+
+    await screen.findByRole("heading", { name: "SQLite" });
+    expect(screen.getByText("system")).toBeTruthy();
+    expect(screen.getByText("(depends-on)")).toBeTruthy();
+  });
+
+  it("hides the badge and relation label for concept/relates-to fallbacks", async () => {
+    await renderApp({ route: "/wiki/browse?page=sqlite", me: makeMe(), fetch: fallbackFetch });
+
+    await screen.findByRole("heading", { name: "SQLite" });
+    // The link row itself still renders (target page title present)...
+    expect(screen.getByText("Runtime")).toBeTruthy();
+    // ...but the fallback entity type and relation type say nothing new, so
+    // neither the badge nor the relation label should render.
+    expect(document.querySelector(".wiki-type-badge")).toBeNull();
+    expect(screen.queryByText("(relates-to)")).toBeNull();
+    expect(screen.queryByText("concept")).toBeNull();
+  });
+});
+
 // Fake-timer coverage for the 3s navigation refresh (ported from the retired
 // wiki.dom.test.tsx's "Page Wiki navigation refresh while auto inject is on"
 // describe block). WikiBrowsePage no longer owns an ingestion toggle switch

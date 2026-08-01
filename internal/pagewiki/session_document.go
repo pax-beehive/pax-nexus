@@ -44,6 +44,7 @@ func (SessionDocumentPlanner) Plan(_ context.Context, input PlanInput) ([]PageBr
 			ReaderGoal:       "Understand the durable knowledge supported by Evidence Lake evidence.",
 			EvidenceEventIDs: uniqueStrings(unit.eventIDs),
 			Evidence:         evidence,
+			EntityType:       EntityTypeConcept,
 		}
 		for _, page := range input.PageCatalog {
 			if page.Slug != unit.slug {
@@ -66,6 +67,7 @@ func (SessionDocumentPlanner) Plan(_ context.Context, input PlanInput) ([]PageBr
 		}
 		return []PageBrief{{
 			Key: "source-only", Action: PageActionSourceOnly, EvidenceEventIDs: eventIDs,
+			EntityType: EntityTypeConcept,
 		}}, nil
 	}
 	return briefs, nil
@@ -138,7 +140,7 @@ func addRelatedKnowledgeLinks(
 		}
 		if targetID != "" && targetTitle != "" {
 			briefs[index].RelatedPages = []RelatedPage{{
-				ID: targetID, Title: targetTitle,
+				ID: targetID, Title: targetTitle, Relation: RelationTypeRelatesTo,
 			}}
 		}
 	}

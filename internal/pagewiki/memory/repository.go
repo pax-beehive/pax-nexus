@@ -28,6 +28,14 @@ type Repository struct {
 	curationRuns    map[string]pagewiki.CurationRun
 	pageEmbeddings  map[string]pagewiki.PageEmbedding
 	sourceOrder     map[string]int
+	typeRegistry    map[typeRegistryKey]pagewiki.TypeRegistryEntry
+}
+
+// typeRegistryKey identifies a type registry row by (Kind, Name), the unit
+// SaveTypeRegistryEntry upserts on.
+type typeRegistryKey struct {
+	kind pagewiki.TypeKind
+	name string
 }
 
 func NewRepository() *Repository {
@@ -51,6 +59,10 @@ func (r *Repository) Reset() {
 	r.curationRuns = make(map[string]pagewiki.CurationRun)
 	r.pageEmbeddings = make(map[string]pagewiki.PageEmbedding)
 	r.sourceOrder = make(map[string]int)
+	r.typeRegistry = make(map[typeRegistryKey]pagewiki.TypeRegistryEntry)
+	for _, entry := range pagewiki.SeedTypeRegistryEntries() {
+		r.typeRegistry[typeRegistryKey{kind: entry.Kind, name: entry.Name}] = entry
+	}
 }
 
 func (r *Repository) SaveSourceRevision(
@@ -104,6 +116,7 @@ func (r *Repository) PageCatalog(_ context.Context) (pagewiki.PageCatalog, error
 			Title:             page.Title,
 			CurrentRevisionID: page.CurrentRevisionID,
 			Summary:           r.pageRevisions[page.CurrentRevisionID].Summary,
+			EntityType:        page.EntityType,
 		})
 	}
 	sort.Slice(catalog, func(i, j int) bool {
@@ -934,6 +947,29 @@ func (r *Repository) SourceRevisionOrdinals(
 		ordinals[id] = ordinal
 	}
 	return ordinals, nil
+}
+
+func (r *Repository) TypeRegistry(_ context.Context) ([]pagewiki.TypeRegistryEntry, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	entries := make([]pagewiki.TypeRegistryEntry, 0, len(r.typeRegistry))
+	for _, entry := range r.typeRegistry {
+		entries = append(entries, entry)
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].Kind != entries[j].Kind {
+			return entries[i].Kind < entries[j].Kind
+		}
+		return entries[i].Name < entries[j].Name
+	})
+	return entries, nil
+}
+
+func (r *Repository) SaveTypeRegistryEntry(_ context.Context, entry pagewiki.TypeRegistryEntry) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.typeRegistry[typeRegistryKey{kind: entry.Kind, name: entry.Name}] = entry
+	return nil
 }
 
 func (r *Repository) PageCount() int {

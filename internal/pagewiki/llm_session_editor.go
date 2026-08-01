@@ -80,36 +80,24 @@ func (e *LLMSessionEditor) Edit(ctx context.Context, input EditInput) (PageDraft
 	if err != nil {
 		return PageDraft{}, fmt.Errorf("encode Page Wiki LLM request: %w", err)
 	}
-	var lastErr error
-	for attempt := 0; attempt < editorAttempts; attempt++ {
-		response, err := e.client.Complete(ctx, llm.ChatRequest{
-			Model: e.model,
-			Messages: []llm.ChatMessage{
-				{Role: "system", Content: pageWikiEnglishEditorPrompt + generationDirectivesPrompt(input.Directives)},
-				{Role: "user", Content: string(payload)},
-			},
-			MaxTokens: editorMaxTokens,
-		})
-		if err != nil {
-			lastErr = fmt.Errorf("write Page Wiki with LLM: %w", err)
-			continue
-		}
-		var generated llmEditResponse
-		if err := json.Unmarshal([]byte(trimJSONFence(response.Message.Content)), &generated); err != nil {
-			lastErr = fmt.Errorf(
-				"decode Page Wiki LLM response (finish_reason=%q): %w",
-				response.FinishReason, err,
-			)
-			continue
-		}
-		draft, err := generatedDraft(input, generated)
-		if err != nil {
-			lastErr = err
-			continue
-		}
+	draft, err := llm.CompleteJSONAs(ctx, e.client, llm.ChatRequest{
+		Model: e.model,
+		Messages: []llm.ChatMessage{
+			{Role: "system", Content: pageWikiEnglishEditorPrompt + generationDirectivesPrompt(input.Directives)},
+			{Role: "user", Content: string(payload)},
+		},
+		MaxTokens: editorMaxTokens,
+	}, editorAttempts, func(generated llmEditResponse) (PageDraft, error) {
+		return generatedDraft(input, generated)
+	})
+	switch {
+	case err == nil:
 		return draft, nil
+	case errors.Is(err, llm.ErrInvalidJSON):
+		return PageDraft{}, fmt.Errorf("decode Page Wiki LLM response: %w", err)
+	default:
+		return PageDraft{}, fmt.Errorf("write Page Wiki with LLM: %w", err)
 	}
-	return PageDraft{}, lastErr
 }
 
 type llmEditRequest struct {
@@ -241,12 +229,22 @@ func relatedKnowledgeSection(related []RelatedPage) (SectionDraft, []LinkDraft, 
 		titles = append(titles, page.Title)
 		links = append(links, LinkDraft{
 			SectionKey: "related-knowledge", ExactText: page.Title, TargetPageID: page.ID,
+			RelationType: relationOrFallback(page.Relation),
 		})
 	}
 	return SectionDraft{
 		Key: "related-knowledge", Heading: "Related knowledge",
 		Markdown: "See also: " + strings.Join(titles, "; ") + ".",
 	}, links, true
+}
+
+// relationOrFallback resolves an empty RelationType to RelationTypeRelatesTo,
+// the untyped catch-all a PageLink carries when no relation was specified.
+func relationOrFallback(relation RelationType) RelationType {
+	if relation == "" {
+		return RelationTypeRelatesTo
+	}
+	return relation
 }
 
 func currentTitle(input EditInput) string {
@@ -280,18 +278,6 @@ func uniqueLLMSectionKey(candidate, heading string, seen map[string]int) string 
 		return fmt.Sprintf("%s-%d", key, seen[key])
 	}
 	return key
-}
-
-func trimJSONFence(value string) string {
-	trimmed := strings.TrimSpace(value)
-	if !strings.HasPrefix(trimmed, "```") {
-		return trimmed
-	}
-	lines := strings.Split(trimmed, "\n")
-	if len(lines) >= 3 && strings.TrimSpace(lines[len(lines)-1]) == "```" {
-		return strings.Join(lines[1:len(lines)-1], "\n")
-	}
-	return trimmed
 }
 
 const pageWikiEnglishEditorPrompt = `You are the senior editor of a durable, evidence-backed Wiki.
