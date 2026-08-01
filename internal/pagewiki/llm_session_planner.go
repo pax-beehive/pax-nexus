@@ -396,9 +396,9 @@ func sourceOnlyBrief(key string, revision SourceRevision) PageBrief {
 }
 
 const pageWikiPlannerPrompt = `You are the maintenance planner of a durable, evidence-backed team Wiki.
-You receive one JSON object: {"events":[{"id","content","truncated"}],"pages":[{"slug","title","summary"}]}.
+You receive one JSON object: {"events":[{"id","content","truncated"}],"pages":[{"slug","title","summary","entity_type"}]}.
 Return exactly one JSON object and no Markdown fence:
-{"briefs":[{"action":"create|update|skip_noise","target_slug":"existing page slug, update only","proposed_slug":"kebab-case, create only","proposed_title":"English title, create only","reader_goal":"one English sentence","related_slugs":["up to 3 slugs this page durably relates to"],"evidence":[{"event_id":"...","exact_quote":"verbatim substring of that event's content"}]}]}
+{"briefs":[{"action":"create|update|skip_noise","target_slug":"existing page slug, update only","proposed_slug":"kebab-case, create only","proposed_title":"English title, create only","reader_goal":"one English sentence","entity_type":"this page's type, from the entity types listed below","related":[{"slug":"up to 3 slugs this page durably relates to","relation":"from the relation types listed below"}],"evidence":[{"event_id":"...","exact_quote":"verbatim substring of that event's content"}]}]}
 
 Keep only knowledge a teammate would still need in a month: decisions and
 their rationale, architecture, conventions, durable project state, and
@@ -430,11 +430,13 @@ the event content and must genuinely support the page. Account for every
 event with either a page brief or skip_noise. Return at most 8 briefs and
 JSON only.
 
-related_slugs names pages a reader of this page should also open: slugs
-from pages or from another brief's proposed_slug in the same response.
-Link only durable, direct relationships — prerequisite, sequel, same
-subsystem — never same-session coincidence, and never the page's own slug.
-Omit the field when nothing qualifies.`
+related names pages a reader of this page should also open: each entry is
+{"slug","relation"}, where slug is from pages or from another brief's
+proposed_slug in the same response. Link only durable, direct relationships
+— prerequisite, sequel, same subsystem — never same-session coincidence, and
+never the page's own slug. Omit the field when nothing qualifies.
+related_slugs (a bare array of slugs, relation omitted) is accepted as a
+legacy alias for related but should not be used going forward.`
 
 // plannerTypeVocabulary renders the registered entity and relation types as a
 // prompt suffix: their names and descriptions, plus the instructions for how
