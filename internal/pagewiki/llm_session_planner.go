@@ -98,35 +98,22 @@ func (p *LLMSessionPlanner) Plan(
 	if err != nil {
 		return nil, fmt.Errorf("encode Page Wiki plan request: %w", err)
 	}
-	var lastErr error
-	for attempt := 0; attempt < plannerAttempts; attempt++ {
-		response, err := p.client.Complete(ctx, llm.ChatRequest{
-			Model: p.model,
-			Messages: []llm.ChatMessage{
-				{Role: "system", Content: pageWikiPlannerPrompt + generationDirectivesPrompt(input.Directives)},
-				{Role: "user", Content: string(payload)},
-			},
-		})
-		if err != nil {
-			lastErr = err
-			continue
-		}
-		var decoded llmPlanResponse
-		if err := json.Unmarshal(
-			[]byte(trimJSONFence(response.Message.Content)),
-			&decoded,
-		); err != nil {
-			lastErr = err
-			continue
-		}
-		return acceptedBriefs(decoded, input), nil
+	decoded, err := llm.CompleteJSON[llmPlanResponse](ctx, p.client, llm.ChatRequest{
+		Model: p.model,
+		Messages: []llm.ChatMessage{
+			{Role: "system", Content: pageWikiPlannerPrompt + generationDirectivesPrompt(input.Directives)},
+			{Role: "user", Content: string(payload)},
+		},
+	}, plannerAttempts)
+	if err != nil {
+		p.logger.Warn(
+			"Page Wiki plan degraded after all attempts failed",
+			"source_revision_id", input.SourceRevision.ID,
+			"error", err,
+		)
+		return []PageBrief{sourceOnlyBrief(planDegradedBriefKey, input.SourceRevision)}, nil
 	}
-	p.logger.Warn(
-		"Page Wiki plan degraded after all attempts failed",
-		"source_revision_id", input.SourceRevision.ID,
-		"error", lastErr,
-	)
-	return []PageBrief{sourceOnlyBrief(planDegradedBriefKey, input.SourceRevision)}, nil
+	return acceptedBriefs(decoded, input), nil
 }
 
 func planRequest(input PlanInput) llmPlanRequest {

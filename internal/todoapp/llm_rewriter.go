@@ -61,54 +61,23 @@ func (r *LLMRewriter) Rewrite(ctx context.Context, item ActionItem) (string, str
 		return item.Subject, item.Body, nil
 	}
 
-	var lastErr error
-	for attempt := 0; attempt < rewriterAttempts; attempt++ {
-		response, err := r.client.Complete(ctx, llm.ChatRequest{
-			Model: r.model,
-			Messages: []llm.ChatMessage{
-				{Role: "system", Content: todoRewriterPrompt},
-				{Role: "user", Content: string(userMessage)},
-			},
-		})
-		if err != nil {
-			lastErr = err
-			continue
-		}
-
-		var decoded rewriteResponse
-		if err := json.Unmarshal(
-			[]byte(trimJSONFence(response.Message.Content)),
-			&decoded,
-		); err != nil {
-			lastErr = err
-			continue
-		}
-
-		// Reject blank title as a failed attempt
+	decoded, err := llm.CompleteJSONAs(ctx, r.client, llm.ChatRequest{
+		Model: r.model,
+		Messages: []llm.ChatMessage{
+			{Role: "system", Content: todoRewriterPrompt},
+			{Role: "user", Content: string(userMessage)},
+		},
+	}, rewriterAttempts, func(decoded rewriteResponse) (rewriteResponse, error) {
 		if strings.TrimSpace(decoded.Title) == "" {
-			lastErr = errors.New("title is blank")
-			continue
+			return rewriteResponse{}, errors.New("title is blank")
 		}
-
-		return decoded.Title, decoded.Body, nil
+		return decoded, nil
+	})
+	if err != nil {
+		r.logger.Warn("todo rewrite degraded", "note_id", item.NoteID, "error", err)
+		return item.Subject, item.Body, nil
 	}
-
-	r.logger.Warn("todo rewrite degraded", "note_id", item.NoteID, "error", lastErr)
-	return item.Subject, item.Body, nil
-}
-
-// trimJSONFence strips Markdown JSON fences from a response string.
-// Copied from internal/pagewiki/llm_session_editor.go:206-216.
-func trimJSONFence(value string) string {
-	trimmed := strings.TrimSpace(value)
-	if !strings.HasPrefix(trimmed, "```") {
-		return trimmed
-	}
-	lines := strings.Split(trimmed, "\n")
-	if len(lines) >= 3 && strings.TrimSpace(lines[len(lines)-1]) == "```" {
-		return strings.Join(lines[1:len(lines)-1], "\n")
-	}
-	return trimmed
+	return decoded.Title, decoded.Body, nil
 }
 
 var _ Rewriter = (*LLMRewriter)(nil)
