@@ -132,7 +132,10 @@ func duplicatePairs(
 		if pairs[i].Similarity != pairs[j].Similarity {
 			return pairs[i].Similarity > pairs[j].Similarity
 		}
-		return pairs[i].AID < pairs[j].AID
+		if pairs[i].AID != pairs[j].AID {
+			return pairs[i].AID < pairs[j].AID
+		}
+		return pairs[i].BID < pairs[j].BID
 	})
 
 	taken := make(map[string]struct{}, 2*len(pairs))

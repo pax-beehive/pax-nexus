@@ -124,6 +124,79 @@ func TestGivenSameLeafTopicWhenTitlesShareASlugThenPairIsDetectedWithoutEmbeddin
 	assert.Equal(t, 1.0, pairs[0].Similarity)
 }
 
+// Regression test for a Critical review finding: with three pages sharing
+// a topicSlug in one leaf, all three pairwise combinations tie at
+// Similarity 1.0, and two of those pairs also tie on AID (page-a is the
+// lexically-smaller member of both (page-a,page-b) and (page-a,page-c)).
+// Before the fix, the final sort broke ties only by Similarity then AID,
+// leaving the choice between those two pairs to Go's randomized map
+// iteration order, so capping at limit=1 was nondeterministic across
+// calls with identical input. Adding BID as a third sort key makes the
+// comparator a total order and the capped result stable.
+func TestGivenTiedSimilarityAndAIDWhenPairsAreCappedThenTheResultIsDeterministicAcrossCalls(t *testing.T) {
+	t.Parallel()
+
+	catalog := PageCatalog{
+		{ID: "page-a", Title: "Deploy Runbook"},
+		{ID: "page-b", Title: "Deploy Runbook"},
+		{ID: "page-c", Title: "Deploy Runbook"},
+	}
+	tree := TopicTree{
+		Topics: []Topic{{ID: "topic-leaf", ParentID: "", Slug: "ops"}},
+		Placements: []PagePlacement{
+			{PageID: "page-a", TopicID: "topic-leaf"},
+			{PageID: "page-b", TopicID: "topic-leaf"},
+			{PageID: "page-c", TopicID: "topic-leaf"},
+		},
+	}
+
+	var first []pagePair
+	for i := 0; i < 100; i++ {
+		pairs := duplicatePairs(catalog, nil, tree, 1)
+		require.Len(t, pairs, 1)
+		if first == nil {
+			first = pairs
+			continue
+		}
+		require.Equal(t, first, pairs, "capped result must be identical across repeated calls with identical input")
+	}
+	assert.Equal(t, "page-a", first[0].AID)
+	assert.Equal(t, "page-b", first[0].BID)
+}
+
+func TestGivenThreeIndependentPairsWhenCappedThenTheTwoHighestSimilarityPairsAreKeptInOrder(t *testing.T) {
+	t.Parallel()
+
+	catalog := PageCatalog{
+		{ID: "page-p1", Title: "P1"},
+		{ID: "page-p2", Title: "P2"},
+		{ID: "page-p3", Title: "P3"},
+		{ID: "page-p4", Title: "P4"},
+		{ID: "page-p5", Title: "P5"},
+		{ID: "page-p6", Title: "P6"},
+	}
+	// Three independent, non-overlapping pairs, each isolated to its own
+	// pair of dimensions so cross-pair cosine similarity is exactly 0:
+	// (p1,p2) ~0.95, (p3,p4) ~0.90, (p5,p6) ~0.87 — all above threshold.
+	vectors := map[string][]float32{
+		"page-p1": {1, 0, 0, 0, 0, 0},
+		"page-p2": {0.95, 0.31225, 0, 0, 0, 0},
+		"page-p3": {0, 0, 1, 0, 0, 0},
+		"page-p4": {0, 0, 0.90, 0.43589, 0, 0},
+		"page-p5": {0, 0, 0, 0, 1, 0},
+		"page-p6": {0, 0, 0, 0, 0.87, 0.49305},
+	}
+
+	pairs := duplicatePairs(catalog, vectors, TopicTree{}, 2)
+
+	require.Len(t, pairs, 2)
+	assert.Equal(t, "page-p1", pairs[0].AID)
+	assert.Equal(t, "page-p2", pairs[0].BID)
+	assert.Equal(t, "page-p3", pairs[1].AID)
+	assert.Equal(t, "page-p4", pairs[1].BID)
+	assert.Greater(t, pairs[0].Similarity, pairs[1].Similarity, "highest-similarity pair sorts first")
+}
+
 func TestGivenPlacementUnderATopicWithChildrenWhenPairsAreDetectedThenItIsNotALeafGroup(t *testing.T) {
 	t.Parallel()
 
