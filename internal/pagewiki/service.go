@@ -139,8 +139,26 @@ func (s *Service) InjectSession(
 		Targets:          make([]MaintenanceTarget, 0, len(briefs)),
 	}
 	prepared := s.prepareTargets(ctx, run.ID, sourceRevision, catalog, briefs, directives)
+	linkable := s.linkableCreateIDs(ctx, sourceRevision, prepared)
+	var deferred []PagePublication
+	var deferredSlots []int
 	for index := range prepared {
-		run.Targets = append(run.Targets, s.commitTarget(ctx, sourceRevision, prepared[index]))
+		target, publication := s.commitTarget(ctx, sourceRevision, prepared[index], linkable)
+		if publication != nil {
+			deferred = append(deferred, *publication)
+			deferredSlots = append(deferredSlots, len(run.Targets))
+		}
+		run.Targets = append(run.Targets, target)
+	}
+	// Publications that reference same-run Pages commit as one batch: the
+	// repository validates link targets against existing Pages plus the batch,
+	// so mutually linked Pages can land together.
+	if len(deferred) > 0 {
+		if err := s.repository.PublishPages(ctx, deferred); err != nil {
+			for _, slot := range deferredSlots {
+				run.Targets[slot] = failTarget(run.Targets[slot], TargetFailurePublicationConflict, err)
+			}
+		}
 	}
 	run.Status = summarizeRun(run.Targets)
 	if err := s.repository.SaveMaintenanceRun(ctx, run); err != nil {
@@ -447,13 +465,59 @@ func (s *Service) prepareTarget(
 	return result
 }
 
+// linkableCreateIDs computes the create-action page IDs that may serve as
+// same-run Xanadu link targets: the fixed point of "the target's publication
+// validates with these pending IDs allowed". Validating to a fixed point
+// keeps a failed sibling from leaving a dangling link behind — every brief
+// that links to a removed page fails with invalid_link at commit instead.
+func (s *Service) linkableCreateIDs(
+	ctx context.Context,
+	sourceRevision SourceRevision,
+	prepared []preparedTarget,
+) map[string]struct{} {
+	linkable := make(map[string]struct{})
+	for index := range prepared {
+		target := &prepared[index]
+		if target.ready && target.brief.Action == PageActionCreate && target.page != nil {
+			linkable[target.page.ID] = struct{}{}
+		}
+	}
+	for changed := true; changed && len(linkable) > 0; {
+		changed = false
+		for index := range prepared {
+			target := &prepared[index]
+			if !target.ready || target.brief.Action != PageActionCreate || target.page == nil {
+				continue
+			}
+			if _, ok := linkable[target.page.ID]; !ok {
+				continue
+			}
+			_, _, _, err := s.buildPublication(
+				ctx, sourceRevision, target.brief, target.page,
+				target.currentRevision, target.draft, linkable,
+			)
+			if err != nil {
+				delete(linkable, target.page.ID)
+				changed = true
+			}
+		}
+	}
+	return linkable
+}
+
+// commitTarget validates and publishes one prepared target. When the new
+// revision references same-run Pages (ids in linkable), the publication is
+// returned for the caller's end-of-loop batch commit instead of being
+// published immediately; the returned target is then optimistic and must be
+// failed if the batch publish fails.
 func (s *Service) commitTarget(
 	ctx context.Context,
 	sourceRevision SourceRevision,
 	prepared preparedTarget,
-) MaintenanceTarget {
+	linkable map[string]struct{},
+) (MaintenanceTarget, *PagePublication) {
 	if !prepared.ready {
-		return prepared.target
+		return prepared.target, nil
 	}
 	target := prepared.target
 	pageValue, revision, reason, err := s.buildPublication(
@@ -463,9 +527,10 @@ func (s *Service) commitTarget(
 		prepared.page,
 		prepared.currentRevision,
 		prepared.draft,
+		linkable,
 	)
 	if err != nil {
-		return failTarget(target, reason, err)
+		return failTarget(target, reason, err), nil
 	}
 	if prepared.currentRevision != nil &&
 		prepared.page.Slug == pageValue.Slug &&
@@ -474,19 +539,31 @@ func (s *Service) commitTarget(
 		target.PageID = prepared.page.ID
 		target.PageRevisionID = prepared.currentRevision.ID
 		target.Status = TargetStatusSucceeded
-		return target
+		return target, nil
 	}
 	publication := PagePublication{
 		Page:     pageValue,
 		Revision: revision,
 	}
-	if err := s.repository.PublishPage(ctx, publication); err != nil {
-		return failTarget(target, TargetFailurePublicationConflict, err)
-	}
 	target.PageID = pageValue.ID
 	target.PageRevisionID = revision.ID
 	target.Status = TargetStatusSucceeded
-	return target
+	if referencesPendingPage(revision.Links, linkable) {
+		return target, &publication
+	}
+	if err := s.repository.PublishPage(ctx, publication); err != nil {
+		return failTarget(target, TargetFailurePublicationConflict, err), nil
+	}
+	return target, nil
+}
+
+func referencesPendingPage(links []PageLink, linkable map[string]struct{}) bool {
+	for _, link := range links {
+		if _, pending := linkable[link.TargetPageID]; pending {
+			return true
+		}
+	}
+	return false
 }
 
 func revisionsEquivalent(left, right PageRevision) bool {
@@ -561,6 +638,7 @@ func (s *Service) buildPublication(
 	page *Page,
 	currentRevision *PageRevision,
 	draft PageDraft,
+	linkable map[string]struct{},
 ) (Page, PageRevision, TargetFailureReason, error) {
 	sections, sectionByKey, err := validateDraft(brief, draft)
 	if err != nil {
@@ -584,7 +662,7 @@ func (s *Service) buildPublication(
 	if err != nil {
 		return Page{}, PageRevision{}, TargetFailureInvalidCitation, err
 	}
-	links, err := s.buildLinks(ctx, revisionID, sectionByKey, draft.Links)
+	links, err := s.buildLinks(ctx, revisionID, sectionByKey, draft.Links, linkable)
 	if err != nil {
 		return Page{}, PageRevision{}, TargetFailureInvalidLink, err
 	}
@@ -763,6 +841,7 @@ func (s *Service) buildLinks(
 	revisionID string,
 	sections map[string]SectionDraft,
 	drafts []LinkDraft,
+	linkable map[string]struct{},
 ) ([]PageLink, error) {
 	links := make([]PageLink, 0, len(drafts))
 	for index, draft := range drafts {
@@ -774,13 +853,18 @@ func (s *Service) buildLinks(
 		if err != nil {
 			return nil, fmt.Errorf("%w: page text: %w", ErrInvalidLink, err)
 		}
-		if _, err := s.repository.PageByID(ctx, draft.TargetPageID); err != nil {
-			return nil, fmt.Errorf(
-				"%w: target Page %q: %w",
-				ErrInvalidLink,
-				draft.TargetPageID,
-				err,
-			)
+		// A link target is either an already-published Page or a same-run
+		// create whose publication was validated by linkableCreateIDs; anything
+		// else is rejected so a published revision never dangles a link.
+		if _, pending := linkable[draft.TargetPageID]; !pending {
+			if _, err := s.repository.PageByID(ctx, draft.TargetPageID); err != nil {
+				return nil, fmt.Errorf(
+					"%w: target Page %q: %w",
+					ErrInvalidLink,
+					draft.TargetPageID,
+					err,
+				)
+			}
 		}
 		links = append(links, PageLink{
 			ID:             stableID("link", revisionID, fmt.Sprint(index)),

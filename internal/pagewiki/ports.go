@@ -43,6 +43,11 @@ type Repository interface {
 	PageRevision(context.Context, string) (PageRevision, error)
 	PageRevisionHistory(context.Context, string) ([]PageRevision, error)
 	PublishPage(context.Context, PagePublication) error
+	// PublishPages atomically validates and applies a batch of publications.
+	// A Xanadu link may target a Page inside the same batch that does not
+	// exist yet; anything else must already exist. The whole batch is
+	// rejected if any member fails validation.
+	PublishPages(context.Context, []PagePublication) error
 	Navigation(context.Context) (Navigation, error)
 	Search(context.Context, string) ([]SearchResult, error)
 	PageLinks(context.Context, string) (PageLinkSet, error)

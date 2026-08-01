@@ -290,6 +290,71 @@ func (s *RepositorySuite) TestGivenInvalidLinkWhenPublishedThenNothingIsStored()
 	}
 }
 
+func (s *RepositorySuite) TestGivenMutuallyLinkedPagesWhenPublishedAsBatchThenBothLand() {
+	linkedRevision := func(id, pageID, otherPageID, otherTitle string) pagewiki.PageRevision {
+		return pagewiki.PageRevision{
+			ID: id, PageID: pageID, Title: "Linked",
+			Sections: []pagewiki.PageSection{{
+				Key: "related", Heading: "Related", Markdown: "See also: " + otherTitle + ".",
+			}},
+			Links: []pagewiki.PageLink{{
+				ID: "link-" + id, PageRevisionID: id, SectionKey: "related",
+				StartByte: 10, EndByte: 10 + len(otherTitle),
+				ExactText: otherTitle, TargetPageID: otherPageID,
+			}},
+		}
+	}
+	publications := []pagewiki.PagePublication{
+		{
+			Page:     pagewiki.Page{ID: "page-1", Slug: "alpha", Title: "Alpha", CurrentRevisionID: "revision-1"},
+			Revision: linkedRevision("revision-1", "page-1", "page-2", "Beta"),
+		},
+		{
+			Page:     pagewiki.Page{ID: "page-2", Slug: "beta", Title: "Beta", CurrentRevisionID: "revision-2"},
+			Revision: linkedRevision("revision-2", "page-2", "page-1", "Alpha"),
+		},
+	}
+
+	err := s.repository.PublishPages(s.ctx, publications)
+
+	s.Require().NoError(err)
+	s.Equal(2, s.repository.PageCount())
+	links, err := s.repository.PageLinks(s.ctx, "page-1")
+	s.Require().NoError(err)
+	s.Require().Len(links.Outgoing, 1)
+	s.Equal("page-2", links.Outgoing[0].TargetPage.ID)
+	s.Require().Len(links.Incoming, 1)
+	s.Equal("page-2", links.Incoming[0].SourcePage.ID)
+
+	// Replays of the same batch stay idempotent.
+	s.Require().NoError(s.repository.PublishPages(s.ctx, publications))
+	s.Equal(2, s.repository.PageCount())
+}
+
+func (s *RepositorySuite) TestGivenBatchWithUnknownLinkTargetThenNothingIsStored() {
+	page, revision := pageFixture()
+	stranger, strangerRevision := pageFixture()
+	stranger.ID = "page-2"
+	stranger.Slug = "beta"
+	strangerRevision.ID = "revision-2"
+	strangerRevision.PageID = "page-2"
+	strangerRevision.Links[0].ID = "link-2"
+	strangerRevision.Links[0].PageRevisionID = "revision-2"
+	strangerRevision.Links[0].TargetPageID = "page-missing"
+	stranger.CurrentRevisionID = "revision-2"
+	publications := []pagewiki.PagePublication{
+		publicationFixture(page, revision),
+		{Page: stranger, Revision: strangerRevision},
+	}
+
+	err := s.repository.PublishPages(s.ctx, publications)
+
+	s.Require().ErrorIs(err, pagewiki.ErrInvalidLink)
+	s.Require().Zero(s.repository.PageCount())
+	s.Require().Zero(s.repository.PageRevisionCount())
+	s.Require().Zero(s.repository.SearchChunkCount())
+}
+
 func (s *RepositorySuite) TestGivenMissingParentTopicWhenPublishedThenNothingIsStored() {
 	page, revision := pageFixture()
 	publication := publicationFixture(page, revision)

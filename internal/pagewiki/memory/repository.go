@@ -177,22 +177,60 @@ func (r *Repository) PageRevisionHistory(
 }
 
 func (r *Repository) PublishPage(
-	_ context.Context,
+	ctx context.Context,
 	publication pagewiki.PagePublication,
+) error {
+	return r.PublishPages(ctx, []pagewiki.PagePublication{publication})
+}
+
+func (r *Repository) PublishPages(
+	_ context.Context,
+	publications []pagewiki.PagePublication,
 ) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	batchPageIDs := make(map[string]struct{}, len(publications))
+	for _, publication := range publications {
+		batchPageIDs[publication.Page.ID] = struct{}{}
+	}
+	batchSlugs := make(map[string]string, len(publications))
+	pending := make([]pagewiki.PagePublication, 0, len(publications))
+	for _, publication := range publications {
+		if r.isApplied(publication) {
+			continue
+		}
+		if err := r.validatePublication(publication, batchPageIDs); err != nil {
+			return err
+		}
+		if existingID, found := batchSlugs[publication.Page.Slug]; found &&
+			existingID != publication.Page.ID {
+			return fmt.Errorf(
+				"%w: slug %q is already published in this batch",
+				pagewiki.ErrRevisionConflict,
+				publication.Page.Slug,
+			)
+		}
+		batchSlugs[publication.Page.Slug] = publication.Page.ID
+		pending = append(pending, publication)
+	}
+	for _, publication := range pending {
+		r.applyPublication(publication)
+	}
+	return nil
+}
+
+// isApplied reports whether the exact publication already landed, so replays
+// of the same run stay idempotent.
+func (r *Repository) isApplied(publication pagewiki.PagePublication) bool {
 	existingPage, pageFound := r.pages[publication.Page.ID]
 	existingRevision, revisionFound := r.pageRevisions[publication.Revision.ID]
-	if pageFound &&
+	return pageFound &&
 		revisionFound &&
 		reflect.DeepEqual(existingPage, publication.Page) &&
-		reflect.DeepEqual(existingRevision, publication.Revision) {
-		return nil
-	}
-	if err := r.validatePublication(publication); err != nil {
-		return err
-	}
+		reflect.DeepEqual(existingRevision, publication.Revision)
+}
+
+func (r *Repository) applyPublication(publication pagewiki.PagePublication) {
 	page := publication.Page
 	revision := publication.Revision
 	chunks := buildSearchChunks(revision)
@@ -216,10 +254,15 @@ func (r *Repository) PublishPage(
 	for _, chunk := range chunks {
 		r.searchChunks[chunk.ID] = chunk
 	}
-	return nil
 }
 
-func (r *Repository) validatePublication(publication pagewiki.PagePublication) error {
+// validatePublication checks one publication against the repository; pending
+// holds the page IDs of the enclosing batch, so a Xanadu link may point at a
+// sibling that is published by the same PublishPages call.
+func (r *Repository) validatePublication(
+	publication pagewiki.PagePublication,
+	pending map[string]struct{},
+) error {
 	page := publication.Page
 	revision := publication.Revision
 	if page.ID == "" || page.Slug == "" || revision.ID == "" {
@@ -246,7 +289,7 @@ func (r *Repository) validatePublication(publication pagewiki.PagePublication) e
 			revision.ID,
 		)
 	}
-	if err := r.validateLinks(page, revision); err != nil {
+	if err := r.validateLinks(page, revision, pending); err != nil {
 		return err
 	}
 	topics, err := r.validateTopics(publication.Topics)
@@ -272,6 +315,7 @@ func (r *Repository) validatePublication(publication pagewiki.PagePublication) e
 func (r *Repository) validateLinks(
 	page pagewiki.Page,
 	revision pagewiki.PageRevision,
+	pending map[string]struct{},
 ) error {
 	sections := make(map[string]pagewiki.PageSection, len(revision.Sections))
 	for _, section := range revision.Sections {
@@ -301,11 +345,13 @@ func (r *Repository) validateLinks(
 		}
 		if link.TargetPageID != page.ID {
 			if _, found := r.pages[link.TargetPageID]; !found {
-				return fmt.Errorf(
-					"%w: target Page %q is missing",
-					pagewiki.ErrInvalidLink,
-					link.TargetPageID,
-				)
+				if _, pending := pending[link.TargetPageID]; !pending {
+					return fmt.Errorf(
+						"%w: target Page %q is missing",
+						pagewiki.ErrInvalidLink,
+						link.TargetPageID,
+					)
+				}
 			}
 		}
 	}
