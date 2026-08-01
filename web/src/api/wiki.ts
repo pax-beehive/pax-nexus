@@ -76,6 +76,8 @@ export interface WikiRevision {
 
 export interface WikiPage extends WikiPageSummary {
   revision: WikiRevision;
+  status?: string;
+  successor_slug?: string;
 }
 
 export interface WikiResolvedLink {

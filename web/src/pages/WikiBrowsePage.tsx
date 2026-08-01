@@ -290,6 +290,23 @@ export function WikiBrowsePage() {
               <p className="muted">{pageLoading ? "Loading page…" : "Select a page."}</p>
             ) : (
               <>
+                {page.status === "retired" && (
+                  <div className="wiki-retired-banner" role="status">
+                    <span>This page has been archived.</span>
+                    {page.successor_slug && (
+                      <a
+                        href={`/wiki?page=${encodeURIComponent(page.successor_slug)}`}
+                        className="wiki-inline-link"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          selectPage(page.successor_slug!);
+                        }}
+                      >
+                        See successor page
+                      </a>
+                    )}
+                  </div>
+                )}
                 <div className="row between wrap">
                   <span className="wiki-eyebrow">Wiki page</span>
                   <span className={historical ? "badge b-suspended" : "badge b-active"}>

@@ -245,6 +245,78 @@ describe("wiki browse route topics and search", () => {
   });
 });
 
+describe("wiki browse route retired page banner", () => {
+  function retiredRevision() {
+    return {
+      id: "revision-retired",
+      page_id: "page-retired",
+      title: "Retired Page",
+      summary: "The former home of this decision.",
+      sections: [],
+      markdown: "# Retired Page",
+      citations: [],
+      links: [],
+    };
+  }
+
+  function retiredPage(successorSlug?: string) {
+    return {
+      id: "page-retired",
+      slug: "retired-page",
+      title: "Retired Page",
+      current_revision_id: "revision-retired",
+      status: "retired",
+      ...(successorSlug ? { successor_slug: successorSlug } : {}),
+      revision: retiredRevision(),
+    };
+  }
+
+  function retiredFetch(successorSlug?: string) {
+    return (path: string): Response => {
+      if (path === "/v1/wiki/ingestion") return jsonResponse({ auto_inject: false });
+      if (path === "/v1/wiki/navigation") {
+        return jsonResponse({
+          roots: [],
+          pages: [{ id: "page-retired", slug: "retired-page", title: "Retired Page", rank: 0 }],
+        });
+      }
+      if (path === "/v1/wiki/pages/retired-page") return jsonResponse(retiredPage(successorSlug));
+      if (path === "/v1/wiki/pages/retired-page/revisions") {
+        return jsonResponse({ revisions: [retiredRevision()] });
+      }
+      if (path === "/v1/wiki/pages/retired-page/backlinks") {
+        return jsonResponse({ outgoing: [], incoming: [] });
+      }
+      throw new Error(`unexpected path: ${path}`);
+    };
+  }
+
+  it("shows an archived banner with a link to the successor page", async () => {
+    await renderApp({
+      route: "/wiki/browse?page=retired-page",
+      me: makeMe(),
+      fetch: retiredFetch("sqlite"),
+    });
+
+    await screen.findByRole("heading", { name: "Retired Page" });
+    screen.getByText("This page has been archived.");
+    const link = screen.getByRole("link", { name: "See successor page" });
+    expect(link.getAttribute("href")).toBe("/wiki?page=sqlite");
+  });
+
+  it("omits the successor link when no successor slug is present", async () => {
+    await renderApp({
+      route: "/wiki/browse?page=retired-page",
+      me: makeMe(),
+      fetch: retiredFetch(),
+    });
+
+    await screen.findByRole("heading", { name: "Retired Page" });
+    screen.getByText("This page has been archived.");
+    expect(screen.queryByRole("link", { name: "See successor page" })).toBeNull();
+  });
+});
+
 // Fake-timer coverage for the 3s navigation refresh (ported from the retired
 // wiki.dom.test.tsx's "Page Wiki navigation refresh while auto inject is on"
 // describe block). WikiBrowsePage no longer owns an ingestion toggle switch

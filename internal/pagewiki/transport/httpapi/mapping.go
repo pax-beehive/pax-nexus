@@ -72,14 +72,20 @@ func optionalString(value string) *string {
 func currentPageToAPI(
 	page pagewiki.Page,
 	revision pagewiki.PageRevision,
+	successorSlug string,
 ) *api.CurrentPageResponse {
-	return &api.CurrentPageResponse{
+	response := &api.CurrentPageResponse{
 		ID:                page.ID,
 		Slug:              page.Slug,
 		Title:             page.Title,
 		CurrentRevisionID: page.CurrentRevisionID,
 		Revision:          pageRevisionToAPI(revision),
 	}
+	if page.Retired() {
+		response.Status = optionalString(string(pagewiki.PageStatusRetired))
+		response.SuccessorSlug = optionalString(successorSlug)
+	}
+	return response
 }
 
 func pageToAPI(page pagewiki.Page) *api.Page {
