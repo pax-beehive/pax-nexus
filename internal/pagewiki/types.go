@@ -253,6 +253,11 @@ type CitationDraft struct {
 	SectionKey string
 	ExactText  string
 	Evidence   []EvidenceQuoteDraft
+	// Anchors carries forward SourceAnchor rows verbatim for curation
+	// rewrites/merges, whose evidence is a union of prior citations rather
+	// than a fresh resolution against one source revision. Empty for the
+	// LLM session editor path, which still populates Evidence instead.
+	Anchors []SourceAnchor
 }
 
 type LinkDraft struct {
