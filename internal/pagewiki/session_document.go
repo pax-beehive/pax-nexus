@@ -96,20 +96,9 @@ func (SessionDocumentEditor) Edit(_ context.Context, input EditInput) (PageDraft
 		Key: "current-knowledge", Heading: "Current knowledge", Markdown: markdown,
 	}}
 	links := make([]LinkDraft, 0, len(input.Brief.RelatedPages))
-	if len(input.Brief.RelatedPages) > 0 {
-		related := make([]string, 0, len(input.Brief.RelatedPages))
-		for _, page := range input.Brief.RelatedPages {
-			related = append(related, page.Title)
-			links = append(links, LinkDraft{
-				SectionKey:   "related-knowledge",
-				ExactText:    page.Title,
-				TargetPageID: page.ID,
-			})
-		}
-		sections = append(sections, SectionDraft{
-			Key: "related-knowledge", Heading: "Related knowledge",
-			Markdown: "See also: " + strings.Join(related, "; ") + ".",
-		})
+	if section, linkDrafts, ok := relatedKnowledgeSection(input.Brief.RelatedPages); ok {
+		sections = append(sections, section)
+		links = append(links, linkDrafts...)
 	}
 	citations := make([]CitationDraft, 0, len(selected.quotes))
 	for index, quote := range selected.quotes {

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/pax-beehive/pax-nexus/internal/platform/llm"
@@ -151,23 +152,79 @@ func generatedDraft(
 		Markdown: strings.Join(evidenceMarkdown, "\n\n"),
 	})
 	links := make([]LinkDraft, 0, len(input.Brief.RelatedPages))
-	if len(input.Brief.RelatedPages) > 0 {
-		titles := make([]string, 0, len(input.Brief.RelatedPages))
-		for _, page := range input.Brief.RelatedPages {
-			titles = append(titles, page.Title)
-			links = append(links, LinkDraft{
-				SectionKey: "related-knowledge", ExactText: page.Title, TargetPageID: page.ID,
-			})
-		}
-		sections = append(sections, SectionDraft{
-			Key: "related-knowledge", Heading: "Related knowledge",
-			Markdown: "See also: " + strings.Join(titles, "; ") + ".",
-		})
+	if section, linkDrafts, ok := relatedKnowledgeSection(input.Brief.RelatedPages); ok {
+		sections = append(sections, section)
+		links = append(links, linkDrafts...)
 	}
 	return PageDraft{
 		Slug: slug, Title: title, Summary: summary,
 		Sections: sections, Citations: citations, Links: links,
 	}, nil
+}
+
+// relatedKnowledgeSection renders the deterministic "Related knowledge"
+// section and its Xanadu link drafts. Drafts are deduplicated by target page,
+// and titles that would overlap inside the section text are dropped: the
+// publisher requires every link's exact text to appear in its section exactly
+// once, so a shorter title contained in a longer one must never survive.
+func relatedKnowledgeSection(related []RelatedPage) (SectionDraft, []LinkDraft, bool) {
+	unique := make([]RelatedPage, 0, len(related))
+	for _, page := range related {
+		if page.ID == "" || strings.TrimSpace(page.Title) == "" {
+			continue
+		}
+		duplicate := false
+		for _, kept := range unique {
+			if kept.ID == page.ID {
+				duplicate = true
+				break
+			}
+		}
+		if !duplicate {
+			unique = append(unique, page)
+		}
+	}
+	if len(unique) == 0 {
+		return SectionDraft{}, nil, false
+	}
+	// Longest title wins every overlap; equal titles keep the planner's order.
+	longestFirst := make([]RelatedPage, len(unique))
+	copy(longestFirst, unique)
+	sort.SliceStable(longestFirst, func(i, j int) bool {
+		return len(longestFirst[i].Title) > len(longestFirst[j].Title)
+	})
+	dropped := make(map[string]bool, len(unique))
+	for index, page := range longestFirst {
+		if dropped[page.ID] {
+			continue
+		}
+		for _, shorter := range longestFirst[index+1:] {
+			if strings.Contains(page.Title, shorter.Title) {
+				dropped[shorter.ID] = true
+			}
+		}
+	}
+	kept := make([]RelatedPage, 0, len(unique))
+	for _, page := range unique {
+		if !dropped[page.ID] {
+			kept = append(kept, page)
+		}
+	}
+	if len(kept) == 0 {
+		return SectionDraft{}, nil, false
+	}
+	titles := make([]string, 0, len(kept))
+	links := make([]LinkDraft, 0, len(kept))
+	for _, page := range kept {
+		titles = append(titles, page.Title)
+		links = append(links, LinkDraft{
+			SectionKey: "related-knowledge", ExactText: page.Title, TargetPageID: page.ID,
+		})
+	}
+	return SectionDraft{
+		Key: "related-knowledge", Heading: "Related knowledge",
+		Markdown: "See also: " + strings.Join(titles, "; ") + ".",
+	}, links, true
 }
 
 func currentTitle(input EditInput) string {

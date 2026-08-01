@@ -13,11 +13,12 @@ import (
 )
 
 const (
-	plannerMaxBriefs     = 8
-	plannerMaxEventBytes = 16 << 10
-	plannerAttempts      = 2
-	planDegradedBriefKey = "plan-degraded"
-	planEmptyBriefKey    = "source-only"
+	plannerMaxBriefs       = 8
+	plannerMaxEventBytes   = 16 << 10
+	plannerAttempts        = 2
+	plannerMaxRelatedPages = 4
+	planDegradedBriefKey   = "plan-degraded"
+	planEmptyBriefKey      = "source-only"
 )
 
 type LLMPlannerConfig struct {
@@ -78,6 +79,7 @@ type llmPlanBrief struct {
 	ProposedSlug  string            `json:"proposed_slug"`
 	ProposedTitle string            `json:"proposed_title"`
 	ReaderGoal    string            `json:"reader_goal"`
+	RelatedSlugs  []string          `json:"related_slugs,omitempty"`
 	Evidence      []llmPlanEvidence `json:"evidence"`
 }
 
@@ -149,26 +151,90 @@ func planRequest(input PlanInput) llmPlanRequest {
 }
 
 func acceptedBriefs(decoded llmPlanResponse, input PlanInput) []PageBrief {
-	briefs := make([]PageBrief, 0, plannerMaxBriefs)
+	accepted := make([]plannedBrief, 0, plannerMaxBriefs)
 	seenKeys := make(map[string]struct{})
 	for _, candidate := range decoded.Briefs {
-		if len(briefs) >= plannerMaxBriefs {
+		if len(accepted) >= plannerMaxBriefs {
 			break
 		}
-		brief, accepted := acceptBrief(candidate, input)
-		if !accepted {
+		brief, accepted_ok := acceptBrief(candidate, input)
+		if !accepted_ok {
 			continue
 		}
 		if _, exists := seenKeys[brief.Key]; exists {
 			continue
 		}
 		seenKeys[brief.Key] = struct{}{}
-		briefs = append(briefs, brief)
+		accepted = append(accepted, plannedBrief{brief: brief, relatedSlugs: candidate.RelatedSlugs})
 	}
-	if len(briefs) == 0 {
+	if len(accepted) == 0 {
 		return []PageBrief{sourceOnlyBrief(planEmptyBriefKey, input.SourceRevision)}
 	}
+	targets := relatedTargets(accepted, input)
+	briefs := make([]PageBrief, 0, len(accepted))
+	for _, planned := range accepted {
+		planned.brief.RelatedPages = resolveRelatedPages(planned, targets)
+		briefs = append(briefs, planned.brief)
+	}
 	return briefs
+}
+
+// plannedBrief carries the planner's raw related_slugs alongside the accepted
+// brief; slugs resolve to page IDs only after every brief is accepted, since a
+// brief may link to a sibling created later in the same run.
+type plannedBrief struct {
+	brief        PageBrief
+	relatedSlugs []string
+}
+
+// relatedTargets maps every linkable slug to its page identity: existing
+// catalog pages by their real IDs, and accepted create briefs by the stable
+// page ID the service assigns at publication (see loadTargetPages).
+func relatedTargets(accepted []plannedBrief, input PlanInput) map[string]RelatedPage {
+	targets := make(map[string]RelatedPage, len(input.PageCatalog)+len(accepted))
+	for _, page := range input.PageCatalog {
+		targets[page.Slug] = RelatedPage{ID: page.ID, Title: page.Title}
+	}
+	for _, planned := range accepted {
+		if planned.brief.Action != PageActionCreate {
+			continue
+		}
+		targets[planned.brief.ProposedSlug] = RelatedPage{
+			ID:    stableID("page", input.SourceRevision.ID, planned.brief.Key),
+			Title: planned.brief.ProposedTitle,
+		}
+	}
+	return targets
+}
+
+func resolveRelatedPages(planned plannedBrief, targets map[string]RelatedPage) []RelatedPage {
+	related := make([]RelatedPage, 0, len(planned.relatedSlugs))
+	for _, slug := range planned.relatedSlugs {
+		if len(related) >= plannerMaxRelatedPages {
+			break
+		}
+		// A page never links to itself; Key holds the page's own slug for both
+		// create and update briefs.
+		if slug == planned.brief.Key {
+			continue
+		}
+		target, found := targets[slug]
+		if !found {
+			continue
+		}
+		duplicate := false
+		for _, existing := range related {
+			if existing.ID == target.ID {
+				duplicate = true
+				break
+			}
+		}
+		if duplicate {
+			continue
+		}
+		related = append(related, target)
+	}
+	return related
 }
 
 func acceptBrief(candidate llmPlanBrief, input PlanInput) (PageBrief, bool) {
@@ -287,7 +353,7 @@ func sourceOnlyBrief(key string, revision SourceRevision) PageBrief {
 const pageWikiPlannerPrompt = `You are the maintenance planner of a durable, evidence-backed team Wiki.
 You receive one JSON object: {"events":[{"id","content","truncated"}],"pages":[{"slug","title","summary"}]}.
 Return exactly one JSON object and no Markdown fence:
-{"briefs":[{"action":"create|update|skip_noise","target_slug":"existing page slug, update only","proposed_slug":"kebab-case, create only","proposed_title":"English title, create only","reader_goal":"one English sentence","evidence":[{"event_id":"...","exact_quote":"verbatim substring of that event's content"}]}]}
+{"briefs":[{"action":"create|update|skip_noise","target_slug":"existing page slug, update only","proposed_slug":"kebab-case, create only","proposed_title":"English title, create only","reader_goal":"one English sentence","related_slugs":["up to 3 slugs this page durably relates to"],"evidence":[{"event_id":"...","exact_quote":"verbatim substring of that event's content"}]}]}
 
 Keep only knowledge a teammate would still need in a month: decisions and
 their rationale, architecture, conventions, durable project state, and
@@ -307,6 +373,12 @@ Group related evidence aggressively into one page; most sessions should
 yield zero to two briefs. Judge subject overlap with each page's summary, not its title alone. Every exact_quote must be copied verbatim from
 the event content and must genuinely support the page. Account for every
 event with either a page brief or skip_noise. Return at most 8 briefs and
-JSON only.`
+JSON only.
+
+related_slugs names pages a reader of this page should also open: slugs
+from pages or from another brief's proposed_slug in the same response.
+Link only durable, direct relationships — prerequisite, sequel, same
+subsystem — never same-session coincidence, and never the page's own slug.
+Omit the field when nothing qualifies.`
 
 var _ Planner = (*LLMSessionPlanner)(nil)

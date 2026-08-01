@@ -47,18 +47,7 @@ WHERE scope_id = $1 ORDER BY created_at, source_revision_id`, func(payload []byt
 	}); err != nil {
 		return fmt.Errorf("hydrate Page Wiki sources: %w", err)
 	}
-	if err := r.loadRows(ctx, `
-SELECT payload FROM pagewiki_publications
-WHERE scope_id = $1 ORDER BY ordinal`, func(payload []byte) error {
-		var publication pagewiki.PagePublication
-		if err := json.Unmarshal(payload, &publication); err != nil {
-			return err
-		}
-		if legacyPages > 0 && isSessionPublication(publication) {
-			return nil
-		}
-		return r.memory.PublishPage(ctx, publication)
-	}); err != nil {
+	if err := r.hydratePublications(ctx, legacyPages); err != nil {
 		return fmt.Errorf("hydrate Page Wiki publications: %w", err)
 	}
 	if err := r.loadRows(ctx, `
@@ -84,6 +73,40 @@ WHERE scope_id = $1`, func(payload []byte) error {
 		return fmt.Errorf("hydrate Page Wiki topic tree: %w", err)
 	}
 	return nil
+}
+
+// hydratePublications replays the publication log. A payload is either a
+// single PagePublication or a JSON array written by PublishPages; batches must
+// replay atomically because members may link to each other.
+func (r *Repository) hydratePublications(ctx context.Context, legacyPages int) error {
+	return r.loadRows(ctx, `
+SELECT payload FROM pagewiki_publications
+WHERE scope_id = $1 ORDER BY ordinal`, func(payload []byte) error {
+		var batch []pagewiki.PagePublication
+		if err := json.Unmarshal(payload, &batch); err == nil && len(batch) > 0 {
+			if legacyPages > 0 {
+				filtered := make([]pagewiki.PagePublication, 0, len(batch))
+				for _, publication := range batch {
+					if !isSessionPublication(publication) {
+						filtered = append(filtered, publication)
+					}
+				}
+				batch = filtered
+			}
+			if len(batch) == 0 {
+				return nil
+			}
+			return r.memory.PublishPages(ctx, batch)
+		}
+		var publication pagewiki.PagePublication
+		if err := json.Unmarshal(payload, &publication); err != nil {
+			return err
+		}
+		if legacyPages > 0 && isSessionPublication(publication) {
+			return nil
+		}
+		return r.memory.PublishPage(ctx, publication)
+	})
 }
 
 func isSessionPublication(publication pagewiki.PagePublication) bool {
@@ -135,6 +158,23 @@ func (r *Repository) PublishPage(ctx context.Context, publication pagewiki.PageP
 INSERT INTO pagewiki_publications (scope_id, page_revision_id, payload)
 VALUES ($1, $2, $3)
 ON CONFLICT (scope_id, page_revision_id) DO NOTHING`, publication.Revision.ID, publication)
+}
+
+// PublishPages stores a multi-publication batch as one payload row so
+// hydration replays it atomically: batch members may link to each other, and
+// replaying them one row at a time would fail link validation.
+func (r *Repository) PublishPages(ctx context.Context, publications []pagewiki.PagePublication) error {
+	if len(publications) == 1 {
+		return r.PublishPage(ctx, publications[0])
+	}
+	if err := r.memory.PublishPages(ctx, publications); err != nil {
+		return err
+	}
+	return r.insertJSON(ctx, `
+INSERT INTO pagewiki_publications (scope_id, page_revision_id, payload)
+VALUES ($1, $2, $3)
+ON CONFLICT (scope_id, page_revision_id) DO NOTHING`,
+		publications[len(publications)-1].Revision.ID, publications)
 }
 
 func (r *Repository) SaveMaintenanceRun(ctx context.Context, run pagewiki.MaintenanceRun) error {

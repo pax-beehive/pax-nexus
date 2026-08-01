@@ -299,6 +299,74 @@ func (s *llmSessionPlannerSuite) TestCapsAcceptedBriefsAtEight() {
 	s.Len(briefs, 8)
 }
 
+func (s *llmSessionPlannerSuite) TestResolvesRelatedSlugsAgainstCatalogAndSiblings() {
+	client := &wikiChatClient{responsesByIndex: []string{`{"briefs":[
+		{"action":"create","proposed_slug":"alpha","proposed_title":"Alpha",
+		 "reader_goal":"Alpha.","related_slugs":["existing-page","beta","alpha","missing-page","beta"],
+		 "evidence":[{"event_id":"event-1","exact_quote":"decision:"}]},
+		{"action":"create","proposed_slug":"beta","proposed_title":"Beta",
+		 "reader_goal":"Beta.","related_slugs":["existing-page"],
+		 "evidence":[{"event_id":"event-1","exact_quote":"decision:"}]}
+	]}`}}
+	planner, err := pagewiki.NewLLMSessionPlanner(pagewiki.LLMPlannerConfig{
+		Client: client, Model: "test-model",
+	})
+	s.Require().NoError(err)
+
+	briefs, err := planner.Plan(context.Background(), pagewiki.PlanInput{
+		SourceRevision: plannerRevision(),
+		PageCatalog: pagewiki.PageCatalog{{
+			ID: "page-1", Slug: "existing-page", Title: "Existing Page",
+			CurrentRevisionID: "revision-1",
+		}},
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(briefs, 2)
+
+	alpha := briefs[0]
+	// Catalog and sibling slugs resolve; self, unknown, and duplicates drop.
+	s.Require().Len(alpha.RelatedPages, 2)
+	s.Equal(pagewiki.RelatedPage{ID: "page-1", Title: "Existing Page"}, alpha.RelatedPages[0])
+	sibling := alpha.RelatedPages[1]
+	s.Equal("Beta", sibling.Title)
+	s.True(strings.HasPrefix(sibling.ID, "page_"), "sibling create resolves to a stable page ID")
+	s.NotEqual("page-1", sibling.ID)
+
+	beta := briefs[1]
+	s.Require().Len(beta.RelatedPages, 1)
+	s.Equal(pagewiki.RelatedPage{ID: "page-1", Title: "Existing Page"}, beta.RelatedPages[0])
+}
+
+func (s *llmSessionPlannerSuite) TestCapsRelatedSlugsAtFour() {
+	client := &wikiChatClient{responsesByIndex: []string{`{"briefs":[
+		{"action":"create","proposed_slug":"alpha","proposed_title":"Alpha",
+		 "reader_goal":"Alpha.","related_slugs":["p-1","p-2","p-3","p-4","p-5"],
+		 "evidence":[{"event_id":"event-1","exact_quote":"decision:"}]}
+	]}`}}
+	planner, err := pagewiki.NewLLMSessionPlanner(pagewiki.LLMPlannerConfig{
+		Client: client, Model: "test-model",
+	})
+	s.Require().NoError(err)
+
+	catalog := pagewiki.PageCatalog{}
+	for _, suffix := range []string{"1", "2", "3", "4", "5"} {
+		catalog = append(catalog, pagewiki.PageCatalogEntry{
+			ID: "page-" + suffix, Slug: "p-" + suffix, Title: "Page " + suffix,
+			CurrentRevisionID: "revision-" + suffix,
+		})
+	}
+	briefs, err := planner.Plan(context.Background(), pagewiki.PlanInput{
+		SourceRevision: plannerRevision(),
+		PageCatalog:    catalog,
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(briefs, 1)
+	s.Require().Len(briefs[0].RelatedPages, 4)
+	s.Equal("page-4", briefs[0].RelatedPages[3].ID)
+}
+
 func (s *llmSessionPlannerSuite) TestPlannerPromptPinsUpdateRuleAndNoisePolicy() {
 	client := &wikiChatClient{responsesByIndex: []string{`{"briefs":[]}`}}
 	planner, err := pagewiki.NewLLMSessionPlanner(pagewiki.LLMPlannerConfig{
