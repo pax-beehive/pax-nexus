@@ -91,6 +91,10 @@ on it. The API contract is `docs/on-prem-identity-frontend-integration.md`.
   launcher; in-shell management pages for those apps (e.g. wiki policy at
   `/wiki`) stay inside the shell and are linked from the launcher's App
   settings section.
+- Wiki markdown renders through `react-markdown` + `remark-gfm` in
+  `web/src/components/wiki/WikiMarkdown.tsx`; do not hand-roll markdown
+  parsing. Xanadu inline links are re-applied on top via the section-scoped
+  `linkedComponents` mapping, never by string-replacing rendered HTML.
 - All mutations go through `web/src/api/actions.ts` (Idempotency-Key,
   `resource_version` + `If-Match`, CSRF header); one-time secrets never touch
   durable storage, server-visible URL components, or logs. Invitation tokens
