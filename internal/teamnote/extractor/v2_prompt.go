@@ -5,7 +5,7 @@ package extractor
 // independent of the operator-owned prompt version label.
 const (
 	extractionProtocolV2RevisionInteractionSlim = "v2-slim-4-interaction-slim-temporal-deterministic"
-	extractionProtocolV2RevisionSourceClause    = "v2-slim-8-source-clause-v1"
+	extractionProtocolV2RevisionSourceClause    = "v2-slim-9-source-clause-schema-v1"
 )
 
 // The v2 user prompt is the same session-slice JSON as v1 (buildPrompt), so
@@ -178,6 +178,10 @@ confidence, authority, or temporal truth.
 `
 
 const sourceClausePromptV2 = `Source-clause admission rules:
+- Schema override: this takes precedence over the earlier response-shape
+  example. Return state-changing decisions with evidence_clauses in exactly
+  this shape:
+{"state_decisions":[{"decision":"create","identity_ref":"stable identity","claim_ids":[],"evidence_event_ids":["event-id"],"evidence_clauses":[{"event_id":"event-id","quote":"exact source text"}],"prior_state_ref":"","temporal_expression":"","valid_at":null,"invalid_at":null,"temporal_resolution":"","reason_codes":["explicit_new_fact"],"candidate":{"kind":"status","subject":"stable short subject","body":"one atomic factual note","related_subjects":[]}}],"claims":[],"no_state_event_ids":[],"interaction_observations":[]}
 - Every create, update, and resolve decision MUST include evidence_clauses.
 - Each evidence clause has exactly this shape: {"event_id":"event-id","quote":"exact source text"}.
 - quote MUST be the shortest exact contiguous text copied from that Event that
@@ -189,6 +193,10 @@ const sourceClausePromptV2 = `Source-clause admission rules:
   state-changing decision.
 - evidence_event_ids remains the Event-level provenance list. Source clauses
   narrow admission authority and do not replace Event evidence.
+- Candidate subject and body must remain within the one fact established by the
+  exact quote. Deterministic admission rejects added clauses, owners, deadlines,
+  negation, exclusivity, exception, and before/after modifiers that are absent
+  from the quote.
 
 `
 

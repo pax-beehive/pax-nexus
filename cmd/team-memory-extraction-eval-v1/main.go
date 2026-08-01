@@ -40,6 +40,7 @@ type evalConfig struct {
 	extractorVersion string
 	baseURL          string
 	model            string
+	thinkingMode     extractor.ThinkingMode
 	promptVersion    string
 	outputDir        string
 	profilePath      string
@@ -60,6 +61,7 @@ type resolvedConfig struct {
 	ExtractorVersion         string `json:"extractor_version"`
 	ExtractorBaseURL         string `json:"extractor_base_url"`
 	ExtractorModel           string `json:"extractor_model"`
+	ExtractorThinkingMode    string `json:"extractor_thinking_mode,omitempty"`
 	PromptVersion            string `json:"prompt_version"`
 	ProfilePath              string `json:"profile_path,omitempty"`
 	ProfileName              string `json:"profile_name"`
@@ -85,6 +87,8 @@ func parseFlags(args []string) (evalConfig, error) {
 	flags.StringVar(&config.extractorVersion, "extractor", extractor.ExtractionVersionV2, "Extraction protocol version (v1, v1.1, or v2)")
 	flags.StringVar(&config.baseURL, "extractor-base-url", os.Getenv("TEAM_MEMORY_EXTRACTOR_BASE_URL"), "OpenAI-compatible extractor endpoint")
 	flags.StringVar(&config.model, "extractor-model", os.Getenv("TEAM_MEMORY_EXTRACTOR_MODEL"), "Extractor model")
+	var thinkingMode string
+	flags.StringVar(&thinkingMode, "extractor-thinking-mode", os.Getenv("TEAM_MEMORY_EXTRACTOR_THINKING_MODE"), "Provider thinking mode (enabled, disabled, or empty for provider default)")
 	flags.StringVar(&config.promptVersion, "prompt-version", "", "Prompt version tag (defaults to extractor version)")
 	flags.StringVar(&config.outputDir, "output-dir", "", "Artifact directory (defaults to runs/extraction-eval-v1/<run-id>)")
 	flags.StringVar(&config.profilePath, "profile", "", "Optional bounded source-event profile JSON")
@@ -106,6 +110,11 @@ func parseFlags(args []string) (evalConfig, error) {
 	if err := flags.Parse(args); err != nil {
 		return evalConfig{}, fmt.Errorf("parse extraction-eval-v1 flags: %w", err)
 	}
+	parsedThinkingMode, err := extractor.ParseThinkingMode(thinkingMode)
+	if err != nil {
+		return evalConfig{}, fmt.Errorf("parse extraction-eval-v1 flags: %w", err)
+	}
+	config.thinkingMode = parsedThinkingMode
 	if config.dsn == "" || config.manifestPath == "" || config.fixturesPath == "" || config.sourceRunID == "" || config.runID == "" {
 		return evalConfig{}, fmt.Errorf("parse extraction-eval-v1 flags: dsn, manifest, fixtures, source-run-id, and run-id are required")
 	}
@@ -394,6 +403,7 @@ func buildExtractor(
 ) (*extractor.OpenAI, error) {
 	return extractor.NewOpenAI(extractor.OpenAIConfig{
 		BaseURL: config.baseURL, APIKey: os.Getenv("TEAM_MEMORY_EXTRACTOR_API_KEY"), Model: config.model,
+		ThinkingMode:  config.thinkingMode,
 		PromptVersion: config.promptVersion, Client: &http.Client{}, ContextMode: extractor.ContextModeRolling,
 		EpisodeStore: episodeStore, ExtractionVersion: config.extractorVersion, V2Variant: config.v2Variant,
 		SummaryEnabled: true, ProviderCallObserver: observer,
@@ -420,7 +430,8 @@ func writeArtifacts(config evalConfig, report extractioneval.Report, runs []extr
 		ManifestPath: config.manifestPath, FixturesPath: config.fixturesPath, ScopeSuffix: config.scopeSuffix,
 		ExtractorVersion: config.extractorVersion, ExtractorBaseURL: config.baseURL,
 		ExtractorModel: config.model, PromptVersion: config.promptVersion,
-		ProfilePath: config.profilePath, ProfileName: report.Profile, V2Variant: config.v2Variant,
+		ExtractorThinkingMode: string(config.thinkingMode),
+		ProfilePath:           config.profilePath, ProfileName: report.Profile, V2Variant: config.v2Variant,
 		SliceEventLimit:          config.sliceEventLimit,
 		ProviderTimeoutMS:        config.executionPolicy.AttemptTimeout.Milliseconds(),
 		ProviderMaxAttempts:      config.executionPolicy.MaxAttempts,

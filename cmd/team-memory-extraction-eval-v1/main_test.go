@@ -41,6 +41,17 @@ func (s *commandSuite) TestParseFlagsAcceptsCandidateStrategy() {
 	s.Equal(extractor.CandidateStrategySourceSpanV1, config.v2Variant)
 }
 
+func (s *commandSuite) TestParseFlagsAcceptsThinkingMode() {
+	config, err := parseFlags([]string{
+		"-dsn", "postgres://example", "-manifest", "manifest.json", "-fixtures", "fixtures.json",
+		"-source-run-id", "source-run", "-run-id", "eval-run", "-extractor-base-url", "https://example.test",
+		"-extractor-model", "model", "-extractor-thinking-mode", "disabled",
+	})
+
+	s.Require().NoError(err)
+	s.Equal(extractor.ThinkingModeDisabled, config.thinkingMode)
+}
+
 func (s *commandSuite) TestParseFlagsRequiresSourceIdentity() {
 	tests := []struct {
 		name string
@@ -168,6 +179,10 @@ func (s *commandSuite) TestResumeRejectsChangedRunInputs() {
 		{name: "changed model", wantErr: true, mutate: func(candidate *evalConfig) {
 			candidate.resume = true
 			candidate.model = "other-model"
+		}},
+		{name: "changed thinking mode", wantErr: true, mutate: func(candidate *evalConfig) {
+			candidate.resume = true
+			candidate.thinkingMode = extractor.ThinkingModeDisabled
 		}},
 	}
 	for _, test := range tests {

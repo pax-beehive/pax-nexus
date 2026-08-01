@@ -22,6 +22,7 @@ type resumeConfig struct {
 	V2Variant        string                    `json:"v2_variant"`
 	BaseURL          string                    `json:"base_url"`
 	Model            string                    `json:"model"`
+	ThinkingMode     extractor.ThinkingMode    `json:"thinking_mode,omitempty"`
 	PromptVersion    string                    `json:"prompt_version"`
 	ProfileName      string                    `json:"profile_name"`
 	SliceEventLimit  int                       `json:"slice_event_limit"`
@@ -42,8 +43,9 @@ func ensureResumeConfig(
 	desired := resumeConfig{
 		SchemaVersion: resumeConfigSchemaVersion, RunID: config.runID, SourceRunID: config.sourceRunID,
 		ExtractorVersion: config.extractorVersion, V2Variant: config.v2Variant,
-		BaseURL: config.baseURL, Model: config.model, PromptVersion: config.promptVersion,
-		ProfileName: profile.Name, SliceEventLimit: config.sliceEventLimit,
+		BaseURL: config.baseURL, Model: config.model, ThinkingMode: config.thinkingMode,
+		PromptVersion: config.promptVersion,
+		ProfileName:   profile.Name, SliceEventLimit: config.sliceEventLimit,
 		ExecutionPolicy: config.executionPolicy,
 	}
 	for _, domain := range prepared {

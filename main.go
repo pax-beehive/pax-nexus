@@ -591,6 +591,7 @@ type applicationConfig struct {
 	extractorBaseURL               string
 	extractorAPIKey                string
 	extractorModel                 string
+	extractorThinkingMode          extractor.ThinkingMode
 	promptVersion                  string
 	extractionContextMode          string
 	extractionVersion              string
@@ -657,6 +658,9 @@ func loadConfig() (applicationConfig, error) {
 		portalURL:                   os.Getenv("TEAM_MEMORY_PORTAL_URL"),
 	}
 	var err error
+	if config.extractorThinkingMode, err = extractor.ParseThinkingMode(os.Getenv("TEAM_MEMORY_EXTRACTOR_THINKING_MODE")); err != nil {
+		return applicationConfig{}, fmt.Errorf("load extractor thinking mode: %w", err)
+	}
 	if err = loadWorkerConfig(&config); err != nil {
 		return applicationConfig{}, err
 	}
@@ -1278,6 +1282,7 @@ func buildExtractor(config applicationConfig, stores ...extractor.EpisodeStore) 
 	case "openai":
 		return extractor.NewOpenAI(extractor.OpenAIConfig{
 			BaseURL: config.extractorBaseURL, APIKey: config.extractorAPIKey, Model: config.extractorModel,
+			ThinkingMode:  config.extractorThinkingMode,
 			PromptVersion: config.promptVersion, Client: &http.Client{},
 			ContextMode: extractor.ContextMode(config.extractionContextMode), EpisodeStore: episodes,
 			ExtractionVersion:  config.extractionVersion,
