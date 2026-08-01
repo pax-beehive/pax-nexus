@@ -31,3 +31,13 @@ func (s *TypeRegistrySuite) TestRetiredTypesFallBack() {
 	registry := pagewiki.NewTypeRegistry(entries)
 	s.Equal(pagewiki.EntityTypeConcept, registry.NormalizeEntity("incident"))
 }
+
+func (s *TypeRegistrySuite) TestZeroRegistryFallsBackEverything() {
+	var registry pagewiki.TypeRegistry
+	s.Equal(pagewiki.EntityTypeConcept, registry.NormalizeEntity("person"))
+	s.Equal(pagewiki.EntityTypeConcept, registry.NormalizeEntity(""))
+	s.Equal(pagewiki.RelationTypeRelatesTo, registry.NormalizeRelation("owns"))
+	s.Equal(pagewiki.RelationTypeRelatesTo, registry.NormalizeRelation(""))
+	s.Empty(registry.Entities())
+	s.Empty(registry.Relations())
+}
