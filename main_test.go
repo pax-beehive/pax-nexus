@@ -146,28 +146,67 @@ func (s *configSuite) TestLoadsNoopConfiguration() {
 
 func (s *configSuite) TestBuildsConfiguredPageWikiMaintainers() {
 	logger := slog.New(slog.DiscardHandler)
-	localPlanner, localEditor, localIndexer, err := buildPageWikiMaintainers(nil, applicationConfig{}, logger)
+	localPlanner, localEditor, localIndexer, localCurator, err := buildPageWikiMaintainers(nil, applicationConfig{}, logger)
 	s.Require().NoError(err)
 	s.IsType(pagewiki.SessionDocumentPlanner{}, localPlanner)
 	s.IsType(pagewiki.SessionDocumentEditor{}, localEditor)
 	s.Nil(localIndexer)
+	s.Nil(localCurator)
 
 	config := applicationConfig{
 		llmwikiMode: "harness", llmwikiBaseURL: "https://api.deepseek.com",
 		llmwikiAPIKey: "secret", llmwikiModel: "deepseek-v4-pro",
 	}
-	planner, editor, indexer, err := buildPageWikiMaintainers(nil, config, logger)
+	planner, editor, indexer, curator, err := buildPageWikiMaintainers(nil, config, logger)
 	s.Require().NoError(err)
 	s.IsType(&pagewiki.LLMSessionPlanner{}, planner)
 	s.IsType(&pagewiki.LLMSessionEditor{}, editor)
 	s.IsType(&pagewiki.LLMTreeIndexer{}, indexer)
+	s.IsType(&pagewiki.LLMCurator{}, curator)
 
 	config.llmwikiAPIKey = ""
-	_, _, _, err = buildPageWikiMaintainers(nil, config, logger)
+	_, _, _, _, err = buildPageWikiMaintainers(nil, config, logger)
 	s.Require().ErrorContains(err, "LLMWIKI_LLM_API_KEY")
 	config.llmwikiMode = "unsupported"
-	_, _, _, err = buildPageWikiMaintainers(nil, config, logger)
+	_, _, _, _, err = buildPageWikiMaintainers(nil, config, logger)
 	s.Require().ErrorContains(err, "unsupported LLMWIKI_ORGANIZER_MODE")
+}
+
+func (s *configSuite) TestBuildsPageWikiCurationConfig() {
+	config, err := buildPageWikiCurationConfig(applicationConfig{})
+	s.Require().NoError(err)
+	s.Equal(24*time.Hour, config.Interval)
+	s.Equal(0, config.PairLimit)
+	s.Equal(0, config.PageLimit)
+
+	config, err = buildPageWikiCurationConfig(applicationConfig{
+		llmwikiCurationInterval: "0", llmwikiCurationPairLimit: "0", llmwikiCurationPageLimit: "0",
+	})
+	s.Require().NoError(err)
+	s.Equal(time.Duration(0), config.Interval)
+	s.Equal(0, config.PairLimit)
+	s.Equal(0, config.PageLimit)
+
+	config, err = buildPageWikiCurationConfig(applicationConfig{
+		llmwikiCurationInterval: "6h", llmwikiCurationPairLimit: "4", llmwikiCurationPageLimit: "5",
+	})
+	s.Require().NoError(err)
+	s.Equal(6*time.Hour, config.Interval)
+	s.Equal(4, config.PairLimit)
+	s.Equal(5, config.PageLimit)
+
+	_, err = buildPageWikiCurationConfig(applicationConfig{llmwikiCurationInterval: "not-a-duration"})
+	s.Require().ErrorContains(err, "LLMWIKI_CURATION_INTERVAL")
+	_, err = buildPageWikiCurationConfig(applicationConfig{llmwikiCurationInterval: "-1h"})
+	s.Require().ErrorContains(err, "LLMWIKI_CURATION_INTERVAL")
+	_, err = buildPageWikiCurationConfig(applicationConfig{llmwikiCurationPairLimit: "-1"})
+	s.Require().ErrorContains(err, "LLMWIKI_CURATION_PAIR_LIMIT")
+	_, err = buildPageWikiCurationConfig(applicationConfig{llmwikiCurationPairLimit: "nope"})
+	s.Require().ErrorContains(err, "LLMWIKI_CURATION_PAIR_LIMIT")
+	_, err = buildPageWikiCurationConfig(applicationConfig{llmwikiCurationPageLimit: "-1"})
+	s.Require().ErrorContains(err, "LLMWIKI_CURATION_PAGE_LIMIT")
+	_, err = buildPageWikiCurationConfig(applicationConfig{llmwikiCurationPageLimit: "nope"})
+	s.Require().ErrorContains(err, "LLMWIKI_CURATION_PAGE_LIMIT")
 }
 
 func (s *configSuite) TestLoadsOnPremConfiguration() {

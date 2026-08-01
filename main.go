@@ -119,6 +119,7 @@ func run(ctx context.Context, logger *slog.Logger) error {
 		store,
 		operationRecorder,
 		lake,
+		embedder,
 		usageStore,
 		config,
 		logger,
@@ -197,6 +198,7 @@ func initializeStores(
 func buildPageWikiHTTPHandler(
 	ctx context.Context,
 	store *postgres.Store,
+	embedder textembedding.Embedder,
 	usageStore *postgres.LLMUsageStore,
 	config applicationConfig,
 	logger *slog.Logger,
@@ -205,13 +207,20 @@ func buildPageWikiHTTPHandler(
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("initialize Page Wiki repository: %w", err)
 	}
-	planner, editor, indexer, err := buildPageWikiMaintainers(usageStore, config, logger)
+	planner, editor, indexer, curator, err := buildPageWikiMaintainers(usageStore, config, logger)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	options := make([]pagewiki.ServiceOption, 0, 1)
+	options := make([]pagewiki.ServiceOption, 0, 2)
 	if indexer != nil {
 		options = append(options, pagewiki.WithTreeIndexer(indexer, logger))
+	}
+	if curator != nil {
+		curationConfig, err := buildPageWikiCurationConfig(config)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		options = append(options, pagewiki.WithCurator(curator, embedder, curationConfig, logger))
 	}
 	service := pagewiki.NewService(repository, planner, editor, options...)
 	consumerStore, err := postgres.NewPageWikiConsumerStore(store.Pool(), onprem.LocalScopeID)
@@ -227,23 +236,73 @@ func buildPageWikiHTTPHandler(
 		return nil, nil, nil, fmt.Errorf("initialize Page Wiki HTTP handler: %w", err)
 	}
 	service.StartTreeMaintenance(ctx)
+	service.StartCurationMaintenance(ctx)
 	controller.Start(ctx)
 	return configured, controller, service, nil
+}
+
+// buildPageWikiCurationConfig parses the LLMWIKI_CURATION_* environment into
+// a pagewiki.CurationConfig, mirroring the LLMWIKI_TREE_MAX_DEPTH validation
+// style: LLMWIKI_CURATION_INTERVAL is a duration (empty defaults to 24h;
+// "0" explicitly disables the background loop; negative values are a
+// startup error). The two limits are non-negative integers (empty or an
+// explicit "0" both fall through to the package defaults inside
+// pagewiki.WithCurator; only a parse error or a negative value is rejected).
+func buildPageWikiCurationConfig(config applicationConfig) (pagewiki.CurationConfig, error) {
+	interval := 24 * time.Hour
+	if raw := strings.TrimSpace(config.llmwikiCurationInterval); raw != "" {
+		parsed, err := time.ParseDuration(raw)
+		if err != nil || parsed < 0 {
+			return pagewiki.CurationConfig{}, fmt.Errorf(
+				"initialize Page Wiki curation: LLMWIKI_CURATION_INTERVAL must be a non-negative duration, got %q",
+				raw,
+			)
+		}
+		interval = parsed
+	}
+	pairLimit, err := parseNonNegativeEnvironment(config.llmwikiCurationPairLimit, "LLMWIKI_CURATION_PAIR_LIMIT")
+	if err != nil {
+		return pagewiki.CurationConfig{}, err
+	}
+	pageLimit, err := parseNonNegativeEnvironment(config.llmwikiCurationPageLimit, "LLMWIKI_CURATION_PAGE_LIMIT")
+	if err != nil {
+		return pagewiki.CurationConfig{}, err
+	}
+	return pagewiki.CurationConfig{Interval: interval, PairLimit: pairLimit, PageLimit: pageLimit}, nil
+}
+
+// parseNonNegativeEnvironment parses raw (already read from the named
+// environment variable) as a non-negative integer, treating an empty string
+// as 0 (the caller's "use the package default" sentinel). A parse error or a
+// negative value is a startup error naming the offending variable.
+func parseNonNegativeEnvironment(raw, name string) (int, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return 0, nil
+	}
+	parsed, err := strconv.Atoi(trimmed)
+	if err != nil || parsed < 0 {
+		return 0, fmt.Errorf(
+			"initialize Page Wiki curation: %s must be a non-negative integer, got %q",
+			name, trimmed,
+		)
+	}
+	return parsed, nil
 }
 
 func buildPageWikiMaintainers(
 	usageStore *postgres.LLMUsageStore,
 	config applicationConfig,
 	logger *slog.Logger,
-) (pagewiki.Planner, pagewiki.Editor, pagewiki.TreeIndexer, error) {
+) (pagewiki.Planner, pagewiki.Editor, pagewiki.TreeIndexer, pagewiki.Curator, error) {
 	switch strings.TrimSpace(config.llmwikiMode) {
 	case "", "local":
-		return pagewiki.SessionDocumentPlanner{}, pagewiki.SessionDocumentEditor{}, nil, nil
+		return pagewiki.SessionDocumentPlanner{}, pagewiki.SessionDocumentEditor{}, nil, nil, nil
 	case "openai", "harness":
 		if strings.TrimSpace(config.llmwikiBaseURL) == "" ||
 			strings.TrimSpace(config.llmwikiAPIKey) == "" ||
 			strings.TrimSpace(config.llmwikiModel) == "" {
-			return nil, nil, nil, errors.New(
+			return nil, nil, nil, nil, errors.New(
 				"initialize Page Wiki LLM maintainers: LLMWIKI_LLM_BASE_URL, " +
 					"LLMWIKI_LLM_API_KEY, and LLMWIKI_LLM_MODEL are required",
 			)
@@ -252,7 +311,7 @@ func buildPageWikiMaintainers(
 		if raw := strings.TrimSpace(config.llmwikiTreeMaxDepth); raw != "" {
 			parsed, err := strconv.Atoi(raw)
 			if err != nil || parsed < 1 {
-				return nil, nil, nil, fmt.Errorf(
+				return nil, nil, nil, nil, fmt.Errorf(
 					"initialize Page Wiki LLM maintainers: LLMWIKI_TREE_MAX_DEPTH must be a positive integer, got %q",
 					raw,
 				)
@@ -266,37 +325,47 @@ func buildPageWikiMaintainers(
 		metered := meteredClientFactory(client, usageStore, logger)
 		plannerClient, err := metered("wiki-planner")
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, nil, nil, nil, err
 		}
 		planner, err := pagewiki.NewLLMSessionPlanner(pagewiki.LLMPlannerConfig{
 			Client: plannerClient, Model: config.llmwikiModel, Logger: logger,
 		})
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, nil, nil, nil, err
 		}
 		editorClient, err := metered("wiki-editor")
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, nil, nil, nil, err
 		}
 		editor, err := pagewiki.NewLLMSessionEditor(pagewiki.LLMEditorConfig{
 			Client: editorClient, Model: config.llmwikiModel,
 		})
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, nil, nil, nil, err
 		}
 		indexerClient, err := metered("wiki-indexer")
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, nil, nil, nil, err
 		}
 		indexer, err := pagewiki.NewLLMTreeIndexer(pagewiki.LLMTreeIndexerConfig{
 			Client: indexerClient, Model: config.llmwikiModel, Logger: logger, MaxDepth: maxDepth,
 		})
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, nil, nil, nil, err
 		}
-		return planner, editor, indexer, nil
+		curatorClient, err := metered("wiki-curator")
+		if err != nil {
+			return nil, nil, nil, nil, err
+		}
+		curator, err := pagewiki.NewLLMCurator(pagewiki.LLMCuratorConfig{
+			Client: curatorClient, Model: config.llmwikiModel, Logger: logger,
+		})
+		if err != nil {
+			return nil, nil, nil, nil, err
+		}
+		return planner, editor, indexer, curator, nil
 	default:
-		return nil, nil, nil, fmt.Errorf(
+		return nil, nil, nil, nil, fmt.Errorf(
 			"initialize Page Wiki LLM maintainers: unsupported LLMWIKI_ORGANIZER_MODE %q",
 			config.llmwikiMode,
 		)
@@ -309,11 +378,12 @@ func buildApplicationHTTPHandlers(
 	store *postgres.Store,
 	operationRecorder operations.Recorder,
 	lake *evidencelake.Lake,
+	embedder textembedding.Embedder,
 	usageStore *postgres.LLMUsageStore,
 	config applicationConfig,
 	logger *slog.Logger,
 ) (*handler.Handler, *pagewikihttp.Handler, *todoapphttp.Handler, func(), error) {
-	pageHandler, wikiControl, wikiSettings, err := buildPageWikiHTTPHandler(ctx, store, usageStore, config, logger)
+	pageHandler, wikiControl, wikiSettings, err := buildPageWikiHTTPHandler(ctx, store, embedder, usageStore, config, logger)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
@@ -553,6 +623,9 @@ type applicationConfig struct {
 	llmwikiAPIKey                  string
 	llmwikiModel                   string
 	llmwikiTreeMaxDepth            string
+	llmwikiCurationInterval        string
+	llmwikiCurationPairLimit       string
+	llmwikiCurationPageLimit       string
 	todoRefreshInterval            time.Duration
 }
 
@@ -564,6 +637,9 @@ func loadConfig() (applicationConfig, error) {
 		llmwikiMode: os.Getenv("LLMWIKI_ORGANIZER_MODE"), llmwikiBaseURL: os.Getenv("LLMWIKI_LLM_BASE_URL"),
 		llmwikiAPIKey: os.Getenv("LLMWIKI_LLM_API_KEY"), llmwikiModel: os.Getenv("LLMWIKI_LLM_MODEL"),
 		llmwikiTreeMaxDepth:         os.Getenv("LLMWIKI_TREE_MAX_DEPTH"),
+		llmwikiCurationInterval:     os.Getenv("LLMWIKI_CURATION_INTERVAL"),
+		llmwikiCurationPairLimit:    os.Getenv("LLMWIKI_CURATION_PAIR_LIMIT"),
+		llmwikiCurationPageLimit:    os.Getenv("LLMWIKI_CURATION_PAGE_LIMIT"),
 		promptVersion:               os.Getenv("TEAM_MEMORY_PROMPT_VERSION"),
 		extractionContextMode:       os.Getenv("TEAM_MEMORY_EXTRACTION_CONTEXT_MODE"),
 		extractionVersion:           os.Getenv("TEAM_MEMORY_EXTRACTION_VERSION"),
