@@ -34,6 +34,70 @@ type TreeIndexer interface {
 	Index(context.Context, TreeIndexInput) (TopicTree, error)
 }
 
+type CurationQuote struct {
+	ExactText     string
+	SourceOrdinal int
+}
+
+type CurationPageView struct {
+	PageID   string
+	Title    string
+	Summary  string
+	Markdown string
+	Quotes   []CurationQuote
+}
+
+type PairJudgeInput struct {
+	A, B       CurationPageView
+	Directives GenerationDirectives
+}
+
+type PageJudgeInput struct {
+	Page       CurationPageView
+	Signals    []string // human-readable reasons the page was selected
+	Directives GenerationDirectives
+}
+
+type CurationDraft struct {
+	Title    string
+	Summary  string
+	Sections []SectionDraft
+}
+
+type PairVerdict struct {
+	Verdict   CurationVerdict // merge | conflict | distinct
+	Rationale string
+	Draft     *CurationDraft // required for merge/conflict
+}
+
+type PageVerdict struct {
+	Verdict   CurationVerdict // retire | rewrite | keep
+	Rationale string
+	Draft     *CurationDraft // required for rewrite
+}
+
+type VerifyInput struct {
+	Action     CurationVerdict
+	Rationale  string
+	Pages      []CurationPageView
+	Directives GenerationDirectives
+}
+
+type VerifyVerdict struct {
+	Refuted   bool
+	Rationale string
+}
+
+type Curator interface {
+	JudgePair(context.Context, PairJudgeInput) (PairVerdict, error)
+	JudgePage(context.Context, PageJudgeInput) (PageVerdict, error)
+	Verify(context.Context, VerifyInput) (VerifyVerdict, error)
+}
+
+type TextEmbedder interface {
+	Embed(ctx context.Context, texts []string) ([][]float32, error)
+}
+
 type Repository interface {
 	SaveSourceRevision(context.Context, SourceRevision) error
 	SourceRevision(context.Context, string) (SourceRevision, error)
