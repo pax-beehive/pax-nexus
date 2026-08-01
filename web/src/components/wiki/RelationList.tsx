@@ -37,6 +37,9 @@ export function RelationList({
                 {direction === "outgoing" ? "→" : "←"} {page.title}
               </strong>
               <span>“{relation.link.exact_text}”</span>
+              {relation.link.relation_type && relation.link.relation_type !== "relates-to" && (
+                <span>({relation.link.relation_type})</span>
+              )}
             </a>
           </li>
         );

@@ -5,6 +5,7 @@ export interface WikiPageSummary {
   slug: string;
   title: string;
   current_revision_id: string;
+  entity_type?: string;
 }
 
 export interface WikiNavigationPage {
@@ -54,6 +55,7 @@ export interface WikiPageLink {
   end_byte: number;
   exact_text: string;
   target_page_id: string;
+  relation_type?: string;
 }
 
 export interface WikiSection {

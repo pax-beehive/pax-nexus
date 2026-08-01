@@ -58,7 +58,9 @@
 .wiki-retired-banner a { color: inherit; font-weight: 650; text-decoration: underline; }
 .wiki-article { min-width: 0; padding: 28px 34px; }
 .wiki-article > * { max-width: 88ch; }
-.wiki-article > h1 { margin-top: 8px; font-size: 32px; }
+.wiki-article h1 { margin-top: 8px; font-size: 32px; }
+.wiki-title-row { align-items: baseline; flex-wrap: wrap; gap: 12px; }
+.wiki-type-badge { display: inline-block; font-size: 11.5px; font-weight: 600; border-radius: 99px; padding: 2px 10px; background: var(--surface-2); color: var(--text); border: 1px solid var(--border); text-transform: capitalize; }
 .wiki-summary { margin: 4px 0 14px; color: var(--muted); font-family: var(--serif); font-size: 17px; line-height: 1.55; }
 .wiki-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 22px; }
 .wiki-markdown { font-family: var(--serif); font-size: 16px; line-height: 1.72; }

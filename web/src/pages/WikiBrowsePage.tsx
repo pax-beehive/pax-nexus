@@ -313,7 +313,12 @@ export function WikiBrowsePage() {
                     {historical ? "Historical" : "Current"}
                   </span>
                 </div>
-                <h1>{revision.title}</h1>
+                <div className="row wiki-title-row">
+                  <h1>{revision.title}</h1>
+                  {page.entity_type && page.entity_type !== "concept" && (
+                    <span className="wiki-type-badge">{page.entity_type}</span>
+                  )}
+                </div>
                 <p className="wiki-summary">{revision.summary}</p>
                 <div className="wiki-meta">
                   <code>/{page.slug}</code>
