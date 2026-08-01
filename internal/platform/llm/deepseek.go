@@ -56,10 +56,11 @@ func (c *DeepSeekClient) Complete(
 		Messages   []ChatMessage    `json:"messages"`
 		Tools      []ToolDefinition `json:"tools,omitempty"`
 		ToolChoice string           `json:"tool_choice,omitempty"`
+		MaxTokens  int              `json:"max_tokens,omitempty"`
 		Stream     bool             `json:"stream"`
 	}{
 		Model: request.Model, Messages: request.Messages, Tools: request.Tools,
-		ToolChoice: toolChoice, Stream: false,
+		ToolChoice: toolChoice, MaxTokens: request.MaxTokens, Stream: false,
 	}
 	encoded, err := json.Marshal(payload)
 	if err != nil {
@@ -97,7 +98,8 @@ func (c *DeepSeekClient) Complete(
 	}
 	var decoded struct {
 		Choices []struct {
-			Message ChatMessage `json:"message"`
+			Message      ChatMessage `json:"message"`
+			FinishReason string      `json:"finish_reason"`
 		} `json:"choices"`
 		Usage struct {
 			PromptTokens          int `json:"prompt_tokens"`
@@ -112,8 +114,15 @@ func (c *DeepSeekClient) Complete(
 	if len(decoded.Choices) == 0 {
 		return ChatResponse{}, errors.New("DeepSeek response contains no choices")
 	}
+	choice := decoded.Choices[0]
+	if choice.Message.Content == "" && len(choice.Message.ToolCalls) == 0 {
+		return ChatResponse{}, fmt.Errorf(
+			"DeepSeek returned empty content (finish_reason=%q)", choice.FinishReason,
+		)
+	}
 	return ChatResponse{
-		Message: decoded.Choices[0].Message,
+		Message:      choice.Message,
+		FinishReason: choice.FinishReason,
 		Usage: TokenUsage{
 			InputTokens:           decoded.Usage.PromptTokens,
 			OutputTokens:          decoded.Usage.CompletionTokens,

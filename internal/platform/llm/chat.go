@@ -38,6 +38,8 @@ type ChatRequest struct {
 	Model    string
 	Messages []ChatMessage
 	Tools    []ToolDefinition
+	// MaxTokens caps the completion length; zero keeps the provider default.
+	MaxTokens int
 }
 
 type TokenUsage struct {
@@ -50,6 +52,9 @@ type TokenUsage struct {
 type ChatResponse struct {
 	Message ChatMessage
 	Usage   TokenUsage
+	// FinishReason is the provider's stop cause for the first choice, e.g.
+	// "stop" or "length"; it distinguishes truncation from normal completion.
+	FinishReason string
 }
 
 type ChatClient interface {
