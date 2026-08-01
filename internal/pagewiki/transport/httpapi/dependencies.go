@@ -19,6 +19,7 @@ type Injector interface {
 
 type Reader interface {
 	SourceRevision(context.Context, string) (pagewiki.SourceRevision, error)
+	PageByID(context.Context, string) (pagewiki.Page, error)
 	PageBySlug(context.Context, string) (pagewiki.Page, error)
 	PageRevision(context.Context, string) (pagewiki.PageRevision, error)
 	PageRevisionHistory(context.Context, string) ([]pagewiki.PageRevision, error)

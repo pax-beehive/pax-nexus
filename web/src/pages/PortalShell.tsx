@@ -4,6 +4,8 @@ import { useAuth } from "../auth/AuthContext";
 import { can, hasServerCapability, type Capability } from "../lib/capabilities";
 import { peekPendingInvitation, peekReturnUrl } from "../lib/continuations";
 import { RoleBadge } from "../components/Badge";
+import { Button } from "../components/Button";
+import { THEMES, THEME_LABELS, useTheme, type Theme } from "../lib/theme";
 import { ErrorBoundary } from "../components/ErrorBoundary";
 import { useToast } from "../components/Toasts";
 import type { HumanMe } from "../api/types";
@@ -20,7 +22,8 @@ import { AdminOperationsPage } from "./AdminOperationsPage";
 import { AdminPulsePage } from "./AdminPulsePage";
 import { AdminExplorerPage } from "./AdminExplorerPage";
 import { AdminTeamNoteDetailPage } from "./AdminTeamNoteDetailPage";
-import { WikiPage } from "./WikiPage";
+import { WikiStatusPage } from "./WikiStatusPage";
+import { AppsPage } from "./AppsPage";
 
 function navClass({ isActive }: { isActive: boolean }): string {
   return isActive ? "active" : "";
@@ -82,6 +85,7 @@ export function PortalShell({ me }: { me: HumanMe }) {
   const navigate = useNavigate();
   const location = useLocation();
   const adminLike = can(me.role, "view.members");
+  const [theme, setTheme] = useTheme();
   const [sideCollapsed, setSideCollapsed] = useState(
     () => localStorage.getItem(SIDE_COLLAPSED_KEY) === "1",
   );
@@ -127,8 +131,8 @@ export function PortalShell({ me }: { me: HumanMe }) {
             My Agents
           </NavLink>
           <div className="nav-label">Knowledge</div>
-          <NavLink to="/wiki" className={navClass} end>
-            Wiki
+          <NavLink to="/apps" className={navClass}>
+            Apps
           </NavLink>
           {adminLike && (
             <>
@@ -169,18 +173,31 @@ export function PortalShell({ me }: { me: HumanMe }) {
           )}
         </nav>
         <div className="side-foot">
+          <div className="theme-picker">
+            <select
+              aria-label="Theme"
+              value={theme}
+              onChange={(event) => setTheme(event.target.value as Theme)}
+            >
+              {THEMES.map((t) => (
+                <option key={t} value={t}>
+                  {THEME_LABELS[t]} theme
+                </option>
+              ))}
+            </select>
+          </div>
           <div className="small">{me.email ?? me.user_id}</div>
           <div className="row between" style={{ marginTop: 4 }}>
             <RoleBadge role={me.role ?? "member"} />
-            <button className="btn ghost sm" onClick={() => void onLogout()}>
+            <Button variant="ghost" size="sm" onClick={() => void onLogout()}>
               Sign out
-            </button>
+            </Button>
           </div>
         </div>
           </>
         )}
       </aside>
-      <main className={location.pathname === "/wiki" ? "main main-wide" : "main"}>
+      <main className="main">
         {/* Route-level boundary: a failing route keeps the shell and nav
             usable. Keying by pathname remounts the boundary on navigation,
             so moving to another route always recovers the content area. */}
@@ -193,7 +210,8 @@ export function PortalShell({ me }: { me: HumanMe }) {
           <Routes>
             <Route path="/agents" element={<MyAgentsPage />} />
             <Route path="/agents/:agentId" element={<AgentDetailPage />} />
-            <Route path="/wiki" element={<WikiPage me={me} />} />
+            <Route path="/apps" element={<AppsPage />} />
+            <Route path="/wiki" element={<WikiStatusPage me={me} />} />
             <Route
               path="/admin/members"
               element={

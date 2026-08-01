@@ -9,6 +9,7 @@ import { useErrorHandler } from "../lib/useErrorHandler";
 import { formatTime } from "../lib/format";
 import { validateEmail } from "../lib/validation";
 import { Badge, RoleBadge } from "../components/Badge";
+import { Button } from "../components/Button";
 import { Countdown } from "../components/Countdown";
 import { Modal } from "../components/Modal";
 import { PagedListCard } from "../components/PagedListCard";
@@ -102,12 +103,12 @@ function CreateInvitationModal({
         are not retried automatically. Refresh the list first to check whether a pending record was created.
       </div>
       <div className="row" style={{ justifyContent: "flex-end" }}>
-        <button className="btn ghost" onClick={onClose} disabled={busy}>
+        <Button variant="ghost" onClick={onClose} disabled={busy}>
           Cancel
-        </button>
-        <button className="btn primary" disabled={busy} onClick={() => void submit()}>
+        </Button>
+        <Button variant="primary" disabled={busy} onClick={() => void submit()}>
           {busy ? "Creating…" : "Create"}
-        </button>
+        </Button>
       </div>
     </Modal>
   );
@@ -145,13 +146,13 @@ export function AdminInvitationsPage({ me }: { me: HumanMe }) {
       <div className="page-head">
         <div>
           <h1>Invitations</h1>
-          <p className="muted" style={{ margin: 0 }}>
+          <p className="muted flush">
             Owners can invite admins/members; Admins can only invite members
           </p>
         </div>
-        <button className="btn primary" onClick={() => setCreateOpen(true)}>
+        <Button variant="primary" onClick={() => setCreateOpen(true)}>
           + Create invitation
-        </button>
+        </Button>
       </div>
 
       {secretUrl && (
@@ -164,7 +165,7 @@ export function AdminInvitationsPage({ me }: { me: HumanMe }) {
         />
       )}
 
-      <div className="tabs" role="group" aria-label="invitation status">
+      <div className="seg" role="group" aria-label="invitation status">
         {STATUS_FILTERS.map((s) => (
           <button
             key={s}
@@ -195,9 +196,9 @@ export function AdminInvitationsPage({ me }: { me: HumanMe }) {
             </td>
             <td>
               {i.status === "pending" && canRevokeInvitation(actorRole, i.role) && (
-                <button className="btn sm danger" onClick={() => void revoke(i)}>
+                <Button variant="danger" size="sm" onClick={() => void revoke(i)}>
                   Revoke
-                </button>
+                </Button>
               )}
             </td>
           </tr>

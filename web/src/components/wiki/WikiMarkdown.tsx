@@ -1,49 +1,130 @@
-import { useMemo, type ReactNode } from "react";
+import { Children, cloneElement, isValidElement, type ReactNode } from "react";
+import ReactMarkdown, { type Components } from "react-markdown";
+import remarkGfm from "remark-gfm";
 import type { WikiResolvedLink, WikiRevision } from "../../api/wiki";
 
-function linkedText(
-  text: string,
-  sectionKey: string,
-  relations: WikiResolvedLink[],
-  onSelect: (slug: string) => void,
-): ReactNode[] {
-  const matches = relations
+interface LinkMatch {
+  relation: WikiResolvedLink;
+  text: string;
+}
+
+function sectionMatches(relations: WikiResolvedLink[], sectionKey: string): LinkMatch[] {
+  return relations
     .filter((relation) => relation.link.section_key === sectionKey)
-    .map((relation) => ({
-      relation,
-      start: text.indexOf(relation.link.exact_text),
-    }))
-    .filter((match) => match.start >= 0)
+    .map((relation) => ({ relation, text: relation.link.exact_text }))
+    .filter((match) => match.text !== "");
+}
+
+function linkString(
+  text: string,
+  matches: LinkMatch[],
+  onSelect: (slug: string) => void,
+): ReactNode {
+  const hits = matches
+    .map((match) => ({ match, start: text.indexOf(match.text) }))
+    .filter((hit) => hit.start >= 0)
     .sort((left, right) => left.start - right.start);
+  if (hits.length === 0) return text;
   const content: ReactNode[] = [];
   let cursor = 0;
-  matches.forEach((match) => {
-    const exactText = match.relation.link.exact_text;
-    if (match.start < cursor) return;
-    content.push(text.slice(cursor, match.start));
+  hits.forEach((hit) => {
+    const text2 = hit.match.text;
+    if (hit.start < cursor) return;
+    content.push(text.slice(cursor, hit.start));
     content.push(
       <a
-        key={`${match.relation.link.id}-${match.start}`}
-        href={`/wiki?page=${encodeURIComponent(match.relation.target_page.slug)}`}
+        key={`${hit.match.relation.link.id}-${hit.start}`}
+        href={`/wiki?page=${encodeURIComponent(hit.match.relation.target_page.slug)}`}
         className="wiki-inline-link"
         onClick={(event) => {
           event.preventDefault();
-          onSelect(match.relation.target_page.slug);
+          onSelect(hit.match.relation.target_page.slug);
         }}
       >
-        {exactText}
+        {text2}
       </a>,
     );
-    cursor = match.start + exactText.length;
+    cursor = hit.start + text2.length;
   });
   content.push(text.slice(cursor));
   return content;
 }
 
+function linkify(
+  children: ReactNode,
+  matches: LinkMatch[],
+  onSelect: (slug: string) => void,
+): ReactNode {
+  if (matches.length === 0) return children;
+  return Children.map(children, (child) => {
+    if (typeof child === "string") return linkString(child, matches, onSelect);
+    if (isValidElement(child)) {
+      // Never re-link inside existing anchors or code spans.
+      if (child.type === "a" || child.type === "code") return child;
+      const inner = (child.props as { children?: ReactNode }).children;
+      if (inner) return cloneElement(child, undefined, linkify(inner, matches, onSelect));
+    }
+    return child;
+  });
+}
+
+function linkedComponents(
+  sectionKey: string,
+  relations: WikiResolvedLink[],
+  onSelect: (slug: string) => void,
+): Components {
+  const matches = sectionMatches(relations, sectionKey);
+  const wrap = (children: ReactNode) => linkify(children, matches, onSelect);
+  return {
+    p: ({ children }) => <p data-section={sectionKey || undefined}>{wrap(children)}</p>,
+    li: ({ children }) => <li>{wrap(children)}</li>,
+    td: ({ children }) => <td>{wrap(children)}</td>,
+    th: ({ children }) => <th>{wrap(children)}</th>,
+  };
+}
+
+interface MarkdownSegment {
+  heading: string;
+  sectionKey: string;
+  body: string;
+}
+
 /**
- * Minimal markdown renderer for wiki revisions: headings, paragraphs, and
- * inline links resolved from the revision's outgoing relations. Source
- * evidence sections fold into a collapsed details block.
+ * Splits the composed revision markdown (`# title`, lead, then `## heading`
+ * sections) into renderable segments. The H1 line is dropped because the
+ * article header already shows the title.
+ */
+function splitSegments(
+  markdown: string,
+  sectionKeys: Map<string, string>,
+): { intro: string; segments: MarkdownSegment[] } {
+  const intro: string[] = [];
+  const segments: MarkdownSegment[] = [];
+  let current: MarkdownSegment | null = null;
+  let fenced = false;
+  for (const line of markdown.split(/\r?\n/)) {
+    if (line.trimStart().startsWith("```")) fenced = !fenced;
+    if (!fenced && line.startsWith("# ")) continue;
+    if (!fenced && line.startsWith("## ")) {
+      const heading = line.slice(3).trim();
+      current = { heading, sectionKey: sectionKeys.get(heading) ?? "", body: "" };
+      segments.push(current);
+      continue;
+    }
+    if (current) {
+      current.body += line + "\n";
+    } else {
+      intro.push(line);
+    }
+  }
+  return { intro: intro.join("\n").trim(), segments };
+}
+
+/**
+ * Full markdown renderer for wiki revisions (GFM tables, lists, code blocks,
+ * quotes, inline emphasis) with Xanadu inline links resolved from the
+ * revision's outgoing relations. Source evidence sections fold into a
+ * collapsed details block.
  */
 export function WikiMarkdown({
   revision,
@@ -54,81 +135,39 @@ export function WikiMarkdown({
   relations: WikiResolvedLink[];
   onSelect: (slug: string) => void;
 }) {
-  const sectionKeys = useMemo(
-    () => new Map((revision.sections ?? []).map((section) => [section.heading, section.key])),
-    [revision.sections],
+  const sectionKeys = new Map(
+    (revision.sections ?? []).map((section) => [section.heading, section.key]),
   );
-  const blocks: ReactNode[] = [];
-  const evidenceBlocks: ReactNode[] = [];
-  let evidenceHeading = "Source evidence";
-  let evidenceAnchor = -1;
-  let paragraph: string[] = [];
-  let sectionKey = "";
-  let blockKey = 0;
-  const push = (node: ReactNode) => {
-    if (sectionKey === "source-evidence") {
-      if (evidenceAnchor < 0) evidenceAnchor = blocks.length;
-      evidenceBlocks.push(node);
-    } else {
-      blocks.push(node);
-    }
-  };
-  const flush = () => {
-    if (paragraph.length === 0) return;
-    const text = paragraph.join(" ");
-    push(
-      <p key={`p-${blockKey++}`} data-section={sectionKey || undefined}>
-        {linkedText(text, sectionKey, relations, onSelect)}
-      </p>,
-    );
-    paragraph = [];
-  };
+  const { intro, segments } = splitSegments(String(revision.markdown ?? ""), sectionKeys);
 
-  String(revision.markdown ?? "")
-    .split(/\r?\n/)
-    .forEach((rawLine) => {
-      const line = rawLine.trim();
-      if (!line) {
-        flush();
-        return;
-      }
-      if (line.startsWith("### ")) {
-        flush();
-        push(<h3 key={`h3-${blockKey++}`}>{line.slice(4)}</h3>);
-        return;
-      }
-      if (line.startsWith("## ")) {
-        flush();
-        const heading = line.slice(3);
-        sectionKey = sectionKeys.get(heading) ?? "";
-        if (sectionKey === "source-evidence") {
-          evidenceHeading = heading;
-          return;
+  const renderBody = (body: string, sectionKey: string) => (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={linkedComponents(sectionKey, relations, onSelect)}
+    >
+      {body}
+    </ReactMarkdown>
+  );
+
+  return (
+    <div className="wiki-markdown">
+      {intro !== "" && renderBody(intro, "")}
+      {segments.map((segment) => {
+        if (segment.sectionKey === "source-evidence") {
+          return (
+            <details key={segment.sectionKey} className="wiki-evidence-fold">
+              <summary>{segment.heading}</summary>
+              {renderBody(segment.body, segment.sectionKey)}
+            </details>
+          );
         }
-        blocks.push(
-          <h2 key={`h2-${blockKey++}`} data-section={sectionKey || undefined}>
-            {heading}
-          </h2>,
+        return (
+          <section key={segment.sectionKey || segment.heading}>
+            <h2 data-section={segment.sectionKey || undefined}>{segment.heading}</h2>
+            {renderBody(segment.body, segment.sectionKey)}
+          </section>
         );
-        return;
-      }
-      if (line.startsWith("# ")) {
-        flush();
-        return;
-      }
-      paragraph.push(line);
-    });
-  flush();
-
-  if (evidenceBlocks.length > 0) {
-    blocks.splice(
-      evidenceAnchor < 0 ? blocks.length : evidenceAnchor,
-      0,
-      <details key="source-evidence-fold" className="wiki-evidence-fold">
-        <summary>{evidenceHeading}</summary>
-        {evidenceBlocks}
-      </details>,
-    );
-  }
-  return <div className="wiki-markdown">{blocks}</div>;
+      })}
+    </div>
+  );
 }

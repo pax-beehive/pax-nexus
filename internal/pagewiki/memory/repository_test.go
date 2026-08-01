@@ -290,6 +290,71 @@ func (s *RepositorySuite) TestGivenInvalidLinkWhenPublishedThenNothingIsStored()
 	}
 }
 
+func (s *RepositorySuite) TestGivenMutuallyLinkedPagesWhenPublishedAsBatchThenBothLand() {
+	linkedRevision := func(id, pageID, otherPageID, otherTitle string) pagewiki.PageRevision {
+		return pagewiki.PageRevision{
+			ID: id, PageID: pageID, Title: "Linked",
+			Sections: []pagewiki.PageSection{{
+				Key: "related", Heading: "Related", Markdown: "See also: " + otherTitle + ".",
+			}},
+			Links: []pagewiki.PageLink{{
+				ID: "link-" + id, PageRevisionID: id, SectionKey: "related",
+				StartByte: 10, EndByte: 10 + len(otherTitle),
+				ExactText: otherTitle, TargetPageID: otherPageID,
+			}},
+		}
+	}
+	publications := []pagewiki.PagePublication{
+		{
+			Page:     pagewiki.Page{ID: "page-1", Slug: "alpha", Title: "Alpha", CurrentRevisionID: "revision-1"},
+			Revision: linkedRevision("revision-1", "page-1", "page-2", "Beta"),
+		},
+		{
+			Page:     pagewiki.Page{ID: "page-2", Slug: "beta", Title: "Beta", CurrentRevisionID: "revision-2"},
+			Revision: linkedRevision("revision-2", "page-2", "page-1", "Alpha"),
+		},
+	}
+
+	err := s.repository.PublishPages(s.ctx, publications)
+
+	s.Require().NoError(err)
+	s.Equal(2, s.repository.PageCount())
+	links, err := s.repository.PageLinks(s.ctx, "page-1")
+	s.Require().NoError(err)
+	s.Require().Len(links.Outgoing, 1)
+	s.Equal("page-2", links.Outgoing[0].TargetPage.ID)
+	s.Require().Len(links.Incoming, 1)
+	s.Equal("page-2", links.Incoming[0].SourcePage.ID)
+
+	// Replays of the same batch stay idempotent.
+	s.Require().NoError(s.repository.PublishPages(s.ctx, publications))
+	s.Equal(2, s.repository.PageCount())
+}
+
+func (s *RepositorySuite) TestGivenBatchWithUnknownLinkTargetThenNothingIsStored() {
+	page, revision := pageFixture()
+	stranger, strangerRevision := pageFixture()
+	stranger.ID = "page-2"
+	stranger.Slug = "beta"
+	strangerRevision.ID = "revision-2"
+	strangerRevision.PageID = "page-2"
+	strangerRevision.Links[0].ID = "link-2"
+	strangerRevision.Links[0].PageRevisionID = "revision-2"
+	strangerRevision.Links[0].TargetPageID = "page-missing"
+	stranger.CurrentRevisionID = "revision-2"
+	publications := []pagewiki.PagePublication{
+		publicationFixture(page, revision),
+		{Page: stranger, Revision: strangerRevision},
+	}
+
+	err := s.repository.PublishPages(s.ctx, publications)
+
+	s.Require().ErrorIs(err, pagewiki.ErrInvalidLink)
+	s.Require().Zero(s.repository.PageCount())
+	s.Require().Zero(s.repository.PageRevisionCount())
+	s.Require().Zero(s.repository.SearchChunkCount())
+}
+
 func (s *RepositorySuite) TestGivenMissingParentTopicWhenPublishedThenNothingIsStored() {
 	page, revision := pageFixture()
 	publication := publicationFixture(page, revision)
@@ -525,6 +590,31 @@ func (s *RepositorySuite) TestGivenImmutableRunWhenChangedThenSaveFails() {
 	s.Require().ErrorIs(err, pagewiki.ErrImmutableConflict)
 }
 
+func (s *RepositorySuite) TestGivenRetryableRunWhenReplacedThenSaveSucceeds() {
+	for _, status := range []pagewiki.RunStatus{
+		pagewiki.RunStatusFailed, pagewiki.RunStatusPartialSuccess,
+	} {
+		run := pagewiki.MaintenanceRun{
+			ID:               "run-retry-" + string(status),
+			SourceRevisionID: "source-revision-1",
+			Status:           status,
+			Targets: []pagewiki.MaintenanceTarget{
+				{ID: "target-1", Status: pagewiki.TargetStatusFailed},
+			},
+		}
+		s.Require().NoError(s.repository.SaveMaintenanceRun(s.ctx, run))
+		run.Status = pagewiki.RunStatusSucceeded
+		run.Targets[0].Status = pagewiki.TargetStatusSucceeded
+
+		s.Require().NoError(s.repository.SaveMaintenanceRun(s.ctx, run))
+
+		stored, err := s.repository.MaintenanceRun(s.ctx, run.ID)
+		s.Require().NoError(err)
+		s.Require().Equal(pagewiki.RunStatusSucceeded, stored.Status)
+		s.Require().Equal(pagewiki.TargetStatusSucceeded, stored.Targets[0].Status)
+	}
+}
+
 func (s *RepositorySuite) TestGivenMissingValuesWhenReadThenNotFoundIsReturned() {
 	_, sourceErr := s.repository.SourceRevision(s.ctx, "missing")
 	_, pageErr := s.repository.PageByID(s.ctx, "missing")
@@ -697,6 +787,24 @@ func (s *RepositorySuite) TestReplaceTopicTreeAtomicityPreservesValidState() {
 	tree, err := s.repository.TopicTree(s.ctx)
 	s.Require().NoError(err)
 	s.Equal(validTree, tree)
+}
+
+func (s *RepositorySuite) TestGenerationSettingsRoundTrip() {
+	directives, err := s.repository.GenerationSettings(s.ctx)
+	s.Require().NoError(err)
+	s.Require().True(directives.IsZero())
+
+	want := pagewiki.GenerationDirectives{Language: "简体中文", CustomInstructions: "prefer tables"}
+	s.Require().NoError(s.repository.SetGenerationSettings(s.ctx, want))
+	got, err := s.repository.GenerationSettings(s.ctx)
+	s.Require().NoError(err)
+	s.Require().Equal(want, got)
+
+	// Second write overwrites (upsert semantics).
+	s.Require().NoError(s.repository.SetGenerationSettings(s.ctx, pagewiki.GenerationDirectives{Language: "English"}))
+	got, err = s.repository.GenerationSettings(s.ctx)
+	s.Require().NoError(err)
+	s.Require().Equal(pagewiki.GenerationDirectives{Language: "English"}, got)
 }
 
 func sourceRevisionFixture() pagewiki.SourceRevision {

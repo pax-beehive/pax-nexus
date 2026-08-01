@@ -22,10 +22,32 @@ var ErrInvalidModelResponse = errors.New("invalid extractor model response")
 
 const maxCandidatesPerSlice = 10
 
+// ThinkingMode controls provider-side reasoning for OpenAI-compatible APIs
+// that expose an explicit thinking toggle. The empty value preserves the
+// provider default and omits the field for providers that do not support it.
+type ThinkingMode string
+
+const (
+	ThinkingModeEnabled  ThinkingMode = "enabled"
+	ThinkingModeDisabled ThinkingMode = "disabled"
+)
+
+// ParseThinkingMode validates a configured provider thinking mode.
+func ParseThinkingMode(value string) (ThinkingMode, error) {
+	mode := ThinkingMode(strings.TrimSpace(value))
+	switch mode {
+	case "", ThinkingModeEnabled, ThinkingModeDisabled:
+		return mode, nil
+	default:
+		return "", fmt.Errorf("unsupported thinking mode %q", value)
+	}
+}
+
 type OpenAIConfig struct {
 	BaseURL              string
 	APIKey               string
 	Model                string
+	ThinkingMode         ThinkingMode
 	PromptVersion        string
 	Client               *http.Client
 	ContextMode          ContextMode
@@ -88,6 +110,11 @@ func normalizeOpenAIConfig(config *OpenAIConfig) error {
 	if config.Client == nil {
 		config.Client = http.DefaultClient
 	}
+	thinkingMode, err := ParseThinkingMode(string(config.ThinkingMode))
+	if err != nil {
+		return fmt.Errorf("create OpenAI extractor: %w", err)
+	}
+	config.ThinkingMode = thinkingMode
 	if config.ContextMode == "" {
 		config.ContextMode = ContextModeSlice
 	}
@@ -263,11 +290,15 @@ func (e *OpenAI) providerRequest(
 	messages []chatMessage,
 	maxTokens int,
 ) ([]byte, int, error) {
-	body, err := json.Marshal(chatRequest{
+	payload := chatRequest{
 		Model: e.config.Model, Messages: messages, Temperature: 0,
 		ResponseFormat: responseFormat{Type: "json_object"},
 		MaxTokens:      maxTokens,
-	})
+	}
+	if e.config.ThinkingMode != "" {
+		payload.Thinking = &thinkingConfig{Type: e.config.ThinkingMode}
+	}
+	body, err := json.Marshal(payload)
 	if err != nil {
 		return nil, 0, fmt.Errorf("encode extractor request: %w", err)
 	}
@@ -741,7 +772,7 @@ func committedSourceClauseSupportsCandidate(quote string, candidate *DecisionCan
 func containsCommittedPredicate(content string) bool {
 	content, _ = sourceTextWithoutMarkdownFormatting(content)
 	for _, marker := range []string{
-		" is ", " are ", " owns ", " has ", " have ", " completed ", " finished ",
+		" is ", " are ", " can ", " owns ", " has ", " have ", " completed ", " finished ",
 		" approved ", " assigned ", " designated ", " decided ", " confirmed ",
 		" agreed ", " change to decision",
 		" i'll ", " i’ll ", " i will ", " we'll ", " we’ll ", " we will ",
@@ -912,11 +943,16 @@ action happens after another action, emit both candidates and link the dependent
 action to the prerequisite subject. Keep the prerequisite deadline in its body.`
 
 type chatRequest struct {
-	Model          string         `json:"model"`
-	Messages       []chatMessage  `json:"messages"`
-	Temperature    float64        `json:"temperature"`
-	ResponseFormat responseFormat `json:"response_format"`
-	MaxTokens      int            `json:"max_tokens,omitempty"`
+	Model          string          `json:"model"`
+	Messages       []chatMessage   `json:"messages"`
+	Temperature    float64         `json:"temperature"`
+	ResponseFormat responseFormat  `json:"response_format"`
+	MaxTokens      int             `json:"max_tokens,omitempty"`
+	Thinking       *thinkingConfig `json:"thinking,omitempty"`
+}
+
+type thinkingConfig struct {
+	Type ThinkingMode `json:"type"`
 }
 
 type chatMessage struct {

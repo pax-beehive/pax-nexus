@@ -6,12 +6,15 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/pax-beehive/pax-nexus/internal/deployment/onprem"
 	"github.com/pax-beehive/pax-nexus/internal/explorer"
 	"github.com/pax-beehive/pax-nexus/internal/operations"
+	"github.com/pax-beehive/pax-nexus/internal/pagewiki"
 	"github.com/pax-beehive/pax-nexus/internal/pagewiki/sessionconsumer"
+	platformllm "github.com/pax-beehive/pax-nexus/internal/platform/llm"
 	"github.com/pax-beehive/pax-nexus/internal/recall"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote"
 )
@@ -37,6 +40,8 @@ type Handler struct {
 	operations   OperationsLifecycle
 	explorer     ExplorerLifecycle
 	wikiControl  WikiControl
+	wikiSettings WikiSettings
+	llmUsage     LLMUsage
 	recorder     operations.Recorder
 	portalURL    string
 	cookieSecure bool
@@ -130,7 +135,16 @@ type WikiControl interface {
 	Status(context.Context, string) (sessionconsumer.Status, error)
 	SetAutoInject(context.Context, string, bool) (sessionconsumer.Status, error)
 	InjectSession(context.Context, string, string) (sessionconsumer.InjectResult, error)
-	Rebuild(context.Context, string) (sessionconsumer.Status, error)
+	Rebuild(context.Context, string, time.Time) (sessionconsumer.Status, error)
+}
+
+type WikiSettings interface {
+	GenerationSettings(context.Context) (pagewiki.GenerationDirectives, error)
+	SetGenerationSettings(context.Context, pagewiki.GenerationDirectives) (pagewiki.GenerationDirectives, error)
+}
+
+type LLMUsage interface {
+	UsageSummary(ctx context.Context, scopeID string, window time.Duration) ([]platformllm.LLMUsageRow, error)
 }
 
 type OnPremOption func(*Handler) error
@@ -172,6 +186,20 @@ func WithWikiControl(control WikiControl) OnPremOption {
 			return fmt.Errorf("configure Wiki control: control is required")
 		}
 		configured.wikiControl = control
+		return nil
+	}
+}
+
+func WithWikiSettings(settings WikiSettings) OnPremOption {
+	return func(configured *Handler) error {
+		configured.wikiSettings = settings
+		return nil
+	}
+}
+
+func WithLLMUsage(usage LLMUsage) OnPremOption {
+	return func(configured *Handler) error {
+		configured.llmUsage = usage
 		return nil
 	}
 }

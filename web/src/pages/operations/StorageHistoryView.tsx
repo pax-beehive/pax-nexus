@@ -2,6 +2,7 @@
 // captured_at; never a backup view.
 
 import { formatBytes, formatTime } from "../../lib/format";
+import { Button } from "../../components/Button";
 import type { HistoryRegion } from "./hooks";
 
 type HistoryReady = Extract<HistoryRegion, { status: "ready" }>;
@@ -47,13 +48,13 @@ export function StorageHistoryReady({
       </table>
       {cursor !== undefined && (
         <div style={{ marginTop: 10, textAlign: "center" }}>
-          <button
-            className="btn sm"
+          <Button
+            size="sm"
             disabled={region.loadingMore}
             onClick={() => onLoadMore(cursor)}
           >
             {region.loadingMore ? "Loading…" : "Load more"}
-          </button>
+          </Button>
         </div>
       )}
     </>

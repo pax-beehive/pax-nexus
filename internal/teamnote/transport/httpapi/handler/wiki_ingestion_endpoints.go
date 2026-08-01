@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
@@ -21,7 +22,16 @@ func (h *Handler) GetWikiIngestionStatus(ctx context.Context, c *app.RequestCont
 		h.writeWikiControlError(c, "get Wiki ingestion status", err)
 		return
 	}
-	c.JSON(consts.StatusOK, &api.WikiIngestionStatusResponse{AutoInject: status.AutoInject})
+	response := &api.WikiIngestionStatusResponse{AutoInject: status.AutoInject}
+	if status.Progress != nil {
+		pending := int32(status.Progress.PendingSessions)
+		response.PendingSessions = &pending
+		if status.Progress.LastProcessedAt != nil {
+			formatted := status.Progress.LastProcessedAt.UTC().Format(time.RFC3339)
+			response.LastProcessedAt = &formatted
+		}
+	}
+	c.JSON(consts.StatusOK, response)
 }
 
 func (h *Handler) UpdateWikiIngestion(ctx context.Context, c *app.RequestContext) {
@@ -67,7 +77,22 @@ func (h *Handler) RebuildWiki(ctx context.Context, c *app.RequestContext) {
 		writeHumanAPIError(c, consts.StatusForbidden, "forbidden", "the operation is not permitted")
 		return
 	}
-	status, err := h.wikiControl.Rebuild(ctx, onprem.LocalScopeID)
+	var request api.RebuildWikiRequest
+	if err := c.BindAndValidate(&request); err != nil {
+		writeHumanAPIError(c, consts.StatusBadRequest, "invalid_request", "the request is invalid")
+		return
+	}
+	var since time.Time
+	if request.Since != nil && strings.TrimSpace(*request.Since) != "" {
+		parsed, err := time.Parse(time.RFC3339, strings.TrimSpace(*request.Since))
+		if err != nil {
+			writeHumanAPIError(c, consts.StatusBadRequest, "invalid_request",
+				"since must be an RFC3339 timestamp")
+			return
+		}
+		since = parsed
+	}
+	status, err := h.wikiControl.Rebuild(ctx, onprem.LocalScopeID, since)
 	if err != nil {
 		h.writeWikiControlError(c, "rebuild Wiki", err)
 		return

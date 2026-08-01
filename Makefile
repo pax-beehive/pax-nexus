@@ -4,6 +4,7 @@ MODULE := github.com/pax-beehive/pax-nexus
 IDL := idl/team_memory.thrift
 PAGEWIKI_IDL := idl/page_wiki.thrift
 KNOWLEDGE_EVAL_IDL := idl/knowledge_eval.thrift
+TODOAPP_IDL := idl/todo_app.thrift
 TOOLS_DIR := $(CURDIR)/.tools/bin
 HZ := $(TOOLS_DIR)/hz
 MOCKGEN := $(TOOLS_DIR)/mockgen
@@ -83,6 +84,10 @@ generate: tools generate-knowledge-eval
 	PATH=$(TOOLS_DIR):$$PATH $(HZ) update --module $(MODULE) --idl $(IDL) --out_dir . \
 		--handler_dir internal/teamnote/transport/httpapi/handler \
 		--model_dir internal/teamnote/transport/httpapi/model \
+		--sort_router --handler_by_method
+	PATH=$(TOOLS_DIR):$$PATH $(HZ) update --module $(MODULE) --idl $(TODOAPP_IDL) --out_dir . \
+		--handler_dir internal/todoapp/transport/httpapi \
+		--model_dir internal/todoapp/transport/httpapi/model \
 		--sort_router --handler_by_method
 
 generate-knowledge-eval: tools

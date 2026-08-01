@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import type { HumanMe } from "../api/types";
+import { Link, useNavigate } from "react-router-dom";
 import {
   getWikiLinks,
   getWikiNavigation,
@@ -16,8 +15,7 @@ import {
   type WikiSearchResult,
   type WikiPage,
 } from "../api/wiki";
-import { beginAction, injectWikiSession, rebuildWiki, setWikiAutoInject } from "../api/actions";
-import { ConfirmDialog } from "../components/ConfirmDialog";
+import { Button } from "../components/Button";
 import { RelationList } from "../components/wiki/RelationList";
 import { collectPages, RootPageList, Topic } from "../components/wiki/TopicTree";
 import { WikiMarkdown } from "../components/wiki/WikiMarkdown";
@@ -26,7 +24,7 @@ import { useErrorHandler } from "../lib/useErrorHandler";
 
 const EMPTY_LINKS: WikiLinks = { outgoing: [], incoming: [] };
 
-export function WikiPage({ me }: { me: HumanMe }) {
+export function WikiBrowsePage() {
   const navigate = useNavigate();
   const handleError = useErrorHandler();
   const [topics, setTopics] = useState<WikiNavigationTopic[]>([]);
@@ -46,14 +44,7 @@ export function WikiPage({ me }: { me: HumanMe }) {
   const [searching, setSearching] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [autoInject, setAutoInject] = useState(false);
-  const [ingestionLoading, setIngestionLoading] = useState(true);
-  const [ingestionBusy, setIngestionBusy] = useState(false);
-  const [sessionID, setSessionID] = useState(
-    () => new URLSearchParams(window.location.search).get("session") ?? "",
-  );
-  const [ingestionMessage, setIngestionMessage] = useState("");
   const [navigationRevision, setNavigationRevision] = useState(0);
-  const [rebuildOpen, setRebuildOpen] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -61,9 +52,6 @@ export function WikiPage({ me }: { me: HumanMe }) {
       .then((status) => setAutoInject(status.auto_inject))
       .catch((error: unknown) => {
         if (!isAbortError(error)) handleError(error);
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setIngestionLoading(false);
       });
     return () => controller.abort();
   }, [handleError]);
@@ -85,7 +73,7 @@ export function WikiPage({ me }: { me: HumanMe }) {
       const parameters = new URLSearchParams();
       parameters.set("page", slug);
       if (revisionID) parameters.set("revision", revisionID);
-      navigate({ pathname: "/wiki", search: `?${parameters.toString()}` }, { replace: true });
+      navigate({ pathname: "/wiki/browse", search: `?${parameters.toString()}` }, { replace: true });
     },
     [navigate],
   );
@@ -199,80 +187,15 @@ export function WikiPage({ me }: { me: HumanMe }) {
     }
   };
 
-  const toggleAutoInject = async () => {
-    const next = !autoInject;
-    setIngestionBusy(true);
-    setIngestionMessage("");
-    try {
-      const status = await setWikiAutoInject(next);
-      setAutoInject(status.auto_inject);
-      setIngestionMessage(
-        status.auto_inject
-          ? "Auto inject is on. New Session Lake evidence will appear here."
-          : "Auto inject is off.",
-      );
-      // No explicit bump here: usePolling's immediate cycle on the
-      // false -> true dependency change already refreshes navigation once
-      // (see the usePolling call above); an extra bump here would double it.
-    } catch (error) {
-      handleError(error);
-    } finally {
-      setIngestionBusy(false);
-    }
-  };
-
-  const injectFixedSession = async () => {
-    const fixedSessionID = sessionID.trim();
-    if (!fixedSessionID) return;
-    setIngestionBusy(true);
-    setIngestionMessage("");
-    try {
-      const result = await injectWikiSession(fixedSessionID, beginAction());
-      setIngestionMessage(
-        `Injected ${result.processed_streams} stream${result.processed_streams === 1 ? "" : "s"} from ${fixedSessionID}.`,
-      );
-      setNavigationRevision((current) => current + 1);
-    } catch (error) {
-      handleError(error);
-    } finally {
-      setIngestionBusy(false);
-    }
-  };
-
-  const confirmRebuild = async () => {
-    setIngestionBusy(true);
-    setIngestionMessage("");
-    try {
-      const status = await rebuildWiki(beginAction());
-      setAutoInject(status.auto_inject);
-      setTopics([]);
-      setRootPages([]);
-      setSelectedSlug("");
-      setPage(undefined);
-      setRevision(undefined);
-      setRevisions([]);
-      setLinks(EMPTY_LINKS);
-      setSearchOpen(false);
-      navigate({ pathname: "/wiki" }, { replace: true });
-      setIngestionMessage("Wiki cleared. Rebuilding from Session Lake…");
-      setRebuildOpen(false);
-      setNavigationRevision((current) => current + 1);
-    } catch (error) {
-      handleError(error);
-    } finally {
-      setIngestionBusy(false);
-    }
-  };
-
   const pages = [...rootPages, ...collectPages(topics)];
   const historical = Boolean(page && revision && revision.id !== page.current_revision_id);
   const inlineRelations = historical ? [] : links.outgoing;
 
   return (
-    <div className="wiki">
+    <div className="wiki wiki-browse">
       <header className="wiki-header">
         <div>
-          <span className="wiki-eyebrow">Grounded team knowledge</span>
+          <Link className="app-back" to="/apps">← All apps</Link>
           <h1>Wiki</h1>
           <p className="muted">Durable pages, revision history, and evidence in one place.</p>
         </div>
@@ -295,68 +218,11 @@ export function WikiPage({ me }: { me: HumanMe }) {
             value={searchInput}
             onChange={(event) => setSearchInput(event.target.value)}
           />
-          <button className="btn primary" type="submit" disabled={searching}>
+          <Button variant="primary" type="submit" disabled={searching}>
             {searching ? "Searching…" : "Search"}
-          </button>
+          </Button>
         </form>
       </header>
-
-      <section className="card wiki-ingestion" aria-label="Wiki ingestion controls">
-        <div className="wiki-ingestion-copy">
-          <span className="wiki-eyebrow">Session Lake</span>
-          <strong>Automatic Wiki injection</strong>
-          <span className="muted small">
-            Uses an independent PageWiki cursor; Team Note extraction is unaffected.
-          </span>
-        </div>
-        <button
-          className={autoInject ? "wiki-switch active" : "wiki-switch"}
-          type="button"
-          role="switch"
-          aria-checked={autoInject}
-          disabled={ingestionLoading || ingestionBusy}
-          onClick={() => void toggleAutoInject()}
-        >
-          <span aria-hidden="true" />
-          {autoInject ? "On" : "Off"}
-        </button>
-        <div className="wiki-fixed-session">
-          <label htmlFor="wiki-session-id">Fixed session ID</label>
-          <input
-            id="wiki-session-id"
-            value={sessionID}
-            placeholder="e.g. 019fa46f-…"
-            onChange={(event) => setSessionID(event.target.value)}
-          />
-          <button
-            className="btn primary"
-            type="button"
-            disabled={ingestionBusy || sessionID.trim() === ""}
-            onClick={() => void injectFixedSession()}
-          >
-            {ingestionBusy ? "Injecting…" : "Inject session"}
-          </button>
-        </div>
-        {me.role === "owner" && (
-          <div className="wiki-reset">
-            <div>
-              <strong>Start over with current Session Lake evidence</strong>
-              <span className="muted small">
-                Clears PageWiki-derived data and rebuilds it with the currently configured organizer.
-              </span>
-            </div>
-            <button
-              className="btn danger"
-              type="button"
-              disabled={ingestionBusy}
-              onClick={() => setRebuildOpen(true)}
-            >
-              Reset & rebuild
-            </button>
-          </div>
-        )}
-        {ingestionMessage && <p className="wiki-ingestion-message">{ingestionMessage}</p>}
-      </section>
 
       {searchOpen && (
         <section className="card wiki-search-results" role="region" aria-label="Search results">
@@ -365,9 +231,9 @@ export function WikiPage({ me }: { me: HumanMe }) {
               <span className="wiki-eyebrow">Current revisions</span>
               <h2>Search results</h2>
             </div>
-            <button className="btn ghost sm" type="button" onClick={() => setSearchOpen(false)}>
+            <Button variant="ghost" size="sm" type="button" onClick={() => setSearchOpen(false)}>
               Close
-            </button>
+            </Button>
           </div>
           {!searching && searchResults.length === 0 ? (
             <p className="muted small">No current revision matches.</p>
@@ -390,14 +256,14 @@ export function WikiPage({ me }: { me: HumanMe }) {
       )}
 
       {!navigationLoading && pages.length === 0 ? (
-        <section className="card wiki-empty">
+        <section className="wiki-empty">
           <span className="wiki-empty-mark" aria-hidden="true">W</span>
           <h2>Your wiki is ready for its first page</h2>
           <p className="muted">Pages will appear here after a Page Wiki source is processed.</p>
         </section>
       ) : (
         <div className="wiki-layout">
-          <nav className="card wiki-topic-rail" aria-label="Wiki topics">
+          <nav className="wiki-topic-rail" aria-label="Wiki topics">
             <div className="wiki-rail-heading">
               <span>Topics</span>
               <span className="faint small">{pages.length} pages</span>
@@ -414,7 +280,7 @@ export function WikiPage({ me }: { me: HumanMe }) {
             {navigationLoading && <p className="muted small">Loading topics…</p>}
           </nav>
 
-          <article className="card wiki-article" aria-busy={pageLoading}>
+          <article className="wiki-article" aria-busy={pageLoading}>
             {pageError ? (
               <div className="wiki-empty compact">
                 <h2>This wiki page could not be loaded</h2>
@@ -424,6 +290,23 @@ export function WikiPage({ me }: { me: HumanMe }) {
               <p className="muted">{pageLoading ? "Loading page…" : "Select a page."}</p>
             ) : (
               <>
+                {page.status === "retired" && (
+                  <div className="wiki-retired-banner" role="status">
+                    <span>This page has been archived.</span>
+                    {page.successor_slug && (
+                      <a
+                        href={`/wiki?page=${encodeURIComponent(page.successor_slug)}`}
+                        className="wiki-inline-link"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          selectPage(page.successor_slug!);
+                        }}
+                      >
+                        See successor page
+                      </a>
+                    )}
+                  </div>
+                )}
                 <div className="row between wrap">
                   <span className="wiki-eyebrow">Wiki page</span>
                   <span className={historical ? "badge b-suspended" : "badge b-active"}>
@@ -436,17 +319,6 @@ export function WikiPage({ me }: { me: HumanMe }) {
                   <code>/{page.slug}</code>
                   <span className="mono faint">{revision.id}</span>
                 </div>
-
-                <section className="wiki-connected" aria-label="Connected knowledge">
-                  <div>
-                    <span className="wiki-eyebrow">Bidirectional context</span>
-                    <h2>Connected knowledge</h2>
-                  </div>
-                  <div className="wiki-link-counts">
-                    <span>{links.outgoing.length} outgoing</span>
-                    <span>{links.incoming.length} incoming</span>
-                  </div>
-                </section>
 
                 <WikiMarkdown
                   revision={revision}
@@ -500,22 +372,6 @@ export function WikiPage({ me }: { me: HumanMe }) {
             )}
           </article>
         </div>
-      )}
-
-      {rebuildOpen && (
-        <ConfirmDialog
-          title="Reset and rebuild Wiki"
-          consequences={[
-            "All PageWiki pages, revisions, links, citations, and maintenance runs will be deleted.",
-            "PageWiki ingestion cursors will reset and every Session Lake stream will be processed again.",
-            "Session Lake events and Team Notes are preserved.",
-            "An LLM-backed rebuild may make paid provider calls.",
-          ]}
-          confirmLabel="Confirm reset & rebuild"
-          busy={ingestionBusy}
-          onConfirm={() => void confirmRebuild()}
-          onClose={() => setRebuildOpen(false)}
-        />
       )}
     </div>
   );

@@ -31,6 +31,7 @@ func main() {
 type shadowConfig struct {
 	dsn, manifestPath, fixturesPath, runID, arm string
 	extractorVersion, baseURL, model            string
+	thinkingMode                                extractor.ThinkingMode
 	promptVersion, outputDir                    string
 	parallelism                                 int
 }
@@ -46,12 +47,19 @@ func parseFlags(args []string) (shadowConfig, error) {
 	flags.StringVar(&config.extractorVersion, "extractor", extractor.ExtractionVersionV2, "Extraction protocol version (v1, v1.1, or v2)")
 	flags.StringVar(&config.baseURL, "extractor-base-url", os.Getenv("TEAM_MEMORY_EXTRACTOR_BASE_URL"), "OpenAI-compatible extractor endpoint")
 	flags.StringVar(&config.model, "extractor-model", os.Getenv("TEAM_MEMORY_EXTRACTOR_MODEL"), "Extractor model")
+	var thinkingMode string
+	flags.StringVar(&thinkingMode, "extractor-thinking-mode", os.Getenv("TEAM_MEMORY_EXTRACTOR_THINKING_MODE"), "Provider thinking mode (enabled, disabled, or empty for provider default)")
 	flags.StringVar(&config.promptVersion, "prompt-version", "", "Prompt version tag (defaults to the extractor version)")
 	flags.IntVar(&config.parallelism, "parallelism", 4, "Number of cases replayed concurrently")
 	flags.StringVar(&config.outputDir, "output-dir", "", "Shadow artifact output directory")
 	if err := flags.Parse(args); err != nil {
 		return shadowConfig{}, fmt.Errorf("parse extraction shadow flags: %w", err)
 	}
+	parsedThinkingMode, err := extractor.ParseThinkingMode(thinkingMode)
+	if err != nil {
+		return shadowConfig{}, fmt.Errorf("parse extraction shadow flags: %w", err)
+	}
+	config.thinkingMode = parsedThinkingMode
 	if config.dsn == "" || config.manifestPath == "" || config.fixturesPath == "" || config.runID == "" || config.outputDir == "" {
 		return shadowConfig{}, fmt.Errorf("parse extraction shadow flags: dsn, manifest, fixtures, run-id, and output-dir are required")
 	}
@@ -92,7 +100,9 @@ func run(args []string, stdout io.Writer) error {
 	}
 	defer pool.Close()
 
-	protocol, err := buildExtractor(config.extractorVersion, config.baseURL, config.model, config.promptVersion)
+	protocol, err := buildExtractor(
+		config.extractorVersion, config.baseURL, config.model, config.promptVersion, config.thinkingMode,
+	)
 	if err != nil {
 		return err
 	}
@@ -224,9 +234,13 @@ func writeArtifacts(outputDir string, report extractionshadow.Report, results []
 	})
 }
 
-func buildExtractor(version, baseURL, model, promptVersion string) (extractor.Extractor, error) {
+func buildExtractor(
+	version, baseURL, model, promptVersion string,
+	thinkingMode extractor.ThinkingMode,
+) (extractor.Extractor, error) {
 	return extractor.NewOpenAI(extractor.OpenAIConfig{
 		BaseURL: baseURL, APIKey: os.Getenv("TEAM_MEMORY_EXTRACTOR_API_KEY"), Model: model,
+		ThinkingMode:  thinkingMode,
 		PromptVersion: promptVersion, Client: &http.Client{},
 		ContextMode: extractor.ContextModeRolling, EpisodeStore: extractor.NewMemoryEpisodeStore(),
 		ExtractionVersion: version,

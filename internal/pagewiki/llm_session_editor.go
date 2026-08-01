@@ -6,12 +6,20 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/pax-beehive/pax-nexus/internal/platform/llm"
 )
 
-const editorEvidenceContextBytes = 8 << 10
+const (
+	editorEvidenceContextBytes = 8 << 10
+	editorAttempts             = 2
+	// editorMaxTokens lifts the provider's default completion cap: the editor
+	// emits full multi-section articles, and a silent cap truncates the JSON
+	// mid-object ("unexpected end of JSON input").
+	editorMaxTokens = 8192
+)
 
 var llmSectionKeyCharacters = regexp.MustCompile(`[^a-z0-9]+`)
 
@@ -72,21 +80,36 @@ func (e *LLMSessionEditor) Edit(ctx context.Context, input EditInput) (PageDraft
 	if err != nil {
 		return PageDraft{}, fmt.Errorf("encode Page Wiki LLM request: %w", err)
 	}
-	response, err := e.client.Complete(ctx, llm.ChatRequest{
-		Model: e.model,
-		Messages: []llm.ChatMessage{
-			{Role: "system", Content: pageWikiEnglishEditorPrompt},
-			{Role: "user", Content: string(payload)},
-		},
-	})
-	if err != nil {
-		return PageDraft{}, fmt.Errorf("write Page Wiki with LLM: %w", err)
+	var lastErr error
+	for attempt := 0; attempt < editorAttempts; attempt++ {
+		response, err := e.client.Complete(ctx, llm.ChatRequest{
+			Model: e.model,
+			Messages: []llm.ChatMessage{
+				{Role: "system", Content: pageWikiEnglishEditorPrompt + generationDirectivesPrompt(input.Directives)},
+				{Role: "user", Content: string(payload)},
+			},
+			MaxTokens: editorMaxTokens,
+		})
+		if err != nil {
+			lastErr = fmt.Errorf("write Page Wiki with LLM: %w", err)
+			continue
+		}
+		var generated llmEditResponse
+		if err := json.Unmarshal([]byte(trimJSONFence(response.Message.Content)), &generated); err != nil {
+			lastErr = fmt.Errorf(
+				"decode Page Wiki LLM response (finish_reason=%q): %w",
+				response.FinishReason, err,
+			)
+			continue
+		}
+		draft, err := generatedDraft(input, generated)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		return draft, nil
 	}
-	var generated llmEditResponse
-	if err := json.Unmarshal([]byte(trimJSONFence(response.Message.Content)), &generated); err != nil {
-		return PageDraft{}, fmt.Errorf("decode Page Wiki LLM response: %w", err)
-	}
-	return generatedDraft(input, generated)
+	return PageDraft{}, lastErr
 }
 
 type llmEditRequest struct {
@@ -151,23 +174,79 @@ func generatedDraft(
 		Markdown: strings.Join(evidenceMarkdown, "\n\n"),
 	})
 	links := make([]LinkDraft, 0, len(input.Brief.RelatedPages))
-	if len(input.Brief.RelatedPages) > 0 {
-		titles := make([]string, 0, len(input.Brief.RelatedPages))
-		for _, page := range input.Brief.RelatedPages {
-			titles = append(titles, page.Title)
-			links = append(links, LinkDraft{
-				SectionKey: "related-knowledge", ExactText: page.Title, TargetPageID: page.ID,
-			})
-		}
-		sections = append(sections, SectionDraft{
-			Key: "related-knowledge", Heading: "Related knowledge",
-			Markdown: "See also: " + strings.Join(titles, "; ") + ".",
-		})
+	if section, linkDrafts, ok := relatedKnowledgeSection(input.Brief.RelatedPages); ok {
+		sections = append(sections, section)
+		links = append(links, linkDrafts...)
 	}
 	return PageDraft{
 		Slug: slug, Title: title, Summary: summary,
 		Sections: sections, Citations: citations, Links: links,
 	}, nil
+}
+
+// relatedKnowledgeSection renders the deterministic "Related knowledge"
+// section and its Xanadu link drafts. Drafts are deduplicated by target page,
+// and titles that would overlap inside the section text are dropped: the
+// publisher requires every link's exact text to appear in its section exactly
+// once, so a shorter title contained in a longer one must never survive.
+func relatedKnowledgeSection(related []RelatedPage) (SectionDraft, []LinkDraft, bool) {
+	unique := make([]RelatedPage, 0, len(related))
+	for _, page := range related {
+		if page.ID == "" || strings.TrimSpace(page.Title) == "" {
+			continue
+		}
+		duplicate := false
+		for _, kept := range unique {
+			if kept.ID == page.ID {
+				duplicate = true
+				break
+			}
+		}
+		if !duplicate {
+			unique = append(unique, page)
+		}
+	}
+	if len(unique) == 0 {
+		return SectionDraft{}, nil, false
+	}
+	// Longest title wins every overlap; equal titles keep the planner's order.
+	longestFirst := make([]RelatedPage, len(unique))
+	copy(longestFirst, unique)
+	sort.SliceStable(longestFirst, func(i, j int) bool {
+		return len(longestFirst[i].Title) > len(longestFirst[j].Title)
+	})
+	dropped := make(map[string]bool, len(unique))
+	for index, page := range longestFirst {
+		if dropped[page.ID] {
+			continue
+		}
+		for _, shorter := range longestFirst[index+1:] {
+			if strings.Contains(page.Title, shorter.Title) {
+				dropped[shorter.ID] = true
+			}
+		}
+	}
+	kept := make([]RelatedPage, 0, len(unique))
+	for _, page := range unique {
+		if !dropped[page.ID] {
+			kept = append(kept, page)
+		}
+	}
+	if len(kept) == 0 {
+		return SectionDraft{}, nil, false
+	}
+	titles := make([]string, 0, len(kept))
+	links := make([]LinkDraft, 0, len(kept))
+	for _, page := range kept {
+		titles = append(titles, page.Title)
+		links = append(links, LinkDraft{
+			SectionKey: "related-knowledge", ExactText: page.Title, TargetPageID: page.ID,
+		})
+	}
+	return SectionDraft{
+		Key: "related-knowledge", Heading: "Related knowledge",
+		Markdown: "See also: " + strings.Join(titles, "; ") + ".",
+	}, links, true
 }
 
 func currentTitle(input EditInput) string {
@@ -221,6 +300,10 @@ Return exactly one JSON object with this shape and no Markdown fence:
 
 Write every generated title, summary, heading, and prose sentence in English,
 regardless of the language of the evidence. Preserve proper nouns accurately.
+The title is a concise noun phrase naming the page's concept — at most five words,
+never a sentence, no trailing period; when current_text already carries such a
+title, keep it rather than rewriting it. Each section heading is likewise a short
+noun phrase, not a sentence.
 evidence lists the exact quotes that will be cited; evidence_context carries
 the full source material they come from. Ground every claim in that
 material: preserve attribution, negation, scope, uncertainty, and

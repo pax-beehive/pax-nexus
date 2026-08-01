@@ -70,6 +70,16 @@ func (s *consumerSuite) TestFailedInjectionDoesNotAdvanceCursor() {
 	s.Zero(s.store.advances)
 }
 
+func (s *consumerSuite) TestInjectionContextCarriesStreamScope() {
+	_, err := s.consumer.InjectSession(context.Background(), "local-team", "runtime-demo")
+
+	s.Require().NoError(err)
+	s.Require().Len(s.injector.contexts, 1)
+	scopeID, err := session.ScopeFromContext(s.injector.contexts[0])
+	s.Require().NoError(err)
+	s.Equal("local-team", scopeID)
+}
+
 func (s *consumerSuite) TestAutoSettingRoundTrips() {
 	status, err := s.consumer.SetAutoInject(context.Background(), "local-team", true)
 	s.Require().NoError(err)
@@ -81,7 +91,8 @@ func (s *consumerSuite) TestAutoSettingRoundTrips() {
 }
 
 func (s *consumerSuite) TestRebuildResetsDerivedWikiStateAndSchedulesFreshConsumption() {
-	status, err := s.consumer.Rebuild(context.Background(), "local-team")
+	cutoff := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	status, err := s.consumer.Rebuild(context.Background(), "local-team", cutoff)
 
 	s.Require().NoError(err)
 	s.True(status.AutoInject)
@@ -89,6 +100,7 @@ func (s *consumerSuite) TestRebuildResetsDerivedWikiStateAndSchedulesFreshConsum
 	s.Equal("local-team", s.rebuilder.scopeID)
 	s.Equal(sessionconsumer.ProcessorName, s.rebuilder.processorName)
 	s.Equal(sessionconsumer.ProcessorVersion, s.rebuilder.processorVersion)
+	s.Equal(cutoff, s.rebuilder.since)
 }
 
 func (s *consumerSuite) TestRejectsMissingSession() {
@@ -127,7 +139,7 @@ func (s *consumerSuite) TestValidationRejectsIncompleteConfigurationAndInput() {
 	s.Require().Error(err)
 	_, err = s.consumer.InjectSession(context.Background(), "local-team", "")
 	s.Require().Error(err)
-	_, err = s.consumer.Rebuild(context.Background(), "")
+	_, err = s.consumer.Rebuild(context.Background(), "", time.Time{})
 	s.Require().Error(err)
 }
 
@@ -140,6 +152,31 @@ func (s *consumerSuite) TestEmptySessionDoesNotInjectOrAdvance() {
 	s.Equal(1, result.ProcessedStreams)
 	s.Empty(s.injector.requests)
 	s.Zero(s.store.advances)
+}
+
+func (s *consumerSuite) TestStatusIncludesProgress() {
+	s.store.enabled["local-team"] = true
+	processed := time.Date(2026, 7, 29, 8, 0, 0, 0, time.UTC)
+	s.store.progress = sessionconsumer.Progress{PendingSessions: 3, LastProcessedAt: &processed}
+
+	status, err := s.consumer.Status(context.Background(), "local-team")
+
+	s.Require().NoError(err)
+	s.True(status.AutoInject)
+	s.Require().NotNil(status.Progress)
+	s.Equal(3, status.Progress.PendingSessions)
+	s.Equal(processed, *status.Progress.LastProcessedAt)
+}
+
+func (s *consumerSuite) TestStatusDegradesWhenProgressQueryFails() {
+	s.store.enabled["local-team"] = true
+	s.store.progressErr = errors.New("progress query failed")
+
+	status, err := s.consumer.Status(context.Background(), "local-team")
+
+	s.Require().NoError(err)
+	s.True(status.AutoInject)
+	s.Nil(status.Progress)
 }
 
 func (s *consumerSuite) TestDoesNotAdvanceWhenMaintenanceRunIsNotSuccessful() {
@@ -219,7 +256,7 @@ func (s *consumerSuite) TestStoreFailuresAreReported() {
 				s.rebuilder.err = errors.New("rebuild unavailable")
 			},
 			run: func() error {
-				_, err := s.consumer.Rebuild(context.Background(), "local-team")
+				_, err := s.consumer.Rebuild(context.Background(), "local-team", time.Time{})
 				return err
 			},
 			contains: "rebuild unavailable",
@@ -238,17 +275,19 @@ func (s *consumerSuite) TestStoreFailuresAreReported() {
 }
 
 type consumerStore struct {
-	enabled    map[string]bool
-	streams    []sessionconsumer.Stream
-	events     []session.SessionEvent
-	advances   int
-	statusErr  error
-	settingErr error
-	streamErr  error
-	pendingErr error
-	eventsErr  error
-	advanceErr error
-	advanced   chan struct{}
+	enabled     map[string]bool
+	streams     []sessionconsumer.Stream
+	events      []session.SessionEvent
+	advances    int
+	statusErr   error
+	settingErr  error
+	streamErr   error
+	pendingErr  error
+	eventsErr   error
+	advanceErr  error
+	advanced    chan struct{}
+	progress    sessionconsumer.Progress
+	progressErr error
 }
 
 func (s *consumerStore) AutoInjectEnabled(_ context.Context, scopeID string) (bool, error) {
@@ -312,8 +351,16 @@ func (s *consumerStore) AdvanceCursor(context.Context, sessionconsumer.Stream) e
 	return nil
 }
 
+func (s *consumerStore) Progress(context.Context, string) (sessionconsumer.Progress, error) {
+	if s.progressErr != nil {
+		return sessionconsumer.Progress{}, s.progressErr
+	}
+	return s.progress, nil
+}
+
 type recordingInjector struct {
 	requests []pagewiki.InjectSessionRequest
+	contexts []context.Context
 	err      error
 	status   pagewiki.RunStatus
 }
@@ -323,6 +370,7 @@ type recordingRebuilder struct {
 	scopeID          string
 	processorName    string
 	processorVersion string
+	since            time.Time
 	err              error
 }
 
@@ -331,19 +379,22 @@ func (r *recordingRebuilder) RebuildPageWiki(
 	scopeID string,
 	processorName string,
 	processorVersion string,
+	since time.Time,
 ) error {
 	r.calls++
 	r.scopeID = scopeID
 	r.processorName = processorName
 	r.processorVersion = processorVersion
+	r.since = since
 	return r.err
 }
 
 func (i *recordingInjector) InjectSession(
-	_ context.Context,
+	ctx context.Context,
 	request pagewiki.InjectSessionRequest,
 ) (pagewiki.InjectResult, error) {
 	i.requests = append(i.requests, request)
+	i.contexts = append(i.contexts, ctx)
 	if i.err != nil {
 		return pagewiki.InjectResult{}, i.err
 	}

@@ -17,6 +17,7 @@ import type { AgentProfile } from "../api/types";
 import { useErrorHandler } from "../lib/useErrorHandler";
 import { validateDisplayName } from "../lib/validation";
 import { Badge } from "./Badge";
+import { Button } from "./Button";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { useToast } from "./Toasts";
 
@@ -138,7 +139,7 @@ export function AgentGovernanceCard({
   return (
     <div className="card">
       <div className="row between">
-        <h2 style={{ margin: 0 }}>Profile</h2>
+        <h2 className="flush">Profile</h2>
         <Badge status={agent.status} />
       </div>
       <div className="field-row">
@@ -185,33 +186,35 @@ export function AgentGovernanceCard({
           resource_version: <code>{agent.resource_version}</code> (sent in both body and <code>If-Match</code> on submit)
         </span>
         {!retired && canEdit && (
-          <button className="btn primary sm" disabled={busy} onClick={() => void save()}>
+          <Button variant="primary" size="sm" disabled={busy} onClick={() => void save()}>
             Save
-          </button>
+          </Button>
         )}
       </div>
       <hr className="divider" />
       <div className="row wrap">
         {!retired && canSuspend && agent.status === "active" && (
-          <button
-            className="btn sm danger"
+          <Button
+            variant="danger"
+            size="sm"
             onClick={() => setPending({ kind: "suspend", key: beginAction() })}
           >
             Suspend Agent
-          </button>
+          </Button>
         )}
         {!retired && canResume && agent.status === "suspended" && (
-          <button className="btn sm" onClick={() => setPending({ kind: "resume", key: beginAction() })}>
+          <Button size="sm" onClick={() => setPending({ kind: "resume", key: beginAction() })}>
             Resume to active
-          </button>
+          </Button>
         )}
         {!retired && canRetire && (
-          <button
-            className="btn sm danger"
+          <Button
+            variant="danger"
+            size="sm"
             onClick={() => setPending({ kind: "retire", key: beginAction() })}
           >
             Retire (irreversible)
-          </button>
+          </Button>
         )}
         {retired && <span className="badge b-retired">retired is a terminal state and cannot be recovered</span>}
       </div>

@@ -72,7 +72,8 @@ func (s *configSuite) SetupTest() {
 		"TEAM_MEMORY_PORTAL_URL", "TEAM_MEMORY_HUMAN_COOKIE_SECURE",
 		"TEAM_MEMORY_SECRET_PEPPER", "TEAM_MEMORY_MEMBER_GRANTABLE_PERMISSIONS",
 		"TEAM_MEMORY_EXTRACTOR_MODE", "TEAM_MEMORY_EXTRACTOR_BASE_URL",
-		"TEAM_MEMORY_EXTRACTOR_API_KEY", "TEAM_MEMORY_EXTRACTOR_MODEL", "TEAM_MEMORY_PROMPT_VERSION",
+		"TEAM_MEMORY_EXTRACTOR_API_KEY", "TEAM_MEMORY_EXTRACTOR_MODEL", "TEAM_MEMORY_EXTRACTOR_THINKING_MODE",
+		"TEAM_MEMORY_PROMPT_VERSION",
 		"TEAM_MEMORY_EXTRACTION_CONTEXT_MODE", "TEAM_MEMORY_EXTRACTION_VERSION",
 		"TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY",
 		"TEAM_MEMORY_EXTRACTION_COMPACT_START_TOKENS",
@@ -111,6 +112,7 @@ func (s *configSuite) TestLoadsNoopConfiguration() {
 	s.Equal("rolling", config.extractionContextMode)
 	s.Equal("v1", config.extractionVersion)
 	s.Equal(extractor.DefaultCandidateStrategy(), config.extractionCandidateStrategy)
+	s.Empty(config.extractorThinkingMode)
 	s.False(config.extractionCompactionEnabled)
 	s.True(config.extractionSummaryEnabled)
 	s.Equal(12*1024, config.extractionCompactStartTokens)
@@ -144,30 +146,81 @@ func (s *configSuite) TestLoadsNoopConfiguration() {
 	s.IsType(extractor.Noop{}, adapter)
 }
 
+func (s *configSuite) TestLoadsExtractorThinkingMode() {
+	s.T().Setenv("TEAM_MEMORY_DATABASE_URL", "postgres://database")
+	s.T().Setenv("TEAM_MEMORY_API_KEYS", `{"key":"scope"}`)
+	s.T().Setenv("TEAM_MEMORY_EXTRACTOR_MODE", "noop")
+	s.T().Setenv("TEAM_MEMORY_EXTRACTOR_THINKING_MODE", "disabled")
+
+	config, err := loadConfig()
+
+	s.Require().NoError(err)
+	s.Equal(extractor.ThinkingModeDisabled, config.extractorThinkingMode)
+}
+
 func (s *configSuite) TestBuildsConfiguredPageWikiMaintainers() {
 	logger := slog.New(slog.DiscardHandler)
-	localPlanner, localEditor, localIndexer, err := buildPageWikiMaintainers(applicationConfig{}, logger)
+	localPlanner, localEditor, localIndexer, localCurator, err := buildPageWikiMaintainers(nil, applicationConfig{}, logger)
 	s.Require().NoError(err)
 	s.IsType(pagewiki.SessionDocumentPlanner{}, localPlanner)
 	s.IsType(pagewiki.SessionDocumentEditor{}, localEditor)
 	s.Nil(localIndexer)
+	s.Nil(localCurator)
 
 	config := applicationConfig{
 		llmwikiMode: "harness", llmwikiBaseURL: "https://api.deepseek.com",
 		llmwikiAPIKey: "secret", llmwikiModel: "deepseek-v4-pro",
 	}
-	planner, editor, indexer, err := buildPageWikiMaintainers(config, logger)
+	planner, editor, indexer, curator, err := buildPageWikiMaintainers(nil, config, logger)
 	s.Require().NoError(err)
 	s.IsType(&pagewiki.LLMSessionPlanner{}, planner)
 	s.IsType(&pagewiki.LLMSessionEditor{}, editor)
 	s.IsType(&pagewiki.LLMTreeIndexer{}, indexer)
+	s.IsType(&pagewiki.LLMCurator{}, curator)
 
 	config.llmwikiAPIKey = ""
-	_, _, _, err = buildPageWikiMaintainers(config, logger)
+	_, _, _, _, err = buildPageWikiMaintainers(nil, config, logger)
 	s.Require().ErrorContains(err, "LLMWIKI_LLM_API_KEY")
 	config.llmwikiMode = "unsupported"
-	_, _, _, err = buildPageWikiMaintainers(config, logger)
+	_, _, _, _, err = buildPageWikiMaintainers(nil, config, logger)
 	s.Require().ErrorContains(err, "unsupported LLMWIKI_ORGANIZER_MODE")
+}
+
+func (s *configSuite) TestBuildsPageWikiCurationConfig() {
+	config, err := buildPageWikiCurationConfig(applicationConfig{})
+	s.Require().NoError(err)
+	s.Equal(24*time.Hour, config.Interval)
+	s.Equal(0, config.PairLimit)
+	s.Equal(0, config.PageLimit)
+
+	config, err = buildPageWikiCurationConfig(applicationConfig{
+		llmwikiCurationInterval: "0", llmwikiCurationPairLimit: "0", llmwikiCurationPageLimit: "0",
+	})
+	s.Require().NoError(err)
+	s.Equal(time.Duration(0), config.Interval)
+	s.Equal(0, config.PairLimit)
+	s.Equal(0, config.PageLimit)
+
+	config, err = buildPageWikiCurationConfig(applicationConfig{
+		llmwikiCurationInterval: "6h", llmwikiCurationPairLimit: "4", llmwikiCurationPageLimit: "5",
+	})
+	s.Require().NoError(err)
+	s.Equal(6*time.Hour, config.Interval)
+	s.Equal(4, config.PairLimit)
+	s.Equal(5, config.PageLimit)
+
+	_, err = buildPageWikiCurationConfig(applicationConfig{llmwikiCurationInterval: "not-a-duration"})
+	s.Require().ErrorContains(err, "LLMWIKI_CURATION_INTERVAL")
+	_, err = buildPageWikiCurationConfig(applicationConfig{llmwikiCurationInterval: "-1h"})
+	s.Require().ErrorContains(err, "LLMWIKI_CURATION_INTERVAL")
+	_, err = buildPageWikiCurationConfig(applicationConfig{llmwikiCurationPairLimit: "-1"})
+	s.Require().ErrorContains(err, "LLMWIKI_CURATION_PAIR_LIMIT")
+	_, err = buildPageWikiCurationConfig(applicationConfig{llmwikiCurationPairLimit: "nope"})
+	s.Require().ErrorContains(err, "LLMWIKI_CURATION_PAIR_LIMIT")
+	_, err = buildPageWikiCurationConfig(applicationConfig{llmwikiCurationPageLimit: "-1"})
+	s.Require().ErrorContains(err, "LLMWIKI_CURATION_PAGE_LIMIT")
+	_, err = buildPageWikiCurationConfig(applicationConfig{llmwikiCurationPageLimit: "nope"})
+	s.Require().ErrorContains(err, "LLMWIKI_CURATION_PAGE_LIMIT")
 }
 
 func (s *configSuite) TestLoadsOnPremConfiguration() {
@@ -303,14 +356,15 @@ func (s *configSuite) TestRejectsMixedLegacyAndOnPremAuthentication() {
 
 func (s *configSuite) TestBuildHTTPHandlerKeepsLegacyModeWithoutAdminSecret() {
 	runtime := &runtimeStub{}
-	configured, err := buildHTTPHandler(context.Background(), runtime, nil, nil,
-		applicationConfig{apiKeys: map[string]string{"key": "scope"}}, slog.New(slog.DiscardHandler), nil)
+	configured, identity, err := buildHTTPHandler(context.Background(), runtime, nil, nil, nil,
+		applicationConfig{apiKeys: map[string]string{"key": "scope"}}, slog.New(slog.DiscardHandler), nil, nil)
 	s.Require().NoError(err)
 	s.NotNil(configured)
+	s.Nil(identity)
 
-	_, err = buildHTTPHandler(context.Background(), runtime, nil, nil, applicationConfig{
+	_, _, err = buildHTTPHandler(context.Background(), runtime, nil, nil, nil, applicationConfig{
 		apiKeys: map[string]string{"key": "scope"}, adminAPIKey: "admin", credentialRotationOverlap: time.Minute,
-	}, slog.New(slog.DiscardHandler), nil)
+	}, slog.New(slog.DiscardHandler), nil, nil)
 	s.Error(err)
 }
 

@@ -45,15 +45,22 @@ func (c *DeepSeekClient) Complete(
 	if c.apiKey == "" {
 		return ChatResponse{}, errors.New("DeepSeek API key is required")
 	}
+	// OpenAI-compatible endpoints reject tool_choice without tools; only
+	// DeepSeek's own endpoint tolerates the combination.
+	toolChoice := ""
+	if len(request.Tools) > 0 {
+		toolChoice = "auto"
+	}
 	payload := struct {
 		Model      string           `json:"model"`
 		Messages   []ChatMessage    `json:"messages"`
 		Tools      []ToolDefinition `json:"tools,omitempty"`
 		ToolChoice string           `json:"tool_choice,omitempty"`
+		MaxTokens  int              `json:"max_tokens,omitempty"`
 		Stream     bool             `json:"stream"`
 	}{
 		Model: request.Model, Messages: request.Messages, Tools: request.Tools,
-		ToolChoice: "auto", Stream: false,
+		ToolChoice: toolChoice, MaxTokens: request.MaxTokens, Stream: false,
 	}
 	encoded, err := json.Marshal(payload)
 	if err != nil {
@@ -91,11 +98,14 @@ func (c *DeepSeekClient) Complete(
 	}
 	var decoded struct {
 		Choices []struct {
-			Message ChatMessage `json:"message"`
+			Message      ChatMessage `json:"message"`
+			FinishReason string      `json:"finish_reason"`
 		} `json:"choices"`
 		Usage struct {
-			PromptTokens     int `json:"prompt_tokens"`
-			CompletionTokens int `json:"completion_tokens"`
+			PromptTokens          int `json:"prompt_tokens"`
+			CompletionTokens      int `json:"completion_tokens"`
+			PromptCacheHitTokens  int `json:"prompt_cache_hit_tokens"`
+			PromptCacheMissTokens int `json:"prompt_cache_miss_tokens"`
 		} `json:"usage"`
 	}
 	if err := json.Unmarshal(body, &decoded); err != nil {
@@ -104,11 +114,20 @@ func (c *DeepSeekClient) Complete(
 	if len(decoded.Choices) == 0 {
 		return ChatResponse{}, errors.New("DeepSeek response contains no choices")
 	}
+	choice := decoded.Choices[0]
+	if choice.Message.Content == "" && len(choice.Message.ToolCalls) == 0 {
+		return ChatResponse{}, fmt.Errorf(
+			"DeepSeek returned empty content (finish_reason=%q)", choice.FinishReason,
+		)
+	}
 	return ChatResponse{
-		Message: decoded.Choices[0].Message,
+		Message:      choice.Message,
+		FinishReason: choice.FinishReason,
 		Usage: TokenUsage{
-			InputTokens:  decoded.Usage.PromptTokens,
-			OutputTokens: decoded.Usage.CompletionTokens,
+			InputTokens:           decoded.Usage.PromptTokens,
+			OutputTokens:          decoded.Usage.CompletionTokens,
+			PromptCacheHitTokens:  decoded.Usage.PromptCacheHitTokens,
+			PromptCacheMissTokens: decoded.Usage.PromptCacheMissTokens,
 		},
 	}, nil
 }

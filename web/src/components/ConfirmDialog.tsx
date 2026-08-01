@@ -1,8 +1,11 @@
+import type { ReactNode } from "react";
+import { Button } from "./Button";
 import { Modal } from "./Modal";
 
 /**
  * Destructive-action confirmation. Cascade consequences are spelled out in
  * the dialog body; terminal actions get the danger-styled confirm button.
+ * Optional children render between the consequences and the action row.
  */
 export function ConfirmDialog({
   title,
@@ -11,6 +14,7 @@ export function ConfirmDialog({
   busy,
   onConfirm,
   onClose,
+  children,
 }: {
   title: string;
   consequences: string[];
@@ -18,6 +22,7 @@ export function ConfirmDialog({
   busy?: boolean;
   onConfirm: () => void;
   onClose: () => void;
+  children?: ReactNode;
 }) {
   return (
     <Modal title={title} onClose={onClose}>
@@ -28,13 +33,14 @@ export function ConfirmDialog({
           ))}
         </ul>
       </div>
+      {children}
       <div className="row" style={{ justifyContent: "flex-end" }}>
-        <button className="btn ghost" onClick={onClose} disabled={busy}>
+        <Button variant="ghost" onClick={onClose} disabled={busy}>
           Cancel
-        </button>
-        <button className="btn danger" onClick={onConfirm} disabled={busy}>
+        </Button>
+        <Button variant="danger" onClick={onConfirm} disabled={busy}>
           {busy ? "Processing…" : confirmLabel}
-        </button>
+        </Button>
       </div>
     </Modal>
   );

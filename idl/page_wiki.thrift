@@ -109,6 +109,8 @@ struct CurrentPageResponse {
   3: required string title
   4: required string current_revision_id
   5: required PageRevision revision
+  6: optional string status
+  7: optional string successor_slug
 }
 
 struct PageRevisionList {

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { listTeamNotes } from "../api/queries";
 import { Badge } from "../components/Badge";
+import { Button } from "../components/Button";
 import { PagedListCard } from "../components/PagedListCard";
 import { formatTime } from "../lib/format";
 import { useErrorHandler } from "../lib/useErrorHandler";
@@ -39,7 +40,7 @@ export function AdminExplorerPage() {
       <div className="page-head">
         <div>
           <h1>Team Memory Explorer</h1>
-          <p className="muted" style={{ margin: 0 }}>
+          <p className="muted flush">
             Inspect a Team Note from source event through extraction, revision, delivery, and recall
           </p>
         </div>
@@ -57,9 +58,9 @@ export function AdminExplorerPage() {
               if (event.key === "Enter") setQuery(queryInput.trim());
             }}
           />
-          <button className="btn sm" onClick={() => setQuery(queryInput.trim())}>
+          <Button size="sm" onClick={() => setQuery(queryInput.trim())}>
             Search
-          </button>
+          </Button>
           <input
             aria-label="Filter by kind"
             placeholder="Kind"
@@ -73,7 +74,7 @@ export function AdminExplorerPage() {
             onChange={(event) => setAgentId(event.target.value.trim())}
           />
         </div>
-        <div className="tabs" role="group" aria-label="Team Note state">
+        <div className="seg" role="group" aria-label="Team Note state">
           {STATES.map((value) => (
             <button
               key={value}

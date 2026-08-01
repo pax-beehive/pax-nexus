@@ -463,6 +463,76 @@ func (s *openAISuite) TestProviderExecutionAppliesDeadlineAndOutputBudget() {
 	s.Equal(321, call.MaxOutputTokens)
 }
 
+func (s *openAISuite) TestProviderRequestControlsThinkingModeExplicitly() {
+	tests := []struct {
+		name        string
+		mode        extractor.ThinkingMode
+		wantPresent bool
+	}{
+		{name: "provider default", wantPresent: false},
+		{name: "disabled", mode: extractor.ThinkingModeDisabled, wantPresent: true},
+		{name: "enabled", mode: extractor.ThinkingModeEnabled, wantPresent: true},
+	}
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+				var payload map[string]any
+				s.Require().NoError(json.NewDecoder(request.Body).Decode(&payload))
+				thinking, present := payload["thinking"]
+				s.Equal(test.wantPresent, present)
+				if test.wantPresent {
+					s.Equal(map[string]any{"type": string(test.mode)}, thinking)
+				}
+				return response(http.StatusOK, `{"choices":[{"message":{"content":"{\"candidates\":[]}"}}]}`), nil
+			})}
+			adapter, err := extractor.NewOpenAI(extractor.OpenAIConfig{
+				BaseURL: "http://extractor.test", Model: "model", Client: client, ThinkingMode: test.mode,
+			})
+			s.Require().NoError(err)
+
+			_, err = adapter.Extract(context.Background(), extractorSlice())
+
+			s.Require().NoError(err)
+		})
+	}
+}
+
+func (s *openAISuite) TestSourceClausePromptOverridesResponseSchemaWithEvidenceClauses() {
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		var payload struct {
+			Messages []struct {
+				Role    string `json:"role"`
+				Content string `json:"content"`
+			} `json:"messages"`
+		}
+		s.Require().NoError(json.NewDecoder(request.Body).Decode(&payload))
+		s.Require().NotEmpty(payload.Messages)
+		s.Contains(payload.Messages[0].Content,
+			`"evidence_clauses":[{"event_id":"event-id","quote":"exact source text"}]`)
+		return response(http.StatusOK, `{"choices":[{"message":{"content":"{\"state_decisions\":[],\"claims\":[],\"no_state_event_ids\":[\"event-1\"],\"interaction_observations\":[]}"}}]}`), nil
+	})}
+	adapter, err := extractor.NewOpenAI(extractor.OpenAIConfig{
+		BaseURL: "http://extractor.test", Model: "model", Client: client,
+		ContextMode: extractor.ContextModeRolling, EpisodeStore: extractor.NewMemoryEpisodeStore(),
+		ExtractionVersion: extractor.ExtractionVersionV2,
+		V2Variant:         extractor.CandidateStrategySourceClause,
+	})
+	s.Require().NoError(err)
+
+	_, err = adapter.Extract(teamnote.WithScope(context.Background(), "scope-source-clause-prompt"), extractorSlice())
+
+	s.Require().NoError(err)
+}
+
+func (s *openAISuite) TestRejectsUnsupportedThinkingMode() {
+	_, err := extractor.NewOpenAI(extractor.OpenAIConfig{
+		BaseURL: "http://extractor.test", Model: "model", ThinkingMode: "sometimes",
+	})
+
+	s.Require().Error(err)
+	s.ErrorContains(err, "unsupported thinking mode")
+}
+
 func (s *openAISuite) TestDropsInadmissibleCandidatesWithRejections() {
 	tooMany := make([]string, 11)
 	for index := range tooMany {
@@ -1540,7 +1610,7 @@ func (s *openAISuite) TestRollingContextTruncatesEpisodeWhenCompactionKeepsFaili
 	s.Equal(2, episode.Checkpoint.CompactionTruncations)
 	s.Contains(episode.Checkpoint.CompactionLastError, "compact extraction episode")
 	s.Require().NotEmpty(episode.Messages)
-	s.Equal(1+2, len(episode.Messages), "each truncation keeps one message; one exchange appends two")
+	s.Len(episode.Messages, 1+2, "each truncation keeps one message; one exchange appends two")
 }
 
 func (s *openAISuite) TestRollingContextKeepsCompactionCountersAfterLaterSuccess() {

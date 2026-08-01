@@ -6,6 +6,7 @@ import { apiError } from "../../api/client";
 import { getChannelDiagnostic, getExtractionDiagnostic } from "../../api/queries";
 import type { ChannelDiagnostic, ExtractionDiagnostic } from "../../api/types";
 import { isAbortError } from "../../lib/usePolling";
+import { Button } from "../../components/Button";
 import { RegionError } from "../../components/RegionError";
 import { ChannelDiagnosticView } from "./ChannelDiagnosticView";
 import { ExtractionDiagnosticView } from "./ExtractionDiagnosticView";
@@ -57,10 +58,10 @@ export function ExplorerDiagnosticDrawer({
       <aside className="drawer">
         <div className="row between" style={{ marginBottom: 12 }}>
           <div>
-            <h2 style={{ margin: 0 }}>{title}</h2>
+            <h2 className="flush">{title}</h2>
             <code className="small">{target.id}</code>
           </div>
-          <button className="btn ghost sm" onClick={onClose}>Close</button>
+          <Button variant="ghost" size="sm" onClick={onClose}>Close</Button>
         </div>
         {state.status === "loading" && <p className="muted small">Loading…</p>}
         {state.status === "not-found" && (

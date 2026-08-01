@@ -76,6 +76,8 @@ export interface WikiRevision {
 
 export interface WikiPage extends WikiPageSummary {
   revision: WikiRevision;
+  status?: string;
+  successor_slug?: string;
 }
 
 export interface WikiResolvedLink {
@@ -102,6 +104,27 @@ export interface WikiSearchResult {
 
 export interface WikiIngestionStatus {
   auto_inject: boolean;
+  pending_sessions?: number;
+  last_processed_at?: string;
+}
+
+export interface WikiGenerationSettings {
+  language: string;
+  custom_instructions: string;
+}
+
+export interface LLMUsageRow {
+  component: string;
+  model: string;
+  calls: number;
+  input_tokens: number;
+  cache_hit_tokens: number;
+  cache_miss_tokens: number;
+  output_tokens: number;
+}
+
+export interface LLMUsage {
+  rows: LLMUsageRow[];
 }
 
 function get<T>(path: string, signal?: AbortSignal): Promise<T> {
@@ -114,6 +137,14 @@ export function getWikiNavigation(signal?: AbortSignal): Promise<WikiNavigation>
 
 export function getWikiIngestionStatus(signal?: AbortSignal): Promise<WikiIngestionStatus> {
   return get<WikiIngestionStatus>("/v1/wiki/ingestion", signal);
+}
+
+export function getWikiSettings(signal?: AbortSignal): Promise<WikiGenerationSettings> {
+  return get<WikiGenerationSettings>("/v1/wiki/settings", signal);
+}
+
+export function getLLMUsage(days: number, signal?: AbortSignal): Promise<LLMUsage> {
+  return get<LLMUsage>(`/v1/llm-usage?days=${days}`, signal);
 }
 
 export function getWikiPage(slug: string, signal?: AbortSignal): Promise<WikiPage> {

@@ -91,8 +91,8 @@ func (s *postgresConsumerSuite) TestManualInjectionPersistsPageAndIndependentCur
 	s.Equal(1, result.ProcessedStreams)
 	navigation, err := repository.Navigation(s.ctx)
 	s.Require().NoError(err)
-	s.Require().Len(navigation.Roots, 1)
-	s.Require().Len(navigation.Roots[0].Pages, 1)
+	s.Require().Empty(navigation.Roots)
+	s.Require().Len(navigation.Pages, 1)
 	var cursor int64
 	err = s.store.Pool().QueryRow(s.ctx, `
 SELECT committed_sequence
@@ -128,7 +128,7 @@ func (s *postgresConsumerSuite) TestRebuildClearsDerivedWikiAndMakesSessionPendi
 	_, err = controller.InjectSession(s.ctx, s.scopeID, "runtime-session")
 	s.Require().NoError(err)
 
-	status, err := controller.Rebuild(s.ctx, s.scopeID)
+	status, err := controller.Rebuild(s.ctx, s.scopeID, time.Time{})
 
 	s.Require().NoError(err)
 	s.True(status.AutoInject)
@@ -165,6 +165,41 @@ func (s *postgresConsumerSuite) TestAutoSettingSelectsPendingStreams() {
 	s.Require().NoError(err)
 	s.Require().Len(streams, 1)
 	s.Equal("runtime-session", streams[0].Actor.SessionID)
+}
+
+func (s *postgresConsumerSuite) TestProgressCountsBacklogAndLastProcessed() {
+	s.seedSession()
+	consumerStore, err := platformpostgres.NewPageWikiConsumerStore(s.store.Pool(), s.scopeID)
+	s.Require().NoError(err)
+
+	// Backlog is visible even though auto inject was never enabled.
+	progress, err := consumerStore.Progress(s.ctx, s.scopeID)
+	s.Require().NoError(err)
+	s.Equal(1, progress.PendingSessions)
+	s.Nil(progress.LastProcessedAt)
+
+	repository, err := pagewikipostgres.NewRepository(s.ctx, s.store.Pool(), s.scopeID)
+	s.Require().NoError(err)
+	controller, err := sessionconsumer.New(
+		consumerStore,
+		pagewiki.NewService(
+			repository,
+			pagewiki.SessionDocumentPlanner{},
+			pagewiki.SessionDocumentEditor{},
+		),
+		repository,
+		slog.New(slog.DiscardHandler),
+		time.Hour,
+	)
+	s.Require().NoError(err)
+	_, err = controller.InjectSession(s.ctx, s.scopeID, "runtime-session")
+	s.Require().NoError(err)
+
+	progress, err = consumerStore.Progress(s.ctx, s.scopeID)
+	s.Require().NoError(err)
+	s.Zero(progress.PendingSessions)
+	s.Require().NotNil(progress.LastProcessedAt)
+	s.WithinDuration(time.Now(), *progress.LastProcessedAt, time.Minute)
 }
 
 func (s *postgresConsumerSuite) seedSession() {

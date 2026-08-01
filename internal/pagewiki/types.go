@@ -42,11 +42,32 @@ type SourceAnchor struct {
 	ExactQuote       string
 }
 
+type PageStatus string
+
+const (
+	PageStatusActive  PageStatus = "" // zero value: active, keeps old payloads valid
+	PageStatusRetired PageStatus = "retired"
+)
+
 type Page struct {
 	ID                string
 	Slug              string
 	Title             string
 	CurrentRevisionID string
+	Status            PageStatus
+	SuccessorPageID   string
+	RetiredByRunID    string
+}
+
+func (p Page) Retired() bool { return p.Status == PageStatusRetired }
+
+// RetireRequest retires a page: it stops surfacing in catalog, navigation,
+// and search, while its ID, slug, and revision history remain resolvable.
+type RetireRequest struct {
+	PageID                 string
+	ExpectedBaseRevisionID string // CAS against CurrentRevisionID
+	SuccessorPageID        string // optional
+	RunID                  string
 }
 
 type PageCatalogEntry struct {
@@ -120,6 +141,9 @@ type PagePublication struct {
 	Revision  PageRevision
 	Topics    []Topic
 	Placement *PagePlacement
+	// Revive, when true, allows the publication to update a retired page and
+	// flips it back to active, clearing SuccessorPageID/RetiredByRunID.
+	Revive bool
 }
 
 type Navigation struct {
@@ -229,6 +253,11 @@ type CitationDraft struct {
 	SectionKey string
 	ExactText  string
 	Evidence   []EvidenceQuoteDraft
+	// Anchors carries forward SourceAnchor rows verbatim for curation
+	// rewrites/merges, whose evidence is a union of prior citations rather
+	// than a fresh resolution against one source revision. Empty for the
+	// LLM session editor path, which still populates Evidence instead.
+	Anchors []SourceAnchor
 }
 
 type LinkDraft struct {
@@ -281,6 +310,40 @@ type MaintenanceRun struct {
 	SourceRevisionID string
 	Status           RunStatus
 	Targets          []MaintenanceTarget
+}
+
+type CurationVerdict string
+
+const (
+	CurationVerdictMerge    CurationVerdict = "merge"
+	CurationVerdictConflict CurationVerdict = "conflict"
+	CurationVerdictDistinct CurationVerdict = "distinct"
+	CurationVerdictRetire   CurationVerdict = "retire"
+	CurationVerdictRewrite  CurationVerdict = "rewrite"
+	CurationVerdictKeep     CurationVerdict = "keep"
+)
+
+type CurationOutcome struct {
+	Kind      string // "pair" | "page"
+	PageIDs   []string
+	Verdict   CurationVerdict
+	Rationale string
+	Refuted   bool
+	Status    TargetStatus
+	Error     string
+}
+
+type CurationRun struct {
+	ID          string
+	Fingerprint string
+	Status      RunStatus
+	Outcomes    []CurationOutcome
+}
+
+type PageEmbedding struct {
+	PageID     string
+	RevisionID string
+	Vector     []float32
 }
 
 type InjectSessionRequest struct {

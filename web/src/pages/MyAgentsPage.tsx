@@ -8,6 +8,7 @@ import { usePagedList } from "../lib/usePagedList";
 import { useErrorHandler } from "../lib/useErrorHandler";
 import { validateAgentId, validateDisplayName } from "../lib/validation";
 import { Badge, ProvisionedByBadge } from "../components/Badge";
+import { Button } from "../components/Button";
 import { Modal } from "../components/Modal";
 import { useToast } from "../components/Toasts";
 
@@ -113,12 +114,12 @@ function CreateAgentModal({
         Network retries reuse the same key; reopening the form generates a new key.
       </div>
       <div className="row" style={{ justifyContent: "flex-end" }}>
-        <button className="btn ghost" onClick={onClose} disabled={busy}>
+        <Button variant="ghost" onClick={onClose} disabled={busy}>
           Cancel
-        </button>
-        <button className="btn primary" disabled={busy} onClick={() => void submit()}>
+        </Button>
+        <Button variant="primary" disabled={busy} onClick={() => void submit()}>
           {busy ? "Creating…" : "Create"}
-        </button>
+        </Button>
       </div>
     </Modal>
   );
@@ -143,13 +144,13 @@ export function MyAgentsPage() {
       <div className="page-head">
         <div>
           <h1>My Agents</h1>
-          <p className="muted" style={{ margin: 0 }}>
+          <p className="muted flush">
             Register and manage the Agent identities you own
           </p>
         </div>
-        <button className="btn primary" onClick={() => setCreateOpen(true)}>
+        <Button variant="primary" onClick={() => setCreateOpen(true)}>
           + Create Agent
-        </button>
+        </Button>
       </div>
       <div className="tabs" role="group" aria-label="agent status">
         {STATUS_FILTERS.map((s) => (
@@ -191,9 +192,9 @@ export function MyAgentsPage() {
       )}
       {list.nextCursor && (
         <div style={{ marginTop: 10, textAlign: "center" }}>
-          <button className="btn sm" disabled={list.loadingMore} onClick={() => void list.loadMore()}>
+          <Button size="sm" disabled={list.loadingMore} onClick={() => void list.loadMore()}>
             {list.loadingMore ? "Loading…" : "Load more"}
-          </button>
+          </Button>
         </div>
       )}
       {createOpen && (

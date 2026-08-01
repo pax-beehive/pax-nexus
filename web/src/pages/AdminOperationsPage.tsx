@@ -24,6 +24,7 @@ import {
   type TimeWindowPreset,
 } from "../lib/operations";
 import { useErrorHandler } from "../lib/useErrorHandler";
+import { Button } from "../components/Button";
 import { RegionError } from "../components/RegionError";
 import { ExplorerDiagnosticDrawer } from "./operations/ExplorerDiagnosticDrawer";
 import { explorerTargetFromLocation, type ExplorerDrawerTarget } from "./operations/explorerTarget";
@@ -96,7 +97,7 @@ export function AdminOperationsPage({ canInspectTeamMemory = false }: { canInspe
       <div className="page-head">
         <div>
           <h1>Operations</h1>
-          <p className="muted" style={{ margin: 0 }}>
+          <p className="muted flush">
             {canInspectTeamMemory
               ? "Read-only view; raw queries, credentials, idempotency keys and raw errors are never shown. Owner diagnostics may include Team Memory content."
               : "Read-only operational view; queries, content, hit text and raw error details are never shown"}
@@ -104,8 +105,8 @@ export function AdminOperationsPage({ canInspectTeamMemory = false }: { canInspe
         </div>
       </div>
 
-      <div className="row wrap" style={{ marginBottom: 14, gap: 10 }}>
-        <div className="tabs" style={{ marginBottom: 0 }} role="group" aria-label="time window">
+      <div className="toolbar" style={{ marginBottom: 14 }}>
+        <div className="seg" role="group" aria-label="time window">
           {(["1h", "24h", "7d"] as TimeWindowPreset[]).map((p) => (
             <button
               key={p}
@@ -120,7 +121,6 @@ export function AdminOperationsPage({ canInspectTeamMemory = false }: { canInspe
         </div>
         <input
           type="text"
-          style={{ width: 220 }}
           placeholder="Filter by Agent ID"
           value={agentInput}
           onChange={(e) => setAgentInput(e.target.value)}
@@ -128,9 +128,9 @@ export function AdminOperationsPage({ canInspectTeamMemory = false }: { canInspe
             if (e.key === "Enter") applyAgent();
           }}
         />
-        <button className="btn sm" onClick={applyAgent}>
+        <Button size="sm" onClick={applyAgent}>
           Apply filter
-        </button>
+        </Button>
       </div>
 
       <h2>Activity summary</h2>
@@ -163,21 +163,21 @@ export function AdminOperationsPage({ canInspectTeamMemory = false }: { canInspe
         </>
       )}
 
-      <div className="row between" style={{ marginTop: 18 }}>
-        <h2 style={{ margin: 0 }}>Storage</h2>
+      <div className="row between section">
+        <h2 className="flush">Storage</h2>
         <div className="row">
-          <button className="btn ghost sm" onClick={toggleHistory}>
+          <Button variant="ghost" size="sm" onClick={toggleHistory}>
             {historyOpen ? "Hide history trend" : "History trend"}
-          </button>
-          <button className="btn sm" aria-label="Refresh storage" onClick={storage.refresh}>
+          </Button>
+          <Button size="sm" aria-label="Refresh storage" onClick={storage.refresh}>
             Refresh
-          </button>
+          </Button>
         </div>
       </div>
       <div className="card">
         {storage.region.status === "loading" && <p className="muted small">Loading…</p>}
         {storage.region.status === "unavailable" && (
-          <p className="muted small" style={{ margin: 0 }}>
+          <p className="muted small flush">
             Storage statistics are temporarily unavailable (storage_not_available); the summary and events regions are unaffected.
           </p>
         )}
@@ -210,11 +210,10 @@ export function AdminOperationsPage({ canInspectTeamMemory = false }: { canInspe
         </div>
       )}
 
-      <div className="row between" style={{ marginTop: 18 }}>
-        <h2 style={{ margin: 0 }}>Recent activity</h2>
-        <div className="row">
+      <div className="row between section">
+        <h2 className="flush">Recent activity</h2>
+        <div className="toolbar">
           <select
-            style={{ width: 190 }}
             aria-label="Filter by operation"
             value={kind}
             onChange={(e) => setKind(e.target.value as "" | OperationKind)}
@@ -227,7 +226,6 @@ export function AdminOperationsPage({ canInspectTeamMemory = false }: { canInspe
             ))}
           </select>
           <select
-            style={{ width: 150 }}
             aria-label="Filter by outcome"
             value={outcome}
             onChange={(e) => setOutcome(e.target.value as "" | OperationOutcome)}
@@ -239,17 +237,17 @@ export function AdminOperationsPage({ canInspectTeamMemory = false }: { canInspe
               </option>
             ))}
           </select>
-          <button className="btn sm" aria-label="Refresh recent activity" onClick={events.backToFirstPage}>
+          <Button size="sm" aria-label="Refresh recent activity" onClick={events.backToFirstPage}>
             Refresh
-          </button>
+          </Button>
         </div>
       </div>
       {events.newActivity && (
-        <div className="note">
+        <div className="note row">
           New activity available.
-          <button className="btn sm" style={{ marginLeft: 10 }} onClick={events.backToFirstPage}>
+          <Button size="sm" onClick={events.backToFirstPage}>
             Back to first page
-          </button>
+          </Button>
         </div>
       )}
       <div className="card">
@@ -338,23 +336,25 @@ export function AdminOperationsPage({ canInspectTeamMemory = false }: { canInspe
                         </td>
                         <td className="small">
                           {recallId !== undefined ? (
-                            <button className="btn ghost sm" onClick={() => setDrawerId(recallId)}>
+                            <Button variant="ghost" size="sm" onClick={() => setDrawerId(recallId)}>
                               Inspect recall
-                            </button>
+                            </Button>
                           ) : extractionId ? (
-                            <button
-                              className="btn ghost sm"
+                            <Button
+                              variant="ghost"
+                              size="sm"
                               onClick={() => setExplorerDrawer({ kind: "extraction", id: extractionId })}
                             >
                               Inspect extraction
-                            </button>
+                            </Button>
                           ) : channelId ? (
-                            <button
-                              className="btn ghost sm"
+                            <Button
+                              variant="ghost"
+                              size="sm"
                               onClick={() => setExplorerDrawer({ kind: "channel", id: channelId })}
                             >
                               Inspect capsule
-                            </button>
+                            </Button>
                           ) : (
                             "—"
                           )}
@@ -375,13 +375,13 @@ export function AdminOperationsPage({ canInspectTeamMemory = false }: { canInspe
       </div>
       {events.nextCursor && events.status === "ready" && (
         <div style={{ marginTop: 10, textAlign: "center" }}>
-          <button
-            className="btn sm"
+          <Button
+            size="sm"
             disabled={events.loadingMore}
             onClick={() => void events.loadMore()}
           >
             {events.loadingMore ? "Loading…" : "Load more"}
-          </button>
+          </Button>
         </div>
       )}
 

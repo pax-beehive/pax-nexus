@@ -332,6 +332,8 @@ struct UpdateWikiIngestionRequest {
 
 struct WikiIngestionStatusResponse {
   1: required bool auto_inject
+  2: optional i32 pending_sessions
+  3: optional string last_processed_at
 }
 
 struct InjectWikiSessionRequest {
@@ -342,10 +344,42 @@ struct InjectWikiSessionResponse {
   1: required i32 processed_streams
 }
 
-struct RebuildWikiRequest {}
+struct RebuildWikiRequest {
+  1: optional string since (api.body="since")
+}
 
 struct RebuildWikiResponse {
   1: required bool auto_inject
+}
+
+struct WikiGenerationSettingsRequest {}
+
+struct UpdateWikiGenerationSettingsRequest {
+  1: required string language (api.body="language")
+  2: required string custom_instructions (api.body="custom_instructions")
+}
+
+struct WikiGenerationSettingsResponse {
+  1: required string language
+  2: required string custom_instructions
+}
+
+struct LlmUsageRequest {
+  1: optional i32 days (api.query="days")
+}
+
+struct LlmUsageRow {
+  1: required string component
+  2: required string model
+  3: required i64 calls
+  4: required i64 input_tokens
+  5: required i64 cache_hit_tokens
+  6: required i64 cache_miss_tokens
+  7: required i64 output_tokens
+}
+
+struct LlmUsageResponse {
+  1: required list<LlmUsageRow> rows
 }
 
 struct ListMembersRequest {
@@ -1130,6 +1164,9 @@ service TeamMemoryService {
   WikiIngestionStatusResponse UpdateWikiIngestion(1: UpdateWikiIngestionRequest request) (api.put="/v1/wiki/ingestion")
   InjectWikiSessionResponse InjectWikiSession(1: InjectWikiSessionRequest request) (api.post="/v1/wiki/sessions/:session_id/inject")
   RebuildWikiResponse RebuildWiki(1: RebuildWikiRequest request) (api.post="/v1/wiki/rebuild")
+  WikiGenerationSettingsResponse GetWikiGenerationSettings(1: WikiGenerationSettingsRequest request) (api.get="/v1/wiki/settings")
+  WikiGenerationSettingsResponse UpdateWikiGenerationSettings(1: UpdateWikiGenerationSettingsRequest request) (api.put="/v1/wiki/settings")
+  LlmUsageResponse GetLlmUsage(1: LlmUsageRequest request) (api.get="/v1/llm-usage")
   InvitationResponse CreateMembershipInvitation(1: CreateInvitationRequest request) (api.post="/v1/admin/invitations")
   ListInvitationsResponse ListMembershipInvitations(1: ListInvitationsRequest request) (api.get="/v1/admin/invitations")
   InvitationResponse RevokeMembershipInvitation(1: InvitationByIDRequest request) (api.delete="/v1/admin/invitations/:invitation_id")

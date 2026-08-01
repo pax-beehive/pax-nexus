@@ -24,7 +24,7 @@ func (s *llmPlanAcceptanceSuite) TestNoisySessionProducesOnlyGenuinePages() {
 	raw := skillDoc + codeDiff + knowledge
 
 	planner, err := pagewiki.NewLLMSessionPlanner(pagewiki.LLMPlannerConfig{
-		Client: &wikiChatClient{responses: []string{`{"briefs":[
+		Client: &wikiChatClient{responsesByIndex: []string{`{"briefs":[
 			{"action":"skip_noise","reader_goal":"agent skill instructions",
 			 "evidence":[{"event_id":"event-skill","exact_quote":"## Checklist"}]},
 			{"action":"skip_noise","reader_goal":"code diff",
@@ -37,8 +37,8 @@ func (s *llmPlanAcceptanceSuite) TestNoisySessionProducesOnlyGenuinePages() {
 	})
 	s.Require().NoError(err)
 	editor, err := pagewiki.NewLLMSessionEditor(pagewiki.LLMEditorConfig{
-		Client: &wikiChatClient{responses: []string{
-			`{"title":"Recall Strategy","summary":"BM25 is the default recall path.","sections":[{"key":"decision","heading":"Decision","markdown":"The team defaults recall to BM25 and treats vector recall as a supplement."}]}`,
+		Client: &wikiChatClient{responses: map[string]string{
+			"Recall Strategy": `{"title":"Recall Strategy","summary":"BM25 is the default recall path.","sections":[{"key":"decision","heading":"Decision","markdown":"The team defaults recall to BM25 and treats vector recall as a supplement."}]}`,
 		}},
 		Model: "test-model",
 	})
@@ -85,7 +85,7 @@ func (s *llmPlanAcceptanceSuite) TestNoisySessionProducesOnlyGenuinePages() {
 }
 
 func (s *llmPlanAcceptanceSuite) TestUpdatePathRevisesAnExistingPageThroughInjectSession() {
-	plannerClient := &wikiChatClient{responses: []string{
+	plannerClient := &wikiChatClient{responsesByIndex: []string{
 		`{"briefs":[
 			{"action":"create","proposed_slug":"release-policy","proposed_title":"Release Policy",
 			 "reader_goal":"Understand the release cadence.","topic_path":["Engineering","Runtime"],
@@ -97,7 +97,7 @@ func (s *llmPlanAcceptanceSuite) TestUpdatePathRevisesAnExistingPageThroughInjec
 			 "evidence":[{"event_id":"event-2","exact_quote":"releases ship twice weekly now"}]}
 		]}`,
 	}}
-	editorClient := &wikiChatClient{responses: []string{
+	editorClient := &wikiChatClient{responsesByIndex: []string{
 		`{"title":"Release Policy","summary":"How the team ships releases.","sections":[{"key":"policy","heading":"Policy","markdown":"Releases ship weekly."}]}`,
 		`{"title":"Release Policy","summary":"How the team ships releases, revised.","sections":[{"key":"policy","heading":"Policy","markdown":"Releases ship twice weekly now."}]}`,
 	}}
@@ -154,4 +154,63 @@ func (s *llmPlanAcceptanceSuite) TestUpdatePathRevisesAnExistingPageThroughInjec
 	s.Require().NoError(err)
 	s.Contains(updatedRevision.Markdown, "Releases ship twice weekly now.")
 	s.Contains(updatedRevision.Markdown, "releases ship twice weekly now")
+}
+
+func (s *llmPlanAcceptanceSuite) TestRelatedSlugsProduceXanaduLinks() {
+	planner, err := pagewiki.NewLLMSessionPlanner(pagewiki.LLMPlannerConfig{
+		Client: &wikiChatClient{responsesByIndex: []string{`{"briefs":[
+			{"action":"create","proposed_slug":"recall-strategy","proposed_title":"Recall Strategy",
+			 "reader_goal":"Understand recall.","related_slugs":["evidence-grounding"],
+			 "evidence":[{"event_id":"event-1","exact_quote":"召回默认走 BM25"}]},
+			{"action":"create","proposed_slug":"evidence-grounding","proposed_title":"Evidence Grounding",
+			 "reader_goal":"Understand grounding.","related_slugs":["recall-strategy"],
+			 "evidence":[{"event_id":"event-2","exact_quote":"citation 保存精确 source anchor"}]}
+		]}`}},
+		Model: "test-model",
+	})
+	s.Require().NoError(err)
+	editor, err := pagewiki.NewLLMSessionEditor(pagewiki.LLMEditorConfig{
+		Client: &wikiChatClient{responses: map[string]string{
+			"Recall Strategy":    `{"title":"Recall Strategy","summary":"BM25 default.","sections":[{"key":"d","heading":"Decision","markdown":"Recall defaults to BM25."}]}`,
+			"Evidence Grounding": `{"title":"Evidence Grounding","summary":"Anchors.","sections":[{"key":"g","heading":"Grounding","markdown":"Citations keep exact source anchors."}]}`,
+		}},
+		Model: "test-model",
+	})
+	s.Require().NoError(err)
+	repository := memory.NewRepository()
+	service := pagewiki.NewService(repository, planner, editor)
+
+	raw1 := "决定：team memory 的召回默认走 BM25。"
+	raw2 := "citation 保存精确 source anchor，支撑审计。"
+	raw := raw1 + "\n" + raw2
+	result, err := service.InjectSession(context.Background(), pagewiki.InjectSessionRequest{
+		SourceID: "session-related", IdempotencyKey: "related-run",
+		Raw: []byte(raw),
+		Events: []pagewiki.SourceEventInput{
+			{ID: "event-1", StartByte: 0, EndByte: len(raw1)},
+			{ID: "event-2", StartByte: len(raw1) + 1, EndByte: len(raw)},
+		},
+	})
+
+	s.Require().NoError(err)
+	s.Equal(pagewiki.RunStatusSucceeded, result.Run.Status)
+	s.Require().Len(result.Run.Targets, 2)
+
+	recall, err := repository.PageBySlug(context.Background(), "recall-strategy")
+	s.Require().NoError(err)
+	grounding, err := repository.PageBySlug(context.Background(), "evidence-grounding")
+	s.Require().NoError(err)
+
+	recallLinks, err := repository.PageLinks(context.Background(), recall.ID)
+	s.Require().NoError(err)
+	s.Require().Len(recallLinks.Outgoing, 1)
+	s.Equal(grounding.ID, recallLinks.Outgoing[0].TargetPage.ID)
+	s.Equal("Evidence Grounding", recallLinks.Outgoing[0].TargetPage.Title)
+
+	groundingLinks, err := repository.PageLinks(context.Background(), grounding.ID)
+	s.Require().NoError(err)
+	s.Require().Len(groundingLinks.Outgoing, 1)
+	s.Equal(recall.ID, groundingLinks.Outgoing[0].TargetPage.ID)
+	s.Require().Len(recallLinks.Incoming, 1)
+	s.Equal(grounding.ID, recallLinks.Incoming[0].SourcePage.ID)
 }

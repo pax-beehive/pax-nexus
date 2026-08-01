@@ -106,6 +106,29 @@ on it. The API contract is `docs/on-prem-identity-frontend-integration.md`.
   `http://localhost:58080`, override with `VITE_API_ORIGIN`).
 - Test: `cd web && npm test` (vitest).
 - Build: `cd web && npm run build` (`tsc --noEmit` + `vite build`).
+- Always render buttons with `web/src/components/Button.tsx`
+  (`variant`/`size` props map to the `.btn` class system); do not hand-write
+  `className="btn …"` on `<button>` elements. Parent-scoped styles
+  (`.tabs button`, `.seg button`, `.wiki-*`) stay plain `<button>`.
+- Global styles live in `web/src/styles/` by concern (base, themes,
+  components, operations, wiki, pulse) via `index.css`; add a new feature file
+  there instead of appending to an existing one. Use the layout utilities
+  (`.toolbar`, `.stack`, `.section`, `.flush`, `.row`) instead of inline
+  spacing styles; use `.seg` for single-choice preset toggles (not `.tabs`).
+- Themes (beige default, dark, arcade) are pure design-token overrides in
+  `web/src/styles/themes.css`, applied via `data-theme` on `<html>` and
+  persisted by `web/src/lib/theme.ts`. Components must reference CSS
+  variables, never hardcoded colors; new colors need a token in
+  `styles/base.css` plus an override per theme.
+- Full-screen apps (wiki browse, todos) render outside `PortalShell` as
+  top-level routes in `App.tsx` with an `app-back` link to the `/apps`
+  launcher; in-shell management pages for those apps (e.g. wiki policy at
+  `/wiki`) stay inside the shell and are linked from the launcher's App
+  settings section.
+- Wiki markdown renders through `react-markdown` + `remark-gfm` in
+  `web/src/components/wiki/WikiMarkdown.tsx`; do not hand-roll markdown
+  parsing. Xanadu inline links are re-applied on top via the section-scoped
+  `linkedComponents` mapping, never by string-replacing rendered HTML.
 - All mutations go through `web/src/api/actions.ts` (Idempotency-Key,
   `resource_version` + `If-Match`, CSRF header); one-time secrets never touch
   durable storage, server-visible URL components, or logs. Invitation tokens

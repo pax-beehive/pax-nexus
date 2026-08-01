@@ -1,0 +1,58 @@
+/* Theme overrides, applied via data-theme on <html> (see lib/theme.ts).
+   :root in base.css is the default beige light theme. Overrides must stay
+   limited to design tokens — no selector rules belong here. */
+[data-theme="dark"] {
+  --bg: #1b1916;
+  --surface: #24211d;
+  --surface-2: #2e2a25;
+  --border: #3c372f;
+  --border-strong: #4d463b;
+  --text: #ebe6db;
+  --muted: #a89f8e;
+  --faint: #7c7466;
+  --accent: #d97757;
+  --accent-hover: #e88d6d;
+  --accent-soft: #3d2b22;
+  --ok: #63a87c; --ok-bg: #223528;
+  --warn: #c7a54a; --warn-bg: #38301d;
+  --bad: #cf6f5a; --bad-bg: #3a2420;
+  --info: #7ba3d8; --info-bg: #232f42;
+  --input-bg: #1e1b18;
+  --on-accent: #fff;
+  --secret-bg: #2c241e;
+  --danger-border: #5c352d;
+  --warn-border: #54471f;
+  --bad-border: #5a322a;
+  --accent-border: #4d352a;
+  --backdrop: rgba(0, 0, 0, .5);
+  --shadow: rgba(0, 0, 0, .45);
+}
+
+[data-theme="arcade"] {
+  --bg: #0d0b1e;
+  --surface: #171332;
+  --surface-2: #201a44;
+  --border: #322a5e;
+  --border-strong: #4a3f86;
+  --text: #e9e6ff;
+  --muted: #9d94d6;
+  --faint: #6b62a8;
+  --accent: #ff2e88;
+  --accent-hover: #ff5ca5;
+  --accent-soft: #3a1040;
+  --ok: #3df58a; --ok-bg: #0e2f20;
+  --warn: #ffd32e; --warn-bg: #33290f;
+  --bad: #ff5252; --bad-bg: #371326;
+  --info: #2ee6ff; --info-bg: #0e2838;
+  --input-bg: #120f2b;
+  --on-accent: #fff;
+  --secret-bg: #221040;
+  --danger-border: #6e2340;
+  --warn-border: #5c4a12;
+  --bad-border: #6e2038;
+  --accent-border: #5a1c50;
+  --backdrop: rgba(5, 3, 20, .6);
+  --shadow: rgba(5, 3, 20, .5);
+  /* Mono display type sells the arcade cabinet feel without extra assets. */
+  --serif: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
