@@ -72,7 +72,8 @@ func (s *configSuite) SetupTest() {
 		"TEAM_MEMORY_PORTAL_URL", "TEAM_MEMORY_HUMAN_COOKIE_SECURE",
 		"TEAM_MEMORY_SECRET_PEPPER", "TEAM_MEMORY_MEMBER_GRANTABLE_PERMISSIONS",
 		"TEAM_MEMORY_EXTRACTOR_MODE", "TEAM_MEMORY_EXTRACTOR_BASE_URL",
-		"TEAM_MEMORY_EXTRACTOR_API_KEY", "TEAM_MEMORY_EXTRACTOR_MODEL", "TEAM_MEMORY_PROMPT_VERSION",
+		"TEAM_MEMORY_EXTRACTOR_API_KEY", "TEAM_MEMORY_EXTRACTOR_MODEL", "TEAM_MEMORY_EXTRACTOR_THINKING_MODE",
+		"TEAM_MEMORY_PROMPT_VERSION",
 		"TEAM_MEMORY_EXTRACTION_CONTEXT_MODE", "TEAM_MEMORY_EXTRACTION_VERSION",
 		"TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY",
 		"TEAM_MEMORY_EXTRACTION_COMPACT_START_TOKENS",
@@ -111,6 +112,7 @@ func (s *configSuite) TestLoadsNoopConfiguration() {
 	s.Equal("rolling", config.extractionContextMode)
 	s.Equal("v1", config.extractionVersion)
 	s.Equal(extractor.DefaultCandidateStrategy(), config.extractionCandidateStrategy)
+	s.Empty(config.extractorThinkingMode)
 	s.False(config.extractionCompactionEnabled)
 	s.True(config.extractionSummaryEnabled)
 	s.Equal(12*1024, config.extractionCompactStartTokens)
@@ -142,6 +144,18 @@ func (s *configSuite) TestLoadsNoopConfiguration() {
 	adapter, err := buildExtractor(config)
 	s.Require().NoError(err)
 	s.IsType(extractor.Noop{}, adapter)
+}
+
+func (s *configSuite) TestLoadsExtractorThinkingMode() {
+	s.T().Setenv("TEAM_MEMORY_DATABASE_URL", "postgres://database")
+	s.T().Setenv("TEAM_MEMORY_API_KEYS", `{"key":"scope"}`)
+	s.T().Setenv("TEAM_MEMORY_EXTRACTOR_MODE", "noop")
+	s.T().Setenv("TEAM_MEMORY_EXTRACTOR_THINKING_MODE", "disabled")
+
+	config, err := loadConfig()
+
+	s.Require().NoError(err)
+	s.Equal(extractor.ThinkingModeDisabled, config.extractorThinkingMode)
 }
 
 func (s *configSuite) TestBuildsConfiguredPageWikiMaintainers() {

@@ -229,11 +229,204 @@ func sourceClauseRejectionReason(
 	if !groundedInNewEvent {
 		return "source clause citations are not grounded in a new event"
 	}
+	if sourceClauseCandidateAddsUnsupportedDetail(decision.EvidenceClauses, decision.Candidate) {
+		return "candidate adds an unsupported clause, owner, deadline, or answer-changing modifier"
+	}
 	return ""
 }
 
+func sourceClauseCandidateAddsUnsupportedDetail(
+	clauses []EvidenceClause,
+	candidate *DecisionCandidate,
+) bool {
+	if candidate == nil {
+		return false
+	}
+	if hasInternalSourceClauseBoundary(candidate.Body) {
+		return true
+	}
+	sourceTokens := make(map[string]struct{})
+	var sourceText strings.Builder
+	for _, clause := range clauses {
+		sourceText.WriteString(" ")
+		sourceText.WriteString(normalizeSourceLanguage(clause.Quote))
+		for token := range significantTokens(clause.Quote) {
+			sourceTokens[token] = struct{}{}
+		}
+	}
+	candidateTokens := significantTokens(candidate.Body)
+	sharedTokens := 0
+	for token := range candidateTokens {
+		if _, supported := sourceTokens[token]; supported {
+			sharedTokens++
+		}
+	}
+	if sharedTokens >= 2 {
+		for token := range candidateTokens {
+			if _, supported := sourceTokens[token]; !supported && answerChangingTailToken(token) {
+				return true
+			}
+		}
+	}
+	if sharedTokens < 2 && !sourceClausesSupportCandidate(clauses, candidate) {
+		return false
+	}
+	source := " " + sourceText.String() + " "
+	body := " " + normalizeSourceLanguage(candidate.Body) + " "
+	candidateHasOwner := containsOwnershipDetail(body)
+	sourceHasOwner := containsOwnershipDetail(source)
+	if candidateHasOwner && (!sourceHasOwner || ownershipAddsUnsupportedValue(sourceTokens, candidateTokens)) {
+		return true
+	}
+	candidateHasDeadline := containsDeadlineDetail(body)
+	sourceHasDeadline := containsDeadlineDetail(source)
+	return candidateHasDeadline && (!sourceHasDeadline || deadlineAddsUnsupportedValue(source, body))
+}
+
+func sourceClausesSupportCandidate(clauses []EvidenceClause, candidate *DecisionCandidate) bool {
+	for _, clause := range clauses {
+		if committedSourceClauseSupportsCandidate(clause.Quote, candidate) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsOwnershipDetail(value string) bool {
+	return containsAny(value, []string{
+		" own ", " owns ", " owned by ", " owner ", " ownership ", " assigned ",
+		" designated ", " appointed ", " responsible for ", " accountable for ",
+		" belongs to ", " belong to ", " lead for ", " lead on ", " leads ", " point person ",
+	})
+}
+
+func containsDeadlineDetail(value string) bool {
+	return containsAny(value, []string{
+		" deadline ", " due ", " before ", " after ", " until ", " through ",
+		" today ", " tomorrow ", " yesterday ", " eod ", " end of day ",
+		" monday ", " tuesday ", " wednesday ", " thursday ", " friday ",
+		" saturday ", " sunday ", " january ", " february ", " march ",
+		" april ", " may ", " june ", " july ", " august ", " september ",
+		" october ", " november ", " december ",
+	}) || containsNumericCalendarDate(value)
+}
+
+func ownershipAddsUnsupportedValue(sourceTokens, candidateTokens map[string]struct{}) bool {
+	for token := range candidateTokens {
+		if _, supported := sourceTokens[token]; supported {
+			continue
+		}
+		if ownershipSyntaxToken(token) || calendarValueToken(token) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func ownershipSyntaxToken(token string) bool {
+	switch token {
+	case "own", "owned", "owner", "ownership", "assign", "assigned", "responsible", "accountable",
+		"take", "taking", "belong", "designate", "designated", "designation", "appoint", "appointed",
+		"lead", "point", "person":
+		return true
+	default:
+		return false
+	}
+}
+
+func deadlineAddsUnsupportedValue(source, candidate string) bool {
+	sourceValues := calendarDateValues(source)
+	for value := range calendarDateValues(candidate) {
+		if _, supported := sourceValues[value]; !supported {
+			return true
+		}
+	}
+	return false
+}
+
+func calendarDateValues(value string) map[string]struct{} {
+	fields := strings.Fields(value)
+	values := make(map[string]struct{})
+	for index, field := range fields {
+		field = trimCalendarToken(field)
+		if isNumericCalendarDate(field) {
+			values[field] = struct{}{}
+			continue
+		}
+		if !calendarValueToken(field) {
+			continue
+		}
+		values[field] = struct{}{}
+		if isCalendarMonth(field) && index+1 < len(fields) {
+			day := trimCalendarToken(fields[index+1])
+			if allDecimalDigits([]string{day}) {
+				values[field+" "+day] = struct{}{}
+			}
+		}
+	}
+	return values
+}
+
+func trimCalendarToken(value string) string {
+	return strings.TrimFunc(strings.ToLower(value), func(character rune) bool {
+		return !unicode.IsLetter(character) && !unicode.IsDigit(character) && character != '-' && character != '/'
+	})
+}
+
+func calendarValueToken(token string) bool {
+	return isCalendarMonth(token) || containsAny(" "+token+" ", []string{
+		" today ", " tomorrow ", " yesterday ",
+		" monday ", " tuesday ", " wednesday ", " thursday ", " friday ", " saturday ", " sunday ",
+	})
+}
+
+func isCalendarMonth(token string) bool {
+	switch token {
+	case "january", "february", "march", "april", "may", "june", "july", "august",
+		"september", "october", "november", "december":
+		return true
+	default:
+		return false
+	}
+}
+
+func containsNumericCalendarDate(value string) bool {
+	for _, field := range strings.Fields(value) {
+		if isNumericCalendarDate(trimCalendarToken(field)) {
+			return true
+		}
+	}
+	return false
+}
+
+func isNumericCalendarDate(value string) bool {
+	parts := strings.FieldsFunc(value, func(character rune) bool {
+		return character == '-' || character == '/'
+	})
+	if len(parts) != 3 || !allDecimalDigits(parts) {
+		return false
+	}
+	return len(parts[0]) == 4 && len(parts[1]) <= 2 && len(parts[2]) <= 2 ||
+		len(parts[2]) == 4 && len(parts[0]) <= 2 && len(parts[1]) <= 2
+}
+
+func allDecimalDigits(parts []string) bool {
+	for _, part := range parts {
+		if part == "" {
+			return false
+		}
+		for _, character := range part {
+			if !unicode.IsDigit(character) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 func sourceClauseIsNonCommittal(quote string) bool {
-	normalized := " " + strings.ToLower(strings.Join(strings.Fields(quote), " ")) + " "
+	normalized := " " + normalizeSourceLanguage(quote) + " "
 	if strings.Contains(normalized, "?") {
 		return true
 	}
@@ -249,8 +442,8 @@ func sourceClauseIsNonCommittal(quote string) bool {
 	nonCommittal := containsAny(normalized, []string{
 		" i propose ", " we propose ", " proposal ", " suggest ", " recommend ",
 		" should ", " please ", " can you ", " can we ", " could ", " would ", " might ",
-		" i'd want ", " i’d want ", " i'd like ", " i’d like ",
-		" we'd want ", " we’d want ", " we'd like ", " we’d like ",
+		" i'd want ", " i'd like ", " i'd lock ", " i would lock ",
+		" we'd want ", " we'd like ",
 		" ask ", " asks ", " request ", " prefer ", " hope ",
 	})
 	return nonCommittal

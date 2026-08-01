@@ -46,8 +46,10 @@ go run ./cmd/team-memory-extraction-eval-v1 \
 
 The extractor endpoint, model, and API key default to
 `TEAM_MEMORY_EXTRACTOR_BASE_URL`, `TEAM_MEMORY_EXTRACTOR_MODEL`, and
-`TEAM_MEMORY_EXTRACTOR_API_KEY`. Use `-scope-suffix` only when the persisted
-source scope itself has a suffix.
+`TEAM_MEMORY_EXTRACTOR_API_KEY`. Provider reasoning defaults to
+`TEAM_MEMORY_EXTRACTOR_THINKING_MODE`; use `-extractor-thinking-mode disabled`
+for DeepSeek V4 non-thinking extraction. Use `-scope-suffix` only when the
+persisted source scope itself has a suffix.
 
 The command refuses an existing completed directory. During a run it keeps a
 durable slice and provider-call journal in the output directory; use `-resume`
