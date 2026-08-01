@@ -618,6 +618,14 @@ func (s *llmSessionPlannerSuite) TestPlannerFallsBackUnknownTypesAndLegacyRelate
 	s.Contains(system, "depends-on")
 }
 
+func (s *llmSessionPlannerSuite) TestPlannerPromptSchemaIncludesEntityTypeAndRelatedShape() {
+	prompt := pagewiki.PageWikiPlannerPromptForTest
+	s.Contains(prompt, `"entity_type"`)
+	s.Contains(prompt, `"related":[{"slug"`)
+	s.Contains(prompt, `"relation"`)
+	s.Contains(prompt, "related_slugs")
+}
+
 func (s *llmSessionPlannerSuite) TestPlannerPromptPinsConceptIdentityAndTitleStyle() {
 	prompt := pagewiki.PageWikiPlannerPromptForTest
 	s.Contains(prompt, "durable concept")

@@ -140,7 +140,7 @@ func addRelatedKnowledgeLinks(
 		}
 		if targetID != "" && targetTitle != "" {
 			briefs[index].RelatedPages = []RelatedPage{{
-				ID: targetID, Title: targetTitle,
+				ID: targetID, Title: targetTitle, Relation: RelationTypeRelatesTo,
 			}}
 		}
 	}

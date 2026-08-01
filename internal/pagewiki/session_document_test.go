@@ -169,6 +169,24 @@ func (s *sessionDocumentSuite) TestSessionDocumentPlannerCarriesEvidenceQuotes()
 	s.Equal("页面使用 immutable revision。", briefs[0].Evidence[0].ExactText)
 }
 
+func (s *sessionDocumentSuite) TestSessionDocumentPlannerRelatedPagesCarryRelatesToRelation() {
+	raw := "## Wiki 数据模型\n页面使用 immutable revision。\n\n## Evidence grounding\nCitation 保存精确的 source anchor。"
+	briefs, err := pagewiki.SessionDocumentPlanner{}.Plan(
+		context.Background(),
+		pagewiki.PlanInput{SourceRevision: pagewiki.SourceRevision{
+			ID:  "source-revision-1",
+			Raw: []byte(raw),
+			Events: []pagewiki.SourceEvent{{
+				ID: "event-1", StartByte: 0, EndByte: len(raw),
+			}},
+		}},
+	)
+	s.Require().NoError(err)
+	s.Require().Len(briefs, 2)
+	s.Require().Len(briefs[1].RelatedPages, 1)
+	s.Equal(pagewiki.RelationTypeRelatesTo, briefs[1].RelatedPages[0].Relation)
+}
+
 func knowledgeRequest(key string) pagewiki.InjectSessionRequest {
 	first := "[event:event-storage sequence:1 type:message] 存储：LLM Wiki 必须保留完整 source 原文和精确引用区间。"
 	second := "[event:event-search sequence:2 type:message] 检索：Agent 默认只展开一到三跳关系。"
