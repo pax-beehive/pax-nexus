@@ -158,6 +158,41 @@ describe("wiki status page ingestion controls", () => {
     expect(callsTo(fetchMock, "/v1/wiki/rebuild", "POST")).toHaveLength(1);
   });
 
+  it("closes the rebuild dialog on confirm before the server responds", async () => {
+    // The rebuild endpoint can wait minutes behind an in-flight injection
+    // sweep; the dialog must not hold the page hostage while it does.
+    let releaseRebuild: (() => void) | undefined;
+    const { user } = await renderApp({
+      route: "/wiki",
+      me: makeMe({ role: "owner" }),
+      fetch: (path, init) => {
+        const method = init?.method ?? "GET";
+        if (path === "/v1/wiki/rebuild" && method === "POST") {
+          return new Promise<Response>((resolve) => {
+            releaseRebuild = () => resolve(jsonResponse({ auto_inject: true }));
+          });
+        }
+        if (path === "/v1/wiki/ingestion") return jsonResponse({ auto_inject: false });
+        if (path === "/v1/wiki/settings") {
+          return jsonResponse({ language: "", custom_instructions: "" });
+        }
+        if (path.startsWith("/v1/llm-usage")) return jsonResponse(llmUsageFixture);
+        throw new Error(`unexpected fetch: ${path}`);
+      },
+    });
+
+    await screen.findByRole("switch");
+    await user.click(screen.getByRole("button", { name: "Reset & rebuild" }));
+    const dialog = screen.getByRole("dialog", { name: "Reset and rebuild Wiki" });
+    await user.click(within(dialog).getByRole("button", { name: "Confirm reset & rebuild" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    screen.getByText(/Reset & rebuild triggered/);
+
+    releaseRebuild?.();
+    await screen.findByText("Wiki cleared. Rebuilding from Session Lake…");
+  });
+
   it("sends the lookback cutoff when a rebuild date is picked", async () => {
     const { user, fetchMock } = await renderApp({
       route: "/wiki",
