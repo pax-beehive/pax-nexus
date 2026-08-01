@@ -507,4 +507,16 @@ func (r *Repository) SourceRevisionOrdinals(ctx context.Context) (map[string]int
 	return r.memory.SourceRevisionOrdinals(ctx)
 }
 
+// TypeRegistry delegates to the in-memory repository, which is seeded on
+// construction; persistence is added in a later task.
+func (r *Repository) TypeRegistry(ctx context.Context) ([]pagewiki.TypeRegistryEntry, error) {
+	return r.memory.TypeRegistry(ctx)
+}
+
+// SaveTypeRegistryEntry delegates to the in-memory repository; persistence
+// is added in a later task.
+func (r *Repository) SaveTypeRegistryEntry(ctx context.Context, entry pagewiki.TypeRegistryEntry) error {
+	return r.memory.SaveTypeRegistryEntry(ctx, entry)
+}
+
 var _ pagewiki.Repository = (*Repository)(nil)

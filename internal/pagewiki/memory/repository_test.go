@@ -807,6 +807,43 @@ func (s *RepositorySuite) TestGenerationSettingsRoundTrip() {
 	s.Require().Equal(pagewiki.GenerationDirectives{Language: "English"}, got)
 }
 
+func (s *RepositorySuite) TestTypeRegistrySeededAndUpsertable() {
+	entries, err := s.repository.TypeRegistry(s.ctx)
+	s.Require().NoError(err)
+	s.Require().Len(entries, 11)
+
+	err = s.repository.SaveTypeRegistryEntry(s.ctx, pagewiki.TypeRegistryEntry{
+		Kind:        pagewiki.TypeKindEntity,
+		Name:        "system",
+		Description: "updated description",
+		Status:      pagewiki.TypeStatusActive,
+	})
+	s.Require().NoError(err)
+	entries, err = s.repository.TypeRegistry(s.ctx)
+	s.Require().NoError(err)
+	s.Require().Len(entries, 11)
+	var found bool
+	for _, entry := range entries {
+		if entry.Kind == pagewiki.TypeKindEntity && entry.Name == "system" {
+			found = true
+			s.Equal("updated description", entry.Description)
+			s.Equal(pagewiki.TypeStatusActive, entry.Status)
+		}
+	}
+	s.Require().True(found, "expected overwritten entry to be present")
+
+	err = s.repository.SaveTypeRegistryEntry(s.ctx, pagewiki.TypeRegistryEntry{
+		Kind:        pagewiki.TypeKindRelation,
+		Name:        "mentors",
+		Description: "one person mentors another",
+		Status:      pagewiki.TypeStatusCandidate,
+	})
+	s.Require().NoError(err)
+	entries, err = s.repository.TypeRegistry(s.ctx)
+	s.Require().NoError(err)
+	s.Require().Len(entries, 12)
+}
+
 func sourceRevisionFixture() pagewiki.SourceRevision {
 	return pagewiki.SourceRevision{
 		ID:       "source-revision-1",
