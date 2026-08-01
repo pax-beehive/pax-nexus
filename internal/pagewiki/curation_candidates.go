@@ -93,7 +93,30 @@ func duplicatePairs(
 	for key, pair := range sameLeafPairCandidates(catalog, tree) {
 		candidates[key] = pair
 	}
+
+	// Filter out incompatible entity type pairs: curator must never propose
+	// merging two pages of different entity types.
+	typeByID := make(map[string]EntityType, len(catalog))
+	for _, entry := range catalog {
+		typeByID[entry.ID] = entry.EntityType
+	}
+	for key, pair := range candidates {
+		if !mergeCompatibleTypes(typeByID[pair.AID], typeByID[pair.BID]) {
+			delete(candidates, key)
+		}
+	}
+
 	return dedupSortCapPairs(candidates, limit)
+}
+
+// mergeCompatibleTypes returns whether two entity types can be merged.
+// Compatible unless both types are known, non-fallback, and different.
+// "" and EntityTypeConcept are wildcards.
+func mergeCompatibleTypes(a, b EntityType) bool {
+	if a == "" || a == EntityTypeConcept || b == "" || b == EntityTypeConcept {
+		return true
+	}
+	return a == b
 }
 
 // embeddingPairCandidates finds candidate duplicate pairs by embedding
