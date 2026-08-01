@@ -227,10 +227,13 @@ func (r *Repository) SaveMaintenanceRun(ctx context.Context, run pagewiki.Mainte
 	if err := r.memory.SaveMaintenanceRun(ctx, run); err != nil {
 		return err
 	}
+	// The memory layer above has already enforced run immutability rules;
+	// updating on conflict lets a retried run replace its failed predecessor.
 	return r.insertJSON(ctx, `
 INSERT INTO pagewiki_maintenance_runs (scope_id, run_id, payload)
 VALUES ($1, $2, $3)
-ON CONFLICT (scope_id, run_id) DO NOTHING`, run.ID, run)
+ON CONFLICT (scope_id, run_id) DO UPDATE
+SET payload = EXCLUDED.payload`, run.ID, run)
 }
 
 func (r *Repository) TopicTree(ctx context.Context) (pagewiki.TopicTree, error) {

@@ -831,7 +831,12 @@ func (r *Repository) SaveMaintenanceRun(
 ) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if existing, found := r.runs[run.ID]; found && !reflect.DeepEqual(existing, run) {
+	// Succeeded runs are immutable; failed and partial_success runs stay
+	// replaceable so a retried injection can overwrite them — otherwise the
+	// idempotent run ID would pin the failure forever and block every retry.
+	existing, found := r.runs[run.ID]
+	if found && existing.Status == pagewiki.RunStatusSucceeded &&
+		!reflect.DeepEqual(existing, run) {
 		return fmt.Errorf("%w: MaintenanceRun %q", pagewiki.ErrImmutableConflict, run.ID)
 	}
 	r.runs[run.ID] = cloneRun(run)

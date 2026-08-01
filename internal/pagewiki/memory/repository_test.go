@@ -590,6 +590,31 @@ func (s *RepositorySuite) TestGivenImmutableRunWhenChangedThenSaveFails() {
 	s.Require().ErrorIs(err, pagewiki.ErrImmutableConflict)
 }
 
+func (s *RepositorySuite) TestGivenRetryableRunWhenReplacedThenSaveSucceeds() {
+	for _, status := range []pagewiki.RunStatus{
+		pagewiki.RunStatusFailed, pagewiki.RunStatusPartialSuccess,
+	} {
+		run := pagewiki.MaintenanceRun{
+			ID:               "run-retry-" + string(status),
+			SourceRevisionID: "source-revision-1",
+			Status:           status,
+			Targets: []pagewiki.MaintenanceTarget{
+				{ID: "target-1", Status: pagewiki.TargetStatusFailed},
+			},
+		}
+		s.Require().NoError(s.repository.SaveMaintenanceRun(s.ctx, run))
+		run.Status = pagewiki.RunStatusSucceeded
+		run.Targets[0].Status = pagewiki.TargetStatusSucceeded
+
+		s.Require().NoError(s.repository.SaveMaintenanceRun(s.ctx, run))
+
+		stored, err := s.repository.MaintenanceRun(s.ctx, run.ID)
+		s.Require().NoError(err)
+		s.Require().Equal(pagewiki.RunStatusSucceeded, stored.Status)
+		s.Require().Equal(pagewiki.TargetStatusSucceeded, stored.Targets[0].Status)
+	}
+}
+
 func (s *RepositorySuite) TestGivenMissingValuesWhenReadThenNotFoundIsReturned() {
 	_, sourceErr := s.repository.SourceRevision(s.ctx, "missing")
 	_, pageErr := s.repository.PageByID(s.ctx, "missing")

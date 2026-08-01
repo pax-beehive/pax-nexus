@@ -127,6 +127,31 @@ func (s *repositorySuite) TestPersistsAndHydratesCompleteWikiState() {
 	s.Require().NoError(reloaded.RebuildSearchIndex(s.ctx))
 }
 
+func (s *repositorySuite) TestRetriedMaintenanceRunSurvivesRehydration() {
+	repository, err := pagewikipostgres.NewRepository(s.ctx, s.store.Pool(), s.scopeID)
+	s.Require().NoError(err)
+	run := pagewiki.MaintenanceRun{
+		ID:               "run-retry",
+		SourceRevisionID: "source-revision-1",
+		Status:           pagewiki.RunStatusFailed,
+		Targets: []pagewiki.MaintenanceTarget{
+			{ID: "target-1", Status: pagewiki.TargetStatusFailed},
+		},
+	}
+	s.Require().NoError(repository.SaveMaintenanceRun(s.ctx, run))
+	run.Status = pagewiki.RunStatusSucceeded
+	run.Targets[0].Status = pagewiki.TargetStatusSucceeded
+
+	s.Require().NoError(repository.SaveMaintenanceRun(s.ctx, run))
+
+	reloaded, err := pagewikipostgres.NewRepository(s.ctx, s.store.Pool(), s.scopeID)
+	s.Require().NoError(err)
+	stored, err := reloaded.MaintenanceRun(s.ctx, run.ID)
+	s.Require().NoError(err)
+	s.Equal(pagewiki.RunStatusSucceeded, stored.Status)
+	s.Equal(pagewiki.TargetStatusSucceeded, stored.Targets[0].Status)
+}
+
 func (s *repositorySuite) TestTopicTreeSurvivesRehydration() {
 	repository, err := pagewikipostgres.NewRepository(s.ctx, s.store.Pool(), s.scopeID)
 	s.Require().NoError(err)
