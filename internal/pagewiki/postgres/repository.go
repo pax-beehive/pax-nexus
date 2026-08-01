@@ -97,6 +97,23 @@ WHERE scope_id = $1`, func(payload []byte) error {
 	}); err != nil {
 		return fmt.Errorf("hydrate Page Wiki topic tree: %w", err)
 	}
+	// Type registry rows are replayed last and after the in-memory repository
+	// has already seeded its built-in entries (memory.NewRepository, called
+	// from NewRepository above): a persisted row for the same (Kind, Name)
+	// overwrites the matching seed, so Phase 2 candidate/active/retired
+	// transitions on seed types — and any newly registered candidate types —
+	// survive a restart.
+	if err := r.loadRows(ctx, `
+SELECT payload FROM pagewiki_type_registry
+WHERE scope_id = $1 ORDER BY created_at, kind, name`, func(payload []byte) error {
+		var entry pagewiki.TypeRegistryEntry
+		if err := json.Unmarshal(payload, &entry); err != nil {
+			return err
+		}
+		return r.memory.SaveTypeRegistryEntry(ctx, entry)
+	}); err != nil {
+		return fmt.Errorf("hydrate Page Wiki type registry: %w", err)
+	}
 	return nil
 }
 
@@ -507,16 +524,32 @@ func (r *Repository) SourceRevisionOrdinals(ctx context.Context) (map[string]int
 	return r.memory.SourceRevisionOrdinals(ctx)
 }
 
-// TypeRegistry delegates to the in-memory repository, which is seeded on
-// construction; persistence is added in a later task.
+// TypeRegistry reads from the in-memory repository, which is hydrated from
+// pagewiki_type_registry (over the built-in seeds) on startup.
 func (r *Repository) TypeRegistry(ctx context.Context) ([]pagewiki.TypeRegistryEntry, error) {
 	return r.memory.TypeRegistry(ctx)
 }
 
-// SaveTypeRegistryEntry delegates to the in-memory repository; persistence
-// is added in a later task.
+// SaveTypeRegistryEntry delegates to the in-memory repository for the
+// (Kind, Name) upsert, then persists the row so it survives rehydration:
+// the registry's primary key is (scope_id, kind, name), not a single opaque
+// ID, so this writes directly rather than through insertJSON.
 func (r *Repository) SaveTypeRegistryEntry(ctx context.Context, entry pagewiki.TypeRegistryEntry) error {
-	return r.memory.SaveTypeRegistryEntry(ctx, entry)
+	if err := r.memory.SaveTypeRegistryEntry(ctx, entry); err != nil {
+		return err
+	}
+	payload, err := json.Marshal(entry)
+	if err != nil {
+		return fmt.Errorf("marshal Page Wiki type registry entry %q/%q: %w", entry.Kind, entry.Name, err)
+	}
+	if _, err := r.pool.Exec(ctx, `
+INSERT INTO pagewiki_type_registry (scope_id, kind, name, payload)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT (scope_id, kind, name) DO UPDATE
+SET payload = EXCLUDED.payload`, r.scopeID, string(entry.Kind), entry.Name, payload); err != nil {
+		return fmt.Errorf("persist Page Wiki type registry entry %q/%q: %w", entry.Kind, entry.Name, err)
+	}
+	return nil
 }
 
 var _ pagewiki.Repository = (*Repository)(nil)
