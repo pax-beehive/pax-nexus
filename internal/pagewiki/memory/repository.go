@@ -86,6 +86,9 @@ func (r *Repository) PageCatalog(_ context.Context) (pagewiki.PageCatalog, error
 	defer r.mu.RUnlock()
 	catalog := make(pagewiki.PageCatalog, 0, len(r.pages))
 	for _, page := range r.pages {
+		if page.Retired() {
+			continue
+		}
 		catalog = append(catalog, pagewiki.PageCatalogEntry{
 			ID:                page.ID,
 			Slug:              page.Slug,
@@ -176,6 +179,30 @@ func (r *Repository) PageRevisionHistory(
 	return history, nil
 }
 
+func (r *Repository) RetirePage(
+	_ context.Context,
+	request pagewiki.RetireRequest,
+) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	page, found := r.pages[request.PageID]
+	if !found {
+		return fmt.Errorf("%w: Page %q", pagewiki.ErrNotFound, request.PageID)
+	}
+	if page.CurrentRevisionID != request.ExpectedBaseRevisionID {
+		return fmt.Errorf(
+			"retire Page %q: %w: revision changed",
+			request.PageID,
+			pagewiki.ErrRevisionConflict,
+		)
+	}
+	page.Status = pagewiki.PageStatusRetired
+	page.SuccessorPageID = request.SuccessorPageID
+	page.RetiredByRunID = request.RunID
+	r.pages[request.PageID] = page
+	return nil
+}
+
 func (r *Repository) PublishPage(
 	ctx context.Context,
 	publication pagewiki.PagePublication,
@@ -233,6 +260,11 @@ func (r *Repository) isApplied(publication pagewiki.PagePublication) bool {
 func (r *Repository) applyPublication(publication pagewiki.PagePublication) {
 	page := publication.Page
 	revision := publication.Revision
+	if publication.Revive {
+		page.Status = pagewiki.PageStatusActive
+		page.SuccessorPageID = ""
+		page.RetiredByRunID = ""
+	}
 	chunks := buildSearchChunks(revision)
 	if previous, found := r.pages[page.ID]; found && previous.Slug != page.Slug {
 		delete(r.pageIDsBySlug, previous.Slug)
@@ -275,6 +307,9 @@ func (r *Repository) validatePublication(
 		return fmt.Errorf("%w: slug %q is already published", pagewiki.ErrRevisionConflict, page.Slug)
 	}
 	if existing, found := r.pages[page.ID]; found {
+		if existing.Retired() && !publication.Revive {
+			return fmt.Errorf("%w: page is retired", pagewiki.ErrRevisionConflict)
+		}
 		if existing.CurrentRevisionID != revision.BaseRevisionID {
 			return fmt.Errorf("%w: Page %q base is stale", pagewiki.ErrRevisionConflict, page.ID)
 		}
@@ -440,7 +475,7 @@ func (r *Repository) Navigation(_ context.Context) (pagewiki.Navigation, error) 
 	pages := make(map[string][]pagewiki.NavigationPage)
 	for pageID, placement := range r.placements {
 		page, found := r.pages[pageID]
-		if !found {
+		if !found || page.Retired() {
 			continue
 		}
 		pages[placement.TopicID] = append(pages[placement.TopicID], pagewiki.NavigationPage{
@@ -452,6 +487,9 @@ func (r *Repository) Navigation(_ context.Context) (pagewiki.Navigation, error) 
 	}
 	rootPages := make([]pagewiki.NavigationPage, 0)
 	for id, page := range r.pages {
+		if page.Retired() {
+			continue
+		}
 		if _, placed := r.placements[id]; placed {
 			continue
 		}
@@ -518,7 +556,7 @@ func (r *Repository) Search(
 		}
 		page, pageFound := r.pages[chunk.PageID]
 		revision, revisionFound := r.pageRevisions[chunk.PageRevisionID]
-		if !pageFound || !revisionFound || page.CurrentRevisionID != revision.ID {
+		if !pageFound || !revisionFound || page.CurrentRevisionID != revision.ID || page.Retired() {
 			continue
 		}
 		results = append(results, pagewiki.SearchResult{

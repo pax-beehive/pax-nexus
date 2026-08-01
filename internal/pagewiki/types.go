@@ -42,11 +42,32 @@ type SourceAnchor struct {
 	ExactQuote       string
 }
 
+type PageStatus string
+
+const (
+	PageStatusActive  PageStatus = "" // zero value: active, keeps old payloads valid
+	PageStatusRetired PageStatus = "retired"
+)
+
 type Page struct {
 	ID                string
 	Slug              string
 	Title             string
 	CurrentRevisionID string
+	Status            PageStatus
+	SuccessorPageID   string
+	RetiredByRunID    string
+}
+
+func (p Page) Retired() bool { return p.Status == PageStatusRetired }
+
+// RetireRequest retires a page: it stops surfacing in catalog, navigation,
+// and search, while its ID, slug, and revision history remain resolvable.
+type RetireRequest struct {
+	PageID                 string
+	ExpectedBaseRevisionID string // CAS against CurrentRevisionID
+	SuccessorPageID        string // optional
+	RunID                  string
 }
 
 type PageCatalogEntry struct {
@@ -120,6 +141,9 @@ type PagePublication struct {
 	Revision  PageRevision
 	Topics    []Topic
 	Placement *PagePlacement
+	// Revive, when true, allows the publication to update a retired page and
+	// flips it back to active, clearing SuccessorPageID/RetiredByRunID.
+	Revive bool
 }
 
 type Navigation struct {

@@ -48,6 +48,10 @@ type Repository interface {
 	// exist yet; anything else must already exist. The whole batch is
 	// rejected if any member fails validation.
 	PublishPages(context.Context, []PagePublication) error
+	// RetirePage retires a page: CAS against ExpectedBaseRevisionID, then the
+	// page stops surfacing in PageCatalog, Navigation, and Search while
+	// PageByID/PageBySlug/PageRevisionHistory keep resolving it.
+	RetirePage(context.Context, RetireRequest) error
 	Navigation(context.Context) (Navigation, error)
 	Search(context.Context, string) ([]SearchResult, error)
 	PageLinks(context.Context, string) (PageLinkSet, error)

@@ -350,6 +350,13 @@ func (r *Repository) PageRevisionHistory(ctx context.Context, pageID string) ([]
 	return r.memory.PageRevisionHistory(ctx, pageID)
 }
 
+// RetirePage delegates to the in-memory repository so the interface is
+// satisfied and in-process behavior is correct; persistence of the retire
+// lifecycle event and hydration replay land in a later task.
+func (r *Repository) RetirePage(ctx context.Context, request pagewiki.RetireRequest) error {
+	return r.memory.RetirePage(ctx, request)
+}
+
 func (r *Repository) Navigation(ctx context.Context) (pagewiki.Navigation, error) {
 	return r.memory.Navigation(ctx)
 }
