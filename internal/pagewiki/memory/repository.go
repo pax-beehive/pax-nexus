@@ -322,15 +322,8 @@ func (r *Repository) validatePublication(
 	if existingID, found := r.pageIDsBySlug[page.Slug]; found && existingID != page.ID {
 		return fmt.Errorf("%w: slug %q is already published", pagewiki.ErrRevisionConflict, page.Slug)
 	}
-	if existing, found := r.pages[page.ID]; found {
-		if existing.Retired() && !publication.Revive {
-			return fmt.Errorf("%w: page is retired", pagewiki.ErrRevisionConflict)
-		}
-		if existing.CurrentRevisionID != revision.BaseRevisionID {
-			return fmt.Errorf("%w: Page %q base is stale", pagewiki.ErrRevisionConflict, page.ID)
-		}
-	} else if revision.BaseRevisionID != "" {
-		return fmt.Errorf("%w: new Page %q has a base revision", pagewiki.ErrRevisionConflict, page.ID)
+	if err := r.validateExistingPage(page, revision, publication.Revive); err != nil {
+		return err
 	}
 	if existing, found := r.pageRevisions[revision.ID]; found &&
 		!reflect.DeepEqual(existing, revision) {
@@ -347,18 +340,54 @@ func (r *Repository) validatePublication(
 	if err != nil {
 		return err
 	}
-	if publication.Placement != nil {
-		placement := *publication.Placement
-		if placement.PageID != page.ID || placement.Rank < 0 {
-			return fmt.Errorf("%w: invalid Page placement", pagewiki.ErrRevisionConflict)
+	return validatePlacement(topics, page, publication.Placement)
+}
+
+// validateExistingPage applies the retired/revive gate and base-revision
+// checks for page: a retired page rejects the publication unless revive was
+// requested, a page already on the catalog must build on its current
+// revision, and a brand-new page (no prior entry) must not claim a base
+// revision at all.
+func (r *Repository) validateExistingPage(
+	page pagewiki.Page,
+	revision pagewiki.PageRevision,
+	revive bool,
+) error {
+	existing, found := r.pages[page.ID]
+	if !found {
+		if revision.BaseRevisionID != "" {
+			return fmt.Errorf("%w: new Page %q has a base revision", pagewiki.ErrRevisionConflict, page.ID)
 		}
-		if _, found := topics[placement.TopicID]; !found {
-			return fmt.Errorf(
-				"%w: placement Topic %q is missing",
-				pagewiki.ErrRevisionConflict,
-				placement.TopicID,
-			)
-		}
+		return nil
+	}
+	if existing.Retired() && !revive {
+		return fmt.Errorf("%w: page is retired", pagewiki.ErrRevisionConflict)
+	}
+	if existing.CurrentRevisionID != revision.BaseRevisionID {
+		return fmt.Errorf("%w: Page %q base is stale", pagewiki.ErrRevisionConflict, page.ID)
+	}
+	return nil
+}
+
+// validatePlacement checks an optional Page placement against page and the
+// Topics resolved for this publication.
+func validatePlacement(
+	topics map[string]pagewiki.Topic,
+	page pagewiki.Page,
+	placement *pagewiki.PagePlacement,
+) error {
+	if placement == nil {
+		return nil
+	}
+	if placement.PageID != page.ID || placement.Rank < 0 {
+		return fmt.Errorf("%w: invalid Page placement", pagewiki.ErrRevisionConflict)
+	}
+	if _, found := topics[placement.TopicID]; !found {
+		return fmt.Errorf(
+			"%w: placement Topic %q is missing",
+			pagewiki.ErrRevisionConflict,
+			placement.TopicID,
+		)
 	}
 	return nil
 }

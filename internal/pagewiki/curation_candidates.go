@@ -85,13 +85,22 @@ func duplicatePairs(
 	tree TopicTree,
 	limit int,
 ) []pagePair {
-	titleByID := make(map[string]string, len(catalog))
-	for _, entry := range catalog {
-		titleByID[entry.ID] = entry.Title
+	candidates := embeddingPairCandidates(catalog, vectors)
+	// The same-leaf lane runs second and writes into the same map, so an
+	// embedding-lane pair that also collapses to the same topicSlug ends up
+	// with the same-leaf lane's Similarity 1.0, matching the pre-refactor
+	// single-map two-loop behavior exactly.
+	for key, pair := range sameLeafPairCandidates(catalog, tree) {
+		candidates[key] = pair
 	}
+	return dedupSortCapPairs(candidates, limit)
+}
 
-	candidates := make(map[string]pagePair)
-
+// embeddingPairCandidates finds candidate duplicate pairs by embedding
+// cosine similarity above curationPairSimilarityThreshold, considering only
+// pages with a vector. Keyed by pairKey so a later merge can overwrite by
+// unordered pair identity.
+func embeddingPairCandidates(catalog PageCatalog, vectors map[string][]float32) map[string]pagePair {
 	ids := make([]string, 0, len(catalog))
 	for _, entry := range catalog {
 		if _, ok := vectors[entry.ID]; ok {
@@ -99,6 +108,8 @@ func duplicatePairs(
 		}
 	}
 	sort.Strings(ids)
+
+	candidates := make(map[string]pagePair)
 	for i := 0; i < len(ids); i++ {
 		for j := i + 1; j < len(ids); j++ {
 			aID, bID := ids[i], ids[j]
@@ -109,7 +120,20 @@ func duplicatePairs(
 			candidates[pairKey(aID, bID)] = pagePair{AID: aID, BID: bID, Similarity: similarity}
 		}
 	}
+	return candidates
+}
 
+// sameLeafPairCandidates finds candidate duplicate pairs among pages placed
+// under the same tree leaf topic whose titles collapse to the same
+// topicSlug, assigned Similarity 1.0. Keyed by pairKey so a later merge can
+// overwrite by unordered pair identity.
+func sameLeafPairCandidates(catalog PageCatalog, tree TopicTree) map[string]pagePair {
+	titleByID := make(map[string]string, len(catalog))
+	for _, entry := range catalog {
+		titleByID[entry.ID] = entry.Title
+	}
+
+	candidates := make(map[string]pagePair)
 	for _, pageIDs := range sameLeafGroups(tree) {
 		sort.Strings(pageIDs)
 		for i := 0; i < len(pageIDs); i++ {
@@ -123,7 +147,14 @@ func duplicatePairs(
 			}
 		}
 	}
+	return candidates
+}
 
+// dedupSortCapPairs sorts candidates (Similarity descending, then AID, then
+// BID ascending) for determinism and caps the result at limit, enforcing the
+// one-pair-per-page rule: once a page is used in a pair it is not reused in
+// another pair in the same call.
+func dedupSortCapPairs(candidates map[string]pagePair, limit int) []pagePair {
 	pairs := make([]pagePair, 0, len(candidates))
 	for _, pair := range candidates {
 		pairs = append(pairs, pair)

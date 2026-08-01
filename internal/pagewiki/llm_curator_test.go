@@ -102,7 +102,7 @@ func (s *llmCuratorSuite) TestJudgePairRetriesOnUnknownVerdictThenErrors() {
 		A: curatorPageA(), B: curatorPageB(),
 	})
 
-	s.Error(err)
+	s.Require().Error(err)
 	s.Len(client.requests, 2)
 }
 
@@ -118,7 +118,7 @@ func (s *llmCuratorSuite) TestJudgePairErrorsWhenDraftMissingForMerge() {
 		A: curatorPageA(), B: curatorPageB(),
 	})
 
-	s.Error(err)
+	s.Require().Error(err)
 	s.Len(client.requests, 2)
 }
 
@@ -191,7 +191,7 @@ func (s *llmCuratorSuite) TestJudgePageErrorsWhenDraftMissingForRewrite() {
 		Page: curatorPageA(), Signals: []string{"orphan"},
 	})
 
-	s.Error(err)
+	s.Require().Error(err)
 	s.Len(client.requests, 2)
 }
 
@@ -225,7 +225,7 @@ func (s *llmCuratorSuite) TestVerifyRetriesOnCallErrorThenErrors() {
 		Pages: []pagewiki.CurationPageView{curatorPageA()},
 	})
 
-	s.Error(err)
+	s.Require().Error(err)
 	s.Len(client.requests, 2)
 }
 

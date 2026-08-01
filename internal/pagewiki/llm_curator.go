@@ -211,7 +211,7 @@ func (c *LLMCurator) Verify(ctx context.Context, input VerifyInput) (VerifyVerdi
 			lastErr = err
 			continue
 		}
-		return VerifyVerdict{Refuted: decoded.Refuted, Rationale: decoded.Rationale}, nil
+		return VerifyVerdict(decoded), nil
 	}
 	return VerifyVerdict{}, fmt.Errorf("verify Page Wiki curator action: %w", lastErr)
 }
@@ -234,9 +234,7 @@ func curatorPageViewRequest(view CurationPageView) llmCuratorPageView {
 func curatorDraft(decoded llmCuratorDraft) CurationDraft {
 	sections := make([]SectionDraft, 0, len(decoded.Sections))
 	for _, section := range decoded.Sections {
-		sections = append(sections, SectionDraft{
-			Key: section.Key, Heading: section.Heading, Markdown: section.Markdown,
-		})
+		sections = append(sections, SectionDraft(section))
 	}
 	return CurationDraft{Title: decoded.Title, Summary: decoded.Summary, Sections: sections}
 }

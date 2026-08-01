@@ -110,7 +110,7 @@ func (s *CurationRecordsSuite) TestGivenStoredEmbeddingWhenLoadedThenVectorIsInd
 
 	again, err := s.repository.PageEmbeddings(s.ctx)
 	s.Require().NoError(err)
-	s.Require().Equal(float32(0.1), again[0].Vector[0])
+	s.Require().InDelta(float32(0.1), again[0].Vector[0], 1e-9)
 }
 
 func (s *CurationRecordsSuite) TestGivenSourceRevisionsSavedInOrderWhenOrdinalsReadThenOrderIsReflected() {

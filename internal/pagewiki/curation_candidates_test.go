@@ -31,9 +31,9 @@ func TestGivenVectorsWhenCosineSimilarityIsComputedThenIdenticalIsOneAndOrthogon
 	orthogonal := cosineSimilarity([]float32{1, 0}, []float32{0, 1})
 	assert.InDelta(t, 0.0, orthogonal, 1e-9)
 
-	assert.Equal(t, 0.0, cosineSimilarity(nil, nil))
-	assert.Equal(t, 0.0, cosineSimilarity([]float32{1}, []float32{1, 2}))
-	assert.Equal(t, 0.0, cosineSimilarity([]float32{0, 0}, []float32{1, 1}))
+	assert.InDelta(t, 0.0, cosineSimilarity(nil, nil), 1e-9)
+	assert.InDelta(t, 0.0, cosineSimilarity([]float32{1}, []float32{1, 2}), 1e-9)
+	assert.InDelta(t, 0.0, cosineSimilarity([]float32{0, 0}, []float32{1, 1}), 1e-9)
 }
 
 func TestGivenEntryWhenEmbeddingTextIsBuiltThenItJoinsTitleAndSummary(t *testing.T) {
@@ -121,7 +121,7 @@ func TestGivenSameLeafTopicWhenTitlesShareASlugThenPairIsDetectedWithoutEmbeddin
 	require.Len(t, pairs, 1)
 	assert.Equal(t, "page-a", pairs[0].AID)
 	assert.Equal(t, "page-b", pairs[0].BID)
-	assert.Equal(t, 1.0, pairs[0].Similarity)
+	assert.InDelta(t, 1.0, pairs[0].Similarity, 1e-9)
 }
 
 // Regression test for a Critical review finding: with three pages sharing

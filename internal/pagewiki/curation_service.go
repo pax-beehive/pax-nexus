@@ -36,24 +36,72 @@ func (s *Service) RunCurationRound(ctx context.Context) (CurationRun, error) {
 	}
 	fingerprint := catalogFingerprint(catalog)
 	runID := stableID("curation-run", fingerprint)
-	switch existing, err := s.repository.CurationRun(ctx, runID); {
-	case err == nil && existing.Status != RunStatusFailed:
-		return existing, nil
-	case err != nil && !errors.Is(err, ErrNotFound):
-		return CurationRun{}, fmt.Errorf("load CurationRun: %w", err)
+	if existing, done, err := s.existingCurationRun(ctx, runID); done {
+		return existing, err
 	}
 
+	inputs, err := s.loadCurationInputs(ctx, catalog)
+	if err != nil {
+		return CurationRun{}, err
+	}
+
+	vectors := s.curationVectors(ctx, catalog)
+	pairs := duplicatePairs(catalog, vectors, inputs.tree, s.curationConfig.PairLimit)
+	quality := qualityCandidates(
+		qualityCandidateCatalog(catalog, pairs), inputs.revisions, inputs.incomingLinks, s.curationConfig.PageLimit,
+	)
+
+	outcomes, changed := s.runCurationCandidates(ctx, runID, pairs, quality, inputs)
+
+	return s.finishCurationRun(ctx, runID, fingerprint, outcomes, changed)
+}
+
+// existingCurationRun checks the repository for a stored run matching runID.
+// done is true when the caller should return immediately with the returned
+// CurationRun/error as-is: either a non-failed stored run (the idempotent
+// skip) or a genuine load error other than ErrNotFound. done is false (with
+// a zero CurationRun and nil error) when no usable stored run exists and the
+// caller should run a fresh round — this covers both ErrNotFound and a
+// stored run whose Status is RunStatusFailed, per RunCurationRound's doc
+// comment on why an all-failed run must not poison its fingerprint.
+func (s *Service) existingCurationRun(ctx context.Context, runID string) (CurationRun, bool, error) {
+	switch existing, err := s.repository.CurationRun(ctx, runID); {
+	case err == nil && existing.Status != RunStatusFailed:
+		return existing, true, nil
+	case err != nil && !errors.Is(err, ErrNotFound):
+		return CurationRun{}, true, fmt.Errorf("load CurationRun: %w", err)
+	default:
+		return CurationRun{}, false, nil
+	}
+}
+
+// curationRoundInputs bundles the per-round inputs RunCurationRound loads
+// beyond the catalog itself: generation directives, the topic tree, Source
+// revision ordinals, and per-page catalog/revision/incoming-link lookups.
+type curationRoundInputs struct {
+	directives    GenerationDirectives
+	tree          TopicTree
+	ordinals      map[string]int
+	catalogByID   map[string]PageCatalogEntry
+	revisions     map[string]PageRevision
+	incomingLinks map[string]int
+}
+
+// loadCurationInputs loads curationRoundInputs for catalog: generation
+// directives, the topic tree, and Source revision ordinals, plus — for every
+// catalog entry — its current PageRevision and incoming-link count.
+func (s *Service) loadCurationInputs(ctx context.Context, catalog PageCatalog) (curationRoundInputs, error) {
 	directives, err := s.repository.GenerationSettings(ctx)
 	if err != nil {
-		return CurationRun{}, fmt.Errorf("load generation settings: %w", err)
+		return curationRoundInputs{}, fmt.Errorf("load generation settings: %w", err)
 	}
 	tree, err := s.repository.TopicTree(ctx)
 	if err != nil {
-		return CurationRun{}, fmt.Errorf("load topic tree: %w", err)
+		return curationRoundInputs{}, fmt.Errorf("load topic tree: %w", err)
 	}
 	ordinals, err := s.repository.SourceRevisionOrdinals(ctx)
 	if err != nil {
-		return CurationRun{}, fmt.Errorf("load Source revision ordinals: %w", err)
+		return curationRoundInputs{}, fmt.Errorf("load Source revision ordinals: %w", err)
 	}
 
 	catalogByID := make(map[string]PageCatalogEntry, len(catalog))
@@ -63,59 +111,92 @@ func (s *Service) RunCurationRound(ctx context.Context) (CurationRun, error) {
 		catalogByID[entry.ID] = entry
 		revision, err := s.repository.PageRevision(ctx, entry.CurrentRevisionID)
 		if err != nil {
-			return CurationRun{}, fmt.Errorf("load PageRevision %q: %w", entry.CurrentRevisionID, err)
+			return curationRoundInputs{}, fmt.Errorf("load PageRevision %q: %w", entry.CurrentRevisionID, err)
 		}
 		revisions[entry.ID] = revision
 		links, err := s.repository.PageLinks(ctx, entry.ID)
 		if err != nil {
-			return CurationRun{}, fmt.Errorf("load PageLinks %q: %w", entry.ID, err)
+			return curationRoundInputs{}, fmt.Errorf("load PageLinks %q: %w", entry.ID, err)
 		}
 		incomingLinks[entry.ID] = len(links.Incoming)
 	}
 
-	vectors := s.curationVectors(ctx, catalog)
-	pairs := duplicatePairs(catalog, vectors, tree, s.curationConfig.PairLimit)
+	return curationRoundInputs{
+		directives:    directives,
+		tree:          tree,
+		ordinals:      ordinals,
+		catalogByID:   catalogByID,
+		revisions:     revisions,
+		incomingLinks: incomingLinks,
+	}, nil
+}
 
-	// A page the pair lane is already judging (and may merge, conflict, or
-	// leave in place) is excluded from the quality lane in the same round: a
-	// page the pair lane retires (as a merge loser) would otherwise still be
-	// a quality-lane candidate against the round-start snapshot, and its
-	// retire would pass repository CAS (retiring never changes
-	// CurrentRevisionID) and clobber the successor the pair lane just set.
-	touchedByPairs := make(map[string]struct{}, 2*len(pairs))
+// qualityCandidateCatalog excludes any page already touched by a duplicate
+// pair from the quality lane's candidate catalog. A page the pair lane is
+// already judging (and may merge, conflict, or leave in place) is excluded
+// from the quality lane in the same round: a page the pair lane retires (as
+// a merge loser) would otherwise still be a quality-lane candidate against
+// the round-start snapshot, and its retire would pass repository CAS
+// (retiring never changes CurrentRevisionID) and clobber the successor the
+// pair lane just set.
+func qualityCandidateCatalog(catalog PageCatalog, pairs []pagePair) PageCatalog {
+	if len(pairs) == 0 {
+		return catalog
+	}
+	touched := make(map[string]struct{}, 2*len(pairs))
 	for _, pair := range pairs {
-		touchedByPairs[pair.AID] = struct{}{}
-		touchedByPairs[pair.BID] = struct{}{}
+		touched[pair.AID] = struct{}{}
+		touched[pair.BID] = struct{}{}
 	}
-	qualityCatalog := catalog
-	if len(touchedByPairs) > 0 {
-		qualityCatalog = make(PageCatalog, 0, len(catalog))
-		for _, entry := range catalog {
-			if _, touched := touchedByPairs[entry.ID]; touched {
-				continue
-			}
-			qualityCatalog = append(qualityCatalog, entry)
+	filtered := make(PageCatalog, 0, len(catalog))
+	for _, entry := range catalog {
+		if _, ok := touched[entry.ID]; ok {
+			continue
 		}
+		filtered = append(filtered, entry)
 	}
-	quality := qualityCandidates(qualityCatalog, revisions, incomingLinks, s.curationConfig.PageLimit)
+	return filtered
+}
 
+// runCurationCandidates judges and executes every duplicate-pair and
+// low-quality-page candidate for this round, in pair-then-quality order. It
+// returns the recorded outcomes in that same order and whether the round
+// changed any Page (published a revision or retired a Page).
+func (s *Service) runCurationCandidates(
+	ctx context.Context,
+	runID string,
+	pairs []pagePair,
+	quality []qualityCandidate,
+	inputs curationRoundInputs,
+) ([]CurationOutcome, bool) {
 	changed := false
 	outcomes := make([]CurationOutcome, 0, len(pairs)+len(quality))
 	for _, pair := range pairs {
 		outcome, didChange := s.processPairCandidate(
-			ctx, runID, pair, catalogByID, revisions, incomingLinks, ordinals, directives,
+			ctx, runID, pair, inputs.catalogByID, inputs.revisions, inputs.incomingLinks, inputs.ordinals, inputs.directives,
 		)
 		outcomes = append(outcomes, outcome)
 		changed = changed || didChange
 	}
 	for _, candidate := range quality {
 		outcome, didChange := s.processQualityCandidate(
-			ctx, runID, candidate, catalogByID, revisions, ordinals, directives,
+			ctx, runID, candidate, inputs.catalogByID, inputs.revisions, inputs.ordinals, inputs.directives,
 		)
 		outcomes = append(outcomes, outcome)
 		changed = changed || didChange
 	}
+	return outcomes, changed
+}
 
+// finishCurationRun builds the CurationRun from this round's outcomes,
+// persists it, and marks the topic tree dirty when anything changed.
+func (s *Service) finishCurationRun(
+	ctx context.Context,
+	runID string,
+	fingerprint string,
+	outcomes []CurationOutcome,
+	changed bool,
+) (CurationRun, error) {
 	run := CurationRun{
 		ID:          runID,
 		Fingerprint: fingerprint,

@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -100,7 +99,7 @@ func (s *curationMaintenanceSuite) TestGivenPositiveIntervalWhenMaintenanceStart
 	service.StartCurationMaintenance(ctx)
 
 	runID := emptyCatalogRunID()
-	require.Eventually(s.T(), func() bool {
+	s.Require().Eventually(func() bool {
 		run, err := s.repository.CurationRun(context.Background(), runID)
 		return err == nil && run.ID == runID
 	}, time.Second, 5*time.Millisecond, "curation round never ran")
@@ -123,8 +122,8 @@ func (s *curationMaintenanceSuite) TestGivenZeroIntervalWhenMaintenanceStartsThe
 
 	runID := emptyCatalogRunID()
 	_, err := s.repository.CurationRun(context.Background(), runID)
-	require.ErrorIs(s.T(), err, ErrNotFound)
-	require.Equal(s.T(), 0, judgeCalls)
+	s.Require().ErrorIs(err, ErrNotFound)
+	s.Require().Equal(0, judgeCalls)
 }
 
 func (s *curationMaintenanceSuite) TestGivenNoCuratorWhenMaintenanceStartsThenItIsANoOp() {
@@ -138,5 +137,5 @@ func (s *curationMaintenanceSuite) TestGivenNoCuratorWhenMaintenanceStartsThenIt
 
 	runID := emptyCatalogRunID()
 	_, err := s.repository.CurationRun(context.Background(), runID)
-	require.ErrorIs(s.T(), err, ErrNotFound)
+	s.Require().ErrorIs(err, ErrNotFound)
 }
