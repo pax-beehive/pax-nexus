@@ -81,10 +81,12 @@ func (t ScriptedTreeIndexer) Index(
 type ScriptedCurator struct {
 	PairVerdicts map[string]PairVerdict // key: sorted "idA|idB"
 	PageVerdicts map[string]PageVerdict // key: pageID
-	Verifies     map[string]VerifyVerdict // key: same as the judged candidate; zero value = not refuted
-	Errs         map[string]error
-	JudgeCalls   *int
-	VerifyCalls  *int
+	// Verifies maps verdict keys derived from Pages: PairKey(Pages[0].PageID, Pages[1].PageID) for pairs,
+	// Pages[0].PageID for single pages. Zero value = not refuted.
+	Verifies    map[string]VerifyVerdict
+	Errs        map[string]error
+	JudgeCalls  *int
+	VerifyCalls *int
 }
 
 func (c ScriptedCurator) JudgePair(
@@ -109,6 +111,9 @@ func (c ScriptedCurator) JudgePage(
 	_ context.Context,
 	input PageJudgeInput,
 ) (PageVerdict, error) {
+	if c.JudgeCalls != nil {
+		*c.JudgeCalls++
+	}
 	key := input.Page.PageID
 	if err := c.Errs[key]; err != nil {
 		return PageVerdict{}, err
@@ -127,7 +132,14 @@ func (c ScriptedCurator) Verify(
 	if c.VerifyCalls != nil {
 		*c.VerifyCalls++
 	}
-	key := string(input.Action) + "|" + input.Rationale
+	var key string
+	if len(input.Pages) == 2 {
+		key = PairKey(input.Pages[0].PageID, input.Pages[1].PageID)
+	} else if len(input.Pages) == 1 {
+		key = input.Pages[0].PageID
+	} else {
+		return VerifyVerdict{}, fmt.Errorf("scripted verify: expected 1 or 2 pages, got %d", len(input.Pages))
+	}
 	if err := c.Errs[key]; err != nil {
 		return VerifyVerdict{}, err
 	}
