@@ -82,9 +82,18 @@ type carriedQuote struct {
 // longest-first overlap rule relatedKnowledgeSection applies to titles.
 // Quotes are sorted descending by length then lexicographically, both to
 // make the overlap sweep deterministic and to fix the output order; equal
-// lengths keep the lexicographically-first quote's position. It returns an
-// error when no quote survives: a page with no citations cannot be curated,
-// and the caller degrades to keep in that case.
+// lengths keep the lexicographically-first quote's position.
+//
+// Pairwise containment is not the whole story: buildCitations resolves each
+// CitationDraft.ExactText against the rendered "Source evidence" section
+// markdown, which joins every surviving quote with a "\n\n" separator, and
+// requires that text to occur exactly once (uniqueTextRange). Two quotes
+// that are not substrings of one another in isolation can still spell out a
+// third kept quote's full text once joined — the third quote's tail, the
+// separator, and the fourth quote's head can read back as the third quote's
+// own text. dropUntilExactlyOnce catches and resolves that after the
+// pairwise sweep. It returns an error when no quote survives: a page with no
+// citations cannot be curated, and the caller degrades to keep in that case.
 func carriedEvidenceQuotes(carried []PageCitation) ([]carriedQuote, error) {
 	anchorsByID := make(map[string]SourceAnchor)
 	for _, citation := range carried {
@@ -121,17 +130,75 @@ func carriedEvidenceQuotes(carried []PageCitation) ([]carriedQuote, error) {
 		}
 	}
 
-	result := make([]carriedQuote, 0, len(quotes))
+	kept := make([]string, 0, len(quotes))
 	for _, quote := range quotes {
-		if dropped[quote] {
-			continue
+		if !dropped[quote] {
+			kept = append(kept, quote)
 		}
+	}
+
+	kept, err := dropUntilExactlyOnce(kept)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]carriedQuote, 0, len(kept))
+	for _, quote := range kept {
 		anchors := anchorsByQuote[quote]
 		sort.Slice(anchors, func(i, j int) bool { return anchors[i].ID < anchors[j].ID })
 		result = append(result, carriedQuote{exactText: quote, anchors: anchors})
 	}
-	if len(result) == 0 {
-		return nil, errors.New("build curation draft: no citation anchors survive dedup")
-	}
 	return result, nil
+}
+
+// dropUntilExactlyOnce enforces the exactly-once invariant buildCitations
+// requires: every quote's exact text must occur exactly once in the
+// "\n\n"-joined section markdown. Joining two unrelated quotes can spell out
+// a third quote's text across the separator even when no single quote
+// contains another as a substring, so each iteration re-joins the current
+// kept set, finds every quote whose count in the join is not exactly 1, and
+// drops the shortest offender (least evidence lost; ties broken
+// lexicographically ascending). Dropping one quote changes the join and can
+// resolve or create other collisions, so this repeats to a fixed point; the
+// kept set only shrinks, so it always terminates. quotes must already be in
+// the sorted, pairwise-deduped order carriedEvidenceQuotes establishes; that
+// order is preserved throughout. Returns an error if the set empties out.
+func dropUntilExactlyOnce(quotes []string) ([]string, error) {
+	kept := append([]string(nil), quotes...)
+	for {
+		if len(kept) == 0 {
+			return nil, errors.New("build curation draft: no citation anchors survive dedup")
+		}
+		joined := strings.Join(kept, "\n\n")
+		var offenders []string
+		for _, quote := range kept {
+			if strings.Count(joined, quote) != 1 {
+				offenders = append(offenders, quote)
+			}
+		}
+		if len(offenders) == 0 {
+			return kept, nil
+		}
+		sort.Slice(offenders, func(i, j int) bool {
+			if len(offenders[i]) != len(offenders[j]) {
+				return len(offenders[i]) < len(offenders[j])
+			}
+			return offenders[i] < offenders[j]
+		})
+		kept = removeFirst(kept, offenders[0])
+	}
+}
+
+// removeFirst returns quotes with the first occurrence of target removed.
+func removeFirst(quotes []string, target string) []string {
+	result := make([]string, 0, len(quotes)-1)
+	removed := false
+	for _, quote := range quotes {
+		if !removed && quote == target {
+			removed = true
+			continue
+		}
+		result = append(result, quote)
+	}
+	return result
 }
