@@ -330,3 +330,9 @@ func (s *llmTreeIndexerSuite) TestZeroGenerationDirectivesLeaveSystemPromptUncha
 	s.Require().Len(client.requests, 1)
 	s.Equal(pagewiki.TreeIndexerPromptForTest(3), client.requests[0].Messages[0].Content)
 }
+
+func (s *llmTreeIndexerSuite) TestTreeIndexerPromptPinsShortTopicNames() {
+	prompt := pagewiki.TreeIndexerPromptForTest(pagewiki.TreeDefaultMaxDepthForTest)
+	s.Contains(prompt, "one to three words")
+	s.Contains(prompt, "never a sentence")
+}

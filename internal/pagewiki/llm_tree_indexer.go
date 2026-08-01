@@ -400,7 +400,8 @@ Return exactly one JSON object and no Markdown fence:
 {"root_pages":["slug"],"topics":[{"title":"English topic name","pages":["slug"],"children":[{"title":"...","pages":["slug"],"children":[{"title":"...","pages":["slug"]}]}]}]}
 
 Semantics are the only grouping principle. Group pages strictly by subject
-matter. Never invent a catch-all topic such as "Misc", "Other", or
+matter. A topic title is a noun phrase of one to three words naming the subject
+area, never a sentence. Never invent a catch-all topic such as "Misc", "Other", or
 "General", and never group unrelated pages to satisfy a size rule; when no
 coherent group exists, leave those pages in root_pages. Flat first: a
 small wiki needs no topics at all. Introduce a topic only when more than
