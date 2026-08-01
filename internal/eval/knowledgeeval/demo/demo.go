@@ -479,12 +479,20 @@ func evaluate(
 	detail, err := runner.Evaluate(ctx, knowledgeeval.Run{
 		ID: runID, WorldID: artifact.WorldID, GroupID: artifact.GroupID,
 		CheckpointID: artifact.CheckpointID, ArtifactID: artifact.ArtifactID,
-		CreatedAt: now(),
+		Metadata: runMetadata(artifact), CreatedAt: now(),
 	}, subject, benchmarks)
 	if err != nil {
 		return knowledgeeval.RunDetail{}, fmt.Errorf("evaluate demo run %s: %w", runID, err)
 	}
 	return detail, nil
+}
+
+func runMetadata(artifact knowledgeeval.ArtifactRecord) map[string]string {
+	model := artifact.Provenance.Metadata["model"]
+	if model == "" {
+		return nil
+	}
+	return map[string]string{"model": model}
 }
 
 func exportQuery(

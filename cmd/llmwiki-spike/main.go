@@ -19,14 +19,6 @@ import (
 	"github.com/pax-beehive/pax-nexus/internal/platform/llm"
 )
 
-const defaultInstruction = `Maintain the whole human Wiki from every immutable
-Source in this workspace. Integrate new evidence into existing knowledge instead
-of generating a Session transcript, broad topic dossier, or duplicate Wiki.
-Create article-first person, journey, topic, timeline, and portal pages with
-strong leads, current state, summary-style subtopics, contextual cross-links,
-and exact message-anchor citations. Use precise edits on established pages and
-preserve unrelated supported content.`
-
 func main() {
 	if err := execute(context.Background(), os.Args[1:], os.Stdout); err != nil {
 		log.Fatal(err)
@@ -172,7 +164,11 @@ func runAgentCommand(ctx context.Context, arguments []string, output io.Writer) 
 	runID := flags.String("run-id", "", "stable run audit ID")
 	model := flags.String("model", "deepseek-v4-pro", "DeepSeek model")
 	baseURL := flags.String("base-url", "https://api.deepseek.com", "DeepSeek API base URL")
-	instruction := flags.String("instruction", defaultInstruction, "maintenance instruction")
+	instruction := flags.String(
+		"instruction",
+		workspace.DefaultMaintenanceInstruction,
+		"maintenance instruction",
+	)
 	maxRounds := flags.Int("max-rounds", 30, "maximum model turns")
 	if err := flags.Parse(arguments); err != nil {
 		return err

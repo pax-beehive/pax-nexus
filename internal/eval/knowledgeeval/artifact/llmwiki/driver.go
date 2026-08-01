@@ -9,6 +9,7 @@ import (
 	"html"
 	"net/http/httptest"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -256,11 +257,15 @@ func (s *subject) Search(
 			continue
 		}
 		text := document.Title + "\n" + document.Body
+		metadata := map[string]string{"title": document.Title}
+		for key, value := range document.Metadata {
+			metadata[key] = value
+		}
 		hits = append(hits, knowledgeeval.SearchHit{
 			Ref: document.Ref, Text: text,
 			Score:    float64(matches) / float64(len(queryTerms)),
 			Tokens:   estimateTokens(text),
-			Metadata: map[string]string{"title": document.Title},
+			Metadata: metadata,
 		})
 	}
 	sort.Slice(hits, func(left, right int) bool {
@@ -301,7 +306,7 @@ func (s *subject) Get(
 		if document.Ref == request.Ref {
 			return knowledgeeval.GetResponse{
 				Ref: document.Ref, Text: document.Body,
-				Provenance: map[string]string{"title": document.Title},
+				Provenance: cloneMetadata(document.Title, document.Metadata),
 			}, nil
 		}
 	}
@@ -326,9 +331,13 @@ func (s *subject) Navigate(
 }
 
 func loadCorpus(root string) (knowledgeeval.WikiCorpus, error) {
+	turnByAnchor, err := loadTurnByAnchor(root)
+	if err != nil {
+		return knowledgeeval.WikiCorpus{}, err
+	}
 	wikiRoot := filepath.Join(root, "wiki")
 	corpus := knowledgeeval.WikiCorpus{SchemaVersion: WikiCorpusSchema}
-	err := filepath.WalkDir(wikiRoot, func(path string, entry os.DirEntry, walkErr error) error {
+	err = filepath.WalkDir(wikiRoot, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
@@ -351,12 +360,23 @@ func loadCorpus(root string) (knowledgeeval.WikiCorpus, error) {
 		}
 		for _, match := range linkPattern.FindAllSubmatch(content, -1) {
 			link := string(match[1])
-			if !strings.Contains(link, "sources/") {
-				document.Links = append(document.Links, link)
+			if normalized, ok := normalizeWikiLink(document.Ref, link); ok {
+				document.Links = append(document.Links, normalized)
 			}
 		}
 		for _, match := range citationPattern.FindAllSubmatch(content, -1) {
-			document.Citations = append(document.Citations, string(match[1]))
+			citation := string(match[1])
+			document.Citations = append(document.Citations, citation)
+			fragment := citationFragment(citation)
+			if turnID := turnByAnchor[fragment]; turnID != "" {
+				if document.Metadata == nil {
+					document.Metadata = make(map[string]string)
+				}
+				document.Metadata["support_refs"] = appendCSV(
+					document.Metadata["support_refs"],
+					turnID,
+				)
+			}
 		}
 		corpus.Documents = append(corpus.Documents, document)
 		return nil
@@ -368,6 +388,68 @@ func loadCorpus(root string) (knowledgeeval.WikiCorpus, error) {
 		return corpus.Documents[left].Ref < corpus.Documents[right].Ref
 	})
 	return corpus, nil
+}
+
+func normalizeWikiLink(documentRef, link string) (string, bool) {
+	lower := strings.ToLower(link)
+	if strings.Contains(link, "sources/") ||
+		strings.HasPrefix(lower, "http://") ||
+		strings.HasPrefix(lower, "https://") ||
+		strings.HasPrefix(lower, "mailto:") {
+		return "", false
+	}
+	normalized := path.Clean(path.Join(path.Dir(documentRef), link))
+	if normalized == "wiki" || !strings.HasPrefix(normalized, "wiki/") {
+		return "", false
+	}
+	return normalized, true
+}
+
+func loadTurnByAnchor(root string) (map[string]string, error) {
+	encoded, err := os.ReadFile(filepath.Join(root, ".pax", "manifest.json"))
+	if err != nil {
+		return nil, fmt.Errorf("read LLM Wiki manifest: %w", err)
+	}
+	var manifest workspace.Manifest
+	if err := json.Unmarshal(encoded, &manifest); err != nil {
+		return nil, fmt.Errorf("decode LLM Wiki manifest: %w", err)
+	}
+	result := make(map[string]string)
+	for _, source := range manifest.Sources {
+		for _, anchor := range source.Anchors {
+			result[anchor.ID] = anchor.TurnID
+		}
+	}
+	return result, nil
+}
+
+func citationFragment(citation string) string {
+	_, fragment, found := strings.Cut(citation, "#")
+	if !found {
+		return ""
+	}
+	return fragment
+}
+
+func appendCSV(current, value string) string {
+	for _, existing := range strings.Split(current, ",") {
+		if existing == value {
+			return current
+		}
+	}
+	if current == "" {
+		return value
+	}
+	return current + "," + value
+}
+
+func cloneMetadata(title string, metadata map[string]string) map[string]string {
+	result := make(map[string]string, len(metadata)+1)
+	result["title"] = title
+	for key, value := range metadata {
+		result[key] = value
+	}
+	return result
 }
 
 func markdownTitle(content []byte, fallback string) string {

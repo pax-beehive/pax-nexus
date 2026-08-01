@@ -3,6 +3,7 @@ package knowledgeeval
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 	"sync"
@@ -56,6 +57,7 @@ func (s *MemoryRunStore) CreateRun(_ context.Context, run Run) error {
 		run.CreatedAt = s.now()
 	}
 	run.Status = RunStatusPlanned
+	run.Metadata = maps.Clone(run.Metadata)
 	s.runs[run.ID] = run
 	s.appendEvent(run.ID, "", "", StagePlanned, "run planned")
 	return nil
@@ -261,6 +263,7 @@ func (s *MemoryRunStore) ListRuns(_ context.Context) ([]Run, error) {
 	defer s.mu.RUnlock()
 	result := make([]Run, 0, len(s.runs))
 	for _, run := range s.runs {
+		run.Metadata = maps.Clone(run.Metadata)
 		result = append(result, run)
 	}
 	sort.Slice(result, func(left, right int) bool {
@@ -276,6 +279,7 @@ func (s *MemoryRunStore) GetRun(_ context.Context, runID string) (RunDetail, err
 	if !exists {
 		return RunDetail{}, fmt.Errorf("%w: run %s", ErrNotFound, runID)
 	}
+	run.Metadata = maps.Clone(run.Metadata)
 	result := RunDetail{Run: run}
 	for _, trial := range s.trials {
 		if trial.RunID == runID {

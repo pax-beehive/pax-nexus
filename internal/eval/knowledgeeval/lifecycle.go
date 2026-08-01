@@ -55,14 +55,15 @@ var stageOrder = map[Stage]int{
 }
 
 type Run struct {
-	ID           string    `json:"id"`
-	WorldID      string    `json:"world_id"`
-	GroupID      string    `json:"group_id"`
-	CheckpointID string    `json:"checkpoint_id"`
-	ArtifactID   string    `json:"artifact_id"`
-	Status       RunStatus `json:"status"`
-	CreatedAt    time.Time `json:"created_at"`
-	CompletedAt  time.Time `json:"completed_at,omitempty"`
+	ID           string            `json:"id"`
+	WorldID      string            `json:"world_id"`
+	GroupID      string            `json:"group_id"`
+	CheckpointID string            `json:"checkpoint_id"`
+	ArtifactID   string            `json:"artifact_id"`
+	Status       RunStatus         `json:"status"`
+	Metadata     map[string]string `json:"metadata,omitempty"`
+	CreatedAt    time.Time         `json:"created_at"`
+	CompletedAt  time.Time         `json:"completed_at,omitempty"`
 }
 
 type Trial struct {

@@ -66,6 +66,8 @@ func (s *DriverSuite) TestBuildOpenProjectSearchGetAndNavigate() {
 	s.Require().Len(corpus.Documents, 1)
 	s.Equal("Knowledge Eval", corpus.Documents[0].Title)
 	s.NotEmpty(corpus.Documents[0].Citations)
+	s.NotEmpty(corpus.Documents[0].Metadata["support_refs"])
+	s.Empty(corpus.Documents[0].Links)
 
 	searcher, ok := opened.(knowledgeeval.Searcher)
 	s.Require().True(ok)
@@ -75,6 +77,7 @@ func (s *DriverSuite) TestBuildOpenProjectSearchGetAndNavigate() {
 	s.Require().NoError(err)
 	s.Require().Len(response.Hits, 1)
 	s.Equal("wiki/index.md", response.Hits[0].Ref)
+	s.NotEmpty(response.Hits[0].Metadata["support_refs"])
 	s.NotEmpty(response.Trace)
 
 	getter, ok := opened.(knowledgeeval.Getter)
@@ -134,6 +137,40 @@ func (s *DriverSuite) TestRendersAllViewsIncludingDiff() {
 		Artifact: updated, Kind: "unknown",
 	})
 	s.Require().ErrorIs(err, knowledgeeval.ErrInvalidRecord)
+}
+
+func (s *DriverSuite) TestNormalizesOnlyInternalWikiLinks() {
+	cases := []struct {
+		name string
+		ref  string
+		link string
+		want string
+		ok   bool
+	}{
+		{
+			name: "same directory", ref: "wiki/index.md",
+			link: "caroline.md", want: "wiki/caroline.md", ok: true,
+		},
+		{
+			name: "parent directory", ref: "wiki/topics/community.md",
+			link: "../caroline.md", want: "wiki/caroline.md", ok: true,
+		},
+		{
+			name: "source", ref: "wiki/index.md",
+			link: "../sources/session.md", ok: false,
+		},
+		{
+			name: "external", ref: "wiki/index.md",
+			link: "https://example.com", ok: false,
+		},
+	}
+	for _, testCase := range cases {
+		s.Run(testCase.name, func() {
+			actual, ok := normalizeWikiLink(testCase.ref, testCase.link)
+			s.Equal(testCase.ok, ok)
+			s.Equal(testCase.want, actual)
+		})
+	}
 }
 
 func (s *DriverSuite) TestRejectsWrongSchemaAndInvalidWorkspace() {

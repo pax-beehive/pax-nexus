@@ -91,8 +91,12 @@ func (s *KnowledgeEvalSuite) TestArtifactAndCapabilities() {
 
 func (s *KnowledgeEvalSuite) TestMemoryRunLifecycleAndRetry() {
 	store := NewMemoryRunStore(s.now)
-	run := Run{ID: "run-1", WorldID: "world", GroupID: "group", CheckpointID: "cp"}
+	run := Run{
+		ID: "run-1", WorldID: "world", GroupID: "group", CheckpointID: "cp",
+		Metadata: map[string]string{"model": "model-a"},
+	}
 	s.Require().NoError(store.CreateRun(s.ctx, run))
+	run.Metadata["model"] = "mutated"
 	s.Require().ErrorIs(store.CreateRun(s.ctx, run), ErrConflict)
 
 	trial := Trial{
@@ -130,6 +134,11 @@ func (s *KnowledgeEvalSuite) TestMemoryRunLifecycleAndRetry() {
 	detail, err := store.GetRun(s.ctx, run.ID)
 	s.Require().NoError(err)
 	s.Equal(RunStatusCompleted, detail.Run.Status)
+	s.Equal("model-a", detail.Run.Metadata["model"])
+	detail.Run.Metadata["model"] = "mutated"
+	reloaded, err := store.GetRun(s.ctx, run.ID)
+	s.Require().NoError(err)
+	s.Equal("model-a", reloaded.Run.Metadata["model"])
 	s.Len(detail.Trials, 2)
 	s.Len(detail.Attempts, 2)
 	s.GreaterOrEqual(len(detail.Events), 9)

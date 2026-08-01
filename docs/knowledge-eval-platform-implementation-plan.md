@@ -1,7 +1,7 @@
 # Knowledge Eval Platform 实施计划
 
 日期：2026-07-29
-状态：V1 Complete；S16 Current
+状态：V1 Complete；S20 Complete
 设计文档：[knowledge-eval-platform-design.md](knowledge-eval-platform-design.md)
 
 ## 1. 交付原则
@@ -33,7 +33,7 @@ slice 更新和部署。Run Progress 接通后，Dashboard 通过只读 Query AP
 | S01 | 可见进度板 | Complete | 私有 Eval Lab 页面展示本任务表、当前任务、验收条件和已有 benchmark radar |
 | S02 | Core identity | Complete | `OpaqueRef`、`ArtifactRecord`、capability 和 digest validation 的单测及示例 |
 | S03 | Run lifecycle | Complete | Run/Trial/Attempt 状态机；fixture 覆盖成功、失败、重试和 ineligible |
-| S04 | Run Query read model | Complete | 列表、详情、事件时间线和 portable JSON snapshot；Dashboard 不读数据库 |
+| S04 | Run Query read model | Complete | 列表、详情、事件时间线、portable JSON snapshot 和分页只读 Hertz API |
 | S05 | Artifact store + raw view | Complete | 目录/字节 artifact、SHA 校验、symlink 防护和固定 raw view |
 | S06 | LLM Wiki Artifact Driver | Complete | 打开真实 workspace，声明 Project/Search/Get/Navigate capability |
 | S07 | LLM Wiki native/diff view | Complete | Dashboard 可打开 native、canonical、raw 和 base/current diff |
@@ -45,7 +45,33 @@ slice 更新和部署。Run Progress 接通后，Dashboard 通过只读 Query AP
 | S13 | PageWiki Artifact Driver | Complete | 同一 quality/QA adapter 无产品特判地运行 PageWiki snapshot |
 | S14 | 历史与 paired comparison | Complete | 基线/当前 Run 按 fingerprint 对齐，显示 delta 和不可比原因 |
 | S15 | Team Note compatibility | Complete | snapshot 和 production `RecallNotes` wrapper 复用 runner/tester/dashboard |
-| S16 | 真实 LLM Wiki LoCoMo 对照 | Current | 保留 source-only baseline，运行真实 maintainer/builder，并拆分 artifact、QA、retrieval 和 reader failure |
+| S16 | 真实 LLM Wiki LoCoMo 对照 | Complete | 保留 source-only baseline，真实 maintainer 完成 conv-26，并拆分 artifact、QA、retrieval 和 reader failure |
+| S17 | API-driven Dashboard | Complete | 本地 Query API 扫描结果目录；前端通过分页 API 获取 Dataset、Run、Benchmark、Matrix 和 Artifact View |
+| S18 | Dataset/Group catalog | Complete | Query API 合并 prepared manifests 与 run bundles；Dashboard 按 Dataset → Partition → Group 展示已运行和未运行世界，V2 按共享 trajectory environment 去重 |
+| S19 | Local experiment tasks | Complete | Dashboard 预览并创建 baseline/maintainer 任务；后端单并发持久化队列执行真实 runner，支持幂等创建、显式付费确认、取消、事件、Run/Artifact 链接 |
+| S20 | Local dataset install | Complete | Dashboard 从固定 revision 配方下载单个公开 Dataset；后端持久化任务完成下载、checksum/answer-blind 校验和 prepared split 生成，支持取消与失败追踪 |
+
+### S20：本地 Dataset 安装
+
+范围：
+
+- 数据源配方只声明当前已支持的 LoCoMo、LongMemEval-S Cleaned 和
+  LongMemEval-V2 Small；不建设通用 Dataset marketplace。
+- API 启动参数 `-dataset-root` 决定服务器写入范围。Dashboard 展示该目录但不能
+  提交任意 filesystem path。
+- 下载固定 upstream revision；已存在的非空 raw 文件直接复用。
+- 每个 Dataset 可独立下载和 prepare，不要求同时下载其他 benchmark。
+- prepare 在 staging 目录完成 answer-blind、partition 和 reference 校验后，只替换
+  所选 Dataset 的派生目录，不清理其他 Dataset 或已有实验结果。
+- dataset install task 持久化 queued、running、completed、failed 和 cancelled，
+  并允许对正在运行的下载/prepare 子进程请求取消。
+
+验收：
+
+- 新 data root 可以只安装一个 Dataset 并随后被现有 Registry/experiment runner 读取。
+- 同一 Idempotency-Key 不会重复创建任务；同一 Dataset 不会同时安装两次。
+- API 重启后保留历史；中断的 running task 明确变为 failed。
+- 下载和 prepare 失败在 Dashboard 显示最后错误，不产生 ready manifest。
 
 ## 3. Slice 详情
 
@@ -120,7 +146,19 @@ slice 更新和部署。Run Progress 接通后，Dashboard 通过只读 Query AP
 范围：
 
 - `QueryService` 定义只读 Run list/detail/events 接口。
-- portable JSON snapshot 是 V1 的 Dashboard transport；不暴露 store 或数据库字段。
+- portable JSON snapshot 保留为导出和审计格式；Dashboard transport 使用只读
+  Hertz Query API，不暴露 store 或数据库字段。
+- Dataset、Run、solution version 和 benchmark list 使用 cursor pagination 与
+  服务端筛选；结果矩阵由后端聚合。
+- V1 本地 Registry 每次请求重新扫描 `dataset-run.json`，因此新结果落盘后无需
+  重建前端；后续可替换为 PostgreSQL store 而不改变 HTTP contract。
+- Dataset detail API 从 source-only artifact 的不可变 `sources/*.md` 建立
+  session 索引，支持分页和单 session HTML view；Dashboard `/dataset` 页面
+  展示 session/turn 原文并关联使用该 Dataset 的 Runs。
+- 当前 bundle 只持久化 question 数量和 benchmark case result，没有持久化原始
+  question 文本。下一版 Dataset manifest 必须分别保存 answer-blind build input
+  和 evaluator-only query/gold refs；现有 LoCoMo bundle 可从 prepared JSONL
+  回填 manifest，无需重跑 maintainer。
 - Dashboard 展示 Run 总进度、阶段、case、失败原因和 event timeline。
 
 验收：
@@ -356,8 +394,9 @@ PageWiki 优先于 Team Note。两个产品接入后，如果 benchmark adapters
   acceptance bundle。
 - bundle 固定包含 LLM Wiki baseline/current、PageWiki 和 Team Note 四个 Run。
 - Eval Lab 直接展示 run/trial/case/metric/event、artifact views 和 paired delta。
-- V1 不包含付费模型 cohort、PostgreSQL durable run store 或公开 HTTP transport；
-  这些是部署扩展，不改变 Core、Driver、Adapter、Binding 和 View 边界。
+- V1 已包含本地只读 HTTP Query transport；仍不包含 PostgreSQL durable run
+  store 或公网部署。它们是存储与部署扩展，不改变 Core、Driver、Adapter、
+  Binding、View 和 HTTP contract。
 
 ## 7. 当前交接入口
 

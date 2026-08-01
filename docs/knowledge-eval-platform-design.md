@@ -1,7 +1,7 @@
 # Knowledge Eval Platform 设计
 
 日期：2026-07-29
-状态：V1 已实现；真实 LLM Wiki builder 与 LoCoMo 对照实验接入中
+状态：V1 已实现；Dataset/Group catalog、真实 LoCoMo 对照、本地实验任务与 Dataset 安装队列已接入
 
 ## 1. 目标
 
@@ -567,7 +567,8 @@ answer judge 分阶段记录，缺失事实不能被错误归因给 recall。
 
 ## 11. Dashboard 需要的功能
 
-第一版只做实验记录和比较，不做通用工作流编排 UI：
+第一版只做实验记录、比较和受约束的本地实验队列，不做任意工作流编排或浏览器
+shell：
 
 - 创建 Run：选择 bundle、Builder arms、Artifact drivers/exposure configs、
   Benchmark arms。
@@ -579,6 +580,16 @@ answer judge 分阶段记录，缺失事实不能被错误归因给 recall。
   tester trajectory、judge 原始报告。
 - Series 保护：版本或 metric definition 不兼容时禁止画成同一趋势线。
 - 重新运行：复用旧 RunSpec，生成新 Run 和新 immutable records。
+- 任务安全边界：source-only baseline 无付费调用；maintainer 必须显式确认，
+  API key 只存在后端环境；执行器只接受 catalog 中的 Dataset/Partition/Group，
+  不接受任意文件路径或 shell 命令。
+- 任务恢复：queued task 可在 API 重启后继续；进程中断时仍为 running 的 task
+  标记为 failed，避免不确定的付费请求被静默重复。
+- Dataset 安装：Dashboard 只展示受支持的固定数据源配方和服务端配置的
+  `dataset-root`。用户可以下载或重新安装单个 Dataset；后端固定 upstream
+  revision，先下载 raw，再在 staging 中生成并验证 answer-blind prepared split。
+  浏览器不得提交任意服务器路径，下载功能也不承担 Dataset 托管、搜索或通用格式
+  推断。
 
 ## 12. 实施顺序
 

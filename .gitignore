@@ -27,6 +27,8 @@ _testmain.go
 *.log
 *nohup.out
 *settings.pyc
+__pycache__/
+*.py[cod]
 *.sublime-project
 *.sublime-workspace
 !.gitkeep
@@ -52,3 +54,5 @@ tmp/
 evals/v2/config.local.yaml
 web/node_modules/
 web/dist/
+web/llmwiki-benchmark-dashboard/public/acceptance/
+internal/llmwiki/demo/data/
