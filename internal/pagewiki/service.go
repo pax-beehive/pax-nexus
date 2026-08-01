@@ -120,6 +120,24 @@ func NewService(
 	return service
 }
 
+// InjectSession turns one session's events into published Wiki pages:
+// plan briefs, edit drafts concurrently, then commit targets in brief order.
+//
+// Retry architecture — three layers, each owning one failure class; a new
+// retry belongs in exactly one of them:
+//
+//  1. LLM call level (llm.CompleteJSON/CompleteJSONAs, 2 attempts per call
+//     site): absorbs transient provider noise — transport errors, truncated
+//     or non-JSON replies, drafts rejected by validation. Cheap, and keeps
+//     one flaky completion from failing a whole target.
+//  2. Run level (succeededRun below): a failed or partial_success
+//     MaintenanceRun re-runs in full under the same deterministic run ID,
+//     overwriting the stored run — repositories keep only succeeded runs
+//     immutable. resolvePage's publishModeSelfHeal makes the re-run converge
+//     on pages an earlier attempt already created.
+//  3. Session level (sessionconsumer.Controller): retries non-succeeded
+//     injections on exponential backoff (in process memory, reset on
+//     restart) and advances the stream cursor only after a succeeded run.
 func (s *Service) InjectSession(
 	ctx context.Context,
 	request InjectSessionRequest,
@@ -400,12 +418,29 @@ type preparedTarget struct {
 	currentRevision *PageRevision
 	draft           PageDraft
 	ready           bool
-	// revive is true when this target is a create brief whose ProposedSlug
-	// collided with a RETIRED Page: resolvePage returned that Page (and its
-	// current revision) instead of minting a fresh one, and the publication
-	// must carry Revive so the Page flips back to active.
-	revive bool
+	mode            publishMode
 }
+
+// publishMode names the way a target's publication lands on the repository.
+// resolvePage picks it; commitTarget acts on it.
+type publishMode int
+
+const (
+	// publishModeCreate mints a fresh Page.
+	publishModeCreate publishMode = iota
+	// publishModeUpdate advances the existing Page the planner targeted,
+	// gated on its expected base revision.
+	publishModeUpdate
+	// publishModeRevive republishes a retired Page whose slug a create
+	// brief collided with; the publication must carry Revive so the Page
+	// flips back to active, even when the content is unchanged.
+	publishModeRevive
+	// publishModeSelfHeal updates the active Page that a prior attempt of
+	// this same run created (same source revision and brief key mint the
+	// same Page ID), so a retried injection converges in place instead of
+	// failing on a publication conflict.
+	publishModeSelfHeal
+)
 
 // duplicateUpdateTargets flags every update brief whose non-empty
 // TargetPageID already appeared on an earlier brief. The first brief keeps
@@ -506,7 +541,7 @@ func (s *Service) prepareTarget(
 		}
 		return result
 	}
-	page, currentRevision, revive, err := s.resolvePage(ctx, sourceRevision.ID, brief)
+	page, currentRevision, mode, err := s.resolvePage(ctx, sourceRevision.ID, brief)
 	if err != nil {
 		result.target = failTarget(result.target, TargetFailurePublicationConflict, err)
 		return result
@@ -525,7 +560,7 @@ func (s *Service) prepareTarget(
 	result.page = page
 	result.currentRevision = currentRevision
 	result.draft = draft
-	result.revive = revive
+	result.mode = mode
 	result.ready = true
 	return result
 }
@@ -602,7 +637,7 @@ func (s *Service) commitTarget(
 	// revision: skipping the publish here (as a plain no-op update would)
 	// would leave the Page retired, since the status flip only happens as
 	// part of applying a publication.
-	if !prepared.revive &&
+	if prepared.mode != publishModeRevive &&
 		prepared.currentRevision != nil &&
 		prepared.page.Slug == pageValue.Slug &&
 		prepared.page.Title == pageValue.Title &&
@@ -615,7 +650,7 @@ func (s *Service) commitTarget(
 	publication := PagePublication{
 		Page:     pageValue,
 		Revision: revision,
-		Revive:   prepared.revive,
+		Revive:   prepared.mode == publishModeRevive,
 	}
 	target.PageID = pageValue.ID
 	target.PageRevisionID = revision.ID
@@ -673,18 +708,17 @@ func revisionsEquivalent(left, right PageRevision) bool {
 }
 
 // resolvePage loads the Page (and, for updates, its current revision) that a
-// brief targets. For a create brief whose ProposedSlug collides with a
-// RETIRED Page, resolvePage returns that Page and its current revision
-// instead of minting a fresh one: the caller then treats the brief as an
-// update-shaped revive (revive=true), which the editor sees as current text
-// and the publication flips back to active. A collision with an ACTIVE Page
-// falls through to minting a fresh Page unchanged from before — that
-// conflict still surfaces as a publication failure at commit.
+// brief targets and names how its publication must land (publishMode). A
+// create brief usually mints a fresh Page, with two exceptions: a slug
+// collision with a RETIRED Page becomes a revive, and a collision with the
+// active Page this same run's earlier attempt created becomes a self-heal
+// update. A collision with an unrelated ACTIVE Page still mints a fresh
+// Page — that conflict surfaces as a publication failure at commit.
 func (s *Service) resolvePage(
 	ctx context.Context,
 	sourceRevisionID string,
 	brief PageBrief,
-) (*Page, *PageRevision, bool, error) {
+) (*Page, *PageRevision, publishMode, error) {
 	if brief.Action == PageActionCreate {
 		existing, err := s.repository.PageBySlug(ctx, brief.ProposedSlug)
 		switch {
@@ -692,47 +726,42 @@ func (s *Service) resolvePage(
 			if existing.Retired() {
 				revision, revErr := s.repository.PageRevision(ctx, existing.CurrentRevisionID)
 				if revErr != nil {
-					return nil, nil, false, fmt.Errorf(
+					return nil, nil, publishModeCreate, fmt.Errorf(
 						"load retired Page current PageRevision: %w",
 						revErr,
 					)
 				}
-				return &existing, &revision, true, nil
+				return &existing, &revision, publishModeRevive, nil
 			}
 			if existing.ID == stableID("page", sourceRevisionID, brief.Key) {
-				// This active Page was created by an earlier attempt of the
-				// same idempotent run (same source and brief key mint the
-				// same Page ID). The retry must update it in place: minting
-				// a fresh Page would only conflict at publish and pin the
-				// run in partial_success forever.
 				revision, revErr := s.repository.PageRevision(ctx, existing.CurrentRevisionID)
 				if revErr != nil {
-					return nil, nil, false, fmt.Errorf(
+					return nil, nil, publishModeCreate, fmt.Errorf(
 						"load retried Page current PageRevision: %w",
 						revErr,
 					)
 				}
-				return &existing, &revision, false, nil
+				return &existing, &revision, publishModeSelfHeal, nil
 			}
 			// Slug is taken by an unrelated active Page: keep today's
 			// behavior and mint a fresh Page below; the slug conflict
 			// surfaces as a publication failure at commit, same as before.
 		case !errors.Is(err, ErrNotFound):
-			return nil, nil, false, fmt.Errorf("load Page by slug: %w", err)
+			return nil, nil, publishModeCreate, fmt.Errorf("load Page by slug: %w", err)
 		}
 		page := Page{
 			ID:    stableID("page", sourceRevisionID, brief.Key),
 			Slug:  brief.ProposedSlug,
 			Title: brief.ProposedTitle,
 		}
-		return &page, nil, false, nil
+		return &page, nil, publishModeCreate, nil
 	}
 	page, err := s.repository.PageByID(ctx, brief.TargetPageID)
 	if err != nil {
-		return nil, nil, false, fmt.Errorf("load update Page: %w", err)
+		return nil, nil, publishModeUpdate, fmt.Errorf("load update Page: %w", err)
 	}
 	if page.CurrentRevisionID != brief.ExpectedBaseRevisionID {
-		return nil, nil, false, fmt.Errorf(
+		return nil, nil, publishModeUpdate, fmt.Errorf(
 			"%w: Page %q changed after planning",
 			ErrRevisionConflict,
 			page.ID,
@@ -740,9 +769,9 @@ func (s *Service) resolvePage(
 	}
 	revision, err := s.repository.PageRevision(ctx, page.CurrentRevisionID)
 	if err != nil {
-		return nil, nil, false, fmt.Errorf("load current PageRevision: %w", err)
+		return nil, nil, publishModeUpdate, fmt.Errorf("load current PageRevision: %w", err)
 	}
-	return &page, &revision, false, nil
+	return &page, &revision, publishModeUpdate, nil
 }
 
 func (s *Service) buildPublication(
