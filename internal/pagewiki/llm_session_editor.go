@@ -229,12 +229,22 @@ func relatedKnowledgeSection(related []RelatedPage) (SectionDraft, []LinkDraft, 
 		titles = append(titles, page.Title)
 		links = append(links, LinkDraft{
 			SectionKey: "related-knowledge", ExactText: page.Title, TargetPageID: page.ID,
+			RelationType: relationOrFallback(page.Relation),
 		})
 	}
 	return SectionDraft{
 		Key: "related-knowledge", Heading: "Related knowledge",
 		Markdown: "See also: " + strings.Join(titles, "; ") + ".",
 	}, links, true
+}
+
+// relationOrFallback resolves an empty RelationType to RelationTypeRelatesTo,
+// the untyped catch-all a PageLink carries when no relation was specified.
+func relationOrFallback(relation RelationType) RelationType {
+	if relation == "" {
+		return RelationTypeRelatesTo
+	}
+	return relation
 }
 
 func currentTitle(input EditInput) string {

@@ -167,18 +167,17 @@ func (s *Service) InjectSession(
 			Run:              existingRun,
 		}, nil
 	}
-	catalog, err := s.repository.PageCatalog(ctx)
+	injection, err := s.loadInjectionContext(ctx)
 	if err != nil {
-		return InjectResult{}, fmt.Errorf("load Page catalog: %w", err)
+		return InjectResult{}, err
 	}
-	directives, err := s.repository.GenerationSettings(ctx)
-	if err != nil {
-		return InjectResult{}, fmt.Errorf("load generation settings: %w", err)
-	}
+	catalog := injection.catalog
+	directives := injection.directives
 	briefs, err := s.planner.Plan(ctx, PlanInput{
 		SourceRevision: sourceRevision,
 		PageCatalog:    catalog,
 		Directives:     directives,
+		Types:          injection.types,
 	})
 	if err != nil {
 		return InjectResult{}, fmt.Errorf("plan pages: %w", err)
@@ -248,6 +247,38 @@ func (s *Service) succeededRun(
 		return MaintenanceRun{}, false, fmt.Errorf("load MaintenanceRun: %w", err)
 	}
 	return run, run.Status == RunStatusSucceeded, nil
+}
+
+// injectionContext bundles the read-only state InjectSession loads before
+// planning: the Page catalog, generation directives, and the type registry
+// that normalizes the planner's entity/relation values.
+type injectionContext struct {
+	catalog    PageCatalog
+	directives GenerationDirectives
+	types      TypeRegistry
+}
+
+// loadInjectionContext loads catalog, directives, and the type registry as
+// one unit, keeping InjectSession's own branching low enough to stay under
+// the cyclop limit.
+func (s *Service) loadInjectionContext(ctx context.Context) (injectionContext, error) {
+	catalog, err := s.repository.PageCatalog(ctx)
+	if err != nil {
+		return injectionContext{}, fmt.Errorf("load Page catalog: %w", err)
+	}
+	directives, err := s.repository.GenerationSettings(ctx)
+	if err != nil {
+		return injectionContext{}, fmt.Errorf("load generation settings: %w", err)
+	}
+	entries, err := s.repository.TypeRegistry(ctx)
+	if err != nil {
+		return injectionContext{}, fmt.Errorf("load type registry: %w", err)
+	}
+	return injectionContext{
+		catalog:    catalog,
+		directives: directives,
+		types:      NewTypeRegistry(entries),
+	}, nil
 }
 
 // GenerationSettings returns the team's stored Page Wiki generation
@@ -824,6 +855,16 @@ func (s *Service) buildPublication(
 	pageValue.Slug = draft.Slug
 	pageValue.Title = draft.Title
 	pageValue.CurrentRevisionID = revision.ID
+	pageValue.EntityType = brief.EntityType
+	// An update never downgrades an established type to the untyped fallback:
+	// keep the Page's existing EntityType when the brief is untyped or only
+	// resolved to the fallback itself.
+	if (brief.EntityType == "" || brief.EntityType == EntityTypeConcept) && page.EntityType != "" {
+		pageValue.EntityType = page.EntityType
+	}
+	if pageValue.EntityType == "" {
+		pageValue.EntityType = EntityTypeConcept
+	}
 	return pageValue, revision, TargetFailureNone, nil
 }
 
@@ -1017,6 +1058,7 @@ func (s *Service) buildLinks(
 			EndByte:        end,
 			ExactText:      draft.ExactText,
 			TargetPageID:   draft.TargetPageID,
+			RelationType:   relationOrFallback(draft.RelationType),
 		})
 	}
 	return links, nil

@@ -237,3 +237,114 @@ func (s *InjectAcceptanceSuite) TestGivenInvalidCitationWhenInjectedThenNothingI
 		})
 	}
 }
+
+func (s *InjectAcceptanceSuite) TestGivenTypedBriefsWhenInjectedThenTypesPersist() {
+	ctx := context.Background()
+
+	// First session: an untyped brief, exercising the EntityTypeConcept
+	// fallback for both the planner's zero value and the update-downgrade
+	// guard's baseline.
+	untyped := pagewiki.NewService(
+		s.repository,
+		pagewiki.ScriptedPlanner{Briefs: multiPageBriefs()[:1]},
+		pagewiki.ScriptedEditor{Drafts: multiPageDrafts(false)},
+	)
+	firstRequest := multiPageSource()
+	firstRequest.IdempotencyKey = "typed-first"
+	firstResult, err := untyped.InjectSession(ctx, firstRequest)
+	s.Require().NoError(err)
+	s.Require().Equal(pagewiki.RunStatusSucceeded, firstResult.Run.Status)
+
+	sqlitePage, err := s.repository.PageBySlug(ctx, "sqlite")
+	s.Require().NoError(err)
+	s.Require().Equal(pagewiki.EntityTypeConcept, sqlitePage.EntityType)
+
+	// Second session: a typed brief that relates to the first page via a
+	// typed relation.
+	planner := pagewiki.ScriptedPlanner{
+		Briefs: []pagewiki.PageBrief{
+			{
+				Key:              "wiki-search",
+				Action:           pagewiki.PageActionCreate,
+				ProposedSlug:     "wiki-search",
+				ProposedTitle:    "Wiki Search",
+				EvidenceEventIDs: []string{"event-search"},
+				EntityType:       pagewiki.EntityTypeSystem,
+				RelatedPages: []pagewiki.RelatedPage{
+					{
+						ID:       sqlitePage.ID,
+						Title:    "SQLite",
+						Relation: pagewiki.RelationTypeDependsOn,
+					},
+				},
+			},
+		},
+	}
+	editor := pagewiki.ScriptedEditor{
+		Drafts: map[string]pagewiki.PageDraft{
+			"wiki-search": {
+				Slug:    "wiki-search",
+				Title:   "Wiki Search",
+				Summary: "Wiki search depends on SQLite for storage.",
+				Sections: []pagewiki.SectionDraft{
+					{
+						Key:      "retrieval",
+						Heading:  "Retrieval",
+						Markdown: "The first search version uses lexical ranking.",
+					},
+					{
+						Key:      "related-knowledge",
+						Heading:  "Related knowledge",
+						Markdown: "See also: SQLite.",
+					},
+				},
+				Citations: []pagewiki.CitationDraft{
+					{
+						SectionKey: "retrieval",
+						ExactText:  "lexical ranking",
+						Evidence: []pagewiki.EvidenceQuoteDraft{
+							{
+								EventID:   "event-search",
+								ExactText: "The first search version uses lexical ranking.",
+							},
+						},
+					},
+				},
+				Links: []pagewiki.LinkDraft{
+					{
+						SectionKey:   "related-knowledge",
+						ExactText:    "SQLite",
+						TargetPageID: sqlitePage.ID,
+						RelationType: pagewiki.RelationTypeDependsOn,
+					},
+				},
+			},
+		},
+	}
+	service := pagewiki.NewService(s.repository, planner, editor)
+	secondRequest := multiPageSource()
+	secondRequest.IdempotencyKey = "typed-second"
+
+	secondResult, err := service.InjectSession(ctx, secondRequest)
+
+	s.Require().NoError(err)
+	s.Require().Equal(pagewiki.RunStatusSucceeded, secondResult.Run.Status)
+
+	wikiSearchPage, err := s.repository.PageBySlug(ctx, "wiki-search")
+	s.Require().NoError(err)
+	s.Require().Equal(pagewiki.EntityTypeSystem, wikiSearchPage.EntityType)
+
+	revision, err := s.repository.PageRevision(ctx, wikiSearchPage.CurrentRevisionID)
+	s.Require().NoError(err)
+	s.Require().Len(revision.Links, 1)
+	s.Require().Equal(pagewiki.RelationTypeDependsOn, revision.Links[0].RelationType)
+
+	catalog, err := s.repository.PageCatalog(ctx)
+	s.Require().NoError(err)
+	entries := make(map[string]pagewiki.EntityType, len(catalog))
+	for _, entry := range catalog {
+		entries[entry.Slug] = entry.EntityType
+	}
+	s.Require().Equal(pagewiki.EntityTypeSystem, entries["wiki-search"])
+	s.Require().Equal(pagewiki.EntityTypeConcept, entries["sqlite"])
+}

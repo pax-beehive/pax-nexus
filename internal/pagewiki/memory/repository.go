@@ -116,6 +116,7 @@ func (r *Repository) PageCatalog(_ context.Context) (pagewiki.PageCatalog, error
 			Title:             page.Title,
 			CurrentRevisionID: page.CurrentRevisionID,
 			Summary:           r.pageRevisions[page.CurrentRevisionID].Summary,
+			EntityType:        page.EntityType,
 		})
 	}
 	sort.Slice(catalog, func(i, j int) bool {
