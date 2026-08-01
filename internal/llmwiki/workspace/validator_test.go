@@ -88,6 +88,34 @@ func (s *validatorSuite) TestRejectsMutatedSourcesBrokenLinksAndOrphanPages() {
 	s.Contains(report.String(), "is not reachable from wiki/index.md")
 }
 
+func (s *validatorSuite) TestRepairsOnlyUniquelyResolvableWikiLinks() {
+	anchor := s.source.Anchors[0].ID
+	s.writeWiki("index.md", "# Wiki\n\n- [Profile](../profile.md)\n")
+	s.writeWiki(
+		"profile.md",
+		"# Profile\n\nSee [home](../index.md). "+
+			"Source fact ([source](../"+s.source.Path+"#"+anchor+")).\n",
+	)
+	before := workspace.Validate(s.root)
+	s.False(before.Valid)
+	s.Contains(before.String(), "broken internal link")
+
+	repairs, err := workspace.RepairResolvableInternalLinks(s.root)
+	s.Require().NoError(err)
+	s.Equal(2, repairs.Files)
+	s.Equal(2, repairs.Links)
+	after := workspace.Validate(s.root)
+	s.True(after.Valid, after.String())
+
+	index, err := os.ReadFile(filepath.Join(s.root, "wiki", "index.md"))
+	s.Require().NoError(err)
+	s.Contains(string(index), "](profile.md)")
+	profile, err := os.ReadFile(filepath.Join(s.root, "wiki", "profile.md"))
+	s.Require().NoError(err)
+	s.Contains(string(profile), "](index.md)")
+	s.Contains(string(profile), "](../"+s.source.Path+"#")
+}
+
 func (s *validatorSuite) TestRequiresTopicTreeToReachEveryMajorPage() {
 	s.writeWiki("index.md", "# Wiki\n\nNo links yet.\n")
 	s.writeWiki("pages/major.md", "# Major\n\nSubstantial knowledge.\n")

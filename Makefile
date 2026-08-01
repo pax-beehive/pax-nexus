@@ -3,6 +3,7 @@ SHELL := /bin/sh
 MODULE := github.com/pax-beehive/pax-nexus
 IDL := idl/team_memory.thrift
 PAGEWIKI_IDL := idl/page_wiki.thrift
+KNOWLEDGE_EVAL_IDL := idl/knowledge_eval.thrift
 TODOAPP_IDL := idl/todo_app.thrift
 TOOLS_DIR := $(CURDIR)/.tools/bin
 HZ := $(TOOLS_DIR)/hz
@@ -30,7 +31,7 @@ RECALL_EVAL_OUTPUT ?= runs/recall-eval-v1/current
 RECALL_EVAL_SEMANTIC_THRESHOLD ?= 0.50
 RECALL_EVAL_CANDIDATE_LIMIT ?= 16
 
-.PHONY: all build validate-extraction-candidate-strategy validate-recall-candidate-strategy tools generate-init generate mocks fmt format-check lint test test-unit test-scripts coverage integration-test onprem-e2e workstation-config-check recall-eval-v1 recall-eval-v2 recall-eval-v2-up recall-eval-v2-down docker-eval groupmembench-data groupmembench-eval eval-v2-prepare eval-v2-up eval-v2 eval-v2-smoke-up eval-v2-smoke eval-v2-acceptance-up eval-v2-acceptance eval-v2-down eval-v2-reset eval-v2-job-image eval-v2-job eval-v2-zep-canary eval-v3-prepare eval-v3-up eval-v3 eval-v3-down eval-v3-reset eval-v3-extractor-sweep up down logs db-up db-down clean
+.PHONY: all build validate-extraction-candidate-strategy validate-recall-candidate-strategy tools generate-init generate generate-knowledge-eval mocks fmt format-check lint test test-unit test-scripts coverage integration-test onprem-e2e workstation-config-check recall-eval-v1 recall-eval-v2 recall-eval-v2-up recall-eval-v2-down llmwiki-session-data-fetch llmwiki-session-data-prepare docker-eval groupmembench-data groupmembench-eval eval-v2-prepare eval-v2-up eval-v2 eval-v2-smoke-up eval-v2-smoke eval-v2-acceptance-up eval-v2-acceptance eval-v2-down eval-v2-reset eval-v2-job-image eval-v2-job eval-v2-zep-canary eval-v3-prepare eval-v3-up eval-v3 eval-v3-down eval-v3-reset eval-v3-extractor-sweep up down logs db-up db-down clean
 
 all: lint test
 
@@ -75,7 +76,7 @@ generate-init: tools
 		--router_dir internal/teamnote/transport/httpapi/router \
 		--sort_router --handler_by_method
 
-generate: tools
+generate: tools generate-knowledge-eval
 	PATH=$(TOOLS_DIR):$$PATH $(HZ) update --module $(MODULE) --idl $(PAGEWIKI_IDL) --out_dir . \
 		--handler_dir internal/pagewiki/transport/httpapi \
 		--model_dir internal/pagewiki/transport/httpapi/model \
@@ -88,6 +89,50 @@ generate: tools
 		--handler_dir internal/todoapp/transport/httpapi \
 		--model_dir internal/todoapp/transport/httpapi/model \
 		--sort_router --handler_by_method
+
+generate-knowledge-eval: tools
+	PATH=$(TOOLS_DIR):$$PATH $(HZ) update --module $(MODULE) --idl $(KNOWLEDGE_EVAL_IDL) \
+		--out_dir cmd/knowledge-eval-api \
+		--handler_dir ../../internal/eval/knowledgeeval/transport/httpapi/handler \
+		--model_dir ../../internal/eval/knowledgeeval/transport/httpapi/model \
+		--sort_router --handler_by_method \
+		--exclude_file ../../internal/eval/knowledgeeval/transport/httpapi/handler/list_solutions.go \
+		--exclude_file ../../internal/eval/knowledgeeval/transport/httpapi/handler/list_datasets.go \
+		--exclude_file ../../internal/eval/knowledgeeval/transport/httpapi/handler/list_dataset_sources.go \
+		--exclude_file ../../internal/eval/knowledgeeval/transport/httpapi/handler/create_dataset_install_task.go \
+		--exclude_file ../../internal/eval/knowledgeeval/transport/httpapi/handler/list_dataset_install_tasks.go \
+		--exclude_file ../../internal/eval/knowledgeeval/transport/httpapi/handler/get_dataset_install_task.go \
+		--exclude_file ../../internal/eval/knowledgeeval/transport/httpapi/handler/cancel_dataset_install_task.go \
+		--exclude_file ../../internal/eval/knowledgeeval/transport/httpapi/handler/list_dataset_groups.go \
+		--exclude_file ../../internal/eval/knowledgeeval/transport/httpapi/handler/get_dataset.go \
+		--exclude_file ../../internal/eval/knowledgeeval/transport/httpapi/handler/list_dataset_sessions.go \
+		--exclude_file ../../internal/eval/knowledgeeval/transport/httpapi/handler/get_dataset_session_view.go \
+		--exclude_file ../../internal/eval/knowledgeeval/transport/httpapi/handler/list_runs.go \
+		--exclude_file ../../internal/eval/knowledgeeval/transport/httpapi/handler/get_run.go \
+		--exclude_file ../../internal/eval/knowledgeeval/transport/httpapi/handler/list_run_trials.go \
+		--exclude_file ../../internal/eval/knowledgeeval/transport/httpapi/handler/list_run_events.go \
+		--exclude_file ../../internal/eval/knowledgeeval/transport/httpapi/handler/list_benchmarks.go \
+		--exclude_file ../../internal/eval/knowledgeeval/transport/httpapi/handler/get_result_matrix.go \
+		--exclude_file ../../internal/eval/knowledgeeval/transport/httpapi/handler/get_artifact.go \
+		--exclude_file ../../internal/eval/knowledgeeval/transport/httpapi/handler/get_artifact_view.go \
+		--exclude_file ../../internal/eval/knowledgeeval/transport/httpapi/handler/list_experiment_models.go \
+		--exclude_file ../../internal/eval/knowledgeeval/transport/httpapi/handler/preview_experiment_task.go \
+		--exclude_file ../../internal/eval/knowledgeeval/transport/httpapi/handler/create_experiment_task.go \
+		--exclude_file ../../internal/eval/knowledgeeval/transport/httpapi/handler/list_experiment_tasks.go \
+		--exclude_file ../../internal/eval/knowledgeeval/transport/httpapi/handler/get_experiment_task.go \
+		--exclude_file ../../internal/eval/knowledgeeval/transport/httpapi/handler/cancel_experiment_task.go \
+		--exclude_file ../../internal/eval/knowledgeeval/transport/httpapi/handler/retry_experiment_task.go \
+		--exclude_file ../../internal/eval/knowledgeeval/transport/httpapi/handler/continue_experiment_task.go \
+		--exclude_file ../../internal/eval/knowledgeeval/transport/httpapi/handler/preview_cohort_campaign.go \
+		--exclude_file ../../internal/eval/knowledgeeval/transport/httpapi/handler/create_cohort_campaign.go \
+		--exclude_file ../../internal/eval/knowledgeeval/transport/httpapi/handler/list_cohort_campaigns.go \
+		--exclude_file ../../internal/eval/knowledgeeval/transport/httpapi/handler/get_cohort_campaign.go \
+		--exclude_file ../../internal/eval/knowledgeeval/transport/httpapi/handler/cancel_cohort_campaign.go
+	@files="$$(rg -l 'github.com/pax-beehive/pax-nexus/\.\./\.\./internal/eval/knowledgeeval' \
+		cmd/knowledge-eval-api internal/eval/knowledgeeval/transport/httpapi)"; \
+	if [ -n "$$files" ]; then \
+		perl -pi -e 's#github\.com/pax-beehive/pax-nexus/\.\./\.\./internal/eval/knowledgeeval#github.com/pax-beehive/pax-nexus/internal/eval/knowledgeeval#g' $$files; \
+	fi
 
 mocks: $(MOCKGEN)
 	PATH=$(TOOLS_DIR):$$PATH go generate ./...
@@ -108,6 +153,8 @@ test-unit:
 	GOCACHE=$${GOCACHE:-/tmp/team-memory-go-cache} go test ./... -count=1
 
 test-scripts:
+	python3 -m unittest scripts/test_prepare_llmwiki_session_datasets.py
+	bash -n scripts/fetch-llmwiki-session-datasets.sh
 	node --test scripts/workstation-compose-validator.test.mjs
 	./scripts/test-eval-v2-job.sh
 	./scripts/test-extraction-candidate-builds.sh
@@ -131,6 +178,17 @@ recall-eval-v1:
 		-semantic-threshold $(RECALL_EVAL_SEMANTIC_THRESHOLD) \
 		-candidate-limit $(RECALL_EVAL_CANDIDATE_LIMIT) \
 		-dedup -degrade-related -output-dir $(RECALL_EVAL_OUTPUT)
+
+llmwiki-session-data-fetch:
+	WITH_LMEMEVAL_V2_SCREENSHOTS=$${WITH_LMEMEVAL_V2_SCREENSHOTS:-0} \
+		./scripts/fetch-llmwiki-session-datasets.sh \
+		'$(or $(DATA_ROOT),$(CURDIR)/.build/datasets/llmwiki)/raw' \
+		'$(or $(DATASET),all)'
+
+llmwiki-session-data-prepare:
+	python3 ./scripts/prepare_llmwiki_session_datasets.py \
+		--data-root '$(or $(DATA_ROOT),$(CURDIR)/.build/datasets/llmwiki)' \
+		--dataset '$(or $(DATASET),all)' $(ARGS)
 
 up:
 	./scripts/start-local-embedding.sh

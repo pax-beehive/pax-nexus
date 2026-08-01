@@ -302,6 +302,30 @@ func (s *agentSuite) TestFilesystemToolMatrixIsBoundedAndComposable() {
 	s.Contains(joined, "unknown tool")
 }
 
+func (s *agentSuite) TestRepairModeValidatesAfterEveryToolRound() {
+	client := &scriptedChatClient{responses: []llm.ChatResponse{
+		{
+			Message: llm.ChatMessage{Role: "assistant", ToolCalls: []llm.ToolCall{
+				call("write_file", `{"path":"wiki/index.md","content":"# Wiki\n\n[Broken](pages/missing.md)\n"}`),
+			}},
+		},
+		{
+			Message: llm.ChatMessage{Role: "assistant", ToolCalls: []llm.ToolCall{
+				call("replace_text", `{"path":"wiki/index.md","old_text":"[Broken](pages/missing.md)","new_text":"Sources are ready for future articles."}`),
+			}},
+		},
+	}}
+
+	result, err := workspace.RunAgent(context.Background(), workspace.AgentConfig{
+		Root: s.root, Client: client, MaxRounds: 2,
+		ValidationAfterToolRound: true,
+	}, workspace.AgentRequest{RunID: "repair-feedback", Instruction: "Repair the Wiki."})
+	s.Require().NoError(err)
+	s.True(result.Validation.Valid, result.Validation.String())
+	s.Require().Len(client.requests, 2)
+	s.Contains(client.requests[1].Messages[len(client.requests[1].Messages)-1].Content, "broken internal link")
+}
+
 func (s *agentSuite) TestPreciseEditPreservesPageAndInvalidEditIsRejected() {
 	original := "# Durable page\n\n" + strings.Repeat(
 		"Established knowledge remains available while one sentence changes. ",

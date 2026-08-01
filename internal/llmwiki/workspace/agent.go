@@ -17,12 +17,21 @@ import (
 )
 
 type AgentConfig struct {
-	Root      string
-	Model     string
-	MaxRounds int
-	Client    llm.ChatClient
-	Now       func() time.Time
+	Root                     string
+	Model                    string
+	MaxRounds                int
+	Client                   llm.ChatClient
+	Now                      func() time.Time
+	ValidationAfterToolRound bool
 }
+
+const DefaultMaintenanceInstruction = `Maintain the whole human Wiki from every
+immutable Source in this workspace. Integrate new evidence into existing
+knowledge instead of generating a Session transcript, broad topic dossier, or
+duplicate Wiki. Create article-first person, journey, topic, timeline, and
+portal pages with strong leads, current state, summary-style subtopics,
+contextual cross-links, and exact message-anchor citations. Use precise edits
+on established pages and preserve unrelated supported content.`
 
 type AgentRequest struct {
 	RunID       string
@@ -48,6 +57,19 @@ type AgentResult struct {
 	Validation ValidationReport
 }
 
+type RoundLimitError struct {
+	MaxRounds  int
+	Validation ValidationReport
+}
+
+func (e *RoundLimitError) Error() string {
+	return fmt.Sprintf(
+		"agent exhausted %d rounds with invalid Wiki: %s",
+		e.MaxRounds,
+		e.Validation.String(),
+	)
+}
+
 func RunAgent(
 	ctx context.Context,
 	config AgentConfig,
@@ -69,47 +91,18 @@ func RunAgent(
 	tools := agentTools()
 	var runErr error
 	for round := 0; round < config.MaxRounds; round++ {
-		audit.Calls++
-		response, err := config.Client.Complete(ctx, llm.ChatRequest{
-			Model: config.Model, Messages: messages, Tools: tools,
-		})
-		if err != nil {
-			runErr = fmt.Errorf("DeepSeek completion %d: %w", audit.Calls, err)
+		var done bool
+		messages, done, runErr = runAgentRound(ctx, config, tools, messages, &audit)
+		if runErr != nil || done {
 			break
 		}
-		audit.InputTokens += response.Usage.InputTokens
-		audit.OutputTokens += response.Usage.OutputTokens
-		messages = append(messages, response.Message)
-		if len(response.Message.ToolCalls) > 0 {
-			for _, call := range response.Message.ToolCalls {
-				audit.ToolCalls++
-				result := executeTool(config.Root, call)
-				messages = append(messages, llm.ChatMessage{
-					Role:       "tool",
-					Content:    result,
-					ToolCallID: call.ID,
-				})
-			}
-			continue
-		}
-		audit.Validation = Validate(config.Root)
-		if audit.Validation.Valid {
-			break
-		}
-		messages = append(messages, llm.ChatMessage{
-			Role: "user",
-			Content: "The deterministic validator failed. Repair the Wiki and " +
-				"run validate before finishing:\n" + audit.Validation.String(),
-		})
 	}
 	if runErr == nil && !audit.Validation.Valid {
 		audit.Validation = Validate(config.Root)
 		if !audit.Validation.Valid {
-			runErr = fmt.Errorf(
-				"agent exhausted %d rounds with invalid Wiki: %s",
-				config.MaxRounds,
-				audit.Validation.String(),
-			)
+			runErr = &RoundLimitError{
+				MaxRounds: config.MaxRounds, Validation: audit.Validation,
+			}
 		}
 	}
 	if runErr != nil {
@@ -128,6 +121,59 @@ func RunAgent(
 		return result, runErr
 	}
 	return result, nil
+}
+
+func runAgentRound(
+	ctx context.Context,
+	config AgentConfig,
+	tools []llm.ToolDefinition,
+	messages []llm.ChatMessage,
+	audit *RunAudit,
+) ([]llm.ChatMessage, bool, error) {
+	audit.Calls++
+	response, err := config.Client.Complete(ctx, llm.ChatRequest{
+		Model: config.Model, Messages: messages, Tools: tools,
+	})
+	if err != nil {
+		return messages, false, fmt.Errorf("DeepSeek completion %d: %w", audit.Calls, err)
+	}
+	audit.InputTokens += response.Usage.InputTokens
+	audit.OutputTokens += response.Usage.OutputTokens
+	messages = append(messages, response.Message)
+	if len(response.Message.ToolCalls) == 0 {
+		return validateAgentWorkspace(config.Root, messages, audit)
+	}
+	for _, call := range response.Message.ToolCalls {
+		audit.ToolCalls++
+		messages = append(messages, llm.ChatMessage{
+			Role:       "tool",
+			Content:    executeTool(config.Root, call),
+			ToolCallID: call.ID,
+		})
+	}
+	if !config.ValidationAfterToolRound {
+		return messages, false, nil
+	}
+	return validateAgentWorkspace(config.Root, messages, audit)
+}
+
+func validateAgentWorkspace(
+	root string,
+	messages []llm.ChatMessage,
+	audit *RunAudit,
+) ([]llm.ChatMessage, bool, error) {
+	audit.Validation = Validate(root)
+	if audit.Validation.Valid {
+		return messages, true, nil
+	}
+	return append(messages, llm.ChatMessage{
+		Role: "user", Content: validationRepairMessage(audit.Validation),
+	}), false, nil
+}
+
+func validationRepairMessage(validation ValidationReport) string {
+	return "The deterministic validator failed. Repair the Wiki and " +
+		"run validate before finishing:\n" + validation.String()
 }
 
 func defaultAgentConfig(config AgentConfig) AgentConfig {

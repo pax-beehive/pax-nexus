@@ -49,6 +49,40 @@ These rules apply to all handwritten Go code in this repository.
   retention and latency separately from recall ranking and do not use them to
   explain recall regressions without stage evidence.
 
+## Knowledge Eval platform runbook
+
+- The API entrypoint is `cmd/knowledge-eval-api`; the dashboard is
+  `web/llmwiki-benchmark-dashboard`; the prepared-dataset pipeline is under
+  `scripts/prepare_llmwiki_session_datasets.py` and
+  `internal/eval/knowledgeeval`.
+- Treat build, artifact support, retrieval, reader output, and answer judging as
+  separate stages. Diagnose a low accuracy score from the compact run metrics
+  and case metadata before inspecting any artifact payload.
+- Do not read or print large Wiki trees, source-session payloads, dataset files,
+  or raw model traces unless the user explicitly asks. Prefer `jq` aggregation
+  over `dataset-run.json`, task state, and bounded samples.
+- Never commit `.build`, `.env*`, credentials, prepared/raw datasets, SQLite
+  demo data, dashboard `public/acceptance`, or generated run artifacts. Keep
+  those paths ignored and verify the staged file list before every commit.
+- Paid maintainer tasks use `DEEPSEEK_API_KEY` from `.env.eval-v2`; the generic
+  `.env` contains different LLM Wiki variables. Source the correct file without
+  printing secret values. Bind the API to `0.0.0.0:58081` for LAN access.
+- Before restarting the API, inspect persisted tasks and do not interrupt a
+  `queued` or `running` task. Restart only when idle, then verify `/healthz` and
+  an experiment preview with `llm_configured=true`.
+- Maintainer QA runs use the semantic answer judge. Preserve per-case
+  `judge_confidence`, `judge_disputed`, `judge_reason_code`, dataset category,
+  and run-level confidence/dispute metrics. Deterministic judging is only the
+  no-LLM/test fallback.
+- Do not let QA evaluator outcomes gate or mutate artifact construction. Build
+  and validation complete before downstream QA evaluation begins.
+- When adding an LLM call per question or arm, update experiment and cohort
+  `MaxLLMCalls` previews and their tests so paid-call confirmation remains
+  accurate.
+- Run focused coverage for changed Knowledge Eval packages, full `go test
+  ./...`, dashboard `npm test`, and scoped golangci-lint. Report unrelated
+  repository-wide lint debt separately rather than modifying it opportunistically.
+
 ## Errors and complexity
 
 - Code comments must use English only and must not contain emoji.
