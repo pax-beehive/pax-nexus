@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { Link } from "react-router-dom";
 import {
   acceptTodoSuggestion,
   completeTodo,
@@ -7,6 +8,7 @@ import {
   refreshTodoSuggestions,
 } from "../api/actions";
 import { listTodoSuggestions, listTodos, type TodoItem, type TodoSuggestion } from "../api/todo";
+import { Button } from "../components/Button";
 import { isAbortError } from "../lib/usePolling";
 import { useErrorHandler } from "../lib/useErrorHandler";
 
@@ -122,22 +124,26 @@ export function TodoPage() {
   const doneTodos = todos.filter((todo) => todo.status === "done");
 
   return (
-    <div>
-      <div className="page-head">
+    <div className="app-fullscreen">
+      <div className="app-fullscreen-inner">
+        <Link className="app-back" to="/apps">
+          ← All apps
+        </Link>
+        <div className="page-head">
         <div>
           <h1>Todos</h1>
-          <p className="muted" style={{ margin: 0 }}>
+          <p className="muted flush">
             Track your work, and act on suggestions team memory has spotted.
           </p>
         </div>
-        <button
-          className="btn primary"
+        <Button
+          variant="primary"
           type="button"
           disabled={refreshing}
           onClick={() => void checkTeamMemory()}
         >
           {refreshing ? "Checking…" : "Check team memory"}
-        </button>
+        </Button>
       </div>
 
       <section className="card" aria-label="Suggestions">
@@ -166,22 +172,24 @@ export function TodoPage() {
                   <p className="muted small">{suggestion.body}</p>
                 </div>
                 <div className="row">
-                  <button
-                    className="btn primary sm"
+                  <Button
+                    variant="primary"
+                    size="sm"
                     type="button"
                     disabled={busyId === suggestion.suggestion_id}
                     onClick={() => void accept(suggestion.suggestion_id)}
                   >
                     Accept
-                  </button>
-                  <button
-                    className="btn ghost sm"
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     type="button"
                     disabled={busyId === suggestion.suggestion_id}
                     onClick={() => void dismiss(suggestion.suggestion_id)}
                   >
                     Dismiss
-                  </button>
+                  </Button>
                 </div>
               </li>
             ))}
@@ -202,9 +210,9 @@ export function TodoPage() {
             value={newTitle}
             onChange={(event) => setNewTitle(event.target.value)}
           />
-          <button className="btn primary" type="submit" disabled={adding || newTitle.trim() === ""}>
+          <Button variant="primary" type="submit" disabled={adding || newTitle.trim() === ""}>
             {adding ? "Adding…" : "Add"}
-          </button>
+          </Button>
         </form>
 
         {loading ? (
@@ -220,14 +228,14 @@ export function TodoPage() {
                 style={{ padding: "8px 0", borderBottom: "1px solid var(--border)" }}
               >
                 <span>{todo.title}</span>
-                <button
-                  className="btn sm"
+                <Button
+                  size="sm"
                   type="button"
                   disabled={busyId === todo.todo_id}
                   onClick={() => void complete(todo.todo_id)}
                 >
                   Complete
-                </button>
+                </Button>
               </li>
             ))}
           </ul>
@@ -244,6 +252,7 @@ export function TodoPage() {
           </ul>
         </details>
       </section>
+      </div>
     </div>
   );
 }

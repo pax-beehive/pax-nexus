@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { apiError } from "../api/client";
 import { acceptInvitation, beginAction } from "../api/actions";
 import { useAuth } from "../auth/AuthContext";
+import { Button } from "../components/Button";
 import { useToast } from "../components/Toasts";
 import {
   clearPendingInvitation,
@@ -91,9 +92,9 @@ export function JoinPage() {
       <>
         <h1>Accept invitation</h1>
         <div className="note warn">No invitation token is available. Open this page with the full invitation link sent by your administrator.</div>
-        <button className="btn ghost" onClick={() => navigate("/")}>
+        <Button variant="ghost" onClick={() => navigate("/")}>
           Back to home
-        </button>
+        </Button>
       </>
     );
   } else if (invalid) {
@@ -104,9 +105,9 @@ export function JoinPage() {
           This invitation is invalid (expired / revoked / already used / email mismatch). All failures show this same
           state to avoid leaking invitation details. Contact your administrator for a new invitation.
         </div>
-        <button className="btn ghost" onClick={() => navigate("/")}>
+        <Button variant="ghost" onClick={() => navigate("/")}>
           Back to home
-        </button>
+        </Button>
       </>
     );
   } else if (state.kind === "loading") {
@@ -116,13 +117,13 @@ export function JoinPage() {
       <>
         <h1>Accept invitation</h1>
         <p className="muted">Sign in to accept the invitation. The invitation continuation is preserved in this tab.</p>
-        <button className="btn primary" onClick={startOidcLogin}>
+        <Button variant="primary" onClick={startOidcLogin}>
           Sign in and continue →
-        </button>
+        </Button>
         <div style={{ marginTop: 10 }}>
-          <button className="btn ghost" onClick={cancel}>
+          <Button variant="ghost" onClick={cancel}>
             Cancel and clear the local token
-          </button>
+          </Button>
         </div>
       </>
     );
@@ -131,9 +132,9 @@ export function JoinPage() {
       <>
         <h1>Accept invitation</h1>
         <div className="note warn">This account already has a Membership; the invitation cannot override your existing role.</div>
-        <button className="btn primary" onClick={() => navigate("/agents")}>
+        <Button variant="primary" onClick={() => navigate("/agents")}>
           Enter the Portal
-        </button>
+        </Button>
       </>
     );
   } else {
@@ -145,13 +146,13 @@ export function JoinPage() {
           Join the team as <code>{email ?? "the current account"}</code>.
         </p>
         <div className="secret-val">{token}</div>
-        <button className="btn primary" disabled={busy} onClick={() => void accept()}>
+        <Button variant="primary" disabled={busy} onClick={() => void accept()}>
           {busy ? "Accepting…" : "Accept invitation"}
-        </button>
+        </Button>
         <div style={{ marginTop: 10 }}>
-          <button className="btn ghost" onClick={cancel}>
+          <Button variant="ghost" onClick={cancel}>
             Cancel and clear the local token
-          </button>
+          </Button>
         </div>
       </>
     );

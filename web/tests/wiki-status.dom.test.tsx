@@ -84,7 +84,8 @@ describe("wiki status page", () => {
 
     const portalNav = screen.getByRole("navigation", { name: "Portal navigation" });
     within(portalNav).getByText("Knowledge");
-    await user.click(within(portalNav).getByRole("link", { name: "Wiki" }));
+    await user.click(within(portalNav).getByRole("link", { name: "Apps" }));
+    await user.click(screen.getByRole("link", { name: /Wiki policy/ }));
 
     await waitFor(() => expect(window.location.pathname).toBe("/wiki"));
     await screen.findByRole("switch");

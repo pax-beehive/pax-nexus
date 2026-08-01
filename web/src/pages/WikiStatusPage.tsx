@@ -16,17 +16,19 @@ import {
   setWikiAutoInject,
   updateWikiSettings,
 } from "../api/actions";
-import { ConfirmDialog } from "../components/ConfirmDialog";
-import { formatTime } from "../lib/format";
+import { Button } from "../components/Button";
 import { isAbortError, usePolling } from "../lib/usePolling";
 import { useErrorHandler } from "../lib/useErrorHandler";
+import { WikiProgressCard } from "./wiki-status/WikiProgressCard";
+import { WikiIngestionCard } from "./wiki-status/WikiIngestionCard";
+import { CUSTOM_LANGUAGE, WikiGenerationCard } from "./wiki-status/WikiGenerationCard";
+import { WikiLLMUsageCard } from "./wiki-status/WikiLLMUsageCard";
+import { WikiRebuildDialog } from "./wiki-status/WikiRebuildDialog";
 
 // Presets shown in the language select; "" is "Follow source evidence".
 // Loading a language outside this list (i.e. previously set to a free-form
 // value) falls back to the "Custom…" option with the value in a text input.
 const LANGUAGE_PRESETS = ["", "简体中文", "English"];
-const CUSTOM_LANGUAGE = "custom";
-const INSTRUCTIONS_MAX_LENGTH = 2000;
 
 export function WikiStatusPage({ me }: { me: HumanMe }) {
   const navigate = useNavigate();
@@ -121,17 +123,6 @@ export function WikiStatusPage({ me }: { me: HumanMe }) {
     return () => controller.abort();
   }, [usageDays]);
 
-  const usageTotals = usage.reduce(
-    (totals, row) => ({
-      calls: totals.calls + row.calls,
-      input_tokens: totals.input_tokens + row.input_tokens,
-      cache_hit_tokens: totals.cache_hit_tokens + row.cache_hit_tokens,
-      cache_miss_tokens: totals.cache_miss_tokens + row.cache_miss_tokens,
-      output_tokens: totals.output_tokens + row.output_tokens,
-    }),
-    { calls: 0, input_tokens: 0, cache_hit_tokens: 0, cache_miss_tokens: 0, output_tokens: 0 },
-  );
-
   const saveSettings = async () => {
     setSettingsBusy(true);
     setSettingsMessage("");
@@ -210,8 +201,6 @@ export function WikiStatusPage({ me }: { me: HumanMe }) {
     }
   };
 
-  const progressAvailable = !statusError && status?.pending_sessions !== undefined;
-
   return (
     <div className="wiki">
       <header className="wiki-header">
@@ -220,247 +209,53 @@ export function WikiStatusPage({ me }: { me: HumanMe }) {
           <h1>Wiki</h1>
           <p className="muted">Ingestion status and extraction progress for the team wiki.</p>
         </div>
-        <button className="btn primary" type="button" onClick={() => navigate("/wiki/browse")}>
+        <Button variant="primary" type="button" onClick={() => navigate("/wiki/browse")}>
           Open Wiki
-        </button>
+        </Button>
       </header>
 
-      <section className="card wiki-progress" aria-label="Extraction progress">
-        <div className="wiki-ingestion-copy">
-          <span className="wiki-eyebrow">Extraction</span>
-          <strong>Progress</strong>
-        </div>
-        {progressAvailable ? (
-          <div className="wiki-progress-stats">
-            <div>
-              <span className="muted small">Pending sessions</span>
-              <strong className="wiki-progress-figure">{status?.pending_sessions}</strong>
-            </div>
-            <div>
-              <span className="muted small">Last processed</span>
-              <strong className="wiki-progress-figure">
-                {status?.last_processed_at ? formatTime(status.last_processed_at) : "Never"}
-              </strong>
-            </div>
-          </div>
-        ) : (
-          <p className="muted small">Progress is unavailable.</p>
-        )}
-      </section>
+      <WikiProgressCard status={status} statusError={statusError} />
 
-      <section className="card wiki-ingestion" aria-label="Wiki ingestion controls">
-        <div className="wiki-ingestion-copy">
-          <span className="wiki-eyebrow">Session Lake</span>
-          <strong>Automatic Wiki injection</strong>
-          <span className="muted small">
-            Uses an independent PageWiki cursor; Team Note extraction is unaffected.
-          </span>
-        </div>
-        <button
-          className={autoInject ? "wiki-switch active" : "wiki-switch"}
-          type="button"
-          role="switch"
-          aria-checked={autoInject}
-          disabled={loading || busy}
-          onClick={() => void toggleAutoInject()}
-        >
-          <span aria-hidden="true" />
-          {autoInject ? "On" : "Off"}
-        </button>
-        <div className="wiki-fixed-session">
-          <label htmlFor="wiki-session-id">Fixed session ID</label>
-          <input
-            id="wiki-session-id"
-            value={sessionID}
-            placeholder="e.g. 019fa46f-…"
-            onChange={(event) => setSessionID(event.target.value)}
-          />
-          <button
-            className="btn primary"
-            type="button"
-            disabled={busy || sessionID.trim() === ""}
-            onClick={() => void injectFixedSession()}
-          >
-            {busy ? "Injecting…" : "Inject session"}
-          </button>
-        </div>
-        {me.role === "owner" && (
-          <div className="wiki-reset">
-            <div>
-              <strong>Start over with current Session Lake evidence</strong>
-              <span className="muted small">
-                Clears PageWiki-derived data and rebuilds it with the currently configured organizer.
-              </span>
-            </div>
-            <button
-              className="btn danger"
-              type="button"
-              disabled={busy}
-              onClick={() => setRebuildOpen(true)}
-            >
-              Reset & rebuild
-            </button>
-          </div>
-        )}
-        {message && <p className="wiki-ingestion-message">{message}</p>}
-      </section>
+      <WikiIngestionCard
+        autoInject={autoInject}
+        loading={loading}
+        busy={busy}
+        sessionID={sessionID}
+        message={message}
+        isOwner={me.role === "owner"}
+        onSessionIDChange={setSessionID}
+        onToggleAutoInject={toggleAutoInject}
+        onInjectFixedSession={injectFixedSession}
+        onOpenRebuild={() => setRebuildOpen(true)}
+      />
 
-      <section className="card wiki-generation" aria-label="Wiki generation settings">
-        <div className="wiki-ingestion-copy">
-          <span className="wiki-eyebrow">Generation</span>
-          <strong>Language & instructions</strong>
-          <span className="muted small">
-            Applies to future generation runs only. Use Rebuild to switch the whole wiki.
-          </span>
-        </div>
-        <div className="wiki-generation-fields">
-          <label htmlFor="wiki-generation-language">Language</label>
-          <select
-            id="wiki-generation-language"
-            value={language}
-            disabled={settingsBusy}
-            onChange={(event) => setLanguage(event.target.value)}
-          >
-            <option value="">Follow source evidence</option>
-            <option value="简体中文">简体中文</option>
-            <option value="English">English</option>
-            <option value={CUSTOM_LANGUAGE}>Custom…</option>
-          </select>
-          {language === CUSTOM_LANGUAGE && (
-            <>
-              <label htmlFor="wiki-generation-custom-language">Custom language</label>
-              <input
-                id="wiki-generation-custom-language"
-                value={customLanguage}
-                placeholder="e.g. 日本語"
-                disabled={settingsBusy}
-                onChange={(event) => setCustomLanguage(event.target.value)}
-              />
-            </>
-          )}
-          <label htmlFor="wiki-generation-instructions">Custom instructions</label>
-          <textarea
-            id="wiki-generation-instructions"
-            value={instructions}
-            maxLength={INSTRUCTIONS_MAX_LENGTH}
-            disabled={settingsBusy}
-            onChange={(event) => setInstructions(event.target.value)}
-          />
-          <span className="muted small">
-            {INSTRUCTIONS_MAX_LENGTH - instructions.length} characters left
-          </span>
-          <button
-            className="btn primary"
-            type="button"
-            disabled={settingsBusy}
-            onClick={() => void saveSettings()}
-          >
-            {settingsBusy ? "Saving…" : "Save generation settings"}
-          </button>
-        </div>
-        {settingsMessage && <p className="wiki-ingestion-message">{settingsMessage}</p>}
-      </section>
+      <WikiGenerationCard
+        language={language}
+        customLanguage={customLanguage}
+        instructions={instructions}
+        settingsBusy={settingsBusy}
+        settingsMessage={settingsMessage}
+        onLanguageChange={setLanguage}
+        onCustomLanguageChange={setCustomLanguage}
+        onInstructionsChange={setInstructions}
+        onSave={saveSettings}
+      />
 
-      <section className="card wiki-llm-usage" aria-label="LLM token usage">
-        <div className="wiki-llm-usage-header">
-          <div className="wiki-ingestion-copy">
-            <span className="wiki-eyebrow">Provider spend</span>
-            <strong>LLM token usage</strong>
-          </div>
-          <div className="wiki-llm-usage-window">
-            <label htmlFor="wiki-llm-usage-window">Window</label>
-            <select
-              id="wiki-llm-usage-window"
-              value={usageDays}
-              onChange={(event) => setUsageDays(Number(event.target.value))}
-            >
-              <option value={1}>24h</option>
-              <option value={7}>7d</option>
-              <option value={30}>30d</option>
-            </select>
-          </div>
-        </div>
-        {usageError && usage.length === 0 ? (
-          <p className="muted small">LLM usage is unavailable.</p>
-        ) : usage.length === 0 ? (
-          <p className="muted small">No LLM calls recorded in this window.</p>
-        ) : (
-          <>
-            {usageError && (
-              <p className="muted small">
-                LLM usage refresh failed; showing the last successful window.
-              </p>
-            )}
-            <table className="wiki-llm-usage-table">
-              <thead>
-                <tr>
-                  <th>Component</th>
-                  <th>Model</th>
-                  <th>Calls</th>
-                  <th>Input</th>
-                  <th>Cache hit</th>
-                  <th>Cache miss</th>
-                  <th>Output</th>
-                </tr>
-              </thead>
-              <tbody>
-                {usage.map((row) => (
-                  <tr key={`${row.component}-${row.model}`}>
-                    <td>{row.component}</td>
-                    <td>{row.model}</td>
-                    <td>{row.calls.toLocaleString()}</td>
-                    <td>{row.input_tokens.toLocaleString()}</td>
-                    <td>{row.cache_hit_tokens.toLocaleString()}</td>
-                    <td>{row.cache_miss_tokens.toLocaleString()}</td>
-                    <td>{row.output_tokens.toLocaleString()}</td>
-                  </tr>
-                ))}
-                <tr className="wiki-llm-usage-totals">
-                  <td>Total</td>
-                  <td />
-                  <td>{usageTotals.calls.toLocaleString()}</td>
-                  <td>{usageTotals.input_tokens.toLocaleString()}</td>
-                  <td>{usageTotals.cache_hit_tokens.toLocaleString()}</td>
-                  <td>{usageTotals.cache_miss_tokens.toLocaleString()}</td>
-                  <td>{usageTotals.output_tokens.toLocaleString()}</td>
-                </tr>
-              </tbody>
-            </table>
-          </>
-        )}
-      </section>
+      <WikiLLMUsageCard
+        usageDays={usageDays}
+        usage={usage}
+        usageError={usageError}
+        onUsageDaysChange={setUsageDays}
+      />
 
       {rebuildOpen && (
-        <ConfirmDialog
-          title="Reset and rebuild Wiki"
-          consequences={[
-            "All PageWiki pages, revisions, links, citations, and maintenance runs will be deleted.",
-            rebuildSince
-              ? `Only sessions with activity on or after ${rebuildSince} will be replayed; older sessions will be skipped until a wider rebuild.`
-              : "PageWiki ingestion cursors will reset and every Session Lake stream will be processed again.",
-            "Session Lake events and Team Notes are preserved.",
-            "An LLM-backed rebuild may make paid provider calls.",
-          ]}
-          confirmLabel="Confirm reset & rebuild"
+        <WikiRebuildDialog
           busy={busy}
-          onConfirm={() => void confirmRebuild()}
+          rebuildSince={rebuildSince}
+          onRebuildSinceChange={setRebuildSince}
+          onConfirm={confirmRebuild}
           onClose={closeRebuild}
-        >
-          <div className="wiki-rebuild-since">
-            <label htmlFor="wiki-rebuild-since">Replay sessions since (optional)</label>
-            <input
-              id="wiki-rebuild-since"
-              type="date"
-              value={rebuildSince}
-              max={new Intl.DateTimeFormat("en-CA").format(new Date())}
-              onChange={(event) => setRebuildSince(event.target.value)}
-              disabled={busy}
-            />
-            <span className="muted small">
-              Leave empty to replay the full Session Lake history.
-            </span>
-          </div>
-        </ConfirmDialog>
+        />
       )}
     </div>
   );

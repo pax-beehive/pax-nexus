@@ -7,6 +7,7 @@ import { canManageTargetRole } from "../lib/capabilities";
 import { usePagedList } from "../lib/usePagedList";
 import { useErrorHandler } from "../lib/useErrorHandler";
 import { Badge, RoleBadge } from "../components/Badge";
+import { Button } from "../components/Button";
 import { Modal } from "../components/Modal";
 import { PagedListCard } from "../components/PagedListCard";
 import { useToast } from "../components/Toasts";
@@ -94,12 +95,12 @@ function EditMemberModal({
         Enrollments; reactivation does not restore old keys. removed is terminal and can only be re-invited.
       </div>
       <div className="row" style={{ justifyContent: "flex-end" }}>
-        <button className="btn ghost" onClick={onClose} disabled={busy}>
+        <Button variant="ghost" onClick={onClose} disabled={busy}>
           Cancel
-        </button>
-        <button className="btn primary" disabled={busy} onClick={() => void save()}>
+        </Button>
+        <Button variant="primary" disabled={busy} onClick={() => void save()}>
           {busy ? "Saving…" : "Save"}
-        </button>
+        </Button>
       </div>
     </Modal>
   );
@@ -131,18 +132,17 @@ export function AdminMembersPage({ me }: { me: HumanMe }) {
       <div className="page-head">
         <div>
           <h1>Members</h1>
-          <p className="muted" style={{ margin: 0 }}>
+          <p className="muted flush">
             Owners can manage all roles; Admins can only manage Members
           </p>
         </div>
       </div>
-      <div className="row wrap" style={{ gap: 10, marginBottom: 14, alignItems: "center" }}>
+      <div className="toolbar" style={{ marginBottom: 14 }}>
         <label className="filter-label" htmlFor="member-status-filter">
           Status
         </label>
         <select
           id="member-status-filter"
-          style={{ width: 150 }}
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
         >
@@ -157,7 +157,6 @@ export function AdminMembersPage({ me }: { me: HumanMe }) {
         </label>
         <select
           id="member-role-filter"
-          style={{ width: 150 }}
           value={roleFilter}
           onChange={(e) => setRoleFilter(e.target.value)}
         >
@@ -191,9 +190,9 @@ export function AdminMembersPage({ me }: { me: HumanMe }) {
               <td className="small mono">v{m.resource_version}</td>
               <td>
                 {manageable ? (
-                  <button className="btn sm" onClick={() => setEditing(m)}>
+                  <Button size="sm" onClick={() => setEditing(m)}>
                     Edit
-                  </button>
+                  </Button>
                 ) : (
                   <span className="faint small">{m.status === "removed" ? "Terminal" : "No permission"}</span>
                 )}

@@ -12,6 +12,7 @@ import { aliveProvisionedAgents } from "../lib/devices";
 import { useErrorHandler } from "../lib/useErrorHandler";
 import { formatTime } from "../lib/format";
 import { Badge } from "../components/Badge";
+import { Button } from "../components/Button";
 import { Modal } from "../components/Modal";
 import { useToast } from "../components/Toasts";
 
@@ -87,12 +88,12 @@ function RevokeDeviceModal({
         </>
       )}
       <div className="row" style={{ justifyContent: "flex-end" }}>
-        <button className="btn ghost" onClick={onClose} disabled={busy}>
+        <Button variant="ghost" onClick={onClose} disabled={busy}>
           Cancel
-        </button>
-        <button className="btn danger" disabled={busy} onClick={() => void submit()}>
+        </Button>
+        <Button variant="danger" disabled={busy} onClick={() => void submit()}>
           {busy ? "Revoking…" : "Confirm revocation"}
-        </button>
+        </Button>
       </div>
     </Modal>
   );
@@ -156,9 +157,9 @@ export function AdminDeviceDetailPage() {
         </div>
         <div className="row">
           {device.status === "active" && (
-            <button className="btn danger" onClick={() => setRevokeOpen(true)}>
+            <Button variant="danger" onClick={() => setRevokeOpen(true)}>
               Revoke Device
-            </button>
+            </Button>
           )}
           <Link to="/admin/devices" className="btn ghost">
             ← Back

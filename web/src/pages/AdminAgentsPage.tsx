@@ -8,6 +8,7 @@ import { can } from "../lib/capabilities";
 import { usePagedList } from "../lib/usePagedList";
 import { useErrorHandler } from "../lib/useErrorHandler";
 import { Badge, ProvisionedByBadge } from "../components/Badge";
+import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Modal } from "../components/Modal";
 import { PagedListCard } from "../components/PagedListCard";
@@ -76,12 +77,12 @@ function TransferModal({
         Transfer revokes all Credentials and pending Enrollments under the old Owner; the new Owner must issue a new Enrollment.
       </div>
       <div className="row" style={{ justifyContent: "flex-end" }}>
-        <button className="btn ghost" onClick={onClose} disabled={busy}>
+        <Button variant="ghost" onClick={onClose} disabled={busy}>
           Cancel
-        </button>
-        <button className="btn danger" disabled={!target || busy} onClick={() => void submit()}>
+        </Button>
+        <Button variant="danger" disabled={!target || busy} onClick={() => void submit()}>
           {busy ? "Transferring…" : "Confirm transfer"}
-        </button>
+        </Button>
       </div>
     </Modal>
   );
@@ -174,15 +175,14 @@ export function AdminAgentsPage({ me }: { me: HumanMe }) {
       <div className="page-head">
         <div>
           <h1>All Agents</h1>
-          <p className="muted" style={{ margin: 0 }}>
+          <p className="muted flush">
             Admins can only suspend; edit, resume, retire, and transfer are Owner-only
           </p>
         </div>
       </div>
-      <div className="row wrap" style={{ marginBottom: 14, gap: 10 }}>
+      <div className="toolbar" style={{ marginBottom: 14 }}>
         <input
           type="text"
-          style={{ width: 240 }}
           placeholder="Search by name or ID (q)"
           value={qInput}
           onChange={(e) => setQInput(e.target.value)}
@@ -190,11 +190,10 @@ export function AdminAgentsPage({ me }: { me: HumanMe }) {
             if (e.key === "Enter") setQ(qInput.trim());
           }}
         />
-        <button className="btn sm" onClick={() => setQ(qInput.trim())}>
+        <Button size="sm" onClick={() => setQ(qInput.trim())}>
           Search
-        </button>
+        </Button>
         <select
-          style={{ width: 220 }}
           aria-label="Owner filter"
           value={ownerFilter}
           onChange={(e) => setOwnerFilter(e.target.value)}
@@ -207,7 +206,7 @@ export function AdminAgentsPage({ me }: { me: HumanMe }) {
           ))}
         </select>
       </div>
-      <div className="tabs" role="group" aria-label="agent status">
+      <div className="seg" role="group" aria-label="agent status">
         {STATUS_FILTERS.map((s) => (
           <button
             key={s}
@@ -248,22 +247,23 @@ export function AdminAgentsPage({ me }: { me: HumanMe }) {
                 ) : (
                   <span className="row wrap">
                     {a.status === "active" && maySuspend && (
-                      <button
-                        className="btn sm danger"
+                      <Button
+                        variant="danger"
+                        size="sm"
                         onClick={() => setPending({ kind: "suspend", agent: a })}
                       >
                         Suspend
-                      </button>
+                      </Button>
                     )}
                     {a.status === "suspended" && mayGovern && (
-                      <button className="btn sm" onClick={() => setPending({ kind: "resume", agent: a })}>
+                      <Button size="sm" onClick={() => setPending({ kind: "resume", agent: a })}>
                         Resume
-                      </button>
+                      </Button>
                     )}
                     {mayGovern && (
-                      <button className="btn sm" onClick={() => setPending({ kind: "transfer", agent: a })}>
+                      <Button size="sm" onClick={() => setPending({ kind: "transfer", agent: a })}>
                         Transfer
-                      </button>
+                      </Button>
                     )}
                   </span>
                 )}

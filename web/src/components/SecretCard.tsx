@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { useToast } from "./Toasts";
 import { Countdown } from "./Countdown";
+import { Button } from "./Button";
 import { copyTextToClipboard } from "../lib/clipboard";
 
 async function copyText(text: string, what: string, toast: (k: "ok" | "warn", m: string) => void) {
@@ -47,13 +48,13 @@ export function SecretCard({
       </div>
       <div className="secret-val">{value}</div>
       <div className="row wrap">
-        <button className="btn sm primary" onClick={() => void copyText(value, valueLabel, toast)}>
+        <Button variant="primary" size="sm" onClick={() => void copyText(value, valueLabel, toast)}>
           Copy {valueLabel}
-        </button>
+        </Button>
         {extraActions}
-        <button className="btn sm ghost" onClick={onClose}>
+        <Button variant="ghost" size="sm" onClick={onClose}>
           I've saved it, close
-        </button>
+        </Button>
       </div>
       <div className="note warn small" style={{ marginBottom: 0 }}>
         {note}

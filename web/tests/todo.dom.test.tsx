@@ -32,9 +32,10 @@ const doneTodo = {
   status: "done" as const,
 };
 
-/** Navigate to /todo the way a user would: through the sidebar link. */
+/** Navigate to /todo the way a user would: sidebar Apps link, then the Todos card. */
 async function goToTodos(user: { click: (el: Element) => Promise<void> }) {
-  await user.click(screen.getByRole("link", { name: "Todos" }));
+  await user.click(screen.getByRole("link", { name: "Apps" }));
+  await user.click(await screen.findByRole("link", { name: /Todos/ }));
   await screen.findByRole("heading", { level: 1, name: "Todos" });
 }
 
