@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 )
 
 // RunCurationRound runs one curation pass over the Page catalog: it detects
@@ -128,6 +129,34 @@ func (s *Service) RunCurationRound(ctx context.Context) (CurationRun, error) {
 		s.markTreeDirty()
 	}
 	return run, nil
+}
+
+// StartCurationMaintenance runs curation rounds in the background on a
+// fixed tick: WithCurator must have configured a Curator/embedder and a
+// positive CurationConfig.Interval, or this is a no-op — curation stays
+// entirely opt-in, and an Interval of 0 (the zero value) disables the loop
+// without starting a busy ticker. Each tick calls RunCurationRound; any
+// error is logged and the loop keeps ticking rather than stopping, so one
+// bad round (e.g. the curator briefly unreachable) never wedges curation
+// until process restart. It stops when ctx is cancelled.
+func (s *Service) StartCurationMaintenance(ctx context.Context) {
+	if s.curator == nil || s.curationConfig.Interval <= 0 {
+		return
+	}
+	go func() {
+		ticker := time.NewTicker(s.curationConfig.Interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if _, err := s.RunCurationRound(ctx); err != nil {
+					s.logger.Warn("Page Wiki curation round failed", "error", err)
+				}
+			}
+		}
+	}()
 }
 
 // curationVectors resolves an embedding vector for every catalog page: a
