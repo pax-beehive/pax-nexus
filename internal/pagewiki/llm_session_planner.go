@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/pax-beehive/pax-nexus/internal/platform/llm"
 	"github.com/pax-beehive/pax-nexus/internal/platform/observability"
@@ -19,6 +20,8 @@ const (
 	plannerMaxRelatedPages = 4
 	planDegradedBriefKey   = "plan-degraded"
 	planEmptyBriefKey      = "source-only"
+	plannerTitleMaxWords   = 9
+	plannerTitleMaxRunes   = 80
 )
 
 type LLMPlannerConfig struct {
@@ -247,7 +250,7 @@ func acceptBrief(candidate llmPlanBrief, input PlanInput) (PageBrief, bool) {
 		slug := strings.Trim(nonSlugCharacter.ReplaceAllString(
 			strings.ToLower(candidate.ProposedSlug), "-",
 		), "-")
-		title := strings.TrimSpace(candidate.ProposedTitle)
+		title := normalizeProposedTitle(candidate.ProposedTitle)
 		if slug == "" || title == "" {
 			return PageBrief{}, false
 		}
@@ -269,6 +272,20 @@ func acceptBrief(candidate llmPlanBrief, input PlanInput) (PageBrief, bool) {
 	default:
 		return PageBrief{}, false
 	}
+}
+
+// normalizeProposedTitle trims the title and strips trailing periods; it
+// returns "" for titles long enough to read as sentences, which drops the
+// brief the same way an empty title does. The bounds are looser than the
+// prompt's five-word rule on purpose: the prompt shapes, the guard only
+// catches egregious sentence-titles.
+func normalizeProposedTitle(raw string) string {
+	title := strings.TrimSpace(strings.TrimRight(strings.TrimSpace(raw), ".。"))
+	if utf8.RuneCountInString(title) > plannerTitleMaxRunes ||
+		len(strings.Fields(title)) > plannerTitleMaxWords {
+		return ""
+	}
+	return title
 }
 
 func catalogBySlug(catalog PageCatalog, slug string) (PageCatalogEntry, bool) {
