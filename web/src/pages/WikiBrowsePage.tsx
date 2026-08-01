@@ -303,17 +303,6 @@ export function WikiBrowsePage() {
                   <span className="mono faint">{revision.id}</span>
                 </div>
 
-                <section className="wiki-connected" aria-label="Connected knowledge">
-                  <div>
-                    <span className="wiki-eyebrow">Bidirectional context</span>
-                    <h2>Connected knowledge</h2>
-                  </div>
-                  <div className="wiki-link-counts">
-                    <span>{links.outgoing.length} outgoing</span>
-                    <span>{links.incoming.length} incoming</span>
-                  </div>
-                </section>
-
                 <WikiMarkdown
                   revision={revision}
                   relations={inlineRelations}
