@@ -50,6 +50,9 @@ WHERE scope_id = $1 ORDER BY created_at, source_revision_id`, func(payload []byt
 	if err := r.hydratePublications(ctx, legacyPages); err != nil {
 		return fmt.Errorf("hydrate Page Wiki publications: %w", err)
 	}
+	if err := r.hydrateLifecycleEvents(ctx); err != nil {
+		return fmt.Errorf("hydrate Page Wiki lifecycle events: %w", err)
+	}
 	if err := r.loadRows(ctx, `
 SELECT payload FROM pagewiki_maintenance_runs
 WHERE scope_id = $1 ORDER BY created_at, run_id`, func(payload []byte) error {
@@ -60,6 +63,28 @@ WHERE scope_id = $1 ORDER BY created_at, run_id`, func(payload []byte) error {
 		return r.memory.SaveMaintenanceRun(ctx, run)
 	}); err != nil {
 		return fmt.Errorf("hydrate Page Wiki runs: %w", err)
+	}
+	if err := r.loadRows(ctx, `
+SELECT payload FROM pagewiki_curation_runs
+WHERE scope_id = $1 ORDER BY created_at, run_id`, func(payload []byte) error {
+		var run pagewiki.CurationRun
+		if err := json.Unmarshal(payload, &run); err != nil {
+			return err
+		}
+		return r.memory.SaveCurationRun(ctx, run)
+	}); err != nil {
+		return fmt.Errorf("hydrate Page Wiki curation runs: %w", err)
+	}
+	if err := r.loadRows(ctx, `
+SELECT payload FROM pagewiki_page_embeddings
+WHERE scope_id = $1`, func(payload []byte) error {
+		var embedding pagewiki.PageEmbedding
+		if err := json.Unmarshal(payload, &embedding); err != nil {
+			return err
+		}
+		return r.memory.SavePageEmbedding(ctx, embedding)
+	}); err != nil {
+		return fmt.Errorf("hydrate Page Wiki page embeddings: %w", err)
 	}
 	if err := r.loadRows(ctx, `
 SELECT payload FROM pagewiki_topic_trees
@@ -106,6 +131,27 @@ WHERE scope_id = $1 ORDER BY ordinal`, func(payload []byte) error {
 			return nil
 		}
 		return r.memory.PublishPage(ctx, publication)
+	})
+}
+
+// hydrateLifecycleEvents replays the retire log after publications have been
+// applied. A retire event whose page was later revived by a newer publication
+// (already applied above) no longer matches its ExpectedBaseRevisionID, so
+// the CAS check in memory.RetirePage rejects it; that rejection is expected
+// and is swallowed here rather than treated as a hydration failure.
+func (r *Repository) hydrateLifecycleEvents(ctx context.Context) error {
+	return r.loadRows(ctx, `
+SELECT payload FROM pagewiki_page_lifecycle
+WHERE scope_id = $1 ORDER BY ordinal`, func(payload []byte) error {
+		var request pagewiki.RetireRequest
+		if err := json.Unmarshal(payload, &request); err != nil {
+			return err
+		}
+		err := r.memory.RetirePage(ctx, request)
+		if err == nil || errors.Is(err, pagewiki.ErrRevisionConflict) || errors.Is(err, pagewiki.ErrNotFound) {
+			return nil
+		}
+		return err
 	})
 }
 
@@ -269,6 +315,9 @@ func (r *Repository) RebuildPageWiki(
 		"DELETE FROM pagewiki_publications WHERE scope_id = $1",
 		"DELETE FROM pagewiki_source_revisions WHERE scope_id = $1",
 		"DELETE FROM pagewiki_topic_trees WHERE scope_id = $1",
+		"DELETE FROM pagewiki_page_lifecycle WHERE scope_id = $1",
+		"DELETE FROM pagewiki_curation_runs WHERE scope_id = $1",
+		"DELETE FROM pagewiki_page_embeddings WHERE scope_id = $1",
 	} {
 		if _, err := tx.Exec(ctx, query, scopeID); err != nil {
 			return fmt.Errorf("rebuild Page Wiki: clear derived state: %w", err)
@@ -350,11 +399,18 @@ func (r *Repository) PageRevisionHistory(ctx context.Context, pageID string) ([]
 	return r.memory.PageRevisionHistory(ctx, pageID)
 }
 
-// RetirePage delegates to the in-memory repository so the interface is
-// satisfied and in-process behavior is correct; persistence of the retire
-// lifecycle event and hydration replay land in a later task.
+// RetirePage delegates to the in-memory repository for CAS validation, then
+// persists the retire event keyed by page + expected base revision so
+// hydration can replay it (see hydrateLifecycleEvents).
 func (r *Repository) RetirePage(ctx context.Context, request pagewiki.RetireRequest) error {
-	return r.memory.RetirePage(ctx, request)
+	if err := r.memory.RetirePage(ctx, request); err != nil {
+		return err
+	}
+	eventID := request.PageID + ":" + request.ExpectedBaseRevisionID
+	return r.insertJSON(ctx, `
+INSERT INTO pagewiki_page_lifecycle (scope_id, event_id, payload)
+VALUES ($1, $2, $3)
+ON CONFLICT (scope_id, event_id) DO NOTHING`, eventID, request)
 }
 
 func (r *Repository) Navigation(ctx context.Context) (pagewiki.Navigation, error) {
@@ -381,28 +437,48 @@ func (r *Repository) MaintenanceRun(ctx context.Context, id string) (pagewiki.Ma
 	return r.memory.MaintenanceRun(ctx, id)
 }
 
-// SaveCurationRun delegates to the in-memory repository so the interface is
-// satisfied; Task 3 adds persistence and hydration replay.
+// SaveCurationRun delegates to the in-memory repository so it validates
+// immutability, then persists the run for hydration replay.
 func (r *Repository) SaveCurationRun(ctx context.Context, run pagewiki.CurationRun) error {
-	return r.memory.SaveCurationRun(ctx, run)
+	if err := r.memory.SaveCurationRun(ctx, run); err != nil {
+		return err
+	}
+	return r.insertJSON(ctx, `
+INSERT INTO pagewiki_curation_runs (scope_id, run_id, payload)
+VALUES ($1, $2, $3)
+ON CONFLICT (scope_id, run_id) DO NOTHING`, run.ID, run)
 }
 
-// CurationRun delegates to the in-memory repository so the interface is
-// satisfied; Task 3 adds persistence and hydration replay.
+// CurationRun reads from the in-memory repository, which is hydrated from
+// pagewiki_curation_runs on startup.
 func (r *Repository) CurationRun(ctx context.Context, id string) (pagewiki.CurationRun, error) {
 	return r.memory.CurationRun(ctx, id)
 }
 
-// PageEmbeddings delegates to the in-memory repository so the interface is
-// satisfied; Task 3 adds persistence and hydration replay.
+// PageEmbeddings reads from the in-memory repository, which is hydrated from
+// pagewiki_page_embeddings on startup.
 func (r *Repository) PageEmbeddings(ctx context.Context) ([]pagewiki.PageEmbedding, error) {
 	return r.memory.PageEmbeddings(ctx)
 }
 
-// SavePageEmbedding delegates to the in-memory repository so the interface is
-// satisfied; Task 3 adds persistence and hydration replay.
+// SavePageEmbedding delegates to the in-memory repository, then upserts the
+// embedding so later saves for the same page overwrite the persisted row.
 func (r *Repository) SavePageEmbedding(ctx context.Context, embedding pagewiki.PageEmbedding) error {
-	return r.memory.SavePageEmbedding(ctx, embedding)
+	if err := r.memory.SavePageEmbedding(ctx, embedding); err != nil {
+		return err
+	}
+	payload, err := json.Marshal(embedding)
+	if err != nil {
+		return fmt.Errorf("marshal Page Wiki page embedding %q: %w", embedding.PageID, err)
+	}
+	if _, err := r.pool.Exec(ctx, `
+INSERT INTO pagewiki_page_embeddings (scope_id, page_id, payload)
+VALUES ($1, $2, $3)
+ON CONFLICT (scope_id, page_id) DO UPDATE
+SET payload = EXCLUDED.payload, updated_at = NOW()`, r.scopeID, embedding.PageID, payload); err != nil {
+		return fmt.Errorf("persist Page Wiki page embedding %q: %w", embedding.PageID, err)
+	}
+	return nil
 }
 
 // SourceRevisionOrdinals delegates to the in-memory repository so the
