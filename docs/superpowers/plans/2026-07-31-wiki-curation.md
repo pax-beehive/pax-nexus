@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- Spec deviations agreed during planning: merge-survivor tie-break is the lexicographically smaller PageID (the domain records no creation time); carried-forward links are rebuilt as a `Related knowledge` section from the union of outgoing link targets (old byte-anchored links cannot survive a full-text rewrite); the spec's `RetiredAt` field is dropped — the pagewiki domain is clock-free, and the postgres lifecycle row's `created_at` already records when the retire happened.
+- Spec deviations agreed during planning: merge-survivor tie-break is the lexicographically smaller PageID (the domain records no creation time); carried-forward links are rebuilt as a `Related knowledge` section from the union of outgoing link targets (old byte-anchored links cannot survive a full-text rewrite); the spec's `RetiredAt` field is dropped — the pagewiki domain is clock-free, and the postgres lifecycle row's `created_at` already records when the retire happened. Also recorded post-review: merge self-heal always republishes the survivor draft rather than taking the `revisionsEquivalent` no-op path the spec describes — LLM drafts are rarely byte-identical, convergence still holds via the retire retry, and the redundant revision is bounded to one per self-heal round.
 - Env vars: `LLMWIKI_CURATION_INTERVAL` (default `24h`, `0` disables), `LLMWIKI_CURATION_PAIR_LIMIT` (default 8), `LLMWIKI_CURATION_PAGE_LIMIT` (default 8).
 - Code constants: similarity threshold `0.86`, quality body floor `400` bytes.
 - Token metering component: `wiki-curator`.
