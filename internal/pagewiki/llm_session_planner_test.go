@@ -494,3 +494,11 @@ func (s *llmSessionPlannerSuite) TestRejectsSentenceShapedTitles() {
 	s.Equal("nine-word-title", briefs[0].ProposedSlug)
 	s.Equal("One Two Three Four Five Six Seven Eight Nine", briefs[0].ProposedTitle)
 }
+
+func (s *llmSessionPlannerSuite) TestPlannerPromptPinsConceptIdentityAndTitleStyle() {
+	prompt := pagewiki.PageWikiPlannerPromptForTest
+	s.Contains(prompt, "durable concept")
+	s.Contains(prompt, "never an activity")
+	s.Contains(prompt, "at most five words")
+	s.Contains(prompt, "no trailing period")
+}

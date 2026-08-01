@@ -382,6 +382,16 @@ that establish no lasting convention; code diffs and fragments; JSON or log
 output; tool transcripts; agent system or skill instructions; branch names;
 and timestamps. When in doubt, skip.
 
+A page's subject is a durable concept — a component, subsystem, decision,
+convention, or domain fact — never an activity, task, fix, or session.
+Before proposing a create, name the concept the evidence is about: the
+page is about that concept, and this session's events are only new
+evidence for it. proposed_title is a concise noun phrase naming that
+concept — at most five words, never a sentence, no trailing period, and
+never opening with a verb or gerund such as "Fixing", "Adding",
+"Improving", or "Updating". "Xanadu Links" is a title; "Fixing xanadu
+links on the planner path" is not.
+
 Updating an existing page is the rule, not a preference: when any page in
 pages covers the same subject or a parent subject, or the new evidence
 continues that subject's story, the action MUST be update with that page's
