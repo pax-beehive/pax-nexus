@@ -233,6 +233,13 @@ func (s *llmSessionEditorSuite) TestZeroGenerationDirectivesLeaveSystemPromptUnc
 	s.Equal(pagewiki.PageWikiEnglishEditorPromptForTest, client.requests[0].Messages[0].Content)
 }
 
+func (s *llmSessionEditorSuite) TestEditorPromptPinsConceptTitleStyle() {
+	prompt := pagewiki.PageWikiEnglishEditorPromptForTest
+	s.Contains(prompt, "concise noun phrase")
+	s.Contains(prompt, "at most five words")
+	s.Contains(prompt, "keep it")
+}
+
 type wikiChatClient struct {
 	mu       sync.Mutex
 	requests []llm.ChatRequest

@@ -278,6 +278,10 @@ Return exactly one JSON object with this shape and no Markdown fence:
 
 Write every generated title, summary, heading, and prose sentence in English,
 regardless of the language of the evidence. Preserve proper nouns accurately.
+The title is a concise noun phrase naming the page's concept — at most five words,
+never a sentence, no trailing period; when current_text already carries such a
+title, keep it rather than rewriting it. Each section heading is likewise a short
+noun phrase, not a sentence.
 evidence lists the exact quotes that will be cited; evidence_context carries
 the full source material they come from. Ground every claim in that
 material: preserve attribution, negation, scope, uncertainty, and

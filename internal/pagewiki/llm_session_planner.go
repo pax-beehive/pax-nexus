@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/pax-beehive/pax-nexus/internal/platform/llm"
 	"github.com/pax-beehive/pax-nexus/internal/platform/observability"
@@ -19,6 +20,8 @@ const (
 	plannerMaxRelatedPages = 4
 	planDegradedBriefKey   = "plan-degraded"
 	planEmptyBriefKey      = "source-only"
+	plannerTitleMaxWords   = 9
+	plannerTitleMaxRunes   = 80
 )
 
 type LLMPlannerConfig struct {
@@ -247,12 +250,15 @@ func acceptBrief(candidate llmPlanBrief, input PlanInput) (PageBrief, bool) {
 		slug := strings.Trim(nonSlugCharacter.ReplaceAllString(
 			strings.ToLower(candidate.ProposedSlug), "-",
 		), "-")
-		title := strings.TrimSpace(candidate.ProposedTitle)
-		if slug == "" || title == "" {
+		if slug == "" {
 			return PageBrief{}, false
 		}
 		if page, found := catalogBySlug(input.PageCatalog, slug); found {
 			return updateBrief(page, candidate, eventIDs, evidence), true
+		}
+		title := normalizeProposedTitle(candidate.ProposedTitle)
+		if title == "" {
+			return PageBrief{}, false
 		}
 		return PageBrief{
 			Key: slug, Action: PageActionCreate,
@@ -269,6 +275,20 @@ func acceptBrief(candidate llmPlanBrief, input PlanInput) (PageBrief, bool) {
 	default:
 		return PageBrief{}, false
 	}
+}
+
+// normalizeProposedTitle trims the title and strips trailing periods; it
+// returns "" for titles long enough to read as sentences, which drops the
+// brief the same way an empty title does. The bounds are looser than the
+// prompt's five-word rule on purpose: the prompt shapes, the guard only
+// catches egregious sentence-titles.
+func normalizeProposedTitle(raw string) string {
+	title := strings.TrimSpace(strings.TrimRight(strings.TrimSpace(raw), ".。"))
+	if utf8.RuneCountInString(title) > plannerTitleMaxRunes ||
+		len(strings.Fields(title)) > plannerTitleMaxWords {
+		return ""
+	}
+	return title
 }
 
 func catalogBySlug(catalog PageCatalog, slug string) (PageCatalogEntry, bool) {
@@ -364,6 +384,16 @@ test-run logs; content unrelated to the team's work; single bug-fix details
 that establish no lasting convention; code diffs and fragments; JSON or log
 output; tool transcripts; agent system or skill instructions; branch names;
 and timestamps. When in doubt, skip.
+
+A page's subject is a durable concept — a component, subsystem, decision,
+convention, or domain fact — never an activity, task, fix, or session.
+Before proposing a create, name the concept the evidence is about: the
+page is about that concept, and this session's events are only new
+evidence for it. proposed_title is a concise noun phrase naming that
+concept — at most five words, never a sentence, no trailing period, and
+never opening with a verb or gerund such as "Fixing", "Adding",
+"Improving", or "Updating". "Xanadu Links" is a title; "Fixing xanadu
+links on the planner path" is not.
 
 Updating an existing page is the rule, not a preference: when any page in
 pages covers the same subject or a parent subject, or the new evidence
