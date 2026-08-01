@@ -40,6 +40,19 @@ type Service struct {
 	treeQuiet     time.Duration
 	treeMaxWait   time.Duration
 	treeReindexMu sync.Mutex
+
+	curator          Curator
+	curationEmbedder TextEmbedder
+	curationConfig   CurationConfig
+	curationMu       sync.Mutex
+}
+
+// CurationConfig controls the Page Wiki curation round: candidate limits and
+// (in a later task) the background loop interval.
+type CurationConfig struct {
+	Interval  time.Duration // 0 disables the background loop (Task 8)
+	PairLimit int           // 0 → curationDefaultPairLimit
+	PageLimit int           // 0 → curationDefaultPageLimit
 }
 
 type ServiceOption func(*Service)
@@ -53,6 +66,33 @@ type ServiceOption func(*Service)
 func WithTreeIndexer(indexer TreeIndexer, logger *slog.Logger) ServiceOption {
 	return func(s *Service) {
 		s.treeIndexer = indexer
+		if logger != nil {
+			s.logger = logger
+		}
+	}
+}
+
+// WithCurator enables Page Wiki curation rounds: RunCurationRound judges
+// duplicate-page and low-quality-page candidates and executes the verdicts
+// it accepts. PairLimit/PageLimit zero-values fall back to
+// curationDefaultPairLimit/curationDefaultPageLimit; Interval is stored for
+// the background loop a later task adds and otherwise ignored here.
+func WithCurator(
+	curator Curator,
+	embedder TextEmbedder,
+	config CurationConfig,
+	logger *slog.Logger,
+) ServiceOption {
+	return func(s *Service) {
+		s.curator = curator
+		s.curationEmbedder = embedder
+		if config.PairLimit <= 0 {
+			config.PairLimit = curationDefaultPairLimit
+		}
+		if config.PageLimit <= 0 {
+			config.PageLimit = curationDefaultPageLimit
+		}
+		s.curationConfig = config
 		if logger != nil {
 			s.logger = logger
 		}
@@ -341,6 +381,11 @@ type preparedTarget struct {
 	currentRevision *PageRevision
 	draft           PageDraft
 	ready           bool
+	// revive is true when this target is a create brief whose ProposedSlug
+	// collided with a RETIRED Page: resolvePage returned that Page (and its
+	// current revision) instead of minting a fresh one, and the publication
+	// must carry Revive so the Page flips back to active.
+	revive bool
 }
 
 // duplicateUpdateTargets flags every update brief whose non-empty
@@ -442,7 +487,7 @@ func (s *Service) prepareTarget(
 		}
 		return result
 	}
-	page, currentRevision, err := s.resolvePage(ctx, sourceRevision.ID, brief)
+	page, currentRevision, revive, err := s.resolvePage(ctx, sourceRevision.ID, brief)
 	if err != nil {
 		result.target = failTarget(result.target, TargetFailurePublicationConflict, err)
 		return result
@@ -461,6 +506,7 @@ func (s *Service) prepareTarget(
 	result.page = page
 	result.currentRevision = currentRevision
 	result.draft = draft
+	result.revive = revive
 	result.ready = true
 	return result
 }
@@ -532,7 +578,13 @@ func (s *Service) commitTarget(
 	if err != nil {
 		return failTarget(target, reason, err), nil
 	}
-	if prepared.currentRevision != nil &&
+	// A revive must always land its publication, even when the new draft's
+	// content is byte-for-byte equivalent to the retired Page's current
+	// revision: skipping the publish here (as a plain no-op update would)
+	// would leave the Page retired, since the status flip only happens as
+	// part of applying a publication.
+	if !prepared.revive &&
+		prepared.currentRevision != nil &&
 		prepared.page.Slug == pageValue.Slug &&
 		prepared.page.Title == pageValue.Title &&
 		revisionsEquivalent(*prepared.currentRevision, revision) {
@@ -544,6 +596,7 @@ func (s *Service) commitTarget(
 	publication := PagePublication{
 		Page:     pageValue,
 		Revision: revision,
+		Revive:   prepared.revive,
 	}
 	target.PageID = pageValue.ID
 	target.PageRevisionID = revision.ID
@@ -600,25 +653,52 @@ func revisionsEquivalent(left, right PageRevision) bool {
 	return true
 }
 
+// resolvePage loads the Page (and, for updates, its current revision) that a
+// brief targets. For a create brief whose ProposedSlug collides with a
+// RETIRED Page, resolvePage returns that Page and its current revision
+// instead of minting a fresh one: the caller then treats the brief as an
+// update-shaped revive (revive=true), which the editor sees as current text
+// and the publication flips back to active. A collision with an ACTIVE Page
+// falls through to minting a fresh Page unchanged from before — that
+// conflict still surfaces as a publication failure at commit.
 func (s *Service) resolvePage(
 	ctx context.Context,
 	sourceRevisionID string,
 	brief PageBrief,
-) (*Page, *PageRevision, error) {
+) (*Page, *PageRevision, bool, error) {
 	if brief.Action == PageActionCreate {
+		existing, err := s.repository.PageBySlug(ctx, brief.ProposedSlug)
+		switch {
+		case err == nil:
+			if existing.Retired() {
+				revision, revErr := s.repository.PageRevision(ctx, existing.CurrentRevisionID)
+				if revErr != nil {
+					return nil, nil, false, fmt.Errorf(
+						"load retired Page current PageRevision: %w",
+						revErr,
+					)
+				}
+				return &existing, &revision, true, nil
+			}
+			// Slug is taken by an active Page: keep today's behavior and
+			// mint a fresh Page below; the slug conflict surfaces as a
+			// publication failure at commit, same as before this change.
+		case !errors.Is(err, ErrNotFound):
+			return nil, nil, false, fmt.Errorf("load Page by slug: %w", err)
+		}
 		page := Page{
 			ID:    stableID("page", sourceRevisionID, brief.Key),
 			Slug:  brief.ProposedSlug,
 			Title: brief.ProposedTitle,
 		}
-		return &page, nil, nil
+		return &page, nil, false, nil
 	}
 	page, err := s.repository.PageByID(ctx, brief.TargetPageID)
 	if err != nil {
-		return nil, nil, fmt.Errorf("load update Page: %w", err)
+		return nil, nil, false, fmt.Errorf("load update Page: %w", err)
 	}
 	if page.CurrentRevisionID != brief.ExpectedBaseRevisionID {
-		return nil, nil, fmt.Errorf(
+		return nil, nil, false, fmt.Errorf(
 			"%w: Page %q changed after planning",
 			ErrRevisionConflict,
 			page.ID,
@@ -626,9 +706,9 @@ func (s *Service) resolvePage(
 	}
 	revision, err := s.repository.PageRevision(ctx, page.CurrentRevisionID)
 	if err != nil {
-		return nil, nil, fmt.Errorf("load current PageRevision: %w", err)
+		return nil, nil, false, fmt.Errorf("load current PageRevision: %w", err)
 	}
-	return &page, &revision, nil
+	return &page, &revision, false, nil
 }
 
 func (s *Service) buildPublication(

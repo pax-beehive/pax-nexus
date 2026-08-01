@@ -128,6 +128,10 @@ func (s *ContractAcceptanceSuite) TestGivenInjectedSessionWhenReadThenEveryWikiR
 				revision := requireObject(s.T(), body["revision"])
 				s.Equal(revisionID, revision["id"])
 				s.Contains(revision["markdown"], "SQLite is searchable.")
+				_, hasStatus := body["status"]
+				s.False(hasStatus)
+				_, hasSuccessorSlug := body["successor_slug"]
+				s.False(hasSuccessorSlug)
 			},
 		},
 		{
@@ -217,6 +221,99 @@ func (s *ContractAcceptanceSuite) TestGivenInjectedSessionWhenReadThenEveryWikiR
 			tt.assertBody(body)
 		})
 	}
+}
+
+func (s *ContractAcceptanceSuite) TestGivenRetiredPageWithSuccessorWhenFetchedThenStatusAndSuccessorSlugAreSurfaced() {
+	ctx := context.Background()
+	successor := pagewiki.Page{
+		ID:                "page-successor",
+		Slug:              "successor-page",
+		Title:             "Successor Page",
+		CurrentRevisionID: "revision-successor",
+	}
+	s.Require().NoError(s.repository.PublishPage(ctx, pagewiki.PagePublication{
+		Page:     successor,
+		Revision: pagewiki.PageRevision{ID: "revision-successor", PageID: "page-successor"},
+	}))
+
+	retired := pagewiki.Page{
+		ID:                "page-retired",
+		Slug:              "retired-page",
+		Title:             "Retired Page",
+		CurrentRevisionID: "revision-retired",
+	}
+	s.Require().NoError(s.repository.PublishPage(ctx, pagewiki.PagePublication{
+		Page:     retired,
+		Revision: pagewiki.PageRevision{ID: "revision-retired", PageID: "page-retired"},
+	}))
+	s.Require().NoError(s.repository.RetirePage(ctx, pagewiki.RetireRequest{
+		PageID:                 "page-retired",
+		ExpectedBaseRevisionID: "revision-retired",
+		SuccessorPageID:        "page-successor",
+		RunID:                  "run-retire-1",
+	}))
+
+	response := s.performJSON(http.MethodGet, "/v1/wiki/pages/retired-page", "")
+	s.Require().Equal(http.StatusOK, response.Code)
+	var body map[string]any
+	s.Require().NoError(json.Unmarshal(response.Body.Bytes(), &body))
+	s.Equal("retired", body["status"])
+	s.Equal("successor-page", body["successor_slug"])
+}
+
+func (s *ContractAcceptanceSuite) TestGivenRetiredPageWithoutSuccessorWhenFetchedThenSuccessorSlugIsOmitted() {
+	ctx := context.Background()
+	page := pagewiki.Page{
+		ID:                "page-retired-solo",
+		Slug:              "retired-solo",
+		Title:             "Retired Solo",
+		CurrentRevisionID: "revision-retired-solo",
+	}
+	s.Require().NoError(s.repository.PublishPage(ctx, pagewiki.PagePublication{
+		Page:     page,
+		Revision: pagewiki.PageRevision{ID: "revision-retired-solo", PageID: page.ID},
+	}))
+	s.Require().NoError(s.repository.RetirePage(ctx, pagewiki.RetireRequest{
+		PageID:                 page.ID,
+		ExpectedBaseRevisionID: "revision-retired-solo",
+		RunID:                  "run-retire-2",
+	}))
+
+	response := s.performJSON(http.MethodGet, "/v1/wiki/pages/retired-solo", "")
+	s.Require().Equal(http.StatusOK, response.Code)
+	var body map[string]any
+	s.Require().NoError(json.Unmarshal(response.Body.Bytes(), &body))
+	s.Equal("retired", body["status"])
+	_, hasSuccessorSlug := body["successor_slug"]
+	s.False(hasSuccessorSlug)
+}
+
+func (s *ContractAcceptanceSuite) TestGivenRetiredPageWithDanglingSuccessorWhenFetchedThenNoSuccessorSlugAndNo500() {
+	ctx := context.Background()
+	page := pagewiki.Page{
+		ID:                "page-retired-dangling",
+		Slug:              "retired-dangling",
+		Title:             "Retired Dangling",
+		CurrentRevisionID: "revision-retired-dangling",
+	}
+	s.Require().NoError(s.repository.PublishPage(ctx, pagewiki.PagePublication{
+		Page:     page,
+		Revision: pagewiki.PageRevision{ID: "revision-retired-dangling", PageID: page.ID},
+	}))
+	s.Require().NoError(s.repository.RetirePage(ctx, pagewiki.RetireRequest{
+		PageID:                 page.ID,
+		ExpectedBaseRevisionID: "revision-retired-dangling",
+		SuccessorPageID:        "page-does-not-exist",
+		RunID:                  "run-retire-3",
+	}))
+
+	response := s.performJSON(http.MethodGet, "/v1/wiki/pages/retired-dangling", "")
+	s.Require().Equal(http.StatusOK, response.Code)
+	var body map[string]any
+	s.Require().NoError(json.Unmarshal(response.Body.Bytes(), &body))
+	s.Equal("retired", body["status"])
+	_, hasSuccessorSlug := body["successor_slug"]
+	s.False(hasSuccessorSlug)
 }
 
 func (s *ContractAcceptanceSuite) TestGivenFileSourceOnlyWhenInjectedThenRunSucceedsWithoutPage() {

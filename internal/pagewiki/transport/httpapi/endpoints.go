@@ -73,7 +73,20 @@ func (h *Handler) GetPage(
 		writeError(requestContext, err)
 		return
 	}
-	requestContext.JSON(http.StatusOK, currentPageToAPI(page, revision))
+	var successorSlug string
+	if page.Retired() && page.SuccessorPageID != "" {
+		successor, err := h.reader.PageByID(ctx, page.SuccessorPageID)
+		switch {
+		case err == nil:
+			successorSlug = successor.Slug
+		case errors.Is(err, pagewiki.ErrNotFound):
+			// Successor no longer resolvable; surface the retirement without a link.
+		default:
+			writeError(requestContext, err)
+			return
+		}
+	}
+	requestContext.JSON(http.StatusOK, currentPageToAPI(page, revision, successorSlug))
 }
 
 func (h *Handler) ListPageRevisions(

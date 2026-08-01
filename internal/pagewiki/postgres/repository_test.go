@@ -56,6 +56,9 @@ func (s *repositorySuite) TearDownTest() {
 		"DELETE FROM pagewiki_publications WHERE scope_id = $1",
 		"DELETE FROM pagewiki_source_revisions WHERE scope_id = $1",
 		"DELETE FROM pagewiki_topic_trees WHERE scope_id = $1",
+		"DELETE FROM pagewiki_page_lifecycle WHERE scope_id = $1",
+		"DELETE FROM pagewiki_curation_runs WHERE scope_id = $1",
+		"DELETE FROM pagewiki_page_embeddings WHERE scope_id = $1",
 		"DELETE FROM session_processor_cursors WHERE scope_id = $1",
 		"DELETE FROM session_events WHERE scope_id = $1",
 		"DELETE FROM session_streams WHERE scope_id = $1",
@@ -173,6 +176,192 @@ func (s *repositorySuite) TestTopicTreeSurvivesRehydration() {
 	s.Empty(afterRebuildTree.Placements)
 
 	_ = result
+}
+
+func (s *repositorySuite) injectSinglePage(repository *pagewikipostgres.Repository) pagewiki.Page {
+	s.T().Helper()
+	service := pagewiki.NewService(
+		repository,
+		pagewiki.SessionDocumentPlanner{},
+		pagewiki.SessionDocumentEditor{},
+	)
+	raw := "[event:runtime-event sequence:1 type:assistant] Runtime verification passed."
+	_, err := service.InjectSession(s.ctx, pagewiki.InjectSessionRequest{
+		SourceID:       "session:local-team:runtime-agent:runtime-session",
+		IdempotencyKey: "manual-1",
+		Raw:            []byte(raw),
+		Events: []pagewiki.SourceEventInput{{
+			ID: "runtime-event", StartByte: 0, EndByte: len(raw),
+		}},
+	})
+	s.Require().NoError(err)
+	catalog, err := repository.PageCatalog(s.ctx)
+	s.Require().NoError(err)
+	s.Require().Len(catalog, 1)
+	page, err := repository.PageByID(s.ctx, catalog[0].ID)
+	s.Require().NoError(err)
+	return page
+}
+
+func (s *repositorySuite) TestRetiredPageSurvivesRehydration() {
+	repository, err := pagewikipostgres.NewRepository(s.ctx, s.store.Pool(), s.scopeID)
+	s.Require().NoError(err)
+	page := s.injectSinglePage(repository)
+
+	s.Require().NoError(repository.RetirePage(s.ctx, pagewiki.RetireRequest{
+		PageID:                 page.ID,
+		ExpectedBaseRevisionID: page.CurrentRevisionID,
+		SuccessorPageID:        "successor-page",
+		RunID:                  "manual-retire",
+	}))
+	retired, err := repository.PageByID(s.ctx, page.ID)
+	s.Require().NoError(err)
+	s.Require().True(retired.Retired())
+
+	reopened, err := pagewikipostgres.NewRepository(s.ctx, s.store.Pool(), s.scopeID)
+	s.Require().NoError(err)
+	reloaded, err := reopened.PageByID(s.ctx, page.ID)
+	s.Require().NoError(err)
+	s.Require().True(reloaded.Retired())
+	s.Require().Equal("successor-page", reloaded.SuccessorPageID)
+	s.Require().Equal("manual-retire", reloaded.RetiredByRunID)
+
+	catalog, err := reopened.PageCatalog(s.ctx)
+	s.Require().NoError(err)
+	s.Require().Empty(catalog)
+}
+
+func (s *repositorySuite) TestCurationRunAndPageEmbeddingSurviveRehydration() {
+	repository, err := pagewikipostgres.NewRepository(s.ctx, s.store.Pool(), s.scopeID)
+	s.Require().NoError(err)
+
+	run := pagewiki.CurationRun{
+		ID:          "curation-run-1",
+		Fingerprint: "fingerprint-1",
+		Status:      pagewiki.RunStatusSucceeded,
+		Outcomes: []pagewiki.CurationOutcome{
+			{
+				Kind:      "pair",
+				PageIDs:   []string{"page-1", "page-2"},
+				Verdict:   pagewiki.CurationVerdictMerge,
+				Rationale: "overlapping content",
+				Status:    pagewiki.TargetStatusSucceeded,
+			},
+		},
+	}
+	s.Require().NoError(repository.SaveCurationRun(s.ctx, run))
+
+	embedding := pagewiki.PageEmbedding{
+		PageID:     "page-1",
+		RevisionID: "rev-1",
+		Vector:     []float32{0.1, 0.2, 0.3},
+	}
+	s.Require().NoError(repository.SavePageEmbedding(s.ctx, embedding))
+	// Re-saving for the same page must replace, not duplicate, the row.
+	embedding.RevisionID = "rev-2"
+	embedding.Vector = []float32{0.4, 0.5, 0.6}
+	s.Require().NoError(repository.SavePageEmbedding(s.ctx, embedding))
+
+	reopened, err := pagewikipostgres.NewRepository(s.ctx, s.store.Pool(), s.scopeID)
+	s.Require().NoError(err)
+
+	storedRun, err := reopened.CurationRun(s.ctx, run.ID)
+	s.Require().NoError(err)
+	s.Require().Equal(run, storedRun)
+
+	embeddings, err := reopened.PageEmbeddings(s.ctx)
+	s.Require().NoError(err)
+	s.Require().Len(embeddings, 1)
+	s.Require().Equal(embedding, embeddings[0])
+}
+
+// TestCurationRunResaveAfterFailurePersistsAcrossRehydration guards against a
+// regression where SaveCurationRun's SQL used ON CONFLICT DO NOTHING: a
+// same-run-ID resave (which the memory layer only permits when the
+// previously stored run's Status was failed — see RunCurationRound's
+// idempotent-skip semantics) would silently drop, leaving the stale failed
+// payload in place. On the next hydration that stale row would replay back
+// into memory, reverting an otherwise-durable success to failed forever.
+func (s *repositorySuite) TestCurationRunResaveAfterFailurePersistsAcrossRehydration() {
+	repository, err := pagewikipostgres.NewRepository(s.ctx, s.store.Pool(), s.scopeID)
+	s.Require().NoError(err)
+
+	failedRun := pagewiki.CurationRun{
+		ID:          "curation-run-retry",
+		Fingerprint: "fingerprint-retry",
+		Status:      pagewiki.RunStatusFailed,
+		Outcomes: []pagewiki.CurationOutcome{
+			{
+				Kind:    "page",
+				PageIDs: []string{"page-1"},
+				Verdict: pagewiki.CurationVerdictKeep,
+				Status:  pagewiki.TargetStatusFailed,
+				Error:   "curator backend unavailable",
+			},
+		},
+	}
+	s.Require().NoError(repository.SaveCurationRun(s.ctx, failedRun))
+
+	succeededRun := pagewiki.CurationRun{
+		ID:          failedRun.ID,
+		Fingerprint: failedRun.Fingerprint,
+		Status:      pagewiki.RunStatusSucceeded,
+		Outcomes: []pagewiki.CurationOutcome{
+			{
+				Kind:    "page",
+				PageIDs: []string{"page-1"},
+				Verdict: pagewiki.CurationVerdictKeep,
+				Status:  pagewiki.TargetStatusSucceeded,
+			},
+		},
+	}
+	s.Require().NoError(repository.SaveCurationRun(s.ctx, succeededRun))
+
+	reopened, err := pagewikipostgres.NewRepository(s.ctx, s.store.Pool(), s.scopeID)
+	s.Require().NoError(err)
+
+	storedRun, err := reopened.CurationRun(s.ctx, failedRun.ID)
+	s.Require().NoError(err)
+	s.Require().Equal(pagewiki.RunStatusSucceeded, storedRun.Status,
+		"the resaved successful run must survive rehydration, not revert to the stale failed payload")
+	s.Require().Equal(succeededRun, storedRun)
+}
+
+func (s *repositorySuite) TestRebuildClearsLifecycleCurationAndEmbeddingTables() {
+	repository, err := pagewikipostgres.NewRepository(s.ctx, s.store.Pool(), s.scopeID)
+	s.Require().NoError(err)
+	page := s.injectSinglePage(repository)
+
+	s.Require().NoError(repository.RetirePage(s.ctx, pagewiki.RetireRequest{
+		PageID:                 page.ID,
+		ExpectedBaseRevisionID: page.CurrentRevisionID,
+		RunID:                  "manual-retire",
+	}))
+	s.Require().NoError(repository.SaveCurationRun(s.ctx, pagewiki.CurationRun{
+		ID:     "curation-run-1",
+		Status: pagewiki.RunStatusSucceeded,
+	}))
+	s.Require().NoError(repository.SavePageEmbedding(s.ctx, pagewiki.PageEmbedding{
+		PageID:     page.ID,
+		RevisionID: page.CurrentRevisionID,
+		Vector:     []float32{0.1},
+	}))
+
+	s.Require().NoError(repository.RebuildPageWiki(s.ctx, s.scopeID, "page_wiki", "v1", time.Time{}))
+
+	for _, table := range []string{"pagewiki_page_lifecycle", "pagewiki_curation_runs", "pagewiki_page_embeddings"} {
+		var count int
+		s.Require().NoError(s.store.Pool().QueryRow(s.ctx,
+			fmt.Sprintf("SELECT count(*) FROM %s WHERE scope_id = $1", table), s.scopeID,
+		).Scan(&count))
+		s.Require().Zero(count, "%s should be empty after rebuild", table)
+	}
+
+	_, err = repository.CurationRun(s.ctx, "curation-run-1")
+	s.Require().ErrorIs(err, pagewiki.ErrNotFound)
+	embeddings, err := repository.PageEmbeddings(s.ctx)
+	s.Require().NoError(err)
+	s.Require().Empty(embeddings)
 }
 
 func (s *repositorySuite) TestRejectsInvalidConfigurationAndCorruptSnapshots() {

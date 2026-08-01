@@ -4723,6 +4723,8 @@ type CurrentPageResponse struct {
 	Title             string        `thrift:"title,3,required" form:"title,required" json:"title,required" query:"title,required"`
 	CurrentRevisionID string        `thrift:"current_revision_id,4,required" form:"current_revision_id,required" json:"current_revision_id,required" query:"current_revision_id,required"`
 	Revision          *PageRevision `thrift:"revision,5,required" form:"revision,required" json:"revision,required" query:"revision,required"`
+	Status            *string       `thrift:"status,6,optional" form:"status" json:"status,omitempty" query:"status"`
+	SuccessorSlug     *string       `thrift:"successor_slug,7,optional" form:"successor_slug" json:"successor_slug,omitempty" query:"successor_slug"`
 }
 
 func NewCurrentPageResponse() *CurrentPageResponse {
@@ -4757,16 +4759,44 @@ func (p *CurrentPageResponse) GetRevision() (v *PageRevision) {
 	return p.Revision
 }
 
+var CurrentPageResponse_Status_DEFAULT string
+
+func (p *CurrentPageResponse) GetStatus() (v string) {
+	if !p.IsSetStatus() {
+		return CurrentPageResponse_Status_DEFAULT
+	}
+	return *p.Status
+}
+
+var CurrentPageResponse_SuccessorSlug_DEFAULT string
+
+func (p *CurrentPageResponse) GetSuccessorSlug() (v string) {
+	if !p.IsSetSuccessorSlug() {
+		return CurrentPageResponse_SuccessorSlug_DEFAULT
+	}
+	return *p.SuccessorSlug
+}
+
 var fieldIDToName_CurrentPageResponse = map[int16]string{
 	1: "id",
 	2: "slug",
 	3: "title",
 	4: "current_revision_id",
 	5: "revision",
+	6: "status",
+	7: "successor_slug",
 }
 
 func (p *CurrentPageResponse) IsSetRevision() bool {
 	return p.Revision != nil
+}
+
+func (p *CurrentPageResponse) IsSetStatus() bool {
+	return p.Status != nil
+}
+
+func (p *CurrentPageResponse) IsSetSuccessorSlug() bool {
+	return p.SuccessorSlug != nil
 }
 
 func (p *CurrentPageResponse) Read(iprot thrift.TProtocol) (err error) {
@@ -4835,6 +4865,22 @@ func (p *CurrentPageResponse) Read(iprot thrift.TProtocol) (err error) {
 					goto ReadFieldError
 				}
 				issetRevision = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 6:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField6(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 7:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField7(iprot); err != nil {
+					goto ReadFieldError
+				}
 			} else if err = iprot.Skip(fieldTypeId); err != nil {
 				goto SkipFieldError
 			}
@@ -4945,6 +4991,28 @@ func (p *CurrentPageResponse) ReadField5(iprot thrift.TProtocol) error {
 	p.Revision = _field
 	return nil
 }
+func (p *CurrentPageResponse) ReadField6(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.Status = _field
+	return nil
+}
+func (p *CurrentPageResponse) ReadField7(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.SuccessorSlug = _field
+	return nil
+}
 
 func (p *CurrentPageResponse) Write(oprot thrift.TProtocol) (err error) {
 	var fieldId int16
@@ -4970,6 +5038,14 @@ func (p *CurrentPageResponse) Write(oprot thrift.TProtocol) (err error) {
 		}
 		if err = p.writeField5(oprot); err != nil {
 			fieldId = 5
+			goto WriteFieldError
+		}
+		if err = p.writeField6(oprot); err != nil {
+			fieldId = 6
+			goto WriteFieldError
+		}
+		if err = p.writeField7(oprot); err != nil {
+			fieldId = 7
 			goto WriteFieldError
 		}
 	}
@@ -5073,6 +5149,44 @@ WriteFieldBeginError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 5 begin error: ", p), err)
 WriteFieldEndError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 5 end error: ", p), err)
+}
+
+func (p *CurrentPageResponse) writeField6(oprot thrift.TProtocol) (err error) {
+	if p.IsSetStatus() {
+		if err = oprot.WriteFieldBegin("status", thrift.STRING, 6); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.Status); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 6 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 6 end error: ", p), err)
+}
+
+func (p *CurrentPageResponse) writeField7(oprot thrift.TProtocol) (err error) {
+	if p.IsSetSuccessorSlug() {
+		if err = oprot.WriteFieldBegin("successor_slug", thrift.STRING, 7); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.SuccessorSlug); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 7 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 7 end error: ", p), err)
 }
 
 func (p *CurrentPageResponse) String() string {

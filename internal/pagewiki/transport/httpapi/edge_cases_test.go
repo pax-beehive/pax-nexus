@@ -369,6 +369,10 @@ func (r failingReader) SourceRevision(
 	return pagewiki.SourceRevision{}, r.err
 }
 
+func (r failingReader) PageByID(context.Context, string) (pagewiki.Page, error) {
+	return pagewiki.Page{}, r.err
+}
+
 func (r failingReader) PageBySlug(context.Context, string) (pagewiki.Page, error) {
 	return pagewiki.Page{}, r.err
 }

@@ -58,3 +58,106 @@ func (e ScriptedEditor) Edit(
 	}
 	return draft, nil
 }
+
+type ScriptedCurator struct {
+	PairVerdicts map[string]PairVerdict // key: sorted "idA|idB"
+	PageVerdicts map[string]PageVerdict // key: pageID
+	// Verifies maps verdict keys derived from Pages: PairKey(Pages[0].PageID, Pages[1].PageID) for pairs,
+	// Pages[0].PageID for single pages. Zero value = not refuted.
+	Verifies    map[string]VerifyVerdict
+	Errs        map[string]error
+	JudgeCalls  *int
+	VerifyCalls *int
+}
+
+func (c ScriptedCurator) JudgePair(
+	_ context.Context,
+	input PairJudgeInput,
+) (PairVerdict, error) {
+	if c.JudgeCalls != nil {
+		*c.JudgeCalls++
+	}
+	key := PairKey(input.A.PageID, input.B.PageID)
+	if err := c.Errs[key]; err != nil {
+		return PairVerdict{}, err
+	}
+	verdict, found := c.PairVerdicts[key]
+	if !found {
+		return PairVerdict{}, fmt.Errorf("scripted pair verdict for %q: %w", key, ErrNotFound)
+	}
+	return verdict, nil
+}
+
+func (c ScriptedCurator) JudgePage(
+	_ context.Context,
+	input PageJudgeInput,
+) (PageVerdict, error) {
+	if c.JudgeCalls != nil {
+		*c.JudgeCalls++
+	}
+	key := input.Page.PageID
+	if err := c.Errs[key]; err != nil {
+		return PageVerdict{}, err
+	}
+	verdict, found := c.PageVerdicts[key]
+	if !found {
+		return PageVerdict{}, fmt.Errorf("scripted page verdict for %q: %w", key, ErrNotFound)
+	}
+	return verdict, nil
+}
+
+func (c ScriptedCurator) Verify(
+	_ context.Context,
+	input VerifyInput,
+) (VerifyVerdict, error) {
+	if c.VerifyCalls != nil {
+		*c.VerifyCalls++
+	}
+	var key string
+	if len(input.Pages) == 2 {
+		key = PairKey(input.Pages[0].PageID, input.Pages[1].PageID)
+	} else if len(input.Pages) == 1 {
+		key = input.Pages[0].PageID
+	} else {
+		return VerifyVerdict{}, fmt.Errorf("scripted verify: expected 1 or 2 pages, got %d", len(input.Pages))
+	}
+	if err := c.Errs[key]; err != nil {
+		return VerifyVerdict{}, err
+	}
+	verdict, found := c.Verifies[key]
+	if !found {
+		return VerifyVerdict{}, fmt.Errorf("scripted verify verdict for %q: %w", key, ErrNotFound)
+	}
+	return verdict, nil
+}
+
+type ScriptedEmbedder struct {
+	Vectors map[string][]float32 // key: exact input text; missing key = error
+	Err     error
+}
+
+func (e ScriptedEmbedder) Embed(
+	_ context.Context,
+	texts []string,
+) ([][]float32, error) {
+	if e.Err != nil {
+		return nil, e.Err
+	}
+	result := make([][]float32, 0, len(texts))
+	for _, text := range texts {
+		vector, found := e.Vectors[text]
+		if !found {
+			return nil, fmt.Errorf("scripted embedding for %q: %w", text, ErrNotFound)
+		}
+		result = append(result, vector)
+	}
+	return result, nil
+}
+
+// PairKey returns a sorted, "|"-joined key for two page IDs.
+func PairKey(a, b string) string {
+	if a <= b {
+		return a + "|" + b
+	}
+	return b + "|" + a
+}

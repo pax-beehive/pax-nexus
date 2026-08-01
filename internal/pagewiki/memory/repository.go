@@ -25,6 +25,9 @@ type Repository struct {
 	searchChunks    map[string]pagewiki.SearchChunk
 	runs            map[string]pagewiki.MaintenanceRun
 	generation      pagewiki.GenerationDirectives
+	curationRuns    map[string]pagewiki.CurationRun
+	pageEmbeddings  map[string]pagewiki.PageEmbedding
+	sourceOrder     map[string]int
 }
 
 func NewRepository() *Repository {
@@ -45,6 +48,9 @@ func (r *Repository) Reset() {
 	r.searchChunks = make(map[string]pagewiki.SearchChunk)
 	r.runs = make(map[string]pagewiki.MaintenanceRun)
 	r.generation = pagewiki.GenerationDirectives{}
+	r.curationRuns = make(map[string]pagewiki.CurationRun)
+	r.pageEmbeddings = make(map[string]pagewiki.PageEmbedding)
+	r.sourceOrder = make(map[string]int)
 }
 
 func (r *Repository) SaveSourceRevision(
@@ -61,6 +67,9 @@ func (r *Repository) SaveSourceRevision(
 		return nil
 	}
 	r.sourceRevisions[revision.ID] = cloneSourceRevision(revision)
+	if _, ordinalAssigned := r.sourceOrder[revision.ID]; !ordinalAssigned {
+		r.sourceOrder[revision.ID] = len(r.sourceOrder)
+	}
 	return nil
 }
 
@@ -86,6 +95,9 @@ func (r *Repository) PageCatalog(_ context.Context) (pagewiki.PageCatalog, error
 	defer r.mu.RUnlock()
 	catalog := make(pagewiki.PageCatalog, 0, len(r.pages))
 	for _, page := range r.pages {
+		if page.Retired() {
+			continue
+		}
 		catalog = append(catalog, pagewiki.PageCatalogEntry{
 			ID:                page.ID,
 			Slug:              page.Slug,
@@ -176,6 +188,37 @@ func (r *Repository) PageRevisionHistory(
 	return history, nil
 }
 
+func (r *Repository) RetirePage(
+	_ context.Context,
+	request pagewiki.RetireRequest,
+) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	page, found := r.pages[request.PageID]
+	if !found {
+		return fmt.Errorf("%w: Page %q", pagewiki.ErrNotFound, request.PageID)
+	}
+	if page.Retired() {
+		return fmt.Errorf(
+			"retire Page %q: %w: page is already retired",
+			request.PageID,
+			pagewiki.ErrRevisionConflict,
+		)
+	}
+	if page.CurrentRevisionID != request.ExpectedBaseRevisionID {
+		return fmt.Errorf(
+			"retire Page %q: %w: revision changed",
+			request.PageID,
+			pagewiki.ErrRevisionConflict,
+		)
+	}
+	page.Status = pagewiki.PageStatusRetired
+	page.SuccessorPageID = request.SuccessorPageID
+	page.RetiredByRunID = request.RunID
+	r.pages[request.PageID] = page
+	return nil
+}
+
 func (r *Repository) PublishPage(
 	ctx context.Context,
 	publication pagewiki.PagePublication,
@@ -233,6 +276,11 @@ func (r *Repository) isApplied(publication pagewiki.PagePublication) bool {
 func (r *Repository) applyPublication(publication pagewiki.PagePublication) {
 	page := publication.Page
 	revision := publication.Revision
+	if publication.Revive {
+		page.Status = pagewiki.PageStatusActive
+		page.SuccessorPageID = ""
+		page.RetiredByRunID = ""
+	}
 	chunks := buildSearchChunks(revision)
 	if previous, found := r.pages[page.ID]; found && previous.Slug != page.Slug {
 		delete(r.pageIDsBySlug, previous.Slug)
@@ -274,12 +322,8 @@ func (r *Repository) validatePublication(
 	if existingID, found := r.pageIDsBySlug[page.Slug]; found && existingID != page.ID {
 		return fmt.Errorf("%w: slug %q is already published", pagewiki.ErrRevisionConflict, page.Slug)
 	}
-	if existing, found := r.pages[page.ID]; found {
-		if existing.CurrentRevisionID != revision.BaseRevisionID {
-			return fmt.Errorf("%w: Page %q base is stale", pagewiki.ErrRevisionConflict, page.ID)
-		}
-	} else if revision.BaseRevisionID != "" {
-		return fmt.Errorf("%w: new Page %q has a base revision", pagewiki.ErrRevisionConflict, page.ID)
+	if err := r.validateExistingPage(page, revision, publication.Revive); err != nil {
+		return err
 	}
 	if existing, found := r.pageRevisions[revision.ID]; found &&
 		!reflect.DeepEqual(existing, revision) {
@@ -296,18 +340,54 @@ func (r *Repository) validatePublication(
 	if err != nil {
 		return err
 	}
-	if publication.Placement != nil {
-		placement := *publication.Placement
-		if placement.PageID != page.ID || placement.Rank < 0 {
-			return fmt.Errorf("%w: invalid Page placement", pagewiki.ErrRevisionConflict)
+	return validatePlacement(topics, page, publication.Placement)
+}
+
+// validateExistingPage applies the retired/revive gate and base-revision
+// checks for page: a retired page rejects the publication unless revive was
+// requested, a page already on the catalog must build on its current
+// revision, and a brand-new page (no prior entry) must not claim a base
+// revision at all.
+func (r *Repository) validateExistingPage(
+	page pagewiki.Page,
+	revision pagewiki.PageRevision,
+	revive bool,
+) error {
+	existing, found := r.pages[page.ID]
+	if !found {
+		if revision.BaseRevisionID != "" {
+			return fmt.Errorf("%w: new Page %q has a base revision", pagewiki.ErrRevisionConflict, page.ID)
 		}
-		if _, found := topics[placement.TopicID]; !found {
-			return fmt.Errorf(
-				"%w: placement Topic %q is missing",
-				pagewiki.ErrRevisionConflict,
-				placement.TopicID,
-			)
-		}
+		return nil
+	}
+	if existing.Retired() && !revive {
+		return fmt.Errorf("%w: page is retired", pagewiki.ErrRevisionConflict)
+	}
+	if existing.CurrentRevisionID != revision.BaseRevisionID {
+		return fmt.Errorf("%w: Page %q base is stale", pagewiki.ErrRevisionConflict, page.ID)
+	}
+	return nil
+}
+
+// validatePlacement checks an optional Page placement against page and the
+// Topics resolved for this publication.
+func validatePlacement(
+	topics map[string]pagewiki.Topic,
+	page pagewiki.Page,
+	placement *pagewiki.PagePlacement,
+) error {
+	if placement == nil {
+		return nil
+	}
+	if placement.PageID != page.ID || placement.Rank < 0 {
+		return fmt.Errorf("%w: invalid Page placement", pagewiki.ErrRevisionConflict)
+	}
+	if _, found := topics[placement.TopicID]; !found {
+		return fmt.Errorf(
+			"%w: placement Topic %q is missing",
+			pagewiki.ErrRevisionConflict,
+			placement.TopicID,
+		)
 	}
 	return nil
 }
@@ -440,7 +520,7 @@ func (r *Repository) Navigation(_ context.Context) (pagewiki.Navigation, error) 
 	pages := make(map[string][]pagewiki.NavigationPage)
 	for pageID, placement := range r.placements {
 		page, found := r.pages[pageID]
-		if !found {
+		if !found || page.Retired() {
 			continue
 		}
 		pages[placement.TopicID] = append(pages[placement.TopicID], pagewiki.NavigationPage{
@@ -452,6 +532,9 @@ func (r *Repository) Navigation(_ context.Context) (pagewiki.Navigation, error) 
 	}
 	rootPages := make([]pagewiki.NavigationPage, 0)
 	for id, page := range r.pages {
+		if page.Retired() {
+			continue
+		}
 		if _, placed := r.placements[id]; placed {
 			continue
 		}
@@ -518,7 +601,7 @@ func (r *Repository) Search(
 		}
 		page, pageFound := r.pages[chunk.PageID]
 		revision, revisionFound := r.pageRevisions[chunk.PageRevisionID]
-		if !pageFound || !revisionFound || page.CurrentRevisionID != revision.ID {
+		if !pageFound || !revisionFound || page.CurrentRevisionID != revision.ID || page.Retired() {
 			continue
 		}
 		results = append(results, pagewiki.SearchResult{
@@ -772,6 +855,82 @@ func (r *Repository) MaintenanceRun(
 	return cloneRun(run), nil
 }
 
+// SaveCurationRun is immutable for a completed run (a stored run whose
+// Status is not "failed" may not be overwritten with different content) but
+// tolerates replacing an all-failed run: an all-failed round is deliberately
+// re-run against the same (catalog-derived) run ID rather than treated as a
+// permanent skip, so its record must be replaceable once a later attempt
+// against the same unchanged catalog produces a different (possibly
+// successful) outcome.
+func (r *Repository) SaveCurationRun(
+	_ context.Context,
+	run pagewiki.CurationRun,
+) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if existing, found := r.curationRuns[run.ID]; found &&
+		existing.Status != pagewiki.RunStatusFailed &&
+		!reflect.DeepEqual(existing, run) {
+		return fmt.Errorf("%w: CurationRun %q", pagewiki.ErrImmutableConflict, run.ID)
+	}
+	r.curationRuns[run.ID] = cloneCurationRun(run)
+	return nil
+}
+
+func (r *Repository) CurationRun(
+	_ context.Context,
+	id string,
+) (pagewiki.CurationRun, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	run, found := r.curationRuns[id]
+	if !found {
+		return pagewiki.CurationRun{}, fmt.Errorf(
+			"%w: CurationRun %q",
+			pagewiki.ErrNotFound,
+			id,
+		)
+	}
+	return cloneCurationRun(run), nil
+}
+
+func (r *Repository) PageEmbeddings(
+	_ context.Context,
+) ([]pagewiki.PageEmbedding, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	embeddings := make([]pagewiki.PageEmbedding, 0, len(r.pageEmbeddings))
+	for _, embedding := range r.pageEmbeddings {
+		embeddings = append(embeddings, clonePageEmbedding(embedding))
+	}
+	sort.Slice(embeddings, func(i, j int) bool {
+		return embeddings[i].PageID < embeddings[j].PageID
+	})
+	return embeddings, nil
+}
+
+func (r *Repository) SavePageEmbedding(
+	_ context.Context,
+	embedding pagewiki.PageEmbedding,
+) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.pageEmbeddings[embedding.PageID] = clonePageEmbedding(embedding)
+	return nil
+}
+
+func (r *Repository) SourceRevisionOrdinals(
+	_ context.Context,
+) (map[string]int, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	ordinals := make(map[string]int, len(r.sourceOrder))
+	for id, ordinal := range r.sourceOrder {
+		ordinals[id] = ordinal
+	}
+	return ordinals, nil
+}
+
 func (r *Repository) PageCount() int {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -947,4 +1106,20 @@ func clonePageRevision(revision pagewiki.PageRevision) pagewiki.PageRevision {
 func cloneRun(run pagewiki.MaintenanceRun) pagewiki.MaintenanceRun {
 	run.Targets = append([]pagewiki.MaintenanceTarget(nil), run.Targets...)
 	return run
+}
+
+func cloneCurationRun(run pagewiki.CurationRun) pagewiki.CurationRun {
+	run.Outcomes = append([]pagewiki.CurationOutcome(nil), run.Outcomes...)
+	for index := range run.Outcomes {
+		run.Outcomes[index].PageIDs = append(
+			[]string(nil),
+			run.Outcomes[index].PageIDs...,
+		)
+	}
+	return run
+}
+
+func clonePageEmbedding(embedding pagewiki.PageEmbedding) pagewiki.PageEmbedding {
+	embedding.Vector = append([]float32(nil), embedding.Vector...)
+	return embedding
 }

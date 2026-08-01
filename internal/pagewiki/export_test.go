@@ -12,3 +12,17 @@ const (
 func TreeIndexerPromptForTest(maxDepth int) string {
 	return treeIndexerPrompt(maxDepth)
 }
+
+// TreeDirtyForTest reports whether a topic-tree dirty mark is currently
+// pending on the service, without consuming it: acceptance tests use it to
+// assert markTreeDirty fired after a curation round, independent of whether a
+// TreeIndexer is configured (FlushTreeReindex is a no-op without one).
+func (s *Service) TreeDirtyForTest() bool {
+	select {
+	case pending := <-s.treeDirty:
+		s.treeDirty <- pending
+		return true
+	default:
+		return false
+	}
+}

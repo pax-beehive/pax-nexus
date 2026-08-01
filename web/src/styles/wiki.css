@@ -54,6 +54,8 @@
 .wiki-page-link { display: block; width: 100%; border: 0; border-radius: 7px; padding: 7px 9px; background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
 .wiki-page-link:hover { background: var(--surface-2); }
 .wiki-page-link.active { background: var(--accent-soft); color: var(--accent-hover); font-weight: 650; }
+.wiki-retired-banner { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px; margin-bottom: 18px; padding: 10px 14px; border: 1px solid var(--warn-border); border-radius: 8px; background: var(--warn-bg); color: var(--warn); font-size: 13px; }
+.wiki-retired-banner a { color: inherit; font-weight: 650; text-decoration: underline; }
 .wiki-article { min-width: 0; padding: 28px 34px; }
 .wiki-article > * { max-width: 88ch; }
 .wiki-article > h1 { margin-top: 8px; font-size: 32px; }
