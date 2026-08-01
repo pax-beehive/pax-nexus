@@ -12,7 +12,14 @@ import (
 	"github.com/pax-beehive/pax-nexus/internal/platform/llm"
 )
 
-const editorEvidenceContextBytes = 8 << 10
+const (
+	editorEvidenceContextBytes = 8 << 10
+	editorAttempts             = 2
+	// editorMaxTokens lifts the provider's default completion cap: the editor
+	// emits full multi-section articles, and a silent cap truncates the JSON
+	// mid-object ("unexpected end of JSON input").
+	editorMaxTokens = 8192
+)
 
 var llmSectionKeyCharacters = regexp.MustCompile(`[^a-z0-9]+`)
 
@@ -73,21 +80,36 @@ func (e *LLMSessionEditor) Edit(ctx context.Context, input EditInput) (PageDraft
 	if err != nil {
 		return PageDraft{}, fmt.Errorf("encode Page Wiki LLM request: %w", err)
 	}
-	response, err := e.client.Complete(ctx, llm.ChatRequest{
-		Model: e.model,
-		Messages: []llm.ChatMessage{
-			{Role: "system", Content: pageWikiEnglishEditorPrompt + generationDirectivesPrompt(input.Directives)},
-			{Role: "user", Content: string(payload)},
-		},
-	})
-	if err != nil {
-		return PageDraft{}, fmt.Errorf("write Page Wiki with LLM: %w", err)
+	var lastErr error
+	for attempt := 0; attempt < editorAttempts; attempt++ {
+		response, err := e.client.Complete(ctx, llm.ChatRequest{
+			Model: e.model,
+			Messages: []llm.ChatMessage{
+				{Role: "system", Content: pageWikiEnglishEditorPrompt + generationDirectivesPrompt(input.Directives)},
+				{Role: "user", Content: string(payload)},
+			},
+			MaxTokens: editorMaxTokens,
+		})
+		if err != nil {
+			lastErr = fmt.Errorf("write Page Wiki with LLM: %w", err)
+			continue
+		}
+		var generated llmEditResponse
+		if err := json.Unmarshal([]byte(trimJSONFence(response.Message.Content)), &generated); err != nil {
+			lastErr = fmt.Errorf(
+				"decode Page Wiki LLM response (finish_reason=%q): %w",
+				response.FinishReason, err,
+			)
+			continue
+		}
+		draft, err := generatedDraft(input, generated)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		return draft, nil
 	}
-	var generated llmEditResponse
-	if err := json.Unmarshal([]byte(trimJSONFence(response.Message.Content)), &generated); err != nil {
-		return PageDraft{}, fmt.Errorf("decode Page Wiki LLM response: %w", err)
-	}
-	return generatedDraft(input, generated)
+	return PageDraft{}, lastErr
 }
 
 type llmEditRequest struct {

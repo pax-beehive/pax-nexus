@@ -72,6 +72,7 @@ func (s *deepSeekSuite) TestOmitsToolChoiceWhenNoToolsAreSent() {
 		// only DeepSeek's own endpoint tolerates the combination.
 		s.NotContains(string(body), "tool_choice")
 		s.NotContains(string(body), `"tools"`)
+		s.NotContains(string(body), "max_tokens")
 		return response(http.StatusOK, `{
 		  "choices": [{"message": {"role": "assistant", "content": "done"}}],
 		  "usage": {"prompt_tokens": 3, "completion_tokens": 1}
@@ -87,6 +88,58 @@ func (s *deepSeekSuite) TestOmitsToolChoiceWhenNoToolsAreSent() {
 	})
 	s.Require().NoError(err)
 	s.Equal("done", chatResponse.Message.Content)
+}
+
+func (s *deepSeekSuite) TestSendsMaxTokensAndReturnsFinishReason() {
+	httpClient := &http.Client{Transport: roundTripFunc(func(
+		request *http.Request,
+	) (*http.Response, error) {
+		body, err := io.ReadAll(request.Body)
+		s.Require().NoError(err)
+		s.Contains(string(body), `"max_tokens":8192`)
+		return response(http.StatusOK, `{
+		  "choices": [{
+		    "message": {"role": "assistant", "content": "{\"truncated\":"},
+		    "finish_reason": "length"
+		  }],
+		  "usage": {"prompt_tokens": 3, "completion_tokens": 1}
+		}`), nil
+	})}
+
+	client := llm.NewDeepSeekClient(llm.DeepSeekConfig{
+		BaseURL: "https://deepseek.example", APIKey: "secret", HTTPClient: httpClient,
+	})
+	chatResponse, err := client.Complete(context.Background(), llm.ChatRequest{
+		Model:     "deepseek-v4-flash",
+		Messages:  []llm.ChatMessage{{Role: "user", Content: "work"}},
+		MaxTokens: 8192,
+	})
+	s.Require().NoError(err)
+	s.Equal("length", chatResponse.FinishReason)
+}
+
+func (s *deepSeekSuite) TestRejectsEmptyContentWithoutToolCalls() {
+	httpClient := &http.Client{Transport: roundTripFunc(func(
+		_ *http.Request,
+	) (*http.Response, error) {
+		return response(http.StatusOK, `{
+		  "choices": [{
+		    "message": {"role": "assistant", "content": ""},
+		    "finish_reason": "stop"
+		  }],
+		  "usage": {"prompt_tokens": 3, "completion_tokens": 0}
+		}`), nil
+	})}
+
+	client := llm.NewDeepSeekClient(llm.DeepSeekConfig{
+		BaseURL: "https://deepseek.example", APIKey: "secret", HTTPClient: httpClient,
+	})
+	_, err := client.Complete(context.Background(), llm.ChatRequest{
+		Model:    "deepseek-v4-flash",
+		Messages: []llm.ChatMessage{{Role: "user", Content: "work"}},
+	})
+	s.Require().ErrorContains(err, "empty content")
+	s.Require().ErrorContains(err, "stop")
 }
 
 func (s *deepSeekSuite) TestReportsProviderErrorWithoutLeakingAPIKey() {

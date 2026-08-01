@@ -81,7 +81,7 @@ func (s *llmSessionEditorSuite) TestRejectsInvalidConfigurationAndMalformedRespo
 	})
 	s.Require().ErrorContains(err, "model is required")
 
-	client := &wikiChatClient{responsesByIndex: []string{"not-json"}}
+	client := &wikiChatClient{responsesByIndex: []string{"not-json", "not-json"}}
 	editor, err := pagewiki.NewLLMSessionEditor(pagewiki.LLMEditorConfig{
 		Client: client, Model: "test-model",
 	})
@@ -96,6 +96,84 @@ func (s *llmSessionEditorSuite) TestRejectsInvalidConfigurationAndMalformedRespo
 		Brief: pagewiki.PageBrief{Key: "knowledge-evidence-grounding"},
 	})
 	s.Require().ErrorContains(err, "decode Page Wiki LLM response")
+}
+
+func (s *llmSessionEditorSuite) TestRetriesWhenModelReturnsTruncatedJSON() {
+	client := &wikiChatClient{responsesByIndex: []string{
+		`{"title":"Release Pol`,
+		`{"title":"Release Policy","summary":"How the team ships.","sections":[{"key":"policy","heading":"Policy","markdown":"Ships weekly."}]}`,
+	}}
+	editor, err := pagewiki.NewLLMSessionEditor(pagewiki.LLMEditorConfig{
+		Client: client, Model: "test-model",
+	})
+	s.Require().NoError(err)
+
+	draft, err := editor.Edit(context.Background(), pagewiki.EditInput{
+		SourceRevision: pagewiki.SourceRevision{
+			Raw: []byte("Evidence grounding: exact anchors."),
+			Events: []pagewiki.SourceEvent{{
+				ID: "event-1", StartByte: 0, EndByte: len("Evidence grounding: exact anchors."),
+			}},
+		},
+		Brief: pagewiki.PageBrief{Key: "release-policy", ProposedSlug: "release-policy"},
+	})
+
+	s.Require().NoError(err)
+	s.Equal("Release Policy", draft.Title)
+	s.Require().Len(client.requests, 2)
+	for _, request := range client.requests {
+		s.Equal(8192, request.MaxTokens)
+	}
+}
+
+func (s *llmSessionEditorSuite) TestRetriesWhenRequiredFieldsAreMissing() {
+	client := &wikiChatClient{responsesByIndex: []string{
+		`{"title":"","summary":"","sections":[]}`,
+		`{"title":"Release Policy","summary":"How the team ships.","sections":[{"key":"policy","heading":"Policy","markdown":"Ships weekly."}]}`,
+	}}
+	editor, err := pagewiki.NewLLMSessionEditor(pagewiki.LLMEditorConfig{
+		Client: client, Model: "test-model",
+	})
+	s.Require().NoError(err)
+
+	draft, err := editor.Edit(context.Background(), pagewiki.EditInput{
+		SourceRevision: pagewiki.SourceRevision{
+			Raw: []byte("Evidence grounding: exact anchors."),
+			Events: []pagewiki.SourceEvent{{
+				ID: "event-1", StartByte: 0, EndByte: len("Evidence grounding: exact anchors."),
+			}},
+		},
+		Brief: pagewiki.PageBrief{Key: "release-policy", ProposedSlug: "release-policy"},
+	})
+
+	s.Require().NoError(err)
+	s.Equal("Release Policy", draft.Title)
+	s.Require().Len(client.requests, 2)
+}
+
+func (s *llmSessionEditorSuite) TestSurfacesFinishReasonAfterAllAttemptsFail() {
+	client := &wikiChatClient{
+		responsesByIndex: []string{`{"title":"Release Pol`, `{"title":"Release Pol`},
+		finishReason:     "length",
+	}
+	editor, err := pagewiki.NewLLMSessionEditor(pagewiki.LLMEditorConfig{
+		Client: client, Model: "test-model",
+	})
+	s.Require().NoError(err)
+
+	_, err = editor.Edit(context.Background(), pagewiki.EditInput{
+		SourceRevision: pagewiki.SourceRevision{
+			Raw: []byte("Evidence grounding: exact anchors."),
+			Events: []pagewiki.SourceEvent{{
+				ID: "event-1", StartByte: 0, EndByte: len("Evidence grounding: exact anchors."),
+			}},
+		},
+		Brief: pagewiki.PageBrief{Key: "release-policy", ProposedSlug: "release-policy"},
+	})
+
+	s.Require().ErrorContains(err, "decode Page Wiki LLM response")
+	s.Require().ErrorContains(err, "length")
+	s.Require().Len(client.requests, 2)
 }
 
 func (s *llmSessionEditorSuite) TestUsesBriefEvidenceInsteadOfHeadingChunks() {
@@ -250,6 +328,7 @@ type wikiChatClient struct {
 	responses        map[string]string // keyed by Topic from editor requests
 	responsesByIndex []string          // FIFO queue for planner/indexer (non-editor) requests
 	responseIndex    int
+	finishReason     string
 	err              error
 }
 
@@ -276,7 +355,8 @@ func (c *wikiChatClient) Complete(
 			return llm.ChatResponse{}, fmt.Errorf("no response registered for topic %q in test fake", editRequest.Topic)
 		}
 		return llm.ChatResponse{
-			Message: llm.ChatMessage{Role: "assistant", Content: response},
+			Message:      llm.ChatMessage{Role: "assistant", Content: response},
+			FinishReason: c.finishReason,
 		}, nil
 	}
 
@@ -291,6 +371,7 @@ func (c *wikiChatClient) Complete(
 	response := c.responsesByIndex[c.responseIndex]
 	c.responseIndex++
 	return llm.ChatResponse{
-		Message: llm.ChatMessage{Role: "assistant", Content: response},
+		Message:      llm.ChatMessage{Role: "assistant", Content: response},
+		FinishReason: c.finishReason,
 	}, nil
 }
