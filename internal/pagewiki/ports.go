@@ -6,6 +6,7 @@ type PlanInput struct {
 	SourceRevision SourceRevision
 	PageCatalog    PageCatalog
 	Directives     GenerationDirectives
+	Types          TypeRegistry
 }
 
 type Planner interface {

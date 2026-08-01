@@ -358,8 +358,12 @@ func (s *llmSessionPlannerSuite) TestResolvesRelatedSlugsAgainstCatalogAndSiblin
 
 	alpha := briefs[0]
 	// Catalog and sibling slugs resolve; self, unknown, and duplicates drop.
+	// No Types registry is supplied, so the zero-value TypeRegistry normalizes
+	// the unspecified relation to its fallback, RelationTypeRelatesTo.
 	s.Require().Len(alpha.RelatedPages, 2)
-	s.Equal(pagewiki.RelatedPage{ID: "page-1", Title: "Existing Page"}, alpha.RelatedPages[0])
+	s.Equal(pagewiki.RelatedPage{
+		ID: "page-1", Title: "Existing Page", Relation: pagewiki.RelationTypeRelatesTo,
+	}, alpha.RelatedPages[0])
 	sibling := alpha.RelatedPages[1]
 	s.Equal("Beta", sibling.Title)
 	s.True(strings.HasPrefix(sibling.ID, "page_"), "sibling create resolves to a stable page ID")
@@ -367,7 +371,9 @@ func (s *llmSessionPlannerSuite) TestResolvesRelatedSlugsAgainstCatalogAndSiblin
 
 	beta := briefs[1]
 	s.Require().Len(beta.RelatedPages, 1)
-	s.Equal(pagewiki.RelatedPage{ID: "page-1", Title: "Existing Page"}, beta.RelatedPages[0])
+	s.Equal(pagewiki.RelatedPage{
+		ID: "page-1", Title: "Existing Page", Relation: pagewiki.RelationTypeRelatesTo,
+	}, beta.RelatedPages[0])
 }
 
 func (s *llmSessionPlannerSuite) TestCapsRelatedSlugsAtFour() {
@@ -550,6 +556,66 @@ func (s *llmSessionPlannerSuite) TestRejectsTitlesPastTheExactRuneCap() {
 	s.Require().Len(briefs, 1)
 	s.Equal("eighty-rune-title", briefs[0].ProposedSlug)
 	s.Equal(exactly80Runes, briefs[0].ProposedTitle)
+}
+
+func (s *llmSessionPlannerSuite) TestPlannerAssignsNormalizedTypes() {
+	client := &wikiChatClient{responsesByIndex: []string{`{"briefs":[
+		{"action":"create","proposed_slug":"sqlite-migration","proposed_title":"SQLite Migration",
+		 "entity_type":"System","related":[{"slug":"sqlite","relation":"depends-on"}],
+		 "evidence":[{"event_id":"event-1","exact_quote":"decision:"}]}
+	]}`}}
+	planner, err := pagewiki.NewLLMSessionPlanner(pagewiki.LLMPlannerConfig{
+		Client: client, Model: "test-model",
+	})
+	s.Require().NoError(err)
+
+	briefs, err := planner.Plan(context.Background(), pagewiki.PlanInput{
+		SourceRevision: plannerRevision(),
+		PageCatalog: pagewiki.PageCatalog{{
+			ID: "page-sqlite", Slug: "sqlite", Title: "SQLite",
+			CurrentRevisionID: "revision-1",
+		}},
+		Types: pagewiki.NewTypeRegistry(pagewiki.SeedTypeRegistryEntries()),
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(briefs, 1)
+	s.Equal(pagewiki.EntityTypeSystem, briefs[0].EntityType)
+	s.Require().Len(briefs[0].RelatedPages, 1)
+	s.Equal("page-sqlite", briefs[0].RelatedPages[0].ID)
+	s.Equal(pagewiki.RelationTypeDependsOn, briefs[0].RelatedPages[0].Relation)
+}
+
+func (s *llmSessionPlannerSuite) TestPlannerFallsBackUnknownTypesAndLegacyRelatedSlugs() {
+	client := &wikiChatClient{responsesByIndex: []string{`{"briefs":[
+		{"action":"create","proposed_slug":"mystery","proposed_title":"Mystery",
+		 "entity_type":"galaxy","related_slugs":["sqlite"],
+		 "evidence":[{"event_id":"event-1","exact_quote":"decision:"}]}
+	]}`}}
+	planner, err := pagewiki.NewLLMSessionPlanner(pagewiki.LLMPlannerConfig{
+		Client: client, Model: "test-model",
+	})
+	s.Require().NoError(err)
+
+	briefs, err := planner.Plan(context.Background(), pagewiki.PlanInput{
+		SourceRevision: plannerRevision(),
+		PageCatalog: pagewiki.PageCatalog{{
+			ID: "page-sqlite", Slug: "sqlite", Title: "SQLite",
+			CurrentRevisionID: "revision-1",
+		}},
+		Types: pagewiki.NewTypeRegistry(pagewiki.SeedTypeRegistryEntries()),
+	})
+
+	s.Require().NoError(err)
+	s.Require().Len(briefs, 1)
+	s.Equal(pagewiki.EntityTypeConcept, briefs[0].EntityType)
+	s.Require().Len(briefs[0].RelatedPages, 1)
+	s.Equal(pagewiki.RelationTypeRelatesTo, briefs[0].RelatedPages[0].Relation)
+
+	s.Require().NotEmpty(client.requests)
+	system := client.requests[0].Messages[0].Content
+	s.Contains(system, "person")
+	s.Contains(system, "depends-on")
 }
 
 func (s *llmSessionPlannerSuite) TestPlannerPromptPinsConceptIdentityAndTitleStyle() {

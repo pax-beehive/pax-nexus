@@ -60,10 +60,14 @@ type llmPlanEvent struct {
 	Truncated bool   `json:"truncated,omitempty"`
 }
 
+// llmPlanPage is the catalog view the planner sees: existing pages' slugs,
+// titles, summaries, and entity types (so update decisions and related-page
+// linking can account for what a candidate target already is).
 type llmPlanPage struct {
-	Slug    string `json:"slug"`
-	Title   string `json:"title"`
-	Summary string `json:"summary,omitempty"`
+	Slug       string `json:"slug"`
+	Title      string `json:"title"`
+	Summary    string `json:"summary,omitempty"`
+	EntityType string `json:"entity_type,omitempty"`
 }
 
 type llmPlanRequest struct {
@@ -76,13 +80,22 @@ type llmPlanEvidence struct {
 	ExactQuote string `json:"exact_quote"`
 }
 
+// llmPlanRelated is one related-page link the planner proposes: a target
+// slug and the relation type describing how the brief's page relates to it.
+type llmPlanRelated struct {
+	Slug     string `json:"slug"`
+	Relation string `json:"relation"`
+}
+
 type llmPlanBrief struct {
 	Action        string            `json:"action"`
 	TargetSlug    string            `json:"target_slug"`
 	ProposedSlug  string            `json:"proposed_slug"`
 	ProposedTitle string            `json:"proposed_title"`
 	ReaderGoal    string            `json:"reader_goal"`
-	RelatedSlugs  []string          `json:"related_slugs,omitempty"`
+	EntityType    string            `json:"entity_type"`
+	Related       []llmPlanRelated  `json:"related,omitempty"`
+	RelatedSlugs  []string          `json:"related_slugs,omitempty"` // legacy fallback, relation → relates-to
 	Evidence      []llmPlanEvidence `json:"evidence"`
 }
 
@@ -101,7 +114,9 @@ func (p *LLMSessionPlanner) Plan(
 	decoded, err := llm.CompleteJSON[llmPlanResponse](ctx, p.client, llm.ChatRequest{
 		Model: p.model,
 		Messages: []llm.ChatMessage{
-			{Role: "system", Content: pageWikiPlannerPrompt + generationDirectivesPrompt(input.Directives)},
+			{Role: "system", Content: pageWikiPlannerPrompt +
+				generationDirectivesPrompt(input.Directives) +
+				plannerTypeVocabulary(input.Types)},
 			{Role: "user", Content: string(payload)},
 		},
 	}, plannerAttempts)
@@ -135,6 +150,7 @@ func planRequest(input PlanInput) llmPlanRequest {
 	for _, page := range input.PageCatalog {
 		request.Pages = append(request.Pages, llmPlanPage{
 			Slug: page.Slug, Title: page.Title, Summary: page.Summary,
+			EntityType: string(page.EntityType),
 		})
 	}
 	return request
@@ -155,7 +171,7 @@ func acceptedBriefs(decoded llmPlanResponse, input PlanInput) []PageBrief {
 			continue
 		}
 		seenKeys[brief.Key] = struct{}{}
-		accepted = append(accepted, plannedBrief{brief: brief, relatedSlugs: candidate.RelatedSlugs})
+		accepted = append(accepted, plannedBrief{brief: brief, related: mergedRelated(candidate)})
 	}
 	if len(accepted) == 0 {
 		return []PageBrief{sourceOnlyBrief(planEmptyBriefKey, input.SourceRevision)}
@@ -163,18 +179,31 @@ func acceptedBriefs(decoded llmPlanResponse, input PlanInput) []PageBrief {
 	targets := relatedTargets(accepted, input)
 	briefs := make([]PageBrief, 0, len(accepted))
 	for _, planned := range accepted {
-		planned.brief.RelatedPages = resolveRelatedPages(planned, targets)
+		planned.brief.RelatedPages = resolveRelatedPages(planned, targets, input.Types)
 		briefs = append(briefs, planned.brief)
 	}
 	return briefs
 }
 
-// plannedBrief carries the planner's raw related_slugs alongside the accepted
-// brief; slugs resolve to page IDs only after every brief is accepted, since a
-// brief may link to a sibling created later in the same run.
+// plannedBrief carries the planner's raw related-page links alongside the
+// accepted brief; slugs resolve to page IDs only after every brief is
+// accepted, since a brief may link to a sibling created later in the same
+// run.
 type plannedBrief struct {
-	brief        PageBrief
-	relatedSlugs []string
+	brief   PageBrief
+	related []llmPlanRelated
+}
+
+// mergedRelated combines a candidate's related links: the structured
+// related field first, then the legacy related_slugs fallback appended with
+// an empty relation (which normalizes to RelationTypeRelatesTo).
+func mergedRelated(candidate llmPlanBrief) []llmPlanRelated {
+	merged := make([]llmPlanRelated, 0, len(candidate.Related)+len(candidate.RelatedSlugs))
+	merged = append(merged, candidate.Related...)
+	for _, slug := range candidate.RelatedSlugs {
+		merged = append(merged, llmPlanRelated{Slug: slug})
+	}
+	return merged
 }
 
 // relatedTargets maps every linkable slug to its page identity: existing
@@ -197,18 +226,22 @@ func relatedTargets(accepted []plannedBrief, input PlanInput) map[string]Related
 	return targets
 }
 
-func resolveRelatedPages(planned plannedBrief, targets map[string]RelatedPage) []RelatedPage {
-	related := make([]RelatedPage, 0, len(planned.relatedSlugs))
-	for _, slug := range planned.relatedSlugs {
+func resolveRelatedPages(
+	planned plannedBrief,
+	targets map[string]RelatedPage,
+	types TypeRegistry,
+) []RelatedPage {
+	related := make([]RelatedPage, 0, len(planned.related))
+	for _, entry := range planned.related {
 		if len(related) >= plannerMaxRelatedPages {
 			break
 		}
 		// A page never links to itself; Key holds the page's own slug for both
 		// create and update briefs.
-		if slug == planned.brief.Key {
+		if entry.Slug == planned.brief.Key {
 			continue
 		}
-		target, found := targets[slug]
+		target, found := targets[entry.Slug]
 		if !found {
 			continue
 		}
@@ -222,6 +255,7 @@ func resolveRelatedPages(planned plannedBrief, targets map[string]RelatedPage) [
 		if duplicate {
 			continue
 		}
+		target.Relation = types.NormalizeRelation(entry.Relation)
 		related = append(related, target)
 	}
 	return related
@@ -241,7 +275,7 @@ func acceptBrief(candidate llmPlanBrief, input PlanInput) (PageBrief, bool) {
 			return PageBrief{}, false
 		}
 		if page, found := catalogBySlug(input.PageCatalog, slug); found {
-			return updateBrief(page, candidate, eventIDs, evidence), true
+			return updateBrief(page, candidate, eventIDs, evidence, input.Types), true
 		}
 		title := normalizeProposedTitle(candidate.ProposedTitle)
 		if title == "" {
@@ -253,10 +287,11 @@ func acceptBrief(candidate llmPlanBrief, input PlanInput) (PageBrief, bool) {
 			ReaderGoal:       strings.TrimSpace(candidate.ReaderGoal),
 			EvidenceEventIDs: eventIDs,
 			Evidence:         evidence,
+			EntityType:       input.Types.NormalizeEntity(candidate.EntityType),
 		}, true
 	case "update":
 		if page, found := catalogBySlug(input.PageCatalog, strings.TrimSpace(candidate.TargetSlug)); found {
-			return updateBrief(page, candidate, eventIDs, evidence), true
+			return updateBrief(page, candidate, eventIDs, evidence, input.Types), true
 		}
 		return PageBrief{}, false
 	default:
@@ -292,6 +327,7 @@ func updateBrief(
 	candidate llmPlanBrief,
 	eventIDs []string,
 	evidence []EvidenceQuoteDraft,
+	types TypeRegistry,
 ) PageBrief {
 	return PageBrief{
 		Key: page.Slug, Action: PageActionUpdate,
@@ -300,6 +336,7 @@ func updateBrief(
 		ReaderGoal:             strings.TrimSpace(candidate.ReaderGoal),
 		EvidenceEventIDs:       eventIDs,
 		Evidence:               evidence,
+		EntityType:             types.NormalizeEntity(candidate.EntityType),
 	}
 }
 
@@ -354,6 +391,7 @@ func sourceOnlyBrief(key string, revision SourceRevision) PageBrief {
 	}
 	return PageBrief{
 		Key: key, Action: PageActionSourceOnly, EvidenceEventIDs: eventIDs,
+		EntityType: EntityTypeConcept,
 	}
 }
 
@@ -397,5 +435,39 @@ from pages or from another brief's proposed_slug in the same response.
 Link only durable, direct relationships — prerequisite, sequel, same
 subsystem — never same-session coincidence, and never the page's own slug.
 Omit the field when nothing qualifies.`
+
+// plannerTypeVocabulary renders the registered entity and relation types as a
+// prompt suffix: their names and descriptions, plus the instructions for how
+// to use them (every brief's entity_type, the related field's shape, and
+// domain/range guidance for common relations). It returns "" when the
+// registry has no entity and no relation types registered (the zero-value
+// TypeRegistry), so callers with an unset Types field see no prompt change.
+func plannerTypeVocabulary(types TypeRegistry) string {
+	entities := types.Entities()
+	relations := types.Relations()
+	if len(entities) == 0 && len(relations) == 0 {
+		return ""
+	}
+	var vocabulary strings.Builder
+	vocabulary.WriteString("\n\nEvery brief carries entity_type, chosen from these entity types:\n")
+	for _, entry := range entities {
+		fmt.Fprintf(&vocabulary, "- %s: %s\n", entry.Name, entry.Description)
+	}
+	vocabulary.WriteString(
+		"\nRelated pages use related: [{\"slug\":\"...\",\"relation\":\"...\"}] (up to 3), " +
+			"choosing relation from these relation types:\n",
+	)
+	for _, entry := range relations {
+		fmt.Fprintf(&vocabulary, "- %s: %s\n", entry.Name, entry.Description)
+	}
+	vocabulary.WriteString(
+		"\nDomain/range guidance: owns usually runs person → system or convention; " +
+			"depends-on usually runs system → system; part-of usually runs system → " +
+			"system or convention → system; supersedes usually runs decision → decision; " +
+			"affects usually runs decision → system or convention. Pick the closest fit; " +
+			"fall back to relates-to when none apply.\n",
+	)
+	return vocabulary.String()
+}
 
 var _ Planner = (*LLMSessionPlanner)(nil)
