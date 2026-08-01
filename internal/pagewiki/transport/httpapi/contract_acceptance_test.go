@@ -55,6 +55,32 @@ func (s *ContractAcceptanceSuite) SetupTest() {
 }
 
 func (s *ContractAcceptanceSuite) TestGivenInjectedSessionWhenReadThenEveryWikiRouteUsesItsRevision() {
+	// Publish a second page directly through the repository and place it
+	// under a topic, so navigation exercises both a placed page (nested
+	// under "roots") and the unplaced "sqlite" page injected below (listed
+	// under "pages"). Post-flat-write-path, every published page is
+	// unplaced until ReplaceTopicTree is called explicitly. It also serves
+	// as the link target for "sqlite"'s outgoing link below, and — being
+	// untyped — exercises the empty-EntityType-maps-to-fallback rule on its
+	// target_page payload.
+	placedPage := pagewiki.Page{
+		ID:                "page-placed",
+		Slug:              "placed-topic-page",
+		Title:             "Placed Topic Page",
+		CurrentRevisionID: "revision-placed",
+	}
+	placedRevision := pagewiki.PageRevision{ID: "revision-placed", PageID: "page-placed"}
+	s.Require().NoError(s.repository.PublishPage(context.Background(), pagewiki.PagePublication{
+		Page:     placedPage,
+		Revision: placedRevision,
+	}))
+	s.Require().NoError(s.repository.ReplaceTopicTree(context.Background(), pagewiki.TopicTree{
+		Topics: []pagewiki.Topic{{ID: "topic-runtime", Slug: "runtime", Title: "Runtime"}},
+		Placements: []pagewiki.PagePlacement{
+			{PageID: "page-placed", TopicID: "topic-runtime"},
+		},
+	}))
+
 	injected := s.performJSON(
 		http.MethodPost,
 		"/sessions/inject",
@@ -83,29 +109,6 @@ func (s *ContractAcceptanceSuite) TestGivenInjectedSessionWhenReadThenEveryWikiR
 	s.Require().Len(injection.Run.Targets, 1)
 	revisionID := injection.Run.Targets[0].PageRevisionID
 
-	// Publish a second page directly through the repository and place it
-	// under a topic, so navigation exercises both a placed page (nested
-	// under "roots") and the unplaced "sqlite" page injected above (listed
-	// under "pages"). Post-flat-write-path, every published page is
-	// unplaced until ReplaceTopicTree is called explicitly.
-	placedPage := pagewiki.Page{
-		ID:                "page-placed",
-		Slug:              "placed-topic-page",
-		Title:             "Placed Topic Page",
-		CurrentRevisionID: "revision-placed",
-	}
-	placedRevision := pagewiki.PageRevision{ID: "revision-placed", PageID: "page-placed"}
-	s.Require().NoError(s.repository.PublishPage(context.Background(), pagewiki.PagePublication{
-		Page:     placedPage,
-		Revision: placedRevision,
-	}))
-	s.Require().NoError(s.repository.ReplaceTopicTree(context.Background(), pagewiki.TopicTree{
-		Topics: []pagewiki.Topic{{ID: "topic-runtime", Slug: "runtime", Title: "Runtime"}},
-		Placements: []pagewiki.PagePlacement{
-			{PageID: "page-placed", TopicID: "topic-runtime"},
-		},
-	}))
-
 	tests := []struct {
 		name       string
 		path       string
@@ -125,6 +128,7 @@ func (s *ContractAcceptanceSuite) TestGivenInjectedSessionWhenReadThenEveryWikiR
 			assertBody: func(body map[string]any) {
 				s.Equal("sqlite", body["slug"])
 				s.Equal(revisionID, body["current_revision_id"])
+				s.Equal("system", body["entity_type"])
 				revision := requireObject(s.T(), body["revision"])
 				s.Equal(revisionID, revision["id"])
 				s.Contains(revision["markdown"], "SQLite is searchable.")
@@ -156,6 +160,16 @@ func (s *ContractAcceptanceSuite) TestGivenInjectedSessionWhenReadThenEveryWikiR
 			path: "/v1/wiki/pages/sqlite/backlinks",
 			assertBody: func(body map[string]any) {
 				s.Empty(body["incoming"])
+				outgoing := requireList(s.T(), body["outgoing"])
+				s.Require().Len(outgoing, 1)
+				resolved := requireObject(s.T(), outgoing[0])
+				link := requireObject(s.T(), resolved["link"])
+				s.Equal("depends-on", link["relation_type"])
+				sourcePage := requireObject(s.T(), resolved["source_page"])
+				s.Equal("system", sourcePage["entity_type"])
+				targetPage := requireObject(s.T(), resolved["target_page"])
+				s.Equal("placed-topic-page", targetPage["slug"])
+				s.Equal("concept", targetPage["entity_type"])
 			},
 		},
 		{
@@ -521,6 +535,7 @@ func (contractPlanner) Plan(
 			ProposedSlug:     "sqlite",
 			ProposedTitle:    "SQLite",
 			EvidenceEventIDs: []string{"event-sqlite"},
+			EntityType:       pagewiki.EntityTypeSystem,
 		},
 	}, nil
 }
@@ -547,6 +562,14 @@ func contractSQLiteDraft() pagewiki.PageDraft {
 						ExactText: "SQLite is searchable.",
 					},
 				},
+			},
+		},
+		Links: []pagewiki.LinkDraft{
+			{
+				SectionKey:   "decision",
+				ExactText:    "SQLite",
+				TargetPageID: "page-placed",
+				RelationType: pagewiki.RelationTypeDependsOn,
 			},
 		},
 	}

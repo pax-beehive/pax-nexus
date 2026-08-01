@@ -40,6 +40,7 @@ struct PageLink {
   5: required i32 end_byte
   6: required string exact_text
   7: required string target_page_id
+  8: optional string relation_type
 }
 
 struct PageSection {
@@ -65,6 +66,7 @@ struct Page {
   2: required string slug
   3: required string title
   4: required string current_revision_id
+  5: optional string entity_type
 }
 
 struct MaintenanceTarget {
@@ -111,6 +113,7 @@ struct CurrentPageResponse {
   5: required PageRevision revision
   6: optional string status
   7: optional string successor_slug
+  8: optional string entity_type
 }
 
 struct PageRevisionList {
