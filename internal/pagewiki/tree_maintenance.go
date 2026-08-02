@@ -18,6 +18,10 @@ const (
 	// overflowing it drops work rather than blocking ingestion, and the next
 	// catalog change (or a rebuild) re-queues whatever was dropped.
 	treeTaskQueueSize = 256
+	// treeMaxDirectPages caps how many direct entries (pages plus child
+	// topics) a topic — or the root — can hold before an overflow split is
+	// queued.
+	treeMaxDirectPages = 10
 )
 
 // treeTask is one unit of incremental topic-tree maintenance. Unlike the
@@ -476,6 +480,13 @@ func childBySlug(children []Topic, slug string) (Topic, bool) {
 		}
 	}
 	return Topic{}, false
+}
+
+// topicSlug derives a URL-safe slug from an LLM-proposed topic title.
+func topicSlug(title string) string {
+	return strings.Trim(nonSlugCharacter.ReplaceAllString(
+		strings.ToLower(strings.TrimSpace(title)), "-",
+	), "-")
 }
 
 func topicSlugs(topics []Topic) []string {

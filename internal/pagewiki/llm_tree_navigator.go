@@ -32,10 +32,10 @@ type LLMTreeNavigatorConfig struct {
 }
 
 // LLMTreeNavigator places one page at a time into the topic tree and, when a
-// topic grows too large, splits it into child topics. Unlike LLMTreeIndexer
-// it never sees the whole tree at once: it only looks at the page (or
-// overflowing topic) in front of it plus its immediate siblings, which keeps
-// incremental maintenance cheap as the wiki grows.
+// topic grows too large, splits it into child topics. It never sees the
+// whole tree at once: it only looks at the page (or overflowing topic) in
+// front of it plus its immediate siblings, which keeps incremental
+// maintenance cheap as the wiki grows.
 type LLMTreeNavigator struct {
 	client llm.ChatClient
 	model  string

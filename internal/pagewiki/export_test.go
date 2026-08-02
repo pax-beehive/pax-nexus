@@ -8,12 +8,7 @@ import "context"
 const (
 	PageWikiPlannerPromptForTest       = pageWikiPlannerPrompt
 	PageWikiEnglishEditorPromptForTest = pageWikiEnglishEditorPrompt
-	TreeDefaultMaxDepthForTest         = treeDefaultMaxDepth
 )
-
-func TreeIndexerPromptForTest(maxDepth int) string {
-	return treeIndexerPrompt(maxDepth)
-}
 
 // TopicIDForTest exposes the Topic ID derivation so tests can assert the
 // service created exactly the topic it was supposed to, without duplicating
