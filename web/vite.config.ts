@@ -21,10 +21,14 @@ export default defineConfig(({ mode }) => {
     },
     test: {
       environment: "node",
-      include: ["tests/**/*.test.ts", "tests/**/*.dom.test.tsx"],
+      include: ["tests/**/*.test.ts", "tests/**/*.dom.test.tsx", "src/**/*.test.tsx"],
       // Lib tests stay on the node environment; page-level DOM smoke tests
-      // (tests/**/*.dom.test.tsx) run in jsdom.
-      environmentMatchGlobs: [["tests/**/*.dom.test.tsx", "jsdom"]],
+      // (tests/**/*.dom.test.tsx) and colocated component tests
+      // (src/**/*.test.tsx) run in jsdom.
+      environmentMatchGlobs: [
+        ["tests/**/*.dom.test.tsx", "jsdom"],
+        ["src/**/*.test.tsx", "jsdom"],
+      ],
     },
   };
 });

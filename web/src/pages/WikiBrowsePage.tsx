@@ -17,7 +17,7 @@ import {
 } from "../api/wiki";
 import { Button } from "../components/Button";
 import { RelationList } from "../components/wiki/RelationList";
-import { collectPages, RootPageList, Topic } from "../components/wiki/TopicTree";
+import { collectPages, TopicTreePanel } from "../components/wiki/TopicTree";
 import { WikiMarkdown } from "../components/wiki/WikiMarkdown";
 import { isAbortError, usePolling } from "../lib/usePolling";
 import { useErrorHandler } from "../lib/useErrorHandler";
@@ -29,6 +29,7 @@ export function WikiBrowsePage() {
   const handleError = useErrorHandler();
   const [topics, setTopics] = useState<WikiNavigationTopic[]>([]);
   const [rootPages, setRootPages] = useState<WikiNavigationPage[]>([]);
+  const [topicPath, setTopicPath] = useState<string[]>([]);
   const [navigationLoading, setNavigationLoading] = useState(true);
   const [selectedSlug, setSelectedSlug] = useState(
     () => new URLSearchParams(window.location.search).get("page") ?? "",
@@ -268,15 +269,14 @@ export function WikiBrowsePage() {
               <span>Topics</span>
               <span className="faint small">{pages.length} pages</span>
             </div>
-            <RootPageList pages={rootPages} selectedSlug={selectedSlug} onSelect={selectPage} />
-            {topics.map((topic) => (
-              <Topic
-                key={topic.id}
-                topic={topic}
-                selectedSlug={selectedSlug}
-                onSelect={selectPage}
-              />
-            ))}
+            <TopicTreePanel
+              topics={topics}
+              rootPages={rootPages}
+              topicPath={topicPath}
+              onNavigate={setTopicPath}
+              selectedSlug={selectedSlug}
+              onSelect={selectPage}
+            />
             {navigationLoading && <p className="muted small">Loading topics…</p>}
           </nav>
 
