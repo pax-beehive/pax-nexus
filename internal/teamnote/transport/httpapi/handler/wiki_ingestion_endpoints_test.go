@@ -55,7 +55,6 @@ func (s *wikiIngestionHandlerSuite) TestOwnerConfirmsRebuildThroughGeneratedRout
 
 	s.Equal(consts.StatusAccepted, response.Code)
 	s.JSONEq(`{"auto_inject":true,"rebuild_state":"queued"}`, response.Body.String())
-	s.Contains(response.Body.String(), `"rebuild_state":"queued"`)
 	s.Equal(1, s.wikiControl.rebuilds)
 }
 
@@ -111,6 +110,13 @@ func (s *wikiIngestionHandlerSuite) TestStatusOmitsProgressWhenUnavailable() {
 	s.JSONEq(`{"auto_inject":true,"rebuild_state":"idle"}`, response.Body.String())
 }
 
+func (s *wikiIngestionHandlerSuite) TestUpdateIngestionExposesRebuildState() {
+	response := s.performWithBody(http.MethodPut, "/v1/wiki/ingestion", true, `{"auto_inject":true}`)
+
+	s.Equal(consts.StatusOK, response.Code)
+	s.JSONEq(`{"auto_inject":true,"rebuild_state":"idle"}`, response.Body.String())
+}
+
 func (s *wikiIngestionHandlerSuite) TestIngestionStatusExposesRebuildFailure() {
 	finished := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
 	s.wikiControl.status = sessionconsumer.Status{
@@ -130,9 +136,6 @@ func (s *wikiIngestionHandlerSuite) TestIngestionStatusExposesRebuildFailure() {
 			`"last_rebuild_finished_at":"2026-08-01T10:00:00Z"}`,
 		response.Body.String(),
 	)
-	s.Contains(response.Body.String(), `"rebuild_state":"failed"`)
-	s.Contains(response.Body.String(), `"rebuild_error":"rebuild unavailable"`)
-	s.Contains(response.Body.String(), `"last_rebuild_finished_at":"2026-08-01T10:00:00Z"`)
 }
 
 func (s *wikiIngestionHandlerSuite) TestRebuildForwardsParsedSinceCutoff() {

@@ -50,7 +50,10 @@ func (h *Handler) UpdateWikiIngestion(ctx context.Context, c *app.RequestContext
 		h.writeWikiControlError(c, "update Wiki ingestion", err)
 		return
 	}
-	c.JSON(consts.StatusOK, &api.WikiIngestionStatusResponse{AutoInject: status.AutoInject})
+	response := &api.WikiIngestionStatusResponse{AutoInject: status.AutoInject}
+	response.RebuildState, response.RebuildError, response.LastRebuildFinishedAt =
+		applyRebuildStatus(status.Rebuild)
+	c.JSON(consts.StatusOK, response)
 }
 
 func (h *Handler) InjectWikiSession(ctx context.Context, c *app.RequestContext) {
