@@ -114,6 +114,9 @@ func (s *Service) StartTreeMaintenance(ctx context.Context) {
 // empty. Tests and the rebuild flow use it to make the async contract
 // synchronous; it is safe to call while the background worker is running,
 // since both drain the same channel and execute under the same mutex.
+// Note: tasks already claimed by the background worker and executing
+// concurrently are not awaited by this method, so the tree is eventually
+// consistent rather than strictly fresh when this call returns.
 func (s *Service) FlushTreeReindex(ctx context.Context) {
 	for {
 		select {

@@ -202,8 +202,10 @@ func (h *Handler) GetNavigation(
 }
 
 // RebuildTopicTree discards the stored topic tree and re-places every active
-// page from scratch. It blocks until the rebuild is complete, so a 200
-// response means the tree is already in its rebuilt shape.
+// page from scratch. It blocks until the rebuild is complete. A 200 response
+// means the replay has been submitted and the queue drained; if the background
+// worker is running concurrently, a small number of trailing tasks may still be
+// finishing, so the tree is eventually consistent.
 func (h *Handler) RebuildTopicTree(
 	ctx context.Context,
 	requestContext *app.RequestContext,
