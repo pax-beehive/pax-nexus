@@ -208,7 +208,10 @@ func (s *curationAcceptanceSuite) TestGivenNearDuplicatePagesWhenMergedThenSurvi
 	s.Require().NoError(err)
 	s.Require().Equal(run, storedRun)
 
-	s.Require().True(service.TreeDirtyForTest(), "a merge must mark the topic tree dirty")
+	s.Require().Positive(
+		service.PendingTreeTasksForTest(),
+		"a merge must queue the republished page for re-placement in the topic tree",
+	)
 }
 
 func (s *curationAcceptanceSuite) TestGivenSkepticVerifyRefutesMergeThenNoWritesOccur() {
@@ -252,7 +255,10 @@ func (s *curationAcceptanceSuite) TestGivenSkepticVerifyRefutesMergeThenNoWrites
 
 	s.Require().Equal(beforePages, s.repository.PageCount())
 	s.Require().Equal(beforeRevisions, s.repository.PageRevisionCount())
-	s.Require().False(service.TreeDirtyForTest(), "a refuted verdict must not mark the topic tree dirty")
+	s.Require().Zero(
+		service.PendingTreeTasksForTest(),
+		"a refuted verdict changes nothing, so no re-placement is queued",
+	)
 }
 
 func (s *curationAcceptanceSuite) TestGivenQualityCandidateWhenRetiredThenRevisionsStayIntact() {
@@ -287,7 +293,8 @@ func (s *curationAcceptanceSuite) TestGivenQualityCandidateWhenRetiredThenRevisi
 	s.Require().Equal(run.ID, retired.RetiredByRunID)
 	s.Require().Equal(beforeRevisions, s.repository.PageRevisionCount(), "retiring must not touch revision history")
 
-	s.Require().True(service.TreeDirtyForTest())
+	// The retired page left the catalog, so there is nothing left to place.
+	s.Require().Zero(service.PendingTreeTasksForTest())
 }
 
 // TestGivenNilEmbedderThenQualityLaneStillRunsWithEmptyPairLane covers the
@@ -635,7 +642,10 @@ func (s *curationAcceptanceSuite) TestGivenUnresolvableConflictWithNoDraftThenCa
 
 	s.Require().Equal(beforePages, s.repository.PageCount())
 	s.Require().Equal(beforeRevisions, s.repository.PageRevisionCount())
-	s.Require().False(service.TreeDirtyForTest(), "a degraded-to-keep candidate must not mark the topic tree dirty")
+	s.Require().Zero(
+		service.PendingTreeTasksForTest(),
+		"a degraded-to-keep candidate changes nothing, so no re-placement is queued",
+	)
 }
 
 func (s *curationAcceptanceSuite) TestGivenUnchangedCatalogWhenRunTwiceThenSecondRunIsAnIdempotentSkip() {
@@ -972,7 +982,7 @@ func (s *curationAcceptanceSuite) TestGivenVerifyErrorThenVerdictIsTreatedAsRefu
 	s.Require().Equal(pagewiki.TargetStatusSucceeded, outcome.Status)
 	s.Require().Equal(pagewiki.CurationVerdictRetire, outcome.Verdict)
 	s.Require().Equal(beforePages, s.repository.PageCount())
-	s.Require().False(service.TreeDirtyForTest())
+	s.Require().Zero(service.PendingTreeTasksForTest())
 }
 
 // shortEmbedder always returns fewer vectors than texts requested,

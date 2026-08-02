@@ -160,22 +160,22 @@ func (s *configSuite) TestLoadsExtractorThinkingMode() {
 
 func (s *configSuite) TestBuildsConfiguredPageWikiMaintainers() {
 	logger := slog.New(slog.DiscardHandler)
-	localPlanner, localEditor, localIndexer, localCurator, err := buildPageWikiMaintainers(nil, applicationConfig{}, logger)
+	localPlanner, localEditor, localNavigator, localCurator, err := buildPageWikiMaintainers(nil, applicationConfig{}, logger)
 	s.Require().NoError(err)
 	s.IsType(pagewiki.SessionDocumentPlanner{}, localPlanner)
 	s.IsType(pagewiki.SessionDocumentEditor{}, localEditor)
-	s.Nil(localIndexer)
+	s.Nil(localNavigator)
 	s.Nil(localCurator)
 
 	config := applicationConfig{
 		llmwikiMode: "harness", llmwikiBaseURL: "https://api.deepseek.com",
 		llmwikiAPIKey: "secret", llmwikiModel: "deepseek-v4-pro",
 	}
-	planner, editor, indexer, curator, err := buildPageWikiMaintainers(nil, config, logger)
+	planner, editor, navigator, curator, err := buildPageWikiMaintainers(nil, config, logger)
 	s.Require().NoError(err)
 	s.IsType(&pagewiki.LLMSessionPlanner{}, planner)
 	s.IsType(&pagewiki.LLMSessionEditor{}, editor)
-	s.IsType(&pagewiki.LLMTreeIndexer{}, indexer)
+	s.IsType(&pagewiki.LLMTreeNavigator{}, navigator)
 	s.IsType(&pagewiki.LLMCurator{}, curator)
 
 	config.llmwikiAPIKey = ""

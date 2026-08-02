@@ -18,11 +18,9 @@ import (
 )
 
 const (
-	minPlannedPages    = 1
-	maxPlannedPages    = 8
-	editConcurrency    = 4
-	treeReindexQuiet   = 5 * time.Second
-	treeReindexMaxWait = 60 * time.Second
+	minPlannedPages = 1
+	maxPlannedPages = 8
+	editConcurrency = 4
 )
 
 var (
@@ -31,14 +29,20 @@ var (
 )
 
 type Service struct {
-	repository    Repository
-	planner       Planner
-	editor        Editor
-	treeIndexer   TreeIndexer
-	logger        *slog.Logger
-	treeDirty     chan struct{}
-	treeQuiet     time.Duration
-	treeMaxWait   time.Duration
+	repository Repository
+	planner    Planner
+	editor     Editor
+	logger     *slog.Logger
+
+	// Topic-tree maintenance: treeTasks is the keyed work queue (treeTaskKeys
+	// deduplicates what is already pending, under treeTaskMu), and
+	// treeReindexMu serializes the tree writes themselves, so the background
+	// worker and a synchronous FlushTreeReindex never interleave.
+	treeNavigator TreeNavigator
+	treeMaxDepth  int
+	treeTasks     chan treeTask
+	treeTaskKeys  map[string]struct{}
+	treeTaskMu    sync.Mutex
 	treeReindexMu sync.Mutex
 
 	curator          Curator
@@ -57,17 +61,22 @@ type CurationConfig struct {
 
 type ServiceOption func(*Service)
 
-// WithTreeIndexer enables Page Wiki topic-tree reindexing. When set,
-// InjectSession marks the topic tree dirty after any run that changed the
-// catalog; the actual rebuild happens off that path, either in the
-// background via StartTreeMaintenance (debounced) or synchronously via
-// FlushTreeReindex. It remains optional: without it, marks are never
-// recorded and no reindex ever runs.
-func WithTreeIndexer(indexer TreeIndexer, logger *slog.Logger) ServiceOption {
+// WithTreeNavigator enables incremental Page Wiki topic-tree maintenance.
+// When set, InjectSession queues each published page for placement and
+// curation queues whatever it left unplaced; the navigator is then asked,
+// one level at a time, where each page belongs — never for the whole tree at
+// once. The work runs off the ingest path, either in the background via
+// StartTreeMaintenance or synchronously via FlushTreeReindex. It remains
+// optional: without it, tasks are never processed and the tree stays put.
+func WithTreeNavigator(config TreeMaintenanceConfig) ServiceOption {
 	return func(s *Service) {
-		s.treeIndexer = indexer
-		if logger != nil {
-			s.logger = logger
+		s.treeNavigator = config.Navigator
+		s.treeMaxDepth = config.MaxDepth
+		if s.treeMaxDepth <= 0 {
+			s.treeMaxDepth = DefaultTopicTreeMaxDepth
+		}
+		if config.Logger != nil {
+			s.logger = config.Logger
 		}
 	}
 }
@@ -111,9 +120,8 @@ func NewService(
 		editor:     editor,
 		logger:     observability.DiscardLogger(),
 	}
-	service.treeDirty = make(chan struct{}, 1)
-	service.treeQuiet = treeReindexQuiet
-	service.treeMaxWait = treeReindexMaxWait
+	service.treeTasks = make(chan treeTask, treeTaskQueueSize)
+	service.treeTaskKeys = make(map[string]struct{})
 	for _, option := range options {
 		option(service)
 	}
@@ -221,8 +229,12 @@ func (s *Service) InjectSession(
 	if err := s.repository.SaveMaintenanceRun(ctx, run); err != nil {
 		return InjectResult{}, fmt.Errorf("save MaintenanceRun: %w", err)
 	}
-	if s.treeIndexer != nil && catalogChanged(briefs, run.Targets) {
-		s.markTreeDirty()
+	if s.treeNavigator != nil {
+		for _, target := range run.Targets {
+			if target.Status == TargetStatusSucceeded && target.PageID != "" {
+				s.enqueueTreeTask(treeTask{kind: treeTaskInsert, id: target.PageID})
+			}
+		}
 	}
 	return InjectResult{
 		SourceRevisionID: sourceRevision.ID,
@@ -305,137 +317,6 @@ func (s *Service) SetGenerationSettings(
 		return GenerationDirectives{}, fmt.Errorf("save generation settings: %w", err)
 	}
 	return valid, nil
-}
-
-// markTreeDirty records that the Page catalog changed since the last topic
-// tree rebuild. The channel is buffered(1): an already-pending mark absorbs
-// further marks, and the eventual rebuild reads the latest catalog anyway.
-func (s *Service) markTreeDirty() {
-	select {
-	case s.treeDirty <- struct{}{}:
-	default:
-	}
-}
-
-// StartTreeMaintenance runs topic-tree rebuilds in the background: a dirty
-// mark opens a debounce window (treeQuiet of silence, capped at treeMaxWait)
-// and then rebuilds once. This keeps the rebuild off the ingest critical
-// path and coalesces a replay's many runs into one rebuild. A mark pending
-// when ctx is cancelled is dropped; the tree is a derived view and the next
-// catalog change re-marks it.
-func (s *Service) StartTreeMaintenance(ctx context.Context) {
-	if s.treeIndexer == nil {
-		return
-	}
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-s.treeDirty:
-				s.debounceThenReindex(ctx)
-			}
-		}
-	}()
-}
-
-func (s *Service) debounceThenReindex(ctx context.Context) {
-	quiet := time.NewTimer(s.treeQuiet)
-	defer quiet.Stop()
-	deadline := time.NewTimer(s.treeMaxWait)
-	defer deadline.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-s.treeDirty:
-			if !quiet.Stop() {
-				<-quiet.C
-			}
-			quiet.Reset(s.treeQuiet)
-		case <-quiet.C:
-			s.reindexTree(ctx)
-			return
-		case <-deadline.C:
-			s.reindexTree(ctx)
-			return
-		}
-	}
-}
-
-// FlushTreeReindex rebuilds the topic tree now if a dirty mark is pending.
-// Tests and the rebuild flow use it to make the async contract synchronous.
-// If StartTreeMaintenance is already running, its background drainer may
-// have already claimed the pending mark off treeDirty before Flush observes
-// it; Flush then no-ops even though a debounced rebuild is still in flight.
-// Flush guarantees "rebuild now if a mark is pending", not "the tree is
-// fresh once this call returns".
-func (s *Service) FlushTreeReindex(ctx context.Context) {
-	if s.treeIndexer == nil {
-		return
-	}
-	select {
-	case <-s.treeDirty:
-		s.reindexTree(ctx)
-	default:
-	}
-}
-
-// reindexTree is best-effort: any failure is logged and swallowed so a
-// reindex problem never fails or delays ingestion, and the previously
-// stored TopicTree stays in place. The mutex serializes concurrent calls
-// from FlushTreeReindex and the background maintenance goroutine.
-func (s *Service) reindexTree(ctx context.Context) {
-	s.treeReindexMu.Lock()
-	defer s.treeReindexMu.Unlock()
-	catalog, err := s.repository.PageCatalog(ctx)
-	if err != nil {
-		s.logger.Warn("Page Wiki tree reindex skipped", "stage", "load catalog", "error", err)
-		return
-	}
-	directives, err := s.repository.GenerationSettings(ctx)
-	if err != nil {
-		s.logger.Warn("Page Wiki tree reindex skipped", "stage", "load settings", "error", err)
-		return
-	}
-	current, err := s.repository.TopicTree(ctx)
-	if err != nil {
-		s.logger.Warn("Page Wiki tree reindex skipped", "stage", "load tree", "error", err)
-		return
-	}
-	tree, err := s.treeIndexer.Index(ctx, TreeIndexInput{
-		Catalog:    catalog,
-		Current:    current,
-		Directives: directives,
-	})
-	if err != nil {
-		s.logger.Warn("Page Wiki tree reindex skipped", "stage", "index", "error", err)
-		return
-	}
-	if err := s.repository.ReplaceTopicTree(ctx, tree); err != nil {
-		s.logger.Warn("Page Wiki tree reindex skipped", "stage", "replace", "error", err)
-	}
-}
-
-// catalogChanged reports whether any successfully processed target in this
-// run actually changed the Page catalog: a new Page was created, or an
-// existing Page was updated to a different revision. targets is appended in
-// brief order by InjectSession, so index pairing with briefs is sound.
-func catalogChanged(briefs []PageBrief, targets []MaintenanceTarget) bool {
-	for index, target := range targets {
-		if index >= len(briefs) || target.Status != TargetStatusSucceeded {
-			continue
-		}
-		switch briefs[index].Action {
-		case PageActionCreate:
-			return true
-		case PageActionUpdate:
-			if target.PageRevisionID != briefs[index].ExpectedBaseRevisionID {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 // preparedTarget carries one brief's prepare-phase outcome into the serial

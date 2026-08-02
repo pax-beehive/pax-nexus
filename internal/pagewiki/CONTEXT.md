@@ -12,6 +12,11 @@ Evidence Lake evidence, published over HTTP and read in the Human Portal.
 **Planner / Editor**: the LLM pair that chooses evidence and writes page
 revisions (`llm_session_planner.go`, `llm_session_editor.go`).
 
+**Tree Navigator**: the LLM that maintains the reader-facing topic tree one
+page at a time — where a single page belongs, and how to split a topic that
+grew too large (`llm_tree_navigator.go`). The service drives it from a keyed
+task queue (`tree_maintenance.go`), so placement never blocks ingestion.
+
 ## Relationships
 
 - Consumes Evidence Lake evidence via the session consumer.

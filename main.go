@@ -220,13 +220,15 @@ func buildPageWikiHTTPHandler(
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("initialize Page Wiki repository: %w", err)
 	}
-	planner, editor, indexer, curator, err := buildPageWikiMaintainers(usageStore, config, logger)
+	planner, editor, navigator, curator, err := buildPageWikiMaintainers(usageStore, config, logger)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 	options := make([]pagewiki.ServiceOption, 0, 2)
-	if indexer != nil {
-		options = append(options, pagewiki.WithTreeIndexer(indexer, logger))
+	if navigator != nil {
+		options = append(options, pagewiki.WithTreeNavigator(pagewiki.TreeMaintenanceConfig{
+			Navigator: navigator, MaxDepth: treeMaxDepth, Logger: logger,
+		}))
 	}
 	if curator != nil {
 		curationConfig, err := buildPageWikiCurationConfig(config)
@@ -320,7 +322,7 @@ func buildPageWikiMaintainers(
 	usageStore *postgres.LLMUsageStore,
 	config applicationConfig,
 	logger *slog.Logger,
-) (pagewiki.Planner, pagewiki.Editor, pagewiki.TreeIndexer, pagewiki.Curator, error) {
+) (pagewiki.Planner, pagewiki.Editor, pagewiki.TreeNavigator, pagewiki.Curator, error) {
 	switch strings.TrimSpace(config.llmwikiMode) {
 	case "", "local":
 		return pagewiki.SessionDocumentPlanner{}, pagewiki.SessionDocumentEditor{}, nil, nil, nil
@@ -331,12 +333,6 @@ func buildPageWikiMaintainers(
 			return nil, nil, nil, nil, errors.New(
 				"initialize Page Wiki LLM maintainers: LLMWIKI_LLM_BASE_URL, " +
 					"LLMWIKI_LLM_API_KEY, and LLMWIKI_LLM_MODEL are required",
-			)
-		}
-		maxDepth, err := parseTreeMaxDepth(config.llmwikiTreeMaxDepth)
-		if err != nil {
-			return nil, nil, nil, nil, fmt.Errorf(
-				"initialize Page Wiki LLM maintainers: %w", err,
 			)
 		}
 		client := platformllm.NewDeepSeekClient(platformllm.DeepSeekConfig{
@@ -368,8 +364,8 @@ func buildPageWikiMaintainers(
 		if err != nil {
 			return nil, nil, nil, nil, err
 		}
-		indexer, err := pagewiki.NewLLMTreeIndexer(pagewiki.LLMTreeIndexerConfig{
-			Client: indexerClient, Model: config.llmwikiModel, Logger: logger, MaxDepth: maxDepth,
+		navigator, err := pagewiki.NewLLMTreeNavigator(pagewiki.LLMTreeNavigatorConfig{
+			Client: indexerClient, Model: config.llmwikiModel, Logger: logger,
 		})
 		if err != nil {
 			return nil, nil, nil, nil, err
@@ -384,7 +380,7 @@ func buildPageWikiMaintainers(
 		if err != nil {
 			return nil, nil, nil, nil, err
 		}
-		return planner, editor, indexer, curator, nil
+		return planner, editor, navigator, curator, nil
 	default:
 		return nil, nil, nil, nil, fmt.Errorf(
 			"initialize Page Wiki LLM maintainers: unsupported LLMWIKI_ORGANIZER_MODE %q",

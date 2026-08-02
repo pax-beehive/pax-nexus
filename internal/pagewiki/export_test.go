@@ -1,5 +1,7 @@
 package pagewiki
 
+import "context"
+
 // Exported for the external pagewiki_test package: it needs to assert that
 // the zero-directives system prompt is byte-identical to today's prompt
 // constants, which are otherwise unexported.
@@ -13,16 +15,41 @@ func TreeIndexerPromptForTest(maxDepth int) string {
 	return treeIndexerPrompt(maxDepth)
 }
 
-// TreeDirtyForTest reports whether a topic-tree dirty mark is currently
-// pending on the service, without consuming it: acceptance tests use it to
-// assert markTreeDirty fired after a curation round, independent of whether a
-// TreeIndexer is configured (FlushTreeReindex is a no-op without one).
-func (s *Service) TreeDirtyForTest() bool {
-	select {
-	case pending := <-s.treeDirty:
-		s.treeDirty <- pending
-		return true
-	default:
-		return false
-	}
+// TopicIDForTest exposes the Topic ID derivation so tests can assert the
+// service created exactly the topic it was supposed to, without duplicating
+// the hashing rule.
+func TopicIDForTest(parentID, slug string) string {
+	return stableID("topic", parentID, slug)
+}
+
+// EnqueueTreeInsertForTest queues one page for (re)placement, the same task
+// InjectSession queues after a successful target.
+func (s *Service) EnqueueTreeInsertForTest(pageID string) {
+	s.enqueueTreeTask(treeTask{kind: treeTaskInsert, id: pageID})
+}
+
+// EnqueueTreeSplitForTest queues one topic for splitting (an empty topicID
+// means the root), the same task an overflow check queues.
+func (s *Service) EnqueueTreeSplitForTest(topicID string) {
+	s.enqueueTreeTask(treeTask{kind: treeTaskSplit, id: topicID})
+}
+
+// EnqueueUnplacedInsertsForTest exposes the curation hook: every active page
+// without a placement is queued for insertion.
+func (s *Service) EnqueueUnplacedInsertsForTest(ctx context.Context) {
+	s.enqueueUnplacedInserts(ctx)
+}
+
+// PendingTreeTasksForTest reports how many tree tasks are queued but not yet
+// processed. Acceptance tests use it to assert that a catalog change queued
+// re-placement work, independent of whether a TreeNavigator is configured.
+func (s *Service) PendingTreeTasksForTest() int {
+	return len(s.treeTasks)
+}
+
+// ShrinkTreeQueueForTest replaces the task queue with a smaller one so a test
+// can exercise the queue-full path without enqueueing hundreds of tasks. It
+// must be called before any task is enqueued.
+func (s *Service) ShrinkTreeQueueForTest(capacity int) {
+	s.treeTasks = make(chan treeTask, capacity)
 }
