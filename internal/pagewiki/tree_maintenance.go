@@ -248,13 +248,16 @@ func (s *Service) insertPage(ctx context.Context, pageID string) {
 		})
 		landing.changed = true
 	}
-	if !landing.changed {
-		return
+	if landing.changed {
+		if err := s.repository.ReplaceTopicTree(ctx, tree); err != nil {
+			s.logger.Warn("Page Wiki page placement skipped", "page", pageID, "step", "replace tree", "error", err)
+			return
+		}
 	}
-	if err := s.repository.ReplaceTopicTree(ctx, tree); err != nil {
-		s.logger.Warn("Page Wiki page placement skipped", "page", pageID, "step", "replace tree", "error", err)
-		return
-	}
+	// The overflow check runs even when nothing was written: a page that
+	// stayed at the root changes no placement, yet it is exactly how the root
+	// fills up on a cold start, and the root is the one topic that always has
+	// room to split.
 	s.checkOverflow(tree, state.byID, landing.topicID, landing.depth)
 }
 

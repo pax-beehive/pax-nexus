@@ -601,3 +601,157 @@ func TestTreeMaintenanceRebuildTopicTreeWithoutNavigatorFails(t *testing.T) {
 
 	require.Error(t, service.RebuildTopicTree(context.Background()))
 }
+
+// seedRootPages seeds count pages with no placement at all, which is what
+// "sitting directly at the root" means to the tree.
+func seedRootPages(t *testing.T, repository *memory.Repository, count int) []pagewiki.Page {
+	t.Helper()
+	pages := make([]pagewiki.Page, 0, count)
+	for index := 0; index < count; index++ {
+		pages = append(pages, seedTreePage(
+			t, repository, fmt.Sprintf("root-%02d", index), fmt.Sprintf("Root %02d", index),
+		))
+	}
+	return pages
+}
+
+// TestTreeMaintenanceRootOverflowEnqueuesRootSplit is the cold-start case: an
+// empty tree gives the navigator nothing to enter, so pages pile up at the
+// root until the root itself overflows and must split. The insert writes
+// nothing (a page at the root has no placement), so the overflow check has to
+// run on that no-write path too.
+func TestTreeMaintenanceRootOverflowEnqueuesRootSplit(t *testing.T) {
+	ctx := context.Background()
+	repository := memory.NewRepository()
+	pages := seedRootPages(t, repository, 11)
+	navigator := &fakeTreeNavigator{splitErr: errors.New("boom")}
+	service := newTreeService(repository, navigator)
+
+	service.EnqueueTreeInsertForTest(pages[0].ID)
+	service.FlushTreeReindex(ctx)
+
+	splits := navigator.splitCalls()
+	require.Len(t, splits, 1, "an overflowing root must queue a split of the root itself")
+	require.Empty(t, splits[0].Path, "an empty path means the root is being split")
+	require.Len(t, splits[0].Pages, 11)
+}
+
+func TestTreeMaintenanceRootAtThresholdDoesNotSplit(t *testing.T) {
+	ctx := context.Background()
+	repository := memory.NewRepository()
+	pages := seedRootPages(t, repository, 10)
+	navigator := &fakeTreeNavigator{}
+	service := newTreeService(repository, navigator)
+
+	service.EnqueueTreeInsertForTest(pages[0].ID)
+	service.FlushTreeReindex(ctx)
+
+	require.Empty(t, navigator.splitCalls(), "ten direct pages is the target, not an overflow")
+}
+
+// TestTreeMaintenanceSplitRechecksNewChildTopics covers the recursive half of
+// splitting: a group that is itself still too large is split again, without
+// anyone re-triggering the work from outside.
+func TestTreeMaintenanceSplitRechecksNewChildTopics(t *testing.T) {
+	ctx := context.Background()
+	repository := memory.NewRepository()
+	seedFullTopic(t, repository, 12)
+	crowded := make([]string, 0, 11)
+	for index := 0; index < 11; index++ {
+		crowded = append(crowded, fmt.Sprintf("note-%02d", index))
+	}
+	navigator := &fakeTreeNavigator{splits: [][]pagewiki.TreeSplitGroup{
+		{
+			{Title: "Storage", Pages: crowded},
+			{Title: "Observability", Pages: []string{"note-11"}},
+		},
+		{
+			{Title: "Rows", Pages: crowded[:6]},
+			{Title: "Columns", Pages: crowded[6:]},
+		},
+	}}
+	service := newTreeService(repository, navigator)
+
+	service.EnqueueTreeSplitForTest("topic-notes")
+	service.FlushTreeReindex(ctx)
+
+	splits := navigator.splitCalls()
+	require.Len(t, splits, 2, "a child topic that is still overflowing must be split again")
+	require.Equal(t, []string{"Notes", "Storage"}, splits[1].Path)
+	require.Len(t, splits[1].Pages, 11)
+
+	tree := loadTree(t, repository)
+	storageID := pagewiki.TopicIDForTest("topic-notes", "storage")
+	rowsID := pagewiki.TopicIDForTest(storageID, "rows")
+	columnsID := pagewiki.TopicIDForTest(storageID, "columns")
+	require.Len(t, tree.Topics, 5)
+	placement, found := placementFor(tree, "page-note-00")
+	require.True(t, found)
+	require.Equal(t, rowsID, placement.TopicID)
+	placement, found = placementFor(tree, "page-note-10")
+	require.True(t, found)
+	require.Equal(t, columnsID, placement.TopicID)
+	require.Equal(t, 4, placement.Rank, "rank is the page's index inside its group")
+}
+
+// seedTopicChain seeds a root-to-leaf chain of depth topics and returns the
+// deepest topic's ID; every level but the last is a single-child link.
+func seedTopicChain(t *testing.T, repository *memory.Repository, depth int) (pagewiki.TopicTree, string) {
+	t.Helper()
+	tree := pagewiki.TopicTree{}
+	parentID := ""
+	for level := 1; level <= depth; level++ {
+		id := fmt.Sprintf("topic-level-%d", level)
+		tree.Topics = append(tree.Topics, pagewiki.Topic{
+			ID:       id,
+			ParentID: parentID,
+			Slug:     fmt.Sprintf("level-%d", level),
+			Title:    fmt.Sprintf("Level %d", level),
+		})
+		parentID = id
+	}
+	return tree, parentID
+}
+
+// TestTreeMaintenanceDeepestTopicNeitherSplitsNorCreates asserts both depth
+// guards at once: the navigator is told it may not create another level once
+// it is looking at a MaxDepth topic, and an overflowing MaxDepth topic is not
+// queued for a split it could never apply.
+func TestTreeMaintenanceDeepestTopicNeitherSplitsNorCreates(t *testing.T) {
+	ctx := context.Background()
+	repository := memory.NewRepository()
+	tree, deepestID := seedTopicChain(t, repository, pagewiki.DefaultTopicTreeMaxDepth)
+	for index := 0; index < 11; index++ {
+		page := seedTreePage(t, repository, fmt.Sprintf("deep-%02d", index), fmt.Sprintf("Deep %02d", index))
+		tree.Placements = append(tree.Placements, pagewiki.PagePlacement{
+			PageID: page.ID, TopicID: deepestID, Rank: index,
+		})
+	}
+	require.NoError(t, repository.ReplaceTopicTree(ctx, tree))
+	page := seedTreePage(t, repository, "sqlite", "SQLite")
+	choices := make([]pagewiki.TreePlacementChoice, 0, pagewiki.DefaultTopicTreeMaxDepth)
+	for level := 1; level <= pagewiki.DefaultTopicTreeMaxDepth; level++ {
+		choices = append(choices, pagewiki.TreePlacementChoice{
+			Action: pagewiki.TreePlacementEnter, Slug: fmt.Sprintf("level-%d", level),
+		})
+	}
+	navigator := &fakeTreeNavigator{placements: choices}
+	service := newTreeService(repository, navigator)
+
+	service.EnqueueTreeInsertForTest(page.ID)
+	service.FlushTreeReindex(ctx)
+
+	calls := navigator.placementCalls()
+	require.Len(t, calls, pagewiki.DefaultTopicTreeMaxDepth+1)
+	require.True(t, calls[pagewiki.DefaultTopicTreeMaxDepth-1].AllowCreate,
+		"one level above the deepest, another topic may still be created")
+	require.False(t, calls[pagewiki.DefaultTopicTreeMaxDepth].AllowCreate,
+		"the deepest topic may not create another level")
+
+	stored := loadTree(t, repository)
+	placement, found := placementFor(stored, page.ID)
+	require.True(t, found)
+	require.Equal(t, deepestID, placement.TopicID)
+	require.Empty(t, navigator.splitCalls(),
+		"a topic at MaxDepth cannot host child topics, so it is never queued for a split")
+}
