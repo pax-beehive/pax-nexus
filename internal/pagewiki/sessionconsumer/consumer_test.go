@@ -91,6 +91,20 @@ func (s *consumerSuite) TestAutoSettingRoundTrips() {
 	s.True(status.AutoInject)
 }
 
+func (s *consumerSuite) TestSetAutoInjectSurfacesQueuedRebuildState() {
+	cutoff := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	_, err := s.consumer.Rebuild(context.Background(), "local-team", cutoff)
+	s.Require().NoError(err)
+
+	// The consumer is never Started, so the rebuild stays queued: this
+	// isolates SetAutoInject's own reporting from the background loop.
+	status, err := s.consumer.SetAutoInject(context.Background(), "local-team", true)
+
+	s.Require().NoError(err)
+	s.True(status.AutoInject)
+	s.Equal(sessionconsumer.RebuildQueued, status.Rebuild.State)
+}
+
 func (s *consumerSuite) TestRebuildQueuesAndRunsInBackground() {
 	cutoff := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
 

@@ -92,8 +92,8 @@ existing `failureRecord` policy for the single-team workstation deployment.
 
 ## 3. Frontend (`web/`)
 
-- `src/api/actions.ts`: extend `WikiIngestionStatus` with the three rebuild
-  fields; `rebuildWiki` keeps its shape.
+- `src/api/wiki.ts`: extend `WikiIngestionStatus` with the three rebuild
+  fields; `rebuildWiki` (in `src/api/actions.ts`) keeps its shape.
 - `WikiRebuildDialog`: on 202, close the dialog immediately.
 - `WikiIngestionCard`: render rebuild state from the polled status — a
   "Rebuild queued / running" badge, and the failure message when `failed`.

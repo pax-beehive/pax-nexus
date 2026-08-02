@@ -181,7 +181,7 @@ func (c *Controller) SetAutoInject(ctx context.Context, scopeID string, enabled 
 	if err := c.store.SetAutoInjectEnabled(ctx, scopeID, enabled); err != nil {
 		return Status{}, fmt.Errorf("set Page Wiki auto injection: %w", err)
 	}
-	return Status{AutoInject: enabled}, nil
+	return Status{AutoInject: enabled, Rebuild: c.rebuildSnapshot()}, nil
 }
 
 func (c *Controller) Rebuild(_ context.Context, scopeID string, since time.Time) (Status, error) {

@@ -193,8 +193,7 @@ export function WikiStatusPage({ me }: { me: HumanMe }) {
     closeRebuild();
     setMessage("Reset & rebuild triggered. Waiting for the server to clear the wiki…");
     try {
-      const updated = await rebuildWiki(beginAction(), since);
-      setAutoInject(updated.auto_inject);
+      await rebuildWiki(beginAction(), since);
       setMessage("Reset & rebuild queued. The wiki will be cleared and rebuilt in the background.");
     } catch (error) {
       setMessage("");
