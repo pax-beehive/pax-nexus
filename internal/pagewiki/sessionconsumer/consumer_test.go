@@ -599,6 +599,42 @@ func (r *recordingRebuilder) RebuildPageWiki(
 	return err
 }
 
+func (s *consumerSuite) TestScanYieldsToQueuedRebuildBetweenStreams() {
+	log := &eventLog{}
+	s.injector.log = log
+	s.rebuilder.log = log
+	s.store.streams = append(s.store.streams, sessionconsumer.Stream{
+		ScopeID: "local-team",
+		Actor:   session.Actor{UserID: "owner", AgentID: "agent-2", SessionID: "second-demo"},
+		Head:    5,
+	})
+	s.injector.entered = make(chan struct{}, 8)
+	s.injector.release = make(chan struct{}, 8)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s.consumer.Start(ctx)
+	select {
+	case <-s.injector.entered:
+	case <-time.After(time.Second):
+		s.Fail("first injection did not start")
+	}
+
+	_, err := s.consumer.Rebuild(context.Background(), "local-team", time.Time{})
+	s.Require().NoError(err)
+	s.injector.release <- struct{}{} // let the in-flight stream finish
+
+	select {
+	case <-s.rebuilder.done:
+	case <-time.After(time.Second):
+		s.Fail("rebuild did not run after the in-flight stream")
+		return
+	}
+	// scan yielded after the first stream: exactly one injection happened
+	// before the rebuild.
+	s.Equal([]string{"inject", "rebuild"}, log.snapshot()[:2])
+	cancel()
+}
+
 func (i *recordingInjector) InjectSession(
 	ctx context.Context,
 	request pagewiki.InjectSessionRequest,

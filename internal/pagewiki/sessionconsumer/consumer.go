@@ -241,6 +241,12 @@ func (c *Controller) rebuildSnapshot() RebuildStatus {
 	return c.rebuild
 }
 
+func (c *Controller) rebuildQueued() bool {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	return c.rebuild.State == RebuildQueued
+}
+
 func (c *Controller) InjectSession(
 	ctx context.Context,
 	scopeID string,
@@ -277,6 +283,12 @@ func (c *Controller) scan(ctx context.Context) {
 	}
 	now := c.now()
 	for _, stream := range streams {
+		// A queued rebuild wipes everything this pass would build; yield
+		// the lock now instead of after the whole backlog. The remaining
+		// streams are picked up by the next tick.
+		if c.rebuildQueued() {
+			return
+		}
 		if c.backedOff(stream, now) {
 			continue
 		}
