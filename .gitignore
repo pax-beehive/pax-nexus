@@ -36,13 +36,13 @@ __pycache__/
 /.idea
 /.vscode
 /output
+/out/
 *.local.yml
 dumped_hertz_remote_config.json
 .build/
 .tools/
 .env
 coverage.out
-coverage.*
 *.coverprofile
 profile.cov
 go.work
