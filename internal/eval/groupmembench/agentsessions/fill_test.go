@@ -4,22 +4,30 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/pax-beehive/pax-nexus/internal/eval/groupmembench"
 	"github.com/pax-beehive/pax-nexus/internal/platform/llm"
 )
 
+// cannedClient is shared by tests that exercise it single-threaded and by
+// the end-to-end pipeline test, which drives it from multiple goroutines
+// under a worker-pool semaphore; the mutex keeps -race happy in both modes.
 type cannedClient struct {
 	content string
 	err     error
+
+	mu      sync.Mutex
 	calls   int
 	lastReq llm.ChatRequest
 }
 
 func (c *cannedClient) Complete(_ context.Context, req llm.ChatRequest) (llm.ChatResponse, error) {
+	c.mu.Lock()
 	c.calls++
 	c.lastReq = req
+	c.mu.Unlock()
 	if c.err != nil {
 		return llm.ChatResponse{}, c.err
 	}
