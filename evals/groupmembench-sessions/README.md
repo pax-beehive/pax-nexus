@@ -1,3 +1,20 @@
+---
+pretty_name: GroupMemBench Agent Sessions (Finance)
+license: unknown
+language:
+  - en
+task_categories:
+  - question-answering
+tags:
+  - agent-memory
+  - synthetic
+  - multi-agent
+  - benchmark
+  - work-sessions
+size_categories:
+  - 1K<n<10K
+---
+
 # GroupMemBench Agent Sessions (Finance)
 
 Per-user agent work sessions derived from GroupMemBench (arXiv:2605.14498).
