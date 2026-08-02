@@ -27,10 +27,10 @@ var ErrCircuitOpen = errors.New("llm circuit open")
 // >20%(且样本 ≥10)时开路 5 分钟。Sleep/Rand/Now 可注入以便测试。
 type RetryingChatClient struct {
 	Inner       llm.ChatClient
-	MaxAttempts int                  // 0 → 5
-	Sleep       func(time.Duration)  // nil → time.Sleep
-	Rand        func() float64       // nil → rand.Float64
-	Now         func() time.Time     // nil → time.Now
+	MaxAttempts int                 // 0 → 5
+	Sleep       func(time.Duration) // nil → time.Sleep
+	Rand        func() float64      // nil → rand.Float64
+	Now         func() time.Time    // nil → time.Now
 	// 内部熔断状态,零值可用
 	mu        sync.Mutex
 	outcomes  []bool // 最近 50 次,true=失败
@@ -40,7 +40,7 @@ type RetryingChatClient struct {
 func (r *RetryingChatClient) Complete(ctx context.Context, req llm.ChatRequest) (llm.ChatResponse, error) {
 	sleep, random, now := r.Sleep, r.Rand, r.Now
 	if sleep == nil {
-		sleep = time.Sleep
+		sleep = nil // will use timer-based sleep below
 	}
 	if random == nil {
 		random = rand.Float64
@@ -58,11 +58,39 @@ func (r *RetryingChatClient) Complete(ctx context.Context, req llm.ChatRequest) 
 	var lastErr error
 	for attempt := 0; attempt < attempts; attempt++ {
 		if attempt > 0 {
-			delay := retryBaseDelay << (attempt - 1)
+			// Clamp exponent to prevent overflow
+			exp := attempt - 1
+			if exp > 6 { // 1s<<6 = 64s, already above the 60s ceiling
+				exp = 6
+			}
+			delay := retryBaseDelay << exp
 			if delay > retryMaxDelay {
 				delay = retryMaxDelay
 			}
-			sleep(time.Duration(random() * float64(delay))) // 全抖动
+			jitteredDelay := time.Duration(random() * float64(delay)) // 全抖动
+
+			// Context-aware sleep
+			if r.Sleep != nil {
+				// Injected sleep (tests): call it, then check context
+				r.Sleep(jitteredDelay)
+				if ctx.Err() != nil {
+					return llm.ChatResponse{}, ctx.Err()
+				}
+			} else {
+				// Real sleep: use timer + select for cancellation
+				timer := time.NewTimer(jitteredDelay)
+				select {
+				case <-ctx.Done():
+					timer.Stop()
+					return llm.ChatResponse{}, ctx.Err()
+				case <-timer.C:
+					// Timer fired, continue to next attempt
+				}
+			}
+		}
+		// Check context before attempting
+		if ctx.Err() != nil {
+			return llm.ChatResponse{}, ctx.Err()
 		}
 		resp, err := r.Inner.Complete(ctx, req)
 		r.record(err != nil, now())
@@ -71,7 +99,7 @@ func (r *RetryingChatClient) Complete(ctx context.Context, req llm.ChatRequest) 
 		}
 		lastErr = err
 		if ctx.Err() != nil {
-			break
+			return llm.ChatResponse{}, ctx.Err()
 		}
 	}
 	return llm.ChatResponse{}, lastErr

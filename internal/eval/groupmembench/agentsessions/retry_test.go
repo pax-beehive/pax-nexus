@@ -3,6 +3,7 @@ package agentsessions
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -10,11 +11,14 @@ import (
 )
 
 type scriptedClient struct {
+	mu    sync.Mutex
 	errs  []error // 每次调用弹出一个;nil 表示成功
 	calls int
 }
 
 func (s *scriptedClient) Complete(_ context.Context, _ llm.ChatRequest) (llm.ChatResponse, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.calls++
 	if len(s.errs) == 0 {
 		return llm.ChatResponse{Message: llm.ChatMessage{Content: "ok"}}, nil
@@ -85,5 +89,71 @@ func TestCircuitOpensAndRecovers(t *testing.T) {
 	r.Now = func() time.Time { return base.Add(5*time.Minute + time.Second) }
 	if _, err := r.Complete(context.Background(), llm.ChatRequest{}); err != nil {
 		t.Fatalf("want recovery after open window, got %v", err)
+	}
+}
+
+func TestRetryConcurrentComplete(t *testing.T) {
+	inner := &scriptedClient{}
+	r, _ := newTestRetrier(inner)
+	r.MaxAttempts = 1
+
+	const n = 32
+	var wg sync.WaitGroup
+	wg.Add(n)
+	for i := 0; i < n; i++ {
+		go func() {
+			defer wg.Done()
+			resp, err := r.Complete(context.Background(), llm.ChatRequest{})
+			if err != nil {
+				t.Errorf("concurrent call failed: %v", err)
+				return
+			}
+			if resp.Message.Content != "ok" {
+				t.Errorf("want ok, got %s", resp.Message.Content)
+			}
+		}()
+	}
+	wg.Wait()
+}
+
+func TestRetryStopsOnContextCancel(t *testing.T) {
+	inner := &scriptedClient{errs: []error{errors.New("e1"), errors.New("e2")}}
+	r, _ := newTestRetrier(inner)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	// Cancel immediately before first backoff
+	cancel()
+
+	_, err := r.Complete(ctx, llm.ChatRequest{})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("want context.Canceled, got %v", err)
+	}
+}
+
+func TestRetryBackoffCapsAtMax(t *testing.T) {
+	// Create 40 errors to ensure all attempts fail
+	errs := make([]error, 40)
+	for i := range errs {
+		errs[i] = errors.New("persistent error")
+	}
+	inner := &scriptedClient{errs: errs}
+	r, slept := newTestRetrier(inner)
+	r.MaxAttempts = 40 // Large MaxAttempts to trigger overflow if not clamped
+
+	_, err := r.Complete(context.Background(), llm.ChatRequest{})
+	if err == nil {
+		t.Fatalf("want error after max attempts")
+	}
+
+	// Should have 39 sleeps (before attempts 1-39)
+	if len(*slept) != 39 {
+		t.Fatalf("want 39 sleeps, got %d", len(*slept))
+	}
+
+	// Verify all delays are between 0 and 60s (Rand=1.0 → full jitter)
+	for i, delay := range *slept {
+		if delay <= 0 || delay > 60*time.Second {
+			t.Fatalf("delay[%d]=%v out of bounds (0, 60s]", i, delay)
+		}
 	}
 }
