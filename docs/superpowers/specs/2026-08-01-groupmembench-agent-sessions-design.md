@@ -139,6 +139,17 @@ observations 只存引用(channel + msg_node + 少量元数据),消息原文单�
 - 输出可直接被 `cmd/eval-v2-memory -session-batches-file` 消费,或 POST
   `/v1/session-batches`。
 
+### 8.4 补充 split:`opencode-replay`(小规模真 agent 轨迹)
+
+- 挑 1-2 个 user × 若干天(50-100 个 session),复用 `evals/opencode/` 的
+  docker 基建:每窗把该 user 可见消息写成文件,给 opencode 一个固定任务
+  prompt("阅读并整理要点/待办/需回复项"),真跑 agent loop;
+- 产出经 paxm 捕获路径进 ingest(capture → `/v1/session-batches`),同时
+  作为生产链路的端到端冒烟;
+- **不参与 214 题主评测**(非确定性、无证据覆盖保证),在 HF 上作为独立
+  split 发布,标注"真实 agent 轨迹风味样本";
+- 成本增量:每 session 约 10-30 次调用,总量 ~1-3k 次,仍在 $5 量级。
+
 ## 9. 验证
 
 - 规则确定性 + LLM 缓存 → 管线可复现;
