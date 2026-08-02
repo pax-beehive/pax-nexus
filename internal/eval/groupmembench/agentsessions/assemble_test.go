@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/pax-beehive/pax-nexus/internal/eval/groupmembench"
@@ -41,9 +42,13 @@ func TestAttachEvidenceSessions(t *testing.T) {
 }
 
 func TestWriteJSONLRoundTrip(t *testing.T) {
+	largeContent := strings.Repeat("x", 150*1024)
 	path := filepath.Join(t.TempDir(), "rows.jsonl")
-	if err := WriteJSONL(path, []MessageRow{{MsgNode: "Msg_1", Content: "a"},
-		{MsgNode: "Msg_2", Content: "b"}}); err != nil {
+	if err := WriteJSONL(path, []MessageRow{
+		{MsgNode: "Msg_1", Content: "a"},
+		{MsgNode: "Msg_2", Content: "b"},
+		{MsgNode: "Msg_3", Content: largeContent},
+	}); err != nil {
 		t.Fatal(err)
 	}
 	f, err := os.Open(path)
@@ -53,14 +58,39 @@ func TestWriteJSONLRoundTrip(t *testing.T) {
 	defer f.Close()
 	var count int
 	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
 	for scanner.Scan() {
 		var row MessageRow
 		if err := json.Unmarshal(scanner.Bytes(), &row); err != nil {
 			t.Fatal(err)
 		}
+		if row.MsgNode == "Msg_3" && len(row.Content) != len(largeContent) {
+			t.Fatalf("large content corrupted: want %d bytes, got %d", len(largeContent), len(row.Content))
+		}
 		count++
 	}
-	if count != 2 {
-		t.Fatalf("want 2 rows, got %d", count)
+	if err := scanner.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if count != 3 {
+		t.Fatalf("want 3 rows, got %d", count)
+	}
+}
+
+func TestBuildSessionEmptyWindow(t *testing.T) {
+	w := Window{User: "User_1", Date: "2025-07-19", Part: 1, Msgs: []Msg{}}
+	action := Action{Type: "memory_write", Content: "test"}
+	s := BuildSession(w, Persona{UserID: "User_1"}, []Action{action})
+	if s.SessionID != "User_1/2025-07-19/s1" {
+		t.Fatalf("want SessionID User_1/2025-07-19/s1, got %s", s.SessionID)
+	}
+	if s.WindowStart != "" || s.WindowEnd != "" {
+		t.Fatalf("want empty WindowStart/WindowEnd, got %q/%q", s.WindowStart, s.WindowEnd)
+	}
+	if len(s.Observations) != 0 {
+		t.Fatalf("want 0 observations, got %d", len(s.Observations))
+	}
+	if len(s.Trajectory) != 1 || s.Trajectory[0].Type != "memory_write" {
+		t.Fatalf("want trajectory preserved, got %+v", s.Trajectory)
 	}
 }
