@@ -1,0 +1,109 @@
+package agentsessions
+
+import (
+	"context"
+	"errors"
+	"math/rand"
+	"sync"
+	"time"
+
+	"github.com/pax-beehive/pax-nexus/internal/platform/llm"
+)
+
+const (
+	retryBaseDelay      = 1 * time.Second
+	retryMaxDelay       = 60 * time.Second
+	defaultMaxAttempts  = 5
+	breakerWindow       = 50
+	breakerMinSamples   = 10
+	breakerFailureRate  = 0.20
+	breakerOpenDuration = 5 * time.Minute
+)
+
+var ErrCircuitOpen = errors.New("llm circuit open")
+
+// RetryingChatClient 实现 llm.ChatClient。传输错误按指数退避+全抖动重试
+// (base 1s, cap 60s, 最多 MaxAttempts 次);滑动窗口 50 个样本中失败率
+// >20%(且样本 ≥10)时开路 5 分钟。Sleep/Rand/Now 可注入以便测试。
+type RetryingChatClient struct {
+	Inner       llm.ChatClient
+	MaxAttempts int                  // 0 → 5
+	Sleep       func(time.Duration)  // nil → time.Sleep
+	Rand        func() float64       // nil → rand.Float64
+	Now         func() time.Time     // nil → time.Now
+	// 内部熔断状态,零值可用
+	mu        sync.Mutex
+	outcomes  []bool // 最近 50 次,true=失败
+	openUntil time.Time
+}
+
+func (r *RetryingChatClient) Complete(ctx context.Context, req llm.ChatRequest) (llm.ChatResponse, error) {
+	sleep, random, now := r.Sleep, r.Rand, r.Now
+	if sleep == nil {
+		sleep = time.Sleep
+	}
+	if random == nil {
+		random = rand.Float64
+	}
+	if now == nil {
+		now = time.Now
+	}
+	attempts := r.MaxAttempts
+	if attempts <= 0 {
+		attempts = defaultMaxAttempts
+	}
+	if err := r.checkBreaker(now()); err != nil {
+		return llm.ChatResponse{}, err
+	}
+	var lastErr error
+	for attempt := 0; attempt < attempts; attempt++ {
+		if attempt > 0 {
+			delay := retryBaseDelay << (attempt - 1)
+			if delay > retryMaxDelay {
+				delay = retryMaxDelay
+			}
+			sleep(time.Duration(random() * float64(delay))) // 全抖动
+		}
+		resp, err := r.Inner.Complete(ctx, req)
+		r.record(err != nil, now())
+		if err == nil {
+			return resp, nil
+		}
+		lastErr = err
+		if ctx.Err() != nil {
+			break
+		}
+	}
+	return llm.ChatResponse{}, lastErr
+}
+
+func (r *RetryingChatClient) checkBreaker(now time.Time) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if now.Before(r.openUntil) {
+		return ErrCircuitOpen
+	}
+	return nil
+}
+
+func (r *RetryingChatClient) record(failed bool, now time.Time) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.outcomes = append(r.outcomes, failed)
+	if len(r.outcomes) > breakerWindow {
+		r.outcomes = r.outcomes[len(r.outcomes)-breakerWindow:]
+	}
+	if len(r.outcomes) < breakerMinSamples {
+		return
+	}
+	failures := 0
+	for _, f := range r.outcomes {
+		if f {
+			failures++
+		}
+	}
+	if float64(failures)/float64(len(r.outcomes)) > breakerFailureRate {
+		r.openUntil = now.Add(breakerOpenDuration)
+		r.outcomes = nil // 半开:窗口清零重新计数
+	}
+}
