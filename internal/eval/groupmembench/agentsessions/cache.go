@@ -36,9 +36,20 @@ func (c *DiskCache) Put(key, value string) error {
 	if err := os.MkdirAll(c.Dir, 0o755); err != nil {
 		return err
 	}
-	tmp := c.path(key) + ".tmp"
-	if err := os.WriteFile(tmp, []byte(value), 0o644); err != nil {
+	tmp, err := os.CreateTemp(c.Dir, key+".*.tmp")
+	if err != nil {
 		return err
 	}
-	return os.Rename(tmp, c.path(key))
+	tmpPath := tmp.Name()
+	defer func() {
+		os.Remove(tmpPath)
+	}()
+	if _, err := tmp.WriteString(value); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, c.path(key))
 }
