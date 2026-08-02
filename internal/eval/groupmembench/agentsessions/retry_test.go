@@ -157,3 +157,32 @@ func TestRetryBackoffCapsAtMax(t *testing.T) {
 		}
 	}
 }
+
+func TestRetryStopsMidBackoff(t *testing.T) {
+	// Use production timer path (Sleep=nil), always-failing inner
+	inner := &scriptedClient{errs: []error{errors.New("e1"), errors.New("e2"), errors.New("e3")}}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	r := &RetryingChatClient{
+		Inner:       inner,
+		MaxAttempts: 3,
+		Sleep:       nil,                           // Use production timer-based sleep
+		Rand:        func() float64 { return 0.5 }, // 500ms backoff (half of 1s)
+		Now:         time.Now,
+	}
+
+	// Cancel context ~50ms after Complete starts (before first backoff completes)
+	time.AfterFunc(50*time.Millisecond, cancel)
+
+	start := time.Now()
+	_, err := r.Complete(ctx, llm.ChatRequest{})
+	elapsed := time.Since(start)
+
+	// Should return promptly (< 2s) with context error, not block on full backoff
+	if elapsed > 2*time.Second {
+		t.Fatalf("Complete took too long: %v (context should have cancelled backoff)", elapsed)
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("want context.Canceled, got %v", err)
+	}
+}

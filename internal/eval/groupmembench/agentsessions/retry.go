@@ -38,10 +38,7 @@ type RetryingChatClient struct {
 }
 
 func (r *RetryingChatClient) Complete(ctx context.Context, req llm.ChatRequest) (llm.ChatResponse, error) {
-	sleep, random, now := r.Sleep, r.Rand, r.Now
-	if sleep == nil {
-		sleep = nil // will use timer-based sleep below
-	}
+	random, now := r.Rand, r.Now
 	if random == nil {
 		random = rand.Float64
 	}
