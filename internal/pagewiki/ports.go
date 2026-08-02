@@ -140,3 +140,58 @@ type Repository interface {
 	// SaveTypeRegistryEntry upserts by (Kind, Name).
 	SaveTypeRegistryEntry(context.Context, TypeRegistryEntry) error
 }
+
+// TreeChildTopic describes one direct child topic of the topic the
+// navigator is currently looking at.
+type TreeChildTopic struct {
+	Slug  string
+	Title string
+	Pages int // subtree page count, shown to the LLM as a size hint
+}
+
+type TreePlacementAction string
+
+const (
+	TreePlacementStay   TreePlacementAction = "stay"
+	TreePlacementEnter  TreePlacementAction = "enter"
+	TreePlacementCreate TreePlacementAction = "create"
+)
+
+type TreePlacementInput struct {
+	Page        PageCatalogEntry
+	Path        []string // topic titles from root to the current topic; empty = root
+	Children    []TreeChildTopic
+	AllowCreate bool // false once the current topic sits at MaxDepth-1
+	Directives  GenerationDirectives
+}
+
+// TreePlacementChoice: Enter targets an existing child slug; Create carries
+// the new topic's display title (service derives the slug).
+type TreePlacementChoice struct {
+	Action TreePlacementAction
+	Slug   string
+	Title  string
+}
+
+type TreeSplitPage struct {
+	Slug    string
+	Title   string
+	Summary string
+}
+
+type TreeSplitInput struct {
+	Path       []string // topic titles from root to the topic being split; empty = root
+	Pages      []TreeSplitPage
+	Forbidden  []string // existing sibling child-topic slugs the new group slugs must avoid
+	Directives GenerationDirectives
+}
+
+type TreeSplitGroup struct {
+	Title string
+	Pages []string // page slugs
+}
+
+type TreeNavigator interface {
+	ChoosePlacement(context.Context, TreePlacementInput) (TreePlacementChoice, error)
+	SplitTopic(context.Context, TreeSplitInput) ([]TreeSplitGroup, error)
+}
