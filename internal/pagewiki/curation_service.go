@@ -189,7 +189,8 @@ func (s *Service) runCurationCandidates(
 }
 
 // finishCurationRun builds the CurationRun from this round's outcomes,
-// persists it, and marks the topic tree dirty when anything changed.
+// persists it, and queues re-placement for every page the round left
+// unplaced when anything changed.
 func (s *Service) finishCurationRun(
 	ctx context.Context,
 	runID string,
@@ -207,7 +208,7 @@ func (s *Service) finishCurationRun(
 		return CurationRun{}, fmt.Errorf("save CurationRun: %w", err)
 	}
 	if changed {
-		s.markTreeDirty()
+		s.enqueueUnplacedInserts(ctx)
 	}
 	return run, nil
 }

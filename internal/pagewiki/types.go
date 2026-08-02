@@ -165,6 +165,10 @@ type TopicTree struct {
 	Placements []PagePlacement
 }
 
+// DefaultTopicTreeMaxDepth caps topic nesting when no override is
+// configured; root topics are level 1.
+const DefaultTopicTreeMaxDepth = 5
+
 type PagePublication struct {
 	Page      Page
 	Revision  PageRevision

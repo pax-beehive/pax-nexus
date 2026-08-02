@@ -174,7 +174,7 @@ function sqliteFetch(path: string): Response {
 }
 
 describe("wiki browse route topics and search", () => {
-  it("renders root-level pages above topic groups", async () => {
+  it("renders the root layer's topic groups above its unclassified pages", async () => {
     await renderApp({
       route: "/wiki/browse?page=sqlite",
       me: makeMe(),
@@ -192,9 +192,9 @@ describe("wiki browse route topics and search", () => {
     await screen.findByRole("heading", { name: "SQLite" });
     const rail = screen.getByRole("navigation", { name: "Wiki topics" });
     const alphaButton = within(rail).getByRole("button", { name: "Alpha" });
-    const topicHeading = within(rail).getByRole("heading", { name: "Engineering" });
+    const topicButton = within(rail).getByRole("button", { name: /^Engineering/ });
     expect(
-      alphaButton.compareDocumentPosition(topicHeading) & Node.DOCUMENT_POSITION_FOLLOWING,
+      topicButton.compareDocumentPosition(alphaButton) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
   });
 
@@ -367,7 +367,7 @@ describe("wiki browse route entity ontology", () => {
 
     await screen.findByRole("heading", { name: "SQLite" });
     // The link row itself still renders (target page title present)...
-    expect(screen.getByText("Runtime")).toBeTruthy();
+    expect(screen.getByRole("link", { name: /Runtime/ })).toBeTruthy();
     // ...but the fallback entity type and relation type say nothing new, so
     // neither the badge nor the relation label should render.
     expect(document.querySelector(".wiki-type-badge")).toBeNull();

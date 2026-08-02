@@ -107,8 +107,11 @@ func TestGivenStoredDirectivesWhenInjectSessionRunsThenPlannerEditorAndIndexerRe
 			},
 		},
 	}
-	indexer := &recordingIndexer{}
-	service := pagewiki.NewService(repository, planner, editor, pagewiki.WithTreeIndexer(indexer, nil))
+	navigator := &fakeTreeNavigator{}
+	service := pagewiki.NewService(
+		repository, planner, editor,
+		pagewiki.WithTreeNavigator(pagewiki.TreeMaintenanceConfig{Navigator: navigator}),
+	)
 
 	result, err := service.InjectSession(context.Background(), pagewiki.InjectSessionRequest{
 		SourceID:       "session-1",
@@ -123,11 +126,12 @@ func TestGivenStoredDirectivesWhenInjectSessionRunsThenPlannerEditorAndIndexerRe
 	require.Equal(t, pagewiki.RunStatusSucceeded, result.Run.Status)
 	require.Equal(t, directives, capturedPlan.Directives)
 	require.Equal(t, directives, capturedEdit.Directives)
-	// Reindexing is debounced off the ingest path; flush runs it now. The
-	// indexer reads the stored settings at rebuild time.
+	// Placement runs off the ingest path; flush runs it now. The navigator
+	// reads the stored settings at placement time.
 	service.FlushTreeReindex(context.Background())
-	require.Equal(t, 1, indexer.calls)
-	require.Equal(t, directives, indexer.lastInput.Directives)
+	calls := navigator.placementCalls()
+	require.Len(t, calls, 1)
+	require.Equal(t, directives, calls[0].Directives)
 }
 
 type failingSettingsRepository struct {

@@ -29,6 +29,7 @@ type Repository struct {
 	pageEmbeddings  map[string]pagewiki.PageEmbedding
 	sourceOrder     map[string]int
 	typeRegistry    map[typeRegistryKey]pagewiki.TypeRegistryEntry
+	maxTopicDepth   int
 }
 
 // typeRegistryKey identifies a type registry row by (Kind, Name), the unit
@@ -38,9 +39,26 @@ type typeRegistryKey struct {
 	name string
 }
 
-func NewRepository() *Repository {
+// Option configures a Repository at construction time.
+type Option func(*Repository)
+
+// WithTopicTreeMaxDepth overrides the topic nesting cap (root topics are
+// level 1). Values below 1 are ignored.
+func WithTopicTreeMaxDepth(depth int) Option {
+	return func(r *Repository) {
+		if depth >= 1 {
+			r.maxTopicDepth = depth
+		}
+	}
+}
+
+func NewRepository(options ...Option) *Repository {
 	repository := &Repository{}
 	repository.Reset()
+	repository.maxTopicDepth = pagewiki.DefaultTopicTreeMaxDepth
+	for _, option := range options {
+		option(repository)
+	}
 	return repository
 }
 
@@ -498,23 +516,24 @@ func (r *Repository) validateTopics(
 				)
 			}
 		}
-		if topicDepth(topic.ID, topics) > 2 {
+		if topicDepth(topic.ID, topics, r.maxTopicDepth) > r.maxTopicDepth {
 			return nil, fmt.Errorf(
-				"%w: Topic %q exceeds two levels",
+				"%w: Topic %q exceeds %d levels",
 				pagewiki.ErrRevisionConflict,
 				topic.ID,
+				r.maxTopicDepth,
 			)
 		}
 	}
 	return topics, nil
 }
 
-func topicDepth(id string, topics map[string]pagewiki.Topic) int {
+func topicDepth(id string, topics map[string]pagewiki.Topic, maxDepth int) int {
 	visited := make(map[string]struct{})
 	depth := 0
 	for id != "" {
 		if _, seen := visited[id]; seen {
-			return 3
+			return maxDepth + 1
 		}
 		visited[id] = struct{}{}
 		depth++
@@ -1067,10 +1086,10 @@ func (r *Repository) ReplaceTopicTree(_ context.Context, tree pagewiki.TopicTree
 				)
 			}
 		}
-		if topicDepth(topic.ID, topics) > 2 {
+		if topicDepth(topic.ID, topics, r.maxTopicDepth) > r.maxTopicDepth {
 			return fmt.Errorf(
-				"%w: Topic %q exceeds two levels",
-				pagewiki.ErrRevisionConflict, topic.ID,
+				"%w: Topic %q exceeds %d levels",
+				pagewiki.ErrRevisionConflict, topic.ID, r.maxTopicDepth,
 			)
 		}
 	}

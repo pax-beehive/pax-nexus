@@ -10,35 +10,6 @@ import (
 	"github.com/stretchr/testify/suite"
 )
 
-type recordingIndexer struct {
-	calls int
-	tree  pagewiki.TopicTree
-	err   error
-	// build, when set, computes the tree to return (and record) from the
-	// catalog the service loaded, letting tests reference page IDs that are
-	// only known after the run has published a page.
-	build func(pagewiki.PageCatalog) pagewiki.TopicTree
-	// lastInput records the TreeIndexInput the last Index call was given,
-	// letting tests assert what the service threaded in (e.g. the loaded
-	// GenerationDirectives).
-	lastInput pagewiki.TreeIndexInput
-}
-
-func (r *recordingIndexer) Index(
-	_ context.Context,
-	input pagewiki.TreeIndexInput,
-) (pagewiki.TopicTree, error) {
-	r.calls++
-	r.lastInput = input
-	if r.err != nil {
-		return pagewiki.TopicTree{}, r.err
-	}
-	if r.build != nil {
-		r.tree = r.build(input.Catalog)
-	}
-	return r.tree, nil
-}
-
 type treeReindexSuite struct {
 	suite.Suite
 	repository *memory.Repository
@@ -111,45 +82,35 @@ func (s *treeReindexSuite) createBriefAndEditor() (pagewiki.ScriptedPlanner, pag
 	return planner, editor, request
 }
 
-func (s *treeReindexSuite) TestSuccessfulRunReplacesTree() {
+func (s *treeReindexSuite) TestSuccessfulRunPlacesThePublishedPage() {
 	planner, editor, request := s.createBriefAndEditor()
-	indexer := &recordingIndexer{
-		build: func(catalog pagewiki.PageCatalog) pagewiki.TopicTree {
-			s.Require().Len(catalog, 1)
-			pageID := catalog[0].ID
-			return pagewiki.TopicTree{
-				Topics: []pagewiki.Topic{
-					{ID: "topic-databases", Slug: "databases", Title: "Databases"},
-				},
-				Placements: []pagewiki.PagePlacement{
-					{PageID: pageID, TopicID: "topic-databases", Rank: 0},
-				},
-			}
-		},
-	}
-	service := pagewiki.NewService(s.repository, planner, editor, pagewiki.WithTreeIndexer(indexer, nil))
+	navigator := &fakeTreeNavigator{placements: []pagewiki.TreePlacementChoice{
+		{Action: pagewiki.TreePlacementCreate, Title: "Databases"},
+	}}
+	service := newTreeMaintenanceService(s.repository, planner, editor, navigator)
 
 	result, err := service.InjectSession(context.Background(), request)
 
 	s.Require().NoError(err)
 	s.Require().Equal(pagewiki.RunStatusSucceeded, result.Run.Status)
+	s.Require().Equal(1, service.PendingTreeTasksForTest(), "placement runs off the ingest path")
 
 	service.FlushTreeReindex(context.Background())
-	s.Require().Equal(1, indexer.calls)
+	s.Require().Len(navigator.placementCalls(), 1)
 
 	tree, err := s.repository.TopicTree(context.Background())
 	s.Require().NoError(err)
-	s.Require().Equal(indexer.tree, tree)
 	s.Require().Len(tree.Topics, 1)
-	s.Require().Equal("topic-databases", tree.Topics[0].ID)
+	s.Require().Equal("databases", tree.Topics[0].Slug)
 	s.Require().Len(tree.Placements, 1)
 
 	page, err := s.repository.PageBySlug(context.Background(), "sqlite")
 	s.Require().NoError(err)
 	s.Require().Equal(page.ID, tree.Placements[0].PageID)
+	s.Require().Equal(tree.Topics[0].ID, tree.Placements[0].TopicID)
 }
 
-func (s *treeReindexSuite) TestSourceOnlyRunSkipsIndexer() {
+func (s *treeReindexSuite) TestSourceOnlyRunQueuesNothing() {
 	raw := []byte("event-1: Housekeeping note that is not knowledge.")
 	planner := pagewiki.ScriptedPlanner{
 		Briefs: []pagewiki.PageBrief{
@@ -161,8 +122,11 @@ func (s *treeReindexSuite) TestSourceOnlyRunSkipsIndexer() {
 		},
 	}
 	editor := pagewiki.ScriptedEditor{}
-	indexer := &recordingIndexer{}
-	service := pagewiki.NewService(s.repository, planner, editor, pagewiki.WithTreeIndexer(indexer, nil))
+	navigator := &fakeTreeNavigator{}
+	service := pagewiki.NewService(
+		s.repository, planner, editor,
+		pagewiki.WithTreeNavigator(pagewiki.TreeMaintenanceConfig{Navigator: navigator}),
+	)
 
 	result, err := service.InjectSession(context.Background(), pagewiki.InjectSessionRequest{
 		SourceID:       "session-source-only",
@@ -175,12 +139,13 @@ func (s *treeReindexSuite) TestSourceOnlyRunSkipsIndexer() {
 
 	s.Require().NoError(err)
 	s.Require().Equal(pagewiki.RunStatusSucceeded, result.Run.Status)
+	s.Require().Zero(service.PendingTreeTasksForTest())
 
 	service.FlushTreeReindex(context.Background())
-	s.Require().Equal(0, indexer.calls)
+	s.Require().Empty(navigator.placementCalls())
 }
 
-func (s *treeReindexSuite) TestIndexerFailureKeepsRunAndOldTree() {
+func (s *treeReindexSuite) TestNavigatorFailureKeepsRunAndOldTree() {
 	seeded := pagewiki.TopicTree{
 		Topics: []pagewiki.Topic{
 			{ID: "topic-seed", Slug: "seed", Title: "Seed"},
@@ -191,8 +156,8 @@ func (s *treeReindexSuite) TestIndexerFailureKeepsRunAndOldTree() {
 	s.Require().NoError(err)
 
 	planner, editor, request := s.createBriefAndEditor()
-	indexer := &recordingIndexer{err: errors.New("boom")}
-	service := pagewiki.NewService(s.repository, planner, editor, pagewiki.WithTreeIndexer(indexer, nil))
+	navigator := &fakeTreeNavigator{placementErr: errors.New("boom")}
+	service := newTreeMaintenanceService(s.repository, planner, editor, navigator)
 
 	result, err := service.InjectSession(context.Background(), request)
 
@@ -200,14 +165,14 @@ func (s *treeReindexSuite) TestIndexerFailureKeepsRunAndOldTree() {
 	s.Require().Equal(pagewiki.RunStatusSucceeded, result.Run.Status)
 
 	service.FlushTreeReindex(context.Background())
-	s.Require().Equal(1, indexer.calls)
+	s.Require().Len(navigator.placementCalls(), 1)
 
 	tree, err := s.repository.TopicTree(context.Background())
 	s.Require().NoError(err)
 	s.Require().Equal(seededSnapshot, tree)
 }
 
-func (s *treeReindexSuite) TestServiceWithoutIndexerStillWorks() {
+func (s *treeReindexSuite) TestServiceWithoutNavigatorStillWorks() {
 	planner, editor, request := s.createBriefAndEditor()
 	service := pagewiki.NewService(s.repository, planner, editor)
 
@@ -215,6 +180,7 @@ func (s *treeReindexSuite) TestServiceWithoutIndexerStillWorks() {
 
 	s.Require().NoError(err)
 	s.Require().Equal(pagewiki.RunStatusSucceeded, result.Run.Status)
+	s.Require().Zero(service.PendingTreeTasksForTest())
 
 	tree, err := s.repository.TopicTree(context.Background())
 	s.Require().NoError(err)
@@ -222,10 +188,14 @@ func (s *treeReindexSuite) TestServiceWithoutIndexerStillWorks() {
 	s.Require().Empty(tree.Placements)
 }
 
-func (s *treeReindexSuite) TestTwoRunsThenOneFlushReindexOnce() {
+// TestTwoRunsPlaceBothPagesIndependently is the incremental counterpart of
+// the old "two runs, one rebuild" coalescing test: each published page is its
+// own queued task, so two runs — even across two Service instances sharing a
+// repository — place exactly their own page and nothing else.
+func (s *treeReindexSuite) TestTwoRunsPlaceBothPagesIndependently() {
 	planner, editor, request := s.createBriefAndEditor()
-	indexer := &recordingIndexer{}
-	service := pagewiki.NewService(s.repository, planner, editor, pagewiki.WithTreeIndexer(indexer, nil))
+	navigator := &fakeTreeNavigator{}
+	service := newTreeMaintenanceService(s.repository, planner, editor, navigator)
 
 	first, err := service.InjectSession(context.Background(), request)
 	s.Require().NoError(err)
@@ -265,9 +235,8 @@ func (s *treeReindexSuite) TestTwoRunsThenOneFlushReindexOnce() {
 			},
 		},
 	}
-	secondService := pagewiki.NewService(
-		s.repository, secondPlanner, secondEditor, pagewiki.WithTreeIndexer(indexer, nil),
-	)
+	secondNavigator := &fakeTreeNavigator{}
+	secondService := newTreeMaintenanceService(s.repository, secondPlanner, secondEditor, secondNavigator)
 	second, err := secondService.InjectSession(context.Background(), pagewiki.InjectSessionRequest{
 		SourceID:       "session-2",
 		IdempotencyKey: "session-2-injection",
@@ -281,14 +250,13 @@ func (s *treeReindexSuite) TestTwoRunsThenOneFlushReindexOnce() {
 	s.Require().NoError(err)
 	s.Require().Equal(pagewiki.RunStatusSucceeded, second.Run.Status)
 
-	// Neither run reindexed inline; each service instance carries its own
-	// dirty flag, so flushing both yields exactly one reindex per dirty
-	// service — the coalescing win is per service instance.
-	s.Require().Equal(0, indexer.calls)
+	// Neither run placed anything inline; each service drains only its own
+	// queue, and a second flush finds nothing left to do.
+	s.Require().Empty(navigator.placementCalls())
 	secondService.FlushTreeReindex(context.Background())
-	s.Require().Equal(1, indexer.calls)
+	s.Require().Len(secondNavigator.placementCalls(), 1)
 	secondService.FlushTreeReindex(context.Background())
-	s.Require().Equal(1, indexer.calls)
+	s.Require().Len(secondNavigator.placementCalls(), 1)
 	service.FlushTreeReindex(context.Background())
-	s.Require().Equal(2, indexer.calls)
+	s.Require().Len(navigator.placementCalls(), 1)
 }

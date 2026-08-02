@@ -9570,6 +9570,172 @@ func (p *ReaderDocument) String() string {
 
 }
 
+type RebuildTopicTreeRequest struct {
+}
+
+func NewRebuildTopicTreeRequest() *RebuildTopicTreeRequest {
+	return &RebuildTopicTreeRequest{}
+}
+
+func (p *RebuildTopicTreeRequest) InitDefault() {
+}
+
+var fieldIDToName_RebuildTopicTreeRequest = map[int16]string{}
+
+func (p *RebuildTopicTreeRequest) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+		if err = iprot.Skip(fieldTypeId); err != nil {
+			goto SkipFieldTypeError
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+SkipFieldTypeError:
+	return thrift.PrependError(fmt.Sprintf("%T skip field type %d error", p, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+}
+
+func (p *RebuildTopicTreeRequest) Write(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteStructBegin("RebuildTopicTreeRequest"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *RebuildTopicTreeRequest) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("RebuildTopicTreeRequest(%+v)", *p)
+
+}
+
+type RebuildTopicTreeResponse struct {
+}
+
+func NewRebuildTopicTreeResponse() *RebuildTopicTreeResponse {
+	return &RebuildTopicTreeResponse{}
+}
+
+func (p *RebuildTopicTreeResponse) InitDefault() {
+}
+
+var fieldIDToName_RebuildTopicTreeResponse = map[int16]string{}
+
+func (p *RebuildTopicTreeResponse) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+		if err = iprot.Skip(fieldTypeId); err != nil {
+			goto SkipFieldTypeError
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+SkipFieldTypeError:
+	return thrift.PrependError(fmt.Sprintf("%T skip field type %d error", p, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+}
+
+func (p *RebuildTopicTreeResponse) Write(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteStructBegin("RebuildTopicTreeResponse"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *RebuildTopicTreeResponse) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("RebuildTopicTreeResponse(%+v)", *p)
+
+}
+
 type PageWikiService interface {
 	InjectSession(ctx context.Context, request *InjectRequest) (r *InjectResponse, err error)
 
@@ -9592,6 +9758,8 @@ type PageWikiService interface {
 	GetSourceBacklinks(ctx context.Context, request *SourceRevisionRequest) (r *SourceBacklinksResponse, err error)
 
 	GetNavigation(ctx context.Context, request *NavigationRequest) (r *NavigationResponse, err error)
+
+	RebuildTopicTree(ctx context.Context, request *RebuildTopicTreeRequest) (r *RebuildTopicTreeResponse, err error)
 
 	GetReader(ctx context.Context, request *ReaderRequest) (r *ReaderDocument, err error)
 
@@ -9723,6 +9891,15 @@ func (p *PageWikiServiceClient) GetNavigation(ctx context.Context, request *Navi
 	}
 	return _result.GetSuccess(), nil
 }
+func (p *PageWikiServiceClient) RebuildTopicTree(ctx context.Context, request *RebuildTopicTreeRequest) (r *RebuildTopicTreeResponse, err error) {
+	var _args PageWikiServiceRebuildTopicTreeArgs
+	_args.Request = request
+	var _result PageWikiServiceRebuildTopicTreeResult
+	if err = p.Client_().Call(ctx, "RebuildTopicTree", &_args, &_result); err != nil {
+		return
+	}
+	return _result.GetSuccess(), nil
+}
 func (p *PageWikiServiceClient) GetReader(ctx context.Context, request *ReaderRequest) (r *ReaderDocument, err error) {
 	var _args PageWikiServiceGetReaderArgs
 	_args.Request = request
@@ -9773,6 +9950,7 @@ func NewPageWikiServiceProcessor(handler PageWikiService) *PageWikiServiceProces
 	self.AddToProcessorMap("GetSourceRevision", &pageWikiServiceProcessorGetSourceRevision{handler: handler})
 	self.AddToProcessorMap("GetSourceBacklinks", &pageWikiServiceProcessorGetSourceBacklinks{handler: handler})
 	self.AddToProcessorMap("GetNavigation", &pageWikiServiceProcessorGetNavigation{handler: handler})
+	self.AddToProcessorMap("RebuildTopicTree", &pageWikiServiceProcessorRebuildTopicTree{handler: handler})
 	self.AddToProcessorMap("GetReader", &pageWikiServiceProcessorGetReader{handler: handler})
 	self.AddToProcessorMap("GetReaderAsset", &pageWikiServiceProcessorGetReaderAsset{handler: handler})
 	return self
@@ -10306,6 +10484,54 @@ func (p *pageWikiServiceProcessorGetNavigation) Process(ctx context.Context, seq
 		result.Success = retval
 	}
 	if err2 = oprot.WriteMessageBegin("GetNavigation", thrift.REPLY, seqId); err2 != nil {
+		err = err2
+	}
+	if err2 = result.Write(oprot); err == nil && err2 != nil {
+		err = err2
+	}
+	if err2 = oprot.WriteMessageEnd(); err == nil && err2 != nil {
+		err = err2
+	}
+	if err2 = oprot.Flush(ctx); err == nil && err2 != nil {
+		err = err2
+	}
+	if err != nil {
+		return
+	}
+	return true, err
+}
+
+type pageWikiServiceProcessorRebuildTopicTree struct {
+	handler PageWikiService
+}
+
+func (p *pageWikiServiceProcessorRebuildTopicTree) Process(ctx context.Context, seqId int32, iprot, oprot thrift.TProtocol) (success bool, err thrift.TException) {
+	args := PageWikiServiceRebuildTopicTreeArgs{}
+	if err = args.Read(iprot); err != nil {
+		iprot.ReadMessageEnd()
+		x := thrift.NewTApplicationException(thrift.PROTOCOL_ERROR, err.Error())
+		oprot.WriteMessageBegin("RebuildTopicTree", thrift.EXCEPTION, seqId)
+		x.Write(oprot)
+		oprot.WriteMessageEnd()
+		oprot.Flush(ctx)
+		return false, err
+	}
+
+	iprot.ReadMessageEnd()
+	var err2 error
+	result := PageWikiServiceRebuildTopicTreeResult{}
+	var retval *RebuildTopicTreeResponse
+	if retval, err2 = p.handler.RebuildTopicTree(ctx, args.Request); err2 != nil {
+		x := thrift.NewTApplicationException(thrift.INTERNAL_ERROR, "Internal error processing RebuildTopicTree: "+err2.Error())
+		oprot.WriteMessageBegin("RebuildTopicTree", thrift.EXCEPTION, seqId)
+		x.Write(oprot)
+		oprot.WriteMessageEnd()
+		oprot.Flush(ctx)
+		return true, err2
+	} else {
+		result.Success = retval
+	}
+	if err2 = oprot.WriteMessageBegin("RebuildTopicTree", thrift.REPLY, seqId); err2 != nil {
 		err = err2
 	}
 	if err2 = result.Write(oprot); err == nil && err2 != nil {
@@ -13650,6 +13876,300 @@ func (p *PageWikiServiceGetNavigationResult) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("PageWikiServiceGetNavigationResult(%+v)", *p)
+
+}
+
+type PageWikiServiceRebuildTopicTreeArgs struct {
+	Request *RebuildTopicTreeRequest `thrift:"request,1"`
+}
+
+func NewPageWikiServiceRebuildTopicTreeArgs() *PageWikiServiceRebuildTopicTreeArgs {
+	return &PageWikiServiceRebuildTopicTreeArgs{}
+}
+
+func (p *PageWikiServiceRebuildTopicTreeArgs) InitDefault() {
+}
+
+var PageWikiServiceRebuildTopicTreeArgs_Request_DEFAULT *RebuildTopicTreeRequest
+
+func (p *PageWikiServiceRebuildTopicTreeArgs) GetRequest() (v *RebuildTopicTreeRequest) {
+	if !p.IsSetRequest() {
+		return PageWikiServiceRebuildTopicTreeArgs_Request_DEFAULT
+	}
+	return p.Request
+}
+
+var fieldIDToName_PageWikiServiceRebuildTopicTreeArgs = map[int16]string{
+	1: "request",
+}
+
+func (p *PageWikiServiceRebuildTopicTreeArgs) IsSetRequest() bool {
+	return p.Request != nil
+}
+
+func (p *PageWikiServiceRebuildTopicTreeArgs) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 1:
+			if fieldTypeId == thrift.STRUCT {
+				if err = p.ReadField1(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_PageWikiServiceRebuildTopicTreeArgs[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+}
+
+func (p *PageWikiServiceRebuildTopicTreeArgs) ReadField1(iprot thrift.TProtocol) error {
+	_field := NewRebuildTopicTreeRequest()
+	if err := _field.Read(iprot); err != nil {
+		return err
+	}
+	p.Request = _field
+	return nil
+}
+
+func (p *PageWikiServiceRebuildTopicTreeArgs) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("RebuildTopicTree_args"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField1(oprot); err != nil {
+			fieldId = 1
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *PageWikiServiceRebuildTopicTreeArgs) writeField1(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("request", thrift.STRUCT, 1); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := p.Request.Write(oprot); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 end error: ", p), err)
+}
+
+func (p *PageWikiServiceRebuildTopicTreeArgs) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("PageWikiServiceRebuildTopicTreeArgs(%+v)", *p)
+
+}
+
+type PageWikiServiceRebuildTopicTreeResult struct {
+	Success *RebuildTopicTreeResponse `thrift:"success,0,optional"`
+}
+
+func NewPageWikiServiceRebuildTopicTreeResult() *PageWikiServiceRebuildTopicTreeResult {
+	return &PageWikiServiceRebuildTopicTreeResult{}
+}
+
+func (p *PageWikiServiceRebuildTopicTreeResult) InitDefault() {
+}
+
+var PageWikiServiceRebuildTopicTreeResult_Success_DEFAULT *RebuildTopicTreeResponse
+
+func (p *PageWikiServiceRebuildTopicTreeResult) GetSuccess() (v *RebuildTopicTreeResponse) {
+	if !p.IsSetSuccess() {
+		return PageWikiServiceRebuildTopicTreeResult_Success_DEFAULT
+	}
+	return p.Success
+}
+
+var fieldIDToName_PageWikiServiceRebuildTopicTreeResult = map[int16]string{
+	0: "success",
+}
+
+func (p *PageWikiServiceRebuildTopicTreeResult) IsSetSuccess() bool {
+	return p.Success != nil
+}
+
+func (p *PageWikiServiceRebuildTopicTreeResult) Read(iprot thrift.TProtocol) (err error) {
+
+	var fieldTypeId thrift.TType
+	var fieldId int16
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 0:
+			if fieldTypeId == thrift.STRUCT {
+				if err = p.ReadField0(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_PageWikiServiceRebuildTopicTreeResult[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+}
+
+func (p *PageWikiServiceRebuildTopicTreeResult) ReadField0(iprot thrift.TProtocol) error {
+	_field := NewRebuildTopicTreeResponse()
+	if err := _field.Read(iprot); err != nil {
+		return err
+	}
+	p.Success = _field
+	return nil
+}
+
+func (p *PageWikiServiceRebuildTopicTreeResult) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("RebuildTopicTree_result"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField0(oprot); err != nil {
+			fieldId = 0
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *PageWikiServiceRebuildTopicTreeResult) writeField0(oprot thrift.TProtocol) (err error) {
+	if p.IsSetSuccess() {
+		if err = oprot.WriteFieldBegin("success", thrift.STRUCT, 0); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := p.Success.Write(oprot); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 0 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 0 end error: ", p), err)
+}
+
+func (p *PageWikiServiceRebuildTopicTreeResult) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("PageWikiServiceRebuildTopicTreeResult(%+v)", *p)
 
 }
 

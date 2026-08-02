@@ -450,6 +450,50 @@ func (s *ContractAcceptanceSuite) TestGivenUnavailableInjectorWhenRequestedThenS
 	s.Equal("unavailable", mapped["code"])
 }
 
+func (s *ContractAcceptanceSuite) TestGivenConfiguredNavigatorWhenTopicTreeRebuildRequestedThenOKIsReturned() {
+	ctx := context.Background()
+	page := pagewiki.Page{
+		ID:                "page-rebuild",
+		Slug:              "rebuild-page",
+		Title:             "Rebuild Page",
+		CurrentRevisionID: "revision-rebuild",
+	}
+	s.Require().NoError(s.repository.PublishPage(ctx, pagewiki.PagePublication{
+		Page:     page,
+		Revision: pagewiki.PageRevision{ID: "revision-rebuild", PageID: page.ID},
+	}))
+	service := pagewiki.NewService(
+		s.repository,
+		contractPlanner{},
+		pagewiki.ScriptedEditor{},
+		pagewiki.WithTreeNavigator(pagewiki.TreeMaintenanceConfig{Navigator: stayAtRootNavigator{}}),
+	)
+	handler, err := httpapi.New(service, s.repository)
+	s.Require().NoError(err)
+	hertz := server.New()
+	hertz.Use(httpapi.InstanceMiddleware(handler))
+	pagewikirouter.Register(hertz)
+
+	response := performJSON(hertz, http.MethodPost, "/v1/wiki/topic-tree/rebuild", "")
+
+	s.Require().Equal(http.StatusOK, response.Code)
+}
+
+func (s *ContractAcceptanceSuite) TestGivenUnavailableNavigatorWhenTopicTreeRebuildRequestedThenServiceUnavailableIsReturned() {
+	handler, err := httpapi.New(unavailableInjector{}, s.repository)
+	s.Require().NoError(err)
+	hertz := server.New()
+	hertz.Use(httpapi.InstanceMiddleware(handler))
+	pagewikirouter.Register(hertz)
+
+	response := performJSON(hertz, http.MethodPost, "/v1/wiki/topic-tree/rebuild", "")
+
+	s.Require().Equal(http.StatusServiceUnavailable, response.Code)
+	var mapped map[string]any
+	s.Require().NoError(json.Unmarshal(response.Body.Bytes(), &mapped))
+	s.Equal("unavailable", mapped["code"])
+}
+
 func (s *ContractAcceptanceSuite) TestGivenMissingMiddlewareWhenRequestedThenServerErrorIsReturned() {
 	hertz := server.New()
 	pagewikirouter.Register(hertz)
@@ -511,6 +555,28 @@ func (unavailableInjector) InjectSession(
 	pagewiki.InjectSessionRequest,
 ) (pagewiki.InjectResult, error) {
 	return pagewiki.InjectResult{}, pagewiki.ErrUnavailable
+}
+
+func (unavailableInjector) RebuildTopicTree(context.Context) error {
+	return pagewiki.ErrUnavailable
+}
+
+// stayAtRootNavigator answers every placement choice with "stay", so a
+// rebuild lands every page at the root without ever asking for a split.
+type stayAtRootNavigator struct{}
+
+func (stayAtRootNavigator) ChoosePlacement(
+	context.Context,
+	pagewiki.TreePlacementInput,
+) (pagewiki.TreePlacementChoice, error) {
+	return pagewiki.TreePlacementChoice{Action: pagewiki.TreePlacementStay}, nil
+}
+
+func (stayAtRootNavigator) SplitTopic(
+	context.Context,
+	pagewiki.TreeSplitInput,
+) ([]pagewiki.TreeSplitGroup, error) {
+	return nil, nil
 }
 
 type contractPlanner struct{}

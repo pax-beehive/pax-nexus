@@ -358,6 +358,10 @@ func (i failingInjector) InjectSession(
 	return pagewiki.InjectResult{}, i.err
 }
 
+func (i failingInjector) RebuildTopicTree(context.Context) error {
+	return i.err
+}
+
 type failingReader struct {
 	err error
 }

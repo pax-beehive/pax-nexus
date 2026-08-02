@@ -2,6 +2,7 @@ package memory_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/pax-beehive/pax-nexus/internal/pagewiki"
@@ -696,12 +697,8 @@ func (s *RepositorySuite) TestReplaceTopicTreeRejectsInvalidTrees() {
 		{"missing parent", pagewiki.TopicTree{
 			Topics: []pagewiki.Topic{{ID: "t", ParentID: "ghost", Slug: "s", Title: "S"}},
 		}},
-		{"three levels", pagewiki.TopicTree{
-			Topics: []pagewiki.Topic{
-				{ID: "a", Slug: "a", Title: "A"},
-				{ID: "b", ParentID: "a", Slug: "b", Title: "B"},
-				{ID: "c", ParentID: "b", Slug: "c", Title: "C"},
-			},
+		{"six levels", pagewiki.TopicTree{
+			Topics: chainTopics(6),
 		}},
 		{"duplicate placement", pagewiki.TopicTree{
 			Topics: []pagewiki.Topic{{ID: "t", Slug: "s", Title: "S"}},
@@ -733,11 +730,51 @@ func (s *RepositorySuite) TestReplaceTopicTreeRejectsInvalidTrees() {
 	for _, testCase := range cases {
 		err := s.repository.ReplaceTopicTree(s.ctx, testCase.tree)
 		s.Require().ErrorIs(err, pagewiki.ErrRevisionConflict, testCase.name)
+		if testCase.name == "six levels" {
+			s.Require().ErrorContains(err, "exceeds", testCase.name)
+		}
 	}
 	// prior valid state is untouched (should be empty since no successful ReplaceTopicTree calls)
 	tree, err := s.repository.TopicTree(s.ctx)
 	s.Require().NoError(err)
 	s.Empty(tree.Topics)
+}
+
+func (s *RepositorySuite) TestReplaceTopicTreeAcceptsDefaultMaxDepth() {
+	err := s.repository.ReplaceTopicTree(s.ctx, pagewiki.TopicTree{
+		Topics: chainTopics(pagewiki.DefaultTopicTreeMaxDepth),
+	})
+	s.Require().NoError(err)
+
+	tree, err := s.repository.TopicTree(s.ctx)
+	s.Require().NoError(err)
+	s.Len(tree.Topics, pagewiki.DefaultTopicTreeMaxDepth)
+}
+
+func (s *RepositorySuite) TestReplaceTopicTreeRejectsBeyondConfiguredMaxDepth() {
+	repository := memory.NewRepository(memory.WithTopicTreeMaxDepth(2))
+
+	err := repository.ReplaceTopicTree(s.ctx, pagewiki.TopicTree{
+		Topics: chainTopics(3),
+	})
+
+	s.Require().ErrorIs(err, pagewiki.ErrRevisionConflict)
+	s.Require().ErrorContains(err, "exceeds")
+}
+
+// chainTopics builds depth linked Topics (ID topic_0 .. topic_{depth-1}),
+// each parented to the previous one, for exercising topic tree depth caps.
+func chainTopics(depth int) []pagewiki.Topic {
+	topics := make([]pagewiki.Topic, 0, depth)
+	parent := ""
+	for i := 0; i < depth; i++ {
+		id := fmt.Sprintf("topic_%d", i)
+		topics = append(topics, pagewiki.Topic{
+			ID: id, ParentID: parent, Slug: fmt.Sprintf("t-%d", i), Title: fmt.Sprintf("T %d", i),
+		})
+		parent = id
+	}
+	return topics
 }
 
 func (s *RepositorySuite) TestReplaceTopicTreeAtomicityPreservesValidState() {

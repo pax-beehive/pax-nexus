@@ -17,6 +17,7 @@ import (
 	"github.com/pax-beehive/pax-nexus/internal/evidencelake"
 	"github.com/pax-beehive/pax-nexus/internal/operations"
 	"github.com/pax-beehive/pax-nexus/internal/pagewiki"
+	"github.com/pax-beehive/pax-nexus/internal/pagewiki/memory"
 	pagewikipostgres "github.com/pax-beehive/pax-nexus/internal/pagewiki/postgres"
 	"github.com/pax-beehive/pax-nexus/internal/pagewiki/sessionconsumer"
 	pagewikihttp "github.com/pax-beehive/pax-nexus/internal/pagewiki/transport/httpapi"
@@ -203,17 +204,31 @@ func buildPageWikiHTTPHandler(
 	config applicationConfig,
 	logger *slog.Logger,
 ) (*pagewikihttp.Handler, *sessionconsumer.Controller, *pagewiki.Service, error) {
-	repository, err := pagewikipostgres.NewRepository(ctx, store.Pool(), onprem.LocalScopeID)
+	treeMaxDepth, err := parseTreeMaxDepth(config.llmwikiTreeMaxDepth)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf(
+			"initialize Page Wiki repository: %w", err,
+		)
+	}
+	repositoryOptions := make([]memory.Option, 0, 1)
+	if treeMaxDepth > 0 {
+		repositoryOptions = append(repositoryOptions, memory.WithTopicTreeMaxDepth(treeMaxDepth))
+	}
+	repository, err := pagewikipostgres.NewRepository(
+		ctx, store.Pool(), onprem.LocalScopeID, repositoryOptions...,
+	)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("initialize Page Wiki repository: %w", err)
 	}
-	planner, editor, indexer, curator, err := buildPageWikiMaintainers(usageStore, config, logger)
+	planner, editor, navigator, curator, err := buildPageWikiMaintainers(usageStore, config, logger)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 	options := make([]pagewiki.ServiceOption, 0, 2)
-	if indexer != nil {
-		options = append(options, pagewiki.WithTreeIndexer(indexer, logger))
+	if navigator != nil {
+		options = append(options, pagewiki.WithTreeNavigator(pagewiki.TreeMaintenanceConfig{
+			Navigator: navigator, MaxDepth: treeMaxDepth, Logger: logger,
+		}))
 	}
 	if curator != nil {
 		curationConfig, err := buildPageWikiCurationConfig(config)
@@ -290,11 +305,24 @@ func parseNonNegativeEnvironment(raw, name string) (int, error) {
 	return parsed, nil
 }
 
+// parseTreeMaxDepth returns 0 when unset (callers apply the default).
+func parseTreeMaxDepth(raw string) (int, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, nil
+	}
+	parsed, err := strconv.Atoi(raw)
+	if err != nil || parsed < 1 {
+		return 0, fmt.Errorf("LLMWIKI_TREE_MAX_DEPTH must be a positive integer, got %q", raw)
+	}
+	return parsed, nil
+}
+
 func buildPageWikiMaintainers(
 	usageStore *postgres.LLMUsageStore,
 	config applicationConfig,
 	logger *slog.Logger,
-) (pagewiki.Planner, pagewiki.Editor, pagewiki.TreeIndexer, pagewiki.Curator, error) {
+) (pagewiki.Planner, pagewiki.Editor, pagewiki.TreeNavigator, pagewiki.Curator, error) {
 	switch strings.TrimSpace(config.llmwikiMode) {
 	case "", "local":
 		return pagewiki.SessionDocumentPlanner{}, pagewiki.SessionDocumentEditor{}, nil, nil, nil
@@ -306,17 +334,6 @@ func buildPageWikiMaintainers(
 				"initialize Page Wiki LLM maintainers: LLMWIKI_LLM_BASE_URL, " +
 					"LLMWIKI_LLM_API_KEY, and LLMWIKI_LLM_MODEL are required",
 			)
-		}
-		maxDepth := 0
-		if raw := strings.TrimSpace(config.llmwikiTreeMaxDepth); raw != "" {
-			parsed, err := strconv.Atoi(raw)
-			if err != nil || parsed < 1 {
-				return nil, nil, nil, nil, fmt.Errorf(
-					"initialize Page Wiki LLM maintainers: LLMWIKI_TREE_MAX_DEPTH must be a positive integer, got %q",
-					raw,
-				)
-			}
-			maxDepth = parsed
 		}
 		client := platformllm.NewDeepSeekClient(platformllm.DeepSeekConfig{
 			BaseURL: config.llmwikiBaseURL,
@@ -347,8 +364,8 @@ func buildPageWikiMaintainers(
 		if err != nil {
 			return nil, nil, nil, nil, err
 		}
-		indexer, err := pagewiki.NewLLMTreeIndexer(pagewiki.LLMTreeIndexerConfig{
-			Client: indexerClient, Model: config.llmwikiModel, Logger: logger, MaxDepth: maxDepth,
+		navigator, err := pagewiki.NewLLMTreeNavigator(pagewiki.LLMTreeNavigatorConfig{
+			Client: indexerClient, Model: config.llmwikiModel, Logger: logger,
 		})
 		if err != nil {
 			return nil, nil, nil, nil, err
@@ -363,7 +380,7 @@ func buildPageWikiMaintainers(
 		if err != nil {
 			return nil, nil, nil, nil, err
 		}
-		return planner, editor, indexer, curator, nil
+		return planner, editor, navigator, curator, nil
 	default:
 		return nil, nil, nil, nil, fmt.Errorf(
 			"initialize Page Wiki LLM maintainers: unsupported LLMWIKI_ORGANIZER_MODE %q",
