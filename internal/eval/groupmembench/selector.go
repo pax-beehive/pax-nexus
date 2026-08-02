@@ -38,6 +38,10 @@ type Message struct {
 	ReplyTo                string         `json:"reply_to,omitempty"`
 	PhaseName              string         `json:"phase_name,omitempty"`
 	Topic                  string         `json:"topic,omitempty"`
+	Tone                   string         `json:"tone,omitempty"`
+	Style                  string         `json:"style,omitempty"`
+	Expertise              string         `json:"expertise,omitempty"`
+	MessageType            string         `json:"message_type,omitempty"`
 	IsNoise                bool           `json:"is_noise"`
 	IsDecisionPoint        bool           `json:"is_decision_point"`
 	DecisionChangeMetadata map[string]any `json:"decision_change_metadata,omitempty"`
