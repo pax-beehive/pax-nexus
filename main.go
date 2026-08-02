@@ -17,6 +17,7 @@ import (
 	"github.com/pax-beehive/pax-nexus/internal/evidencelake"
 	"github.com/pax-beehive/pax-nexus/internal/operations"
 	"github.com/pax-beehive/pax-nexus/internal/pagewiki"
+	"github.com/pax-beehive/pax-nexus/internal/pagewiki/memory"
 	pagewikipostgres "github.com/pax-beehive/pax-nexus/internal/pagewiki/postgres"
 	"github.com/pax-beehive/pax-nexus/internal/pagewiki/sessionconsumer"
 	pagewikihttp "github.com/pax-beehive/pax-nexus/internal/pagewiki/transport/httpapi"
@@ -203,7 +204,19 @@ func buildPageWikiHTTPHandler(
 	config applicationConfig,
 	logger *slog.Logger,
 ) (*pagewikihttp.Handler, *sessionconsumer.Controller, *pagewiki.Service, error) {
-	repository, err := pagewikipostgres.NewRepository(ctx, store.Pool(), onprem.LocalScopeID)
+	treeMaxDepth, err := parseTreeMaxDepth(config.llmwikiTreeMaxDepth)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf(
+			"initialize Page Wiki repository: %w", err,
+		)
+	}
+	repositoryOptions := make([]memory.Option, 0, 1)
+	if treeMaxDepth > 0 {
+		repositoryOptions = append(repositoryOptions, memory.WithTopicTreeMaxDepth(treeMaxDepth))
+	}
+	repository, err := pagewikipostgres.NewRepository(
+		ctx, store.Pool(), onprem.LocalScopeID, repositoryOptions...,
+	)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("initialize Page Wiki repository: %w", err)
 	}
@@ -290,6 +303,19 @@ func parseNonNegativeEnvironment(raw, name string) (int, error) {
 	return parsed, nil
 }
 
+// parseTreeMaxDepth returns 0 when unset (callers apply the default).
+func parseTreeMaxDepth(raw string) (int, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, nil
+	}
+	parsed, err := strconv.Atoi(raw)
+	if err != nil || parsed < 1 {
+		return 0, fmt.Errorf("LLMWIKI_TREE_MAX_DEPTH must be a positive integer, got %q", raw)
+	}
+	return parsed, nil
+}
+
 func buildPageWikiMaintainers(
 	usageStore *postgres.LLMUsageStore,
 	config applicationConfig,
@@ -307,16 +333,11 @@ func buildPageWikiMaintainers(
 					"LLMWIKI_LLM_API_KEY, and LLMWIKI_LLM_MODEL are required",
 			)
 		}
-		maxDepth := 0
-		if raw := strings.TrimSpace(config.llmwikiTreeMaxDepth); raw != "" {
-			parsed, err := strconv.Atoi(raw)
-			if err != nil || parsed < 1 {
-				return nil, nil, nil, nil, fmt.Errorf(
-					"initialize Page Wiki LLM maintainers: LLMWIKI_TREE_MAX_DEPTH must be a positive integer, got %q",
-					raw,
-				)
-			}
-			maxDepth = parsed
+		maxDepth, err := parseTreeMaxDepth(config.llmwikiTreeMaxDepth)
+		if err != nil {
+			return nil, nil, nil, nil, fmt.Errorf(
+				"initialize Page Wiki LLM maintainers: %w", err,
+			)
 		}
 		client := platformllm.NewDeepSeekClient(platformllm.DeepSeekConfig{
 			BaseURL: config.llmwikiBaseURL,

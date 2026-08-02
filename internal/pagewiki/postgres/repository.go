@@ -20,11 +20,14 @@ type Repository struct {
 	memory  *memory.Repository
 }
 
-func NewRepository(ctx context.Context, pool *pgxpool.Pool, scopeID string) (*Repository, error) {
+func NewRepository(
+	ctx context.Context, pool *pgxpool.Pool, scopeID string,
+	options ...memory.Option,
+) (*Repository, error) {
 	if pool == nil || scopeID == "" {
 		return nil, fmt.Errorf("create Page Wiki postgres repository: pool and scope are required")
 	}
-	repository := &Repository{pool: pool, scopeID: scopeID, memory: memory.NewRepository()}
+	repository := &Repository{pool: pool, scopeID: scopeID, memory: memory.NewRepository(options...)}
 	if err := repository.hydrate(ctx); err != nil {
 		return nil, err
 	}
