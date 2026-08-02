@@ -51,9 +51,9 @@ function collectPages(topics) {
  * the walk there instead of throwing; `truncated` tells the caller the
  * requested path had to be shortened so it can correct `topicPath`.
  */
-function resolveTopicLayer(topics, path) {
+function resolveTopicLayer(topics, rootPages, path) {
   let layerTopics = topics;
-  let layerPages = [];
+  let layerPages = rootPages;
   const resolvedPath = [];
   const crumbs = [];
   for (const slug of path) {
@@ -71,7 +71,8 @@ function resolveTopicLayer(topics, path) {
 
 function renderNavigation(navigation) {
   const roots = navigation.roots || [];
-  const layer = resolveTopicLayer(roots, topicPath);
+  const rootPages = navigation.pages || [];
+  const layer = resolveTopicLayer(roots, rootPages, topicPath);
   if (layer.truncated) topicPath = layer.path;
 
   const goTo = (path) => {
@@ -82,7 +83,10 @@ function renderNavigation(navigation) {
   renderBreadcrumb(layer, goTo);
   renderTopicLayer(layer, goTo);
 
-  const pages = collectPages(roots);
+  // Root-level pages (never assigned to a topic — the common "stay at
+  // root" outcome of incremental placement) plus every page nested under a
+  // topic, in the same order the React reader uses for its page list.
+  const pages = [...rootPages, ...collectPages(roots)];
   byID("page-count").textContent = `${pages.length} ${pages.length === 1 ? "page" : "pages"}`;
   if (state.page) markCurrentPage(state.page.slug);
   return pages;
