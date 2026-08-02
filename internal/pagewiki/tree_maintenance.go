@@ -2,7 +2,6 @@ package pagewiki
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"sort"
@@ -150,7 +149,7 @@ func (s *Service) processTreeTask(ctx context.Context, task treeTask) {
 // operation never needs it.
 func (s *Service) RebuildTopicTree(ctx context.Context) error {
 	if s.treeNavigator == nil {
-		return errors.New("rebuild Page Wiki topic tree: no tree navigator is configured")
+		return fmt.Errorf("rebuild Page Wiki topic tree: %w: no tree navigator is configured", ErrUnavailable)
 	}
 	catalog, err := s.repository.PageCatalog(ctx)
 	if err != nil {

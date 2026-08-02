@@ -15,6 +15,7 @@ type Injector interface {
 		context.Context,
 		pagewiki.InjectSessionRequest,
 	) (pagewiki.InjectResult, error)
+	RebuildTopicTree(context.Context) error
 }
 
 type Reader interface {

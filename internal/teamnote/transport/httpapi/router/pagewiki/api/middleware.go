@@ -140,3 +140,13 @@ func _wiki0Mw() []app.HandlerFunc {
 	// your code...
 	return nil
 }
+
+func _topic_treeMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _rebuildtopictreeMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}

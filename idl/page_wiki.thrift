@@ -210,6 +210,10 @@ struct ReaderDocument {
   1: required string content
 }
 
+struct RebuildTopicTreeRequest {}
+
+struct RebuildTopicTreeResponse {}
+
 service PageWikiService {
   InjectResponse InjectSession(1: InjectRequest request) (api.post="/sessions/inject")
   InjectResponse InjectFile(1: InjectRequest request) (api.post="/files/inject")
@@ -222,6 +226,7 @@ service PageWikiService {
   SourceRevision GetSourceRevision(1: SourceRevisionRequest request) (api.get="/sources/:revision")
   SourceBacklinksResponse GetSourceBacklinks(1: SourceRevisionRequest request) (api.get="/sources/:revision/backlinks")
   NavigationResponse GetNavigation(1: NavigationRequest request) (api.get="/v1/wiki/navigation")
+  RebuildTopicTreeResponse RebuildTopicTree(1: RebuildTopicTreeRequest request) (api.post="/v1/wiki/topic-tree/rebuild")
   ReaderDocument GetReader(1: ReaderRequest request) (api.get="/wiki")
   ReaderDocument GetReaderAsset(1: ReaderAssetRequest request) (api.get="/wiki/assets/:asset")
 }

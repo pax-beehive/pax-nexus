@@ -565,18 +565,27 @@ func TestTreeMaintenanceWorkerAndFlushShareOneQueue(t *testing.T) {
 func TestTreeMaintenanceRebuildTopicTreeReplacesEveryPlacement(t *testing.T) {
 	ctx := context.Background()
 	repository := memory.NewRepository()
-	first := seedTreePage(t, repository, "sqlite", "SQLite")
-	second := seedTreePage(t, repository, "postgres", "Postgres")
+	// The in-memory catalog is served in slug order, so these three land
+	// in the navigator in exactly this order: alpha, bravo, charlie.
+	first := seedTreePage(t, repository, "alpha", "Alpha")
+	second := seedTreePage(t, repository, "bravo", "Bravo")
+	third := seedTreePage(t, repository, "charlie", "Charlie")
+	// The stale tree shuffles the three pages under one topic, in an order
+	// that matches neither their catalog order nor their reverse.
 	require.NoError(t, repository.ReplaceTopicTree(ctx, pagewiki.TopicTree{
 		Topics: []pagewiki.Topic{{ID: "topic-stale", Slug: "stale", Title: "Stale"}},
 		Placements: []pagewiki.PagePlacement{
-			{PageID: first.ID, TopicID: "topic-stale", Rank: 0},
-			{PageID: second.ID, TopicID: "topic-stale", Rank: 1},
+			{PageID: third.ID, TopicID: "topic-stale", Rank: 0},
+			{PageID: first.ID, TopicID: "topic-stale", Rank: 1},
+			{PageID: second.ID, TopicID: "topic-stale", Rank: 2},
 		},
 	}))
 	navigator := &fakeTreeNavigator{placements: []pagewiki.TreePlacementChoice{
-		{Action: pagewiki.TreePlacementCreate, Title: "Databases"},
-		{Action: pagewiki.TreePlacementEnter, Slug: "databases"},
+		// alpha: creates a new "Group" topic and lands there.
+		{Action: pagewiki.TreePlacementCreate, Title: "Group"},
+		// bravo: enters the "Group" topic alpha just created.
+		{Action: pagewiki.TreePlacementEnter, Slug: "group"},
+		// charlie: stays at the root, so it gets no placement row at all.
 		{Action: pagewiki.TreePlacementStay},
 	}}
 	service := newTreeService(repository, navigator)
@@ -584,22 +593,26 @@ func TestTreeMaintenanceRebuildTopicTreeReplacesEveryPlacement(t *testing.T) {
 	require.NoError(t, service.RebuildTopicTree(ctx))
 
 	tree := loadTree(t, repository)
-	databasesID := pagewiki.TopicIDForTest("", "databases")
+	groupID := pagewiki.TopicIDForTest("", "group")
 	require.Len(t, tree.Topics, 1, "the stale topic is discarded, not carried over")
-	require.Equal(t, databasesID, tree.Topics[0].ID)
-	require.Len(t, tree.Placements, 2)
+	require.Equal(t, groupID, tree.Topics[0].ID)
+	require.Len(t, tree.Placements, 2, "only alpha and bravo landed in a topic")
 	for _, page := range []pagewiki.Page{first, second} {
 		placement, found := placementFor(tree, page.ID)
 		require.True(t, found, page.ID)
-		require.Equal(t, databasesID, placement.TopicID)
+		require.Equal(t, groupID, placement.TopicID)
 	}
+	_, charliePlaced := placementFor(tree, third.ID)
+	require.False(t, charliePlaced, "charlie stayed at the root per the script, so it has no placement row")
 }
 
 func TestTreeMaintenanceRebuildTopicTreeWithoutNavigatorFails(t *testing.T) {
 	repository := memory.NewRepository()
 	service := pagewiki.NewService(repository, pagewiki.ScriptedPlanner{}, pagewiki.ScriptedEditor{})
 
-	require.Error(t, service.RebuildTopicTree(context.Background()))
+	err := service.RebuildTopicTree(context.Background())
+
+	require.ErrorIs(t, err, pagewiki.ErrUnavailable)
 }
 
 // seedRootPages seeds count pages with no placement at all, which is what

@@ -383,3 +383,7 @@ func (unavailableInjector) InjectSession(
 		pagewiki.ErrUnavailable,
 	)
 }
+
+func (unavailableInjector) RebuildTopicTree(context.Context) error {
+	return fmt.Errorf("%w: preview is read-only", pagewiki.ErrUnavailable)
+}

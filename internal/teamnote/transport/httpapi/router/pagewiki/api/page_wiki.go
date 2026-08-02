@@ -60,6 +60,10 @@ func Register(r *server.Hertz) {
 					}
 				}
 			}
+			{
+				_topic_tree := _wiki.Group("/topic-tree", _topic_treeMw()...)
+				_topic_tree.POST("/rebuild", append(_rebuildtopictreeMw(), httpapi.RebuildTopicTree)...)
+			}
 		}
 	}
 	{

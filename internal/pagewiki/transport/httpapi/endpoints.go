@@ -201,6 +201,21 @@ func (h *Handler) GetNavigation(
 	requestContext.JSON(http.StatusOK, navigationToAPI(navigation))
 }
 
+// RebuildTopicTree discards the stored topic tree and re-places every active
+// page from scratch. It blocks until the rebuild is complete, so a 200
+// response means the tree is already in its rebuilt shape.
+func (h *Handler) RebuildTopicTree(
+	ctx context.Context,
+	requestContext *app.RequestContext,
+	request *api.RebuildTopicTreeRequest,
+) {
+	if err := h.injector.RebuildTopicTree(ctx); err != nil {
+		writeError(requestContext, err)
+		return
+	}
+	requestContext.JSON(http.StatusOK, api.RebuildTopicTreeResponse{})
+}
+
 func writeError(requestContext *app.RequestContext, err error) {
 	status := http.StatusUnprocessableEntity
 	code := "operation_failed"
