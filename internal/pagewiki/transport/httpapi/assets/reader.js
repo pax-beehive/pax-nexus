@@ -33,6 +33,11 @@ function setStatus(message, failed = false) {
   target.style.color = failed ? "var(--red)" : "";
 }
 
+// Sidebar drill-down position: the slug path from the tree root down to the
+// currently displayed layer. Reset to [] means the top level (all root
+// topics) is shown.
+let topicPath = [];
+
 function collectPages(topics) {
   return topics.flatMap((topic) => [
     ...(topic.pages || []),
@@ -40,28 +45,87 @@ function collectPages(topics) {
   ]);
 }
 
-function renderNavigation(navigation) {
-  const tree = byID("topic-tree");
-  tree.replaceChildren();
-  for (const topic of navigation.roots || []) {
-    tree.append(renderTopic(topic));
+/**
+ * Walks `path` through `topics` one slug at a time. A segment that doesn't
+ * match any child (e.g. the tree was rebuilt and the topic is gone) stops
+ * the walk there instead of throwing; `truncated` tells the caller the
+ * requested path had to be shortened so it can correct `topicPath`.
+ */
+function resolveTopicLayer(topics, path) {
+  let layerTopics = topics;
+  let layerPages = [];
+  const resolvedPath = [];
+  const crumbs = [];
+  for (const slug of path) {
+    const match = layerTopics.find((topic) => topic.slug === slug);
+    if (!match) {
+      return { path: resolvedPath, topics: layerTopics, pages: layerPages, crumbs, truncated: true };
+    }
+    resolvedPath.push(slug);
+    crumbs.push({ title: match.title, path: [...resolvedPath] });
+    layerTopics = match.children || [];
+    layerPages = match.pages || [];
   }
-  const pages = collectPages(navigation.roots || []);
+  return { path: resolvedPath, topics: layerTopics, pages: layerPages, crumbs, truncated: false };
+}
+
+function renderNavigation(navigation) {
+  const roots = navigation.roots || [];
+  const layer = resolveTopicLayer(roots, topicPath);
+  if (layer.truncated) topicPath = layer.path;
+
+  const goTo = (path) => {
+    topicPath = path;
+    renderNavigation(navigation);
+  };
+
+  renderBreadcrumb(layer, goTo);
+  renderTopicLayer(layer, goTo);
+
+  const pages = collectPages(roots);
   byID("page-count").textContent = `${pages.length} ${pages.length === 1 ? "page" : "pages"}`;
+  if (state.page) markCurrentPage(state.page.slug);
   return pages;
 }
 
-function renderTopic(topic) {
-  const group = element("section", "topic-group");
-  const title = element("h2", "topic-title", topic.title);
-  group.append(title);
-  for (const page of topic.pages || []) group.append(pageButton(page));
-  if ((topic.children || []).length) {
-    const children = element("div", "topic-children");
-    for (const child of topic.children) children.append(renderTopic(child));
-    group.append(children);
+function renderBreadcrumb(layer, goTo) {
+  const container = byID("topic-breadcrumb");
+  if (!container) return;
+  container.replaceChildren();
+  const crumbs = [{ title: "All", path: [] }, ...layer.crumbs];
+  crumbs.forEach((crumb, index) => {
+    if (index > 0) container.append(element("span", "breadcrumb-separator", "›"));
+    const isCurrent = index === crumbs.length - 1;
+    const button = element("button", "breadcrumb-item", crumb.title);
+    button.type = "button";
+    if (isCurrent) button.setAttribute("aria-current", "location");
+    button.addEventListener("click", () => goTo(crumb.path));
+    container.append(button);
+  });
+}
+
+function renderTopicLayer(layer, goTo) {
+  const tree = byID("topic-tree");
+  tree.replaceChildren();
+  if (layer.topics.length) {
+    const topicsSection = element("section", "topic-group");
+    for (const child of layer.topics) {
+      const button = element("button", "topic-button");
+      button.type = "button";
+      button.append(
+        element("span", "", child.title),
+        element("span", "topic-count", String(collectPages([child]).length)),
+      );
+      button.addEventListener("click", () => goTo([...layer.path, child.slug]));
+      topicsSection.append(button);
+    }
+    tree.append(topicsSection);
   }
-  return group;
+  if (layer.pages.length) {
+    const pagesSection = element("section", "topic-group");
+    for (const page of layer.pages) pagesSection.append(pageButton(page));
+    tree.append(pagesSection);
+  }
 }
 
 function pageButton(page) {

@@ -187,19 +187,60 @@ button:focus-visible, a:focus-visible, input:focus-visible {
 
 .topic-group + .topic-group { margin-top: .8rem; }
 
-.topic-title {
-  margin: 0 0 .35rem;
-  color: var(--muted);
-  font-size: .7rem;
-  font-weight: 800;
-  letter-spacing: .1em;
-  text-transform: uppercase;
+.topic-breadcrumb {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .3rem;
+  margin-bottom: .9rem;
 }
 
-.topic-children {
-  margin-left: .5rem;
-  padding-left: .65rem;
-  border-left: 1px solid var(--line);
+.breadcrumb-separator {
+  color: var(--muted);
+  font-size: .72rem;
+}
+
+.breadcrumb-item {
+  padding: .25rem .5rem;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--forest);
+  font-size: .72rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.breadcrumb-item:hover:not([aria-current]) { background: var(--forest-soft); }
+
+.breadcrumb-item[aria-current="location"] {
+  color: var(--muted);
+  font-weight: 800;
+  cursor: default;
+}
+
+.topic-button {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: .5rem;
+  padding: .5rem .6rem;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: inherit;
+  font-size: .86rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.topic-button:hover { background: var(--forest-soft); color: var(--forest); }
+
+.topic-count {
+  color: var(--muted);
+  font-size: .72rem;
+  font-weight: 600;
 }
 
 .page-button, .search-result-button, .relation-button, .revision-button {
