@@ -3,6 +3,7 @@ package agentsessions
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -67,7 +68,7 @@ func AttachEvidenceSessions(questions []EnhancedQuestion, sessions []Session) []
 	return out
 }
 
-func WriteJSONL[T any](path string, rows []T) error {
+func WriteJSONL[T any](path string, rows []T) (err error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
@@ -75,7 +76,11 @@ func WriteJSONL[T any](path string, rows []T) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() {
+		if closeErr := f.Close(); closeErr != nil {
+			err = errors.Join(err, fmt.Errorf("close %s: %w", path, closeErr))
+		}
+	}()
 	w := bufio.NewWriter(f)
 	encoder := json.NewEncoder(w)
 	for _, row := range rows {

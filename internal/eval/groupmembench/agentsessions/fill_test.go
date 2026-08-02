@@ -36,9 +36,12 @@ func (c *cannedClient) Complete(_ context.Context, req llm.ChatRequest) (llm.Cha
 }
 
 func fillWindow() (Window, []ActionSpec) {
-	m, _, _ := Normalize([]groupmembench.Message{{NodeID: "Msg_1", Channel: "A",
+	m, _, err := Normalize([]groupmembench.Message{{NodeID: "Msg_1", Channel: "A",
 		Author: "User_2", Timestamp: "2025-07-19T01:00:00",
 		Content: "assessment due 2025-07-16, User_7 owns it"}})
+	if err != nil {
+		panic(err)
+	}
 	w := Window{User: "User_1", Date: "2025-07-19", Part: 1, Msgs: m}
 	specs := []ActionSpec{{Type: "memory_write", SourceMsg: "Msg_1"}}
 	return w, specs

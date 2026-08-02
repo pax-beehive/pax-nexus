@@ -55,34 +55,8 @@ func (r *RetryingChatClient) Complete(ctx context.Context, req llm.ChatRequest) 
 	var lastErr error
 	for attempt := 0; attempt < attempts; attempt++ {
 		if attempt > 0 {
-			// Clamp exponent to prevent overflow
-			exp := attempt - 1
-			if exp > 6 { // 1s<<6 = 64s, already above the 60s ceiling
-				exp = 6
-			}
-			delay := retryBaseDelay << exp
-			if delay > retryMaxDelay {
-				delay = retryMaxDelay
-			}
-			jitteredDelay := time.Duration(random() * float64(delay)) // 全抖动
-
-			// Context-aware sleep
-			if r.Sleep != nil {
-				// Injected sleep (tests): call it, then check context
-				r.Sleep(jitteredDelay)
-				if ctx.Err() != nil {
-					return llm.ChatResponse{}, ctx.Err()
-				}
-			} else {
-				// Real sleep: use timer + select for cancellation
-				timer := time.NewTimer(jitteredDelay)
-				select {
-				case <-ctx.Done():
-					timer.Stop()
-					return llm.ChatResponse{}, ctx.Err()
-				case <-timer.C:
-					// Timer fired, continue to next attempt
-				}
+			if err := r.waitBackoff(ctx, attempt, random); err != nil {
+				return llm.ChatResponse{}, err
 			}
 		}
 		// Check context before attempting
@@ -100,6 +74,41 @@ func (r *RetryingChatClient) Complete(ctx context.Context, req llm.ChatRequest) 
 		}
 	}
 	return llm.ChatResponse{}, lastErr
+}
+
+// waitBackoff 按全抖动指数退避等待重试:优先用注入的 Sleep(测试),否则用
+// timer+select 支持 ctx 取消。
+func (r *RetryingChatClient) waitBackoff(ctx context.Context, attempt int, random func() float64) error {
+	// Clamp exponent to prevent overflow
+	exp := attempt - 1
+	if exp > 6 { // 1s<<6 = 64s, already above the 60s ceiling
+		exp = 6
+	}
+	delay := retryBaseDelay << exp
+	if delay > retryMaxDelay {
+		delay = retryMaxDelay
+	}
+	jitteredDelay := time.Duration(random() * float64(delay)) // 全抖动
+
+	// Context-aware sleep
+	if r.Sleep != nil {
+		// Injected sleep (tests): call it, then check context
+		r.Sleep(jitteredDelay)
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return nil
+	}
+	// Real sleep: use timer + select for cancellation
+	timer := time.NewTimer(jitteredDelay)
+	select {
+	case <-ctx.Done():
+		timer.Stop()
+		return ctx.Err()
+	case <-timer.C:
+		// Timer fired, continue to next attempt
+	}
+	return nil
 }
 
 func (r *RetryingChatClient) checkBreaker(now time.Time) error {

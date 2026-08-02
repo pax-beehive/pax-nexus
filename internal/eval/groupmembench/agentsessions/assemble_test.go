@@ -12,8 +12,11 @@ import (
 )
 
 func TestBuildSessionShapesOutput(t *testing.T) {
-	m, _, _ := Normalize([]groupmembench.Message{{NodeID: "Msg_1", Channel: "A",
+	m, _, err := Normalize([]groupmembench.Message{{NodeID: "Msg_1", Channel: "A",
 		Author: "User_2", Timestamp: "2025-07-19T01:00:00", Content: "x"}})
+	if err != nil {
+		t.Fatal(err)
+	}
 	w := Window{User: "User_1", Date: "2025-07-19", Part: 1, Msgs: m}
 	s := BuildSession(w, Persona{UserID: "User_1", Role: "Business Analyst"},
 		[]Action{{Type: "memory_write", SourceMsgs: []string{"Msg_1"}, Content: "n"}})
@@ -55,7 +58,11 @@ func TestWriteJSONLRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer func() {
+		if err := f.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}()
 	var count int
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 64*1024), 1024*1024)

@@ -89,7 +89,7 @@ func (f *Filler) FillSession(ctx context.Context, w Window, persona Persona, spe
 			},
 		}, 2)
 		if err != nil {
-			return f.fallbackActions(specs, byNode), nil
+			return f.fallbackActions(specs, byNode), nil //nolint:nilerr // LLM 失败按设计走模板兜底,不上抛
 		}
 		encoded, marshalErr := json.Marshal(decoded)
 		if marshalErr != nil {
@@ -104,7 +104,7 @@ func (f *Filler) FillSession(ctx context.Context, w Window, persona Persona, spe
 	}
 	var decoded fillResponse
 	if err := json.Unmarshal([]byte(raw), &decoded); err != nil {
-		return f.fallbackActions(specs, byNode), nil
+		return f.fallbackActions(specs, byNode), nil //nolint:nilerr // 缓存 JSON 损坏按设计走模板兜底,不上抛
 	}
 	contents := map[int]string{}
 	for _, a := range decoded.Actions {

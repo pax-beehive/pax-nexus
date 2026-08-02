@@ -79,24 +79,60 @@ func RunPipeline(ctx context.Context, config PipelineConfig) (PipelineReport, er
 
 	filler := &Filler{Client: config.Client, Model: config.Model,
 		Cache: &DiskCache{Dir: config.CacheDir}}
-	type job struct {
-		window  Window
-		persona Persona
-		specs   []ActionSpec
+	jobs := buildFillJobs(msgs, channels, users, parentAuthor, anchors, config.MaxObs)
+
+	sessions, err := runFillJobs(ctx, filler, jobs, config.Concurrency)
+	if err != nil {
+		return report, err
 	}
-	var jobs []job
+	report.Sessions = len(sessions)
+	report.Fill = filler.Stats()
+
+	enhanced = AttachEvidenceSessions(enhanced, sessions)
+	report.Exceptions = VerifyCoverage(enhanced, sessions)
+	if report.Exceptions == nil {
+		report.Exceptions = []CoverageException{}
+	}
+
+	batches := make([]session.SessionBatch, 0, len(sessions))
+	for _, s := range sessions {
+		batch, err := ToSessionBatch(s, msgText)
+		if err != nil {
+			return report, err
+		}
+		batches = append(batches, batch)
+	}
+	if err := writeOutputs(config.OutDir, sessions, msgs, enhanced, batches, report); err != nil {
+		return report, err
+	}
+	return report, nil
+}
+
+type fillJob struct {
+	window  Window
+	persona Persona
+	specs   []ActionSpec
+}
+
+// buildFillJobs 按用户展开可见窗口,拼出待填充的 fill job 列表;PersonaOf
+// 每用户只调用一次(窗口循环之外),以保留下游 LLM prefix cache 的复用价值。
+func buildFillJobs(msgs []Msg, channels map[string][]string, users []string,
+	parentAuthor map[string]string, anchors map[string]bool, maxObs int) []fillJob {
+	var jobs []fillJob
 	for _, user := range users {
 		visible := VisibleTo(msgs, channels[user])
-		// PersonaOf 每用户只调用一次(窗口循环之外),以保留下游 LLM
-		// prefix cache 的复用价值。
 		persona := PersonaOf(msgs, user)
-		for _, w := range Windows(user, visible, config.MaxObs) {
-			jobs = append(jobs, job{window: w, persona: persona,
+		for _, w := range Windows(user, visible, maxObs) {
+			jobs = append(jobs, fillJob{window: w, persona: persona,
 				specs: BuildSkeleton(w, parentAuthor, anchors)})
 		}
 	}
+	return jobs
+}
 
-	concurrency := config.Concurrency
+// runFillJobs 以信号量限流并发执行 fill job,首个错误短路并等待所有
+// goroutine 退出后返回。
+func runFillJobs(ctx context.Context, filler *Filler, jobs []fillJob, concurrency int) ([]Session, error) {
 	if concurrency <= 0 {
 		concurrency = 1
 	}
@@ -107,7 +143,7 @@ func RunPipeline(ctx context.Context, config PipelineConfig) (PipelineReport, er
 	var errOnce sync.Once
 	for i, item := range jobs {
 		wg.Add(1)
-		go func(i int, item job) {
+		go func(i int, item fillJob) {
 			defer wg.Done()
 			select {
 			case semaphore <- struct{}{}:
@@ -131,36 +167,28 @@ func RunPipeline(ctx context.Context, config PipelineConfig) (PipelineReport, er
 	}
 	wg.Wait()
 	if firstErr != nil {
-		return report, firstErr
+		return nil, firstErr
 	}
-	report.Sessions = len(sessions)
-	report.Fill = filler.Stats()
+	return sessions, nil
+}
 
-	enhanced = AttachEvidenceSessions(enhanced, sessions)
-	report.Exceptions = VerifyCoverage(enhanced, sessions)
-	if report.Exceptions == nil {
-		report.Exceptions = []CoverageException{}
-	}
-
-	batches := make([]session.SessionBatch, 0, len(sessions))
-	for _, s := range sessions {
-		batch, err := ToSessionBatch(s, msgText)
-		if err != nil {
-			return report, err
-		}
-		batches = append(batches, batch)
-	}
-	if err := WriteJSONL(filepath.Join(config.OutDir, "sessions.jsonl"),
+// writeOutputs 落盘 pipeline 的全部产出文件:sessions/messages/
+// questions_enhanced 三个 JSONL,以及 session_batches/coverage_exceptions/
+// report 三个 JSON。
+func writeOutputs(outDir string, sessions []Session, msgs []Msg,
+	enhanced []EnhancedQuestion, batches []session.SessionBatch,
+	report PipelineReport) error {
+	if err := WriteJSONL(filepath.Join(outDir, "sessions.jsonl"),
 		sessions); err != nil {
-		return report, err
+		return err
 	}
-	if err := WriteJSONL(filepath.Join(config.OutDir, "messages.jsonl"),
+	if err := WriteJSONL(filepath.Join(outDir, "messages.jsonl"),
 		MessageRows(msgs)); err != nil {
-		return report, err
+		return err
 	}
-	if err := WriteJSONL(filepath.Join(config.OutDir, "questions_enhanced.jsonl"),
+	if err := WriteJSONL(filepath.Join(outDir, "questions_enhanced.jsonl"),
 		enhanced); err != nil {
-		return report, err
+		return err
 	}
 	for name, value := range map[string]any{
 		"session_batches.json":     batches,
@@ -169,12 +197,12 @@ func RunPipeline(ctx context.Context, config PipelineConfig) (PipelineReport, er
 	} {
 		data, err := json.MarshalIndent(value, "", " ")
 		if err != nil {
-			return report, err
+			return err
 		}
-		if err := os.WriteFile(filepath.Join(config.OutDir, name), data,
+		if err := os.WriteFile(filepath.Join(outDir, name), data,
 			0o644); err != nil {
-			return report, err
+			return err
 		}
 	}
-	return report, nil
+	return nil
 }

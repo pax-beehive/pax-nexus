@@ -3,6 +3,8 @@ package agentsessions
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 )
@@ -29,7 +31,7 @@ func (c *DiskCache) Get(key string) (string, bool) {
 	return string(data), true
 }
 
-func (c *DiskCache) Put(key, value string) error {
+func (c *DiskCache) Put(key, value string) (err error) {
 	if c.Dir == "" {
 		return nil
 	}
@@ -42,11 +44,15 @@ func (c *DiskCache) Put(key, value string) error {
 	}
 	tmpPath := tmp.Name()
 	defer func() {
-		os.Remove(tmpPath)
+		if removeErr := os.Remove(tmpPath); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+			err = errors.Join(err, fmt.Errorf("remove temp cache file %s: %w", tmpPath, removeErr))
+		}
 	}()
-	if _, err := tmp.WriteString(value); err != nil {
-		tmp.Close()
-		return err
+	if _, writeErr := tmp.WriteString(value); writeErr != nil {
+		if closeErr := tmp.Close(); closeErr != nil {
+			return errors.Join(writeErr, closeErr)
+		}
+		return writeErr
 	}
 	if err := tmp.Close(); err != nil {
 		return err
