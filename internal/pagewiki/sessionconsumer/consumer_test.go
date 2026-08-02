@@ -609,7 +609,7 @@ func (s *consumerSuite) TestScanYieldsToQueuedRebuildBetweenStreams() {
 		Head:    5,
 	})
 	s.injector.entered = make(chan struct{}, 8)
-	s.injector.release = make(chan struct{}, 8)
+	s.injector.release = make(chan struct{})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	s.consumer.Start(ctx)
@@ -617,11 +617,12 @@ func (s *consumerSuite) TestScanYieldsToQueuedRebuildBetweenStreams() {
 	case <-s.injector.entered:
 	case <-time.After(time.Second):
 		s.Fail("first injection did not start")
+		return
 	}
 
 	_, err := s.consumer.Rebuild(context.Background(), "local-team", time.Time{})
 	s.Require().NoError(err)
-	s.injector.release <- struct{}{} // let the in-flight stream finish
+	close(s.injector.release) // let the in-flight stream finish and unblock any future receives
 
 	select {
 	case <-s.rebuilder.done:
@@ -632,7 +633,6 @@ func (s *consumerSuite) TestScanYieldsToQueuedRebuildBetweenStreams() {
 	// scan yielded after the first stream: exactly one injection happened
 	// before the rebuild.
 	s.Equal([]string{"inject", "rebuild"}, log.snapshot()[:2])
-	cancel()
 }
 
 func (i *recordingInjector) InjectSession(
