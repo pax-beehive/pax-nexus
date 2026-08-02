@@ -23,13 +23,15 @@ var (
 func BuildSkeleton(w Window, parentAuthor map[string]string, anchors map[string]bool) []ActionSpec {
 	var specs []ActionSpec
 	for _, m := range w.Msgs {
+		if anchors[m.NodeID] {
+			specs = append(specs, ActionSpec{Type: "memory_write",
+				SourceMsg: m.NodeID, priority: 1})
+			continue
+		}
 		if m.Author == w.User || m.IsNoise {
 			continue
 		}
 		switch {
-		case anchors[m.NodeID]:
-			specs = append(specs, ActionSpec{Type: "memory_write",
-				SourceMsg: m.NodeID, priority: 1})
 		case len(m.DecisionChangeMetadata) > 0:
 			specs = append(specs, ActionSpec{Type: "memory_write",
 				SourceMsg: m.NodeID, priority: 2})

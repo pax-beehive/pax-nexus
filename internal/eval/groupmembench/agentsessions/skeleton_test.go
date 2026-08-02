@@ -129,3 +129,41 @@ func TestSkeletonReplyToUserTriggersDraftReply(t *testing.T) {
 		t.Fatalf("want draft_reply for Msg_c, got %+v", specs)
 	}
 }
+
+func TestSkeletonAnchorBypassesSelfAndNoise(t *testing.T) {
+	// Anchors must produce memory_write even if authored by window user or marked as noise
+	w := Window{User: "User_1", Date: "2025-07-19", Part: 1, Msgs: []Msg{
+		// Message A: authored by User_1 (window user), but is an anchor
+		smsg("Msg_A", "User_1", "critical evidence from self", nil),
+		// Message B: marked as noise, but is an anchor
+		smsg("Msg_B", "User_2", "noisy evidence due 2025-07-16",
+			func(m *groupmembench.Message) { m.IsNoise = true }),
+		// Control message C: marked as noise, NOT an anchor, with deadline
+		smsg("Msg_C", "User_3", "assessment due 2025-07-16",
+			func(m *groupmembench.Message) { m.IsNoise = true }),
+	}}
+	specs := BuildSkeleton(w, map[string]string{}, map[string]bool{
+		"Msg_A": true,
+		"Msg_B": true,
+	})
+
+	got := map[string]string{}
+	for _, s := range specs {
+		if !s.Freeform {
+			got[s.SourceMsg] = s.Type
+		}
+	}
+
+	// A must produce memory_write (self-authored anchor)
+	if got["Msg_A"] != "memory_write" {
+		t.Fatalf("Msg_A: got %q, want memory_write", got["Msg_A"])
+	}
+	// B must produce memory_write (noise anchor)
+	if got["Msg_B"] != "memory_write" {
+		t.Fatalf("Msg_B: got %q, want memory_write", got["Msg_B"])
+	}
+	// C must not produce any action (noise non-anchor)
+	if _, ok := got["Msg_C"]; ok {
+		t.Fatalf("Msg_C: should not trigger (noise non-anchor), got %q", got["Msg_C"])
+	}
+}
