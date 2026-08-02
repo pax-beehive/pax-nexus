@@ -7,8 +7,8 @@ type CoverageException struct {
 }
 
 func VerifyCoverage(questions []EnhancedQuestion, sessions []Session) []CoverageException {
-	observed := map[string]map[string]bool{}   // user → msg_node → seen
-	memorized := map[string]map[string]bool{}  // user → msg_node → memory_write
+	observed := map[string]map[string]bool{}  // user → msg_node → seen
+	memorized := map[string]map[string]bool{} // user → msg_node → memory_write
 	for _, s := range sessions {
 		user := s.Agent.UserID
 		if observed[user] == nil {

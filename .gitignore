@@ -42,7 +42,6 @@ dumped_hertz_remote_config.json
 .tools/
 .env
 coverage.out
-coverage.*
 *.coverprofile
 profile.cov
 go.work
