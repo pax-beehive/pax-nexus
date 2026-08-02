@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -102,6 +101,9 @@ func (s *consumerSuite) TestRebuildQueuesAndRunsInBackground() {
 	s.Equal(sessionconsumer.RebuildQueued, status.Rebuild.State)
 	s.Zero(s.rebuilder.callCount())
 
+	log := &eventLog{}
+	s.injector.log = log
+	s.rebuilder.log = log
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	s.consumer.Start(ctx)
@@ -110,12 +112,16 @@ func (s *consumerSuite) TestRebuildQueuesAndRunsInBackground() {
 	case <-s.rebuilder.done:
 	case <-time.After(time.Second):
 		s.Fail("background rebuild did not run")
+		return
 	}
 	scopeID, name, version, since := s.rebuilder.lastCall()
 	s.Equal("local-team", scopeID)
 	s.Equal(sessionconsumer.ProcessorName, name)
 	s.Equal(sessionconsumer.ProcessorVersion, version)
 	s.Equal(cutoff, since)
+	entries := log.snapshot()
+	s.Require().NotEmpty(entries)
+	s.Equal("rebuild", entries[0], "tick must run a queued rebuild before scanning")
 	s.Eventually(func() bool {
 		st, statusErr := s.consumer.Status(context.Background(), "local-team")
 		return statusErr == nil &&
@@ -134,6 +140,7 @@ func (s *consumerSuite) TestRebuildReturnsImmediatelyAndMergesWhileInjectionHold
 	case <-s.injector.entered:
 	case <-time.After(time.Second):
 		s.Fail("injection did not start")
+		return
 	}
 
 	// The scan goroutine now holds c.mu inside InjectSession. Rebuild must
@@ -148,11 +155,28 @@ func (s *consumerSuite) TestRebuildReturnsImmediatelyAndMergesWhileInjectionHold
 	s.Require().NoError(err)
 	s.Equal(sessionconsumer.RebuildQueued, status.Rebuild.State)
 
+	// Verify Status() does not block behind the injection lock (F3+F4 fix).
+	statusDone := make(chan sessionconsumer.Status, 1)
+	go func() {
+		st, statusErr := s.consumer.Status(context.Background(), "local-team")
+		if statusErr == nil {
+			statusDone <- st
+		}
+	}()
+	select {
+	case st := <-statusDone:
+		s.Equal(sessionconsumer.RebuildQueued, st.Rebuild.State)
+	case <-time.After(time.Second):
+		s.Fail("Status blocked behind the injection lock")
+		return
+	}
+
 	close(s.injector.release)
 	select {
 	case <-s.rebuilder.done:
 	case <-time.After(time.Second):
 		s.Fail("background rebuild did not run")
+		return
 	}
 	s.Equal(1, s.rebuilder.callCount())
 	_, _, _, since := s.rebuilder.lastCall()
@@ -168,15 +192,20 @@ func (s *consumerSuite) TestBackgroundRebuildFailureSurfacesInStatusAndCanRequeu
 	defer cancel()
 	s.consumer.Start(ctx)
 
-	s.Eventually(func() bool {
-		st, statusErr := s.consumer.Status(context.Background(), "local-team")
-		return statusErr == nil &&
-			st.Rebuild.State == sessionconsumer.RebuildFailed &&
-			strings.Contains(st.Rebuild.Error, "rebuild unavailable")
-	}, time.Second, 10*time.Millisecond)
+	select {
+	case <-s.rebuilder.done:
+	case <-time.After(time.Second):
+		s.Fail("background rebuild did not run")
+		return
+	}
 
-	status, err := s.consumer.Rebuild(context.Background(), "local-team", time.Time{})
-	s.Require().NoError(err)
+	status, statusErr := s.consumer.Status(context.Background(), "local-team")
+	s.Require().NoError(statusErr)
+	s.Equal(sessionconsumer.RebuildFailed, status.Rebuild.State)
+	s.Contains(status.Rebuild.Error, "rebuild unavailable")
+
+	status, rebuildErr := s.consumer.Rebuild(context.Background(), "local-team", time.Time{})
+	s.Require().NoError(rebuildErr)
 	s.Equal(sessionconsumer.RebuildQueued, status.Rebuild.State)
 	s.Empty(status.Rebuild.Error)
 }
@@ -203,7 +232,35 @@ func (s *consumerSuite) TestSuccessfulRebuildClearsInjectionBackoff() {
 	case <-s.store.advanced:
 	case <-time.After(time.Second):
 		s.Fail("injection did not resume after rebuild cleared backoff")
+		return
 	}
+}
+
+func (s *consumerSuite) TestStatusReportsRunningWhileRebuildExecutes() {
+	s.rebuilder.entered = make(chan struct{}, 1)
+	s.rebuilder.release = make(chan struct{})
+	_, err := s.consumer.Rebuild(context.Background(), "local-team", time.Time{})
+	s.Require().NoError(err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s.consumer.Start(ctx)
+	select {
+	case <-s.rebuilder.entered:
+	case <-time.After(time.Second):
+		s.Fail("rebuild did not start")
+		return
+	}
+
+	status, err := s.consumer.Status(context.Background(), "local-team")
+	s.Require().NoError(err)
+	s.Equal(sessionconsumer.RebuildRunning, status.Rebuild.State)
+
+	close(s.rebuilder.release)
+	s.Eventually(func() bool {
+		st, statusErr := s.consumer.Status(context.Background(), "local-team")
+		return statusErr == nil && st.Rebuild.State == sessionconsumer.RebuildIdle
+	}, time.Second, 10*time.Millisecond)
 }
 
 func (s *consumerSuite) TestRejectsMissingSession() {
@@ -478,6 +535,8 @@ type recordingRebuilder struct {
 	err              error
 	done             chan struct{}
 	log              *eventLog
+	entered          chan struct{} // when non-nil, signaled as each call starts
+	release          chan struct{} // when non-nil, each call blocks on one receive
 }
 
 func (r *recordingRebuilder) callCount() int {
@@ -526,6 +585,12 @@ func (r *recordingRebuilder) RebuildPageWiki(
 	r.mu.Unlock()
 	if r.log != nil {
 		r.log.add("rebuild")
+	}
+	if r.entered != nil {
+		r.entered <- struct{}{}
+	}
+	if r.release != nil {
+		<-r.release
 	}
 	select {
 	case r.done <- struct{}{}:
