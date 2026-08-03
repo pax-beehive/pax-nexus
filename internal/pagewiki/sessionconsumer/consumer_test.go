@@ -199,9 +199,9 @@ func (s *consumerSuite) TestRebuildReturnsImmediatelyAndMergesWhileInjectionHold
 		return
 	}
 
-	// The scan goroutine now holds c.mu inside InjectSession. Rebuild must
-	// not touch that lock: if it did, these calls would hang and the suite
-	// would time out.
+	// The scan goroutine now holds local-team's scope lock inside
+	// InjectSession. Rebuild must not touch that lock: if it did, these
+	// calls would hang and the suite would time out.
 	first := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
 	second := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
 	status, err := s.consumer.Rebuild(context.Background(), "local-team", first)
@@ -449,7 +449,21 @@ func (s *consumerSuite) TestManualInjectionOfOneScopeDoesNotWaitForAnother() {
 	blocked := &recordingInjector{entered: make(chan struct{}, 1), release: make(chan struct{})}
 	s.resolver.setInjector("scope-a", blocked)
 
-	go func() { _, _ = s.consumer.InjectSession(context.Background(), "scope-a", "session-a") }()
+	// releaseBlocked and wg guarantee cleanup on every return path, including
+	// an early s.Fail+return: the deferred releaseBlocked (LIFO, so it runs
+	// before wg.Wait) unblocks the still-parked scope-a goroutine, and
+	// wg.Wait joins both goroutines before the test returns.
+	var releaseOnce sync.Once
+	releaseBlocked := func() { releaseOnce.Do(func() { close(blocked.release) }) }
+	var wg sync.WaitGroup
+	defer wg.Wait()
+	defer releaseBlocked()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		_, _ = s.consumer.InjectSession(context.Background(), "scope-a", "session-a")
+	}()
 	select {
 	case <-blocked.entered:
 	case <-time.After(time.Second):
@@ -458,7 +472,9 @@ func (s *consumerSuite) TestManualInjectionOfOneScopeDoesNotWaitForAnother() {
 	}
 
 	done := make(chan error, 1)
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		_, err := s.consumer.InjectSession(context.Background(), "scope-b", "session-b")
 		done <- err
 	}()
@@ -467,8 +483,9 @@ func (s *consumerSuite) TestManualInjectionOfOneScopeDoesNotWaitForAnother() {
 		s.Require().NoError(err)
 	case <-time.After(time.Second):
 		s.Fail("scope-b's manual injection blocked behind scope-a's")
+		return
 	}
-	close(blocked.release)
+	releaseBlocked()
 }
 
 // TestRebuildOfOneScopeDoesNotWaitForAnotherScopesInjection pins the same
@@ -480,7 +497,18 @@ func (s *consumerSuite) TestRebuildOfOneScopeDoesNotWaitForAnotherScopesInjectio
 	}
 	blocked := &recordingInjector{entered: make(chan struct{}, 1), release: make(chan struct{})}
 	s.resolver.setInjector("scope-a", blocked)
-	go func() { _, _ = s.consumer.InjectSession(context.Background(), "scope-a", "session-a") }()
+
+	var releaseOnce sync.Once
+	releaseBlocked := func() { releaseOnce.Do(func() { close(blocked.release) }) }
+	var wg sync.WaitGroup
+	defer wg.Wait()
+	defer releaseBlocked()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		_, _ = s.consumer.InjectSession(context.Background(), "scope-a", "session-a")
+	}()
 	select {
 	case <-blocked.entered:
 	case <-time.After(time.Second):
@@ -491,7 +519,9 @@ func (s *consumerSuite) TestRebuildOfOneScopeDoesNotWaitForAnotherScopesInjectio
 	_, err := s.consumer.Rebuild(context.Background(), "scope-b", time.Time{})
 	s.Require().NoError(err)
 	rebuildDone := make(chan struct{})
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		s.consumer.RunQueuedRebuildForTest(context.Background())
 		close(rebuildDone)
 	}()
@@ -500,8 +530,68 @@ func (s *consumerSuite) TestRebuildOfOneScopeDoesNotWaitForAnotherScopesInjectio
 		s.Require().Len(s.rebuilder.callsForScope("scope-b"), 1)
 	case <-time.After(time.Second):
 		s.Fail("scope-b's rebuild blocked behind scope-a's injection")
+		return
 	}
-	close(blocked.release)
+	releaseBlocked()
+}
+
+// TestSecondSessionOfSameScopeWaitsForFirst is the mirror image of
+// TestManualInjectionOfOneScopeDoesNotWaitForAnother: within a single scope,
+// injections must still serialize on that scope's lock. A second manual
+// injection for the same scope must not reach its injector until the first
+// releases the scope lock. Mutating scopeLock to return a fresh *sync.Mutex
+// on every call (i.e. no real mutual exclusion) makes this test fail.
+func (s *consumerSuite) TestSecondSessionOfSameScopeWaitsForFirst() {
+	s.store.streams = []sessionconsumer.Stream{
+		{ScopeID: "scope-a", Actor: session.Actor{UserID: "owner", AgentID: "agent-1", SessionID: "session-1"}, Head: 2},
+		{ScopeID: "scope-a", Actor: session.Actor{UserID: "owner", AgentID: "agent-2", SessionID: "session-2"}, Head: 2},
+	}
+	blocked := &recordingInjector{entered: make(chan struct{}, 2), release: make(chan struct{})}
+	s.resolver.setInjector("scope-a", blocked)
+
+	var releaseOnce sync.Once
+	releaseBlocked := func() { releaseOnce.Do(func() { close(blocked.release) }) }
+	var wg sync.WaitGroup
+	defer wg.Wait()
+	defer releaseBlocked()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		_, _ = s.consumer.InjectSession(context.Background(), "scope-a", "session-1")
+	}()
+	select {
+	case <-blocked.entered:
+	case <-time.After(time.Second):
+		s.Fail("session-1 injection did not start")
+		return
+	}
+
+	done := make(chan error, 1)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		_, err := s.consumer.InjectSession(context.Background(), "scope-a", "session-2")
+		done <- err
+	}()
+
+	// session-2 must still be waiting on the scope lock, not its injector,
+	// after a generous window: it has not even reached InjectSession yet.
+	select {
+	case <-blocked.entered:
+		s.Fail("session-2's injector ran before session-1 released the scope lock")
+		return
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	releaseBlocked()
+
+	select {
+	case err := <-done:
+		s.Require().NoError(err)
+	case <-time.After(time.Second):
+		s.Fail("session-2 injection did not complete after the scope lock was released")
+	}
 }
 
 func (s *consumerSuite) TestValidationRejectsIncompleteConfigurationAndInput() {
