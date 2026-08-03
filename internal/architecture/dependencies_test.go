@@ -45,6 +45,14 @@ type dependencyRule struct {
 // Default deny: a package not listed here fails the registration test.
 // Grant the minimum set — no headroom. Retire entries with the code.
 var dependencyRules = []dependencyRule{
+	{directory: "app", allowed: []string{
+		"deployment/onprem", "evidencelake", "operations",
+		"pagewiki", "pagewiki/transport/httpapi",
+		"platform/llm", "platform/postgres", "platform/textembedding",
+		"recall", "teamnote",
+		"teamnote/transport/httpapi/handler", "teamnote/transport/httpapi/router",
+		"todoapp", "todoapp/transport/httpapi",
+	}},
 	{directory: "architecture"},
 	{directory: "deployment", allowed: []string{"explorer", "operations", "teamnote/runtime"}},
 	{directory: "eval", unrestricted: true},

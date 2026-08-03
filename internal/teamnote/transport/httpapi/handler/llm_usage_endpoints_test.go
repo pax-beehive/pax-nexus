@@ -37,7 +37,7 @@ func (s *llmUsageHandlerSuite) SetupTest() {
 	s.controller = gomock.NewController(s.T())
 	s.identity = &humanIdentityService{principal: onprem.HumanPrincipal{
 		UserID: "owner-user", MembershipID: "owner-membership", Role: onprem.RoleOwner,
-		MembershipStatus: onprem.MembershipStatusActive,
+		MembershipStatus: onprem.MembershipStatusActive, ScopeID: onprem.LocalScopeID,
 	}}
 	s.llmUsage = &llmUsageService{}
 	configured, err := handler.NewOnPrem(

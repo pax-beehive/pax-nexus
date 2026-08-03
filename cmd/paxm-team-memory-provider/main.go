@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/pax-beehive/pax-nexus/internal/platform/observability"
@@ -32,10 +33,17 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	if requestTimeout == 0 {
 		requestTimeout = 60 * time.Second
 	}
+	scopeID := strings.TrimSpace(os.Getenv("TEAM_MEMORY_SCOPE_ID"))
+	if scopeID == "" {
+		// Mirrors onprem.LocalScopeID, the scope every on-prem deployment
+		// stores team notes under. Deployment wiring owns this default so the
+		// provider library stays scope-agnostic.
+		scopeID = "local-team"
+	}
 	provider, err := paxmprovider.New(paxmprovider.Config{
 		BaseURL: os.Getenv("TEAM_MEMORY_BASE_URL"), APIKey: os.Getenv("TEAM_MEMORY_API_KEY"),
 		UserID: os.Getenv("PAXM_USER_ID"), AgentID: os.Getenv("PAXM_AGENT_ID"),
-		ScopeID: os.Getenv("TEAM_MEMORY_SCOPE_ID"), TokenBudget: budget,
+		ScopeID: scopeID, TokenBudget: budget,
 		RequestTimeout: requestTimeout, Logger: logger,
 	})
 	if err != nil {

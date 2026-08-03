@@ -26,7 +26,6 @@ type Store struct {
 	identity       *IdentityStore
 	registry       *RegistryStore
 	operations     *OperationsStore
-	explorer       *ExplorerStore
 }
 
 func Open(ctx context.Context, dsn string) (*Store, error) {
@@ -78,7 +77,6 @@ func newStore(pool *pgxpool.Pool) *Store {
 		identity:    &IdentityStore{pool: pool},
 		registry:    &RegistryStore{pool: pool},
 		operations:  &OperationsStore{pool: pool},
-		explorer:    &ExplorerStore{pool: pool, scopeID: "local-team"},
 	}
 }
 
@@ -121,8 +119,11 @@ func (s *Store) Operations() *OperationsStore {
 	return s.operations
 }
 
-func (s *Store) Explorer() *ExplorerStore {
-	return s.explorer
+// Explorer returns a read-model store answering explorer queries for the
+// given scope. The scope comes from the deployment wiring per call rather
+// than being fixed at construction, so one process can serve any scope.
+func (s *Store) Explorer(scopeID string) *ExplorerStore {
+	return &ExplorerStore{pool: s.pool, scopeID: scopeID}
 }
 
 func (s *Store) Migrate(ctx context.Context) (resultErr error) {

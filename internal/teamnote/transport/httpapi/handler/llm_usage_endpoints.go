@@ -9,7 +9,6 @@ import (
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
-	"github.com/pax-beehive/pax-nexus/internal/deployment/onprem"
 	api "github.com/pax-beehive/pax-nexus/internal/teamnote/transport/httpapi/model/teammemory/api"
 )
 
@@ -18,7 +17,8 @@ func (h *Handler) GetLlmUsage(ctx context.Context, c *app.RequestContext) {
 		writeHumanAPIError(c, consts.StatusNotImplemented, "not_configured", "LLM usage is not configured")
 		return
 	}
-	if _, ok := h.authorizeHumanMember(ctx, c, false); !ok {
+	principal, ok := h.authorizeHumanMember(ctx, c, false)
+	if !ok {
 		return
 	}
 	days, err := queryDays(c)
@@ -26,7 +26,7 @@ func (h *Handler) GetLlmUsage(ctx context.Context, c *app.RequestContext) {
 		writeHumanAPIError(c, consts.StatusBadRequest, "invalid_request", "the request is invalid")
 		return
 	}
-	rows, err := h.llmUsage.UsageSummary(ctx, onprem.LocalScopeID, time.Duration(days)*24*time.Hour)
+	rows, err := h.llmUsage.UsageSummary(ctx, principal.ScopeID, time.Duration(days)*24*time.Hour)
 	if err != nil {
 		h.logger.Error("get LLM usage", "error", err)
 		writeHumanAPIError(c, consts.StatusInternalServerError, "internal_error", "the request could not be completed")

@@ -1,9 +1,10 @@
-package main
+package app
 
 import (
 	"context"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -59,6 +60,11 @@ func (s *operationsMaintenanceStoreFake) Record(
 func TestConfigSuite(t *testing.T) {
 	suite.Run(t, new(configSuite))
 }
+
+// repoRootFromPackageDir anchors the "checked-in defaults" tests below at the
+// repository root: package app lives at internal/app, two directories below
+// root, whereas these tests read root-relative paths such as ".env.example".
+const repoRootFromPackageDir = "../.."
 
 func (s *configSuite) SetupTest() {
 	for _, name := range []string{
@@ -447,7 +453,7 @@ func (s *configSuite) TestCheckedInExtractionProtocolDefaults() {
 	}
 	for _, test := range tests {
 		s.Run(test.path, func() {
-			content, err := os.ReadFile(test.path)
+			content, err := os.ReadFile(filepath.Join(repoRootFromPackageDir, test.path))
 			s.Require().NoError(err)
 			s.Contains(string(content), test.want)
 		})
@@ -477,7 +483,7 @@ func (s *configSuite) TestCheckedInCandidateStrategyBuildInterface() {
 	}
 	for _, test := range tests {
 		s.Run(test.path, func() {
-			content, err := os.ReadFile(test.path)
+			content, err := os.ReadFile(filepath.Join(repoRootFromPackageDir, test.path))
 			s.Require().NoError(err)
 			s.Contains(string(content), test.want)
 		})
@@ -499,7 +505,7 @@ func (s *configSuite) TestCheckedInRecallCandidateStrategyBuildInterface() {
 	}
 	for _, test := range tests {
 		s.Run(test.path+test.want, func() {
-			content, err := os.ReadFile(test.path)
+			content, err := os.ReadFile(filepath.Join(repoRootFromPackageDir, test.path))
 			s.Require().NoError(err)
 			s.Contains(string(content), test.want)
 		})

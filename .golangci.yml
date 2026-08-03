@@ -8,6 +8,7 @@ linters:
   default: standard
   enable:
     - cyclop
+    - depguard
     - errcheck
     - errorlint
     - gocognit
@@ -22,6 +23,31 @@ linters:
     errcheck:
       check-type-assertions: true
       check-blank: true
+    depguard:
+      rules:
+        # On-prem/SaaS split ADR (docs/decisions/2026-07-31-onprem-saas-split.md):
+        # core packages never import deployment adapters; only cmd/* and
+        # internal/app wire them. platform/postgres and the two HTTP
+        # transports are exempt for now: they implement the on-prem
+        # persistence/transport contracts (Principal et al.) and are slated to
+        # move onto neutral identity contracts in Phase 3.
+        core-no-deployment-imports:
+          list-mode: lax
+          files:
+            - "**/internal/evidencelake/**"
+            - "**/internal/explorer/**"
+            - "**/internal/operations/**"
+            - "**/internal/pagewiki/**"
+            - "**/internal/recall/**"
+            - "**/internal/teamnote/**"
+            - "!**/internal/teamnote/transport/httpapi/handler/**"
+            - "**/internal/todoapp/**"
+            - "!**/internal/todoapp/transport/httpapi/**"
+            - "**/internal/platform/**"
+            - "!**/internal/platform/postgres/**"
+          deny:
+            - pkg: github.com/pax-beehive/pax-nexus/internal/deployment
+              desc: core must not import deployment adapters; wire in cmd/* or internal/app (see 2026-07-31 on-prem/SaaS split ADR)
 
 formatters:
   enable:

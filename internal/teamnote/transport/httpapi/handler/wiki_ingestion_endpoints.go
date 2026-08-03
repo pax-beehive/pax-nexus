@@ -14,10 +14,11 @@ import (
 )
 
 func (h *Handler) GetWikiIngestionStatus(ctx context.Context, c *app.RequestContext) {
-	if _, ok := h.authorizeWikiControl(ctx, c, false); !ok {
+	principal, ok := h.authorizeWikiControl(ctx, c, false)
+	if !ok {
 		return
 	}
-	status, err := h.wikiControl.Status(ctx, onprem.LocalScopeID)
+	status, err := h.wikiControl.Status(ctx, principal.ScopeID)
 	if err != nil {
 		h.writeWikiControlError(c, "get Wiki ingestion status", err)
 		return
@@ -37,7 +38,8 @@ func (h *Handler) GetWikiIngestionStatus(ctx context.Context, c *app.RequestCont
 }
 
 func (h *Handler) UpdateWikiIngestion(ctx context.Context, c *app.RequestContext) {
-	if _, ok := h.authorizeWikiControl(ctx, c, true); !ok {
+	principal, ok := h.authorizeWikiControl(ctx, c, true)
+	if !ok {
 		return
 	}
 	var request api.UpdateWikiIngestionRequest
@@ -45,7 +47,7 @@ func (h *Handler) UpdateWikiIngestion(ctx context.Context, c *app.RequestContext
 		writeHumanAPIError(c, consts.StatusBadRequest, "invalid_request", "the request is invalid")
 		return
 	}
-	status, err := h.wikiControl.SetAutoInject(ctx, onprem.LocalScopeID, request.AutoInject)
+	status, err := h.wikiControl.SetAutoInject(ctx, principal.ScopeID, request.AutoInject)
 	if err != nil {
 		h.writeWikiControlError(c, "update Wiki ingestion", err)
 		return
@@ -57,7 +59,8 @@ func (h *Handler) UpdateWikiIngestion(ctx context.Context, c *app.RequestContext
 }
 
 func (h *Handler) InjectWikiSession(ctx context.Context, c *app.RequestContext) {
-	if _, ok := h.authorizeWikiControl(ctx, c, true); !ok {
+	principal, ok := h.authorizeWikiControl(ctx, c, true)
+	if !ok {
 		return
 	}
 	sessionID := strings.TrimSpace(c.Param("session_id"))
@@ -65,7 +68,7 @@ func (h *Handler) InjectWikiSession(ctx context.Context, c *app.RequestContext) 
 		writeHumanAPIError(c, consts.StatusBadRequest, "invalid_request", "session ID is required")
 		return
 	}
-	result, err := h.wikiControl.InjectSession(ctx, onprem.LocalScopeID, sessionID)
+	result, err := h.wikiControl.InjectSession(ctx, principal.ScopeID, sessionID)
 	if err != nil {
 		h.writeWikiControlError(c, "inject Wiki session", err)
 		return
@@ -97,7 +100,7 @@ func (h *Handler) RebuildWiki(ctx context.Context, c *app.RequestContext) {
 		}
 		since = parsed
 	}
-	status, err := h.wikiControl.Rebuild(ctx, onprem.LocalScopeID, since)
+	status, err := h.wikiControl.Rebuild(ctx, principal.ScopeID, since)
 	if err != nil {
 		h.writeWikiControlError(c, "rebuild Wiki", err)
 		return

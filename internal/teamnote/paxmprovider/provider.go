@@ -39,10 +39,6 @@ type Config struct {
 	Logger         *slog.Logger
 }
 
-// defaultScopeID mirrors onprem.LocalScopeID, the scope every on-prem
-// deployment stores team notes under.
-const defaultScopeID = "local-team"
-
 type Provider struct {
 	baseURL     *url.URL
 	apiKey      string
@@ -152,7 +148,7 @@ func New(config Config) (*Provider, error) {
 	}
 	scopeID := strings.TrimSpace(config.ScopeID)
 	if scopeID == "" {
-		scopeID = defaultScopeID
+		return nil, fmt.Errorf("create paxm provider: scope ID is required")
 	}
 	return &Provider{
 		baseURL: baseURL, apiKey: config.APIKey, userID: config.UserID,
