@@ -36,7 +36,7 @@ func (s *providerSuite) SetupTest() {
 	s.transport = &providerTransport{}
 	provider, err := paxmprovider.New(paxmprovider.Config{
 		BaseURL: "http://team-memory:8080", APIKey: "scope-key", UserID: "owner",
-		AgentID: "opencode-producer", TokenBudget: 450,
+		AgentID: "opencode-producer", ScopeID: "local-team", TokenBudget: 450,
 		Client: &http.Client{Transport: s.transport}, Logger: slog.New(slog.NewJSONHandler(&s.logs, nil)),
 	})
 	s.Require().NoError(err)
@@ -355,10 +355,10 @@ func (t *providerTransport) RoundTrip(request *http.Request) (*http.Response, er
 
 func TestNewRejectsInvalidConfig(t *testing.T) {
 	tests := []paxmprovider.Config{
-		{},
-		{BaseURL: "://bad", APIKey: "key", UserID: "user", AgentID: "agent"},
-		{BaseURL: "http://runtime", UserID: "user", AgentID: "agent"},
-		{BaseURL: "http://runtime", APIKey: "key", UserID: "user", AgentID: "agent", RequestTimeout: -time.Second},
+		{ScopeID: "local-team"},
+		{BaseURL: "://bad", APIKey: "key", UserID: "user", AgentID: "agent", ScopeID: "local-team"},
+		{BaseURL: "http://runtime", UserID: "user", AgentID: "agent", ScopeID: "local-team"},
+		{BaseURL: "http://runtime", APIKey: "key", UserID: "user", AgentID: "agent", ScopeID: "local-team", RequestTimeout: -time.Second},
 	}
 	for _, config := range tests {
 		_, err := paxmprovider.New(config)
@@ -368,10 +368,20 @@ func TestNewRejectsInvalidConfig(t *testing.T) {
 	}
 }
 
+func TestNewRequiresScopeID(t *testing.T) {
+	_, err := paxmprovider.New(paxmprovider.Config{
+		BaseURL: "http://127.0.0.1:8080", APIKey: "key",
+		UserID: "user-1", AgentID: "agent-1",
+	})
+	if err == nil || !strings.Contains(err.Error(), "scope ID is required") {
+		t.Fatalf("New without ScopeID: got err %v, want scope ID is required", err)
+	}
+}
+
 func TestPutUsesTimestampSequenceAndStableID(t *testing.T) {
 	transport := &providerTransport{}
 	provider, err := paxmprovider.New(paxmprovider.Config{
-		BaseURL: "http://runtime", APIKey: "key", UserID: "user", AgentID: "agent",
+		BaseURL: "http://runtime", APIKey: "key", UserID: "user", AgentID: "agent", ScopeID: "local-team",
 		Client: &http.Client{Transport: transport},
 	})
 	if err != nil {
