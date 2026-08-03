@@ -48,7 +48,7 @@ validate-recall-candidate-strategy:
 build: validate-extraction-candidate-strategy validate-recall-candidate-strategy
 	mkdir -p $(OUTPUT_BIN_DIR)
 	CGO_ENABLED=0 GOCACHE=$${GOCACHE:-/tmp/team-memory-go-cache} go build -trimpath \
-		-ldflags "$(EXTRACTION_CANDIDATE_LDFLAG) $(RECALL_CANDIDATE_LDFLAG)" -o $(OUTPUT_BIN_DIR)/hertz_service .
+		-ldflags "$(EXTRACTION_CANDIDATE_LDFLAG) $(RECALL_CANDIDATE_LDFLAG)" -o $(OUTPUT_BIN_DIR)/hertz_service ./cmd/team-memory-onprem
 
 tools: $(HZ) $(TOOLS_DIR)/thriftgo $(MOCKGEN) $(GOLANGCI_LINT)
 
@@ -67,6 +67,7 @@ $(MOCKGEN): | $(TOOLS_DIR)
 $(GOLANGCI_LINT): | $(TOOLS_DIR)
 	GOBIN=$(TOOLS_DIR) go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 
+# NOTE: the root main package was retired for internal/app + cmd/team-memory-onprem; if a future 'hz update' regenerates root router glue (router_gen.go), delete it — route registration lives in internal/app.Run.
 # Run once when the Hertz transport slice is first implemented. hz records the
 # chosen paths so later updates regenerate into the same layout.
 generate-init: tools
