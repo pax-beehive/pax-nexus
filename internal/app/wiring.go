@@ -53,11 +53,12 @@ func buildPageWikiHTTPHandler(
 		return nil, nil, nil, fmt.Errorf("initialize Page Wiki repository: %w", err)
 	}
 	// Eagerly hydrate the on-prem scope at boot, preserving today's
-	// hydrate-at-boot fail-fast behavior. The session consumer now resolves
-	// every scope through the managers; the Page Wiki HTTP transport still
-	// takes the resolved repository/service below until Task 7 moves it.
-	repository, err := repositoryManager.ForScope(ctx, onprem.LocalScopeID)
-	if err != nil {
+	// hydrate-at-boot fail-fast behavior. The session consumer, and the Page
+	// Wiki HTTP transport below, both resolve every request's scope through
+	// the managers; this eager call only exists to fail fast at startup and
+	// pre-warm the manager cache so the transport's per-request resolution
+	// below is a cache hit.
+	if _, err := repositoryManager.ForScope(ctx, onprem.LocalScopeID); err != nil {
 		return nil, nil, nil, fmt.Errorf("initialize Page Wiki repository: %w", err)
 	}
 	planner, editor, navigator, curator, err := buildPageWikiMaintainers(usageStore, config, logger)
@@ -86,8 +87,9 @@ func buildPageWikiHTTPHandler(
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("initialize Page Wiki service manager: %w", err)
 	}
-	service, err := serviceManager.ForScope(ctx, onprem.LocalScopeID)
-	if err != nil {
+	// Same eager-hydrate/fail-fast/cache-warm rationale as the repository
+	// above.
+	if _, err := serviceManager.ForScope(ctx, onprem.LocalScopeID); err != nil {
 		return nil, nil, nil, fmt.Errorf("initialize Page Wiki service: %w", err)
 	}
 	consumerStore, err := postgres.NewPageWikiConsumerStore(store.Pool())
@@ -109,7 +111,23 @@ func buildPageWikiHTTPHandler(
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	configured, err := pagewikihttp.New(service, repository)
+	// The transport resolves its injector/reader pair fresh on every
+	// request through the managers above, pinned to the on-prem scope; this
+	// is the deliberate Phase 2 profile pin. Per-request tenant resolution
+	// on this transport arrives with Phase 3 auth.
+	configured, err := pagewikihttp.New(
+		func(ctx context.Context) (pagewikihttp.Injector, pagewikihttp.Reader, error) {
+			service, err := serviceManager.ForScope(ctx, onprem.LocalScopeID)
+			if err != nil {
+				return nil, nil, err
+			}
+			repository, err := repositoryManager.ForScope(ctx, onprem.LocalScopeID)
+			if err != nil {
+				return nil, nil, err
+			}
+			return service, repository, nil
+		},
+	)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("initialize Page Wiki HTTP handler: %w", err)
 	}

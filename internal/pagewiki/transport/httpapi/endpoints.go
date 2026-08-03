@@ -37,7 +37,12 @@ func (h *Handler) inject(
 		writeError(requestContext, err)
 		return
 	}
-	result, err := h.injector.InjectSession(ctx, domainRequest)
+	injector, _, err := h.dependencies(ctx)
+	if err != nil {
+		writeError(requestContext, err)
+		return
+	}
+	result, err := injector.InjectSession(ctx, domainRequest)
 	if err != nil {
 		writeError(requestContext, err)
 		return
@@ -50,7 +55,12 @@ func (h *Handler) GetMaintenanceRun(
 	requestContext *app.RequestContext,
 	request *api.MaintenanceRunRequest,
 ) {
-	run, err := h.reader.MaintenanceRun(ctx, request.ID)
+	_, reader, err := h.dependencies(ctx)
+	if err != nil {
+		writeError(requestContext, err)
+		return
+	}
+	run, err := reader.MaintenanceRun(ctx, request.ID)
 	if err != nil {
 		writeError(requestContext, err)
 		return
@@ -63,19 +73,24 @@ func (h *Handler) GetPage(
 	requestContext *app.RequestContext,
 	request *api.PageBySlugRequest,
 ) {
-	page, err := h.reader.PageBySlug(ctx, request.Slug)
+	_, reader, err := h.dependencies(ctx)
 	if err != nil {
 		writeError(requestContext, err)
 		return
 	}
-	revision, err := h.reader.PageRevision(ctx, page.CurrentRevisionID)
+	page, err := reader.PageBySlug(ctx, request.Slug)
+	if err != nil {
+		writeError(requestContext, err)
+		return
+	}
+	revision, err := reader.PageRevision(ctx, page.CurrentRevisionID)
 	if err != nil {
 		writeError(requestContext, err)
 		return
 	}
 	var successorSlug string
 	if page.Retired() && page.SuccessorPageID != "" {
-		successor, err := h.reader.PageByID(ctx, page.SuccessorPageID)
+		successor, err := reader.PageByID(ctx, page.SuccessorPageID)
 		switch {
 		case err == nil:
 			successorSlug = successor.Slug
@@ -94,12 +109,17 @@ func (h *Handler) ListPageRevisions(
 	requestContext *app.RequestContext,
 	request *api.PageBySlugRequest,
 ) {
-	page, err := h.reader.PageBySlug(ctx, request.Slug)
+	_, reader, err := h.dependencies(ctx)
 	if err != nil {
 		writeError(requestContext, err)
 		return
 	}
-	revisions, err := h.reader.PageRevisionHistory(ctx, page.ID)
+	page, err := reader.PageBySlug(ctx, request.Slug)
+	if err != nil {
+		writeError(requestContext, err)
+		return
+	}
+	revisions, err := reader.PageRevisionHistory(ctx, page.ID)
 	if err != nil {
 		writeError(requestContext, err)
 		return
@@ -112,12 +132,17 @@ func (h *Handler) GetPageRevision(
 	requestContext *app.RequestContext,
 	request *api.PageRevisionRequest,
 ) {
-	page, err := h.reader.PageBySlug(ctx, request.Slug)
+	_, reader, err := h.dependencies(ctx)
 	if err != nil {
 		writeError(requestContext, err)
 		return
 	}
-	revision, err := h.reader.PageRevision(ctx, request.Revision)
+	page, err := reader.PageBySlug(ctx, request.Slug)
+	if err != nil {
+		writeError(requestContext, err)
+		return
+	}
+	revision, err := reader.PageRevision(ctx, request.Revision)
 	if err != nil {
 		writeError(requestContext, err)
 		return
@@ -137,12 +162,17 @@ func (h *Handler) GetPageBacklinks(
 	requestContext *app.RequestContext,
 	request *api.PageBySlugRequest,
 ) {
-	page, err := h.reader.PageBySlug(ctx, request.Slug)
+	_, reader, err := h.dependencies(ctx)
 	if err != nil {
 		writeError(requestContext, err)
 		return
 	}
-	links, err := h.reader.PageLinks(ctx, page.ID)
+	page, err := reader.PageBySlug(ctx, request.Slug)
+	if err != nil {
+		writeError(requestContext, err)
+		return
+	}
+	links, err := reader.PageLinks(ctx, page.ID)
 	if err != nil {
 		writeError(requestContext, err)
 		return
@@ -155,7 +185,12 @@ func (h *Handler) Search(
 	requestContext *app.RequestContext,
 	request *api.SearchRequest,
 ) {
-	results, err := h.reader.Search(ctx, request.Q)
+	_, reader, err := h.dependencies(ctx)
+	if err != nil {
+		writeError(requestContext, err)
+		return
+	}
+	results, err := reader.Search(ctx, request.Q)
 	if err != nil {
 		writeError(requestContext, err)
 		return
@@ -168,7 +203,12 @@ func (h *Handler) GetSourceRevision(
 	requestContext *app.RequestContext,
 	request *api.SourceRevisionRequest,
 ) {
-	revision, err := h.reader.SourceRevision(ctx, request.Revision)
+	_, reader, err := h.dependencies(ctx)
+	if err != nil {
+		writeError(requestContext, err)
+		return
+	}
+	revision, err := reader.SourceRevision(ctx, request.Revision)
 	if err != nil {
 		writeError(requestContext, err)
 		return
@@ -181,7 +221,12 @@ func (h *Handler) GetSourceBacklinks(
 	requestContext *app.RequestContext,
 	request *api.SourceRevisionRequest,
 ) {
-	backlinks, err := h.reader.SourceBacklinks(ctx, request.Revision)
+	_, reader, err := h.dependencies(ctx)
+	if err != nil {
+		writeError(requestContext, err)
+		return
+	}
+	backlinks, err := reader.SourceBacklinks(ctx, request.Revision)
 	if err != nil {
 		writeError(requestContext, err)
 		return
@@ -193,7 +238,12 @@ func (h *Handler) GetNavigation(
 	ctx context.Context,
 	requestContext *app.RequestContext,
 ) {
-	navigation, err := h.reader.Navigation(ctx)
+	_, reader, err := h.dependencies(ctx)
+	if err != nil {
+		writeError(requestContext, err)
+		return
+	}
+	navigation, err := reader.Navigation(ctx)
 	if err != nil {
 		writeError(requestContext, err)
 		return
@@ -211,7 +261,12 @@ func (h *Handler) RebuildTopicTree(
 	requestContext *app.RequestContext,
 	request *api.RebuildTopicTreeRequest,
 ) {
-	if err := h.injector.RebuildTopicTree(ctx); err != nil {
+	injector, _, err := h.dependencies(ctx)
+	if err != nil {
+		writeError(requestContext, err)
+		return
+	}
+	if err := injector.RebuildTopicTree(ctx); err != nil {
 		writeError(requestContext, err)
 		return
 	}

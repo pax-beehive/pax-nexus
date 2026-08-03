@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"testing"
@@ -32,8 +33,10 @@ func TestGeneratedHandlersRejectMissingMiddleware(t *testing.T) {
 func TestGeneratedHandlersRejectMissingRequiredInput(t *testing.T) {
 	t.Parallel()
 	handler := &Handler{
-		injector: failingInjector{err: pagewiki.ErrUnavailable},
-		reader:   failingReader{err: pagewiki.ErrUnavailable},
+		dependencies: fixedDependencies(
+			failingInjector{err: pagewiki.ErrUnavailable},
+			failingReader{err: pagewiki.ErrUnavailable},
+		),
 	}
 	tests := generatedHandlerTests()
 
@@ -56,8 +59,10 @@ func TestGeneratedHandlersRejectMissingRequiredInput(t *testing.T) {
 func TestHandlerMapsReaderFailures(t *testing.T) {
 	t.Parallel()
 	handler := &Handler{
-		injector: failingInjector{err: pagewiki.ErrUnavailable},
-		reader:   failingReader{err: pagewiki.ErrUnavailable},
+		dependencies: fixedDependencies(
+			failingInjector{err: pagewiki.ErrUnavailable},
+			failingReader{err: pagewiki.ErrUnavailable},
+		),
 	}
 	tests := []struct {
 		name   string
@@ -151,11 +156,13 @@ func TestHandlerMapsLaterReadFailuresAndRevisionOwnership(t *testing.T) {
 		CurrentRevisionID: "current-revision",
 	}
 	handler := &Handler{
-		injector: failingInjector{err: pagewiki.ErrUnavailable},
-		reader: pageStageFailingReader{
-			failingReader: failingReader{err: pagewiki.ErrUnavailable},
-			page:          page,
-		},
+		dependencies: fixedDependencies(
+			failingInjector{err: pagewiki.ErrUnavailable},
+			pageStageFailingReader{
+				failingReader: failingReader{err: pagewiki.ErrUnavailable},
+				page:          page,
+			},
+		),
 	}
 	tests := []struct {
 		name   string
@@ -203,17 +210,19 @@ func TestHandlerMapsLaterReadFailuresAndRevisionOwnership(t *testing.T) {
 	}
 
 	mismatchHandler := &Handler{
-		injector: failingInjector{err: pagewiki.ErrUnavailable},
-		reader: mismatchReader{
-			pageStageFailingReader: pageStageFailingReader{
-				failingReader: failingReader{err: pagewiki.ErrUnavailable},
-				page:          page,
+		dependencies: fixedDependencies(
+			failingInjector{err: pagewiki.ErrUnavailable},
+			mismatchReader{
+				pageStageFailingReader: pageStageFailingReader{
+					failingReader: failingReader{err: pagewiki.ErrUnavailable},
+					page:          page,
+				},
+				revision: pagewiki.PageRevision{
+					ID:     "other-revision",
+					PageID: "other-page",
+				},
 			},
-			revision: pagewiki.PageRevision{
-				ID:     "other-revision",
-				PageID: "other-page",
-			},
-		},
+		),
 	}
 	request := app.NewContext(2)
 
@@ -229,8 +238,10 @@ func TestHandlerMapsLaterReadFailuresAndRevisionOwnership(t *testing.T) {
 func TestHandlerMapsInjectionAndDomainErrors(t *testing.T) {
 	t.Parallel()
 	handler := &Handler{
-		injector: failingInjector{err: pagewiki.ErrUnavailable},
-		reader:   failingReader{err: pagewiki.ErrUnavailable},
+		dependencies: fixedDependencies(
+			failingInjector{err: pagewiki.ErrUnavailable},
+			failingReader{err: pagewiki.ErrUnavailable},
+		),
 	}
 	request := app.NewContext(2)
 
@@ -454,4 +465,75 @@ func (r mismatchReader) PageRevision(
 func TestGeneratedHandlerFixturesAreComplete(t *testing.T) {
 	t.Parallel()
 	require.Len(t, generatedHandlerTests(), 13)
+}
+
+// fixedDependencies builds a Dependencies closure that always resolves to
+// the given injector/reader pair, used by fixture-driven tests below that
+// do not care about per-request resolution.
+func fixedDependencies(injector Injector, reader Reader) Dependencies {
+	return func(context.Context) (Injector, Reader, error) {
+		return injector, reader, nil
+	}
+}
+
+func TestDependenciesAreResolvedPerRequestWithoutHandlerLevelCaching(t *testing.T) {
+	t.Parallel()
+	calls := 0
+	handler := &Handler{
+		dependencies: func(context.Context) (Injector, Reader, error) {
+			calls++
+			return failingInjector{err: pagewiki.ErrUnavailable},
+				failingReader{err: pagewiki.ErrUnavailable},
+				nil
+		},
+	}
+
+	first := app.NewContext(2)
+	handler.GetNavigation(context.Background(), first)
+	second := app.NewContext(2)
+	handler.GetNavigation(context.Background(), second)
+
+	assert.Equal(t, 2, calls, "dependencies closure must be invoked once per request, not cached")
+}
+
+func TestDependencyResolutionErrorMapsThroughTheExistingErrorConvention(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name       string
+		err        error
+		wantStatus int
+		wantCode   string
+	}{
+		{
+			name:       "unavailable dependency resolution",
+			err:        pagewiki.ErrUnavailable,
+			wantStatus: http.StatusServiceUnavailable,
+			wantCode:   "unavailable",
+		},
+		{
+			name:       "unclassified dependency resolution failure",
+			err:        errors.New("scope resolution failed"),
+			wantStatus: http.StatusUnprocessableEntity,
+			wantCode:   "operation_failed",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			handler := &Handler{
+				dependencies: func(context.Context) (Injector, Reader, error) {
+					return nil, nil, tt.err
+				},
+			}
+			request := app.NewContext(2)
+
+			handler.GetNavigation(context.Background(), request)
+
+			assert.Equal(t, tt.wantStatus, request.Response.StatusCode())
+			var body map[string]string
+			require.NoError(t, json.Unmarshal(request.Response.Body(), &body))
+			assert.Equal(t, tt.wantCode, body["code"])
+		})
+	}
 }

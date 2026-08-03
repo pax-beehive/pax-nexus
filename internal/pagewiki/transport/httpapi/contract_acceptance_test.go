@@ -29,13 +29,10 @@ func TestContractAcceptanceSuite(t *testing.T) {
 
 func TestNewRejectsMissingDependencies(t *testing.T) {
 	t.Parallel()
-	repository := memory.NewRepository()
 
-	_, injectorErr := httpapi.New(nil, repository)
-	_, readerErr := httpapi.New(unavailableInjector{}, nil)
+	_, err := httpapi.New(nil)
 
-	require.Error(t, injectorErr)
-	require.Error(t, readerErr)
+	require.Error(t, err)
 }
 
 func (s *ContractAcceptanceSuite) SetupTest() {
@@ -47,7 +44,7 @@ func (s *ContractAcceptanceSuite) SetupTest() {
 			"sqlite": contractSQLiteDraft(),
 		}},
 	)
-	handler, err := httpapi.New(service, s.repository)
+	handler, err := httpapi.New(fixedDependencies(service, s.repository))
 	s.Require().NoError(err)
 	s.server = server.New()
 	s.server.Use(httpapi.InstanceMiddleware(handler))
@@ -430,7 +427,7 @@ func (s *ContractAcceptanceSuite) TestGivenLocalReaderWhenOpenedThenItsAccessibl
 }
 
 func (s *ContractAcceptanceSuite) TestGivenUnavailableInjectorWhenRequestedThenServiceUnavailableIsReturned() {
-	handler, err := httpapi.New(unavailableInjector{}, s.repository)
+	handler, err := httpapi.New(fixedDependencies(unavailableInjector{}, s.repository))
 	s.Require().NoError(err)
 	hertz := server.New()
 	hertz.Use(httpapi.InstanceMiddleware(handler))
@@ -468,7 +465,7 @@ func (s *ContractAcceptanceSuite) TestGivenConfiguredNavigatorWhenTopicTreeRebui
 		pagewiki.ScriptedEditor{},
 		pagewiki.WithTreeNavigator(pagewiki.TreeMaintenanceConfig{Navigator: stayAtRootNavigator{}}),
 	)
-	handler, err := httpapi.New(service, s.repository)
+	handler, err := httpapi.New(fixedDependencies(service, s.repository))
 	s.Require().NoError(err)
 	hertz := server.New()
 	hertz.Use(httpapi.InstanceMiddleware(handler))
@@ -480,7 +477,7 @@ func (s *ContractAcceptanceSuite) TestGivenConfiguredNavigatorWhenTopicTreeRebui
 }
 
 func (s *ContractAcceptanceSuite) TestGivenUnavailableNavigatorWhenTopicTreeRebuildRequestedThenServiceUnavailableIsReturned() {
-	handler, err := httpapi.New(unavailableInjector{}, s.repository)
+	handler, err := httpapi.New(fixedDependencies(unavailableInjector{}, s.repository))
 	s.Require().NoError(err)
 	hertz := server.New()
 	hertz.Use(httpapi.InstanceMiddleware(handler))
@@ -546,6 +543,17 @@ func requireList(t *testing.T, value any) []any {
 	result, ok := value.([]any)
 	require.True(t, ok)
 	return result
+}
+
+// fixedDependencies wraps a fixed injector/reader pair as a Dependencies
+// closure for tests that don't exercise per-request resolution themselves.
+func fixedDependencies(
+	injector httpapi.Injector,
+	reader httpapi.Reader,
+) httpapi.Dependencies {
+	return func(context.Context) (httpapi.Injector, httpapi.Reader, error) {
+		return injector, reader, nil
+	}
 }
 
 type unavailableInjector struct{}
