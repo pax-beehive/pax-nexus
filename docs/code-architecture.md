@@ -10,7 +10,7 @@ modules collaborate.
 
 ## System shape
 
-`main.go` is the composition root. It creates concrete adapters, connects them
+The composition root is `internal/app` (entrypoint `cmd/team-memory-onprem`). It creates concrete adapters, connects them
 to the product modules, starts the queue and HTTP server, and drains owned work
 during shutdown. Product modules do not create PostgreSQL, Hertz, River, or
 model-provider clients themselves.

@@ -40,14 +40,17 @@ func (s *identitySuite) TestOIDCIdentityBootstrapsFirstOwnerAndAuthenticatesSess
 	})
 	s.Require().NoError(err)
 	s.Empty(session.Principal.MembershipID)
+	s.Equal(onprem.LocalScopeID, session.Principal.ScopeID)
 
 	owner, err := s.service.ClaimBootstrap(context.Background(), session.Principal, "bootstrap-secret")
 	s.Require().NoError(err)
 	s.Equal(onprem.RoleOwner, owner.Role)
+	s.Equal(onprem.LocalScopeID, owner.ScopeID)
 
 	authenticated, err := s.service.AuthenticateSession(context.Background(), session.Token)
 	s.Require().NoError(err)
 	s.Equal(onprem.RoleOwner, authenticated.Role)
+	s.Equal(onprem.LocalScopeID, authenticated.ScopeID)
 	_, err = s.service.ClaimBootstrap(context.Background(), onprem.HumanPrincipal{UserID: "other-user"}, "bootstrap-secret")
 	s.Require().ErrorIs(err, onprem.ErrBootstrapClosed)
 }
@@ -70,6 +73,7 @@ func (s *identitySuite) TestInvitationIsRoleBoundAndAcceptsVerifiedEmail() {
 	s.Require().NoError(err)
 	s.Equal(onprem.RoleMember, accepted.Role)
 	s.Equal(onprem.MembershipStatusActive, accepted.MembershipStatus)
+	s.Equal(onprem.LocalScopeID, accepted.ScopeID)
 
 	_, err = s.service.CreateInvitation(context.Background(), accepted, onprem.InvitationRequest{
 		TargetEmail: "other@example.com", Role: onprem.RoleMember,
