@@ -221,6 +221,18 @@ func (s *onPremHandlerSuite) TestObserveSessionBindsPrincipalFromCredential() {
 	s.Equal("membership-1", event.Actor.MembershipID)
 }
 
+// TestObserveSessionAcceptsEmptyBatchWithoutPanic guards the success-path
+// log line: an empty (but well-formed) batch passes mapping and the runtime,
+// so the actor lookup must not index Events[0] unguarded.
+func (s *onPremHandlerSuite) TestObserveSessionAcceptsEmptyBatchWithoutPanic() {
+	s.runtime.EXPECT().ObserveSession(gomock.Any(), gomock.Any()).Return(teamnote.IngestReceipt{}, nil)
+
+	response := perform(s.handler.ObserveSession, http.MethodPost, `{"events":[],"complete":true}`, "agent")
+
+	s.Equal(consts.StatusOK, response.Code)
+	s.Contains(response.Body.String(), `"accepted":0`)
+}
+
 func (s *onPremHandlerSuite) TestObserveSessionCredentialFailures() {
 	validBody := `{"events":[{"id":"event-1","actor":{"user_id":"owner","agent_id":"agent-1","session_id":"session-1"},"sequence":1,"type":"assistant","content":"Tests fail.","occurred_at":"2026-07-21T08:00:00Z"}],"complete":true}`
 	for _, test := range []struct {
@@ -641,6 +653,18 @@ func (s *credentialService) Authenticate(_ context.Context, apiKey string) (onpr
 			ScopeID: onprem.LocalScopeID, CredentialID: "credential-2",
 			Permissions: []onprem.Permission{onprem.PermissionSearch},
 		}, nil
+	case "channel-send-only":
+		return onprem.Principal{
+			UserID: "owner", MembershipID: "membership-1", AgentID: "agent-1",
+			ScopeID: onprem.LocalScopeID, CredentialID: "credential-3",
+			Permissions: []onprem.Permission{onprem.PermissionChannelSend},
+		}, nil
+	case "channel-receive-only":
+		return onprem.Principal{
+			UserID: "owner", MembershipID: "membership-1", AgentID: "agent-1",
+			ScopeID: onprem.LocalScopeID, CredentialID: "credential-4",
+			Permissions: []onprem.Permission{onprem.PermissionChannelReceive},
+		}, nil
 	case "device":
 		return onprem.Principal{
 			UserID: "owner", MembershipID: "membership-1",
@@ -722,6 +746,9 @@ type channelService struct {
 	principal   onprem.Principal
 	sendRequest onprem.SendEnvelopeRequest
 	acceptedID  string
+	archivedID  string
+	getErr      error
+	archiveErr  error
 }
 
 func (s *channelService) Send(
@@ -749,6 +776,9 @@ func (s *channelService) Get(
 	_ string,
 ) (onprem.ChannelEnvelope, error) {
 	s.principal = principal
+	if s.getErr != nil {
+		return onprem.ChannelEnvelope{}, s.getErr
+	}
 	return handlerTestChannelEnvelope(validHandlerPayload()), nil
 }
 
@@ -767,9 +797,13 @@ func (s *channelService) Accept(
 func (s *channelService) Archive(
 	_ context.Context,
 	principal onprem.Principal,
-	_ string,
+	envelopeID string,
 ) (onprem.ChannelEnvelope, error) {
 	s.principal = principal
+	if s.archiveErr != nil {
+		return onprem.ChannelEnvelope{}, s.archiveErr
+	}
+	s.archivedID = envelopeID
 	envelope := handlerTestChannelEnvelope(validHandlerPayload())
 	envelope.Status = onprem.EnvelopeStatusArchived
 	return envelope, nil

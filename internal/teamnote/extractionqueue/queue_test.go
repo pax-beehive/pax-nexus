@@ -3,8 +3,12 @@ package extractionqueue
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
+	"os"
+	"strconv"
 	"testing"
 	"time"
 
@@ -135,4 +139,98 @@ func (p *queueProcessor) ProcessExtraction(ctx context.Context, actor teamnote.A
 	}
 	p.scopeID = scopeID
 	return p.more, p.err
+}
+
+func (s *queueSuite) TestEnqueueTxValidatesArgsBeforeInsert() {
+	queue, err := New(new(pgxpool.Pool), &queueProcessor{}, Config{Shards: 2})
+	s.Require().NoError(err)
+	tests := []struct {
+		name   string
+		scope  string
+		actor  teamnote.Actor
+		cursor int64
+	}{
+		{name: "missing scope", actor: teamnote.Actor{UserID: "u", AgentID: "a", SessionID: "s"}, cursor: 1},
+		{name: "missing actor", scope: "team", cursor: 1},
+		{name: "non-positive cursor", scope: "team", actor: teamnote.Actor{UserID: "u", AgentID: "a", SessionID: "s"}},
+	}
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			_, enqueueErr := queue.EnqueueTx(context.Background(), nil, test.scope, test.actor, test.cursor, true)
+			s.Require().Error(enqueueErr)
+			s.Contains(enqueueErr.Error(), "scope and actor are required")
+		})
+	}
+}
+
+type enqueuedJobRow struct {
+	queue       string
+	kind        string
+	maxAttempts int
+	scheduledAt time.Time
+	args        Args
+}
+
+func (s *queueSuite) TestEnqueueTxSchedulesShardStableJobs() {
+	dsn := os.Getenv("TEAM_MEMORY_TEST_POSTGRES_DSN")
+	if dsn == "" {
+		s.T().Skip("TEAM_MEMORY_TEST_POSTGRES_DSN is not set")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, dsn)
+	s.Require().NoError(err)
+	defer pool.Close()
+	s.Require().NoError(Migrate(ctx, pool))
+
+	prefix := fmt.Sprintf("enqueue_test_%d", time.Now().UnixNano())
+	const shards = 4
+	queue, err := New(pool, &queueProcessor{}, Config{
+		QueuePrefix: prefix, Shards: shards, MaxAttempts: 3,
+		Debounce: 2 * time.Second, BatchTimeout: 90 * time.Second,
+	})
+	s.Require().NoError(err)
+	tx, err := pool.Begin(ctx)
+	s.Require().NoError(err)
+	defer func() { s.Require().NoError(tx.Rollback(ctx)) }()
+	actor := teamnote.Actor{UserID: "owner", AgentID: "agent", SessionID: "session"}
+	enqueuedAt := time.Now()
+
+	fetch := func(jobID string) enqueuedJobRow {
+		id, parseErr := strconv.ParseInt(jobID, 10, 64)
+		s.Require().NoError(parseErr)
+		var row enqueuedJobRow
+		var rawArgs []byte
+		s.Require().NoError(tx.QueryRow(ctx,
+			`SELECT queue, kind, max_attempts, scheduled_at, args FROM river_job WHERE id = $1`, id,
+		).Scan(&row.queue, &row.kind, &row.maxAttempts, &row.scheduledAt, &rawArgs))
+		s.Require().NoError(json.Unmarshal(rawArgs, &row.args))
+		return row
+	}
+
+	completeID, err := queue.EnqueueTx(ctx, tx, "scope-enqueue", actor, 7, true)
+	s.Require().NoError(err)
+	complete := fetch(completeID)
+	s.Equal(jobKind, complete.kind)
+	s.Equal(3, complete.maxAttempts)
+	s.False(complete.args.RequireCurrent, "a complete batch runs without a currency gate")
+	s.Equal(int64(7), complete.args.ExpectedCursor)
+	s.Equal("scope-enqueue", complete.args.ScopeID)
+	s.Equal(queueName(prefix, shardFor(complete.args, shards)), complete.queue,
+		"the job must land on its shard-stable queue")
+	completeDelay := complete.scheduledAt.Sub(enqueuedAt)
+	s.Greater(completeDelay, time.Duration(0))
+	s.Less(completeDelay, 30*time.Second, "a complete batch is debounced, not batch-timed-out")
+
+	incompleteID, err := queue.EnqueueTx(ctx, tx, "scope-enqueue", actor, 8, false)
+	s.Require().NoError(err)
+	incomplete := fetch(incompleteID)
+	s.True(incomplete.args.RequireCurrent, "an incomplete batch must require a current cursor")
+	s.Equal(int64(8), incomplete.args.ExpectedCursor)
+	incompleteDelay := incomplete.scheduledAt.Sub(enqueuedAt)
+	s.Greater(incompleteDelay, 60*time.Second, "an incomplete batch waits for the batch timeout")
+
+	repeatID, err := queue.EnqueueTx(ctx, tx, "scope-enqueue", actor, 9, true)
+	s.Require().NoError(err)
+	repeat := fetch(repeatID)
+	s.Equal(complete.queue, repeat.queue, "the same actor stream must keep its shard queue")
 }

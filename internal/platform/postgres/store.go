@@ -25,7 +25,6 @@ type Store struct {
 	channel        *ChannelStore
 	identity       *IdentityStore
 	registry       *RegistryStore
-	operations     *OperationsStore
 }
 
 func Open(ctx context.Context, dsn string) (*Store, error) {
@@ -63,7 +62,6 @@ func Open(ctx context.Context, dsn string) (*Store, error) {
 	}
 	store := newStore(pool)
 	store.operationsPool = operationsPool
-	store.operations.readPool = operationsPool
 	return store, nil
 }
 
@@ -76,7 +74,6 @@ func newStore(pool *pgxpool.Pool) *Store {
 		channel:     &ChannelStore{pool: pool},
 		identity:    &IdentityStore{pool: pool},
 		registry:    &RegistryStore{pool: pool},
-		operations:  &OperationsStore{pool: pool},
 	}
 }
 
@@ -115,8 +112,13 @@ func (s *Store) Registry() *RegistryStore {
 	return s.registry
 }
 
-func (s *Store) Operations() *OperationsStore {
-	return s.operations
+// Operations returns an operations read-model store bound to the given
+// scope, mirroring Explorer. Queries against scoped tables (team_notes,
+// extraction_runs, session_events, team_note_recall_observations) filter on
+// this scope; the onprem_* admin tables stay unscoped because they belong to
+// the on-prem admin domain and carry no scope column.
+func (s *Store) Operations(scopeID string) *OperationsStore {
+	return &OperationsStore{pool: s.pool, readPool: s.operationsPool, scopeID: scopeID}
 }
 
 // Explorer returns a read-model store answering explorer queries for the
@@ -124,6 +126,16 @@ func (s *Store) Operations() *OperationsStore {
 // than being fixed at construction, so one process can serve any scope.
 func (s *Store) Explorer(scopeID string) *ExplorerStore {
 	return &ExplorerStore{pool: s.pool, scopeID: scopeID}
+}
+
+// likeEscaper escapes the LIKE/ILIKE metacharacters so user-supplied search
+// text always matches literally under PostgreSQL's default backslash escape.
+var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+
+// escapeLike prepares a user-supplied search fragment for interpolation into
+// an ILIKE pattern such as '%' || $n || '%'.
+func escapeLike(value string) string {
+	return likeEscaper.Replace(value)
 }
 
 func (s *Store) Migrate(ctx context.Context) (resultErr error) {

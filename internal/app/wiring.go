@@ -38,10 +38,10 @@ func buildPageWikiHTTPHandler(
 	usageStore *postgres.LLMUsageStore,
 	config applicationConfig,
 	logger *slog.Logger,
-) (*pagewikihttp.Handler, *sessionconsumer.Controller, handler.WikiSettings, error) {
+) (*pagewikihttp.Handler, *pagewiki.ServiceManager, *sessionconsumer.Controller, handler.WikiSettings, error) {
 	treeMaxDepth, err := parseTreeMaxDepth(config.llmwikiTreeMaxDepth)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf(
+		return nil, nil, nil, nil, fmt.Errorf(
 			"initialize Page Wiki repository: %w", err,
 		)
 	}
@@ -51,7 +51,7 @@ func buildPageWikiHTTPHandler(
 	}
 	repositoryManager, err := pagewikipostgres.NewRepositoryManager(store.Pool(), repositoryOptions...)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("initialize Page Wiki repository: %w", err)
+		return nil, nil, nil, nil, fmt.Errorf("initialize Page Wiki repository: %w", err)
 	}
 	// Eagerly hydrate the on-prem scope at boot, preserving today's
 	// hydrate-at-boot fail-fast behavior. The session consumer, and the Page
@@ -60,11 +60,11 @@ func buildPageWikiHTTPHandler(
 	// pre-warm the manager cache so the transport's per-request resolution
 	// below is a cache hit.
 	if _, err := repositoryManager.ForScope(ctx, onprem.LocalScopeID); err != nil {
-		return nil, nil, nil, fmt.Errorf("initialize Page Wiki repository: %w", err)
+		return nil, nil, nil, nil, fmt.Errorf("initialize Page Wiki repository: %w", err)
 	}
 	planner, editor, navigator, curator, err := buildPageWikiMaintainers(usageStore, config, logger)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	options := make([]pagewiki.ServiceOption, 0, 2)
 	if navigator != nil {
@@ -75,7 +75,7 @@ func buildPageWikiHTTPHandler(
 	if curator != nil {
 		curationConfig, err := buildPageWikiCurationConfig(config)
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, nil, nil, nil, err
 		}
 		options = append(options, pagewiki.WithCurator(curator, embedder, curationConfig, logger))
 	}
@@ -86,16 +86,16 @@ func buildPageWikiHTTPHandler(
 		pagewiki.ServiceManagerConfig{Planner: planner, Editor: editor, Options: options},
 	)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("initialize Page Wiki service manager: %w", err)
+		return nil, nil, nil, nil, fmt.Errorf("initialize Page Wiki service manager: %w", err)
 	}
 	// Same eager-hydrate/fail-fast/cache-warm rationale as the repository
 	// above.
 	if _, err := serviceManager.ForScope(ctx, onprem.LocalScopeID); err != nil {
-		return nil, nil, nil, fmt.Errorf("initialize Page Wiki service: %w", err)
+		return nil, nil, nil, nil, fmt.Errorf("initialize Page Wiki service: %w", err)
 	}
 	consumerStore, err := postgres.NewPageWikiConsumerStore(store.Pool())
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	// The consumer sweeps every scope from one loop, resolving each stream's
 	// service and each rebuild's repository through the managers above.
@@ -110,7 +110,7 @@ func buildPageWikiHTTPHandler(
 		logger, 2*time.Second,
 	)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	// The transport resolves its injector/reader pair fresh on every
 	// request through the managers above, pinned to the on-prem scope; this
@@ -130,11 +130,12 @@ func buildPageWikiHTTPHandler(
 		},
 	)
 	if err != nil {
-		return nil, nil, nil, fmt.Errorf("initialize Page Wiki HTTP handler: %w", err)
+		return nil, nil, nil, nil, fmt.Errorf("initialize Page Wiki HTTP handler: %w", err)
 	}
-	serviceManager.Start(ctx)
-	controller.Start(ctx)
-	return configured, controller, wikiSettingsAdapter{services: serviceManager}, nil
+	// Neither the service manager's maintenance loops nor the consumer are
+	// started here: Run starts them once every build step has succeeded, so
+	// a later build failure never leaves background goroutines running.
+	return configured, serviceManager, controller, wikiSettingsAdapter{services: serviceManager}, nil
 }
 
 // buildPageWikiCurationConfig parses the LLMWIKI_CURATION_* environment into
@@ -273,8 +274,9 @@ func buildPageWikiMaintainers(
 // buildAuditConsumer wires the session audit projection consumer and its
 // read seam on the shared Postgres pool, mirroring the Page Wiki consumer
 // lifecycle. The returned store also serves the admin session-audit queries.
+// The controller is returned unstarted; Run starts it after every build step
+// has succeeded.
 func buildAuditConsumer(
-	ctx context.Context,
 	store *postgres.Store,
 	logger *slog.Logger,
 ) (*audit.Controller, *postgres.AuditStore, error) {
@@ -286,8 +288,54 @@ func buildAuditConsumer(
 	if err != nil {
 		return nil, nil, err
 	}
-	controller.Start(ctx)
 	return controller, auditStore, nil
+}
+
+// applicationServices bundles the HTTP handlers with the background
+// consumers and maintenance loops the build functions assemble but do not
+// start. Run starts them only after every build step has succeeded and stops
+// them in reverse start order on shutdown, so a failed later build (or a
+// failed queue start) never leaves goroutines running while Run unwinds.
+type applicationServices struct {
+	team             *handler.Handler
+	pageWiki         *pagewikihttp.Handler
+	todo             *todoapphttp.Handler
+	wikiServices     *pagewiki.ServiceManager
+	wikiConsumer     *sessionconsumer.Controller
+	auditConsumer    *audit.Controller
+	startTodoRefresh func(context.Context) func()
+	stopTodoRefresh  func()
+}
+
+// start launches every background loop the build phase assembled.
+func (s *applicationServices) start(ctx context.Context) {
+	s.wikiServices.Start(ctx)
+	s.wikiConsumer.Start(ctx)
+	s.auditConsumer.Start(ctx)
+	s.stopTodoRefresh = s.startTodoRefresh(ctx)
+}
+
+// stop shuts the background loops down in reverse start order, giving each
+// consumer a bounded wait mirroring the extraction queue stop in Run. A stop
+// timeout is logged rather than returned so shutdown keeps making progress
+// past a wedged consumer.
+func (s *applicationServices) stop(timeout time.Duration, logger *slog.Logger) {
+	s.stopTodoRefresh()
+	consumers := []struct {
+		name string
+		stop func(context.Context) error
+	}{
+		{name: "session audit consumer", stop: s.auditConsumer.Stop},
+		{name: "Page Wiki session consumer", stop: s.wikiConsumer.Stop},
+	}
+	for _, consumer := range consumers {
+		stopContext, cancelStop := context.WithTimeout(context.Background(), timeout)
+		if err := consumer.stop(stopContext); err != nil {
+			logger.Warn("stop background consumer failed", "consumer", consumer.name, "error", err)
+		}
+		cancelStop()
+	}
+	s.wikiServices.Stop()
 }
 
 func buildApplicationHTTPHandlers(
@@ -300,14 +348,16 @@ func buildApplicationHTTPHandlers(
 	usageStore *postgres.LLMUsageStore,
 	config applicationConfig,
 	logger *slog.Logger,
-) (*handler.Handler, *pagewikihttp.Handler, *todoapphttp.Handler, func(), error) {
-	pageHandler, wikiControl, wikiSettings, err := buildPageWikiHTTPHandler(ctx, store, embedder, usageStore, config, logger)
+) (*applicationServices, error) {
+	pageHandler, wikiServices, wikiControl, wikiSettings, err := buildPageWikiHTTPHandler(
+		ctx, store, embedder, usageStore, config, logger,
+	)
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, err
 	}
-	_, auditStore, err := buildAuditConsumer(ctx, store, logger)
+	auditConsumer, auditStore, err := buildAuditConsumer(store, logger)
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, err
 	}
 	teamHandler, identity, err := buildHTTPHandler(
 		ctx,
@@ -322,20 +372,26 @@ func buildApplicationHTTPHandlers(
 		auditStore,
 	)
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, err
 	}
-	todoHandler, stopTodoRefresh, err := buildTodoApp(ctx, store, lake, usageStore, identity, config, logger)
+	todoHandler, startTodoRefresh, err := buildTodoApp(ctx, store, lake, usageStore, identity, config, logger)
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, err
 	}
-	return teamHandler, pageHandler, todoHandler, stopTodoRefresh, nil
+	return &applicationServices{
+		team: teamHandler, pageWiki: pageHandler, todo: todoHandler,
+		wikiServices: wikiServices, wikiConsumer: wikiControl, auditConsumer: auditConsumer,
+		startTodoRefresh: startTodoRefresh,
+	}, nil
 }
 
 // buildTodoApp wires the Todo App domain service, its Postgres-backed
 // repository and note directory, its evidence-lake reporter, an optional LLM
-// rewriter reusing the LLMWIKI_LLM_* configuration, the HTTP transport, and
-// the background suggestion-refresh scheduler. identity may be nil (legacy
-// API-key mode); the transport then answers 501 for every route.
+// rewriter reusing the LLMWIKI_LLM_* configuration, and the HTTP transport.
+// identity may be nil (legacy API-key mode); the transport then answers 501
+// for every route. The background suggestion-refresh scheduler is returned
+// as a deferred start closure so Run launches it only after every build step
+// has succeeded.
 func buildTodoApp(
 	ctx context.Context,
 	store *postgres.Store,
@@ -344,7 +400,7 @@ func buildTodoApp(
 	identity *onprem.IdentityService,
 	config applicationConfig,
 	logger *slog.Logger,
-) (*todoapphttp.Handler, func(), error) {
+) (*todoapphttp.Handler, func(context.Context) func(), error) {
 	todoRepository, err := todoapppostgres.NewRepository(ctx, store.Pool())
 	if err != nil {
 		return nil, nil, fmt.Errorf("initialize Todo App repository: %w", err)
@@ -367,19 +423,25 @@ func buildTodoApp(
 	if err != nil {
 		return nil, nil, fmt.Errorf("initialize Todo App service: %w", err)
 	}
-	// identity is a typed *onprem.IdentityService; only pass it through as the
-	// HumanAuthenticator interface when it is actually configured, so a nil
-	// identity produces a true nil interface (routes then answer 501).
-	var authenticator todoapphttp.HumanAuthenticator
-	if identity != nil {
-		authenticator = identity
-	}
-	configured, err := todoapphttp.New(service, authenticator)
+	configured, err := todoapphttp.New(service, todoAuthenticator(identity), todoapphttp.WithLogger(logger))
 	if err != nil {
 		return nil, nil, fmt.Errorf("initialize Todo App HTTP handler: %w", err)
 	}
-	stop := todoapp.StartSuggestionRefresh(ctx, service, noteDirectory, config.todoRefreshInterval, logger)
-	return configured, stop, nil
+	startRefresh := func(ctx context.Context) func() {
+		return todoapp.StartSuggestionRefresh(ctx, service, noteDirectory, config.todoRefreshInterval, logger)
+	}
+	return configured, startRefresh, nil
+}
+
+// todoAuthenticator converts the typed *onprem.IdentityService into the Todo
+// App transport's HumanAuthenticator interface, mapping a nil pointer to a
+// true nil interface so the transport's "identity == nil answers 501"
+// contract holds instead of tripping the typed-nil trap.
+func todoAuthenticator(identity *onprem.IdentityService) todoapphttp.HumanAuthenticator {
+	if identity == nil {
+		return nil
+	}
+	return identity
 }
 
 // buildTodoRewriter returns an LLM-backed Rewriter when the LLMWIKI_LLM_*
@@ -434,9 +496,11 @@ func meteredClientFactory(
 // llm.UsageSink, attributing usage to the "extractor" component under the
 // scope carried on the extraction context (falling back to
 // onprem.LocalScopeID when none is present). Recording is best-effort: a
-// sink failure is logged and never fails extraction.
+// sink failure is logged and never fails extraction. The sink is the
+// llm.UsageSink seam (satisfied by *postgres.LLMUsageStore) so the fallback
+// and error handling stay testable without a database.
 func extractionUsageRecorder(
-	usageStore *postgres.LLMUsageStore, logger *slog.Logger,
+	usageStore platformllm.UsageSink, logger *slog.Logger,
 ) func(context.Context, string, extractor.Usage) {
 	return func(ctx context.Context, model string, usage extractor.Usage) {
 		scopeID, err := teamnote.ScopeFromContext(ctx)
@@ -497,7 +561,8 @@ func buildHTTPHandler(
 	if err != nil {
 		return nil, nil, fmt.Errorf("configure on-prem credentials: %w", err)
 	}
-	memory, err := recall.NewRouter(runtime, nil, recall.Config{EnablePassiveWikiHint: config.wikiHintEnabled})
+	// recallRouter must not shadow the imported pagewiki memory package.
+	recallRouter, err := recall.NewRouter(runtime, nil, recall.Config{EnablePassiveWikiHint: config.wikiHintEnabled})
 	if err != nil {
 		return nil, nil, fmt.Errorf("configure recall router: %w", err)
 	}
@@ -512,7 +577,7 @@ func buildHTTPHandler(
 	if err != nil {
 		return nil, nil, fmt.Errorf("configure on-prem agent registry: %w", err)
 	}
-	operationsService, err := onprem.NewOperationsService(store.Operations(), onprem.OperationsConfig{
+	operationsService, err := onprem.NewOperationsService(store.Operations(onprem.LocalScopeID), onprem.OperationsConfig{
 		EventRetention: config.operationsEventRetention, StorageRetention: config.operationsStorageRetention,
 	})
 	if err != nil {
@@ -548,7 +613,7 @@ func buildHTTPHandler(
 		))
 		identityService = identity
 	}
-	configured, err := handler.NewOnPrem(runtime, credentials, memory, channel, logger, options...)
+	configured, err := handler.NewOnPrem(runtime, credentials, recallRouter, channel, logger, options...)
 	if err != nil {
 		return nil, nil, fmt.Errorf("configure on-prem HTTP transport: %w", err)
 	}

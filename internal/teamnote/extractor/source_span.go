@@ -50,20 +50,15 @@ not be promoted into a fact. The application, not you, stores the exact event
 text, author identity, timestamps, task, thread, and event IDs.`
 
 func decodeExtractionResponseSourceSpanV1(body []byte) (Result, string, error) {
-	var response chatResponse
-	if err := json.Unmarshal(body, &response); err != nil || len(response.Choices) == 0 {
-		return Result{}, "", fmt.Errorf("decode source span extractor response: %w", ErrInvalidModelResponse)
+	content, usage, err := decodeChatContent(body)
+	if err != nil {
+		return Result{}, "", fmt.Errorf("decode source span extractor response: %w", err)
 	}
-	content := trimCodeFence(response.Choices[0].Message.Content)
 	result, err := decodeExtractionContentSourceSpanV1(content)
 	if err != nil {
 		return Result{}, "", err
 	}
-	result.Usage = Usage{
-		InputTokens: response.Usage.PromptTokens, OutputTokens: response.Usage.CompletionTokens,
-		PromptCacheHitTokens:  response.Usage.PromptCacheHitTokens,
-		PromptCacheMissTokens: response.Usage.PromptCacheMissTokens,
-	}
+	result.Usage = usage
 	return result, content, nil
 }
 
@@ -120,11 +115,13 @@ func mapSourceSpanV2(result *Result, slice evidencelake.Slice) {
 	result.ExtractionVersion = ExtractionVersionSourceSpanV2
 }
 
+// sourceSpanCandidate leaves Candidate.ID empty on purpose: normalizeCandidates
+// assigns the run-scoped ID, and only IdentityRef persists the span identity.
 func sourceSpanCandidate(slice evidencelake.Slice, metadata SourceSpan) teamnote.Candidate {
 	identifier := sourceSpanIdentifier(slice, metadata.EvidenceEventIDs)
 	first := sourceSpanFirstEvent(slice, metadata.EvidenceEventIDs)
 	return teamnote.Candidate{
-		ID: "source-span-" + identifier, Action: teamnote.ActionCreate, Kind: teamnote.KindSourceSpan,
+		Action: teamnote.ActionCreate, Kind: teamnote.KindSourceSpan,
 		Subject: metadata.Subject, IdentityRef: "source-span/" + identifier,
 		Body:    sourceSpanBody(slice.Events, metadata.EvidenceEventIDs),
 		TaskRef: first.TaskRef, ThreadRef: first.ThreadRef, Origin: slice.Actor,
@@ -137,11 +134,13 @@ type sourceSpanShard struct {
 	body             string
 }
 
+// sourceSpanShardCandidate leaves Candidate.ID empty on purpose: see
+// sourceSpanCandidate.
 func sourceSpanShardCandidate(slice evidencelake.Slice, metadata SourceSpan, shard sourceSpanShard) teamnote.Candidate {
 	identifier := sourceSpanShardIdentifier(slice, shard)
 	first := sourceSpanFirstEvent(slice, shard.evidenceEventIDs)
 	return teamnote.Candidate{
-		ID: "source-span-" + identifier, Action: teamnote.ActionCreate, Kind: teamnote.KindSourceSpan,
+		Action: teamnote.ActionCreate, Kind: teamnote.KindSourceSpan,
 		Subject: metadata.Subject, IdentityRef: "source-span/" + identifier,
 		Body:    shard.body,
 		TaskRef: first.TaskRef, ThreadRef: first.ThreadRef, Origin: slice.Actor,

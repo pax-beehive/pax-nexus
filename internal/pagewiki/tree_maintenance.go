@@ -154,10 +154,20 @@ func (s *Service) processTreeTask(ctx context.Context, task treeTask) {
 // page from scratch, synchronously. It is the escape hatch for a tree that
 // incremental maintenance has drifted into a shape the team dislikes; normal
 // operation never needs it.
+//
+// Whole rebuilds are serialized on treeRebuildMu: a concurrent call waits for
+// the in-flight rebuild to finish and then rebuilds again from scratch.
+// Without this, the second rebuild's clear could wipe placements the first
+// had already committed — their queue tasks were consumed, so nothing would
+// ever re-place those pages. The mutex is dedicated to whole rebuilds:
+// per-task work only takes treeReindexMu, so ingestion and incremental
+// maintenance never stall behind a running rebuild's LLM calls.
 func (s *Service) RebuildTopicTree(ctx context.Context) error {
 	if s.treeNavigator == nil {
 		return fmt.Errorf("rebuild Page Wiki topic tree: %w: no tree navigator is configured", ErrUnavailable)
 	}
+	s.treeRebuildMu.Lock()
+	defer s.treeRebuildMu.Unlock()
 	catalog, err := s.repository.PageCatalog(ctx)
 	if err != nil {
 		return fmt.Errorf("rebuild Page Wiki topic tree: load Page catalog: %w", err)
@@ -442,7 +452,7 @@ func newChildTopic(parentID, title string, siblings []Topic) (Topic, bool) {
 		}
 	}
 	return Topic{
-		ID:       stableID("topic", parentID, slug),
+		ID:       StableID("topic", parentID, slug),
 		ParentID: parentID,
 		Slug:     slug,
 		Title:    trimmed,

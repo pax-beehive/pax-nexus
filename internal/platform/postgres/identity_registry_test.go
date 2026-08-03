@@ -2,6 +2,7 @@ package postgres_test
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"testing"
 	"time"
@@ -32,6 +33,128 @@ func (s *identityRegistryStoreSuite) TearDownSuite() {
 	if s.store != nil {
 		s.store.Close()
 	}
+}
+
+func (s *identityRegistryStoreSuite) insertActiveUserWithMembership(label string) (string, string) {
+	ctx := context.Background()
+	userID := uniqueCredentialValue(label + "-user")
+	membershipID := uniqueCredentialValue(label + "-membership")
+	_, err := s.store.Pool().Exec(ctx, `
+		INSERT INTO onprem_users (user_id, display_name, identity_status, created_at, updated_at)
+		VALUES ($1, 'Store Test User', 'active', now(), now())
+	`, userID)
+	s.Require().NoError(err)
+	_, err = s.store.Pool().Exec(ctx, `
+		INSERT INTO onprem_memberships (membership_id, user_id, role, status, joined_at, updated_at)
+		VALUES ($1, $2, 'member', 'active', now(), now())
+	`, membershipID, userID)
+	s.Require().NoError(err)
+	return userID, membershipID
+}
+
+func (s *identityRegistryStoreSuite) TestOwnedAgentMutationsDisambiguateZeroRowConflicts() {
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	ownerUserID, ownerMembershipID := s.insertActiveUserWithMembership("conflict-owner")
+	_, foreignMembershipID := s.insertActiveUserWithMembership("conflict-foreign")
+	agentID := uniqueCredentialValue("conflict-agent")
+	_, err := s.store.Pool().Exec(ctx, `
+		INSERT INTO onprem_agents (
+			agent_id, owner_membership_id, display_name, agent_type, status,
+			directory_visible, created_at, updated_at, resource_version
+		) VALUES ($1, $2, 'Conflict Agent', 'codex', 'active', false, $3, $3, 1)
+	`, agentID, ownerMembershipID, now)
+	s.Require().NoError(err)
+	actor := onprem.HumanPrincipal{UserID: ownerUserID, MembershipID: ownerMembershipID}
+	updateProfile := func(agent string, version int64) onprem.AgentProfile {
+		return onprem.AgentProfile{
+			AgentID: agent, DisplayName: "Conflict Agent", AgentType: "codex",
+			Status: onprem.AgentStatusActive, DirectoryVisible: false,
+			UpdatedAt: now.Add(time.Minute), ResourceVersion: version,
+		}
+	}
+
+	preRetirementCases := []struct {
+		name string
+		run  func() error
+		want error
+	}{
+		{name: "update missing agent", run: func() error {
+			_, err := s.store.Registry().UpdateOwnedAgent(
+				ctx, ownerMembershipID, actor, updateProfile(uniqueCredentialValue("absent-agent"), 2),
+			)
+			return err
+		}, want: onprem.ErrAgentNotFound},
+		{name: "update foreign agent", run: func() error {
+			_, err := s.store.Registry().UpdateOwnedAgent(
+				ctx, foreignMembershipID, actor, updateProfile(agentID, 2),
+			)
+			return err
+		}, want: onprem.ErrAgentNotFound},
+		{name: "update stale version", run: func() error {
+			_, err := s.store.Registry().UpdateOwnedAgent(ctx, ownerMembershipID, actor, updateProfile(agentID, 5))
+			return err
+		}, want: onprem.ErrResourceVersionConflict},
+		{name: "retire missing agent", run: func() error {
+			_, err := s.store.Registry().RetireOwnedAgent(
+				ctx, ownerMembershipID, actor, uniqueCredentialValue("absent-agent"), 1, "", now,
+			)
+			return err
+		}, want: onprem.ErrAgentNotFound},
+		{name: "retire foreign agent", run: func() error {
+			_, err := s.store.Registry().RetireOwnedAgent(ctx, foreignMembershipID, actor, agentID, 1, "", now)
+			return err
+		}, want: onprem.ErrAgentNotFound},
+		{name: "retire stale version", run: func() error {
+			_, err := s.store.Registry().RetireOwnedAgent(ctx, ownerMembershipID, actor, agentID, 7, "", now)
+			return err
+		}, want: onprem.ErrResourceVersionConflict},
+	}
+	for _, testCase := range preRetirementCases {
+		s.Run(testCase.name, func() {
+			s.Require().ErrorIs(testCase.run(), testCase.want)
+		})
+	}
+
+	retired, err := s.store.Registry().RetireOwnedAgent(ctx, ownerMembershipID, actor, agentID, 1, "", now)
+	s.Require().NoError(err)
+	s.Equal(onprem.AgentStatusRetired, retired.Status)
+
+	s.Run("update retired agent", func() {
+		_, err := s.store.Registry().UpdateOwnedAgent(
+			ctx, ownerMembershipID, actor, updateProfile(agentID, retired.ResourceVersion+1),
+		)
+		s.Require().ErrorIs(err, onprem.ErrInvalidStateTransition)
+	})
+	s.Run("retire retired agent", func() {
+		_, err := s.store.Registry().RetireOwnedAgent(
+			ctx, ownerMembershipID, actor, agentID, retired.ResourceVersion, "", now,
+		)
+		s.Require().ErrorIs(err, onprem.ErrInvalidStateTransition)
+	})
+}
+
+func (s *identityRegistryStoreSuite) TestSubjectOnlyInvitationFailsEmailAcceptanceDeterministically() {
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	_, creatorMembershipID := s.insertActiveUserWithMembership("subject-invite-creator")
+	invitationID := uniqueCredentialValue("subject-invite")
+	digest := onprem.Digest(sha256.Sum256([]byte(invitationID)))
+	s.Require().NoError(s.store.Identity().CreateInvitation(ctx, onprem.InvitationRecord{
+		InvitationID: invitationID, TokenDigest: digest, DigestKeyVersion: 1,
+		TargetIssuer: "https://identity.test", TargetSubject: uniqueCredentialValue("subject-only"),
+		Role: onprem.RoleMember, CreatedByMembershipID: creatorMembershipID,
+		CreatedAt: now, ExpiresAt: now.Add(time.Hour),
+	}))
+
+	_, err := s.store.Identity().AcceptInvitation(
+		ctx, invitationID, digest, uniqueCredentialValue("acceptor"),
+		"someone@example.com", true, "", now,
+	)
+
+	// The email acceptance flow must reject a subject-only invitation with
+	// the contract sentinel instead of failing a NULL-into-bool scan.
+	s.Require().ErrorIs(err, onprem.ErrInvitationInvalid)
 }
 
 func (s *identityRegistryStoreSuite) TestBootstrapRejectsAnExistingActiveOwner() {

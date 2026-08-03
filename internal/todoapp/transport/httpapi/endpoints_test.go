@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"log/slog"
 	"net/http"
 	"testing"
 	"time"
@@ -353,6 +356,57 @@ func TestGivenInvalidTransitionWhenDismissTodoSuggestionThenConflict(t *testing.
 	var body map[string]any
 	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
 	require.Equal(t, "invalid_transition", body["code"])
+}
+
+// TestGivenUnknownServiceErrorThenDetailIsLoggedNotExposed pins the info
+// disclosure fix: an unmapped error (e.g. raw Postgres text) must reach the
+// handler's logger but never the browser, mirroring the teamnote handler.
+func TestGivenUnknownServiceErrorThenDetailIsLoggedNotExposed(t *testing.T) {
+	t.Parallel()
+	fake := &fakeService{listErr: errors.New(`pq: password authentication failed for user "todo"`)}
+	// A nil logger option input keeps the default and must not panic.
+	nilLoggerHandler, err := httpapi.New(fake,
+		fakeAuthenticator{principal: onprem.HumanPrincipal{UserID: "user-1"}}, httpapi.WithLogger(nil))
+	require.NoError(t, err)
+	require.NotNil(t, nilLoggerHandler)
+
+	var logs bytes.Buffer
+	handler, err := httpapi.New(fake, fakeAuthenticator{principal: onprem.HumanPrincipal{UserID: "user-1"}},
+		httpapi.WithLogger(slog.New(slog.NewJSONHandler(&logs, nil))))
+	require.NoError(t, err)
+	hertz := server.New()
+	hertz.Use(httpapi.InstanceMiddleware(handler))
+	todoapprouter.Register(hertz)
+
+	response := performJSON(hertz, http.MethodGet, "/v1/todo/todos", "", sessionCookieHeader())
+
+	require.Equal(t, http.StatusInternalServerError, response.Code)
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
+	require.Equal(t, "internal_error", body["code"])
+	require.Equal(t, "the request could not be completed", body["message"])
+	require.NotContains(t, response.Body.String(), "password")
+	require.Contains(t, logs.String(), "password authentication failed")
+}
+
+// TestGivenRefreshInProgressThenConflictIsReturned maps the domain's
+// single-flight refresh outcome onto the wire: 409 with a stable code the
+// portal can turn into "refresh already running".
+func TestGivenRefreshInProgressThenConflictIsReturned(t *testing.T) {
+	t.Parallel()
+	fake := &fakeService{refreshErr: fmt.Errorf("refresh suggestions for scope s: %w", todoapp.ErrRefreshInProgress)}
+	hertz := newTestServer(t, fake, fakeAuthenticator{principal: onprem.HumanPrincipal{UserID: "user-1"}})
+
+	response := performJSON(
+		hertz, http.MethodPost, "/v1/todo/suggestions/refresh", "",
+		sessionCookieHeader(),
+		ut.Header{Key: "X-CSRF-Token", Value: csrfValue},
+	)
+
+	require.Equal(t, http.StatusConflict, response.Code)
+	var body map[string]any
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
+	require.Equal(t, "refresh_in_progress", body["code"])
 }
 
 // TestGivenScopedPrincipalThenHandlerThreadsScopeToService is the regression

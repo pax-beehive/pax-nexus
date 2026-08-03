@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pax-beehive/pax-nexus/internal/pagewiki"
@@ -121,10 +122,17 @@ type Controller struct {
 	mu           sync.Mutex
 	failures     map[string]failureRecord
 	now          func() time.Time
+	// injectWaiters counts manual InjectSession callers currently waiting for
+	// mu. The scan yields to them at the same points it yields to a queued
+	// rebuild: a user-facing inject must never sit behind a whole backlog
+	// sweep of multi-minute LLM injections.
+	injectWaiters atomic.Int64
 	// stateMu guards rebuilds below. It is separate from mu so status reads
 	// never wait behind a minutes-long injection scan.
 	stateMu  sync.Mutex
 	rebuilds map[string]*scopeRebuild
+	cancel   context.CancelFunc
+	done     chan struct{}
 }
 
 func New(
@@ -152,8 +160,13 @@ func New(
 	}, nil
 }
 
+// Start launches the background consume loop. It stops when ctx is
+// cancelled or Stop is called.
 func (c *Controller) Start(ctx context.Context) {
-	go func() {
+	ctx, c.cancel = context.WithCancel(ctx)
+	c.done = make(chan struct{})
+	go func(done chan struct{}) {
+		defer close(done)
 		c.tick(ctx)
 		ticker := time.NewTicker(c.interval)
 		defer ticker.Stop()
@@ -167,7 +180,24 @@ func (c *Controller) Start(ctx context.Context) {
 				c.tick(ctx)
 			}
 		}
-	}()
+	}(c.done)
+}
+
+// Stop cancels the consume loop and waits for the background goroutine to
+// exit, bounded by ctx. An in-flight injection or rebuild observes the same
+// cancelled context. Stopping a controller that was never started is a
+// no-op.
+func (c *Controller) Stop(ctx context.Context) error {
+	if c.cancel == nil {
+		return nil
+	}
+	c.cancel()
+	select {
+	case <-c.done:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("stop Page Wiki session consumer: %w", ctx.Err())
+	}
 }
 
 func (c *Controller) tick(ctx context.Context) {
@@ -203,9 +233,18 @@ func (c *Controller) SetAutoInject(ctx context.Context, scopeID string, enabled 
 // Rebuild arms scopeID's own rebuild slot. A scope whose rebuild is already
 // queued or running keeps its armed cutoff and reads back its current state,
 // so repeated requests merge — per scope, independently of every other one.
-func (c *Controller) Rebuild(_ context.Context, scopeID string, since time.Time) (Status, error) {
+//
+// The response's AutoInject reflects the store: the rebuild itself enables
+// ingestion only when its commit succeeds (postgres Repository
+// RebuildPageWiki), so a queued — or later failed — rebuild must not report
+// auto_inject as already on.
+func (c *Controller) Rebuild(ctx context.Context, scopeID string, since time.Time) (Status, error) {
 	if strings.TrimSpace(scopeID) == "" {
 		return Status{}, fmt.Errorf("rebuild Page Wiki: scope is required")
+	}
+	enabled, err := c.store.AutoInjectEnabled(ctx, scopeID)
+	if err != nil {
+		return Status{}, fmt.Errorf("rebuild Page Wiki: read ingestion status: %w", err)
 	}
 	c.stateMu.Lock()
 	entry, found := c.rebuilds[scopeID]
@@ -223,7 +262,7 @@ func (c *Controller) Rebuild(_ context.Context, scopeID string, since time.Time)
 	case c.trigger <- struct{}{}:
 	default:
 	}
-	return Status{AutoInject: true, Rebuild: snapshot}, nil
+	return Status{AutoInject: enabled, Rebuild: snapshot}, nil
 }
 
 // maybeRebuild drains the scopes with a queued rebuild on the consumer
@@ -331,6 +370,12 @@ func (c *Controller) rebuildQueued() bool {
 	return false
 }
 
+// injectWaiting reports whether a manual InjectSession call is waiting for
+// mu; the scan yields to it exactly like it yields to a queued rebuild.
+func (c *Controller) injectWaiting() bool {
+	return c.injectWaiters.Load() > 0
+}
+
 func (c *Controller) InjectSession(
 	ctx context.Context,
 	scopeID string,
@@ -346,7 +391,11 @@ func (c *Controller) InjectSession(
 	if len(streams) == 0 {
 		return InjectResult{}, ErrSessionNotFound
 	}
+	// Register as a waiter before taking mu so an in-flight scan yields at
+	// its next between-streams checkpoint instead of finishing the sweep.
+	c.injectWaiters.Add(1)
 	c.mu.Lock()
+	c.injectWaiters.Add(-1)
 	defer c.mu.Unlock()
 	for _, stream := range streams {
 		delete(c.failures, streamKey(stream))
@@ -367,10 +416,11 @@ func (c *Controller) scan(ctx context.Context) {
 	}
 	now := c.now()
 	for _, stream := range streams {
-		// A queued rebuild wipes everything this pass would build; yield
-		// the lock now instead of after the whole backlog. The remaining
-		// streams are picked up by the next tick.
-		if c.rebuildQueued() {
+		// A queued rebuild wipes everything this pass would build, and a
+		// waiting manual inject is a user staring at a spinner; yield the
+		// lock now instead of after the whole backlog. The remaining streams
+		// are picked up by the next tick.
+		if c.rebuildQueued() || c.injectWaiting() {
 			return
 		}
 		if c.backedOff(stream, now) {

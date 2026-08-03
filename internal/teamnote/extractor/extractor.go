@@ -23,7 +23,6 @@ const (
 	ProviderCallPrimary    ProviderCallType = "primary"
 	ProviderCallSummary    ProviderCallType = "summary"
 	ProviderCallCompaction ProviderCallType = "compaction"
-	ProviderCallVerifier   ProviderCallType = "verifier"
 )
 
 type ProviderFailureClass string

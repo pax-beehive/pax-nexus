@@ -127,3 +127,31 @@ func (s *sourceSpanSuite) TestFallsBackToDeterministicMetadataWhenModelOmitsIt()
 	s.Empty(result.Candidates[0].RelatedSubjects)
 	s.Contains(result.Candidates[0].Body, "Tests are failing.")
 }
+
+func (s *sourceSpanSuite) TestProposalOnlyEventStillProducesSourceSpanShard() {
+	tests := []struct {
+		name     string
+		strategy string
+	}{
+		{name: "source span v1", strategy: extractor.CandidateStrategySourceSpanV1},
+		{name: "source span v2 shards", strategy: extractor.CandidateStrategySourceSpanV2},
+	}
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			client := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+				return response(http.StatusOK, sourceSpanBody("release proposal", `"release"`)), nil
+			})}
+			adapter := newSourceSpanAdapterWithStrategy(s, client, test.strategy)
+			slice := v2Slice()
+			slice.Events[0].Content = "I propose we ship Friday"
+
+			result, err := adapter.Extract(teamnote.WithScope(context.Background(), "source-span-proposal-"+test.strategy), slice)
+
+			s.Require().NoError(err)
+			s.Empty(result.Rejections, "a proposal remains source text and must not be dropped")
+			s.Require().Len(result.Candidates, 1)
+			s.Equal(teamnote.KindSourceSpan, result.Candidates[0].Kind)
+			s.Contains(result.Candidates[0].Body, "I propose we ship Friday")
+		})
+	}
+}

@@ -256,9 +256,7 @@ func (e *OpenAI) advanceEpisodeAttempt(ctx context.Context, key EpisodeKey, slic
 	episode.Runs[slice.InputChecksum] = EpisodeRun{Response: raw, Ordinal: episode.EventCount}
 	pruneEpisodeRuns(episode.Runs, 64)
 	if err := e.config.EpisodeStore.SaveEpisode(ctx, episode, expectedVersion); err != nil {
-		if errors.Is(err, ErrEpisodeConflict) {
-			return Result{}, fmt.Errorf("save rolling extraction episode: %w", err)
-		}
+		// ErrEpisodeConflict stays in the chain so advanceEpisode can retry.
 		return Result{}, fmt.Errorf("save rolling extraction episode: %w", err)
 	}
 	episode.Version = expectedVersion + 1
@@ -281,10 +279,10 @@ func (e *OpenAI) boundEpisodeMessages(
 	ctx context.Context,
 	key EpisodeKey,
 	episode *Episode,
-	systemPrompt, prompt string,
+	system, prompt string,
 	expectedVersion int64,
 ) ([]chatMessage, int64, error) {
-	messages, err := episodeMessages(*episode, systemPrompt)
+	messages, err := episodeMessages(*episode, system)
 	if err != nil {
 		return nil, expectedVersion, fmt.Errorf("build rolling extraction context: %w", err)
 	}
@@ -293,7 +291,7 @@ func (e *OpenAI) boundEpisodeMessages(
 	if err != nil || !trimmed {
 		return messages, expectedVersion, err
 	}
-	messages, err = episodeMessages(*episode, systemPrompt)
+	messages, err = episodeMessages(*episode, system)
 	if err != nil {
 		return nil, expectedVersion, fmt.Errorf("build rolling extraction context: %w", err)
 	}
@@ -332,7 +330,7 @@ func (e *OpenAI) boundEpisodePrompt(
 	}
 	after := overhead + messageTokens(trimmed)
 	episode.Messages = trimmed
-	episode.EstimatedTokens = estimateEpisodeTokens(episode.Checkpoint, trimmed)
+	episode.EstimatedTokens = estimateEpisodeTokens(e.systemPrompt(), episode.Checkpoint, trimmed)
 	if err := e.config.EpisodeStore.SaveEpisode(ctx, *episode, expectedVersion); err != nil {
 		return expectedVersion, false, fmt.Errorf("trim rolling extraction episode to prompt cap: %w", err)
 	}
@@ -434,7 +432,7 @@ func (e *OpenAI) prepareEpisode(ctx context.Context, key EpisodeKey, episode *Ep
 	}
 	result, flightErr := e.consumeCompaction(key, flight)
 	if flightErr == nil {
-		if applyErr := applyCompaction(episode, result); applyErr == nil {
+		if applyErr := applyCompaction(e.systemPrompt(), episode, result); applyErr == nil {
 			return result.usage, nil
 		} else {
 			flightErr = applyErr
@@ -448,7 +446,7 @@ func (e *OpenAI) prepareEpisode(ctx context.Context, key EpisodeKey, episode *Ep
 	}
 	result, err = e.computeCompaction(ctx, *episode)
 	if err == nil {
-		if applyErr := applyCompaction(episode, result); applyErr == nil {
+		if applyErr := applyCompaction(e.systemPrompt(), episode, result); applyErr == nil {
 			return result.usage, nil
 		} else {
 			err = applyErr
@@ -457,7 +455,7 @@ func (e *OpenAI) prepareEpisode(ctx context.Context, key EpisodeKey, episode *Ep
 	if !errors.Is(err, ErrEpisodeConflict) {
 		recordCompactionFailure(episode, err)
 	}
-	dropped := truncateEpisodeMessages(episode, e.config.CompactStartTokens)
+	dropped := e.truncateEpisodeMessages(episode, e.config.CompactStartTokens)
 	slog.WarnContext(ctx, "extraction compaction failed; truncated episode deterministically",
 		"scope_id", key.ScopeID, "task_ref", key.TaskRef, "thread_ref", key.ThreadRef,
 		"dropped_messages", dropped, "error", err)
@@ -545,7 +543,7 @@ func (e *OpenAI) computeCompaction(ctx context.Context, episode Episode) (compac
 	}, nil
 }
 
-func applyCompaction(episode *Episode, result compactionResult) error {
+func applyCompaction(system string, episode *Episode, result compactionResult) error {
 	if result.baseMessageCount > len(episode.Messages) ||
 		digestMessages(episode.Messages[:result.baseMessageCount]) != result.baseDigest {
 		return fmt.Errorf("apply extraction compaction: snapshot is stale: %w", ErrEpisodeConflict)
@@ -561,7 +559,7 @@ func applyCompaction(episode *Episode, result compactionResult) error {
 	result.checkpoint.CompactionLastError = episode.Checkpoint.CompactionLastError
 	episode.Checkpoint = result.checkpoint
 	episode.Messages = tail
-	episode.EstimatedTokens = estimateEpisodeTokens(result.checkpoint, tail)
+	episode.EstimatedTokens = estimateEpisodeTokens(system, result.checkpoint, tail)
 	episode.CompactionCount++
 	return nil
 }
@@ -575,15 +573,15 @@ func recordCompactionFailure(episode *Episode, err error) {
 	episode.Checkpoint.CompactionLastError = message
 }
 
-func truncateEpisodeMessages(episode *Episode, limit int) int {
+func (e *OpenAI) truncateEpisodeMessages(episode *Episode, limit int) int {
 	dropped := 0
 	for len(episode.Messages) > 1 &&
-		estimateEpisodeTokens(episode.Checkpoint, episode.Messages) >= limit {
+		estimateEpisodeTokens(e.systemPrompt(), episode.Checkpoint, episode.Messages) >= limit {
 		episode.Messages = episode.Messages[1:]
 		dropped++
 	}
 	episode.Checkpoint.CompactionTruncations++
-	episode.EstimatedTokens = estimateEpisodeTokens(episode.Checkpoint, episode.Messages)
+	episode.EstimatedTokens = estimateEpisodeTokens(e.systemPrompt(), episode.Checkpoint, episode.Messages)
 	return dropped
 }
 
@@ -595,8 +593,11 @@ func digestMessages(messages []EpisodeMessage) [sha256.Size]byte {
 	return sha256.Sum256(encoded)
 }
 
-func estimateEpisodeTokens(checkpoint Checkpoint, messages []EpisodeMessage) int {
-	total := estimateTokens(rollingSystemPrompt)
+// estimateEpisodeTokens estimates one episode request under the given system
+// prompt, so the active protocol's prompt is charged rather than a uniform v1
+// offset.
+func estimateEpisodeTokens(system string, checkpoint Checkpoint, messages []EpisodeMessage) int {
+	total := estimateTokens(system)
 	if hasCheckpoint(checkpoint) {
 		encoded, err := checkpointJSON(checkpoint)
 		if err == nil {
@@ -628,22 +629,16 @@ func episodeMessages(episode Episode, system string) ([]chatMessage, error) {
 }
 
 func decodeCheckpoint(body []byte) (Checkpoint, Usage, error) {
-	var response chatResponse
-	if err := json.Unmarshal(body, &response); err != nil || len(response.Choices) == 0 {
-		return Checkpoint{}, Usage{}, fmt.Errorf("decode compaction response: %w", ErrInvalidModelResponse)
+	content, usage, err := decodeChatContent(body)
+	if err != nil {
+		return Checkpoint{}, Usage{}, fmt.Errorf("decode compaction response: %w", err)
 	}
-	content := trimCodeFence(response.Choices[0].Message.Content)
 	var checkpoint Checkpoint
 	if err := json.Unmarshal([]byte(content), &checkpoint); err != nil {
 		return Checkpoint{}, Usage{}, fmt.Errorf("decode extraction checkpoint: %w", errors.Join(ErrInvalidModelResponse, err))
 	}
 	if checkpoint.ActiveKnowledge == nil || checkpoint.ResolvedKnowledge == nil || checkpoint.OpenQuestions == nil {
 		return Checkpoint{}, Usage{}, fmt.Errorf("decode extraction checkpoint: required collections are missing: %w", ErrInvalidModelResponse)
-	}
-	usage := Usage{
-		InputTokens: response.Usage.PromptTokens, OutputTokens: response.Usage.CompletionTokens,
-		PromptCacheHitTokens:  response.Usage.PromptCacheHitTokens,
-		PromptCacheMissTokens: response.Usage.PromptCacheMissTokens,
 	}
 	return checkpoint, usage, nil
 }
@@ -813,7 +808,7 @@ func addUsage(target *Usage, addition Usage) {
 	target.PromptCacheMissTokens += addition.PromptCacheMissTokens
 }
 
-const rollingSystemPrompt = systemPrompt + `
+const rollingSystemPrompt = sliceSystemPrompt + `
 You are maintaining one cumulative knowledge state for a task or thread across
 multiple agents and sessions. Previous assistant responses are your own prior
 state transitions. Reuse the same identity_ref for the same real-world fact,

@@ -50,11 +50,12 @@ type ServiceManager struct {
 	repositories RepositoryResolver
 	config       ServiceManagerConfig
 
-	mu             sync.Mutex
-	entries        map[string]*serviceEntry
-	services       map[string]*Service // for Start: services built before it ran
-	started        bool
-	maintenanceCtx context.Context
+	mu                sync.Mutex
+	entries           map[string]*serviceEntry
+	services          map[string]*Service // for Start: services built before it ran
+	started           bool
+	maintenanceCtx    context.Context
+	cancelMaintenance context.CancelFunc
 }
 
 // NewServiceManager builds a ServiceManager over repositories. repositories
@@ -121,10 +122,27 @@ func (m *ServiceManager) ForScope(ctx context.Context, scopeID string) (*Service
 func (m *ServiceManager) Start(ctx context.Context) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	ctx, cancel := context.WithCancel(ctx)
 	m.started = true
 	m.maintenanceCtx = ctx
+	m.cancelMaintenance = cancel
 	for _, service := range m.services {
 		service.StartTreeMaintenance(ctx)
 		service.StartCurationMaintenance(ctx)
+	}
+}
+
+// Stop cancels the maintenance context recorded by Start, stopping every
+// per-scope Service's background tree/curation loop at its next select. The
+// loops are fire-and-forget by design — pending tree tasks are dropped on
+// cancellation (see Service.StartTreeMaintenance) and in-flight work
+// observes the same cancelled context — so Stop does not wait on them.
+// Stopping a manager that was never started is a no-op.
+func (m *ServiceManager) Stop() {
+	m.mu.Lock()
+	cancel := m.cancelMaintenance
+	m.mu.Unlock()
+	if cancel != nil {
+		cancel()
 	}
 }

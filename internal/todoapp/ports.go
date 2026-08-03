@@ -9,6 +9,9 @@ var (
 	ErrNotFound          = errors.New("todoapp: not found")
 	ErrInvalidInput      = errors.New("todoapp: invalid input")
 	ErrInvalidTransition = errors.New("todoapp: invalid transition")
+	// ErrRefreshInProgress reports that another RefreshSuggestions call for
+	// the same scope is still running; the caller should retry later.
+	ErrRefreshInProgress = errors.New("todoapp: suggestion refresh already in progress")
 )
 
 type Repository interface {

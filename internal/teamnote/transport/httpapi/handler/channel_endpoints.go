@@ -3,7 +3,6 @@ package handler
 import (
 	"context"
 	"errors"
-	"strconv"
 	"strings"
 	"time"
 
@@ -76,7 +75,7 @@ func (h *Handler) ListChannelEnvelopes(ctx context.Context, c *app.RequestContex
 	if !ok {
 		return
 	}
-	limit, err := channelQueryLimit(c)
+	limit, err := queryLimit(c)
 	if err != nil {
 		c.String(consts.StatusBadRequest, "invalid channel envelope limit")
 		return
@@ -185,14 +184,6 @@ func channelOperationFailure(err error) (operations.Outcome, string) {
 	default:
 		return operationFailure(err)
 	}
-}
-
-func channelQueryLimit(c *app.RequestContext) (int, error) {
-	raw := strings.TrimSpace(string(c.QueryArgs().Peek("limit")))
-	if raw == "" {
-		return 0, nil
-	}
-	return strconv.Atoi(raw)
 }
 
 func (h *Handler) writeChannelError(ctx context.Context, c *app.RequestContext, operation string, err error) {

@@ -177,14 +177,12 @@ func (s *registrySuite) TestOptimisticConcurrencyAndLifecycleValidation() {
 	s.Require().NoError(err)
 
 	name := "Updated"
-	active := onprem.AgentStatusActive
 	retired := onprem.AgentStatusRetired
 	tests := []struct {
 		name    string
 		request onprem.UpdateAgentRequest
 	}{
 		{name: "stale resource version", request: onprem.UpdateAgentRequest{DisplayName: &name, ResourceVersion: 2}},
-		{name: "invalid active transition", request: onprem.UpdateAgentRequest{Status: &active, ResourceVersion: 1}},
 		{name: "retire requires delete", request: onprem.UpdateAgentRequest{Status: &retired, ResourceVersion: 1}},
 	}
 	for _, test := range tests {
@@ -195,6 +193,43 @@ func (s *registrySuite) TestOptimisticConcurrencyAndLifecycleValidation() {
 			} else {
 				s.Require().ErrorIs(updateErr, onprem.ErrInvalidStateTransition)
 			}
+		})
+	}
+}
+
+// TestSameStatusUpdateIsAcceptedAsNoOp pins the idempotent status contract in
+// both directions: active->active and suspended->suspended are accepted
+// no-ops (suspended->suspended always was; active->active used to be
+// rejected with ErrInvalidStateTransition while meaning the same thing).
+func (s *registrySuite) TestSameStatusUpdateIsAcceptedAsNoOp() {
+	principal := activeMember()
+	created, err := s.service.CreateAgent(context.Background(), principal, onprem.CreateAgentRequest{
+		AgentID: "idempotent", DisplayName: "Idempotent",
+	})
+	s.Require().NoError(err)
+
+	active := onprem.AgentStatusActive
+	suspended := onprem.AgentStatusSuspended
+	steps := []struct {
+		name   string
+		status *onprem.AgentStatus
+		want   onprem.AgentStatus
+	}{
+		{name: "active to active", status: &active, want: onprem.AgentStatusActive},
+		{name: "active to suspended", status: &suspended, want: onprem.AgentStatusSuspended},
+		{name: "suspended to suspended", status: &suspended, want: onprem.AgentStatusSuspended},
+		{name: "suspended to active", status: &active, want: onprem.AgentStatusActive},
+	}
+	current := created
+	for _, step := range steps {
+		s.Run(step.name, func() {
+			updated, updateErr := s.service.UpdateOwnedAgent(
+				context.Background(), principal, created.AgentID,
+				onprem.UpdateAgentRequest{Status: step.status, ResourceVersion: current.ResourceVersion},
+			)
+			s.Require().NoError(updateErr)
+			s.Equal(step.want, updated.Status)
+			current = updated
 		})
 	}
 }

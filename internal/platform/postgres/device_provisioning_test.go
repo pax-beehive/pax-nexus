@@ -891,11 +891,13 @@ func (s *deviceProvisioningStoreSuite) TestListDevicesCountsAndStatusFilter() {
 // handler uses to build next_cursor). agent_credentials is a shared,
 // never-truncated table this whole package's suites (and repeated runs of
 // this very test) accumulate rows into, so this test does not assume our
-// three devices are the only rows: it fetches the full global ordering,
-// asserts the DESC/credential_id-ASC keyset invariant holds across every
-// row, locates our three devices by relative position within that full
-// list, and verifies cursor continuation reproduces the full list's own
-// next row exactly -- both around our devices and independent of them.
+// three devices are the only rows -- or that the table fits in one page: it
+// cursor-pages through the full global ordering exactly the way the HTTP
+// handler would, asserts the DESC/credential_id-ASC keyset invariant holds
+// across every row, locates our three devices by relative position within
+// that full list, and verifies cursor continuation reproduces the full
+// list's own next row exactly -- both around our devices and independent of
+// them.
 func (s *deviceProvisioningStoreSuite) TestListDevicesOrdersNewestFirstAndCursorPagesThroughOwnRows() {
 	ctx := context.Background()
 	services := s.newProvisioningServices(16)
@@ -906,9 +908,20 @@ func (s *deviceProvisioningStoreSuite) TestListDevicesOrdersNewestFirstAndCursor
 	*services.now = services.now.Add(time.Hour)
 	newest := s.enrollDevice(services)
 
-	full, err := s.store.Registry().ListDevices(ctx, onprem.DeviceFilter{Status: "active", Limit: 1000})
-	s.Require().NoError(err)
-	s.Require().Less(len(full), 1000, "the fixture's Limit must exceed the table's active device count")
+	const pageSize = 100
+	var full []onprem.DeviceSummary
+	for cursor := ""; ; {
+		page, err := s.store.Registry().ListDevices(
+			ctx, onprem.DeviceFilter{Status: "active", Limit: pageSize, Cursor: cursor},
+		)
+		s.Require().NoError(err)
+		full = append(full, page...)
+		if len(page) < pageSize {
+			break
+		}
+		last := page[len(page)-1]
+		cursor = onprem.EncodeDeviceCursor(last.CreatedAt, last.CredentialID)
+	}
 
 	// created_at must be non-increasing across the whole result (the DESC
 	// half of the keyset). The credential_id tie-break is verified below via

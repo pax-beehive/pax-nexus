@@ -407,11 +407,15 @@ func lockInvitationAcceptance(
 	now time.Time,
 ) (invitationAcceptanceState, error) {
 	var state invitationAcceptanceState
+	// target_email is nullable (migration 017 allows subject-only
+	// invitations), so the email comparison is coalesced to false: a
+	// subject-only invitation is deterministically rejected by the email
+	// acceptance flow instead of failing the NULL-into-bool scan.
 	err := tx.QueryRow(ctx, `
 		SELECT invitation_id, role, created_by_membership_id,
 		       expires_at <= $3, revoked_at IS NOT NULL,
 		       COALESCE(accepted_by_user_id, ''), COALESCE(created_membership_id, ''),
-		       lower(target_email) = lower($4)
+		       COALESCE(lower(target_email) = lower($4), false)
 		FROM onprem_membership_invitations
 		WHERE invitation_id = $1 AND token_digest = $2
 		FOR UPDATE

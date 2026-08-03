@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -458,6 +460,145 @@ func (s *identityRegistryHandlerSuite) TestAdminAgentResponsesIncludeProvisioned
 	s.Contains(provisionedGet.Body.String(), `"provisioned_by":"device-credential-1"`)
 }
 
+// TestMutationResourceVersionResolution walks mutationResourceVersion's
+// If-Match/body matrix through UpdateMember: weak and quoted ETags parse,
+// header and body must agree when both are present, garbage answers 400,
+// and a missing version is rejected. The generated wire model marks
+// resource_version required, so most rows carry it in the body and the
+// header path is exercised as agreement/precedence.
+func (s *identityRegistryHandlerSuite) TestMutationResourceVersionResolution() {
+	tests := []struct {
+		name        string
+		ifMatch     string
+		body        string
+		wantStatus  int
+		wantVersion int64
+	}{
+		{name: "weak ETag agreeing with body", ifMatch: `W/"3"`,
+			body: `{"status":"suspended","resource_version":3}`, wantStatus: consts.StatusOK, wantVersion: 3},
+		{name: "quoted ETag agreeing with body", ifMatch: `"5"`,
+			body: `{"status":"suspended","resource_version":5}`, wantStatus: consts.StatusOK, wantVersion: 5},
+		{name: "bare header version agreeing with body", ifMatch: `7`,
+			body: `{"status":"suspended","resource_version":7}`, wantStatus: consts.StatusOK, wantVersion: 7},
+		{name: "body version only", ifMatch: "",
+			body: `{"status":"suspended","resource_version":2}`, wantStatus: consts.StatusOK, wantVersion: 2},
+		{name: "quoted ETag disagreeing with body", ifMatch: `"3"`,
+			body: `{"status":"suspended","resource_version":4}`, wantStatus: consts.StatusBadRequest},
+		{name: "garbage header", ifMatch: `garbage`,
+			body: `{"status":"suspended","resource_version":1}`, wantStatus: consts.StatusBadRequest},
+		{name: "non-positive header version", ifMatch: `W/"0"`,
+			body: `{"status":"suspended","resource_version":1}`, wantStatus: consts.StatusBadRequest},
+		// resource_version is required at the binding layer, so omitting it
+		// (with no header) is rejected before mutationResourceVersion runs.
+		{name: "missing everywhere", ifMatch: "",
+			body: `{"status":"suspended"}`, wantStatus: consts.StatusBadRequest},
+	}
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			headers := []ut.Header{
+				{Key: "Cookie", Value: "tm_human_session=session; tm_csrf=csrf"},
+				{Key: "X-CSRF-Token", Value: "csrf"},
+			}
+			if test.ifMatch != "" {
+				headers = append(headers, ut.Header{Key: "If-Match", Value: test.ifMatch})
+			}
+			s.identity.lastUpdateMemberRequest = onprem.UpdateMemberRequest{}
+
+			response := s.performGenerated(http.MethodPatch, "/v1/admin/members/member-membership",
+				test.body, headers...)
+
+			s.Equal(test.wantStatus, response.Code)
+			if test.wantStatus == consts.StatusOK {
+				s.Equal(test.wantVersion, s.identity.lastUpdateMemberRequest.ResourceVersion,
+					"the resolved resource version must reach the service")
+			} else {
+				s.Contains(response.Body.String(), `"code":"invalid_request"`)
+				s.Zero(s.identity.lastUpdateMemberRequest.ResourceVersion,
+					"a rejected request must not reach the service")
+			}
+		})
+	}
+}
+
+// TestWriteHumanErrorSentinelTable pins writeHumanError's full sentinel to
+// status/code contract, exercised through UpdateMember.
+func (s *identityRegistryHandlerSuite) TestWriteHumanErrorSentinelTable() {
+	headers := []ut.Header{
+		{Key: "Cookie", Value: "tm_human_session=session; tm_csrf=csrf"},
+		{Key: "X-CSRF-Token", Value: "csrf"},
+	}
+	tests := []struct {
+		err        error
+		wantStatus int
+		wantCode   string
+	}{
+		{err: onprem.ErrUnauthorized, wantStatus: consts.StatusUnauthorized, wantCode: "unauthorized"},
+		{err: onprem.ErrForbidden, wantStatus: consts.StatusForbidden, wantCode: "forbidden"},
+		{err: onprem.ErrAgentNotFound, wantStatus: consts.StatusNotFound, wantCode: "agent_not_found"},
+		{err: onprem.ErrAuditEventNotFound, wantStatus: consts.StatusNotFound, wantCode: "audit_event_not_found"},
+		{err: onprem.ErrCredentialNotFound, wantStatus: consts.StatusNotFound, wantCode: "credential_not_found"},
+		{err: onprem.ErrLastActiveOwner, wantStatus: consts.StatusConflict, wantCode: "last_active_owner"},
+		{err: onprem.ErrResourceVersionConflict, wantStatus: consts.StatusConflict, wantCode: "resource_version_conflict"},
+		{err: onprem.ErrAgentIDConflict, wantStatus: consts.StatusConflict, wantCode: "agent_id_conflict"},
+		{err: onprem.ErrIdempotencyConflict, wantStatus: consts.StatusConflict, wantCode: "idempotency_conflict"},
+		{err: onprem.ErrInvalidStateTransition, wantStatus: consts.StatusConflict, wantCode: "invalid_state_transition"},
+		{err: onprem.ErrBootstrapClosed, wantStatus: consts.StatusConflict, wantCode: "bootstrap_closed"},
+		{err: onprem.ErrMembershipConflict, wantStatus: consts.StatusConflict, wantCode: "membership_conflict"},
+		{err: onprem.ErrAgentConflict, wantStatus: consts.StatusConflict, wantCode: "agent_conflict"},
+		{err: onprem.ErrInvitationInvalid, wantStatus: consts.StatusGone, wantCode: "invitation_gone"},
+		{err: onprem.ErrEnrollmentInvalid, wantStatus: consts.StatusGone, wantCode: "enrollment_gone"},
+		{err: onprem.ErrInvalidIdentityInput, wantStatus: consts.StatusUnprocessableEntity, wantCode: "invalid_input"},
+		{err: errors.New("pg: password authentication failed"), wantStatus: consts.StatusInternalServerError, wantCode: "internal_error"},
+	}
+	for _, test := range tests {
+		s.Run(test.wantCode+"/"+test.err.Error(), func() {
+			s.identity.updateMemberErr = test.err
+			defer func() { s.identity.updateMemberErr = nil }()
+
+			response := s.performGenerated(http.MethodPatch, "/v1/admin/members/member-membership",
+				`{"status":"suspended","resource_version":1}`, headers...)
+
+			s.Equal(test.wantStatus, response.Code)
+			s.Contains(response.Body.String(), `"code":"`+test.wantCode+`"`)
+			s.NotContains(response.Body.String(), "password", "internal detail must never reach the browser")
+		})
+	}
+}
+
+// TestLogoutHumanCSRFAndCookieClearing pins LogoutHuman's two outcomes: an
+// invalid CSRF token answers 403 and leaves the session untouched, while a
+// valid logout clears both the session and CSRF cookies.
+func (s *identityRegistryHandlerSuite) TestLogoutHumanCSRFAndCookieClearing() {
+	invalid := s.performGenerated(http.MethodPost, "/v1/auth/logout", `{}`,
+		ut.Header{Key: "Cookie", Value: "tm_human_session=session; tm_csrf=csrf"},
+		ut.Header{Key: "X-CSRF-Token", Value: "wrong"})
+	s.Equal(consts.StatusForbidden, invalid.Code)
+	s.Contains(invalid.Body.String(), `"code":"csrf_invalid"`)
+	s.False(s.identity.loggedOut, "an invalid CSRF token must leave the session alone")
+	s.Empty(setCookieValues(invalid), "a rejected logout must not touch cookies")
+
+	success := s.performGenerated(http.MethodPost, "/v1/auth/logout", `{}`,
+		ut.Header{Key: "Cookie", Value: "tm_human_session=session; tm_csrf=csrf"},
+		ut.Header{Key: "X-CSRF-Token", Value: "csrf"})
+	s.Equal(consts.StatusOK, success.Code)
+	s.True(s.identity.loggedOut)
+	cookies := strings.Join(setCookieValues(success), "\n")
+	s.Contains(cookies, "tm_human_session=;", "the session cookie must be cleared")
+	s.Contains(cookies, "tm_csrf=;", "the CSRF cookie must be cleared")
+}
+
+// setCookieValues collects every Set-Cookie header value from a recorded
+// response (protocol.ResponseHeader has no multi-value getter).
+func setCookieValues(response *ut.ResponseRecorder) []string {
+	var values []string
+	response.Header().VisitAll(func(key, value []byte) {
+		if string(key) == "Set-Cookie" {
+			values = append(values, string(value))
+		}
+	})
+	return values
+}
+
 func (s *identityRegistryHandlerSuite) performGenerated(
 	method string,
 	path string,
@@ -480,6 +621,10 @@ type humanIdentityService struct {
 	loggedOut              bool
 	acceptedIdempotencyKey string
 	updateMemberErr        error
+
+	// lastUpdateMemberRequest records the domain request UpdateMember
+	// received, so tests can assert resource-version resolution.
+	lastUpdateMemberRequest onprem.UpdateMemberRequest
 }
 
 func (s *humanIdentityService) Login(
@@ -575,11 +720,12 @@ func (s *humanIdentityService) GetMember(
 }
 
 func (s *humanIdentityService) UpdateMember(
-	context.Context,
-	onprem.HumanPrincipal,
-	string,
-	onprem.UpdateMemberRequest,
+	_ context.Context,
+	_ onprem.HumanPrincipal,
+	_ string,
+	request onprem.UpdateMemberRequest,
 ) (onprem.Member, error) {
+	s.lastUpdateMemberRequest = request
 	if s.updateMemberErr != nil {
 		return onprem.Member{}, s.updateMemberErr
 	}

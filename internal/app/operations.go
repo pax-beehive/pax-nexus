@@ -80,7 +80,12 @@ func maintainOperations(
 	if completedAt.Before(now) {
 		completedAt = now
 	}
-	_, err = recorder.Record(retentionContext, operations.Event{
+	// The retention context's budget was mostly consumed by DeleteBefore;
+	// recording the success event gets its own fresh timeout so a slow delete
+	// cannot starve the bookkeeping write.
+	recordContext, cancelRecord := context.WithTimeout(ctx, config.operationsMaintenanceTimeout)
+	defer cancelRecord()
+	_, err = recorder.Record(recordContext, operations.Event{
 		AttemptID: attemptID, Kind: operations.KindSystemRetention, Outcome: operations.OutcomeSucceeded,
 		Actor: operations.Actor{Kind: "system"}, StartedAt: now, CompletedAt: completedAt,
 		DurationMS: completedAt.Sub(now).Milliseconds(),

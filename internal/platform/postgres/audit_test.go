@@ -80,6 +80,67 @@ func (s *storeSuite) TestAuditStoreProjectsAndAdvancesAtomically() {
 	s.Equal(map[string]int64{"Bash": 1}, activity[0].ToolBreakdown)
 }
 
+// TestAuditRescanProjectsOnlyNewEvents guards against full-history replay:
+// after a committed scan, a stream that gains one event must be re-read from
+// the committed cursor, so findings are not duplicated and daily activity
+// aggregates equal the true event totals.
+func (s *storeSuite) TestAuditRescanProjectsOnlyNewEvents() {
+	ctx := context.Background()
+	scopeID := uniqueScope("audit-rescan")
+	actor := session.Actor{UserID: "audit-owner", AgentID: "agent-audit-rescan", SessionID: "sess-rescan"}
+	first := s.seedAuditSession(ctx, scopeID, actor, []session.SessionEvent{
+		auditEvent("rescan-evt-1", actor, 1, "message", nil),
+		auditEvent("rescan-evt-2", actor, 2, audit.EventTypeToolCall, map[string]string{
+			audit.MetadataToolCallID:       "rescan-call-1",
+			audit.MetadataToolName:         "Bash",
+			audit.MetadataToolInputSummary: "rm -rf /tmp/cache",
+		}),
+	})
+	auditStore, err := postgres.NewAuditStore(s.store.Pool())
+	s.Require().NoError(err)
+
+	events, err := auditStore.SessionEvents(ctx, first)
+	s.Require().NoError(err)
+	s.Require().Len(events, 2)
+	s.Require().NoError(auditStore.ApplyBatch(ctx, audit.Project(first, events)))
+
+	// The stream gains one event; the rescan window starts at the committed
+	// cursor exactly as PendingStreams would hand it to the consumer.
+	second := s.seedAuditSession(ctx, scopeID, actor, []session.SessionEvent{
+		auditEvent("rescan-evt-3", actor, 3, "message", nil),
+	})
+	second.Committed = s.auditCommittedSequence(ctx, scopeID, actor)
+	s.Require().Equal(first.Head, second.Committed)
+
+	pending, err := auditStore.PendingStreams(ctx)
+	s.Require().NoError(err)
+	for _, stream := range pending {
+		s.Require().Greater(stream.Head, stream.Committed,
+			"pending stream %q must expose a committed cursor below its head", stream.Actor.SessionID)
+	}
+
+	rescan, err := auditStore.SessionEvents(ctx, second)
+	s.Require().NoError(err)
+	s.Require().Len(rescan, 1, "rescan must read only the uncommitted window")
+	s.Equal("rescan-evt-3", rescan[0].ID)
+	s.Require().NoError(auditStore.ApplyBatch(ctx, audit.Project(second, rescan)))
+
+	findings, err := auditStore.ListFindings(ctx, audit.FindingFilter{
+		ScopeID: scopeID, Kind: audit.FindingHighRiskUnapproved,
+	})
+	s.Require().NoError(err)
+	s.Require().Len(findings, 1, "rescan must not duplicate the high-risk finding")
+
+	activity, err := auditStore.GetActivityDaily(ctx, audit.ActivityFilter{ScopeID: scopeID})
+	s.Require().NoError(err)
+	s.Require().Len(activity, 1)
+	s.Equal(int64(3), activity[0].EventCount, "daily events must equal the true total")
+	s.Equal(int64(1), activity[0].ToolCallCount)
+	s.Equal(int64(1), activity[0].HighRiskCount)
+	s.Equal(int64(1), activity[0].SessionCount)
+	s.Equal(map[string]int64{"Bash": 1}, activity[0].ToolBreakdown)
+}
+
 func (s *storeSuite) TestAuditCursorIsMonotonic() {
 	ctx := context.Background()
 	scopeID := uniqueScope("audit-cursor")

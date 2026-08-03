@@ -154,6 +154,11 @@ func (l *Ledger) Apply(ctx context.Context, candidate Candidate, evidence []Sess
 	if err != nil {
 		return Note{}, err
 	}
+	// A durable replay can return zero notes when the candidate ID collides
+	// with an earlier zero-candidate run recorded under the same run identity.
+	if len(notes) == 0 {
+		return Note{}, fmt.Errorf("apply candidate %q replayed an empty durable result: %w", candidate.ID, ErrExtractionRunConflict)
+	}
 	return notes[0], nil
 }
 
@@ -339,14 +344,17 @@ func AdmitCandidateWithAuthority(
 	}
 	lease := policy[candidate.Kind]
 	if current == nil {
+		// SoftExpiresAt never exceeds HardExpiresAt: creation clamps it here and
+		// the update path clamps against the preserved hard boundary below.
+		hardExpiresAt := now.Add(lease.HardTTL)
 		return Note{
 			ID: candidate.ID, Key: CanonicalKey(candidate), Kind: candidate.Kind, Subject: candidate.Subject,
 			Body: candidate.Body, TaskRef: candidate.TaskRef, ThreadRef: candidate.ThreadRef,
 			Origin: candidate.Origin, AudienceAgentIDs: append([]string(nil), candidate.AudienceAgentIDs...),
 			RelatedSubjects:  append([]string(nil), candidate.RelatedSubjects...),
-			EvidenceEventIDs: append([]string(nil), candidate.EvidenceEventIDs...), State: stateForValidity(candidate.InvalidAt),
-			Revision: 1, CreatedAt: now, UpdatedAt: now, SoftExpiresAt: now.Add(lease.SoftTTL),
-			HardExpiresAt: now.Add(lease.HardTTL), ValidAt: cloneTime(candidate.ValidAt),
+			EvidenceEventIDs: append([]string(nil), candidate.EvidenceEventIDs...), State: stateForValidity(now, candidate.InvalidAt),
+			Revision: 1, CreatedAt: now, UpdatedAt: now, SoftExpiresAt: minTime(hardExpiresAt, now.Add(lease.SoftTTL)),
+			HardExpiresAt: hardExpiresAt, ValidAt: cloneTime(candidate.ValidAt),
 			InvalidAt: cloneTime(candidate.InvalidAt), SourceOccurredAt: candidate.SourceOccurredAt,
 		}, nil
 	}
@@ -356,7 +364,7 @@ func AdmitCandidateWithAuthority(
 	updated.AudienceAgentIDs = append([]string(nil), candidate.AudienceAgentIDs...)
 	updated.RelatedSubjects = append([]string(nil), candidate.RelatedSubjects...)
 	updated.EvidenceEventIDs = append([]string(nil), candidate.EvidenceEventIDs...)
-	updated.State = stateForValidity(candidate.InvalidAt)
+	updated.State = stateForValidity(now, candidate.InvalidAt)
 	updated.Revision++
 	updated.UpdatedAt = now
 	updated.SoftExpiresAt = minTime(updated.HardExpiresAt, now.Add(lease.SoftTTL))
@@ -391,7 +399,9 @@ func mergeStrings(left, right []string) []string {
 func (l *Ledger) eligibleNotes(now time.Time, request RecallRequest) []Note {
 	notes := make([]Note, 0, len(l.notes))
 	for key, note := range l.notes {
-		if note.State == StateActive && (!now.Before(note.SoftExpiresAt) || !now.Before(note.HardExpiresAt)) {
+		// SoftExpiresAt <= HardExpiresAt on every write path (creation and
+		// update both clamp), so the soft boundary alone decides expiry.
+		if note.State == StateActive && !now.Before(note.SoftExpiresAt) {
 			note.State = StateExpired
 			l.notes[key] = note
 		}
@@ -497,8 +507,11 @@ func WithEvidenceTime(candidate Candidate, events []SessionEvent) Candidate {
 	return candidate
 }
 
-func stateForValidity(invalidAt *time.Time) NoteState {
-	if invalidAt != nil {
+// stateForValidity keeps a note recallable until its invalidity boundary
+// passes, matching the durable adapter admission (invalid_at IS NULL OR
+// invalid_at > now) and the planner temporal gate.
+func stateForValidity(now time.Time, invalidAt *time.Time) NoteState {
+	if invalidAt != nil && !invalidAt.After(now) {
 		return StateResolved
 	}
 	return StateActive
@@ -662,7 +675,7 @@ func QueryRelated(note Note, query string) bool {
 	return QueryScore(note, query) > 0 && slotCompatible(note.Subject+" "+note.Body, query)
 }
 
-func relevantRelatedNotes(notes []Note, query string, limit int, limited bool) []Note {
+func relevantRelatedNotes(notes []Note, query string) []Note {
 	result := make([]Note, 0, len(notes))
 	for _, note := range notes {
 		if !QueryRelated(note, query) {
@@ -680,9 +693,6 @@ func relevantRelatedNotes(notes []Note, query string, limit int, limited bool) [
 			}
 			return result[left].ID < result[right].ID
 		})
-	}
-	if limited && len(result) > max(0, limit) {
-		result = result[:max(0, limit)]
 	}
 	return result
 }

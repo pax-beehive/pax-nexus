@@ -10,8 +10,10 @@ import (
 	"time"
 
 	"github.com/cloudwego/hertz/pkg/app/server"
+	"github.com/cloudwego/hertz/pkg/common/config"
 	"github.com/cloudwego/hertz/pkg/common/ut"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
+	"github.com/cloudwego/hertz/pkg/route"
 	"github.com/pax-beehive/pax-nexus/internal/deployment/onprem"
 	"github.com/pax-beehive/pax-nexus/internal/pagewiki/sessionconsumer"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote/mocks"
@@ -172,6 +174,74 @@ func (s *wikiIngestionHandlerSuite) TestRebuildWithoutSincePassesZeroTime() {
 	s.True(s.wikiControl.since.IsZero())
 }
 
+// TestInjectWikiSessionValidatesAndMapsOutcomes covers the manual inject
+// endpoint: a blank session_id answers 400 before touching the service,
+// ErrSessionNotFound maps to 404, and success returns processed_streams for
+// the principal's scope.
+func (s *wikiIngestionHandlerSuite) TestInjectWikiSessionValidatesAndMapsOutcomes() {
+	s.Run("blank session ID", func() {
+		// A direct engine without the :session_id route parameter leaves
+		// c.Param("session_id") blank, standing in for a blank path segment.
+		engine := route.NewEngine(config.NewOptions([]config.Option{}))
+		engine.Handle(http.MethodPost, "/", s.handler.InjectWikiSession)
+		response := ut.PerformRequest(engine, http.MethodPost, "/", nil,
+			ut.Header{Key: "Content-Type", Value: "application/json"},
+			ut.Header{Key: "Cookie", Value: "tm_human_session=session; tm_csrf=csrf"},
+			ut.Header{Key: "X-CSRF-Token", Value: "csrf"},
+		)
+
+		s.Equal(consts.StatusBadRequest, response.Code)
+		s.Contains(response.Body.String(), `"code":"invalid_request"`)
+		s.Empty(s.wikiControl.injectedSession, "a blank session ID must not reach the service")
+	})
+
+	s.Run("session not found", func() {
+		s.wikiControl.injectErr = sessionconsumer.ErrSessionNotFound
+		defer func() { s.wikiControl.injectErr = nil }()
+
+		response := s.performWithBody(http.MethodPost, "/v1/wiki/sessions/missing/inject", true, `{}`)
+
+		s.Equal(consts.StatusNotFound, response.Code)
+		s.Contains(response.Body.String(), `"code":"session_not_found"`)
+	})
+
+	s.Run("success returns processed streams", func() {
+		s.wikiControl.injectResult = sessionconsumer.InjectResult{ProcessedStreams: 4}
+
+		response := s.performWithBody(http.MethodPost, "/v1/wiki/sessions/session-1/inject", true, `{}`)
+
+		s.Equal(consts.StatusOK, response.Code)
+		s.JSONEq(`{"processed_streams":4}`, response.Body.String())
+		s.Equal("session-1", s.wikiControl.injectedSession)
+		s.Equal(onprem.LocalScopeID, s.wikiControl.injectedScope)
+	})
+}
+
+// TestInjectWikiSessionAnswersNotImplementedWithoutWikiControl proves the
+// endpoint degrades to 501 not_configured when no wiki control is wired.
+func (s *wikiIngestionHandlerSuite) TestInjectWikiSessionAnswersNotImplementedWithoutWikiControl() {
+	configured, err := handler.NewOnPrem(
+		mocks.NewMockRuntime(s.controller), &credentialService{}, &memoryService{}, &channelService{},
+		slog.New(slog.DiscardHandler),
+		handler.WithHumanIdentity(s.identity, &oidcService{}, "/portal", false),
+	)
+	s.Require().NoError(err)
+
+	hertz := server.New()
+	hertz.Use(handler.InstanceMiddleware(configured))
+	router.GeneratedRegister(hertz)
+	body := `{}`
+	response := ut.PerformRequest(hertz.Engine, http.MethodPost, "/v1/wiki/sessions/session-1/inject",
+		&ut.Body{Body: bytes.NewBufferString(body), Len: len(body)},
+		ut.Header{Key: "Content-Type", Value: "application/json"},
+		ut.Header{Key: "Cookie", Value: "tm_human_session=session; tm_csrf=csrf"},
+		ut.Header{Key: "X-CSRF-Token", Value: "csrf"},
+	)
+
+	s.Equal(consts.StatusNotImplemented, response.Code)
+	s.Contains(response.Body.String(), `"code":"not_configured"`)
+}
+
 func (s *wikiIngestionHandlerSuite) TestGeneratedRebuildRouteRequiresConfiguredRuntime() {
 	hertz := server.New()
 	router.GeneratedRegister(hertz)
@@ -215,6 +285,11 @@ type wikiControlService struct {
 	rebuildErr error
 	status     sessionconsumer.Status
 	since      time.Time
+
+	injectErr       error
+	injectResult    sessionconsumer.InjectResult
+	injectedScope   string
+	injectedSession string
 }
 
 func (s *wikiControlService) Status(context.Context, string) (sessionconsumer.Status, error) {
@@ -230,11 +305,16 @@ func (s *wikiControlService) SetAutoInject(
 }
 
 func (s *wikiControlService) InjectSession(
-	context.Context,
-	string,
-	string,
+	_ context.Context,
+	scopeID string,
+	sessionID string,
 ) (sessionconsumer.InjectResult, error) {
-	return sessionconsumer.InjectResult{}, nil
+	s.injectedScope = scopeID
+	s.injectedSession = sessionID
+	if s.injectErr != nil {
+		return sessionconsumer.InjectResult{}, s.injectErr
+	}
+	return s.injectResult, nil
 }
 
 func (s *wikiControlService) Rebuild(_ context.Context, _ string, since time.Time) (sessionconsumer.Status, error) {

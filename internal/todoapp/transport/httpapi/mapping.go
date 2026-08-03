@@ -11,17 +11,25 @@ import (
 )
 
 // writeDomainError maps todoapp domain sentinels to the {code, message}
-// wire error shape shared with the teamnote human API handler.
-func writeDomainError(c *app.RequestContext, err error) {
+// wire error shape shared with the teamnote human API handler. Unknown
+// errors (e.g. raw Postgres failures) are logged with full detail and
+// answered with a generic message so internals never reach the browser,
+// mirroring the teamnote handler's writeHumanError.
+func (h *Handler) writeDomainError(c *app.RequestContext, err error) {
 	switch {
 	case errors.Is(err, todoapp.ErrNotFound):
 		writeAPIError(c, consts.StatusNotFound, "not_found", err.Error())
 	case errors.Is(err, todoapp.ErrInvalidTransition):
 		writeAPIError(c, consts.StatusConflict, "invalid_transition", err.Error())
+	case errors.Is(err, todoapp.ErrRefreshInProgress):
+		writeAPIError(c, consts.StatusConflict, "refresh_in_progress",
+			"a suggestion refresh is already running for this team")
 	case errors.Is(err, todoapp.ErrInvalidInput):
 		writeAPIError(c, consts.StatusBadRequest, "invalid_input", err.Error())
 	default:
-		writeAPIError(c, consts.StatusInternalServerError, "internal_error", err.Error())
+		h.logger.Error("todo app request failed", "error", err)
+		writeAPIError(c, consts.StatusInternalServerError, "internal_error",
+			"the request could not be completed")
 	}
 }
 

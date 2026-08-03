@@ -245,7 +245,8 @@ func shardFor(args Args, shards int) int {
 			hash ^= uint32(current)
 			hash *= prime32
 		}
-		hash ^= 0
+		// A NUL-equivalent separator step keeps "ab"+"c" and "a"+"bc" on
+		// distinct shards; XOR with zero is the identity and is omitted.
 		hash *= prime32
 	}
 	return int(hash % uint32(shards))

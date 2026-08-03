@@ -167,7 +167,9 @@ func (s *RegistryStore) UpdateOwnedAgent(
 	`, profile.AgentID, membershipID, profile.DisplayName, profile.Description, profile.AgentType,
 		profile.Status, profile.DirectoryVisible, profile.UpdatedAt, profile.RetiredAt, profile.ResourceVersion))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return onprem.AgentProfile{}, onprem.ErrResourceVersionConflict
+		return onprem.AgentProfile{}, classifyOwnedAgentConflict(
+			ctx, tx, membershipID, profile.AgentID, profile.ResourceVersion-1,
+		)
 	}
 	if err != nil {
 		return onprem.AgentProfile{}, fmt.Errorf("update postgres owned agent: %w", err)
@@ -245,7 +247,7 @@ func (s *RegistryStore) RetireOwnedAgent(
 		          created_at, updated_at, retired_at, resource_version, COALESCE(provisioned_by, '')
 	`, agentID, membershipID, resourceVersion, idempotencyKey, now))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return onprem.AgentProfile{}, onprem.ErrResourceVersionConflict
+		return onprem.AgentProfile{}, classifyOwnedAgentConflict(ctx, tx, membershipID, agentID, resourceVersion)
 	}
 	if isUniqueViolation(err) {
 		return onprem.AgentProfile{}, onprem.ErrIdempotencyConflict
@@ -330,6 +332,40 @@ func (s *RegistryStore) TransferAgent(
 		return onprem.AgentProfile{}, fmt.Errorf("commit agent transfer: %w", err)
 	}
 	return updated, nil
+}
+
+// classifyOwnedAgentConflict disambiguates a zero-row owner-scoped agent
+// mutation, mirroring classifyTransferAgentConflict: a missing or foreign
+// agent is ErrAgentNotFound, a stale expectation is
+// ErrResourceVersionConflict, and an already-retired agent is
+// ErrInvalidStateTransition. expectedVersion is the resource version the
+// mutation required the current row to have.
+func classifyOwnedAgentConflict(
+	ctx context.Context,
+	tx pgx.Tx,
+	membershipID string,
+	agentID string,
+	expectedVersion int64,
+) error {
+	var currentVersion int64
+	var currentStatus onprem.AgentStatus
+	err := tx.QueryRow(ctx, `
+		SELECT resource_version, status FROM onprem_agents
+		WHERE agent_id = $1 AND owner_membership_id = $2
+	`, agentID, membershipID).Scan(&currentVersion, &currentStatus)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return onprem.ErrAgentNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("classify owned agent conflict: %w", err)
+	}
+	if currentVersion != expectedVersion {
+		return onprem.ErrResourceVersionConflict
+	}
+	if currentStatus == onprem.AgentStatusRetired {
+		return onprem.ErrInvalidStateTransition
+	}
+	return onprem.ErrAgentConflict
 }
 
 func classifyTransferAgentConflict(
@@ -938,7 +974,7 @@ func (s *RegistryStore) ListDirectoryAgents(
 		       OR agents.agent_type ILIKE '%' || $3 || '%')
 		ORDER BY agents.agent_id
 		LIMIT $4
-	`, now, filter.Cursor, filter.Query, filter.Limit)
+	`, now, filter.Cursor, escapeLike(filter.Query), filter.Limit)
 	if err != nil {
 		return nil, fmt.Errorf("list postgres directory agents: %w", err)
 	}
@@ -979,7 +1015,7 @@ func (s *RegistryStore) ListAdminAgents(
 		       OR agents.description ILIKE '%' || $4 || '%')
 		ORDER BY agents.agent_id
 		LIMIT $5
-	`, filter.OwnerMembershipID, filter.Status, filter.Cursor, filter.Query, filter.Limit)
+	`, filter.OwnerMembershipID, filter.Status, filter.Cursor, escapeLike(filter.Query), filter.Limit)
 	if err != nil {
 		return nil, fmt.Errorf("list postgres admin agents: %w", err)
 	}

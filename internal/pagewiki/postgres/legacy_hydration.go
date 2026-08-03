@@ -316,11 +316,11 @@ func legacyCitationRange(
 func legacyTopicPath(page legacyPage) []string {
 	value := strings.ToLower(page.title + " " + page.summary + " " + page.bodyMarkdown)
 	switch {
-	case containsAny(value, "retrieval", "search", "检索", "召回"):
+	case pagewiki.ContainsAny(value, "retrieval", "search", "检索", "召回"):
 		return []string{"Engineering", "Retrieval"}
-	case containsAny(value, "llm wiki", "wiki 数据", "wiki data", "source anchor", "page revision"):
+	case pagewiki.ContainsAny(value, "llm wiki", "wiki 数据", "wiki data", "source anchor", "page revision"):
 		return []string{"Engineering", "Wiki Architecture"}
-	case containsAny(value, "experiment", "实验", "coal", "briquette", "煤球"):
+	case pagewiki.ContainsAny(value, "experiment", "实验", "coal", "briquette", "煤球"):
 		return []string{"Research", "Experiments"}
 	}
 	switch page.pageType {
@@ -340,7 +340,10 @@ func legacyPlacement(pageID string, path []string) ([]pagewiki.Topic, *pagewiki.
 	parentID := ""
 	for _, title := range path {
 		slug := strings.ReplaceAll(strings.ToLower(title), " ", "-")
-		id := legacyStableID("topic", parentID, slug)
+		// pagewiki.StableID is byte-for-byte the hash this hydration always
+		// used: derived topic IDs must stay stable across releases (see
+		// TestLegacyPlacementTopicIDsAreByteStable).
+		id := pagewiki.StableID("topic", parentID, slug)
 		topics = append(topics, pagewiki.Topic{
 			ID: id, ParentID: parentID, Slug: slug, Title: title,
 		})
@@ -363,22 +366,4 @@ func uniqueLegacySectionKey(key string, seen map[string]int) string {
 		return key
 	}
 	return fmt.Sprintf("%s-%d", key, seen[key])
-}
-
-func legacyStableID(prefix string, values ...string) string {
-	hash := sha256.New()
-	for _, value := range values {
-		hash.Write([]byte{0})
-		hash.Write([]byte(value))
-	}
-	return prefix + "_" + hex.EncodeToString(hash.Sum(nil))[:24]
-}
-
-func containsAny(value string, candidates ...string) bool {
-	for _, candidate := range candidates {
-		if strings.Contains(value, candidate) {
-			return true
-		}
-	}
-	return false
 }
