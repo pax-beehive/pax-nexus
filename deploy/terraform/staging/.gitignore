@@ -1,0 +1,11 @@
+# Provider plugins and any local state. Real state lives in the GCS backend
+# declared in versions.tf; a *.tfstate file here means something went wrong.
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+
+# Variable files hold environment-specific values; pass them explicitly
+# instead so nothing environment-shaped is committed by accident.
+*.tfvars
+!*.tfvars.example
