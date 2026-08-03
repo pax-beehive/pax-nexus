@@ -463,6 +463,82 @@ struct ListAuditEventsResponse {
   2: optional string next_cursor
 }
 
+struct SessionAuditToolCall {
+  1: required string event_id
+  2: required string user_id
+  3: required string agent_id
+  4: required string session_id
+  5: required string call_id
+  6: required string tool_name
+  7: required string input_summary
+  8: required string risk_level
+  9: required list<string> risk_reasons
+  10: required string approval_state
+  11: required string occurred_at
+  12: required string captured_at
+}
+
+struct ListSessionAuditToolCallsRequest {
+  1: optional string user_id (api.query="user_id")
+  2: optional string agent_id (api.query="agent_id")
+  3: optional string session_id (api.query="session_id")
+  4: optional string risk_level (api.query="risk_level")
+  5: optional string approval_state (api.query="approval_state")
+  6: optional i32 limit (api.query="limit")
+}
+
+struct ListSessionAuditToolCallsResponse {
+  1: required list<SessionAuditToolCall> tool_calls
+}
+
+struct SessionAuditFinding {
+  1: required i64 finding_id
+  2: required string user_id
+  3: required string agent_id
+  4: required string session_id
+  5: required string kind
+  6: required string severity
+  7: required string summary
+  8: required list<string> evidence_event_ids
+  9: required string created_at
+}
+
+struct ListSessionAuditFindingsRequest {
+  1: optional string user_id (api.query="user_id")
+  2: optional string agent_id (api.query="agent_id")
+  3: optional string session_id (api.query="session_id")
+  4: optional string kind (api.query="kind")
+  5: optional string severity (api.query="severity")
+  6: optional i32 limit (api.query="limit")
+}
+
+struct ListSessionAuditFindingsResponse {
+  1: required list<SessionAuditFinding> findings
+}
+
+struct SessionAuditActivityDay {
+  1: required string user_id
+  2: required string agent_id
+  3: required string day
+  4: required i64 event_count
+  5: required i64 tool_call_count
+  6: required i64 high_risk_count
+  7: required i64 session_count
+  8: required map<string, i64> tool_breakdown
+}
+
+struct ListSessionAuditActivityRequest {
+  1: optional string user_id (api.query="user_id")
+  2: optional string agent_id (api.query="agent_id")
+  3: optional string from_day (api.query="from_day")
+  4: optional string to_day (api.query="to_day")
+  5: optional i32 limit (api.query="limit")
+}
+
+struct ListSessionAuditActivityResponse {
+  1: required list<SessionAuditActivityDay> activity
+}
+
 struct CreateInvitationRequest {
   1: required string target_email (api.body="target_email")
   2: required string role (api.body="role")
@@ -1203,6 +1279,9 @@ service TeamMemoryService {
   MemberResponse UpdateMember(1: UpdateMemberRequest request) (api.patch="/v1/admin/members/:membership_id")
   ListAuditEventsResponse ListAuditEvents(1: ListAuditEventsRequest request) (api.get="/v1/admin/audit-events")
   AuditEventResponse GetAuditEvent(1: AuditEventByIDRequest request) (api.get="/v1/admin/audit-events/:audit_event_id")
+  ListSessionAuditToolCallsResponse ListSessionAuditToolCalls(1: ListSessionAuditToolCallsRequest request) (api.get="/v1/admin/session-audit/tool-calls")
+  ListSessionAuditFindingsResponse ListSessionAuditFindings(1: ListSessionAuditFindingsRequest request) (api.get="/v1/admin/session-audit/findings")
+  ListSessionAuditActivityResponse ListSessionAuditActivity(1: ListSessionAuditActivityRequest request) (api.get="/v1/admin/session-audit/activity")
   OperationsSummaryResponse GetOperationsSummary(1: OperationsSummaryRequest request) (api.get="/v1/admin/operations/summary")
   ListOperationEventsResponse ListOperationEvents(1: ListOperationEventsRequest request) (api.get="/v1/admin/operations/events")
   RecallDiagnosticResponse GetRecallDiagnostic(1: RecallDiagnosticByIDRequest request) (api.get="/v1/admin/operations/recalls/:observation_id")

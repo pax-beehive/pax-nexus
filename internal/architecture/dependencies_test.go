@@ -46,7 +46,7 @@ type dependencyRule struct {
 // Grant the minimum set — no headroom. Retire entries with the code.
 var dependencyRules = []dependencyRule{
 	{directory: "app", allowed: []string{
-		"deployment/onprem", "evidencelake", "operations",
+		"audit", "deployment/onprem", "evidencelake", "operations",
 		"pagewiki", "pagewiki/transport/httpapi",
 		"platform/llm", "platform/postgres", "platform/textembedding",
 		"recall", "teamnote",
@@ -63,7 +63,7 @@ var dependencyRules = []dependencyRule{
 		allowed: []string{"platform/llm", "platform/observability", "session"}},
 	{directory: "pagewiki/transport",
 		allowed: []string{"pagewiki", "teamnote/transport/httpapi/router/pagewiki/api"}},
-	{directory: "platform", allowed: []string{"deployment/onprem", "explorer", "operations",
+	{directory: "platform", allowed: []string{"audit", "deployment/onprem", "explorer", "operations",
 		"pagewiki/sessionconsumer", "session", "teamnote", "todoapp"}},
 	{directory: "todoapp", excluded: []string{"transport"},
 		allowed: []string{"platform/llm", "platform/observability", "session"}},
@@ -72,9 +72,10 @@ var dependencyRules = []dependencyRule{
 	{directory: "recall", allowed: []string{"teamnote"}},
 	{directory: "session"},
 	{directory: "evidencelake", allowed: []string{"session"}},
+	{directory: "audit", allowed: []string{"session"}},
 	{directory: "teamnote", excluded: []string{"transport"},
 		allowed: []string{"platform/observability", "session", "evidencelake"}},
-	{directory: "teamnote/transport", allowed: []string{"deployment/onprem", "explorer",
+	{directory: "teamnote/transport", allowed: []string{"audit", "deployment/onprem", "explorer",
 		"operations", "pagewiki", "pagewiki/sessionconsumer", "pagewiki/transport/httpapi", "platform/llm", "recall",
 		"teamnote", "todoapp/transport/httpapi"}},
 }

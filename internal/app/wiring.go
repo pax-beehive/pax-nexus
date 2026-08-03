@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pax-beehive/pax-nexus/internal/audit"
 	"github.com/pax-beehive/pax-nexus/internal/deployment/onprem"
 	"github.com/pax-beehive/pax-nexus/internal/evidencelake"
 	"github.com/pax-beehive/pax-nexus/internal/operations"
@@ -269,6 +270,26 @@ func buildPageWikiMaintainers(
 	}
 }
 
+// buildAuditConsumer wires the session audit projection consumer and its
+// read seam on the shared Postgres pool, mirroring the Page Wiki consumer
+// lifecycle. The returned store also serves the admin session-audit queries.
+func buildAuditConsumer(
+	ctx context.Context,
+	store *postgres.Store,
+	logger *slog.Logger,
+) (*audit.Controller, *postgres.AuditStore, error) {
+	auditStore, err := postgres.NewAuditStore(store.Pool())
+	if err != nil {
+		return nil, nil, err
+	}
+	controller, err := audit.New(auditStore, logger, 0)
+	if err != nil {
+		return nil, nil, err
+	}
+	controller.Start(ctx)
+	return controller, auditStore, nil
+}
+
 func buildApplicationHTTPHandlers(
 	ctx context.Context,
 	runtime teamnote.Runtime,
@@ -284,6 +305,10 @@ func buildApplicationHTTPHandlers(
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
+	_, auditStore, err := buildAuditConsumer(ctx, store, logger)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
 	teamHandler, identity, err := buildHTTPHandler(
 		ctx,
 		runtime,
@@ -294,6 +319,7 @@ func buildApplicationHTTPHandlers(
 		logger,
 		wikiControl,
 		wikiSettings,
+		auditStore,
 	)
 	if err != nil {
 		return nil, nil, nil, nil, err
@@ -445,6 +471,7 @@ func buildHTTPHandler(
 	logger *slog.Logger,
 	wikiControl handler.WikiControl,
 	wikiSettings handler.WikiSettings,
+	sessionAudit handler.SessionAuditQuery,
 ) (*handler.Handler, *onprem.IdentityService, error) {
 	if len(config.apiKeys) > 0 && (strings.TrimSpace(config.adminAPIKey) != "" || config.humanIdentityConfigured()) {
 		return nil, nil, fmt.Errorf("configure HTTP transport: legacy and on-prem authentication are mutually exclusive")
@@ -497,6 +524,7 @@ func buildHTTPHandler(
 	}
 	options := onPremHandlerOptions(
 		registry, operationsService, operationRecorder, explorerService, usageStore, wikiControl, wikiSettings,
+		sessionAudit,
 	)
 	var identityService *onprem.IdentityService
 	if config.humanIdentityConfigured() {
@@ -529,8 +557,8 @@ func buildHTTPHandler(
 
 // onPremHandlerOptions assembles the OnPremOption list for buildHTTPHandler,
 // keeping that function's own branching within the linter's complexity
-// budget. usageStore, wikiControl, and wikiSettings are optional; each is
-// wired only when its dependency is configured.
+// budget. usageStore, wikiControl, wikiSettings, and sessionAudit are
+// optional; each is wired only when its dependency is configured.
 func onPremHandlerOptions(
 	registry *onprem.RegistryService,
 	operationsService *onprem.OperationsService,
@@ -539,6 +567,7 @@ func onPremHandlerOptions(
 	usageStore *postgres.LLMUsageStore,
 	wikiControl handler.WikiControl,
 	wikiSettings handler.WikiSettings,
+	sessionAudit handler.SessionAuditQuery,
 ) []handler.OnPremOption {
 	options := []handler.OnPremOption{
 		handler.WithAgentRegistry(registry), handler.WithOperations(operationsService, operationRecorder),
@@ -552,6 +581,9 @@ func onPremHandlerOptions(
 	}
 	if wikiSettings != nil {
 		options = append(options, handler.WithWikiSettings(wikiSettings))
+	}
+	if sessionAudit != nil {
+		options = append(options, handler.WithSessionAudit(sessionAudit))
 	}
 	return options
 }

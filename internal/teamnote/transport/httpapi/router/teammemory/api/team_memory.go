@@ -105,6 +105,12 @@ func Register(r *server.Hertz) {
 				}
 			}
 			{
+				_session_audit := _admin.Group("/session-audit", _session_auditMw()...)
+				_session_audit.GET("/activity", append(_listsessionauditactivityMw(), handler.ListSessionAuditActivity)...)
+				_session_audit.GET("/findings", append(_listsessionauditfindingsMw(), handler.ListSessionAuditFindings)...)
+				_session_audit.GET("/tool-calls", append(_listsessionaudittoolcallsMw(), handler.ListSessionAuditToolCalls)...)
+			}
+			{
 				_team_notes := _admin.Group("/team-notes", _team_notesMw()...)
 				_team_notes.GET("/:note_id", append(_getteamnoteMw(), handler.GetTeamNote)...)
 			}
