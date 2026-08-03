@@ -344,3 +344,29 @@ func (h *Handler) Health(ctx context.Context, c *app.RequestContext) {
 	}
 	c.JSON(consts.StatusOK, &api.HealthResponse{Status: "ok"})
 }
+
+// Readiness answers GET /readyz. Unlike Health, which is a static liveness
+// answer so a database blip never restarts the container, this reports
+// whether the backing store is reachable so a load balancer can drain the
+// instance. The failure detail is logged rather than returned, because the
+// endpoint is unauthenticated.
+func (h *Handler) Readiness(ctx context.Context, c *app.RequestContext) {
+	var req api.ReadinessRequest
+	if err := c.BindAndValidate(&req); err != nil {
+		c.String(consts.StatusBadRequest, "invalid readiness request")
+		return
+	}
+	if h.readiness == nil {
+		c.JSON(consts.StatusOK, &api.ReadinessResponse{Status: "ok"})
+		return
+	}
+	if err := h.readiness(ctx); err != nil {
+		h.logger.WarnContext(ctx, "readiness check failed", "error", err)
+		detail := "backing store is unreachable"
+		c.JSON(consts.StatusServiceUnavailable, &api.ReadinessResponse{
+			Status: "unavailable", Detail: &detail,
+		})
+		return
+	}
+	c.JSON(consts.StatusOK, &api.ReadinessResponse{Status: "ok"})
+}

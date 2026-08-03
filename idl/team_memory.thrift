@@ -93,6 +93,17 @@ struct HealthResponse {
   1: required string status
 }
 
+struct ReadinessRequest {}
+
+// ReadinessResponse reports whether the process can serve traffic, which
+// unlike liveness depends on its backing store being reachable. Managed
+// runtimes and load balancers use this to gate traffic; /healthz stays a
+// static liveness answer so a database blip never restarts the container.
+struct ReadinessResponse {
+  1: required string status
+  2: optional string detail
+}
+
 struct AgentEnrollmentRequest {
   1: required string user_id (api.body="user_id")
   2: required string agent_id (api.body="agent_id")
@@ -1218,6 +1229,7 @@ service TeamMemoryService {
   IngestReceipt ObserveStream(1: StreamBatch request) (api.post="/v1/stream-batches")
   NoteEnvelope RecallNotes(1: RecallRequest request) (api.post="/v1/notes/recall")
   HealthResponse Health(1: HealthRequest request) (api.get="/healthz")
+  ReadinessResponse Readiness(1: ReadinessRequest request) (api.get="/readyz")
   AgentEnrollmentResponse CreateAgentEnrollment(1: AgentEnrollmentRequest request) (api.post="/v1/admin/agent-enrollments")
   AgentCredentialResponse ExchangeAgentEnrollment(1: ExchangeEnrollmentRequest request) (api.post="/v1/agent-enrollments/exchange")
   AgentIdentityResponse GetAgentIdentity(1: AgentIdentityRequest request) (api.get="/v1/agent-identity")

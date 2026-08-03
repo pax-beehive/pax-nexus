@@ -18,6 +18,7 @@ func Register(r *server.Hertz) {
 
 	root := r.Group("/", rootMw()...)
 	root.GET("/healthz", append(_healthMw(), handler.Health)...)
+	root.GET("/readyz", append(_readinessMw(), handler.Readiness)...)
 	{
 		_v1 := root.Group("/v1", _v1Mw()...)
 		_v1.GET("/agent-identity", append(_getagentidentityMw(), handler.GetAgentIdentity)...)

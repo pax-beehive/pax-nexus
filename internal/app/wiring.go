@@ -591,6 +591,7 @@ func buildHTTPHandler(
 		registry, operationsService, operationRecorder, explorerService, usageStore, wikiControl, wikiSettings,
 		sessionAudit,
 	)
+	options = append(options, handler.WithReadinessCheck(storeReadinessCheck(store)))
 	var identityService *onprem.IdentityService
 	if config.humanIdentityConfigured() {
 		identity, err := onprem.NewIdentityService(store.Identity(), onprem.IdentityConfig{
@@ -618,6 +619,25 @@ func buildHTTPHandler(
 		return nil, nil, fmt.Errorf("configure on-prem HTTP transport: %w", err)
 	}
 	return configured, identityService, nil
+}
+
+// readinessProbeTimeout bounds the /readyz store round-trip. Load balancers
+// call the probe continuously and have their own deadline, so a wedged pool
+// must fail fast rather than pile up probe goroutines.
+const readinessProbeTimeout = 2 * time.Second
+
+// storeReadinessCheck reports whether the Postgres pool can still serve
+// traffic. Ping is deliberately cheap: readiness answers "is the backing
+// store reachable", not "is every query healthy".
+func storeReadinessCheck(store *postgres.Store) handler.ReadinessCheck {
+	return func(ctx context.Context) error {
+		probeContext, cancel := context.WithTimeout(ctx, readinessProbeTimeout)
+		defer cancel()
+		if err := store.Pool().Ping(probeContext); err != nil {
+			return fmt.Errorf("ping postgres: %w", err)
+		}
+		return nil
+	}
 }
 
 // onPremHandlerOptions assembles the OnPremOption list for buildHTTPHandler,

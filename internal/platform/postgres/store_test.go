@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -280,4 +282,62 @@ func event(id string, actor teamnote.Actor, sequence int64) teamnote.SessionEven
 
 func uniqueScope(label string) string {
 	return fmt.Sprintf("%s-%d", label, time.Now().UnixNano())
+}
+
+// TestSchemaLockSerializesConcurrentHolders pins the lock that lets the
+// migration job overlap an instance still migrating on boot: the two schema
+// sources (this package's migrations and the extraction queue's River
+// migrations) take no lock against each other, so callers rely on this one
+// to serialize them.
+func (s *storeSuite) TestSchemaLockSerializesConcurrentHolders() {
+	const holders = 4
+	var active, peak atomic.Int32
+	var wait sync.WaitGroup
+	errs := make(chan error, holders)
+	for range holders {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			errs <- s.store.WithSchemaLock(context.Background(), func(context.Context) error {
+				current := active.Add(1)
+				for {
+					highest := peak.Load()
+					if current <= highest || peak.CompareAndSwap(highest, current) {
+						break
+					}
+				}
+				time.Sleep(20 * time.Millisecond)
+				active.Add(-1)
+				return nil
+			})
+		}()
+	}
+	wait.Wait()
+	close(errs)
+
+	for err := range errs {
+		s.Require().NoError(err)
+	}
+	s.Equal(int32(1), peak.Load(), "the schema lock must admit exactly one holder at a time")
+}
+
+// TestSchemaLockReleasesAfterFailure guards the release path: a migration
+// that fails must not leave the session lock held, or every later deploy
+// would hang waiting for it.
+func (s *storeSuite) TestSchemaLockReleasesAfterFailure() {
+	sentinel := errors.New("migration failed")
+
+	err := s.store.WithSchemaLock(context.Background(), func(context.Context) error { return sentinel })
+	s.Require().ErrorIs(err, sentinel)
+
+	acquired := make(chan error, 1)
+	go func() {
+		acquired <- s.store.WithSchemaLock(context.Background(), func(context.Context) error { return nil })
+	}()
+	select {
+	case err := <-acquired:
+		s.Require().NoError(err)
+	case <-time.After(5 * time.Second):
+		s.Fail("the schema lock was not released after a failed migration")
+	}
 }

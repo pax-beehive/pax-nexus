@@ -125,9 +125,7 @@ func loadConfig() (applicationConfig, error) {
 	if config.todoRefreshInterval, err = durationEnvironment("TODOAPP_REFRESH_INTERVAL", time.Hour); err != nil {
 		return applicationConfig{}, err
 	}
-	if config.listenAddress == "" {
-		config.listenAddress = ":8080"
-	}
+	config.listenAddress = resolveListenAddress(config.listenAddress, os.Getenv("PORT"))
 	if config.extractorMode == "" {
 		config.extractorMode = "openai"
 	}
@@ -502,6 +500,22 @@ func intEnvironment(name string, fallback int) (int, error) {
 		return 0, fmt.Errorf("%s must be a positive integer", name)
 	}
 	return parsed, nil
+}
+
+// resolveListenAddress picks the address the HTTP server binds. An explicit
+// TEAM_MEMORY_LISTEN_ADDRESS always wins, so an on-prem operator can bind a
+// specific interface. Otherwise a managed runtime's PORT (Cloud Run injects
+// it, and the platform requires the process to bind exactly that port) is
+// honored; a malformed or out-of-range PORT is ignored rather than failing
+// startup, because the runtime, not the operator, sets it.
+func resolveListenAddress(listenAddress, port string) string {
+	if trimmed := strings.TrimSpace(listenAddress); trimmed != "" {
+		return trimmed
+	}
+	if parsed, err := strconv.Atoi(strings.TrimSpace(port)); err == nil && parsed > 0 && parsed <= 65535 {
+		return fmt.Sprintf(":%d", parsed)
+	}
+	return ":8080"
 }
 
 // nonNegativeIntEnvironment mirrors intEnvironment but additionally accepts
