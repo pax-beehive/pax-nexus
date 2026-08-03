@@ -37,7 +37,7 @@ func buildPageWikiHTTPHandler(
 	usageStore *postgres.LLMUsageStore,
 	config applicationConfig,
 	logger *slog.Logger,
-) (*pagewikihttp.Handler, *sessionconsumer.Controller, *pagewiki.Service, error) {
+) (*pagewikihttp.Handler, *sessionconsumer.Controller, handler.WikiSettings, error) {
 	treeMaxDepth, err := parseTreeMaxDepth(config.llmwikiTreeMaxDepth)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf(
@@ -53,9 +53,9 @@ func buildPageWikiHTTPHandler(
 		return nil, nil, nil, fmt.Errorf("initialize Page Wiki repository: %w", err)
 	}
 	// Eagerly hydrate the on-prem scope at boot, preserving today's
-	// hydrate-at-boot fail-fast behavior. Tasks 5-7 move consumers onto
-	// repositoryManager directly; for now downstream wiring keeps using the
-	// resolved repository below.
+	// hydrate-at-boot fail-fast behavior. Tasks 6-7 move consumers onto
+	// repositoryManager/serviceManager directly; for now downstream wiring
+	// keeps using the resolved repository/service below.
 	repository, err := repositoryManager.ForScope(ctx, onprem.LocalScopeID)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("initialize Page Wiki repository: %w", err)
@@ -77,7 +77,19 @@ func buildPageWikiHTTPHandler(
 		}
 		options = append(options, pagewiki.WithCurator(curator, embedder, curationConfig, logger))
 	}
-	service := pagewiki.NewService(repository, planner, editor, options...)
+	serviceManager, err := pagewiki.NewServiceManager(
+		func(ctx context.Context, scopeID string) (pagewiki.Repository, error) {
+			return repositoryManager.ForScope(ctx, scopeID)
+		},
+		pagewiki.ServiceManagerConfig{Planner: planner, Editor: editor, Options: options},
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("initialize Page Wiki service manager: %w", err)
+	}
+	service, err := serviceManager.ForScope(ctx, onprem.LocalScopeID)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("initialize Page Wiki service: %w", err)
+	}
 	consumerStore, err := postgres.NewPageWikiConsumerStore(store.Pool(), onprem.LocalScopeID)
 	if err != nil {
 		return nil, nil, nil, err
@@ -90,10 +102,9 @@ func buildPageWikiHTTPHandler(
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("initialize Page Wiki HTTP handler: %w", err)
 	}
-	service.StartTreeMaintenance(ctx)
-	service.StartCurationMaintenance(ctx)
+	serviceManager.Start(ctx)
 	controller.Start(ctx)
-	return configured, controller, service, nil
+	return configured, controller, wikiSettingsAdapter{services: serviceManager}, nil
 }
 
 // buildPageWikiCurationConfig parses the LLMWIKI_CURATION_* environment into
