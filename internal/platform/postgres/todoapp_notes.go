@@ -3,7 +3,6 @@ package postgres
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -13,21 +12,21 @@ import (
 // TodoNoteDirectory implements todoapp.NoteDirectory on top of the shared
 // team_notes table, enumerating open blocker/handoff notes as action items.
 type TodoNoteDirectory struct {
-	pool    *pgxpool.Pool
-	scopeID string
+	pool *pgxpool.Pool
 }
 
-// NewTodoNoteDirectory constructs a TodoNoteDirectory bound to a single scope.
-func NewTodoNoteDirectory(pool *pgxpool.Pool, scopeID string) (*TodoNoteDirectory, error) {
-	if pool == nil || strings.TrimSpace(scopeID) == "" {
-		return nil, fmt.Errorf("create todoapp note directory: pool and scope are required")
+// NewTodoNoteDirectory constructs a TodoNoteDirectory. Callers pass scopeID
+// per call.
+func NewTodoNoteDirectory(pool *pgxpool.Pool) (*TodoNoteDirectory, error) {
+	if pool == nil {
+		return nil, fmt.Errorf("create todoapp note directory: pool is required")
 	}
-	return &TodoNoteDirectory{pool: pool, scopeID: scopeID}, nil
+	return &TodoNoteDirectory{pool: pool}, nil
 }
 
-// ListOpenActionItems returns active blocker and handoff team notes for the
-// bound scope, newest-updated first.
-func (d *TodoNoteDirectory) ListOpenActionItems(ctx context.Context, limit int) ([]todoapp.ActionItem, error) {
+// ListOpenActionItems returns active blocker and handoff team notes for
+// scopeID, newest-updated first.
+func (d *TodoNoteDirectory) ListOpenActionItems(ctx context.Context, scopeID string, limit int) ([]todoapp.ActionItem, error) {
 	if limit <= 0 {
 		limit = 50
 	}
@@ -38,7 +37,7 @@ FROM team_notes
 WHERE scope_id = $1 AND kind IN ('blocker', 'handoff') AND state = 'active'
   AND soft_expires_at > $2 AND hard_expires_at > $2
 ORDER BY updated_at DESC, note_id DESC
-LIMIT $3`, d.scopeID, now, limit)
+LIMIT $3`, scopeID, now, limit)
 	if err != nil {
 		return nil, fmt.Errorf("list todoapp open action items: %w", err)
 	}

@@ -390,7 +390,7 @@ type fakeService struct {
 	dismissErr error
 }
 
-func (f *fakeService) CreateTodo(_ context.Context, userID, title, body string) (todoapp.Todo, error) {
+func (f *fakeService) CreateTodo(_ context.Context, _, userID, title, body string) (todoapp.Todo, error) {
 	f.createdByUserID = userID
 	f.createdTitle = title
 	f.createdBody = body
@@ -407,14 +407,14 @@ func (f *fakeService) CreateTodo(_ context.Context, userID, title, body string) 
 	}, nil
 }
 
-func (f *fakeService) CompleteTodo(_ context.Context, userID, todoID string) (todoapp.Todo, error) {
+func (f *fakeService) CompleteTodo(_ context.Context, _, userID, todoID string) (todoapp.Todo, error) {
 	if f.completeErr != nil {
 		return todoapp.Todo{}, f.completeErr
 	}
 	return todoapp.Todo{ID: todoID, Status: todoapp.TodoDone, CreatedBy: userID, NoteID: "note-1"}, nil
 }
 
-func (f *fakeService) ListTodos(_ context.Context, status todoapp.TodoStatus) ([]todoapp.Todo, error) {
+func (f *fakeService) ListTodos(_ context.Context, _ string, status todoapp.TodoStatus) ([]todoapp.Todo, error) {
 	f.listedStatus = status
 	if f.listErr != nil {
 		return nil, f.listErr
@@ -422,18 +422,18 @@ func (f *fakeService) ListTodos(_ context.Context, status todoapp.TodoStatus) ([
 	return f.todos, nil
 }
 
-func (f *fakeService) PendingSuggestions(context.Context) ([]todoapp.Suggestion, error) {
+func (f *fakeService) PendingSuggestions(context.Context, string) ([]todoapp.Suggestion, error) {
 	if f.listSugErr != nil {
 		return nil, f.listSugErr
 	}
 	return f.suggestions, nil
 }
 
-func (f *fakeService) RefreshSuggestions(context.Context) (int, error) {
+func (f *fakeService) RefreshSuggestions(context.Context, string) (int, error) {
 	return f.refreshCreated, f.refreshErr
 }
 
-func (f *fakeService) AcceptSuggestion(_ context.Context, userID, suggestionID string) (todoapp.Todo, error) {
+func (f *fakeService) AcceptSuggestion(_ context.Context, _, userID, suggestionID string) (todoapp.Todo, error) {
 	if f.acceptErr != nil {
 		return todoapp.Todo{}, f.acceptErr
 	}
@@ -443,6 +443,6 @@ func (f *fakeService) AcceptSuggestion(_ context.Context, userID, suggestionID s
 	return todo, nil
 }
 
-func (f *fakeService) DismissSuggestion(context.Context, string, string) error {
+func (f *fakeService) DismissSuggestion(context.Context, string, string, string) error {
 	return f.dismissErr
 }

@@ -52,10 +52,10 @@ func TestTodoNoteDirectory_ListOpenActionItems(t *testing.T) {
 		expiresAt: base.Add(-1 * time.Hour),
 	})
 
-	directory, err := postgres.NewTodoNoteDirectory(store.Pool(), scopeID)
+	directory, err := postgres.NewTodoNoteDirectory(store.Pool())
 	require.NoError(t, err)
 
-	items, err := directory.ListOpenActionItems(ctx, 0)
+	items, err := directory.ListOpenActionItems(ctx, scopeID, 0)
 	require.NoError(t, err)
 	require.Len(t, items, 2)
 
@@ -73,16 +73,52 @@ func TestTodoNoteDirectory_ListOpenActionItems(t *testing.T) {
 }
 
 func TestNewTodoNoteDirectory_ValidatesInputs(t *testing.T) {
-	_, err := postgres.NewTodoNoteDirectory(nil, "scope")
+	_, err := postgres.NewTodoNoteDirectory(nil)
 	require.Error(t, err)
+}
 
+func TestTodoNoteDirectory_ListOpenActionItems_ScopeIsolationPerCall(t *testing.T) {
 	dsn := testDSN(t)
-	store, err := postgres.Open(context.Background(), dsn)
+	ctx := context.Background()
+
+	store, err := postgres.Open(ctx, dsn)
 	require.NoError(t, err)
 	defer store.Close()
+	require.NoError(t, store.Migrate(ctx))
 
-	_, err = postgres.NewTodoNoteDirectory(store.Pool(), "  ")
-	require.Error(t, err)
+	base := time.Now().UTC().Truncate(time.Second)
+
+	cleanup := func() {
+		_, err := store.Pool().Exec(context.Background(),
+			"DELETE FROM team_notes WHERE scope_id IN ('local-team', 'other-scope')")
+		require.NoError(t, err)
+	}
+	cleanup() // defensive: clear any residue from a prior failed run
+	defer cleanup()
+
+	seedTeamNote(t, store.Pool(), teamNoteSeed{
+		scopeID: "local-team", noteID: "note-local", kind: "blocker",
+		subject: "Local blocker", body: "local body", state: "active",
+		updatedAt: base,
+	})
+	seedTeamNote(t, store.Pool(), teamNoteSeed{
+		scopeID: "other-scope", noteID: "note-other", kind: "blocker",
+		subject: "Other blocker", body: "other body", state: "active",
+		updatedAt: base,
+	})
+
+	directory, err := postgres.NewTodoNoteDirectory(store.Pool())
+	require.NoError(t, err)
+
+	local, err := directory.ListOpenActionItems(ctx, "local-team", 0)
+	require.NoError(t, err)
+	require.Len(t, local, 1)
+	require.Equal(t, "note-local", local[0].NoteID)
+
+	other, err := directory.ListOpenActionItems(ctx, "other-scope", 0)
+	require.NoError(t, err)
+	require.Len(t, other, 1)
+	require.Equal(t, "note-other", other[0].NoteID)
 }
 
 type teamNoteSeed struct {

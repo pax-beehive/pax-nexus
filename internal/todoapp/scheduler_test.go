@@ -18,7 +18,7 @@ type countingNotes struct {
 	calls int
 }
 
-func (n *countingNotes) ListOpenActionItems(context.Context, int) ([]todoapp.ActionItem, error) {
+func (n *countingNotes) ListOpenActionItems(context.Context, string, int) ([]todoapp.ActionItem, error) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	n.calls++
@@ -53,7 +53,7 @@ func TestStartSuggestionRefresh_RunsOnIntervalUntilStopped(t *testing.T) {
 	service := newSchedulerTestService(t, notes)
 	logger := observability.DiscardLogger()
 
-	stop := todoapp.StartSuggestionRefresh(context.Background(), service, 10*time.Millisecond, logger)
+	stop := todoapp.StartSuggestionRefresh(context.Background(), service, "local-team", 10*time.Millisecond, logger)
 
 	require.Eventually(t, func() bool {
 		return notes.count() >= 2
@@ -73,7 +73,7 @@ func TestStartSuggestionRefresh_ZeroIntervalDefaultsToHour(t *testing.T) {
 
 	// interval <= 0 must not panic (ticker with non-positive duration would)
 	// and must still run once immediately.
-	stop := todoapp.StartSuggestionRefresh(context.Background(), service, 0, logger)
+	stop := todoapp.StartSuggestionRefresh(context.Background(), service, "local-team", 0, logger)
 	require.Eventually(t, func() bool {
 		return notes.count() >= 1
 	}, time.Second, 5*time.Millisecond, "expected the immediate refresh to run")

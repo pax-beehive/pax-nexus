@@ -17,9 +17,8 @@ type EvidenceSink interface {
 
 // LakeReporter is a Reporter that sends events to the evidence lake.
 type LakeReporter struct {
-	sink    EvidenceSink
-	scopeID string
-	newID   func() string
+	sink  EvidenceSink
+	newID func() string
 }
 
 // lakeReporterOption is a functional option for LakeReporter.
@@ -32,20 +31,16 @@ func WithLakeReporterNewID(fn func() string) lakeReporterOption {
 	}
 }
 
-// NewLakeReporter creates a new LakeReporter with the given sink and scope ID.
-// It returns an error if sink is nil or scope ID is blank.
+// NewLakeReporter creates a new LakeReporter with the given sink.
+// It returns an error if sink is nil.
 // Optional functional options can be passed to customize the reporter.
-func NewLakeReporter(sink EvidenceSink, scopeID string, opts ...lakeReporterOption) (*LakeReporter, error) {
+func NewLakeReporter(sink EvidenceSink, opts ...lakeReporterOption) (*LakeReporter, error) {
 	if sink == nil {
 		return nil, fmt.Errorf("new lake reporter: %w", ErrInvalidInput)
 	}
-	if scopeID == "" {
-		return nil, fmt.Errorf("new lake reporter: %w", ErrInvalidInput)
-	}
 	r := &LakeReporter{
-		sink:    sink,
-		scopeID: scopeID,
-		newID:   generateRandomID,
+		sink:  sink,
+		newID: generateRandomID,
 	}
 	for _, opt := range opts {
 		opt(r)
@@ -53,9 +48,12 @@ func NewLakeReporter(sink EvidenceSink, scopeID string, opts ...lakeReporterOpti
 	return r, nil
 }
 
-// Report reports a ReportEvent to the evidence lake.
-func (r *LakeReporter) Report(ctx context.Context, event ReportEvent) error {
-	scoped := session.WithScope(ctx, r.scopeID)
+// Report reports a ReportEvent to the evidence lake for scopeID.
+func (r *LakeReporter) Report(ctx context.Context, scopeID string, event ReportEvent) error {
+	if scopeID == "" {
+		return fmt.Errorf("report todo event %s: %w", event.Type, ErrInvalidInput)
+	}
+	scoped := session.WithScope(ctx, scopeID)
 
 	// Build metadata, dropping empty-string keys
 	metadata := make(map[string]string)

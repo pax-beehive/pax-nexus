@@ -273,15 +273,15 @@ func buildTodoApp(
 	config applicationConfig,
 	logger *slog.Logger,
 ) (*todoapphttp.Handler, func(), error) {
-	todoRepository, err := todoapppostgres.NewRepository(ctx, store.Pool(), onprem.LocalScopeID)
+	todoRepository, err := todoapppostgres.NewRepository(ctx, store.Pool())
 	if err != nil {
 		return nil, nil, fmt.Errorf("initialize Todo App repository: %w", err)
 	}
-	noteDirectory, err := postgres.NewTodoNoteDirectory(store.Pool(), onprem.LocalScopeID)
+	noteDirectory, err := postgres.NewTodoNoteDirectory(store.Pool())
 	if err != nil {
 		return nil, nil, fmt.Errorf("initialize Todo App note directory: %w", err)
 	}
-	reporter, err := todoapp.NewLakeReporter(lake, onprem.LocalScopeID)
+	reporter, err := todoapp.NewLakeReporter(lake)
 	if err != nil {
 		return nil, nil, fmt.Errorf("initialize Todo App reporter: %w", err)
 	}
@@ -306,7 +306,7 @@ func buildTodoApp(
 	if err != nil {
 		return nil, nil, fmt.Errorf("initialize Todo App HTTP handler: %w", err)
 	}
-	stop := todoapp.StartSuggestionRefresh(ctx, service, config.todoRefreshInterval, logger)
+	stop := todoapp.StartSuggestionRefresh(ctx, service, onprem.LocalScopeID, config.todoRefreshInterval, logger)
 	return configured, stop, nil
 }
 

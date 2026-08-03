@@ -78,7 +78,7 @@ func NewService(config ServiceConfig) (*Service, error) {
 // CreateTodo creates a new todo with the given title and body.
 // It rejects blank title or userID with ErrInvalidInput.
 // Status is set to TodoOpen, source to TodoSourceManual.
-func (s *Service) CreateTodo(ctx context.Context, userID, title, body string) (Todo, error) {
+func (s *Service) CreateTodo(ctx context.Context, scopeID, userID, title, body string) (Todo, error) {
 	if strings.TrimSpace(title) == "" || strings.TrimSpace(userID) == "" {
 		return Todo{}, fmt.Errorf("create todo: %w", ErrInvalidInput)
 	}
@@ -95,7 +95,7 @@ func (s *Service) CreateTodo(ctx context.Context, userID, title, body string) (T
 		UpdatedAt: now,
 	}
 
-	if err := s.repo.SaveTodo(ctx, todo); err != nil {
+	if err := s.repo.SaveTodo(ctx, scopeID, todo); err != nil {
 		return Todo{}, err
 	}
 
@@ -106,8 +106,8 @@ func (s *Service) CreateTodo(ctx context.Context, userID, title, body string) (T
 // If the todo is already done, it returns unchanged (idempotent).
 // If the todo is not found, it returns ErrNotFound.
 // If reporting fails, it logs a warning but returns success.
-func (s *Service) CompleteTodo(ctx context.Context, userID, todoID string) (Todo, error) {
-	todo, err := s.repo.TodoByID(ctx, todoID)
+func (s *Service) CompleteTodo(ctx context.Context, scopeID, userID, todoID string) (Todo, error) {
+	todo, err := s.repo.TodoByID(ctx, scopeID, todoID)
 	if err != nil {
 		return Todo{}, err
 	}
@@ -121,7 +121,7 @@ func (s *Service) CompleteTodo(ctx context.Context, userID, todoID string) (Todo
 	todo.Status = TodoDone
 	todo.UpdatedAt = s.clock()
 
-	if err := s.repo.SaveTodo(ctx, todo); err != nil {
+	if err := s.repo.SaveTodo(ctx, scopeID, todo); err != nil {
 		return Todo{}, err
 	}
 
@@ -135,7 +135,7 @@ func (s *Service) CompleteTodo(ctx context.Context, userID, todoID string) (Todo
 		OccurredAt: s.clock(),
 	}
 
-	if err := s.reporter.Report(ctx, event); err != nil {
+	if err := s.reporter.Report(ctx, scopeID, event); err != nil {
 		s.logger.Warn("todo report failed", "error", err, "todo_id", todoID)
 		// Report failure must not fail the call
 	}
@@ -145,26 +145,26 @@ func (s *Service) CompleteTodo(ctx context.Context, userID, todoID string) (Todo
 
 // ListTodos returns all todos with the given status.
 // If status is empty, returns all todos.
-func (s *Service) ListTodos(ctx context.Context, status TodoStatus) ([]Todo, error) {
-	return s.repo.ListTodos(ctx, status)
+func (s *Service) ListTodos(ctx context.Context, scopeID string, status TodoStatus) ([]Todo, error) {
+	return s.repo.ListTodos(ctx, scopeID, status)
 }
 
 // RefreshSuggestions fetches open action items from the NoteDirectory,
 // creates pending suggestions for new items (using fingerprint deduplication),
 // and returns the count of newly created suggestions.
 // Serialized with a sync.Mutex to prevent concurrent updates.
-func (s *Service) RefreshSuggestions(ctx context.Context) (int, error) {
+func (s *Service) RefreshSuggestions(ctx context.Context, scopeID string) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	// Load open action items from notes
-	items, err := s.notes.ListOpenActionItems(ctx, 50)
+	items, err := s.notes.ListOpenActionItems(ctx, scopeID, 50)
 	if err != nil {
 		return 0, fmt.Errorf("refresh suggestions: %w", err)
 	}
 
 	// Load existing fingerprints to avoid duplicates
-	fingerprints, err := s.repo.SuggestionFingerprints(ctx)
+	fingerprints, err := s.repo.SuggestionFingerprints(ctx, scopeID)
 	if err != nil {
 		return 0, fmt.Errorf("refresh suggestions: %w", err)
 	}
@@ -205,7 +205,7 @@ func (s *Service) RefreshSuggestions(ctx context.Context) (int, error) {
 			UpdatedAt:   now,
 		}
 
-		if err := s.repo.SaveSuggestion(ctx, suggestion); err != nil {
+		if err := s.repo.SaveSuggestion(ctx, scopeID, suggestion); err != nil {
 			s.logger.Warn("failed to save suggestion", "error", err, "note_id", item.NoteID)
 			continue
 		}
@@ -217,17 +217,17 @@ func (s *Service) RefreshSuggestions(ctx context.Context) (int, error) {
 }
 
 // PendingSuggestions returns all pending suggestions.
-func (s *Service) PendingSuggestions(ctx context.Context) ([]Suggestion, error) {
-	return s.repo.ListSuggestions(ctx, SuggestionPending)
+func (s *Service) PendingSuggestions(ctx context.Context, scopeID string) ([]Suggestion, error) {
+	return s.repo.ListSuggestions(ctx, scopeID, SuggestionPending)
 }
 
 // AcceptSuggestion converts a pending suggestion into a todo.
 // The suggestion must be in pending status, otherwise returns ErrInvalidTransition.
 // Creates a todo with source TodoSourceSuggestion and reports EventSuggestionAccepted.
 // If reporting fails, logs a warning but succeeds.
-func (s *Service) AcceptSuggestion(ctx context.Context, userID, suggestionID string) (Todo, error) {
+func (s *Service) AcceptSuggestion(ctx context.Context, scopeID, userID, suggestionID string) (Todo, error) {
 	// Get the suggestion
-	suggestion, err := s.repo.SuggestionByID(ctx, suggestionID)
+	suggestion, err := s.repo.SuggestionByID(ctx, scopeID, suggestionID)
 	if err != nil {
 		return Todo{}, err
 	}
@@ -253,14 +253,14 @@ func (s *Service) AcceptSuggestion(ctx context.Context, userID, suggestionID str
 	}
 
 	// Save the todo
-	if err := s.repo.SaveTodo(ctx, todo); err != nil {
+	if err := s.repo.SaveTodo(ctx, scopeID, todo); err != nil {
 		return Todo{}, err
 	}
 
 	// Mark suggestion as accepted
 	suggestion.Status = SuggestionAccepted
 	suggestion.UpdatedAt = now
-	if err := s.repo.SaveSuggestion(ctx, suggestion); err != nil {
+	if err := s.repo.SaveSuggestion(ctx, scopeID, suggestion); err != nil {
 		return Todo{}, err
 	}
 
@@ -274,7 +274,7 @@ func (s *Service) AcceptSuggestion(ctx context.Context, userID, suggestionID str
 		OccurredAt:   now,
 	}
 
-	if err := s.reporter.Report(ctx, event); err != nil {
+	if err := s.reporter.Report(ctx, scopeID, event); err != nil {
 		s.logger.Warn("suggestion report failed", "error", err, "suggestion_id", suggestionID)
 		// Report failure must not fail the call
 	}
@@ -286,9 +286,9 @@ func (s *Service) AcceptSuggestion(ctx context.Context, userID, suggestionID str
 // The suggestion must be in pending status, otherwise returns ErrInvalidTransition.
 // Reports EventSuggestionDismissed.
 // If reporting fails, logs a warning but succeeds.
-func (s *Service) DismissSuggestion(ctx context.Context, userID, suggestionID string) error {
+func (s *Service) DismissSuggestion(ctx context.Context, scopeID, userID, suggestionID string) error {
 	// Get the suggestion
-	suggestion, err := s.repo.SuggestionByID(ctx, suggestionID)
+	suggestion, err := s.repo.SuggestionByID(ctx, scopeID, suggestionID)
 	if err != nil {
 		return err
 	}
@@ -303,7 +303,7 @@ func (s *Service) DismissSuggestion(ctx context.Context, userID, suggestionID st
 	suggestion.Status = SuggestionDismissed
 	suggestion.UpdatedAt = now
 
-	if err := s.repo.SaveSuggestion(ctx, suggestion); err != nil {
+	if err := s.repo.SaveSuggestion(ctx, scopeID, suggestion); err != nil {
 		return err
 	}
 
@@ -317,7 +317,7 @@ func (s *Service) DismissSuggestion(ctx context.Context, userID, suggestionID st
 		OccurredAt:   now,
 	}
 
-	if err := s.reporter.Report(ctx, event); err != nil {
+	if err := s.reporter.Report(ctx, scopeID, event); err != nil {
 		s.logger.Warn("suggestion report failed", "error", err, "suggestion_id", suggestionID)
 		// Report failure must not fail the call
 	}

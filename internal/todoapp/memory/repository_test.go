@@ -33,22 +33,22 @@ func (s *RepositorySuite) TestTodoRoundtripAndNotFound() {
 		CreatedAt: time.Unix(100, 0).UTC(),
 		UpdatedAt: time.Unix(100, 0).UTC(),
 	}
-	s.Require().NoError(s.repo.SaveTodo(s.ctx, todo))
-	loaded, err := s.repo.TodoByID(s.ctx, "t1")
+	s.Require().NoError(s.repo.SaveTodo(s.ctx, "local-team", todo))
+	loaded, err := s.repo.TodoByID(s.ctx, "local-team", "t1")
 	s.Require().NoError(err)
 	s.Require().Equal(todo, loaded)
-	_, err = s.repo.TodoByID(s.ctx, "missing")
+	_, err = s.repo.TodoByID(s.ctx, "local-team", "missing")
 	s.Require().ErrorIs(err, todoapp.ErrNotFound)
 }
 
 func (s *RepositorySuite) TestListTodosFiltersByStatus() {
-	s.Require().NoError(s.repo.SaveTodo(s.ctx, todoapp.Todo{
+	s.Require().NoError(s.repo.SaveTodo(s.ctx, "local-team", todoapp.Todo{
 		ID:        "t1",
 		Title:     "a",
 		Status:    todoapp.TodoOpen,
 		UpdatedAt: time.Unix(200, 0),
 	}))
-	s.Require().NoError(s.repo.SaveTodo(s.ctx, todoapp.Todo{
+	s.Require().NoError(s.repo.SaveTodo(s.ctx, "local-team", todoapp.Todo{
 		ID:        "t2",
 		Title:     "b",
 		Status:    todoapp.TodoDone,
@@ -65,7 +65,7 @@ func (s *RepositorySuite) TestListTodosFiltersByStatus() {
 	}
 	for _, tc := range cases {
 		s.Run(tc.name, func() {
-			listed, err := s.repo.ListTodos(s.ctx, tc.status)
+			listed, err := s.repo.ListTodos(s.ctx, "local-team", tc.status)
 			s.Require().NoError(err)
 			ids := make([]string, 0, len(listed))
 			for _, item := range listed {
@@ -83,7 +83,7 @@ func (s *RepositorySuite) TestTodoSaveUpserts() {
 		Status:    todoapp.TodoOpen,
 		UpdatedAt: time.Unix(100, 0),
 	}
-	s.Require().NoError(s.repo.SaveTodo(s.ctx, original))
+	s.Require().NoError(s.repo.SaveTodo(s.ctx, "local-team", original))
 
 	updated := todoapp.Todo{
 		ID:        "t1",
@@ -91,9 +91,9 @@ func (s *RepositorySuite) TestTodoSaveUpserts() {
 		Status:    todoapp.TodoDone,
 		UpdatedAt: time.Unix(200, 0),
 	}
-	s.Require().NoError(s.repo.SaveTodo(s.ctx, updated))
+	s.Require().NoError(s.repo.SaveTodo(s.ctx, "local-team", updated))
 
-	loaded, err := s.repo.TodoByID(s.ctx, "t1")
+	loaded, err := s.repo.TodoByID(s.ctx, "local-team", "t1")
 	s.Require().NoError(err)
 	s.Require().Equal(updated, loaded)
 }
@@ -101,23 +101,23 @@ func (s *RepositorySuite) TestTodoSaveUpserts() {
 func (s *RepositorySuite) TestTodoListOrderingByUpdatedAtAndID() {
 	// Insert with same UpdatedAt to test tie-break by ID
 	t := time.Unix(300, 0)
-	s.Require().NoError(s.repo.SaveTodo(s.ctx, todoapp.Todo{
+	s.Require().NoError(s.repo.SaveTodo(s.ctx, "local-team", todoapp.Todo{
 		ID:        "t1",
 		Title:     "a",
 		UpdatedAt: t,
 	}))
-	s.Require().NoError(s.repo.SaveTodo(s.ctx, todoapp.Todo{
+	s.Require().NoError(s.repo.SaveTodo(s.ctx, "local-team", todoapp.Todo{
 		ID:        "t3",
 		Title:     "b",
 		UpdatedAt: t,
 	}))
-	s.Require().NoError(s.repo.SaveTodo(s.ctx, todoapp.Todo{
+	s.Require().NoError(s.repo.SaveTodo(s.ctx, "local-team", todoapp.Todo{
 		ID:        "t2",
 		Title:     "c",
 		UpdatedAt: t,
 	}))
 
-	listed, err := s.repo.ListTodos(s.ctx, "")
+	listed, err := s.repo.ListTodos(s.ctx, "local-team", "")
 	s.Require().NoError(err)
 	ids := make([]string, len(listed))
 	for i, item := range listed {
@@ -130,18 +130,18 @@ func (s *RepositorySuite) TestTodoListOrderingPreservesSubsecondPrecision() {
 	// Test that sorting preserves sub-second timestamp precision
 	t1 := time.Unix(200, 0)
 	t2 := time.Unix(200, 500_000_000) // 200.5 seconds
-	s.Require().NoError(s.repo.SaveTodo(s.ctx, todoapp.Todo{
+	s.Require().NoError(s.repo.SaveTodo(s.ctx, "local-team", todoapp.Todo{
 		ID:        "t1",
 		Title:     "older",
 		UpdatedAt: t1,
 	}))
-	s.Require().NoError(s.repo.SaveTodo(s.ctx, todoapp.Todo{
+	s.Require().NoError(s.repo.SaveTodo(s.ctx, "local-team", todoapp.Todo{
 		ID:        "t2",
 		Title:     "newer",
 		UpdatedAt: t2,
 	}))
 
-	listed, err := s.repo.ListTodos(s.ctx, "")
+	listed, err := s.repo.ListTodos(s.ctx, "local-team", "")
 	s.Require().NoError(err)
 	s.Require().Len(listed, 2)
 	// t2 has later UpdatedAt (200.5s > 200.0s), should come first
@@ -161,26 +161,26 @@ func (s *RepositorySuite) TestSuggestionRoundtrip() {
 		CreatedAt:   time.Unix(100, 0).UTC(),
 		UpdatedAt:   time.Unix(100, 0).UTC(),
 	}
-	s.Require().NoError(s.repo.SaveSuggestion(s.ctx, suggestion))
-	loaded, err := s.repo.SuggestionByID(s.ctx, "s1")
+	s.Require().NoError(s.repo.SaveSuggestion(s.ctx, "local-team", suggestion))
+	loaded, err := s.repo.SuggestionByID(s.ctx, "local-team", "s1")
 	s.Require().NoError(err)
 	s.Require().Equal(suggestion, loaded)
-	_, err = s.repo.SuggestionByID(s.ctx, "missing")
+	_, err = s.repo.SuggestionByID(s.ctx, "local-team", "missing")
 	s.Require().ErrorIs(err, todoapp.ErrNotFound)
 }
 
 func (s *RepositorySuite) TestListSuggestionsFiltersByStatus() {
-	s.Require().NoError(s.repo.SaveSuggestion(s.ctx, todoapp.Suggestion{
+	s.Require().NoError(s.repo.SaveSuggestion(s.ctx, "local-team", todoapp.Suggestion{
 		ID:        "s1",
 		Status:    todoapp.SuggestionPending,
 		UpdatedAt: time.Unix(200, 0),
 	}))
-	s.Require().NoError(s.repo.SaveSuggestion(s.ctx, todoapp.Suggestion{
+	s.Require().NoError(s.repo.SaveSuggestion(s.ctx, "local-team", todoapp.Suggestion{
 		ID:        "s2",
 		Status:    todoapp.SuggestionAccepted,
 		UpdatedAt: time.Unix(300, 0),
 	}))
-	s.Require().NoError(s.repo.SaveSuggestion(s.ctx, todoapp.Suggestion{
+	s.Require().NoError(s.repo.SaveSuggestion(s.ctx, "local-team", todoapp.Suggestion{
 		ID:        "s3",
 		Status:    todoapp.SuggestionDismissed,
 		UpdatedAt: time.Unix(250, 0),
@@ -198,7 +198,7 @@ func (s *RepositorySuite) TestListSuggestionsFiltersByStatus() {
 	}
 	for _, tc := range cases {
 		s.Run(tc.name, func() {
-			listed, err := s.repo.ListSuggestions(s.ctx, tc.status)
+			listed, err := s.repo.ListSuggestions(s.ctx, "local-team", tc.status)
 			s.Require().NoError(err)
 			ids := make([]string, 0, len(listed))
 			for _, item := range listed {
@@ -215,32 +215,32 @@ func (s *RepositorySuite) TestSuggestionSaveUpserts() {
 		Status:    todoapp.SuggestionPending,
 		UpdatedAt: time.Unix(100, 0),
 	}
-	s.Require().NoError(s.repo.SaveSuggestion(s.ctx, original))
+	s.Require().NoError(s.repo.SaveSuggestion(s.ctx, "local-team", original))
 
 	updated := todoapp.Suggestion{
 		ID:        "s1",
 		Status:    todoapp.SuggestionAccepted,
 		UpdatedAt: time.Unix(200, 0),
 	}
-	s.Require().NoError(s.repo.SaveSuggestion(s.ctx, updated))
+	s.Require().NoError(s.repo.SaveSuggestion(s.ctx, "local-team", updated))
 
-	loaded, err := s.repo.SuggestionByID(s.ctx, "s1")
+	loaded, err := s.repo.SuggestionByID(s.ctx, "local-team", "s1")
 	s.Require().NoError(err)
 	s.Require().Equal(updated, loaded)
 }
 
 func (s *RepositorySuite) TestSuggestionFingerprintsIncludeAllStatuses() {
-	s.Require().NoError(s.repo.SaveSuggestion(s.ctx, todoapp.Suggestion{
+	s.Require().NoError(s.repo.SaveSuggestion(s.ctx, "local-team", todoapp.Suggestion{
 		ID:          "s1",
 		Fingerprint: "n1",
 		Status:      todoapp.SuggestionPending,
 	}))
-	s.Require().NoError(s.repo.SaveSuggestion(s.ctx, todoapp.Suggestion{
+	s.Require().NoError(s.repo.SaveSuggestion(s.ctx, "local-team", todoapp.Suggestion{
 		ID:          "s2",
 		Fingerprint: "n2",
 		Status:      todoapp.SuggestionDismissed,
 	}))
-	prints, err := s.repo.SuggestionFingerprints(s.ctx)
+	prints, err := s.repo.SuggestionFingerprints(s.ctx, "local-team")
 	s.Require().NoError(err)
 	s.Require().Len(prints, 2)
 	_, ok := prints["n2"]
@@ -249,17 +249,17 @@ func (s *RepositorySuite) TestSuggestionFingerprintsIncludeAllStatuses() {
 
 func (s *RepositorySuite) TestSuggestionFingerprintsDeduplicates() {
 	// Same fingerprint saved twice should result in one entry
-	s.Require().NoError(s.repo.SaveSuggestion(s.ctx, todoapp.Suggestion{
+	s.Require().NoError(s.repo.SaveSuggestion(s.ctx, "local-team", todoapp.Suggestion{
 		ID:          "s1",
 		Fingerprint: "n1",
 		Status:      todoapp.SuggestionPending,
 	}))
-	s.Require().NoError(s.repo.SaveSuggestion(s.ctx, todoapp.Suggestion{
+	s.Require().NoError(s.repo.SaveSuggestion(s.ctx, "local-team", todoapp.Suggestion{
 		ID:          "s2",
 		Fingerprint: "n1",
 		Status:      todoapp.SuggestionAccepted,
 	}))
-	prints, err := s.repo.SuggestionFingerprints(s.ctx)
+	prints, err := s.repo.SuggestionFingerprints(s.ctx, "local-team")
 	s.Require().NoError(err)
 	s.Require().Len(prints, 1)
 	_, ok := prints["n1"]
