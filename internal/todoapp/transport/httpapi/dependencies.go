@@ -13,13 +13,13 @@ const handlerContextKey = "todo-app.http-handler"
 
 // Service is the domain surface the transport consumes.
 type Service interface {
-	CreateTodo(ctx context.Context, userID, title, body string) (todoapp.Todo, error)
-	CompleteTodo(ctx context.Context, userID, todoID string) (todoapp.Todo, error)
-	ListTodos(ctx context.Context, status todoapp.TodoStatus) ([]todoapp.Todo, error)
-	PendingSuggestions(ctx context.Context) ([]todoapp.Suggestion, error)
-	RefreshSuggestions(ctx context.Context) (int, error)
-	AcceptSuggestion(ctx context.Context, userID, suggestionID string) (todoapp.Todo, error)
-	DismissSuggestion(ctx context.Context, userID, suggestionID string) error
+	CreateTodo(ctx context.Context, scopeID, userID, title, body string) (todoapp.Todo, error)
+	CompleteTodo(ctx context.Context, scopeID, userID, todoID string) (todoapp.Todo, error)
+	ListTodos(ctx context.Context, scopeID string, status todoapp.TodoStatus) ([]todoapp.Todo, error)
+	PendingSuggestions(ctx context.Context, scopeID string) ([]todoapp.Suggestion, error)
+	RefreshSuggestions(ctx context.Context, scopeID string) (int, error)
+	AcceptSuggestion(ctx context.Context, scopeID, userID, suggestionID string) (todoapp.Todo, error)
+	DismissSuggestion(ctx context.Context, scopeID, userID, suggestionID string) error
 }
 
 // HumanAuthenticator validates a Human Portal session token.

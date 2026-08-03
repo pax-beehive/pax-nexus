@@ -74,14 +74,15 @@ func (h *Handler) ListTodos(
 	c *app.RequestContext,
 	request *api.ListTodosRequest,
 ) {
-	if _, ok := h.authorize(ctx, c, false); !ok {
+	principal, ok := h.authorize(ctx, c, false)
+	if !ok {
 		return
 	}
 	status := todoapp.TodoStatus("")
 	if request != nil && request.Status != nil {
 		status = todoapp.TodoStatus(*request.Status)
 	}
-	todos, err := h.service.ListTodos(ctx, status)
+	todos, err := h.service.ListTodos(ctx, principal.ScopeID, status)
 	if err != nil {
 		writeDomainError(c, err)
 		return
@@ -102,7 +103,7 @@ func (h *Handler) CreateTodo(
 	if request.Body != nil {
 		body = *request.Body
 	}
-	todo, err := h.service.CreateTodo(ctx, principal.UserID, request.Title, body)
+	todo, err := h.service.CreateTodo(ctx, principal.ScopeID, principal.UserID, request.Title, body)
 	if err != nil {
 		writeDomainError(c, err)
 		return
@@ -119,7 +120,7 @@ func (h *Handler) CompleteTodo(
 	if !ok {
 		return
 	}
-	todo, err := h.service.CompleteTodo(ctx, principal.UserID, request.TodoID)
+	todo, err := h.service.CompleteTodo(ctx, principal.ScopeID, principal.UserID, request.TodoID)
 	if err != nil {
 		writeDomainError(c, err)
 		return
@@ -128,10 +129,11 @@ func (h *Handler) CompleteTodo(
 }
 
 func (h *Handler) ListTodoSuggestions(ctx context.Context, c *app.RequestContext) {
-	if _, ok := h.authorize(ctx, c, false); !ok {
+	principal, ok := h.authorize(ctx, c, false)
+	if !ok {
 		return
 	}
-	suggestions, err := h.service.PendingSuggestions(ctx)
+	suggestions, err := h.service.PendingSuggestions(ctx, principal.ScopeID)
 	if err != nil {
 		writeDomainError(c, err)
 		return
@@ -140,10 +142,11 @@ func (h *Handler) ListTodoSuggestions(ctx context.Context, c *app.RequestContext
 }
 
 func (h *Handler) RefreshTodoSuggestions(ctx context.Context, c *app.RequestContext) {
-	if _, ok := h.authorize(ctx, c, true); !ok {
+	principal, ok := h.authorize(ctx, c, true)
+	if !ok {
 		return
 	}
-	created, err := h.service.RefreshSuggestions(ctx)
+	created, err := h.service.RefreshSuggestions(ctx, principal.ScopeID)
 	if err != nil {
 		writeDomainError(c, err)
 		return
@@ -160,7 +163,7 @@ func (h *Handler) AcceptTodoSuggestion(
 	if !ok {
 		return
 	}
-	todo, err := h.service.AcceptSuggestion(ctx, principal.UserID, request.SuggestionID)
+	todo, err := h.service.AcceptSuggestion(ctx, principal.ScopeID, principal.UserID, request.SuggestionID)
 	if err != nil {
 		writeDomainError(c, err)
 		return
@@ -177,7 +180,7 @@ func (h *Handler) DismissTodoSuggestion(
 	if !ok {
 		return
 	}
-	if err := h.service.DismissSuggestion(ctx, principal.UserID, request.SuggestionID); err != nil {
+	if err := h.service.DismissSuggestion(ctx, principal.ScopeID, principal.UserID, request.SuggestionID); err != nil {
 		writeDomainError(c, err)
 		return
 	}

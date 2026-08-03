@@ -58,7 +58,9 @@ func main() {
 		)
 	}
 
-	handler, err := pagewikihttp.New(unavailableInjector{}, repository)
+	handler, err := pagewikihttp.New(func(context.Context) (pagewikihttp.Injector, pagewikihttp.Reader, error) {
+		return unavailableInjector{}, repository, nil
+	})
 	must(err)
 	hertz := server.Default(server.WithHostPorts(previewAddress))
 	hertz.Use(pagewikihttp.InstanceMiddleware(handler))

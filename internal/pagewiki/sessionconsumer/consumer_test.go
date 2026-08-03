@@ -19,7 +19,43 @@ type consumerSuite struct {
 	store     *consumerStore
 	injector  *recordingInjector
 	rebuilder *recordingRebuilder
+	resolver  *scopeResolver
 	consumer  *sessionconsumer.Controller
+}
+
+// scopeResolver stands in for the Page Wiki service/repository managers: it
+// hands every scope the suite's shared fakes unless a test registers a
+// per-scope override or a resolution failure.
+type scopeResolver struct {
+	mu          sync.Mutex
+	injector    *recordingInjector
+	rebuilder   *recordingRebuilder
+	injectors   map[string]*recordingInjector
+	injectorErr map[string]error
+}
+
+func (r *scopeResolver) injectorFor(_ context.Context, scopeID string) (sessionconsumer.Injector, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err, found := r.injectorErr[scopeID]; found {
+		return nil, err
+	}
+	if injector, found := r.injectors[scopeID]; found {
+		return injector, nil
+	}
+	return r.injector, nil
+}
+
+func (r *scopeResolver) rebuilderFor(_ context.Context, _ string) (sessionconsumer.Rebuilder, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.rebuilder, nil
+}
+
+func (r *scopeResolver) setInjector(scopeID string, injector *recordingInjector) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.injectors[scopeID] = injector
 }
 
 func TestConsumerSuite(t *testing.T) {
@@ -42,9 +78,15 @@ func (s *consumerSuite) SetupTest() {
 	}
 	s.injector = &recordingInjector{}
 	s.rebuilder = &recordingRebuilder{done: make(chan struct{}, 4)}
+	s.resolver = &scopeResolver{
+		injector: s.injector, rebuilder: s.rebuilder,
+		injectors:   map[string]*recordingInjector{},
+		injectorErr: map[string]error{},
+	}
 	var err error
 	s.consumer, err = sessionconsumer.New(
-		s.store, s.injector, s.rebuilder, slog.New(slog.DiscardHandler), time.Hour,
+		s.store, s.resolver.injectorFor, s.resolver.rebuilderFor,
+		slog.New(slog.DiscardHandler), time.Hour,
 	)
 	s.Require().NoError(err)
 }
@@ -197,6 +239,72 @@ func (s *consumerSuite) TestRebuildReturnsImmediatelyAndMergesWhileInjectionHold
 	s.Equal(first, since) // the merged second request's since was discarded
 }
 
+// TestQueuedRebuildsRunOncePerScope pins that a second scope's rebuild is
+// not swallowed by a first scope's queued one: each scope keeps its own
+// slot, its own cutoff, and reaches its own terminal state.
+func (s *consumerSuite) TestQueuedRebuildsRunOncePerScope() {
+	firstCutoff := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	secondCutoff := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+
+	first, err := s.consumer.Rebuild(context.Background(), "scope-a", firstCutoff)
+	s.Require().NoError(err)
+	s.Equal(sessionconsumer.RebuildQueued, first.Rebuild.State)
+	second, err := s.consumer.Rebuild(context.Background(), "scope-b", secondCutoff)
+	s.Require().NoError(err)
+	s.Equal(sessionconsumer.RebuildQueued, second.Rebuild.State)
+
+	s.consumer.RunQueuedRebuildForTest(context.Background())
+
+	scopeACalls := s.rebuilder.callsForScope("scope-a")
+	scopeBCalls := s.rebuilder.callsForScope("scope-b")
+	s.Require().Len(scopeACalls, 1, "scope-a must rebuild exactly once")
+	s.Require().Len(scopeBCalls, 1, "scope-b's rebuild must not be swallowed by scope-a's")
+	s.Equal(firstCutoff, scopeACalls[0].since)
+	s.Equal(secondCutoff, scopeBCalls[0].since)
+	for _, scopeID := range []string{"scope-a", "scope-b"} {
+		status, statusErr := s.consumer.Status(context.Background(), scopeID)
+		s.Require().NoError(statusErr)
+		s.Equal(sessionconsumer.RebuildIdle, status.Rebuild.State, scopeID)
+		s.Require().NotNil(status.Rebuild.FinishedAt, scopeID)
+	}
+}
+
+// TestSecondScopeQueuesWhileFirstScopeRebuildRuns pins the running half of
+// the same bug: while scope-a's rebuild executes, scope-b's request must
+// queue (and later run) instead of reading back scope-a's running state.
+func (s *consumerSuite) TestSecondScopeQueuesWhileFirstScopeRebuildRuns() {
+	s.rebuilder.entered = make(chan struct{}, 2)
+	s.rebuilder.release = make(chan struct{})
+	cutoff := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	_, err := s.consumer.Rebuild(context.Background(), "scope-a", time.Time{})
+	s.Require().NoError(err)
+	firstPass := make(chan struct{})
+	go func() {
+		defer close(firstPass)
+		s.consumer.RunQueuedRebuildForTest(context.Background())
+	}()
+	select {
+	case <-s.rebuilder.entered:
+	case <-time.After(time.Second):
+		s.Fail("scope-a rebuild did not start")
+		return
+	}
+
+	queued, err := s.consumer.Rebuild(context.Background(), "scope-b", cutoff)
+
+	s.Require().NoError(err)
+	s.Equal(sessionconsumer.RebuildQueued, queued.Rebuild.State)
+	running, err := s.consumer.Status(context.Background(), "scope-a")
+	s.Require().NoError(err)
+	s.Equal(sessionconsumer.RebuildRunning, running.Rebuild.State)
+	close(s.rebuilder.release)
+	<-firstPass
+	s.consumer.RunQueuedRebuildForTest(context.Background())
+	scopeBCalls := s.rebuilder.callsForScope("scope-b")
+	s.Require().Len(scopeBCalls, 1, "scope-b's rebuild must run after scope-a's")
+	s.Equal(cutoff, scopeBCalls[0].since)
+}
+
 func (s *consumerSuite) TestBackgroundRebuildFailureSurfacesInStatusAndCanRequeue() {
 	s.rebuilder.err = errors.New("rebuild unavailable")
 	_, err := s.consumer.Rebuild(context.Background(), "local-team", time.Time{})
@@ -297,14 +405,47 @@ func (s *consumerSuite) TestStartsBackgroundScanAndConsumesPendingStream() {
 	}
 }
 
+// TestOneScanConsumesEveryScope pins the multi-scope sweep: one loop drains
+// the pending streams of every scope, each through its own injector.
+func (s *consumerSuite) TestOneScanConsumesEveryScope() {
+	otherInjector := &recordingInjector{}
+	s.resolver.setInjector("other-team", otherInjector)
+	s.store.streams = []sessionconsumer.Stream{
+		{
+			ScopeID: "local-team",
+			Actor:   session.Actor{UserID: "owner", AgentID: "agent-1", SessionID: "runtime-demo"},
+			Head:    2,
+		},
+		{
+			ScopeID: "other-team",
+			Actor:   session.Actor{UserID: "owner", AgentID: "agent-2", SessionID: "other-demo"},
+			Head:    7,
+		},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	s.consumer.Start(ctx)
+
+	s.Eventually(func() bool {
+		return s.injector.requestCount() == 1 && otherInjector.requestCount() == 1
+	}, time.Second, 10*time.Millisecond)
+	s.Equal([]string{"session:local-team:agent-1:runtime-demo"}, s.injector.sourceIDs())
+	s.Equal([]string{"session:other-team:agent-2:other-demo"}, otherInjector.sourceIDs())
+	scopeID, err := otherInjector.scopeAt(0)
+	s.Require().NoError(err)
+	s.Equal("other-team", scopeID)
+}
+
 func (s *consumerSuite) TestValidationRejectsIncompleteConfigurationAndInput() {
-	_, err := sessionconsumer.New(nil, s.injector, s.rebuilder, slog.New(slog.DiscardHandler), time.Second)
+	injectorFor, rebuilderFor := s.resolver.injectorFor, s.resolver.rebuilderFor
+	_, err := sessionconsumer.New(nil, injectorFor, rebuilderFor, slog.New(slog.DiscardHandler), time.Second)
 	s.Require().Error(err)
-	_, err = sessionconsumer.New(s.store, nil, s.rebuilder, slog.New(slog.DiscardHandler), time.Second)
+	_, err = sessionconsumer.New(s.store, nil, rebuilderFor, slog.New(slog.DiscardHandler), time.Second)
 	s.Require().Error(err)
-	_, err = sessionconsumer.New(s.store, s.injector, nil, slog.New(slog.DiscardHandler), time.Second)
+	_, err = sessionconsumer.New(s.store, injectorFor, nil, slog.New(slog.DiscardHandler), time.Second)
 	s.Require().Error(err)
-	_, err = sessionconsumer.New(s.store, s.injector, s.rebuilder, nil, time.Second)
+	_, err = sessionconsumer.New(s.store, injectorFor, rebuilderFor, nil, time.Second)
 	s.Require().Error(err)
 
 	_, err = s.consumer.SetAutoInject(context.Background(), "", true)
@@ -539,30 +680,51 @@ func (l *eventLog) snapshot() []string {
 	return append([]string(nil), l.entries...)
 }
 
-type recordingRebuilder struct {
-	mu               sync.Mutex
-	calls            int
+// rebuildCall is one recorded RebuildPageWiki invocation. Calls are kept in
+// order so multi-scope tests can assert what each scope's rebuild was given.
+type rebuildCall struct {
 	scopeID          string
 	processorName    string
 	processorVersion string
 	since            time.Time
-	err              error
-	done             chan struct{}
-	log              *eventLog
-	entered          chan struct{} // when non-nil, signaled as each call starts
-	release          chan struct{} // when non-nil, each call blocks on one receive
+}
+
+type recordingRebuilder struct {
+	mu      sync.Mutex
+	calls   []rebuildCall
+	err     error
+	done    chan struct{}
+	log     *eventLog
+	entered chan struct{} // when non-nil, signaled as each call starts
+	release chan struct{} // when non-nil, each call blocks on one receive
 }
 
 func (r *recordingRebuilder) callCount() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.calls
+	return len(r.calls)
 }
 
 func (r *recordingRebuilder) lastCall() (string, string, string, time.Time) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.scopeID, r.processorName, r.processorVersion, r.since
+	if len(r.calls) == 0 {
+		return "", "", "", time.Time{}
+	}
+	call := r.calls[len(r.calls)-1]
+	return call.scopeID, call.processorName, call.processorVersion, call.since
+}
+
+func (r *recordingRebuilder) callsForScope(scopeID string) []rebuildCall {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	matched := make([]rebuildCall, 0, len(r.calls))
+	for _, call := range r.calls {
+		if call.scopeID == scopeID {
+			matched = append(matched, call)
+		}
+	}
+	return matched
 }
 
 type recordingInjector struct {
@@ -582,6 +744,22 @@ func (i *recordingInjector) requestCount() int {
 	return len(i.requests)
 }
 
+func (i *recordingInjector) sourceIDs() []string {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	ids := make([]string, 0, len(i.requests))
+	for _, request := range i.requests {
+		ids = append(ids, request.SourceID)
+	}
+	return ids
+}
+
+func (i *recordingInjector) scopeAt(index int) (string, error) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	return session.ScopeFromContext(i.contexts[index])
+}
+
 func (r *recordingRebuilder) RebuildPageWiki(
 	_ context.Context,
 	scopeID string,
@@ -590,11 +768,12 @@ func (r *recordingRebuilder) RebuildPageWiki(
 	since time.Time,
 ) error {
 	r.mu.Lock()
-	r.calls++
-	r.scopeID = scopeID
-	r.processorName = processorName
-	r.processorVersion = processorVersion
-	r.since = since
+	r.calls = append(r.calls, rebuildCall{
+		scopeID:          scopeID,
+		processorName:    processorName,
+		processorVersion: processorVersion,
+		since:            since,
+	})
 	err := r.err
 	r.mu.Unlock()
 	if r.log != nil {

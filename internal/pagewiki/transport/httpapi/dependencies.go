@@ -31,19 +31,23 @@ type Reader interface {
 	MaintenanceRun(context.Context, string) (pagewiki.MaintenanceRun, error)
 }
 
+// Dependencies resolves the Injector and Reader a request should use.
+// Wiring decides, per invocation, which scope's service and repository to
+// hand back; the handler never caches the result, so every endpoint sees a
+// freshly resolved pair for every request. On-prem wiring currently pins
+// the resolution to a single scope (see internal/app.buildPageWikiHTTPHandler);
+// per-request tenant resolution on this transport is Phase 3 work.
+type Dependencies func(ctx context.Context) (Injector, Reader, error)
+
 type Handler struct {
-	injector Injector
-	reader   Reader
+	dependencies Dependencies
 }
 
-func New(injector Injector, reader Reader) (*Handler, error) {
-	if injector == nil {
-		return nil, fmt.Errorf("create Page Wiki HTTP handler: injector is required")
+func New(dependencies Dependencies) (*Handler, error) {
+	if dependencies == nil {
+		return nil, fmt.Errorf("create Page Wiki HTTP handler: dependencies is required")
 	}
-	if reader == nil {
-		return nil, fmt.Errorf("create Page Wiki HTTP handler: reader is required")
-	}
-	return &Handler{injector: injector, reader: reader}, nil
+	return &Handler{dependencies: dependencies}, nil
 }
 
 func InstanceMiddleware(handler *Handler) app.HandlerFunc {

@@ -2,6 +2,7 @@ package postgres_test
 
 import (
 	"context"
+	"sort"
 	"testing"
 	"time"
 
@@ -52,10 +53,10 @@ func TestTodoNoteDirectory_ListOpenActionItems(t *testing.T) {
 		expiresAt: base.Add(-1 * time.Hour),
 	})
 
-	directory, err := postgres.NewTodoNoteDirectory(store.Pool(), scopeID)
+	directory, err := postgres.NewTodoNoteDirectory(store.Pool())
 	require.NoError(t, err)
 
-	items, err := directory.ListOpenActionItems(ctx, 0)
+	items, err := directory.ListOpenActionItems(ctx, scopeID, 0)
 	require.NoError(t, err)
 	require.Len(t, items, 2)
 
@@ -73,16 +74,91 @@ func TestTodoNoteDirectory_ListOpenActionItems(t *testing.T) {
 }
 
 func TestNewTodoNoteDirectory_ValidatesInputs(t *testing.T) {
-	_, err := postgres.NewTodoNoteDirectory(nil, "scope")
+	_, err := postgres.NewTodoNoteDirectory(nil)
 	require.Error(t, err)
+}
 
+func TestTodoNoteDirectory_ListOpenActionItems_ScopeIsolationPerCall(t *testing.T) {
 	dsn := testDSN(t)
-	store, err := postgres.Open(context.Background(), dsn)
+	ctx := context.Background()
+
+	store, err := postgres.Open(ctx, dsn)
 	require.NoError(t, err)
 	defer store.Close()
+	require.NoError(t, store.Migrate(ctx))
 
-	_, err = postgres.NewTodoNoteDirectory(store.Pool(), "  ")
-	require.Error(t, err)
+	base := time.Now().UTC().Truncate(time.Second)
+
+	// Each scope is unique to this test run, so no cleanup is needed: the
+	// rows never collide with another run (mirrors the uniqueScope
+	// convention used elsewhere in this package's suites).
+	scopeA := uniqueScope("todoapp-notes")
+	scopeB := uniqueScope("todoapp-notes")
+
+	seedTeamNote(t, store.Pool(), teamNoteSeed{
+		scopeID: scopeA, noteID: "note-local", kind: "blocker",
+		subject: "Local blocker", body: "local body", state: "active",
+		updatedAt: base,
+	})
+	seedTeamNote(t, store.Pool(), teamNoteSeed{
+		scopeID: scopeB, noteID: "note-other", kind: "blocker",
+		subject: "Other blocker", body: "other body", state: "active",
+		updatedAt: base,
+	})
+
+	directory, err := postgres.NewTodoNoteDirectory(store.Pool())
+	require.NoError(t, err)
+
+	local, err := directory.ListOpenActionItems(ctx, scopeA, 0)
+	require.NoError(t, err)
+	require.Len(t, local, 1)
+	require.Equal(t, "note-local", local[0].NoteID)
+
+	other, err := directory.ListOpenActionItems(ctx, scopeB, 0)
+	require.NoError(t, err)
+	require.Len(t, other, 1)
+	require.Equal(t, "note-other", other[0].NoteID)
+}
+
+// TestTodoNoteDirectory_ListScopes proves ListScopes enumerates every scope
+// with team notes: it is the population the suggestion-refresh sweep serves.
+// The DB behind this suite is shared across the whole test binary (and
+// across runs), so — like the other tests in this file — the two scopes
+// under test use uniqueScope rather than fixed literals, and the assertion
+// checks that both are present rather than that they are the only rows
+// returned.
+func TestTodoNoteDirectory_ListScopes(t *testing.T) {
+	dsn := testDSN(t)
+	ctx := context.Background()
+
+	store, err := postgres.Open(ctx, dsn)
+	require.NoError(t, err)
+	defer store.Close()
+	require.NoError(t, store.Migrate(ctx))
+
+	scopeA := uniqueScope("todoapp-notes-scopes")
+	scopeB := uniqueScope("todoapp-notes-scopes")
+	base := time.Now().UTC().Truncate(time.Second)
+
+	seedTeamNote(t, store.Pool(), teamNoteSeed{
+		scopeID: scopeA, noteID: "note-a", kind: "blocker",
+		subject: "A blocker", body: "a body", state: "active",
+		updatedAt: base,
+	})
+	seedTeamNote(t, store.Pool(), teamNoteSeed{
+		scopeID: scopeB, noteID: "note-b", kind: "handoff",
+		subject: "B handoff", body: "b body", state: "active",
+		updatedAt: base,
+	})
+
+	directory, err := postgres.NewTodoNoteDirectory(store.Pool())
+	require.NoError(t, err)
+
+	scopes, err := directory.ListScopes(ctx)
+	require.NoError(t, err)
+	sort.Strings(scopes)
+	require.Contains(t, scopes, scopeA)
+	require.Contains(t, scopes, scopeB)
 }
 
 type teamNoteSeed struct {

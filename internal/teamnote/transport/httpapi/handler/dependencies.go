@@ -139,8 +139,8 @@ type WikiControl interface {
 }
 
 type WikiSettings interface {
-	GenerationSettings(context.Context) (pagewiki.GenerationDirectives, error)
-	SetGenerationSettings(context.Context, pagewiki.GenerationDirectives) (pagewiki.GenerationDirectives, error)
+	GenerationSettings(context.Context, string) (pagewiki.GenerationDirectives, error)
+	SetGenerationSettings(context.Context, string, pagewiki.GenerationDirectives) (pagewiki.GenerationDirectives, error)
 }
 
 type LLMUsage interface {

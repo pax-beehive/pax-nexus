@@ -36,7 +36,7 @@ func (s *wikiSettingsHandlerSuite) SetupTest() {
 	s.controller = gomock.NewController(s.T())
 	s.identity = &humanIdentityService{principal: onprem.HumanPrincipal{
 		UserID: "owner-user", MembershipID: "owner-membership", Role: onprem.RoleOwner,
-		MembershipStatus: onprem.MembershipStatusActive,
+		MembershipStatus: onprem.MembershipStatusActive, ScopeID: onprem.LocalScopeID,
 	}}
 	s.wikiSettings = &wikiSettingsService{}
 	configured, err := handler.NewOnPrem(
@@ -64,6 +64,19 @@ func (s *wikiSettingsHandlerSuite) TestPutStoresAndEchoesSettings() {
 	s.Equal(consts.StatusOK, response.Code)
 	s.JSONEq(body, response.Body.String())
 	s.Equal(pagewiki.GenerationDirectives{Language: "简体中文", CustomInstructions: "prefer tables"}, s.wikiSettings.stored)
+}
+
+func (s *wikiSettingsHandlerSuite) TestRequestsCarryThePrincipalsScope() {
+	s.identity.principal.ScopeID = "other-scope"
+
+	getResponse := s.perform(http.MethodGet, "/v1/wiki/settings", true, "")
+	s.Equal(consts.StatusOK, getResponse.Code)
+	s.Equal("other-scope", s.wikiSettings.getScope)
+
+	putResponse := s.perform(http.MethodPut, "/v1/wiki/settings", true,
+		`{"language":"","custom_instructions":""}`)
+	s.Equal(consts.StatusOK, putResponse.Code)
+	s.Equal("other-scope", s.wikiSettings.setScope)
 }
 
 func (s *wikiSettingsHandlerSuite) TestPutRejectsOverLongLanguage() {
@@ -126,17 +139,21 @@ func (s *wikiSettingsHandlerSuite) perform(method, path string, csrf bool, body 
 }
 
 type wikiSettingsService struct {
-	stored pagewiki.GenerationDirectives
-	err    error
+	stored   pagewiki.GenerationDirectives
+	err      error
+	getScope string
+	setScope string
 }
 
-func (f *wikiSettingsService) GenerationSettings(context.Context) (pagewiki.GenerationDirectives, error) {
+func (f *wikiSettingsService) GenerationSettings(_ context.Context, scopeID string) (pagewiki.GenerationDirectives, error) {
+	f.getScope = scopeID
 	return f.stored, f.err
 }
 
 func (f *wikiSettingsService) SetGenerationSettings(
-	_ context.Context, d pagewiki.GenerationDirectives,
+	_ context.Context, scopeID string, d pagewiki.GenerationDirectives,
 ) (pagewiki.GenerationDirectives, error) {
+	f.setScope = scopeID
 	if f.err != nil {
 		return pagewiki.GenerationDirectives{}, f.err
 	}

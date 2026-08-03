@@ -37,7 +37,7 @@ func buildPageWikiHTTPHandler(
 	usageStore *postgres.LLMUsageStore,
 	config applicationConfig,
 	logger *slog.Logger,
-) (*pagewikihttp.Handler, *sessionconsumer.Controller, *pagewiki.Service, error) {
+) (*pagewikihttp.Handler, *sessionconsumer.Controller, handler.WikiSettings, error) {
 	treeMaxDepth, err := parseTreeMaxDepth(config.llmwikiTreeMaxDepth)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf(
@@ -48,10 +48,17 @@ func buildPageWikiHTTPHandler(
 	if treeMaxDepth > 0 {
 		repositoryOptions = append(repositoryOptions, memory.WithTopicTreeMaxDepth(treeMaxDepth))
 	}
-	repository, err := pagewikipostgres.NewRepository(
-		ctx, store.Pool(), onprem.LocalScopeID, repositoryOptions...,
-	)
+	repositoryManager, err := pagewikipostgres.NewRepositoryManager(store.Pool(), repositoryOptions...)
 	if err != nil {
+		return nil, nil, nil, fmt.Errorf("initialize Page Wiki repository: %w", err)
+	}
+	// Eagerly hydrate the on-prem scope at boot, preserving today's
+	// hydrate-at-boot fail-fast behavior. The session consumer, and the Page
+	// Wiki HTTP transport below, both resolve every request's scope through
+	// the managers; this eager call only exists to fail fast at startup and
+	// pre-warm the manager cache so the transport's per-request resolution
+	// below is a cache hit.
+	if _, err := repositoryManager.ForScope(ctx, onprem.LocalScopeID); err != nil {
 		return nil, nil, nil, fmt.Errorf("initialize Page Wiki repository: %w", err)
 	}
 	planner, editor, navigator, curator, err := buildPageWikiMaintainers(usageStore, config, logger)
@@ -71,23 +78,62 @@ func buildPageWikiHTTPHandler(
 		}
 		options = append(options, pagewiki.WithCurator(curator, embedder, curationConfig, logger))
 	}
-	service := pagewiki.NewService(repository, planner, editor, options...)
-	consumerStore, err := postgres.NewPageWikiConsumerStore(store.Pool(), onprem.LocalScopeID)
+	serviceManager, err := pagewiki.NewServiceManager(
+		func(ctx context.Context, scopeID string) (pagewiki.Repository, error) {
+			return repositoryManager.ForScope(ctx, scopeID)
+		},
+		pagewiki.ServiceManagerConfig{Planner: planner, Editor: editor, Options: options},
+	)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("initialize Page Wiki service manager: %w", err)
+	}
+	// Same eager-hydrate/fail-fast/cache-warm rationale as the repository
+	// above.
+	if _, err := serviceManager.ForScope(ctx, onprem.LocalScopeID); err != nil {
+		return nil, nil, nil, fmt.Errorf("initialize Page Wiki service: %w", err)
+	}
+	consumerStore, err := postgres.NewPageWikiConsumerStore(store.Pool())
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	controller, err := sessionconsumer.New(consumerStore, service, repository, logger, 2*time.Second)
+	// The consumer sweeps every scope from one loop, resolving each stream's
+	// service and each rebuild's repository through the managers above.
+	controller, err := sessionconsumer.New(
+		consumerStore,
+		func(ctx context.Context, scopeID string) (sessionconsumer.Injector, error) {
+			return serviceManager.ForScope(ctx, scopeID)
+		},
+		func(ctx context.Context, scopeID string) (sessionconsumer.Rebuilder, error) {
+			return repositoryManager.ForScope(ctx, scopeID)
+		},
+		logger, 2*time.Second,
+	)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	configured, err := pagewikihttp.New(service, repository)
+	// The transport resolves its injector/reader pair fresh on every
+	// request through the managers above, pinned to the on-prem scope; this
+	// is the deliberate Phase 2 profile pin. Per-request tenant resolution
+	// on this transport arrives with Phase 3 auth.
+	configured, err := pagewikihttp.New(
+		func(ctx context.Context) (pagewikihttp.Injector, pagewikihttp.Reader, error) {
+			service, err := serviceManager.ForScope(ctx, onprem.LocalScopeID)
+			if err != nil {
+				return nil, nil, err
+			}
+			repository, err := repositoryManager.ForScope(ctx, onprem.LocalScopeID)
+			if err != nil {
+				return nil, nil, err
+			}
+			return service, repository, nil
+		},
+	)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("initialize Page Wiki HTTP handler: %w", err)
 	}
-	service.StartTreeMaintenance(ctx)
-	service.StartCurationMaintenance(ctx)
+	serviceManager.Start(ctx)
 	controller.Start(ctx)
-	return configured, controller, service, nil
+	return configured, controller, wikiSettingsAdapter{services: serviceManager}, nil
 }
 
 // buildPageWikiCurationConfig parses the LLMWIKI_CURATION_* environment into
@@ -273,15 +319,15 @@ func buildTodoApp(
 	config applicationConfig,
 	logger *slog.Logger,
 ) (*todoapphttp.Handler, func(), error) {
-	todoRepository, err := todoapppostgres.NewRepository(ctx, store.Pool(), onprem.LocalScopeID)
+	todoRepository, err := todoapppostgres.NewRepository(ctx, store.Pool())
 	if err != nil {
 		return nil, nil, fmt.Errorf("initialize Todo App repository: %w", err)
 	}
-	noteDirectory, err := postgres.NewTodoNoteDirectory(store.Pool(), onprem.LocalScopeID)
+	noteDirectory, err := postgres.NewTodoNoteDirectory(store.Pool())
 	if err != nil {
 		return nil, nil, fmt.Errorf("initialize Todo App note directory: %w", err)
 	}
-	reporter, err := todoapp.NewLakeReporter(lake, onprem.LocalScopeID)
+	reporter, err := todoapp.NewLakeReporter(lake)
 	if err != nil {
 		return nil, nil, fmt.Errorf("initialize Todo App reporter: %w", err)
 	}
@@ -306,7 +352,7 @@ func buildTodoApp(
 	if err != nil {
 		return nil, nil, fmt.Errorf("initialize Todo App HTTP handler: %w", err)
 	}
-	stop := todoapp.StartSuggestionRefresh(ctx, service, config.todoRefreshInterval, logger)
+	stop := todoapp.StartSuggestionRefresh(ctx, service, noteDirectory, config.todoRefreshInterval, logger)
 	return configured, stop, nil
 }
 

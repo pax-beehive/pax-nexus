@@ -12,10 +12,11 @@ import (
 )
 
 func (h *Handler) GetWikiGenerationSettings(ctx context.Context, c *app.RequestContext) {
-	if _, ok := h.authorizeWikiSettings(ctx, c, false); !ok {
+	principal, ok := h.authorizeWikiSettings(ctx, c, false)
+	if !ok {
 		return
 	}
-	directives, err := h.wikiSettings.GenerationSettings(ctx)
+	directives, err := h.wikiSettings.GenerationSettings(ctx, principal.ScopeID)
 	if err != nil {
 		h.logger.Error("get Wiki generation settings", "error", err)
 		writeHumanAPIError(c, consts.StatusInternalServerError, "internal_error", "the request could not be completed")
@@ -27,7 +28,8 @@ func (h *Handler) GetWikiGenerationSettings(ctx context.Context, c *app.RequestC
 }
 
 func (h *Handler) UpdateWikiGenerationSettings(ctx context.Context, c *app.RequestContext) {
-	if _, ok := h.authorizeWikiSettings(ctx, c, true); !ok {
+	principal, ok := h.authorizeWikiSettings(ctx, c, true)
+	if !ok {
 		return
 	}
 	var request api.UpdateWikiGenerationSettingsRequest
@@ -35,7 +37,7 @@ func (h *Handler) UpdateWikiGenerationSettings(ctx context.Context, c *app.Reque
 		writeHumanAPIError(c, consts.StatusBadRequest, "invalid_request", "the request is invalid")
 		return
 	}
-	stored, err := h.wikiSettings.SetGenerationSettings(ctx, pagewiki.GenerationDirectives{
+	stored, err := h.wikiSettings.SetGenerationSettings(ctx, principal.ScopeID, pagewiki.GenerationDirectives{
 		Language: request.Language, CustomInstructions: request.CustomInstructions,
 	})
 	switch {

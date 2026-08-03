@@ -16,21 +16,21 @@ import (
 )
 
 // Repository is the Postgres-backed implementation of todoapp.Repository.
+// It serves every scope from a single pool; callers pass scopeID per call.
 type Repository struct {
-	pool    *pgxpool.Pool
-	scopeID string
+	pool *pgxpool.Pool
 }
 
-// NewRepository creates a Postgres-backed todoapp repository scoped to scopeID.
-func NewRepository(ctx context.Context, pool *pgxpool.Pool, scopeID string) (*Repository, error) {
-	if pool == nil || scopeID == "" {
-		return nil, fmt.Errorf("create todo app postgres repository: pool and scope are required")
+// NewRepository creates a Postgres-backed todoapp repository.
+func NewRepository(ctx context.Context, pool *pgxpool.Pool) (*Repository, error) {
+	if pool == nil {
+		return nil, fmt.Errorf("create todo app postgres repository: pool is required")
 	}
-	return &Repository{pool: pool, scopeID: scopeID}, nil
+	return &Repository{pool: pool}, nil
 }
 
 // SaveTodo inserts or updates a todo by ID.
-func (r *Repository) SaveTodo(ctx context.Context, todo todoapp.Todo) error {
+func (r *Repository) SaveTodo(ctx context.Context, scopeID string, todo todoapp.Todo) error {
 	payload, err := json.Marshal(todo)
 	if err != nil {
 		return fmt.Errorf("marshal todo %q: %w", todo.ID, err)
@@ -40,7 +40,7 @@ INSERT INTO todoapp_todos (scope_id, todo_id, status, payload, updated_at)
 VALUES ($1, $2, $3, $4, $5)
 ON CONFLICT (scope_id, todo_id)
 DO UPDATE SET status = EXCLUDED.status, payload = EXCLUDED.payload, updated_at = EXCLUDED.updated_at`,
-		r.scopeID, todo.ID, string(todo.Status), payload, todo.UpdatedAt,
+		scopeID, todo.ID, string(todo.Status), payload, todo.UpdatedAt,
 	); err != nil {
 		return fmt.Errorf("save todo %q: %w", todo.ID, err)
 	}
@@ -48,11 +48,11 @@ DO UPDATE SET status = EXCLUDED.status, payload = EXCLUDED.payload, updated_at =
 }
 
 // TodoByID retrieves a todo by ID, returning todoapp.ErrNotFound if not present.
-func (r *Repository) TodoByID(ctx context.Context, todoID string) (todoapp.Todo, error) {
+func (r *Repository) TodoByID(ctx context.Context, scopeID string, todoID string) (todoapp.Todo, error) {
 	var payload []byte
 	err := r.pool.QueryRow(ctx, `
 SELECT payload FROM todoapp_todos WHERE scope_id = $1 AND todo_id = $2`,
-		r.scopeID, todoID,
+		scopeID, todoID,
 	).Scan(&payload)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return todoapp.Todo{}, todoapp.ErrNotFound
@@ -69,12 +69,12 @@ SELECT payload FROM todoapp_todos WHERE scope_id = $1 AND todo_id = $2`,
 
 // ListTodos returns todos matching status (empty string = all), ordered by
 // UpdatedAt descending, then ID descending.
-func (r *Repository) ListTodos(ctx context.Context, status todoapp.TodoStatus) ([]todoapp.Todo, error) {
+func (r *Repository) ListTodos(ctx context.Context, scopeID string, status todoapp.TodoStatus) ([]todoapp.Todo, error) {
 	rows, err := r.pool.Query(ctx, `
 SELECT payload FROM todoapp_todos
 WHERE scope_id = $1 AND ($2 = '' OR status = $2)
 ORDER BY updated_at DESC, todo_id DESC`,
-		r.scopeID, string(status),
+		scopeID, string(status),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("list todos: %w", err)
@@ -99,7 +99,7 @@ ORDER BY updated_at DESC, todo_id DESC`,
 }
 
 // SaveSuggestion inserts or updates a suggestion by ID.
-func (r *Repository) SaveSuggestion(ctx context.Context, suggestion todoapp.Suggestion) error {
+func (r *Repository) SaveSuggestion(ctx context.Context, scopeID string, suggestion todoapp.Suggestion) error {
 	payload, err := json.Marshal(suggestion)
 	if err != nil {
 		return fmt.Errorf("marshal suggestion %q: %w", suggestion.ID, err)
@@ -110,7 +110,7 @@ VALUES ($1, $2, $3, $4, $5, $6)
 ON CONFLICT (scope_id, suggestion_id)
 DO UPDATE SET fingerprint = EXCLUDED.fingerprint, status = EXCLUDED.status,
     payload = EXCLUDED.payload, updated_at = EXCLUDED.updated_at`,
-		r.scopeID, suggestion.ID, suggestion.Fingerprint, string(suggestion.Status), payload, suggestion.UpdatedAt,
+		scopeID, suggestion.ID, suggestion.Fingerprint, string(suggestion.Status), payload, suggestion.UpdatedAt,
 	); err != nil {
 		return fmt.Errorf("save suggestion %q: %w", suggestion.ID, err)
 	}
@@ -118,11 +118,11 @@ DO UPDATE SET fingerprint = EXCLUDED.fingerprint, status = EXCLUDED.status,
 }
 
 // SuggestionByID retrieves a suggestion by ID, returning todoapp.ErrNotFound if not present.
-func (r *Repository) SuggestionByID(ctx context.Context, suggestionID string) (todoapp.Suggestion, error) {
+func (r *Repository) SuggestionByID(ctx context.Context, scopeID string, suggestionID string) (todoapp.Suggestion, error) {
 	var payload []byte
 	err := r.pool.QueryRow(ctx, `
 SELECT payload FROM todoapp_suggestions WHERE scope_id = $1 AND suggestion_id = $2`,
-		r.scopeID, suggestionID,
+		scopeID, suggestionID,
 	).Scan(&payload)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return todoapp.Suggestion{}, todoapp.ErrNotFound
@@ -139,12 +139,12 @@ SELECT payload FROM todoapp_suggestions WHERE scope_id = $1 AND suggestion_id = 
 
 // ListSuggestions returns suggestions matching status (empty string = all), ordered by
 // UpdatedAt descending, then ID descending.
-func (r *Repository) ListSuggestions(ctx context.Context, status todoapp.SuggestionStatus) ([]todoapp.Suggestion, error) {
+func (r *Repository) ListSuggestions(ctx context.Context, scopeID string, status todoapp.SuggestionStatus) ([]todoapp.Suggestion, error) {
 	rows, err := r.pool.Query(ctx, `
 SELECT payload FROM todoapp_suggestions
 WHERE scope_id = $1 AND ($2 = '' OR status = $2)
 ORDER BY updated_at DESC, suggestion_id DESC`,
-		r.scopeID, string(status),
+		scopeID, string(status),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("list suggestions: %w", err)
@@ -170,9 +170,9 @@ ORDER BY updated_at DESC, suggestion_id DESC`,
 
 // SuggestionFingerprints returns the set of all suggestion fingerprints ever stored,
 // regardless of status.
-func (r *Repository) SuggestionFingerprints(ctx context.Context) (map[string]struct{}, error) {
+func (r *Repository) SuggestionFingerprints(ctx context.Context, scopeID string) (map[string]struct{}, error) {
 	rows, err := r.pool.Query(ctx, `
-SELECT fingerprint FROM todoapp_suggestions WHERE scope_id = $1`, r.scopeID)
+SELECT fingerprint FROM todoapp_suggestions WHERE scope_id = $1`, scopeID)
 	if err != nil {
 		return nil, fmt.Errorf("list suggestion fingerprints: %w", err)
 	}

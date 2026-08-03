@@ -40,32 +40,23 @@ func TestNewLakeReporter_InvalidInput(t *testing.T) {
 	tests := []struct {
 		name    string
 		sink    todoapp.EvidenceSink
-		scopeID string
 		wantErr bool
 	}{
 		{
 			name:    "nil sink",
 			sink:    nil,
-			scopeID: "local-team",
-			wantErr: true,
-		},
-		{
-			name:    "blank scope",
-			sink:    &fakeSink{},
-			scopeID: "",
 			wantErr: true,
 		},
 		{
 			name:    "valid input",
 			sink:    &fakeSink{},
-			scopeID: "local-team",
 			wantErr: false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := todoapp.NewLakeReporter(tt.sink, tt.scopeID)
+			_, err := todoapp.NewLakeReporter(tt.sink)
 			if tt.wantErr {
 				assert.Error(t, err)
 			} else {
@@ -75,10 +66,37 @@ func TestNewLakeReporter_InvalidInput(t *testing.T) {
 	}
 }
 
+func TestLakeReporter_Report_BlankScopeIsRejected(t *testing.T) {
+	sink := &fakeSink{}
+	reporter, err := todoapp.NewLakeReporter(sink)
+	require.NoError(t, err)
+
+	err = reporter.Report(context.Background(), "", todoapp.ReportEvent{Type: todoapp.EventTodoCompleted})
+	require.Error(t, err)
+}
+
+func TestLakeReporter_Report_ThreadsScopeIntoSinkContext(t *testing.T) {
+	sink := &fakeSink{}
+	reporter, err := todoapp.NewLakeReporter(sink)
+	require.NoError(t, err)
+
+	err = reporter.Report(context.Background(), "other-scope", todoapp.ReportEvent{
+		Type:       todoapp.EventTodoCompleted,
+		UserID:     "user123",
+		Summary:    "summary",
+		OccurredAt: time.Now(),
+	})
+	require.NoError(t, err)
+
+	scopeID, err := session.ScopeFromContext(sink.ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "other-scope", scopeID)
+}
+
 func TestLakeReporter_Report(t *testing.T) {
 	t.Run("successful report", func(t *testing.T) {
 		sink := &fakeSink{}
-		reporter, err := todoapp.NewLakeReporter(sink, "local-team")
+		reporter, err := todoapp.NewLakeReporter(sink)
 		require.NoError(t, err)
 
 		ctx := context.Background()
@@ -92,7 +110,7 @@ func TestLakeReporter_Report(t *testing.T) {
 			OccurredAt:   time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC),
 		}
 
-		err = reporter.Report(ctx, event)
+		err = reporter.Report(ctx, "local-team", event)
 		require.NoError(t, err)
 
 		// Verify the sink was called
@@ -134,7 +152,7 @@ func TestLakeReporter_Report(t *testing.T) {
 
 	t.Run("metadata without empty keys", func(t *testing.T) {
 		sink := &fakeSink{}
-		reporter, err := todoapp.NewLakeReporter(sink, "local-team")
+		reporter, err := todoapp.NewLakeReporter(sink)
 		require.NoError(t, err)
 
 		ctx := context.Background()
@@ -148,7 +166,7 @@ func TestLakeReporter_Report(t *testing.T) {
 			OccurredAt:   time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC),
 		}
 
-		err = reporter.Report(ctx, event)
+		err = reporter.Report(ctx, "local-team", event)
 		require.NoError(t, err)
 
 		streamEvent := sink.batch.Events[0]
@@ -162,7 +180,7 @@ func TestLakeReporter_Report(t *testing.T) {
 
 	t.Run("sink error wrapped", func(t *testing.T) {
 		sink := &fakeSinkWithError{err: errSinkFailed}
-		reporter, err := todoapp.NewLakeReporter(sink, "local-team")
+		reporter, err := todoapp.NewLakeReporter(sink)
 		require.NoError(t, err)
 
 		ctx := context.Background()
@@ -174,7 +192,7 @@ func TestLakeReporter_Report(t *testing.T) {
 			OccurredAt: time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC),
 		}
 
-		err = reporter.Report(ctx, event)
+		err = reporter.Report(ctx, "local-team", event)
 		require.Error(t, err)
 		assert.ErrorIs(t, err, errSinkFailed)
 	})
@@ -188,7 +206,6 @@ func TestLakeReporter_InjectableNewID(t *testing.T) {
 		counter := 0
 		reporter, err := todoapp.NewLakeReporter(
 			sink,
-			"local-team",
 			todoapp.WithLakeReporterNewID(func() string {
 				counter++
 				return "custom-id-" + strconv.Itoa(counter)
@@ -205,7 +222,7 @@ func TestLakeReporter_InjectableNewID(t *testing.T) {
 			OccurredAt: time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC),
 		}
 
-		err = reporter.Report(ctx, event)
+		err = reporter.Report(ctx, "local-team", event)
 		require.NoError(t, err)
 
 		streamEvent := sink.batch.Events[0]

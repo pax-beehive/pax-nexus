@@ -46,7 +46,7 @@ func (s *repositorySuite) TearDownSuite() {
 func (s *repositorySuite) SetupTest() {
 	s.scopeID = fmt.Sprintf("todoapp-repository-%d", time.Now().UnixNano())
 	var err error
-	s.repo, err = todoapppostgres.NewRepository(s.ctx, s.store.Pool(), s.scopeID)
+	s.repo, err = todoapppostgres.NewRepository(s.ctx, s.store.Pool())
 	s.Require().NoError(err)
 }
 
@@ -73,22 +73,22 @@ func (s *repositorySuite) TestTodoRoundtripAndNotFound() {
 		CreatedAt: time.Unix(100, 0).UTC(),
 		UpdatedAt: time.Unix(100, 0).UTC(),
 	}
-	s.Require().NoError(s.repo.SaveTodo(s.ctx, todo))
-	loaded, err := s.repo.TodoByID(s.ctx, "t1")
+	s.Require().NoError(s.repo.SaveTodo(s.ctx, s.scopeID, todo))
+	loaded, err := s.repo.TodoByID(s.ctx, s.scopeID, "t1")
 	s.Require().NoError(err)
 	s.Require().Equal(todo, loaded)
-	_, err = s.repo.TodoByID(s.ctx, "missing")
+	_, err = s.repo.TodoByID(s.ctx, s.scopeID, "missing")
 	s.Require().ErrorIs(err, todoapp.ErrNotFound)
 }
 
 func (s *repositorySuite) TestListTodosFiltersByStatus() {
-	s.Require().NoError(s.repo.SaveTodo(s.ctx, todoapp.Todo{
+	s.Require().NoError(s.repo.SaveTodo(s.ctx, s.scopeID, todoapp.Todo{
 		ID:        "t1",
 		Title:     "a",
 		Status:    todoapp.TodoOpen,
 		UpdatedAt: time.Unix(200, 0).UTC(),
 	}))
-	s.Require().NoError(s.repo.SaveTodo(s.ctx, todoapp.Todo{
+	s.Require().NoError(s.repo.SaveTodo(s.ctx, s.scopeID, todoapp.Todo{
 		ID:        "t2",
 		Title:     "b",
 		Status:    todoapp.TodoDone,
@@ -105,7 +105,7 @@ func (s *repositorySuite) TestListTodosFiltersByStatus() {
 	}
 	for _, tc := range cases {
 		s.Run(tc.name, func() {
-			listed, err := s.repo.ListTodos(s.ctx, tc.status)
+			listed, err := s.repo.ListTodos(s.ctx, s.scopeID, tc.status)
 			s.Require().NoError(err)
 			ids := make([]string, 0, len(listed))
 			for _, item := range listed {
@@ -123,7 +123,7 @@ func (s *repositorySuite) TestTodoSaveUpserts() {
 		Status:    todoapp.TodoOpen,
 		UpdatedAt: time.Unix(100, 0).UTC(),
 	}
-	s.Require().NoError(s.repo.SaveTodo(s.ctx, original))
+	s.Require().NoError(s.repo.SaveTodo(s.ctx, s.scopeID, original))
 
 	updated := todoapp.Todo{
 		ID:        "t1",
@@ -131,13 +131,13 @@ func (s *repositorySuite) TestTodoSaveUpserts() {
 		Status:    todoapp.TodoDone,
 		UpdatedAt: time.Unix(200, 0).UTC(),
 	}
-	s.Require().NoError(s.repo.SaveTodo(s.ctx, updated))
+	s.Require().NoError(s.repo.SaveTodo(s.ctx, s.scopeID, updated))
 
-	loaded, err := s.repo.TodoByID(s.ctx, "t1")
+	loaded, err := s.repo.TodoByID(s.ctx, s.scopeID, "t1")
 	s.Require().NoError(err)
 	s.Require().Equal(updated, loaded)
 
-	listed, err := s.repo.ListTodos(s.ctx, "")
+	listed, err := s.repo.ListTodos(s.ctx, s.scopeID, "")
 	s.Require().NoError(err)
 	s.Require().Len(listed, 1, "upsert must not create a duplicate row")
 }
@@ -145,11 +145,11 @@ func (s *repositorySuite) TestTodoSaveUpserts() {
 func (s *repositorySuite) TestTodoListOrderingByUpdatedAtAndID() {
 	// Insert with same UpdatedAt to test tie-break by ID.
 	t := time.Unix(300, 0).UTC()
-	s.Require().NoError(s.repo.SaveTodo(s.ctx, todoapp.Todo{ID: "t1", Title: "a", UpdatedAt: t}))
-	s.Require().NoError(s.repo.SaveTodo(s.ctx, todoapp.Todo{ID: "t3", Title: "b", UpdatedAt: t}))
-	s.Require().NoError(s.repo.SaveTodo(s.ctx, todoapp.Todo{ID: "t2", Title: "c", UpdatedAt: t}))
+	s.Require().NoError(s.repo.SaveTodo(s.ctx, s.scopeID, todoapp.Todo{ID: "t1", Title: "a", UpdatedAt: t}))
+	s.Require().NoError(s.repo.SaveTodo(s.ctx, s.scopeID, todoapp.Todo{ID: "t3", Title: "b", UpdatedAt: t}))
+	s.Require().NoError(s.repo.SaveTodo(s.ctx, s.scopeID, todoapp.Todo{ID: "t2", Title: "c", UpdatedAt: t}))
 
-	listed, err := s.repo.ListTodos(s.ctx, "")
+	listed, err := s.repo.ListTodos(s.ctx, s.scopeID, "")
 	s.Require().NoError(err)
 	ids := make([]string, len(listed))
 	for i, item := range listed {
@@ -161,10 +161,10 @@ func (s *repositorySuite) TestTodoListOrderingByUpdatedAtAndID() {
 func (s *repositorySuite) TestTodoListOrderingPreservesSubsecondPrecision() {
 	t1 := time.Unix(200, 0).UTC()
 	t2 := time.Unix(200, 500_000_000).UTC() // 200.5 seconds, exactly representable at microsecond precision
-	s.Require().NoError(s.repo.SaveTodo(s.ctx, todoapp.Todo{ID: "t1", Title: "older", UpdatedAt: t1}))
-	s.Require().NoError(s.repo.SaveTodo(s.ctx, todoapp.Todo{ID: "t2", Title: "newer", UpdatedAt: t2}))
+	s.Require().NoError(s.repo.SaveTodo(s.ctx, s.scopeID, todoapp.Todo{ID: "t1", Title: "older", UpdatedAt: t1}))
+	s.Require().NoError(s.repo.SaveTodo(s.ctx, s.scopeID, todoapp.Todo{ID: "t2", Title: "newer", UpdatedAt: t2}))
 
-	listed, err := s.repo.ListTodos(s.ctx, "")
+	listed, err := s.repo.ListTodos(s.ctx, s.scopeID, "")
 	s.Require().NoError(err)
 	s.Require().Len(listed, 2)
 	s.Require().Equal("t2", listed[0].ID)
@@ -183,22 +183,22 @@ func (s *repositorySuite) TestSuggestionRoundtrip() {
 		CreatedAt:   time.Unix(100, 0).UTC(),
 		UpdatedAt:   time.Unix(100, 0).UTC(),
 	}
-	s.Require().NoError(s.repo.SaveSuggestion(s.ctx, suggestion))
-	loaded, err := s.repo.SuggestionByID(s.ctx, "s1")
+	s.Require().NoError(s.repo.SaveSuggestion(s.ctx, s.scopeID, suggestion))
+	loaded, err := s.repo.SuggestionByID(s.ctx, s.scopeID, "s1")
 	s.Require().NoError(err)
 	s.Require().Equal(suggestion, loaded)
-	_, err = s.repo.SuggestionByID(s.ctx, "missing")
+	_, err = s.repo.SuggestionByID(s.ctx, s.scopeID, "missing")
 	s.Require().ErrorIs(err, todoapp.ErrNotFound)
 }
 
 func (s *repositorySuite) TestListSuggestionsFiltersByStatus() {
-	s.Require().NoError(s.repo.SaveSuggestion(s.ctx, todoapp.Suggestion{
+	s.Require().NoError(s.repo.SaveSuggestion(s.ctx, s.scopeID, todoapp.Suggestion{
 		ID: "s1", Fingerprint: "n1", Status: todoapp.SuggestionPending, UpdatedAt: time.Unix(200, 0).UTC(),
 	}))
-	s.Require().NoError(s.repo.SaveSuggestion(s.ctx, todoapp.Suggestion{
+	s.Require().NoError(s.repo.SaveSuggestion(s.ctx, s.scopeID, todoapp.Suggestion{
 		ID: "s2", Fingerprint: "n2", Status: todoapp.SuggestionAccepted, UpdatedAt: time.Unix(300, 0).UTC(),
 	}))
-	s.Require().NoError(s.repo.SaveSuggestion(s.ctx, todoapp.Suggestion{
+	s.Require().NoError(s.repo.SaveSuggestion(s.ctx, s.scopeID, todoapp.Suggestion{
 		ID: "s3", Fingerprint: "n3", Status: todoapp.SuggestionDismissed, UpdatedAt: time.Unix(250, 0).UTC(),
 	}))
 
@@ -214,7 +214,7 @@ func (s *repositorySuite) TestListSuggestionsFiltersByStatus() {
 	}
 	for _, tc := range cases {
 		s.Run(tc.name, func() {
-			listed, err := s.repo.ListSuggestions(s.ctx, tc.status)
+			listed, err := s.repo.ListSuggestions(s.ctx, s.scopeID, tc.status)
 			s.Require().NoError(err)
 			ids := make([]string, 0, len(listed))
 			for _, item := range listed {
@@ -229,33 +229,33 @@ func (s *repositorySuite) TestSuggestionSaveUpserts() {
 	original := todoapp.Suggestion{
 		ID: "s1", Fingerprint: "n1", Status: todoapp.SuggestionPending, UpdatedAt: time.Unix(100, 0).UTC(),
 	}
-	s.Require().NoError(s.repo.SaveSuggestion(s.ctx, original))
+	s.Require().NoError(s.repo.SaveSuggestion(s.ctx, s.scopeID, original))
 
 	updated := todoapp.Suggestion{
 		ID: "s1", Fingerprint: "n1", Status: todoapp.SuggestionAccepted, UpdatedAt: time.Unix(200, 0).UTC(),
 	}
-	s.Require().NoError(s.repo.SaveSuggestion(s.ctx, updated))
+	s.Require().NoError(s.repo.SaveSuggestion(s.ctx, s.scopeID, updated))
 
-	loaded, err := s.repo.SuggestionByID(s.ctx, "s1")
+	loaded, err := s.repo.SuggestionByID(s.ctx, s.scopeID, "s1")
 	s.Require().NoError(err)
 	s.Require().Equal(updated, loaded)
 
-	listed, err := s.repo.ListSuggestions(s.ctx, "")
+	listed, err := s.repo.ListSuggestions(s.ctx, s.scopeID, "")
 	s.Require().NoError(err)
 	s.Require().Len(listed, 1, "upsert must not create a duplicate row")
 }
 
 func (s *repositorySuite) TestSuggestionFingerprintsIncludeAllStatuses() {
-	s.Require().NoError(s.repo.SaveSuggestion(s.ctx, todoapp.Suggestion{
+	s.Require().NoError(s.repo.SaveSuggestion(s.ctx, s.scopeID, todoapp.Suggestion{
 		ID: "s1", Fingerprint: "n1", Status: todoapp.SuggestionPending,
 	}))
-	s.Require().NoError(s.repo.SaveSuggestion(s.ctx, todoapp.Suggestion{
+	s.Require().NoError(s.repo.SaveSuggestion(s.ctx, s.scopeID, todoapp.Suggestion{
 		ID: "s2", Fingerprint: "n2", Status: todoapp.SuggestionDismissed,
 	}))
-	s.Require().NoError(s.repo.SaveSuggestion(s.ctx, todoapp.Suggestion{
+	s.Require().NoError(s.repo.SaveSuggestion(s.ctx, s.scopeID, todoapp.Suggestion{
 		ID: "s3", Fingerprint: "n3", Status: todoapp.SuggestionAccepted,
 	}))
-	prints, err := s.repo.SuggestionFingerprints(s.ctx)
+	prints, err := s.repo.SuggestionFingerprints(s.ctx, s.scopeID)
 	s.Require().NoError(err)
 	s.Require().Len(prints, 3)
 	for _, fp := range []string{"n1", "n2", "n3"} {
@@ -264,9 +264,28 @@ func (s *repositorySuite) TestSuggestionFingerprintsIncludeAllStatuses() {
 	}
 }
 
-func (s *repositorySuite) TestNewRepositoryRequiresPoolAndScope() {
-	_, err := todoapppostgres.NewRepository(s.ctx, nil, "scope")
-	s.Require().Error(err)
-	_, err = todoapppostgres.NewRepository(s.ctx, s.store.Pool(), "")
+func (s *repositorySuite) TestScopeIsolationPerCall() {
+	// s.scopeID is unique to this test run (see SetupTest); otherScope is a
+	// second, independently unique scope, so this test needs no cleanup of
+	// its own -- TearDownTest already clears s.scopeID's rows, and
+	// otherScope never collides with another run.
+	otherScope := fmt.Sprintf("todoapp-repository-%d-other", time.Now().UnixNano())
+
+	s.Require().NoError(s.repo.SaveTodo(s.ctx, s.scopeID, todoapp.Todo{ID: "todo-a", Title: "A", Status: todoapp.TodoOpen}))
+	s.Require().NoError(s.repo.SaveTodo(s.ctx, otherScope, todoapp.Todo{ID: "todo-b", Title: "B", Status: todoapp.TodoOpen}))
+
+	local, err := s.repo.ListTodos(s.ctx, s.scopeID, todoapp.TodoOpen)
+	s.Require().NoError(err)
+	s.Require().Len(local, 1)
+	s.Equal("todo-a", local[0].ID)
+
+	other, err := s.repo.ListTodos(s.ctx, otherScope, todoapp.TodoOpen)
+	s.Require().NoError(err)
+	s.Require().Len(other, 1)
+	s.Equal("todo-b", other[0].ID)
+}
+
+func (s *repositorySuite) TestNewRepositoryRequiresPool() {
+	_, err := todoapppostgres.NewRepository(s.ctx, nil)
 	s.Require().Error(err)
 }

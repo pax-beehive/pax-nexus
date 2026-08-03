@@ -12,17 +12,24 @@ var (
 )
 
 type Repository interface {
-	SaveTodo(ctx context.Context, todo Todo) error
-	TodoByID(ctx context.Context, todoID string) (Todo, error)
-	ListTodos(ctx context.Context, status TodoStatus) ([]Todo, error)
-	SaveSuggestion(ctx context.Context, suggestion Suggestion) error
-	SuggestionByID(ctx context.Context, suggestionID string) (Suggestion, error)
-	ListSuggestions(ctx context.Context, status SuggestionStatus) ([]Suggestion, error)
-	SuggestionFingerprints(ctx context.Context) (map[string]struct{}, error)
+	SaveTodo(ctx context.Context, scopeID string, todo Todo) error
+	TodoByID(ctx context.Context, scopeID string, todoID string) (Todo, error)
+	ListTodos(ctx context.Context, scopeID string, status TodoStatus) ([]Todo, error)
+	SaveSuggestion(ctx context.Context, scopeID string, suggestion Suggestion) error
+	SuggestionByID(ctx context.Context, scopeID string, suggestionID string) (Suggestion, error)
+	ListSuggestions(ctx context.Context, scopeID string, status SuggestionStatus) ([]Suggestion, error)
+	SuggestionFingerprints(ctx context.Context, scopeID string) (map[string]struct{}, error)
 }
 
 type NoteDirectory interface {
-	ListOpenActionItems(ctx context.Context, limit int) ([]ActionItem, error)
+	ListOpenActionItems(ctx context.Context, scopeID string, limit int) ([]ActionItem, error)
+}
+
+// ScopeLister enumerates the scopes the suggestion-refresh sweep should
+// serve. Scope discovery is data-driven until the control plane provides a
+// team registry (Phase 3).
+type ScopeLister interface {
+	ListScopes(ctx context.Context) ([]string, error)
 }
 
 type Rewriter interface {
@@ -30,5 +37,5 @@ type Rewriter interface {
 }
 
 type Reporter interface {
-	Report(ctx context.Context, event ReportEvent) error
+	Report(ctx context.Context, scopeID string, event ReportEvent) error
 }
