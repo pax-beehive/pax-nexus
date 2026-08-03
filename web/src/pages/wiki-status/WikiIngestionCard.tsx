@@ -1,4 +1,5 @@
 import { Button } from "../../components/Button";
+import type { WikiRebuildState } from "../../api/wiki";
 
 export interface WikiIngestionCardProps {
   autoInject: boolean;
@@ -7,6 +8,8 @@ export interface WikiIngestionCardProps {
   sessionID: string;
   message: string;
   isOwner: boolean;
+  rebuildState?: WikiRebuildState;
+  rebuildError?: string;
   onSessionIDChange: (value: string) => void;
   onToggleAutoInject: () => Promise<void>;
   onInjectFixedSession: () => Promise<void>;
@@ -20,11 +23,14 @@ export function WikiIngestionCard({
   sessionID,
   message,
   isOwner,
+  rebuildState,
+  rebuildError,
   onSessionIDChange,
   onToggleAutoInject,
   onInjectFixedSession,
   onOpenRebuild,
 }: WikiIngestionCardProps) {
+  const rebuildActive = rebuildState === "queued" || rebuildState === "running";
   return (
     <section className="card wiki-ingestion" aria-label="Wiki ingestion controls">
       <div className="wiki-ingestion-copy">
@@ -70,7 +76,22 @@ export function WikiIngestionCard({
               Clears PageWiki-derived data and rebuilds it with the currently configured organizer.
             </span>
           </div>
-          <Button variant="danger" type="button" disabled={busy} onClick={onOpenRebuild}>
+          {rebuildActive && (
+            <span className="muted small" role="status">
+              {rebuildState === "queued" ? "Rebuild queued…" : "Rebuild in progress…"}
+            </span>
+          )}
+          {rebuildState === "failed" && rebuildError && (
+            <span className="muted small" role="alert">
+              Rebuild failed: {rebuildError}
+            </span>
+          )}
+          <Button
+            variant="danger"
+            type="button"
+            disabled={busy || rebuildActive}
+            onClick={onOpenRebuild}
+          >
             Reset & rebuild
           </Button>
         </div>

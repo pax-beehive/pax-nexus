@@ -39,11 +39,31 @@ type Progress struct {
 	LastProcessedAt *time.Time
 }
 
+type RebuildState string
+
+const (
+	RebuildIdle    RebuildState = "idle"
+	RebuildQueued  RebuildState = "queued"
+	RebuildRunning RebuildState = "running"
+	RebuildFailed  RebuildState = "failed"
+)
+
+// RebuildStatus is the in-memory rebuild state machine snapshot. Error is
+// set only while State is RebuildFailed; FinishedAt records the last
+// successful completion. It lives only in process memory: a restart resets
+// it, matching the failureRecord policy above.
+type RebuildStatus struct {
+	State      RebuildState
+	Error      string
+	FinishedAt *time.Time
+}
+
 type Status struct {
 	AutoInject bool
 	// Progress is nil when the progress query failed; ingestion status
 	// stays available so the toggle keeps working (spec section 4).
 	Progress *Progress
+	Rebuild  RebuildStatus
 }
 
 type InjectResult struct {
@@ -84,6 +104,12 @@ type Controller struct {
 	mu        sync.Mutex
 	failures  map[string]failureRecord
 	now       func() time.Time
+	// stateMu guards the rebuild fields below. It is separate from mu so
+	// status reads never wait behind a minutes-long injection scan.
+	stateMu      sync.Mutex
+	rebuild      RebuildStatus
+	rebuildScope string
+	rebuildSince time.Time
 }
 
 func New(
@@ -106,12 +132,13 @@ func New(
 		logger: logger, interval: interval, trigger: make(chan struct{}, 1),
 		failures: make(map[string]failureRecord),
 		now:      time.Now,
+		rebuild:  RebuildStatus{State: RebuildIdle},
 	}, nil
 }
 
 func (c *Controller) Start(ctx context.Context) {
 	go func() {
-		c.scan(ctx)
+		c.tick(ctx)
 		ticker := time.NewTicker(c.interval)
 		defer ticker.Stop()
 		for {
@@ -119,12 +146,17 @@ func (c *Controller) Start(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case <-c.trigger:
-				c.scan(ctx)
+				c.tick(ctx)
 			case <-ticker.C:
-				c.scan(ctx)
+				c.tick(ctx)
 			}
 		}
 	}()
+}
+
+func (c *Controller) tick(ctx context.Context) {
+	c.maybeRebuild(ctx)
+	c.scan(ctx)
 }
 
 func (c *Controller) Status(ctx context.Context, scopeID string) (Status, error) {
@@ -132,7 +164,7 @@ func (c *Controller) Status(ctx context.Context, scopeID string) (Status, error)
 	if err != nil {
 		return Status{}, fmt.Errorf("read Page Wiki ingestion status: %w", err)
 	}
-	status := Status{AutoInject: enabled}
+	status := Status{AutoInject: enabled, Rebuild: c.rebuildSnapshot()}
 	progress, err := c.store.Progress(ctx, scopeID)
 	if err != nil {
 		c.logger.WarnContext(ctx, "read Page Wiki ingestion progress", "error", err)
@@ -149,27 +181,70 @@ func (c *Controller) SetAutoInject(ctx context.Context, scopeID string, enabled 
 	if err := c.store.SetAutoInjectEnabled(ctx, scopeID, enabled); err != nil {
 		return Status{}, fmt.Errorf("set Page Wiki auto injection: %w", err)
 	}
-	return Status{AutoInject: enabled}, nil
+	return Status{AutoInject: enabled, Rebuild: c.rebuildSnapshot()}, nil
 }
 
-func (c *Controller) Rebuild(ctx context.Context, scopeID string, since time.Time) (Status, error) {
+func (c *Controller) Rebuild(_ context.Context, scopeID string, since time.Time) (Status, error) {
 	if strings.TrimSpace(scopeID) == "" {
 		return Status{}, fmt.Errorf("rebuild Page Wiki: scope is required")
 	}
+	c.stateMu.Lock()
+	if c.rebuild.State != RebuildQueued && c.rebuild.State != RebuildRunning {
+		c.rebuild = RebuildStatus{State: RebuildQueued, FinishedAt: c.rebuild.FinishedAt}
+		c.rebuildScope = scopeID
+		c.rebuildSince = since
+	}
+	snapshot := c.rebuild
+	c.stateMu.Unlock()
+	select {
+	case c.trigger <- struct{}{}:
+	default:
+	}
+	return Status{AutoInject: true, Rebuild: snapshot}, nil
+}
+
+// maybeRebuild executes a queued rebuild on the consumer goroutine, using
+// the loop's context so a disconnected HTTP client cannot cancel it.
+func (c *Controller) maybeRebuild(ctx context.Context) {
+	c.stateMu.Lock()
+	if c.rebuild.State != RebuildQueued {
+		c.stateMu.Unlock()
+		return
+	}
+	c.rebuild.State = RebuildRunning
+	scopeID, since := c.rebuildScope, c.rebuildSince
+	c.stateMu.Unlock()
+
 	c.mu.Lock()
 	err := c.rebuilder.RebuildPageWiki(ctx, scopeID, ProcessorName, ProcessorVersion, since)
 	if err == nil {
 		c.failures = make(map[string]failureRecord)
 	}
 	c.mu.Unlock()
+
+	c.stateMu.Lock()
 	if err != nil {
-		return Status{}, fmt.Errorf("rebuild Page Wiki: %w", err)
+		c.rebuild = RebuildStatus{State: RebuildFailed, Error: err.Error(), FinishedAt: c.rebuild.FinishedAt}
+	} else {
+		finished := c.now()
+		c.rebuild = RebuildStatus{State: RebuildIdle, FinishedAt: &finished}
 	}
-	select {
-	case c.trigger <- struct{}{}:
-	default:
+	c.stateMu.Unlock()
+	if err != nil {
+		c.logger.ErrorContext(ctx, "Page Wiki rebuild failed", "scope_id", scopeID, "error", err)
 	}
-	return Status{AutoInject: true}, nil
+}
+
+func (c *Controller) rebuildSnapshot() RebuildStatus {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	return c.rebuild
+}
+
+func (c *Controller) rebuildQueued() bool {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	return c.rebuild.State == RebuildQueued
 }
 
 func (c *Controller) InjectSession(
@@ -208,6 +283,12 @@ func (c *Controller) scan(ctx context.Context) {
 	}
 	now := c.now()
 	for _, stream := range streams {
+		// A queued rebuild wipes everything this pass would build; yield
+		// the lock now instead of after the whole backlog. The remaining
+		// streams are picked up by the next tick.
+		if c.rebuildQueued() {
+			return
+		}
 		if c.backedOff(stream, now) {
 			continue
 		}

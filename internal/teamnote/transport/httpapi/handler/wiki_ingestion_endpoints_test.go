@@ -53,8 +53,8 @@ func (s *wikiIngestionHandlerSuite) SetupTest() {
 func (s *wikiIngestionHandlerSuite) TestOwnerConfirmsRebuildThroughGeneratedRoute() {
 	response := s.perform(http.MethodPost, "/v1/wiki/rebuild", true)
 
-	s.Equal(consts.StatusOK, response.Code)
-	s.JSONEq(`{"auto_inject":true}`, response.Body.String())
+	s.Equal(consts.StatusAccepted, response.Code)
+	s.JSONEq(`{"auto_inject":true,"rebuild_state":"queued"}`, response.Body.String())
 	s.Equal(1, s.wikiControl.rebuilds)
 }
 
@@ -95,7 +95,8 @@ func (s *wikiIngestionHandlerSuite) TestStatusIncludesProgressWhenAvailable() {
 
 	s.Equal(consts.StatusOK, response.Code)
 	s.JSONEq(
-		`{"auto_inject":true,"pending_sessions":3,"last_processed_at":"2026-07-29T08:00:00Z"}`,
+		`{"auto_inject":true,"pending_sessions":3,"last_processed_at":"2026-07-29T08:00:00Z",`+
+			`"rebuild_state":"idle"}`,
 		response.Body.String(),
 	)
 }
@@ -106,14 +107,42 @@ func (s *wikiIngestionHandlerSuite) TestStatusOmitsProgressWhenUnavailable() {
 	response := s.perform(http.MethodGet, "/v1/wiki/ingestion", false)
 
 	s.Equal(consts.StatusOK, response.Code)
-	s.JSONEq(`{"auto_inject":true}`, response.Body.String())
+	s.JSONEq(`{"auto_inject":true,"rebuild_state":"idle"}`, response.Body.String())
+}
+
+func (s *wikiIngestionHandlerSuite) TestUpdateIngestionExposesRebuildState() {
+	response := s.performWithBody(http.MethodPut, "/v1/wiki/ingestion", true, `{"auto_inject":true}`)
+
+	s.Equal(consts.StatusOK, response.Code)
+	s.JSONEq(`{"auto_inject":true,"rebuild_state":"idle"}`, response.Body.String())
+}
+
+func (s *wikiIngestionHandlerSuite) TestIngestionStatusExposesRebuildFailure() {
+	finished := time.Date(2026, 8, 1, 10, 0, 0, 0, time.UTC)
+	s.wikiControl.status = sessionconsumer.Status{
+		AutoInject: true,
+		Rebuild: sessionconsumer.RebuildStatus{
+			State:      sessionconsumer.RebuildFailed,
+			Error:      "rebuild unavailable",
+			FinishedAt: &finished,
+		},
+	}
+
+	response := s.perform(http.MethodGet, "/v1/wiki/ingestion", false)
+
+	s.Equal(consts.StatusOK, response.Code)
+	s.JSONEq(
+		`{"auto_inject":true,"rebuild_state":"failed","rebuild_error":"rebuild unavailable",`+
+			`"last_rebuild_finished_at":"2026-08-01T10:00:00Z"}`,
+		response.Body.String(),
+	)
 }
 
 func (s *wikiIngestionHandlerSuite) TestRebuildForwardsParsedSinceCutoff() {
 	response := s.performWithBody(http.MethodPost, "/v1/wiki/rebuild", true,
 		`{"since":"2026-07-01T00:00:00Z"}`)
 
-	s.Equal(consts.StatusOK, response.Code)
+	s.Equal(consts.StatusAccepted, response.Code)
 	s.Equal(1, s.wikiControl.rebuilds)
 	s.Equal(time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), s.wikiControl.since)
 }
@@ -122,7 +151,7 @@ func (s *wikiIngestionHandlerSuite) TestRebuildAcceptsFractionalSecondSince() {
 	response := s.performWithBody(http.MethodPost, "/v1/wiki/rebuild", true,
 		`{"since":"2026-06-30T16:00:00.000Z"}`)
 
-	s.Equal(consts.StatusOK, response.Code)
+	s.Equal(consts.StatusAccepted, response.Code)
 	s.Equal(1, s.wikiControl.rebuilds)
 	s.Equal(time.Date(2026, 6, 30, 16, 0, 0, 0, time.UTC), s.wikiControl.since)
 }
@@ -138,7 +167,7 @@ func (s *wikiIngestionHandlerSuite) TestRebuildRejectsMalformedSince() {
 func (s *wikiIngestionHandlerSuite) TestRebuildWithoutSincePassesZeroTime() {
 	response := s.perform(http.MethodPost, "/v1/wiki/rebuild", true)
 
-	s.Equal(consts.StatusOK, response.Code)
+	s.Equal(consts.StatusAccepted, response.Code)
 	s.Equal(1, s.wikiControl.rebuilds)
 	s.True(s.wikiControl.since.IsZero())
 }
@@ -211,5 +240,8 @@ func (s *wikiControlService) InjectSession(
 func (s *wikiControlService) Rebuild(_ context.Context, _ string, since time.Time) (sessionconsumer.Status, error) {
 	s.rebuilds++
 	s.since = since
-	return sessionconsumer.Status{AutoInject: true}, s.rebuildErr
+	return sessionconsumer.Status{
+		AutoInject: true,
+		Rebuild:    sessionconsumer.RebuildStatus{State: sessionconsumer.RebuildQueued},
+	}, s.rebuildErr
 }

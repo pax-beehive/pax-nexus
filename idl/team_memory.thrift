@@ -334,6 +334,9 @@ struct WikiIngestionStatusResponse {
   1: required bool auto_inject
   2: optional i32 pending_sessions
   3: optional string last_processed_at
+  4: optional string rebuild_state
+  5: optional string rebuild_error
+  6: optional string last_rebuild_finished_at
 }
 
 struct InjectWikiSessionRequest {
@@ -350,6 +353,9 @@ struct RebuildWikiRequest {
 
 struct RebuildWikiResponse {
   1: required bool auto_inject
+  2: optional string rebuild_state
+  3: optional string rebuild_error
+  4: optional string last_rebuild_finished_at
 }
 
 struct WikiGenerationSettingsRequest {}

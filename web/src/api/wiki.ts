@@ -104,10 +104,15 @@ export interface WikiSearchResult {
   links: WikiPageLink[];
 }
 
+export type WikiRebuildState = "idle" | "queued" | "running" | "failed";
+
 export interface WikiIngestionStatus {
   auto_inject: boolean;
   pending_sessions?: number;
   last_processed_at?: string;
+  rebuild_state?: WikiRebuildState;
+  rebuild_error?: string;
+  last_rebuild_finished_at?: string;
 }
 
 export interface WikiGenerationSettings {

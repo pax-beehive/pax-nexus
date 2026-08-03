@@ -163,6 +163,9 @@ func TestRebuildClearsAllBackoff(t *testing.T) {
 
 	_, err := controller.Rebuild(ctx, "local-team", time.Time{})
 	require.NoError(t, err)
+	require.NotEmpty(t, controller.failures, "queueing alone must not clear backoff")
+
+	controller.maybeRebuild(ctx)
 	require.Empty(t, controller.failures)
 }
 

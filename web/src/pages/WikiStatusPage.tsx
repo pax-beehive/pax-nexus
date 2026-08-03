@@ -188,16 +188,13 @@ export function WikiStatusPage({ me }: { me: HumanMe }) {
       ? new Date(`${rebuildSince}T00:00:00`).toISOString()
       : undefined;
     setBusy(true);
-    // Close before awaiting: the rebuild endpoint queues behind any
-    // in-flight injection sweep and can take minutes to answer. The dialog
-    // must not hold the page hostage while it waits; busy keeps the
-    // ingestion-card controls disabled until the server confirms.
+    // Close before awaiting; the endpoint answers 202 quickly, and rebuild
+    // progress is reported by the polled ingestion status.
     closeRebuild();
     setMessage("Reset & rebuild triggered. Waiting for the server to clear the wiki…");
     try {
-      const updated = await rebuildWiki(beginAction(), since);
-      setAutoInject(updated.auto_inject);
-      setMessage("Wiki cleared. Rebuilding from Session Lake…");
+      await rebuildWiki(beginAction(), since);
+      setMessage("Reset & rebuild queued. The wiki will be cleared and rebuilt in the background.");
     } catch (error) {
       setMessage("");
       handleError(error);
@@ -228,6 +225,8 @@ export function WikiStatusPage({ me }: { me: HumanMe }) {
         sessionID={sessionID}
         message={message}
         isOwner={me.role === "owner"}
+        rebuildState={status?.rebuild_state}
+        rebuildError={status?.rebuild_error}
         onSessionIDChange={setSessionID}
         onToggleAutoInject={toggleAutoInject}
         onInjectFixedSession={injectFixedSession}

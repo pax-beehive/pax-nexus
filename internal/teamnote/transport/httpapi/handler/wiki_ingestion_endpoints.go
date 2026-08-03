@@ -31,6 +31,8 @@ func (h *Handler) GetWikiIngestionStatus(ctx context.Context, c *app.RequestCont
 			response.LastProcessedAt = &formatted
 		}
 	}
+	response.RebuildState, response.RebuildError, response.LastRebuildFinishedAt =
+		applyRebuildStatus(status.Rebuild)
 	c.JSON(consts.StatusOK, response)
 }
 
@@ -48,7 +50,10 @@ func (h *Handler) UpdateWikiIngestion(ctx context.Context, c *app.RequestContext
 		h.writeWikiControlError(c, "update Wiki ingestion", err)
 		return
 	}
-	c.JSON(consts.StatusOK, &api.WikiIngestionStatusResponse{AutoInject: status.AutoInject})
+	response := &api.WikiIngestionStatusResponse{AutoInject: status.AutoInject}
+	response.RebuildState, response.RebuildError, response.LastRebuildFinishedAt =
+		applyRebuildStatus(status.Rebuild)
+	c.JSON(consts.StatusOK, response)
 }
 
 func (h *Handler) InjectWikiSession(ctx context.Context, c *app.RequestContext) {
@@ -97,7 +102,27 @@ func (h *Handler) RebuildWiki(ctx context.Context, c *app.RequestContext) {
 		h.writeWikiControlError(c, "rebuild Wiki", err)
 		return
 	}
-	c.JSON(consts.StatusOK, &api.RebuildWikiResponse{AutoInject: status.AutoInject})
+	response := &api.RebuildWikiResponse{AutoInject: status.AutoInject}
+	response.RebuildState, response.RebuildError, response.LastRebuildFinishedAt =
+		applyRebuildStatus(status.Rebuild)
+	c.JSON(consts.StatusAccepted, response)
+}
+
+func applyRebuildStatus(rebuild sessionconsumer.RebuildStatus) (state, message, finishedAt *string) {
+	value := string(rebuild.State)
+	if value == "" {
+		value = string(sessionconsumer.RebuildIdle)
+	}
+	state = &value
+	if rebuild.Error != "" {
+		errorCopy := rebuild.Error
+		message = &errorCopy
+	}
+	if rebuild.FinishedAt != nil {
+		formatted := rebuild.FinishedAt.UTC().Format(time.RFC3339)
+		finishedAt = &formatted
+	}
+	return state, message, finishedAt
 }
 
 func (h *Handler) authorizeWikiControl(

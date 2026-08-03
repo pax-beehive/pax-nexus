@@ -132,6 +132,14 @@ func (s *postgresConsumerSuite) TestRebuildClearsDerivedWikiAndMakesSessionPendi
 
 	s.Require().NoError(err)
 	s.True(status.AutoInject)
+	// Rebuild only queues; the consumer loop executes it. Drive that pass
+	// explicitly so the DB assertions below observe the post-rebuild state
+	// without racing a background scan.
+	s.Equal(sessionconsumer.RebuildQueued, status.Rebuild.State)
+	controller.RunQueuedRebuildForTest(s.ctx)
+	executed, err := controller.Status(s.ctx, s.scopeID)
+	s.Require().NoError(err)
+	s.Equal(sessionconsumer.RebuildIdle, executed.Rebuild.State)
 	navigation, err := repository.Navigation(s.ctx)
 	s.Require().NoError(err)
 	s.Empty(navigation.Roots)

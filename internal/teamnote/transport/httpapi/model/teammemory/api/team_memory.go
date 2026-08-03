@@ -15249,9 +15249,12 @@ func (p *UpdateWikiIngestionRequest) String() string {
 }
 
 type WikiIngestionStatusResponse struct {
-	AutoInject      bool    `thrift:"auto_inject,1,required" form:"auto_inject,required" json:"auto_inject,required" query:"auto_inject,required"`
-	PendingSessions *int32  `thrift:"pending_sessions,2,optional" form:"pending_sessions" json:"pending_sessions,omitempty" query:"pending_sessions"`
-	LastProcessedAt *string `thrift:"last_processed_at,3,optional" form:"last_processed_at" json:"last_processed_at,omitempty" query:"last_processed_at"`
+	AutoInject            bool    `thrift:"auto_inject,1,required" form:"auto_inject,required" json:"auto_inject,required" query:"auto_inject,required"`
+	PendingSessions       *int32  `thrift:"pending_sessions,2,optional" form:"pending_sessions" json:"pending_sessions,omitempty" query:"pending_sessions"`
+	LastProcessedAt       *string `thrift:"last_processed_at,3,optional" form:"last_processed_at" json:"last_processed_at,omitempty" query:"last_processed_at"`
+	RebuildState          *string `thrift:"rebuild_state,4,optional" form:"rebuild_state" json:"rebuild_state,omitempty" query:"rebuild_state"`
+	RebuildError          *string `thrift:"rebuild_error,5,optional" form:"rebuild_error" json:"rebuild_error,omitempty" query:"rebuild_error"`
+	LastRebuildFinishedAt *string `thrift:"last_rebuild_finished_at,6,optional" form:"last_rebuild_finished_at" json:"last_rebuild_finished_at,omitempty" query:"last_rebuild_finished_at"`
 }
 
 func NewWikiIngestionStatusResponse() *WikiIngestionStatusResponse {
@@ -15283,10 +15286,40 @@ func (p *WikiIngestionStatusResponse) GetLastProcessedAt() (v string) {
 	return *p.LastProcessedAt
 }
 
+var WikiIngestionStatusResponse_RebuildState_DEFAULT string
+
+func (p *WikiIngestionStatusResponse) GetRebuildState() (v string) {
+	if !p.IsSetRebuildState() {
+		return WikiIngestionStatusResponse_RebuildState_DEFAULT
+	}
+	return *p.RebuildState
+}
+
+var WikiIngestionStatusResponse_RebuildError_DEFAULT string
+
+func (p *WikiIngestionStatusResponse) GetRebuildError() (v string) {
+	if !p.IsSetRebuildError() {
+		return WikiIngestionStatusResponse_RebuildError_DEFAULT
+	}
+	return *p.RebuildError
+}
+
+var WikiIngestionStatusResponse_LastRebuildFinishedAt_DEFAULT string
+
+func (p *WikiIngestionStatusResponse) GetLastRebuildFinishedAt() (v string) {
+	if !p.IsSetLastRebuildFinishedAt() {
+		return WikiIngestionStatusResponse_LastRebuildFinishedAt_DEFAULT
+	}
+	return *p.LastRebuildFinishedAt
+}
+
 var fieldIDToName_WikiIngestionStatusResponse = map[int16]string{
 	1: "auto_inject",
 	2: "pending_sessions",
 	3: "last_processed_at",
+	4: "rebuild_state",
+	5: "rebuild_error",
+	6: "last_rebuild_finished_at",
 }
 
 func (p *WikiIngestionStatusResponse) IsSetPendingSessions() bool {
@@ -15295,6 +15328,18 @@ func (p *WikiIngestionStatusResponse) IsSetPendingSessions() bool {
 
 func (p *WikiIngestionStatusResponse) IsSetLastProcessedAt() bool {
 	return p.LastProcessedAt != nil
+}
+
+func (p *WikiIngestionStatusResponse) IsSetRebuildState() bool {
+	return p.RebuildState != nil
+}
+
+func (p *WikiIngestionStatusResponse) IsSetRebuildError() bool {
+	return p.RebuildError != nil
+}
+
+func (p *WikiIngestionStatusResponse) IsSetLastRebuildFinishedAt() bool {
+	return p.LastRebuildFinishedAt != nil
 }
 
 func (p *WikiIngestionStatusResponse) Read(iprot thrift.TProtocol) (err error) {
@@ -15337,6 +15382,30 @@ func (p *WikiIngestionStatusResponse) Read(iprot thrift.TProtocol) (err error) {
 		case 3:
 			if fieldTypeId == thrift.STRING {
 				if err = p.ReadField3(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 4:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField4(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 5:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField5(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 6:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField6(iprot); err != nil {
 					goto ReadFieldError
 				}
 			} else if err = iprot.Skip(fieldTypeId); err != nil {
@@ -15410,6 +15479,39 @@ func (p *WikiIngestionStatusResponse) ReadField3(iprot thrift.TProtocol) error {
 	p.LastProcessedAt = _field
 	return nil
 }
+func (p *WikiIngestionStatusResponse) ReadField4(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.RebuildState = _field
+	return nil
+}
+func (p *WikiIngestionStatusResponse) ReadField5(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.RebuildError = _field
+	return nil
+}
+func (p *WikiIngestionStatusResponse) ReadField6(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.LastRebuildFinishedAt = _field
+	return nil
+}
 
 func (p *WikiIngestionStatusResponse) Write(oprot thrift.TProtocol) (err error) {
 	var fieldId int16
@@ -15427,6 +15529,18 @@ func (p *WikiIngestionStatusResponse) Write(oprot thrift.TProtocol) (err error) 
 		}
 		if err = p.writeField3(oprot); err != nil {
 			fieldId = 3
+			goto WriteFieldError
+		}
+		if err = p.writeField4(oprot); err != nil {
+			fieldId = 4
+			goto WriteFieldError
+		}
+		if err = p.writeField5(oprot); err != nil {
+			fieldId = 5
+			goto WriteFieldError
+		}
+		if err = p.writeField6(oprot); err != nil {
+			fieldId = 6
 			goto WriteFieldError
 		}
 	}
@@ -15500,6 +15614,63 @@ WriteFieldBeginError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 3 begin error: ", p), err)
 WriteFieldEndError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 3 end error: ", p), err)
+}
+
+func (p *WikiIngestionStatusResponse) writeField4(oprot thrift.TProtocol) (err error) {
+	if p.IsSetRebuildState() {
+		if err = oprot.WriteFieldBegin("rebuild_state", thrift.STRING, 4); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.RebuildState); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 4 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 4 end error: ", p), err)
+}
+
+func (p *WikiIngestionStatusResponse) writeField5(oprot thrift.TProtocol) (err error) {
+	if p.IsSetRebuildError() {
+		if err = oprot.WriteFieldBegin("rebuild_error", thrift.STRING, 5); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.RebuildError); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 5 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 5 end error: ", p), err)
+}
+
+func (p *WikiIngestionStatusResponse) writeField6(oprot thrift.TProtocol) (err error) {
+	if p.IsSetLastRebuildFinishedAt() {
+		if err = oprot.WriteFieldBegin("last_rebuild_finished_at", thrift.STRING, 6); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.LastRebuildFinishedAt); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 6 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 6 end error: ", p), err)
 }
 
 func (p *WikiIngestionStatusResponse) String() string {
@@ -15958,7 +16129,10 @@ func (p *RebuildWikiRequest) String() string {
 }
 
 type RebuildWikiResponse struct {
-	AutoInject bool `thrift:"auto_inject,1,required" form:"auto_inject,required" json:"auto_inject,required" query:"auto_inject,required"`
+	AutoInject            bool    `thrift:"auto_inject,1,required" form:"auto_inject,required" json:"auto_inject,required" query:"auto_inject,required"`
+	RebuildState          *string `thrift:"rebuild_state,2,optional" form:"rebuild_state" json:"rebuild_state,omitempty" query:"rebuild_state"`
+	RebuildError          *string `thrift:"rebuild_error,3,optional" form:"rebuild_error" json:"rebuild_error,omitempty" query:"rebuild_error"`
+	LastRebuildFinishedAt *string `thrift:"last_rebuild_finished_at,4,optional" form:"last_rebuild_finished_at" json:"last_rebuild_finished_at,omitempty" query:"last_rebuild_finished_at"`
 }
 
 func NewRebuildWikiResponse() *RebuildWikiResponse {
@@ -15972,8 +16146,50 @@ func (p *RebuildWikiResponse) GetAutoInject() (v bool) {
 	return p.AutoInject
 }
 
+var RebuildWikiResponse_RebuildState_DEFAULT string
+
+func (p *RebuildWikiResponse) GetRebuildState() (v string) {
+	if !p.IsSetRebuildState() {
+		return RebuildWikiResponse_RebuildState_DEFAULT
+	}
+	return *p.RebuildState
+}
+
+var RebuildWikiResponse_RebuildError_DEFAULT string
+
+func (p *RebuildWikiResponse) GetRebuildError() (v string) {
+	if !p.IsSetRebuildError() {
+		return RebuildWikiResponse_RebuildError_DEFAULT
+	}
+	return *p.RebuildError
+}
+
+var RebuildWikiResponse_LastRebuildFinishedAt_DEFAULT string
+
+func (p *RebuildWikiResponse) GetLastRebuildFinishedAt() (v string) {
+	if !p.IsSetLastRebuildFinishedAt() {
+		return RebuildWikiResponse_LastRebuildFinishedAt_DEFAULT
+	}
+	return *p.LastRebuildFinishedAt
+}
+
 var fieldIDToName_RebuildWikiResponse = map[int16]string{
 	1: "auto_inject",
+	2: "rebuild_state",
+	3: "rebuild_error",
+	4: "last_rebuild_finished_at",
+}
+
+func (p *RebuildWikiResponse) IsSetRebuildState() bool {
+	return p.RebuildState != nil
+}
+
+func (p *RebuildWikiResponse) IsSetRebuildError() bool {
+	return p.RebuildError != nil
+}
+
+func (p *RebuildWikiResponse) IsSetLastRebuildFinishedAt() bool {
+	return p.LastRebuildFinishedAt != nil
 }
 
 func (p *RebuildWikiResponse) Read(iprot thrift.TProtocol) (err error) {
@@ -16002,6 +16218,30 @@ func (p *RebuildWikiResponse) Read(iprot thrift.TProtocol) (err error) {
 					goto ReadFieldError
 				}
 				issetAutoInject = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 2:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField2(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 3:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField3(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 4:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField4(iprot); err != nil {
+					goto ReadFieldError
+				}
 			} else if err = iprot.Skip(fieldTypeId); err != nil {
 				goto SkipFieldError
 			}
@@ -16051,6 +16291,39 @@ func (p *RebuildWikiResponse) ReadField1(iprot thrift.TProtocol) error {
 	p.AutoInject = _field
 	return nil
 }
+func (p *RebuildWikiResponse) ReadField2(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.RebuildState = _field
+	return nil
+}
+func (p *RebuildWikiResponse) ReadField3(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.RebuildError = _field
+	return nil
+}
+func (p *RebuildWikiResponse) ReadField4(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.LastRebuildFinishedAt = _field
+	return nil
+}
 
 func (p *RebuildWikiResponse) Write(oprot thrift.TProtocol) (err error) {
 	var fieldId int16
@@ -16060,6 +16333,18 @@ func (p *RebuildWikiResponse) Write(oprot thrift.TProtocol) (err error) {
 	if p != nil {
 		if err = p.writeField1(oprot); err != nil {
 			fieldId = 1
+			goto WriteFieldError
+		}
+		if err = p.writeField2(oprot); err != nil {
+			fieldId = 2
+			goto WriteFieldError
+		}
+		if err = p.writeField3(oprot); err != nil {
+			fieldId = 3
+			goto WriteFieldError
+		}
+		if err = p.writeField4(oprot); err != nil {
+			fieldId = 4
 			goto WriteFieldError
 		}
 	}
@@ -16095,6 +16380,63 @@ WriteFieldBeginError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 1 begin error: ", p), err)
 WriteFieldEndError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 1 end error: ", p), err)
+}
+
+func (p *RebuildWikiResponse) writeField2(oprot thrift.TProtocol) (err error) {
+	if p.IsSetRebuildState() {
+		if err = oprot.WriteFieldBegin("rebuild_state", thrift.STRING, 2); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.RebuildState); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 2 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 2 end error: ", p), err)
+}
+
+func (p *RebuildWikiResponse) writeField3(oprot thrift.TProtocol) (err error) {
+	if p.IsSetRebuildError() {
+		if err = oprot.WriteFieldBegin("rebuild_error", thrift.STRING, 3); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.RebuildError); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 3 end error: ", p), err)
+}
+
+func (p *RebuildWikiResponse) writeField4(oprot thrift.TProtocol) (err error) {
+	if p.IsSetLastRebuildFinishedAt() {
+		if err = oprot.WriteFieldBegin("last_rebuild_finished_at", thrift.STRING, 4); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.LastRebuildFinishedAt); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 4 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 4 end error: ", p), err)
 }
 
 func (p *RebuildWikiResponse) String() string {

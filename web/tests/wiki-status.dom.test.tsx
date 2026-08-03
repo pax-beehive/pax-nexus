@@ -137,7 +137,7 @@ describe("wiki status page ingestion controls", () => {
       fetch: (path, init) => {
         const method = init?.method ?? "GET";
         if (path === "/v1/wiki/rebuild" && method === "POST") {
-          return jsonResponse({ auto_inject: true });
+          return jsonResponse({ auto_inject: true, rebuild_state: "queued" });
         }
         if (path === "/v1/wiki/ingestion") return jsonResponse({ auto_inject: false });
         if (path === "/v1/wiki/settings") {
@@ -154,7 +154,9 @@ describe("wiki status page ingestion controls", () => {
     within(dialog).getByText("Session Lake events and Team Notes are preserved.");
     await user.click(within(dialog).getByRole("button", { name: "Confirm reset & rebuild" }));
 
-    await screen.findByText("Wiki cleared. Rebuilding from Session Lake…");
+    await screen.findByText(
+      "Reset & rebuild queued. The wiki will be cleared and rebuilt in the background.",
+    );
     expect(callsTo(fetchMock, "/v1/wiki/rebuild", "POST")).toHaveLength(1);
   });
 
@@ -169,7 +171,8 @@ describe("wiki status page ingestion controls", () => {
         const method = init?.method ?? "GET";
         if (path === "/v1/wiki/rebuild" && method === "POST") {
           return new Promise<Response>((resolve) => {
-            releaseRebuild = () => resolve(jsonResponse({ auto_inject: true }));
+            releaseRebuild = () =>
+              resolve(jsonResponse({ auto_inject: true, rebuild_state: "queued" }));
           });
         }
         if (path === "/v1/wiki/ingestion") return jsonResponse({ auto_inject: false });
@@ -190,7 +193,9 @@ describe("wiki status page ingestion controls", () => {
     screen.getByText(/Reset & rebuild triggered/);
 
     releaseRebuild?.();
-    await screen.findByText("Wiki cleared. Rebuilding from Session Lake…");
+    await screen.findByText(
+      "Reset & rebuild queued. The wiki will be cleared and rebuilt in the background.",
+    );
   });
 
   it("sends the lookback cutoff when a rebuild date is picked", async () => {
@@ -222,7 +227,9 @@ describe("wiki status page ingestion controls", () => {
     ).toBeTruthy();
     await user.click(within(dialog).getByRole("button", { name: "Confirm reset & rebuild" }));
 
-    await screen.findByText("Wiki cleared. Rebuilding from Session Lake…");
+    await screen.findByText(
+      "Reset & rebuild queued. The wiki will be cleared and rebuilt in the background.",
+    );
     const calls = callsTo(fetchMock, "/v1/wiki/rebuild", "POST");
     expect(calls).toHaveLength(1);
     expect(JSON.parse(String(calls[0].init?.body))).toEqual({
@@ -253,10 +260,58 @@ describe("wiki status page ingestion controls", () => {
     const dialog = screen.getByRole("dialog", { name: "Reset and rebuild Wiki" });
     await user.click(within(dialog).getByRole("button", { name: "Confirm reset & rebuild" }));
 
-    await screen.findByText("Wiki cleared. Rebuilding from Session Lake…");
+    await screen.findByText(
+      "Reset & rebuild queued. The wiki will be cleared and rebuilt in the background.",
+    );
     const calls = callsTo(fetchMock, "/v1/wiki/rebuild", "POST");
     expect(calls).toHaveLength(1);
     expect(JSON.parse(String(calls[0].init?.body))).toEqual({});
+  });
+
+  it("disables Reset & rebuild and shows progress while a rebuild runs", async () => {
+    await renderApp({
+      route: "/wiki",
+      me: makeMe({ role: "owner" }),
+      fetch: (path) => {
+        if (path === "/v1/wiki/ingestion") {
+          return jsonResponse({ auto_inject: true, rebuild_state: "running" });
+        }
+        if (path === "/v1/wiki/settings") {
+          return jsonResponse({ language: "", custom_instructions: "" });
+        }
+        if (path.startsWith("/v1/llm-usage")) return jsonResponse(llmUsageFixture);
+        throw new Error(`unexpected fetch: ${path}`);
+      },
+    });
+
+    await screen.findByText("Rebuild in progress…");
+    const rebuildButton = screen.getByRole("button", { name: "Reset & rebuild" });
+    expect(rebuildButton.hasAttribute("disabled")).toBe(true);
+  });
+
+  it("surfaces a failed rebuild with its error", async () => {
+    await renderApp({
+      route: "/wiki",
+      me: makeMe({ role: "owner" }),
+      fetch: (path) => {
+        if (path === "/v1/wiki/ingestion") {
+          return jsonResponse({
+            auto_inject: false,
+            rebuild_state: "failed",
+            rebuild_error: "database unavailable",
+          });
+        }
+        if (path === "/v1/wiki/settings") {
+          return jsonResponse({ language: "", custom_instructions: "" });
+        }
+        if (path.startsWith("/v1/llm-usage")) return jsonResponse(llmUsageFixture);
+        throw new Error(`unexpected fetch: ${path}`);
+      },
+    });
+
+    await screen.findByText("Rebuild failed: database unavailable");
+    const rebuildButton = screen.getByRole("button", { name: "Reset & rebuild" });
+    expect(rebuildButton.hasAttribute("disabled")).toBe(false);
   });
 
   it("hides the destructive rebuild control from members", async () => {
