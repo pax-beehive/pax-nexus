@@ -76,6 +76,7 @@ type applicationConfig struct {
 	llmwikiCurationInterval        string
 	llmwikiCurationPairLimit       string
 	llmwikiCurationPageLimit       string
+	pagewikiInjectConcurrency      string
 	todoRefreshInterval            time.Duration
 }
 
@@ -90,6 +91,7 @@ func loadConfig() (applicationConfig, error) {
 		llmwikiCurationInterval:     os.Getenv("LLMWIKI_CURATION_INTERVAL"),
 		llmwikiCurationPairLimit:    os.Getenv("LLMWIKI_CURATION_PAIR_LIMIT"),
 		llmwikiCurationPageLimit:    os.Getenv("LLMWIKI_CURATION_PAGE_LIMIT"),
+		pagewikiInjectConcurrency:   os.Getenv("TEAM_MEMORY_PAGEWIKI_INJECT_CONCURRENCY"),
 		promptVersion:               os.Getenv("TEAM_MEMORY_PROMPT_VERSION"),
 		extractionContextMode:       os.Getenv("TEAM_MEMORY_EXTRACTION_CONTEXT_MODE"),
 		extractionVersion:           os.Getenv("TEAM_MEMORY_EXTRACTION_VERSION"),

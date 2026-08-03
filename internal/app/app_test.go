@@ -609,6 +609,34 @@ func (s *configSuite) TestRejectsUnsupportedExtractor() {
 	s.Require().Error(err)
 }
 
+func (s *configSuite) TestParsePageWikiInjectConcurrency() {
+	cases := []struct {
+		name    string
+		raw     string
+		want    int
+		wantErr bool
+	}{
+		{name: "unset defaults to two", raw: "", want: 2},
+		{name: "blank defaults to two", raw: "   ", want: 2},
+		{name: "explicit value", raw: "3", want: 3},
+		{name: "one is valid", raw: "1", want: 1},
+		{name: "zero rejected", raw: "0", wantErr: true},
+		{name: "negative rejected", raw: "-2", wantErr: true},
+		{name: "garbage rejected", raw: "many", wantErr: true},
+	}
+	for _, tc := range cases {
+		s.Run(tc.name, func() {
+			got, err := parsePageWikiInjectConcurrency(tc.raw)
+			if tc.wantErr {
+				s.Require().Error(err)
+				return
+			}
+			s.Require().NoError(err)
+			s.Equal(tc.want, got)
+		})
+	}
+}
+
 func (s *configSuite) TestCloseExtractorDrainsLifecycleImplementations() {
 	adapter := new(lifecycleExtractor)
 
