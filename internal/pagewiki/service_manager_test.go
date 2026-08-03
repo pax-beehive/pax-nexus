@@ -237,7 +237,11 @@ func TestServiceForScopeColdResolutionDoesNotBlockOtherScopes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	go func() { _, _ = manager.ForScope(context.Background(), "cold") }()
+	go func() {
+		if _, err := manager.ForScope(context.Background(), "cold"); err != nil {
+			t.Error(err)
+		}
+	}()
 	<-entered
 
 	done := make(chan struct{})

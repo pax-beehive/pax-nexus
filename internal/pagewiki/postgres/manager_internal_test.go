@@ -23,7 +23,11 @@ func TestForScopeColdHydrationDoesNotBlockOtherScopes(t *testing.T) {
 		}
 		return &Repository{scopeID: scopeID}, nil
 	})
-	go func() { _, _ = manager.ForScope(context.Background(), "cold") }()
+	go func() {
+		if _, err := manager.ForScope(context.Background(), "cold"); err != nil {
+			t.Error(err)
+		}
+	}()
 	<-entered
 
 	done := make(chan struct{})

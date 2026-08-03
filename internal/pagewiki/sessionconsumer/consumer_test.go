@@ -462,7 +462,9 @@ func (s *consumerSuite) TestManualInjectionOfOneScopeDoesNotWaitForAnother() {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		_, _ = s.consumer.InjectSession(context.Background(), "scope-a", "session-a")
+		if _, err := s.consumer.InjectSession(context.Background(), "scope-a", "session-a"); err != nil {
+			s.T().Error(err)
+		}
 	}()
 	select {
 	case <-blocked.entered:
@@ -507,7 +509,9 @@ func (s *consumerSuite) TestRebuildOfOneScopeDoesNotWaitForAnotherScopesInjectio
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		_, _ = s.consumer.InjectSession(context.Background(), "scope-a", "session-a")
+		if _, err := s.consumer.InjectSession(context.Background(), "scope-a", "session-a"); err != nil {
+			s.T().Error(err)
+		}
 	}()
 	select {
 	case <-blocked.entered:
@@ -558,7 +562,9 @@ func (s *consumerSuite) TestSecondSessionOfSameScopeWaitsForFirst() {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		_, _ = s.consumer.InjectSession(context.Background(), "scope-a", "session-1")
+		if _, err := s.consumer.InjectSession(context.Background(), "scope-a", "session-1"); err != nil {
+			s.T().Error(err)
+		}
 	}()
 	select {
 	case <-blocked.entered:
