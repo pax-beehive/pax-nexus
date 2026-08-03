@@ -188,6 +188,29 @@ For a Wiki page that incorporates multiple streams, keep the consumer cursor
 per source stream and persist a page-level provenance set. A page checkpoint is
 not permission to discard or compact the source events in Evidence Lake.
 
+## Registered processors
+
+The shared `session_processor_cursors` table implements the generic cursor
+seam above, keyed by `(processor_name, processor_version, scope_id, agent_id,
+session_id)`. The registered processors are:
+
+- **Team Note extraction** (`internal/teamnote`): owns
+  `session_streams.extraction_cursor` and the `team_note_extract` queue. No
+  other processor may touch either.
+- **Page Wiki session consumer** (`internal/pagewiki/sessionconsumer`):
+  `processor_name='page_wiki'`, builds Wiki pages from agent-session streams.
+- **Session audit** (`internal/audit`): `processor_name='session_audit'`,
+  `processor_version='v1'`. A read-only governance processor over
+  `agent-session` streams: it projects tool-call audit rows with a
+  deterministic risk classification, policy findings, and per-day activity
+  aggregates into the `audit_tool_calls`, `audit_findings`, and
+  `audit_activity_daily` tables, committed with its cursor in one transaction.
+  It never reads or advances `extraction_cursor`, never subscribes to
+  `team_note_extract`, and enforces nothing — violations become findings, not
+  rejections. Its projections are exposed through the read-only admin queries
+  under `/v1/admin/session-audit/*`. The producer event contract is
+  `docs/session-audit-contract.md`.
+
 ## Implementation and evaluation checklist
 
 Before enabling a processor in production, verify:
@@ -210,3 +233,5 @@ Before enabling a processor in production, verify:
 - Team Note orchestration: `internal/teamnote/runtime/app.go`
 - Team Note queue: `internal/teamnote/extractionqueue/queue.go`
 - Current LLM Wiki domain boundary: `internal/llmwiki/CONTEXT.md`
+- Session audit consumer and projections: `internal/audit/consumer.go`,
+  `internal/platform/postgres/audit.go`

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/cloudwego/hertz/pkg/app"
+	"github.com/pax-beehive/pax-nexus/internal/audit"
 	"github.com/pax-beehive/pax-nexus/internal/deployment/onprem"
 	"github.com/pax-beehive/pax-nexus/internal/explorer"
 	"github.com/pax-beehive/pax-nexus/internal/operations"
@@ -42,6 +43,7 @@ type Handler struct {
 	wikiControl  WikiControl
 	wikiSettings WikiSettings
 	llmUsage     LLMUsage
+	sessionAudit SessionAuditQuery
 	recorder     operations.Recorder
 	portalURL    string
 	cookieSecure bool
@@ -147,6 +149,14 @@ type LLMUsage interface {
 	UsageSummary(ctx context.Context, scopeID string, window time.Duration) ([]platformllm.LLMUsageRow, error)
 }
 
+// SessionAuditQuery is the read-only capability over the session audit
+// projections; it is the handler-facing subset of audit.Query.
+type SessionAuditQuery interface {
+	ListToolCalls(context.Context, audit.ToolCallFilter) ([]audit.ToolCall, error)
+	ListFindings(context.Context, audit.FindingFilter) ([]audit.Finding, error)
+	GetActivityDaily(context.Context, audit.ActivityFilter) ([]audit.ActivityDaily, error)
+}
+
 type OnPremOption func(*Handler) error
 
 func WithAgentRegistry(registry AgentRegistryLifecycle) OnPremOption {
@@ -200,6 +210,16 @@ func WithWikiSettings(settings WikiSettings) OnPremOption {
 func WithLLMUsage(usage LLMUsage) OnPremOption {
 	return func(configured *Handler) error {
 		configured.llmUsage = usage
+		return nil
+	}
+}
+
+func WithSessionAudit(query SessionAuditQuery) OnPremOption {
+	return func(configured *Handler) error {
+		if query == nil {
+			return fmt.Errorf("configure session audit: query is required")
+		}
+		configured.sessionAudit = query
 		return nil
 	}
 }

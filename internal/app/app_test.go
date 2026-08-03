@@ -363,14 +363,14 @@ func (s *configSuite) TestRejectsMixedLegacyAndOnPremAuthentication() {
 func (s *configSuite) TestBuildHTTPHandlerKeepsLegacyModeWithoutAdminSecret() {
 	runtime := &runtimeStub{}
 	configured, identity, err := buildHTTPHandler(context.Background(), runtime, nil, nil, nil,
-		applicationConfig{apiKeys: map[string]string{"key": "scope"}}, slog.New(slog.DiscardHandler), nil, nil)
+		applicationConfig{apiKeys: map[string]string{"key": "scope"}}, slog.New(slog.DiscardHandler), nil, nil, nil)
 	s.Require().NoError(err)
 	s.NotNil(configured)
 	s.Nil(identity)
 
 	_, _, err = buildHTTPHandler(context.Background(), runtime, nil, nil, nil, applicationConfig{
 		apiKeys: map[string]string{"key": "scope"}, adminAPIKey: "admin", credentialRotationOverlap: time.Minute,
-	}, slog.New(slog.DiscardHandler), nil, nil)
+	}, slog.New(slog.DiscardHandler), nil, nil, nil)
 	s.Error(err)
 }
 

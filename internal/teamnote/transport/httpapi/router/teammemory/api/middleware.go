@@ -575,3 +575,23 @@ func _getllmusageMw() []app.HandlerFunc {
 	// your code...
 	return nil
 }
+
+func _session_auditMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _listsessionauditactivityMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _listsessionauditfindingsMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _listsessionaudittoolcallsMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
