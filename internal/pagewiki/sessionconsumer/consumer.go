@@ -235,7 +235,7 @@ func (c *Controller) tick(ctx context.Context) {
 		// leaving every job's goroutine to race for it: two freshly spawned
 		// goroutines have no ordering guarantee (the Go scheduler may run
 		// the most recently spawned one first), so a naive race would let a
-		// later scope jump a earlier one. Grabbing what's available up
+		// later scope jump an earlier one. Grabbing what's available up
 		// front makes dispatch order equal slot-acquisition order for
 		// however many jobs fit; only the overflow blocks inside the job.
 		held := false
@@ -290,12 +290,23 @@ func (c *Controller) clearInFlight(scopeID string) {
 
 // runScopeJob is one scope's turn: rebuild first if queued, then the
 // scope's streams in order. It holds one pool slot for its whole run and
-// yields to a rebuild queued mid-pass — the trigger re-arm at the end
-// guarantees the yielded-to rebuild is picked up promptly even with a long
-// tick interval. slotHeld reports whether tick already claimed the slot on
-// the job's behalf; otherwise the job blocks here until one frees up.
+// yields to a rebuild queued mid-pass. slotHeld reports whether tick already
+// claimed the slot on the job's behalf; otherwise the job blocks here until
+// one frees up.
+//
+// The final rebuildQueuedFor recheck-and-ping is deferred, and registered
+// before clearInFlight's defer, so it runs after clearInFlight on every exit
+// path (including ctx cancellation) — defers run LIFO. Pinging first would
+// let the woken tick's markInFlight see this scope as still in-flight and
+// skip it, consuming the trigger's one-slot buffer with nobody left to ping
+// again until the next ticker fire (see queuedRebuildScopes).
 func (c *Controller) runScopeJob(ctx context.Context, job scopeJob, slotHeld bool) {
 	defer c.jobs.Done()
+	defer func() {
+		if c.rebuildQueuedFor(job.scopeID) {
+			c.ping()
+		}
+	}()
 	defer c.clearInFlight(job.scopeID)
 	if !slotHeld {
 		select {
@@ -334,13 +345,14 @@ func (c *Controller) runScopeJob(ctx context.Context, job scopeJob, slotHeld boo
 		}
 		c.clearFailure(stream)
 	}
-	if c.rebuildQueuedFor(job.scopeID) {
-		c.ping()
-	}
 }
 
 // ping wakes the consumer loop; the one-slot buffer means a wakeup during
-// an in-flight tick is remembered, not lost.
+// an in-flight tick is remembered, not lost. Callers that ping because a
+// scope's rebuild is still queued (runScopeJob, Rebuild) must not do so
+// while that scope is still marked in-flight — see runScopeJob's defer
+// ordering — or the tick this wakes will skip the scope via markInFlight
+// and consume the buffered wakeup for nothing.
 func (c *Controller) ping() {
 	select {
 	case c.trigger <- struct{}{}:
@@ -408,7 +420,10 @@ func (c *Controller) maybeRebuild(ctx context.Context) {
 // queuedRebuildScopes snapshots the scopes waiting for a rebuild in a
 // deterministic order. Scopes queued after the snapshot are picked up by the
 // next tick: Rebuild always pings the trigger, and the trigger's one slot of
-// buffer means that wakeup survives an in-flight tick.
+// buffer means that wakeup survives an in-flight tick — as long as the scope
+// it names is no longer marked in-flight by the time that tick runs
+// markInFlight, which is why runScopeJob defers its own re-check-and-ping to
+// run after clearInFlight.
 func (c *Controller) queuedRebuildScopes() []string {
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()

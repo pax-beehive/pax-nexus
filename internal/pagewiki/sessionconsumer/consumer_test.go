@@ -836,6 +836,42 @@ func (s *consumerSuite) TestNewRejectsNonPositiveConcurrency() {
 	s.Require().ErrorContains(err, "concurrency")
 }
 
+// TestDispatchRunsRebuildOnlyJobForScopeWithNoPendingStreams pins
+// buildScopeJobs's rebuild-only branch: a scope with a queued rebuild but no
+// pending streams still gets its own job and runs its rebuild.
+func (s *consumerSuite) TestDispatchRunsRebuildOnlyJobForScopeWithNoPendingStreams() {
+	s.store.streams = nil
+	cutoff := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	_, err := s.consumer.Rebuild(context.Background(), "idle-team", cutoff)
+	s.Require().NoError(err)
+
+	s.consumer.DispatchTickForTest(context.Background())
+	s.consumer.WaitJobsForTest()
+
+	calls := s.rebuilder.callsForScope("idle-team")
+	s.Require().Len(calls, 1, "a scope with only a queued rebuild must still get a job")
+	s.Equal(cutoff, calls[0].since)
+	status, err := s.consumer.Status(context.Background(), "idle-team")
+	s.Require().NoError(err)
+	s.Equal(sessionconsumer.RebuildIdle, status.Rebuild.State)
+}
+
+// TestDispatchStillRunsQueuedRebuildWhenPendingStreamsFails pins tick's
+// error-handling: a failed PendingStreams query must not swallow queued
+// rebuilds, since a scope's rebuild is otherwise only discoverable through
+// buildScopeJobs's stream-derived index.
+func (s *consumerSuite) TestDispatchStillRunsQueuedRebuildWhenPendingStreamsFails() {
+	s.store.pendingErr = errors.New("scan query unavailable")
+	_, err := s.consumer.Rebuild(context.Background(), "local-team", time.Time{})
+	s.Require().NoError(err)
+
+	s.consumer.DispatchTickForTest(context.Background())
+	s.consumer.WaitJobsForTest()
+
+	calls := s.rebuilder.callsForScope("local-team")
+	s.Require().Len(calls, 1, "a queued rebuild must still run when the scan query fails")
+}
+
 // consumerStore's mutable fields are guarded by mu: with the pool dispatching
 // one goroutine per scope job, two scopes' jobs can call these methods
 // concurrently (Task 5), so the fake needs the same safety a real store
