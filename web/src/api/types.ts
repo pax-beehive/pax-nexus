@@ -476,6 +476,56 @@ export interface ExtractionDiagnostic {
   resulting_notes: TeamNoteSummary[];
 }
 
+// ---- Session audit (read-only admin API over the session lake audit trail) ----
+
+export type SessionAuditRiskLevel = "low" | "medium" | "high" | "critical";
+export type SessionAuditApprovalState = "unknown" | "approved" | "denied" | "auto";
+export type SessionAuditFindingKind =
+  | "high_risk_unapproved"
+  | "denied_tool_executed"
+  | "visibility_unknown"
+  | "attribution_missing";
+
+export interface SessionAuditToolCall {
+  event_id: string;
+  user_id: string;
+  agent_id: string;
+  session_id: string;
+  call_id: string;
+  tool_name: string;
+  input_summary: string;
+  risk_level: SessionAuditRiskLevel;
+  risk_reasons: string[];
+  approval_state: SessionAuditApprovalState;
+  occurred_at: string;
+  captured_at: string;
+}
+
+export interface SessionAuditFinding {
+  finding_id: number;
+  user_id: string;
+  agent_id: string;
+  session_id: string;
+  kind: SessionAuditFindingKind;
+  /** Severity shares the risk-level vocabulary. */
+  severity: SessionAuditRiskLevel;
+  summary: string;
+  evidence_event_ids: string[];
+  created_at: string;
+}
+
+export interface SessionAuditActivityDay {
+  user_id: string;
+  agent_id: string;
+  /** YYYY-MM-DD day bucket. */
+  day: string;
+  event_count: number;
+  tool_call_count: number;
+  high_risk_count: number;
+  session_count: number;
+  tool_breakdown: Record<string, number>;
+}
+
 export interface ChannelDiagnostic {
   envelope_id: string;
   from_agent_id: string;

@@ -1,0 +1,10 @@
+/* session audit admin page */
+.b-risk-low { background: var(--ok-bg); color: var(--ok); }
+.b-risk-medium { background: var(--info-bg); color: var(--info); }
+.b-risk-high { background: var(--warn-bg); color: var(--warn); }
+.b-risk-critical { background: var(--bad-bg); color: var(--bad); }
+.b-approval-approved { background: var(--ok-bg); color: var(--ok); }
+.b-approval-denied { background: var(--bad-bg); color: var(--bad); }
+.b-approval-auto { background: var(--info-bg); color: var(--info); }
+.b-approval-unknown { background: var(--surface-2); color: var(--muted); }
+.session-audit-truncate { display: inline-block; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }

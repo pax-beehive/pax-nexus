@@ -13,6 +13,9 @@ import type {
   Invitation,
   Member,
   Page,
+  SessionAuditActivityDay,
+  SessionAuditFinding,
+  SessionAuditToolCall,
 } from "./types";
 import type { AgentScope } from "./actions";
 
@@ -182,6 +185,82 @@ export async function getAuditEvent(auditEventId: number): Promise<AuditEvent> {
     `/v1/admin/audit-events/${encodeURIComponent(auditEventId)}`,
   );
   return res.audit_event;
+}
+
+// ---- Admin: session audit (read-only session lake audit trail) ----
+// These endpoints return bounded lists (limit only, no cursor).
+
+export interface SessionAuditToolCallFilter {
+  user_id?: string;
+  agent_id?: string;
+  session_id?: string;
+  risk_level?: string;
+  approval_state?: string;
+  limit?: number;
+}
+
+export async function listSessionAuditToolCalls(
+  filter: SessionAuditToolCallFilter,
+): Promise<SessionAuditToolCall[]> {
+  const res = await humanFetch<{ tool_calls: SessionAuditToolCall[] }>(
+    `/v1/admin/session-audit/tool-calls${query({
+      user_id: filter.user_id,
+      agent_id: filter.agent_id,
+      session_id: filter.session_id,
+      risk_level: filter.risk_level,
+      approval_state: filter.approval_state,
+      limit: filter.limit,
+    })}`,
+  );
+  return res.tool_calls;
+}
+
+export interface SessionAuditFindingFilter {
+  user_id?: string;
+  agent_id?: string;
+  session_id?: string;
+  kind?: string;
+  severity?: string;
+  limit?: number;
+}
+
+export async function listSessionAuditFindings(
+  filter: SessionAuditFindingFilter,
+): Promise<SessionAuditFinding[]> {
+  const res = await humanFetch<{ findings: SessionAuditFinding[] }>(
+    `/v1/admin/session-audit/findings${query({
+      user_id: filter.user_id,
+      agent_id: filter.agent_id,
+      session_id: filter.session_id,
+      kind: filter.kind,
+      severity: filter.severity,
+      limit: filter.limit,
+    })}`,
+  );
+  return res.findings;
+}
+
+export interface SessionAuditActivityFilter {
+  user_id?: string;
+  agent_id?: string;
+  from_day?: string;
+  to_day?: string;
+  limit?: number;
+}
+
+export async function listSessionAuditActivity(
+  filter: SessionAuditActivityFilter,
+): Promise<SessionAuditActivityDay[]> {
+  const res = await humanFetch<{ activity: SessionAuditActivityDay[] }>(
+    `/v1/admin/session-audit/activity${query({
+      user_id: filter.user_id,
+      agent_id: filter.agent_id,
+      from_day: filter.from_day,
+      to_day: filter.to_day,
+      limit: filter.limit,
+    })}`,
+  );
+  return res.activity;
 }
 
 // ---- Admin: operations console (read-only, operations doc section 6) ----

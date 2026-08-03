@@ -18,6 +18,7 @@ import { AdminAgentDetailPage } from "./AdminAgentDetailPage";
 import { AdminDevicesPage } from "./AdminDevicesPage";
 import { AdminDeviceDetailPage } from "./AdminDeviceDetailPage";
 import { AdminAuditPage } from "./AdminAuditPage";
+import { AdminSessionAuditPage } from "./AdminSessionAuditPage";
 import { AdminOperationsPage } from "./AdminOperationsPage";
 import { AdminPulsePage } from "./AdminPulsePage";
 import { AdminExplorerPage } from "./AdminExplorerPage";
@@ -164,6 +165,9 @@ export function PortalShell({ me }: { me: HumanMe }) {
               <NavLink to="/admin/audit" className={navClass}>
                 Audit Events
               </NavLink>
+              <NavLink to="/admin/session-audit" className={navClass}>
+                Session Audit
+              </NavLink>
               {hasServerCapability(me, "view.operations") && (
                 <NavLink to="/admin/operations" className={navClass}>
                   Operations
@@ -265,6 +269,14 @@ export function PortalShell({ me }: { me: HumanMe }) {
               element={
                 <RequireCapability me={me} cap="view.audit">
                   <AdminAuditPage />
+                </RequireCapability>
+              }
+            />
+            <Route
+              path="/admin/session-audit"
+              element={
+                <RequireCapability me={me} cap="view.audit">
+                  <AdminSessionAuditPage />
                 </RequireCapability>
               }
             />
