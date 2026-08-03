@@ -118,11 +118,19 @@ type Controller struct {
 	logger       *slog.Logger
 	interval     time.Duration
 	trigger      chan struct{}
-	mu           sync.Mutex
-	failures     map[string]failureRecord
-	now          func() time.Time
-	// stateMu guards rebuilds below. It is separate from mu so status reads
-	// never wait behind a minutes-long injection scan.
+	// scopeLocks serializes, per scope, the three operations that mutate a
+	// scope's wiki: scan-driven injection, manual InjectSession, and rebuild.
+	// Scopes never contend with each other; within a scope injection stays
+	// strictly serial (the wiki mirror is per-scope in-memory state).
+	scopeLocksMu sync.Mutex
+	scopeLocks   map[string]*sync.Mutex
+	// failuresMu guards failures; it is its own small lock so backoff
+	// bookkeeping never waits behind an in-flight injection.
+	failuresMu sync.Mutex
+	failures   map[string]failureRecord
+	now        func() time.Time
+	// stateMu guards rebuilds below. It is separate from the scope locks so
+	// status reads never wait behind a minutes-long injection scan.
 	stateMu  sync.Mutex
 	rebuilds map[string]*scopeRebuild
 }
@@ -146,9 +154,10 @@ func New(
 	return &Controller{
 		store: store, injectorFor: injectorFor, rebuilderFor: rebuilderFor,
 		logger: logger, interval: interval, trigger: make(chan struct{}, 1),
-		failures: make(map[string]failureRecord),
-		now:      time.Now,
-		rebuilds: make(map[string]*scopeRebuild),
+		scopeLocks: make(map[string]*sync.Mutex),
+		failures:   make(map[string]failureRecord),
+		now:        time.Now,
+		rebuilds:   make(map[string]*scopeRebuild),
 	}, nil
 }
 
@@ -283,26 +292,22 @@ func (c *Controller) runScopeRebuild(ctx context.Context, scopeID string) {
 	}
 }
 
-// rebuildScope resolves the scope's rebuilder before taking mu — hydrating a
-// cold scope must not block the injection scan — then rebuilds under mu so a
-// rebuild never races an in-flight injection. A successful rebuild clears
-// only that scope's injection backoff.
+// rebuildScope resolves the scope's rebuilder before taking its lock —
+// hydrating a cold scope must not block the injection scan — then rebuilds
+// under that scope's lock so a rebuild never races an in-flight injection.
+// A successful rebuild clears only that scope's injection backoff.
 func (c *Controller) rebuildScope(ctx context.Context, scopeID string, since time.Time) error {
 	rebuilder, err := c.rebuilderFor(ctx, scopeID)
 	if err != nil {
 		return fmt.Errorf("resolve Page Wiki rebuilder: %w", err)
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	lock := c.scopeLock(scopeID)
+	lock.Lock()
+	defer lock.Unlock()
 	if err := rebuilder.RebuildPageWiki(ctx, scopeID, ProcessorName, ProcessorVersion, since); err != nil {
 		return err
 	}
-	prefix := scopeID + "/"
-	for key := range c.failures {
-		if strings.HasPrefix(key, prefix) {
-			delete(c.failures, key)
-		}
-	}
+	c.clearScopeFailures(scopeID)
 	return nil
 }
 
@@ -317,18 +322,44 @@ func (c *Controller) rebuildSnapshot(scopeID string) RebuildStatus {
 	return RebuildStatus{State: RebuildIdle}
 }
 
-// rebuildQueued reports whether any scope is waiting for a rebuild: the scan
-// yields to a queued rebuild whichever scope asked for it, because the
-// rebuild needs the same lock the scan holds.
-func (c *Controller) rebuildQueued() bool {
+// scopeLock returns scopeID's lock, creating it on first use. It serializes
+// scan-driven injection, manual InjectSession, and rebuild for that scope
+// only; other scopes never contend on it.
+func (c *Controller) scopeLock(scopeID string) *sync.Mutex {
+	c.scopeLocksMu.Lock()
+	defer c.scopeLocksMu.Unlock()
+	lock, ok := c.scopeLocks[scopeID]
+	if !ok {
+		lock = &sync.Mutex{}
+		c.scopeLocks[scopeID] = lock
+	}
+	return lock
+}
+
+// rebuildQueuedFor reports whether scopeID's own rebuild is waiting. The
+// scan yields only that scope's streams to it; other scopes are unaffected.
+func (c *Controller) rebuildQueuedFor(scopeID string) bool {
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()
-	for _, entry := range c.rebuilds {
-		if entry.status.State == RebuildQueued {
-			return true
+	entry, found := c.rebuilds[scopeID]
+	return found && entry.status.State == RebuildQueued
+}
+
+func (c *Controller) clearFailure(stream Stream) {
+	c.failuresMu.Lock()
+	defer c.failuresMu.Unlock()
+	delete(c.failures, streamKey(stream))
+}
+
+func (c *Controller) clearScopeFailures(scopeID string) {
+	c.failuresMu.Lock()
+	defer c.failuresMu.Unlock()
+	prefix := scopeID + "/"
+	for key := range c.failures {
+		if strings.HasPrefix(key, prefix) {
+			delete(c.failures, key)
 		}
 	}
-	return false
 }
 
 func (c *Controller) InjectSession(
@@ -346,10 +377,8 @@ func (c *Controller) InjectSession(
 	if len(streams) == 0 {
 		return InjectResult{}, ErrSessionNotFound
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	for _, stream := range streams {
-		delete(c.failures, streamKey(stream))
+		c.clearFailure(stream)
 		if err := c.consume(ctx, stream); err != nil {
 			return InjectResult{}, err
 		}
@@ -358,8 +387,6 @@ func (c *Controller) InjectSession(
 }
 
 func (c *Controller) scan(ctx context.Context) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	streams, err := c.store.PendingStreams(ctx)
 	if err != nil {
 		c.logger.ErrorContext(ctx, "Page Wiki scan failed", "error", err)
@@ -367,11 +394,11 @@ func (c *Controller) scan(ctx context.Context) {
 	}
 	now := c.now()
 	for _, stream := range streams {
-		// A queued rebuild wipes everything this pass would build; yield
-		// the lock now instead of after the whole backlog. The remaining
-		// streams are picked up by the next tick.
-		if c.rebuildQueued() {
-			return
+		// A queued rebuild wipes everything this scope's injections would
+		// build; skip that scope's streams and keep sweeping the others.
+		// The rebuild itself runs on the next tick's maybeRebuild pass.
+		if c.rebuildQueuedFor(stream.ScopeID) {
+			continue
 		}
 		if c.backedOff(stream, now) {
 			continue
@@ -388,11 +415,22 @@ func (c *Controller) scan(ctx context.Context) {
 			)
 			continue
 		}
-		delete(c.failures, streamKey(stream))
+		c.clearFailure(stream)
 	}
 }
 
 func (c *Controller) consume(ctx context.Context, stream Stream) error {
+	ctx = session.WithScope(ctx, stream.ScopeID)
+	// Resolve before locking: resolution may hydrate a cold scope (a
+	// startup-class cost), and per-scope single-flight in the managers means
+	// only this scope's callers wait on it — never the lock's other holders.
+	injector, err := c.injectorFor(ctx, stream.ScopeID)
+	if err != nil {
+		return fmt.Errorf("resolve Page Wiki injector: %w", err)
+	}
+	lock := c.scopeLock(stream.ScopeID)
+	lock.Lock()
+	defer lock.Unlock()
 	events, err := c.store.SessionEvents(ctx, stream)
 	if err != nil {
 		return fmt.Errorf("read Page Wiki session events: %w", err)
@@ -401,13 +439,6 @@ func (c *Controller) consume(ctx context.Context, stream Stream) error {
 		return nil
 	}
 	request := injectionRequest(stream, events)
-	ctx = session.WithScope(ctx, stream.ScopeID)
-	// Resolve per stream: one loop serves every scope, and a scope whose
-	// service cannot be resolved must fail only its own streams.
-	injector, err := c.injectorFor(ctx, stream.ScopeID)
-	if err != nil {
-		return fmt.Errorf("resolve Page Wiki injector: %w", err)
-	}
 	result, err := injector.InjectSession(ctx, request)
 	if err != nil {
 		return fmt.Errorf("inject Page Wiki session: %w", err)
@@ -451,6 +482,8 @@ func injectionRequest(stream Stream, events []session.SessionEvent) pagewiki.Inj
 // backedOff reports whether the stream is still inside its retry window. A
 // head advance (new session events) always clears the way immediately.
 func (c *Controller) backedOff(stream Stream, now time.Time) bool {
+	c.failuresMu.Lock()
+	defer c.failuresMu.Unlock()
 	record, found := c.failures[streamKey(stream)]
 	if !found || record.head != stream.Head {
 		return false
@@ -459,6 +492,8 @@ func (c *Controller) backedOff(stream Stream, now time.Time) bool {
 }
 
 func (c *Controller) recordFailure(stream Stream) failureRecord {
+	c.failuresMu.Lock()
+	defer c.failuresMu.Unlock()
 	key := streamKey(stream)
 	record := c.failures[key]
 	if record.head != stream.Head {

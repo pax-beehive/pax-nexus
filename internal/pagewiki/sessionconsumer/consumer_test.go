@@ -437,6 +437,73 @@ func (s *consumerSuite) TestOneScanConsumesEveryScope() {
 	s.Equal("other-team", scopeID)
 }
 
+// TestManualInjectionOfOneScopeDoesNotWaitForAnother pins the per-scope
+// lock split: while scope-a's injection sits inside a slow LLM call,
+// scope-b's manual injection must complete instead of queueing behind a
+// process-global mutex.
+func (s *consumerSuite) TestManualInjectionOfOneScopeDoesNotWaitForAnother() {
+	s.store.streams = []sessionconsumer.Stream{
+		{ScopeID: "scope-a", Actor: session.Actor{UserID: "owner", AgentID: "agent-1", SessionID: "session-a"}, Head: 2},
+		{ScopeID: "scope-b", Actor: session.Actor{UserID: "owner", AgentID: "agent-1", SessionID: "session-b"}, Head: 2},
+	}
+	blocked := &recordingInjector{entered: make(chan struct{}, 1), release: make(chan struct{})}
+	s.resolver.setInjector("scope-a", blocked)
+
+	go func() { _, _ = s.consumer.InjectSession(context.Background(), "scope-a", "session-a") }()
+	select {
+	case <-blocked.entered:
+	case <-time.After(time.Second):
+		s.Fail("scope-a injection did not start")
+		return
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := s.consumer.InjectSession(context.Background(), "scope-b", "session-b")
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		s.Require().NoError(err)
+	case <-time.After(time.Second):
+		s.Fail("scope-b's manual injection blocked behind scope-a's")
+	}
+	close(blocked.release)
+}
+
+// TestRebuildOfOneScopeDoesNotWaitForAnotherScopesInjection pins the same
+// split for rebuilds: scope-b's queued rebuild must execute while scope-a
+// holds its own injection lock.
+func (s *consumerSuite) TestRebuildOfOneScopeDoesNotWaitForAnotherScopesInjection() {
+	s.store.streams = []sessionconsumer.Stream{
+		{ScopeID: "scope-a", Actor: session.Actor{UserID: "owner", AgentID: "agent-1", SessionID: "session-a"}, Head: 2},
+	}
+	blocked := &recordingInjector{entered: make(chan struct{}, 1), release: make(chan struct{})}
+	s.resolver.setInjector("scope-a", blocked)
+	go func() { _, _ = s.consumer.InjectSession(context.Background(), "scope-a", "session-a") }()
+	select {
+	case <-blocked.entered:
+	case <-time.After(time.Second):
+		s.Fail("scope-a injection did not start")
+		return
+	}
+
+	_, err := s.consumer.Rebuild(context.Background(), "scope-b", time.Time{})
+	s.Require().NoError(err)
+	rebuildDone := make(chan struct{})
+	go func() {
+		s.consumer.RunQueuedRebuildForTest(context.Background())
+		close(rebuildDone)
+	}()
+	select {
+	case <-rebuildDone:
+		s.Require().Len(s.rebuilder.callsForScope("scope-b"), 1)
+	case <-time.After(time.Second):
+		s.Fail("scope-b's rebuild blocked behind scope-a's injection")
+	}
+	close(blocked.release)
+}
+
 func (s *consumerSuite) TestValidationRejectsIncompleteConfigurationAndInput() {
 	injectorFor, rebuilderFor := s.resolver.injectorFor, s.resolver.rebuilderFor
 	_, err := sessionconsumer.New(nil, injectorFor, rebuilderFor, slog.New(slog.DiscardHandler), time.Second)
