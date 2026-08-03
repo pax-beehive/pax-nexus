@@ -3,6 +3,7 @@ package pagewiki_test
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -215,4 +216,80 @@ func TestServiceManagerStartsCurationMaintenanceExactlyOncePerScope(t *testing.T
 	}
 	require.Equal(t, 1, resolver.callCount("scope-a"),
 		"a cached scope must never re-resolve its repository, which is the only place maintenance starts")
+}
+
+func TestServiceForScopeColdResolutionDoesNotBlockOtherScopes(t *testing.T) {
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	manager, err := pagewiki.NewServiceManager(
+		func(_ context.Context, scopeID string) (pagewiki.Repository, error) {
+			if scopeID == "cold" {
+				close(entered)
+				<-release
+			}
+			return memory.NewRepository(), nil
+		},
+		pagewiki.ServiceManagerConfig{
+			Planner: pagewiki.ScriptedPlanner{},
+			Editor:  pagewiki.ScriptedEditor{},
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() { _, _ = manager.ForScope(context.Background(), "cold") }()
+	<-entered
+
+	done := make(chan struct{})
+	go func() {
+		if _, err := manager.ForScope(context.Background(), "hot"); err != nil {
+			t.Error(err)
+		}
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("hot scope blocked behind cold scope's repository resolution")
+	}
+	close(release)
+}
+
+func TestServiceForScopeResolvesConcurrentFirstTouchExactlyOnce(t *testing.T) {
+	var calls atomic.Int32
+	manager, err := pagewiki.NewServiceManager(
+		func(context.Context, string) (pagewiki.Repository, error) {
+			calls.Add(1)
+			time.Sleep(50 * time.Millisecond)
+			return memory.NewRepository(), nil
+		},
+		pagewiki.ServiceManagerConfig{
+			Planner: pagewiki.ScriptedPlanner{},
+			Editor:  pagewiki.ScriptedEditor{},
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wait sync.WaitGroup
+	services := make([]*pagewiki.Service, 2)
+	for i := 0; i < 2; i++ {
+		wait.Add(1)
+		go func(index int) {
+			defer wait.Done()
+			service, forErr := manager.ForScope(context.Background(), "scope-a")
+			if forErr != nil {
+				t.Error(forErr)
+				return
+			}
+			services[index] = service
+		}(i)
+	}
+	wait.Wait()
+	if calls.Load() != 1 {
+		t.Fatalf("resolver ran %d times, want 1", calls.Load())
+	}
+	if services[0] == nil || services[0] != services[1] {
+		t.Fatal("concurrent first-touch must return the same cached Service")
+	}
 }
