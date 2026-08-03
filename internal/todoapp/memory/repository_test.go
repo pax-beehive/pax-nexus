@@ -247,6 +247,29 @@ func (s *RepositorySuite) TestSuggestionFingerprintsIncludeAllStatuses() {
 	s.Require().True(ok)
 }
 
+// TestScopeIsolationPerCall mirrors the Postgres adapter's isolation test:
+// each scope's todos are only visible to calls made with that scope, since
+// the in-memory repository keys its maps by scope to mimic the Postgres
+// adapter's scope_id-per-row isolation.
+func (s *RepositorySuite) TestScopeIsolationPerCall() {
+	s.Require().NoError(s.repo.SaveTodo(s.ctx, "scope-a", todoapp.Todo{
+		ID: "todo-a", Title: "A", Status: todoapp.TodoOpen,
+	}))
+	s.Require().NoError(s.repo.SaveTodo(s.ctx, "scope-b", todoapp.Todo{
+		ID: "todo-b", Title: "B", Status: todoapp.TodoOpen,
+	}))
+
+	scopeATodos, err := s.repo.ListTodos(s.ctx, "scope-a", todoapp.TodoOpen)
+	s.Require().NoError(err)
+	s.Require().Len(scopeATodos, 1)
+	s.Require().Equal("todo-a", scopeATodos[0].ID)
+
+	scopeBTodos, err := s.repo.ListTodos(s.ctx, "scope-b", todoapp.TodoOpen)
+	s.Require().NoError(err)
+	s.Require().Len(scopeBTodos, 1)
+	s.Require().Equal("todo-b", scopeBTodos[0].ID)
+}
+
 func (s *RepositorySuite) TestSuggestionFingerprintsDeduplicates() {
 	// Same fingerprint saved twice should result in one entry
 	s.Require().NoError(s.repo.SaveSuggestion(s.ctx, "local-team", todoapp.Suggestion{

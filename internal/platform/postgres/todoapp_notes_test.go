@@ -88,21 +88,19 @@ func TestTodoNoteDirectory_ListOpenActionItems_ScopeIsolationPerCall(t *testing.
 
 	base := time.Now().UTC().Truncate(time.Second)
 
-	cleanup := func() {
-		_, err := store.Pool().Exec(context.Background(),
-			"DELETE FROM team_notes WHERE scope_id IN ('local-team', 'other-scope')")
-		require.NoError(t, err)
-	}
-	cleanup() // defensive: clear any residue from a prior failed run
-	defer cleanup()
+	// Each scope is unique to this test run, so no cleanup is needed: the
+	// rows never collide with another run (mirrors the uniqueScope
+	// convention used elsewhere in this package's suites).
+	scopeA := uniqueScope("todoapp-notes")
+	scopeB := uniqueScope("todoapp-notes")
 
 	seedTeamNote(t, store.Pool(), teamNoteSeed{
-		scopeID: "local-team", noteID: "note-local", kind: "blocker",
+		scopeID: scopeA, noteID: "note-local", kind: "blocker",
 		subject: "Local blocker", body: "local body", state: "active",
 		updatedAt: base,
 	})
 	seedTeamNote(t, store.Pool(), teamNoteSeed{
-		scopeID: "other-scope", noteID: "note-other", kind: "blocker",
+		scopeID: scopeB, noteID: "note-other", kind: "blocker",
 		subject: "Other blocker", body: "other body", state: "active",
 		updatedAt: base,
 	})
@@ -110,12 +108,12 @@ func TestTodoNoteDirectory_ListOpenActionItems_ScopeIsolationPerCall(t *testing.
 	directory, err := postgres.NewTodoNoteDirectory(store.Pool())
 	require.NoError(t, err)
 
-	local, err := directory.ListOpenActionItems(ctx, "local-team", 0)
+	local, err := directory.ListOpenActionItems(ctx, scopeA, 0)
 	require.NoError(t, err)
 	require.Len(t, local, 1)
 	require.Equal(t, "note-local", local[0].NoteID)
 
-	other, err := directory.ListOpenActionItems(ctx, "other-scope", 0)
+	other, err := directory.ListOpenActionItems(ctx, scopeB, 0)
 	require.NoError(t, err)
 	require.Len(t, other, 1)
 	require.Equal(t, "note-other", other[0].NoteID)

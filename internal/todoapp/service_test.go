@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"sync"
 	"testing"
 	"time"
 
@@ -46,14 +47,20 @@ type ServiceSuite struct {
 type fakeRepository struct {
 	todos       map[string]todoapp.Todo
 	suggestions map[string]todoapp.Suggestion
+
+	// lastScopeID records the scopeID passed to the most recent call, so
+	// tests can assert the Service threads the caller's scope through.
+	lastScopeID string
 }
 
-func (f *fakeRepository) SaveTodo(_ context.Context, _ string, todo todoapp.Todo) error {
+func (f *fakeRepository) SaveTodo(_ context.Context, scopeID string, todo todoapp.Todo) error {
+	f.lastScopeID = scopeID
 	f.todos[todo.ID] = todo
 	return nil
 }
 
-func (f *fakeRepository) TodoByID(_ context.Context, _ string, todoID string) (todoapp.Todo, error) {
+func (f *fakeRepository) TodoByID(_ context.Context, scopeID string, todoID string) (todoapp.Todo, error) {
+	f.lastScopeID = scopeID
 	todo, ok := f.todos[todoID]
 	if !ok {
 		return todoapp.Todo{}, todoapp.ErrNotFound
@@ -61,7 +68,8 @@ func (f *fakeRepository) TodoByID(_ context.Context, _ string, todoID string) (t
 	return todo, nil
 }
 
-func (f *fakeRepository) ListTodos(_ context.Context, _ string, status todoapp.TodoStatus) ([]todoapp.Todo, error) {
+func (f *fakeRepository) ListTodos(_ context.Context, scopeID string, status todoapp.TodoStatus) ([]todoapp.Todo, error) {
+	f.lastScopeID = scopeID
 	var result []todoapp.Todo
 	for _, todo := range f.todos {
 		if status == "" || todo.Status == status {
@@ -78,12 +86,14 @@ func (f *fakeRepository) ListTodos(_ context.Context, _ string, status todoapp.T
 	return result, nil
 }
 
-func (f *fakeRepository) SaveSuggestion(_ context.Context, _ string, suggestion todoapp.Suggestion) error {
+func (f *fakeRepository) SaveSuggestion(_ context.Context, scopeID string, suggestion todoapp.Suggestion) error {
+	f.lastScopeID = scopeID
 	f.suggestions[suggestion.ID] = suggestion
 	return nil
 }
 
-func (f *fakeRepository) SuggestionByID(_ context.Context, _ string, suggestionID string) (todoapp.Suggestion, error) {
+func (f *fakeRepository) SuggestionByID(_ context.Context, scopeID string, suggestionID string) (todoapp.Suggestion, error) {
+	f.lastScopeID = scopeID
 	suggestion, ok := f.suggestions[suggestionID]
 	if !ok {
 		return todoapp.Suggestion{}, todoapp.ErrNotFound
@@ -91,7 +101,8 @@ func (f *fakeRepository) SuggestionByID(_ context.Context, _ string, suggestionI
 	return suggestion, nil
 }
 
-func (f *fakeRepository) ListSuggestions(_ context.Context, _ string, status todoapp.SuggestionStatus) ([]todoapp.Suggestion, error) {
+func (f *fakeRepository) ListSuggestions(_ context.Context, scopeID string, status todoapp.SuggestionStatus) ([]todoapp.Suggestion, error) {
+	f.lastScopeID = scopeID
 	var result []todoapp.Suggestion
 	for _, suggestion := range f.suggestions {
 		if status == "" || suggestion.Status == status {
@@ -108,7 +119,8 @@ func (f *fakeRepository) ListSuggestions(_ context.Context, _ string, status tod
 	return result, nil
 }
 
-func (f *fakeRepository) SuggestionFingerprints(_ context.Context, _ string) (map[string]struct{}, error) {
+func (f *fakeRepository) SuggestionFingerprints(_ context.Context, scopeID string) (map[string]struct{}, error) {
+	f.lastScopeID = scopeID
 	result := make(map[string]struct{})
 	for _, suggestion := range f.suggestions {
 		result[suggestion.Fingerprint] = struct{}{}
@@ -676,4 +688,191 @@ func (s *ServiceSuite) TestPendingSuggestions() {
 	for _, sugg := range pending {
 		s.Require().Equal(todoapp.SuggestionPending, sugg.Status)
 	}
+}
+
+// TestBlankScopeIsRejectedAcrossMethods guards against a blank scopeID
+// slipping through to the repository: a blank scope would persist rows
+// under scope_id=” in Postgres while the reporter drops the evidence event
+// (report.go rejects a blank scope outright), silently splitting a todo's
+// state from its audit trail.
+func (s *ServiceSuite) TestBlankScopeIsRejectedAcrossMethods() {
+	cases := []struct {
+		name string
+		call func() error
+	}{
+		{name: "CreateTodo blank scope", call: func() error {
+			_, err := s.service.CreateTodo(s.ctx, "", "user-1", "Title", "body")
+			return err
+		}},
+		{name: "CreateTodo whitespace scope", call: func() error {
+			_, err := s.service.CreateTodo(s.ctx, "   ", "user-1", "Title", "body")
+			return err
+		}},
+		{name: "CompleteTodo", call: func() error {
+			_, err := s.service.CompleteTodo(s.ctx, "", "user-1", "todo-1")
+			return err
+		}},
+		{name: "ListTodos", call: func() error {
+			_, err := s.service.ListTodos(s.ctx, "", todoapp.TodoOpen)
+			return err
+		}},
+		{name: "RefreshSuggestions", call: func() error {
+			_, err := s.service.RefreshSuggestions(s.ctx, "")
+			return err
+		}},
+		{name: "PendingSuggestions", call: func() error {
+			_, err := s.service.PendingSuggestions(s.ctx, "")
+			return err
+		}},
+		{name: "AcceptSuggestion", call: func() error {
+			_, err := s.service.AcceptSuggestion(s.ctx, "", "user-1", "sugg-1")
+			return err
+		}},
+		{name: "DismissSuggestion", call: func() error {
+			return s.service.DismissSuggestion(s.ctx, "", "user-1", "sugg-1")
+		}},
+	}
+
+	for _, tc := range cases {
+		s.Run(tc.name, func() {
+			err := tc.call()
+			s.Require().ErrorIs(err, todoapp.ErrInvalidInput)
+		})
+	}
+}
+
+// TestServiceThreadsScopeToRepository is the todoapp-side regression test
+// Phase 1's final review asked for: every exported Service method must pass
+// the caller's scopeID through to the repository unchanged, not the wrong
+// scope and not a hardcoded default.
+func (s *ServiceSuite) TestServiceThreadsScopeToRepository() {
+	const scope = "other-scope"
+
+	cases := []struct {
+		name    string
+		call    func() error
+		wantErr error // nil means the call is expected to succeed
+	}{
+		{name: "CreateTodo", call: func() error {
+			_, err := s.service.CreateTodo(s.ctx, scope, "user-1", "Title", "body")
+			return err
+		}},
+		{name: "CompleteTodo", call: func() error {
+			_, err := s.service.CompleteTodo(s.ctx, scope, "user-1", "missing-todo")
+			return err
+		}, wantErr: todoapp.ErrNotFound},
+		{name: "ListTodos", call: func() error {
+			_, err := s.service.ListTodos(s.ctx, scope, todoapp.TodoOpen)
+			return err
+		}},
+		{name: "RefreshSuggestions", call: func() error {
+			_, err := s.service.RefreshSuggestions(s.ctx, scope)
+			return err
+		}},
+		{name: "PendingSuggestions", call: func() error {
+			_, err := s.service.PendingSuggestions(s.ctx, scope)
+			return err
+		}},
+		{name: "AcceptSuggestion", call: func() error {
+			_, err := s.service.AcceptSuggestion(s.ctx, scope, "user-1", "missing-suggestion")
+			return err
+		}, wantErr: todoapp.ErrNotFound},
+		{name: "DismissSuggestion", call: func() error {
+			return s.service.DismissSuggestion(s.ctx, scope, "user-1", "missing-suggestion")
+		}, wantErr: todoapp.ErrNotFound},
+	}
+
+	for _, tc := range cases {
+		s.Run(tc.name, func() {
+			s.repo.lastScopeID = ""
+			err := tc.call()
+			if tc.wantErr != nil {
+				s.Require().ErrorIs(err, tc.wantErr)
+			} else {
+				s.Require().NoError(err)
+			}
+			s.Require().Equal(scope, s.repo.lastScopeID, "%s must pass the caller's scope to the repository", tc.name)
+		})
+	}
+}
+
+// blockingNotes lets a test hold ListOpenActionItems open for one scope
+// while asserting that a different scope's call is not blocked behind it.
+// started reports the scope of each call the instant it is invoked (before
+// any blocking), so a test can synchronize without sleeping.
+type blockingNotes struct {
+	items      map[string][]todoapp.ActionItem
+	blockScope string
+	unblock    chan struct{}
+	started    chan string
+}
+
+func (f *blockingNotes) ListOpenActionItems(_ context.Context, scopeID string, _ int) ([]todoapp.ActionItem, error) {
+	f.started <- scopeID
+	if scopeID == f.blockScope {
+		<-f.unblock
+	}
+	return f.items[scopeID], nil
+}
+
+// TestRefreshSuggestionsSerializesPerScopeNotGlobally proves RefreshSuggestions
+// uses a per-scope lock: scope-a's in-flight (blocked) refresh must not
+// prevent scope-b's refresh from proceeding and completing.
+func (s *ServiceSuite) TestRefreshSuggestionsSerializesPerScopeNotGlobally() {
+	notes := &blockingNotes{
+		items:      map[string][]todoapp.ActionItem{"scope-a": {}, "scope-b": {}},
+		blockScope: "scope-a",
+		unblock:    make(chan struct{}),
+		started:    make(chan string, 2),
+	}
+	service, err := todoapp.NewService(todoapp.ServiceConfig{
+		Repository: s.repo,
+		Notes:      notes,
+		Reporter:   s.reporter,
+		Clock:      s.clock,
+		NewID:      func() string { return "id" },
+	})
+	s.Require().NoError(err)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		_, err := service.RefreshSuggestions(s.ctx, "scope-a")
+		s.NoError(err) // require is not goroutine-safe; assert only
+	}()
+	select {
+	case got := <-notes.started:
+		s.Require().Equal("scope-a", got, "scope-a's refresh must have started (and now be blocked)")
+	case <-time.After(2 * time.Second):
+		s.FailNow("scope-a's refresh never started")
+	}
+
+	doneB := make(chan struct{})
+	go func() {
+		_, err := service.RefreshSuggestions(s.ctx, "scope-b")
+		s.NoError(err) // require is not goroutine-safe; assert only
+		close(doneB)
+	}()
+
+	// scope-b must reach the (per-scope) notes call promptly: if it is stuck
+	// behind a global lock held by scope-a, it never gets this far.
+	select {
+	case got := <-notes.started:
+		s.Require().Equal("scope-b", got)
+	case <-time.After(2 * time.Second):
+		close(notes.unblock) // release scope-a so the leaked goroutine doesn't linger
+		s.FailNow("scope-b's refresh must not be blocked by scope-a's in-flight refresh")
+	}
+
+	select {
+	case <-doneB:
+		// scope-b completed without waiting on scope-a's held lock: pass.
+	case <-time.After(2 * time.Second):
+		close(notes.unblock)
+		s.FailNow("scope-b's refresh must not be blocked by scope-a's in-flight refresh")
+	}
+
+	close(notes.unblock)
+	wg.Wait()
 }

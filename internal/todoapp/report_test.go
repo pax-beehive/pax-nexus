@@ -75,6 +75,24 @@ func TestLakeReporter_Report_BlankScopeIsRejected(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestLakeReporter_Report_ThreadsScopeIntoSinkContext(t *testing.T) {
+	sink := &fakeSink{}
+	reporter, err := todoapp.NewLakeReporter(sink)
+	require.NoError(t, err)
+
+	err = reporter.Report(context.Background(), "other-scope", todoapp.ReportEvent{
+		Type:       todoapp.EventTodoCompleted,
+		UserID:     "user123",
+		Summary:    "summary",
+		OccurredAt: time.Now(),
+	})
+	require.NoError(t, err)
+
+	scopeID, err := session.ScopeFromContext(sink.ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "other-scope", scopeID)
+}
+
 func TestLakeReporter_Report(t *testing.T) {
 	t.Run("successful report", func(t *testing.T) {
 		sink := &fakeSink{}

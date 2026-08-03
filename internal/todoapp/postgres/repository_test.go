@@ -265,24 +265,21 @@ func (s *repositorySuite) TestSuggestionFingerprintsIncludeAllStatuses() {
 }
 
 func (s *repositorySuite) TestScopeIsolationPerCall() {
-	defer func() {
-		for _, query := range []string{
-			"DELETE FROM todoapp_todos WHERE scope_id IN ('local-team', 'other-scope')",
-		} {
-			_, err := s.store.Pool().Exec(s.ctx, query)
-			s.Require().NoError(err)
-		}
-	}()
+	// s.scopeID is unique to this test run (see SetupTest); otherScope is a
+	// second, independently unique scope, so this test needs no cleanup of
+	// its own -- TearDownTest already clears s.scopeID's rows, and
+	// otherScope never collides with another run.
+	otherScope := fmt.Sprintf("todoapp-repository-%d-other", time.Now().UnixNano())
 
-	s.Require().NoError(s.repo.SaveTodo(s.ctx, "local-team", todoapp.Todo{ID: "todo-a", Title: "A", Status: todoapp.TodoOpen}))
-	s.Require().NoError(s.repo.SaveTodo(s.ctx, "other-scope", todoapp.Todo{ID: "todo-b", Title: "B", Status: todoapp.TodoOpen}))
+	s.Require().NoError(s.repo.SaveTodo(s.ctx, s.scopeID, todoapp.Todo{ID: "todo-a", Title: "A", Status: todoapp.TodoOpen}))
+	s.Require().NoError(s.repo.SaveTodo(s.ctx, otherScope, todoapp.Todo{ID: "todo-b", Title: "B", Status: todoapp.TodoOpen}))
 
-	local, err := s.repo.ListTodos(s.ctx, "local-team", todoapp.TodoOpen)
+	local, err := s.repo.ListTodos(s.ctx, s.scopeID, todoapp.TodoOpen)
 	s.Require().NoError(err)
 	s.Require().Len(local, 1)
 	s.Equal("todo-a", local[0].ID)
 
-	other, err := s.repo.ListTodos(s.ctx, "other-scope", todoapp.TodoOpen)
+	other, err := s.repo.ListTodos(s.ctx, otherScope, todoapp.TodoOpen)
 	s.Require().NoError(err)
 	s.Require().Len(other, 1)
 	s.Equal("todo-b", other[0].ID)

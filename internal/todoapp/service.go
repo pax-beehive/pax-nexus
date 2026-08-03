@@ -33,7 +33,23 @@ type Service struct {
 	logger   *slog.Logger
 	clock    func() time.Time
 	newID    func() string
-	mu       sync.Mutex // protects RefreshSuggestions
+
+	// refreshLocks serializes RefreshSuggestions per scope; two scopes must
+	// be able to refresh concurrently, while one scope's refresh stays
+	// single-flight.
+	refreshLocks sync.Map // scopeID -> *sync.Mutex
+}
+
+// refreshLock returns the mutex guarding RefreshSuggestions for scopeID,
+// creating it on first use.
+func (s *Service) refreshLock(scopeID string) *sync.Mutex {
+	stored, _ := s.refreshLocks.LoadOrStore(scopeID, &sync.Mutex{})
+	lock, ok := stored.(*sync.Mutex)
+	if !ok {
+		// Unreachable: refreshLocks only ever stores *sync.Mutex values.
+		panic("todoapp: refreshLocks contains a non-*sync.Mutex value")
+	}
+	return lock
 }
 
 // NewService creates a new Service with the given configuration.
@@ -79,7 +95,7 @@ func NewService(config ServiceConfig) (*Service, error) {
 // It rejects blank title or userID with ErrInvalidInput.
 // Status is set to TodoOpen, source to TodoSourceManual.
 func (s *Service) CreateTodo(ctx context.Context, scopeID, userID, title, body string) (Todo, error) {
-	if strings.TrimSpace(title) == "" || strings.TrimSpace(userID) == "" {
+	if strings.TrimSpace(scopeID) == "" || strings.TrimSpace(title) == "" || strings.TrimSpace(userID) == "" {
 		return Todo{}, fmt.Errorf("create todo: %w", ErrInvalidInput)
 	}
 
@@ -107,6 +123,10 @@ func (s *Service) CreateTodo(ctx context.Context, scopeID, userID, title, body s
 // If the todo is not found, it returns ErrNotFound.
 // If reporting fails, it logs a warning but returns success.
 func (s *Service) CompleteTodo(ctx context.Context, scopeID, userID, todoID string) (Todo, error) {
+	if strings.TrimSpace(scopeID) == "" {
+		return Todo{}, fmt.Errorf("complete todo: %w", ErrInvalidInput)
+	}
+
 	todo, err := s.repo.TodoByID(ctx, scopeID, todoID)
 	if err != nil {
 		return Todo{}, err
@@ -146,16 +166,25 @@ func (s *Service) CompleteTodo(ctx context.Context, scopeID, userID, todoID stri
 // ListTodos returns all todos with the given status.
 // If status is empty, returns all todos.
 func (s *Service) ListTodos(ctx context.Context, scopeID string, status TodoStatus) ([]Todo, error) {
+	if strings.TrimSpace(scopeID) == "" {
+		return nil, fmt.Errorf("list todos: %w", ErrInvalidInput)
+	}
 	return s.repo.ListTodos(ctx, scopeID, status)
 }
 
 // RefreshSuggestions fetches open action items from the NoteDirectory,
 // creates pending suggestions for new items (using fingerprint deduplication),
 // and returns the count of newly created suggestions.
-// Serialized with a sync.Mutex to prevent concurrent updates.
+// Serialized per scope to prevent concurrent updates within a scope, while
+// letting different scopes refresh concurrently.
 func (s *Service) RefreshSuggestions(ctx context.Context, scopeID string) (int, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	if strings.TrimSpace(scopeID) == "" {
+		return 0, fmt.Errorf("refresh suggestions: %w", ErrInvalidInput)
+	}
+
+	lock := s.refreshLock(scopeID)
+	lock.Lock()
+	defer lock.Unlock()
 
 	// Load open action items from notes
 	items, err := s.notes.ListOpenActionItems(ctx, scopeID, 50)
@@ -218,6 +247,9 @@ func (s *Service) RefreshSuggestions(ctx context.Context, scopeID string) (int, 
 
 // PendingSuggestions returns all pending suggestions.
 func (s *Service) PendingSuggestions(ctx context.Context, scopeID string) ([]Suggestion, error) {
+	if strings.TrimSpace(scopeID) == "" {
+		return nil, fmt.Errorf("pending suggestions: %w", ErrInvalidInput)
+	}
 	return s.repo.ListSuggestions(ctx, scopeID, SuggestionPending)
 }
 
@@ -226,6 +258,10 @@ func (s *Service) PendingSuggestions(ctx context.Context, scopeID string) ([]Sug
 // Creates a todo with source TodoSourceSuggestion and reports EventSuggestionAccepted.
 // If reporting fails, logs a warning but succeeds.
 func (s *Service) AcceptSuggestion(ctx context.Context, scopeID, userID, suggestionID string) (Todo, error) {
+	if strings.TrimSpace(scopeID) == "" {
+		return Todo{}, fmt.Errorf("accept suggestion: %w", ErrInvalidInput)
+	}
+
 	// Get the suggestion
 	suggestion, err := s.repo.SuggestionByID(ctx, scopeID, suggestionID)
 	if err != nil {
@@ -287,6 +323,10 @@ func (s *Service) AcceptSuggestion(ctx context.Context, scopeID, userID, suggest
 // Reports EventSuggestionDismissed.
 // If reporting fails, logs a warning but succeeds.
 func (s *Service) DismissSuggestion(ctx context.Context, scopeID, userID, suggestionID string) error {
+	if strings.TrimSpace(scopeID) == "" {
+		return fmt.Errorf("dismiss suggestion: %w", ErrInvalidInput)
+	}
+
 	// Get the suggestion
 	suggestion, err := s.repo.SuggestionByID(ctx, scopeID, suggestionID)
 	if err != nil {

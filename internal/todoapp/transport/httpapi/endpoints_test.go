@@ -355,6 +355,46 @@ func TestGivenInvalidTransitionWhenDismissTodoSuggestionThenConflict(t *testing.
 	require.Equal(t, "invalid_transition", body["code"])
 }
 
+// TestGivenScopedPrincipalThenHandlerThreadsScopeToService is the regression
+// test Phase 1's final review asked for on the todoapp side: every route
+// must pass principal.ScopeID (not a hardcoded default) through to the
+// Service.
+func TestGivenScopedPrincipalThenHandlerThreadsScopeToService(t *testing.T) {
+	t.Parallel()
+	principal := onprem.HumanPrincipal{UserID: "user-1", ScopeID: "other-scope"}
+
+	tests := []struct {
+		name   string
+		method string
+		path   string
+		body   string
+	}{
+		{name: "list todos", method: http.MethodGet, path: "/v1/todo/todos"},
+		{name: "create todo", method: http.MethodPost, path: "/v1/todo/todos", body: `{"title":"Buy milk"}`},
+		{name: "complete todo", method: http.MethodPost, path: "/v1/todo/todos/todo-1/complete", body: ""},
+		{name: "list suggestions", method: http.MethodGet, path: "/v1/todo/suggestions"},
+		{name: "refresh suggestions", method: http.MethodPost, path: "/v1/todo/suggestions/refresh", body: ""},
+		{name: "accept suggestion", method: http.MethodPost, path: "/v1/todo/suggestions/suggestion-1/accept", body: ""},
+		{name: "dismiss suggestion", method: http.MethodPost, path: "/v1/todo/suggestions/suggestion-1/dismiss", body: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			fake := &fakeService{}
+			hertz := newTestServer(t, fake, fakeAuthenticator{principal: principal})
+
+			headers := []ut.Header{sessionCookieHeader()}
+			if tt.method == http.MethodPost {
+				headers = append(headers, ut.Header{Key: "X-CSRF-Token", Value: csrfValue})
+			}
+			performJSON(hertz, tt.method, tt.path, tt.body, headers...)
+
+			require.Equal(t, "other-scope", fake.lastScopeID)
+		})
+	}
+}
+
 // fakeAuthenticator satisfies httpapi.HumanAuthenticator.
 type fakeAuthenticator struct {
 	principal onprem.HumanPrincipal
@@ -388,9 +428,15 @@ type fakeService struct {
 	acceptErr  error
 
 	dismissErr error
+
+	// lastScopeID records the scopeID passed to the most recently invoked
+	// method, so tests can assert the handler threads principal.ScopeID
+	// through to the Service.
+	lastScopeID string
 }
 
-func (f *fakeService) CreateTodo(_ context.Context, _, userID, title, body string) (todoapp.Todo, error) {
+func (f *fakeService) CreateTodo(_ context.Context, scopeID, userID, title, body string) (todoapp.Todo, error) {
+	f.lastScopeID = scopeID
 	f.createdByUserID = userID
 	f.createdTitle = title
 	f.createdBody = body
@@ -407,14 +453,16 @@ func (f *fakeService) CreateTodo(_ context.Context, _, userID, title, body strin
 	}, nil
 }
 
-func (f *fakeService) CompleteTodo(_ context.Context, _, userID, todoID string) (todoapp.Todo, error) {
+func (f *fakeService) CompleteTodo(_ context.Context, scopeID, userID, todoID string) (todoapp.Todo, error) {
+	f.lastScopeID = scopeID
 	if f.completeErr != nil {
 		return todoapp.Todo{}, f.completeErr
 	}
 	return todoapp.Todo{ID: todoID, Status: todoapp.TodoDone, CreatedBy: userID, NoteID: "note-1"}, nil
 }
 
-func (f *fakeService) ListTodos(_ context.Context, _ string, status todoapp.TodoStatus) ([]todoapp.Todo, error) {
+func (f *fakeService) ListTodos(_ context.Context, scopeID string, status todoapp.TodoStatus) ([]todoapp.Todo, error) {
+	f.lastScopeID = scopeID
 	f.listedStatus = status
 	if f.listErr != nil {
 		return nil, f.listErr
@@ -422,18 +470,21 @@ func (f *fakeService) ListTodos(_ context.Context, _ string, status todoapp.Todo
 	return f.todos, nil
 }
 
-func (f *fakeService) PendingSuggestions(context.Context, string) ([]todoapp.Suggestion, error) {
+func (f *fakeService) PendingSuggestions(_ context.Context, scopeID string) ([]todoapp.Suggestion, error) {
+	f.lastScopeID = scopeID
 	if f.listSugErr != nil {
 		return nil, f.listSugErr
 	}
 	return f.suggestions, nil
 }
 
-func (f *fakeService) RefreshSuggestions(context.Context, string) (int, error) {
+func (f *fakeService) RefreshSuggestions(_ context.Context, scopeID string) (int, error) {
+	f.lastScopeID = scopeID
 	return f.refreshCreated, f.refreshErr
 }
 
-func (f *fakeService) AcceptSuggestion(_ context.Context, _, userID, suggestionID string) (todoapp.Todo, error) {
+func (f *fakeService) AcceptSuggestion(_ context.Context, scopeID, userID, suggestionID string) (todoapp.Todo, error) {
+	f.lastScopeID = scopeID
 	if f.acceptErr != nil {
 		return todoapp.Todo{}, f.acceptErr
 	}
@@ -443,6 +494,7 @@ func (f *fakeService) AcceptSuggestion(_ context.Context, _, userID, suggestionI
 	return todo, nil
 }
 
-func (f *fakeService) DismissSuggestion(context.Context, string, string, string) error {
+func (f *fakeService) DismissSuggestion(_ context.Context, scopeID, _, _ string) error {
+	f.lastScopeID = scopeID
 	return f.dismissErr
 }
