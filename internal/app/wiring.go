@@ -48,9 +48,15 @@ func buildPageWikiHTTPHandler(
 	if treeMaxDepth > 0 {
 		repositoryOptions = append(repositoryOptions, memory.WithTopicTreeMaxDepth(treeMaxDepth))
 	}
-	repository, err := pagewikipostgres.NewRepository(
-		ctx, store.Pool(), onprem.LocalScopeID, repositoryOptions...,
-	)
+	repositoryManager, err := pagewikipostgres.NewRepositoryManager(store.Pool(), repositoryOptions...)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("initialize Page Wiki repository: %w", err)
+	}
+	// Eagerly hydrate the on-prem scope at boot, preserving today's
+	// hydrate-at-boot fail-fast behavior. Tasks 5-7 move consumers onto
+	// repositoryManager directly; for now downstream wiring keeps using the
+	// resolved repository below.
+	repository, err := repositoryManager.ForScope(ctx, onprem.LocalScopeID)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("initialize Page Wiki repository: %w", err)
 	}
