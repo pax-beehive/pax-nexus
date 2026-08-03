@@ -25,6 +25,8 @@ type applicationConfig struct {
 	oidcClientSecret               string
 	oidcRedirectURL                string
 	oidcFlowSecret                 string
+	oidcAuthParams                 string
+	oidcAuthorizationParameters    map[string]string
 	secretPepper                   string
 	memberGrantablePermissions     []onprem.Permission
 	portalURL                      string
@@ -103,6 +105,7 @@ func loadConfig() (applicationConfig, error) {
 		oidcClientSecret:            os.Getenv("TEAM_MEMORY_OIDC_CLIENT_SECRET"),
 		oidcRedirectURL:             os.Getenv("TEAM_MEMORY_OIDC_REDIRECT_URL"),
 		oidcFlowSecret:              os.Getenv("TEAM_MEMORY_OIDC_FLOW_SECRET"),
+		oidcAuthParams:              os.Getenv("TEAM_MEMORY_OIDC_AUTH_PARAMS"),
 		secretPepper:                os.Getenv("TEAM_MEMORY_SECRET_PEPPER"),
 		portalURL:                   os.Getenv("TEAM_MEMORY_PORTAL_URL"),
 	}
@@ -184,6 +187,9 @@ func loadOnPremConfig(config *applicationConfig) error {
 		return err
 	}
 	if config.wikiHintEnabled, err = boolEnvironment("TEAM_MEMORY_WIKI_HINT_ENABLED", false); err != nil {
+		return err
+	}
+	if config.oidcAuthorizationParameters, err = parseAuthorizationParameters(config.oidcAuthParams); err != nil {
 		return err
 	}
 	// No recall.WikiPath implementation is wired anywhere yet: enabling the
@@ -500,6 +506,31 @@ func intEnvironment(name string, fallback int) (int, error) {
 		return 0, fmt.Errorf("%s must be a positive integer", name)
 	}
 	return parsed, nil
+}
+
+// parseAuthorizationParameters reads TEAM_MEMORY_OIDC_AUTH_PARAMS, a
+// comma-separated list of name=value pairs appended to the OIDC
+// authorization request. Standard OIDC needs none; the setting exists for
+// providers that require one to select an authentication method, such as
+// WorkOS AuthKit's provider=authkit. Only the first "=" separates the pair,
+// so a value may itself contain one.
+func parseAuthorizationParameters(raw string) (map[string]string, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return nil, nil
+	}
+	parameters := make(map[string]string)
+	for _, pair := range strings.Split(trimmed, ",") {
+		name, value, found := strings.Cut(strings.TrimSpace(pair), "=")
+		name = strings.TrimSpace(name)
+		if !found || name == "" {
+			return nil, fmt.Errorf(
+				"TEAM_MEMORY_OIDC_AUTH_PARAMS must be comma-separated name=value pairs, got %q", pair,
+			)
+		}
+		parameters[name] = strings.TrimSpace(value)
+	}
+	return parameters, nil
 }
 
 // resolveListenAddress picks the address the HTTP server binds. An explicit

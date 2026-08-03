@@ -129,6 +129,7 @@ locals {
     TEAM_MEMORY_OIDC_CLIENT_ID     = var.oidc_client_id
     TEAM_MEMORY_OIDC_REDIRECT_URL  = "https://${var.host}/v1/auth/callback"
     TEAM_MEMORY_PORTAL_URL         = "https://${var.host}"
+    TEAM_MEMORY_OIDC_AUTH_PARAMS   = var.oidc_authorization_parameters
     TEAM_MEMORY_EXTRACTOR_BASE_URL = var.extractor_base_url
     TEAM_MEMORY_EXTRACTOR_MODEL    = var.extractor_model
   }

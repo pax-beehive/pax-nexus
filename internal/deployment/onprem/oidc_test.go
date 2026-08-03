@@ -73,6 +73,53 @@ func (s *oidcSuite) TestAuthorizationFlowUsesStateNonceAndPKCE() {
 	s.Require().ErrorIs(err, onprem.ErrUnauthorized)
 }
 
+// TestAuthorizationParametersAreForwarded covers providers that require an
+// extra authorization parameter the standard OIDC set does not carry. WorkOS
+// AuthKit is the case in hand: without provider=authkit its authorize
+// endpoint cannot tell which connection to use and rejects the request as an
+// invalid connection selector, so login never reaches the sign-in page.
+func (s *oidcSuite) TestAuthorizationParametersAreForwarded() {
+	tests := []struct {
+		name       string
+		parameters map[string]string
+		want       map[string]string
+	}{
+		{name: "none configured", parameters: nil, want: map[string]string{"provider": ""}},
+		{
+			name:       "single parameter",
+			parameters: map[string]string{"provider": "authkit"},
+			want:       map[string]string{"provider": "authkit"},
+		},
+		{
+			name:       "several parameters",
+			parameters: map[string]string{"provider": "authkit", "prompt": "login"},
+			want:       map[string]string{"provider": "authkit", "prompt": "login"},
+		},
+	}
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			authenticator, err := onprem.NewOIDCAuthenticator(context.Background(), onprem.OIDCConfig{
+				Issuer: s.provider.URL, ClientID: "client", ClientSecret: "secret",
+				RedirectURL: "https://portal.example/callback", FlowSecret: "flow-secret",
+				AuthorizationParameters: test.parameters,
+			})
+			s.Require().NoError(err)
+
+			flow, err := authenticator.BeginLogin()
+
+			s.Require().NoError(err)
+			parsed, err := url.Parse(flow.AuthorizationURL)
+			s.Require().NoError(err)
+			for name, value := range test.want {
+				s.Equal(value, parsed.Query().Get(name))
+			}
+			// The standard parameters must survive alongside the extras.
+			s.NotEmpty(parsed.Query().Get("state"))
+			s.NotEmpty(parsed.Query().Get("code_challenge"))
+		})
+	}
+}
+
 func (s *oidcSuite) TestConfigurationIsRequired() {
 	_, err := onprem.NewOIDCAuthenticator(context.Background(), onprem.OIDCConfig{})
 	s.Require().Error(err)

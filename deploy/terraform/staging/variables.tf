@@ -96,3 +96,14 @@ variable "web_image" {
   EOT
   default     = ""
 }
+
+variable "oidc_authorization_parameters" {
+  type        = string
+  description = <<-EOT
+    Extra name=value pairs appended to the OIDC authorization request.
+    WorkOS AuthKit requires provider=authkit to select an authentication
+    method; without it the authorize endpoint rejects the request as an
+    invalid connection selector and login never reaches the sign-in page.
+  EOT
+  default     = "provider=authkit"
+}

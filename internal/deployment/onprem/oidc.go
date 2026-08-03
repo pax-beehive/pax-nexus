@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 	"time"
 
@@ -26,6 +27,12 @@ type OIDCConfig struct {
 	ClientSecret string
 	RedirectURL  string
 	FlowSecret   string
+	// AuthorizationParameters are extra query parameters appended to the
+	// authorization request. Standard OIDC needs none, but some providers
+	// require one to select an authentication method: WorkOS AuthKit rejects
+	// a request without provider=authkit as an invalid connection selector,
+	// so login never reaches the sign-in page.
+	AuthorizationParameters map[string]string
 }
 
 type OIDCFlow struct {
@@ -42,10 +49,11 @@ type oidcFlowState struct {
 }
 
 type OIDCAuthenticator struct {
-	config   oauth2.Config
-	verifier *oidc.IDTokenVerifier
-	aead     cipher.AEAD
-	clock    func() time.Time
+	config              oauth2.Config
+	verifier            *oidc.IDTokenVerifier
+	aead                cipher.AEAD
+	clock               func() time.Time
+	authorizationExtras []oauth2.AuthCodeOption
 }
 
 func NewOIDCAuthenticator(ctx context.Context, config OIDCConfig) (*OIDCAuthenticator, error) {
@@ -73,10 +81,27 @@ func NewOIDCAuthenticator(ctx context.Context, config OIDCConfig) (*OIDCAuthenti
 			Endpoint: provider.Endpoint(), RedirectURL: config.RedirectURL,
 			Scopes: []string{oidc.ScopeOpenID, "profile", "email"},
 		},
-		verifier: provider.Verifier(&oidc.Config{ClientID: config.ClientID}),
-		aead:     aead,
-		clock:    time.Now,
+		verifier:            provider.Verifier(&oidc.Config{ClientID: config.ClientID}),
+		aead:                aead,
+		clock:               time.Now,
+		authorizationExtras: authorizationExtras(config.AuthorizationParameters),
 	}, nil
+}
+
+// authorizationExtras converts the configured parameters into options, in a
+// stable order so the authorization URL is deterministic for a given
+// configuration.
+func authorizationExtras(parameters map[string]string) []oauth2.AuthCodeOption {
+	names := make([]string, 0, len(parameters))
+	for name := range parameters {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	options := make([]oauth2.AuthCodeOption, 0, len(names))
+	for _, name := range names {
+		options = append(options, oauth2.SetAuthURLParam(name, parameters[name]))
+	}
+	return options
 }
 
 func (a *OIDCAuthenticator) BeginLogin() (OIDCFlow, error) {
@@ -97,11 +122,11 @@ func (a *OIDCAuthenticator) BeginLogin() (OIDCFlow, error) {
 	if err != nil {
 		return OIDCFlow{}, err
 	}
-	url := a.config.AuthCodeURL(
-		state,
-		oidc.Nonce(nonce),
-		oauth2.S256ChallengeOption(verifier),
+	options := append(
+		[]oauth2.AuthCodeOption{oidc.Nonce(nonce), oauth2.S256ChallengeOption(verifier)},
+		a.authorizationExtras...,
 	)
+	url := a.config.AuthCodeURL(state, options...)
 	return OIDCFlow{AuthorizationURL: url, CookieValue: cookieValue, ExpiresAt: flow.ExpiresAt}, nil
 }
 
