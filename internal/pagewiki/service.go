@@ -38,12 +38,16 @@ type Service struct {
 	// deduplicates what is already pending, under treeTaskMu), and
 	// treeReindexMu serializes the tree writes themselves, so the background
 	// worker and a synchronous FlushTreeReindex never interleave.
+	// treeRebuildMu serializes whole-tree rebuilds against each other (see
+	// RebuildTopicTree); it is never held by per-task work, so incremental
+	// maintenance and ingestion proceed untouched.
 	treeNavigator TreeNavigator
 	treeMaxDepth  int
 	treeTasks     chan treeTask
 	treeTaskKeys  map[string]struct{}
 	treeTaskMu    sync.Mutex
 	treeReindexMu sync.Mutex
+	treeRebuildMu sync.Mutex
 
 	curator          Curator
 	curationEmbedder TextEmbedder
@@ -160,7 +164,7 @@ func (s *Service) InjectSession(
 	if err := s.repository.SaveSourceRevision(ctx, sourceRevision); err != nil {
 		return InjectResult{}, fmt.Errorf("save SourceRevision: %w", err)
 	}
-	runID := stableID(
+	runID := StableID(
 		"run",
 		sourceRevision.ID,
 		strings.TrimSpace(request.IdempotencyKey),
@@ -398,7 +402,7 @@ func (s *Service) prepareTargets(
 			prepared[index] = preparedTarget{
 				brief: brief,
 				target: failTarget(MaintenanceTarget{
-					ID:       stableID("target", runID, brief.Key),
+					ID:       StableID("target", runID, brief.Key),
 					BriefKey: brief.Key,
 					Action:   brief.Action,
 					Status:   TargetStatusFailed,
@@ -431,7 +435,7 @@ func (s *Service) prepareTarget(
 	result := preparedTarget{
 		brief: brief,
 		target: MaintenanceTarget{
-			ID:       stableID("target", runID, brief.Key),
+			ID:       StableID("target", runID, brief.Key),
 			BriefKey: brief.Key,
 			Action:   brief.Action,
 			Status:   TargetStatusFailed,
@@ -645,7 +649,7 @@ func (s *Service) resolvePage(
 				}
 				return &existing, &revision, publishModeRevive, nil
 			}
-			if existing.ID == stableID("page", sourceRevisionID, brief.Key) {
+			if existing.ID == StableID("page", sourceRevisionID, brief.Key) {
 				revision, revErr := s.repository.PageRevision(ctx, existing.CurrentRevisionID)
 				if revErr != nil {
 					return nil, nil, publishModeCreate, fmt.Errorf(
@@ -662,7 +666,7 @@ func (s *Service) resolvePage(
 			return nil, nil, publishModeCreate, fmt.Errorf("load Page by slug: %w", err)
 		}
 		page := Page{
-			ID:    stableID("page", sourceRevisionID, brief.Key),
+			ID:    StableID("page", sourceRevisionID, brief.Key),
 			Slug:  brief.ProposedSlug,
 			Title: brief.ProposedTitle,
 		}
@@ -775,7 +779,7 @@ func buildSourceRevision(request InjectSessionRequest) (SourceRevision, error) {
 	sum := sha256.Sum256(request.Raw)
 	sha := hex.EncodeToString(sum[:])
 	return SourceRevision{
-		ID:       stableID("source-revision", request.SourceID, sha),
+		ID:       StableID("source-revision", request.SourceID, sha),
 		SourceID: request.SourceID,
 		SHA256:   sha,
 		Raw:      append([]byte(nil), request.Raw...),
@@ -874,7 +878,7 @@ func buildCitations(
 			absoluteStart := event.StartByte + localStart
 			absoluteEnd := event.StartByte + localEnd
 			anchors = append(anchors, SourceAnchor{
-				ID: stableID(
+				ID: StableID(
 					"source-anchor",
 					sourceRevision.ID,
 					event.ID,
@@ -889,7 +893,7 @@ func buildCitations(
 			})
 		}
 		citations = append(citations, PageCitation{
-			ID:             stableID("citation", revisionID, fmt.Sprint(index)),
+			ID:             StableID("citation", revisionID, fmt.Sprint(index)),
 			PageRevisionID: revisionID,
 			SectionKey:     draft.SectionKey,
 			StartByte:      start,
@@ -932,7 +936,7 @@ func (s *Service) buildLinks(
 			}
 		}
 		links = append(links, PageLink{
-			ID:             stableID("link", revisionID, fmt.Sprint(index)),
+			ID:             StableID("link", revisionID, fmt.Sprint(index)),
 			PageRevisionID: revisionID,
 			SectionKey:     draft.SectionKey,
 			StartByte:      start,
@@ -945,15 +949,18 @@ func (s *Service) buildLinks(
 	return links, nil
 }
 
+// uniqueTextRange is ExactTextRange with error reporting: the shared helper
+// keeps the service's grounding rule and the in-memory repository's
+// validation in lockstep, while callers here need distinguishable errors.
 func uniqueTextRange(content, exactText string) (int, int, error) {
 	if exactText == "" {
 		return 0, 0, errors.New("exact text is required")
 	}
-	if strings.Count(content, exactText) != 1 {
+	start, end, ok := ExactTextRange(content, exactText)
+	if !ok {
 		return 0, 0, fmt.Errorf("exact text must occur once")
 	}
-	start := strings.Index(content, exactText)
-	return start, start + len(exactText), nil
+	return start, end, nil
 }
 
 func renderMarkdown(draft PageDraft) string {
@@ -977,16 +984,7 @@ func revisionIdentity(pageID, baseRevisionID string, draft PageDraft) (string, e
 	if err != nil {
 		return "", fmt.Errorf("encode PageDraft identity: %w", err)
 	}
-	return stableID("page-revision", pageID, baseRevisionID, string(encoded)), nil
-}
-
-func stableID(prefix string, values ...string) string {
-	hash := sha256.New()
-	for _, value := range values {
-		hash.Write([]byte{0})
-		hash.Write([]byte(value))
-	}
-	return prefix + "_" + hex.EncodeToString(hash.Sum(nil))[:24]
+	return StableID("page-revision", pageID, baseRevisionID, string(encoded)), nil
 }
 
 func eventIndex(events []SourceEvent) map[string]SourceEvent {

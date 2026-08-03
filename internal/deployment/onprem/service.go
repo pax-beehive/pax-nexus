@@ -68,6 +68,11 @@ func NewCredentialService(
 	if store == nil {
 		return nil, fmt.Errorf("create on-prem credential service: store is required")
 	}
+	// Authenticate compares the trimmed presented key against this value, so
+	// store it trimmed too: a trailing newline in the environment must not
+	// make admin authentication silently impossible. Mirrors the secret
+	// pepper trimming in newSecretDigester.
+	config.AdminAPIKey = strings.TrimSpace(config.AdminAPIKey)
 	if config.RotationOverlap <= 0 {
 		return nil, fmt.Errorf("create on-prem credential service: rotation overlap must be positive")
 	}
@@ -108,15 +113,22 @@ func (s *CredentialService) Authenticate(ctx context.Context, apiKey string) (Pr
 	if !strings.HasPrefix(apiKey, "tm_key_") {
 		return Principal{}, ErrUnauthorized
 	}
-	credentialID, ok := secretPublicID(apiKey, "tm_key_")
+	credentialID, hasPublicID := secretPublicID(apiKey, "tm_key_")
 	var record CredentialRecord
 	var err error
-	if ok {
+	if hasPublicID {
 		record, err = s.store.ResolveCredential(
 			ctx, credentialID, s.digester.Digest(credentialDigestDomain, apiKey), s.clock().UTC(),
 		)
 	}
-	if !ok || errors.Is(err, ErrUnauthorized) || errors.Is(err, ErrCredentialNotFound) {
+	if !hasPublicID || errors.Is(err, ErrUnauthorized) || errors.Is(err, ErrCredentialNotFound) {
+		// Legacy fallback, deliberately reached on both branches: keys
+		// issued before the peppered digest scheme are stored under the
+		// plain SHA-256 digest, and keys issued before the "id.secret"
+		// format carry no public credential ID at all — the store resolves
+		// an empty credential ID by digest alone (see the postgres
+		// CredentialStore's "$1 = ''" clause and
+		// TestAuthenticationAcceptsLegacyKeyWithoutPublicCredentialID).
 		record, err = s.store.ResolveCredential(ctx, credentialID, digest(apiKey), s.clock().UTC())
 	}
 	if err != nil {

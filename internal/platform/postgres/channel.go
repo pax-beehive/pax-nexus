@@ -155,11 +155,24 @@ func (s *ChannelStore) ListChannelEnvelopes(
 		query += fmt.Sprintf(" AND status = $%d", len(args))
 	}
 	if filter.Cursor != "" {
-		args = append(args, filter.Cursor)
-		placeholder := len(args)
-		query += fmt.Sprintf(` AND (created_at, envelope_id) < (
-			SELECT created_at, envelope_id FROM onprem_channel_envelopes WHERE envelope_id = $%d
-		)`, placeholder)
+		// Resolve the cursor row up front: comparing against a missing
+		// cursor envelope would yield a NULL tuple comparison and a silent
+		// empty page instead of a diagnosable client error.
+		var cursorCreatedAt time.Time
+		err := s.pool.QueryRow(ctx, `
+			SELECT created_at FROM onprem_channel_envelopes WHERE envelope_id = $1
+		`, filter.Cursor).Scan(&cursorCreatedAt)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, fmt.Errorf(
+				"%w: list channel envelopes: unknown cursor envelope %q",
+				onprem.ErrInvalidChannelRequest, filter.Cursor,
+			)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("resolve postgres channel envelope cursor: %w", err)
+		}
+		args = append(args, cursorCreatedAt, filter.Cursor)
+		query += fmt.Sprintf(" AND (created_at, envelope_id) < ($%d, $%d)", len(args)-1, len(args))
 	}
 	args = append(args, limit)
 	query += fmt.Sprintf(" ORDER BY created_at DESC, envelope_id DESC LIMIT $%d", len(args))

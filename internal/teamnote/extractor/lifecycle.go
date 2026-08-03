@@ -110,7 +110,13 @@ func (c *lifecycleCoordinator) wait(ctx context.Context, closeExtractor bool) er
 		}
 		c.mu.Lock()
 	}
+	// Draining on read gives each wait the errors accumulated since the
+	// previous wait. Without it, one failed background call would poison every
+	// later wait forever and the joined chain would grow without bound in a
+	// long-running server. A wait interrupted by its context keeps the
+	// accumulated errors for the next caller.
 	err := c.backgroundErr
+	c.backgroundErr = nil
 	c.mu.Unlock()
 	if err != nil {
 		return fmt.Errorf("wait for extractor background calls: %w", err)

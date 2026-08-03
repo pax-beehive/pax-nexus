@@ -96,7 +96,7 @@ func loadConfig() (applicationConfig, error) {
 		extractionCandidateStrategy: os.Getenv("TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY"),
 		embeddingBaseURL:            os.Getenv("TEAM_MEMORY_EMBEDDING_BASE_URL"),
 		embeddingModel:              os.Getenv("TEAM_MEMORY_EMBEDDING_MODEL"),
-		adminAPIKey:                 os.Getenv("TEAM_MEMORY_ADMIN_API_KEY"),
+		adminAPIKey:                 strings.TrimSpace(os.Getenv("TEAM_MEMORY_ADMIN_API_KEY")),
 		bootstrapSecret:             os.Getenv("TEAM_MEMORY_BOOTSTRAP_SECRET"),
 		oidcIssuer:                  os.Getenv("TEAM_MEMORY_OIDC_ISSUER"),
 		oidcClientID:                os.Getenv("TEAM_MEMORY_OIDC_CLIENT_ID"),
@@ -187,6 +187,14 @@ func loadOnPremConfig(config *applicationConfig) error {
 	}
 	if config.wikiHintEnabled, err = boolEnvironment("TEAM_MEMORY_WIKI_HINT_ENABLED", false); err != nil {
 		return err
+	}
+	// No recall.WikiPath implementation is wired anywhere yet: enabling the
+	// hint would only crash startup deep inside the recall router with a
+	// confusing error. Reject it here, at config load, until one exists.
+	if config.wikiHintEnabled {
+		return fmt.Errorf(
+			"TEAM_MEMORY_WIKI_HINT_ENABLED is not supported: no wiki recall path implementation is wired",
+		)
 	}
 	if config.operationsEventRetention, err = durationEnvironment(
 		"TEAM_MEMORY_OPERATIONS_EVENT_RETENTION", 7*24*time.Hour,
@@ -349,7 +357,7 @@ func loadExtractionConfig(config *applicationConfig) error {
 	if config.sliceTokenLimit, err = intEnvironment("TEAM_MEMORY_SLICE_TOKEN_LIMIT", 8192); err != nil {
 		return err
 	}
-	if config.sliceOverlap, err = intEnvironment("TEAM_MEMORY_SLICE_OVERLAP", 3); err != nil {
+	if config.sliceOverlap, err = nonNegativeIntEnvironment("TEAM_MEMORY_SLICE_OVERLAP", 3); err != nil {
 		return err
 	}
 	if config.maxSlicesPerJob, err = intEnvironment(
@@ -492,6 +500,25 @@ func intEnvironment(name string, fallback int) (int, error) {
 	}
 	if parsed <= 0 {
 		return 0, fmt.Errorf("%s must be a positive integer", name)
+	}
+	return parsed, nil
+}
+
+// nonNegativeIntEnvironment mirrors intEnvironment but additionally accepts
+// an explicit 0. TEAM_MEMORY_SLICE_OVERLAP uses it because the evidence lake
+// explicitly supports a zero overlap, while every other integer variable
+// keeps intEnvironment's strictly-positive validation.
+func nonNegativeIntEnvironment(name string, fallback int) (int, error) {
+	value := os.Getenv(name)
+	if value == "" {
+		return fallback, nil
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be a non-negative integer: %w", name, err)
+	}
+	if parsed < 0 {
+		return 0, fmt.Errorf("%s must be a non-negative integer", name)
 	}
 	return parsed, nil
 }

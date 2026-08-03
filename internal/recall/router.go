@@ -58,8 +58,11 @@ func validateSearch(request SearchRequest) error {
 	if request.Intent != IntentPassive && request.Intent != IntentActive {
 		return fmt.Errorf("search memory: unsupported intent %q", request.Intent)
 	}
-	if strings.TrimSpace(request.Query) == "" || request.TokenBudget <= 0 || request.MaxItems < 0 {
+	if strings.TrimSpace(request.Query) == "" || request.TokenBudget <= 0 {
 		return fmt.Errorf("search memory: query and positive token budget are required")
+	}
+	if request.MaxItems < 0 {
+		return fmt.Errorf("search memory: max items must not be negative")
 	}
 	if request.Intent == IntentActive && request.Source != SourceLLMWiki {
 		return fmt.Errorf("search memory: active search requires llm_wiki source")

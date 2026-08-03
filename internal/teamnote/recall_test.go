@@ -881,7 +881,7 @@ func (s *recallSuite) TestGeneralRecallV3BoundsLanesAndRelations() {
 		s.ElementsMatch([]string{"note-first", "note-second", "note-shared"}, trace.SelectedSet)
 	})
 
-	s.Run("relation item limit does not backfill after selected relation", func() {
+	s.Run("relation item limit backfills free capacity with unselected relations", func() {
 		request := teamnote.RecallRequest{
 			Actor: teamnote.Actor{UserID: "owner", AgentID: "consumer"},
 			Query: "alpha release", TokenBudget: 1000, MaxItems: 4,
@@ -898,11 +898,11 @@ func (s *recallSuite) TestGeneralRecallV3BoundsLanesAndRelations() {
 			teamnote.RecallPolicy{CandidateLimit: 2},
 		)
 
+		// The already-selected shared relation must not consume the last
+		// related slot: the still-unselected backfill relation takes it.
 		s.Require().Len(planned, 2)
-		for _, delivery := range planned {
-			s.NotContains(delivery.SourceNoteIDs, backfill.ID)
-		}
-		s.NotContains(trace.SelectedSet, backfill.ID)
+		s.Equal([]string{second.ID, backfill.ID}, planned[1].SourceNoteIDs)
+		s.Contains(trace.SelectedSet, backfill.ID)
 		s.Contains(trace.PreBudgetSelectedSet, backfill.ID)
 	})
 }
@@ -1006,6 +1006,69 @@ func (s *recallSuite) TestGeneralRecallV3RecordsDeliveryClaimLoss() {
 	s.Require().Len(trace.Rejections, 1)
 	s.Equal(teamnote.RejectDeliveryClaim, trace.Rejections[0].Reason)
 	s.Equal(teamnote.RejectDeliveryClaim, candidateTraceByID(s, trace.CandidateTraces, candidate.ID).RejectionReason)
+}
+
+func (s *recallSuite) TestRelatedSlotsExcludeAlreadySelectedNotesBeforeTruncation() {
+	base := time.Date(2026, time.July, 14, 12, 0, 0, 0, time.UTC)
+	relatedCandidate := func(id, subject, body string, minutesOld int, related ...string) teamnote.RecallCandidate {
+		occurred := base.Add(-time.Duration(minutesOld) * time.Minute)
+		candidate := recallCandidate(id, subject, body, 0, nil)
+		candidate.RelatedSubjects = related
+		candidate.SourceOccurredAt = occurred
+		candidate.UpdatedAt = occurred
+		return candidate
+	}
+	candidates := []teamnote.RecallCandidate{
+		relatedCandidate("primary-1", "deploy pipeline", "Deploy pipeline rollout continues.", 0, "shared dependency"),
+		relatedCandidate("primary-2", "billing migration", "Billing migration is in progress.", 1, "shared dependency", "billing cutover"),
+		relatedCandidate("shared", "shared dependency", "Shared dependency upgrade finished.", 2),
+		relatedCandidate("cutover", "billing cutover", "Billing cutover happens afterwards.", 3),
+	}
+	request := teamnote.RecallRequest{
+		Actor:       teamnote.Actor{UserID: "owner", AgentID: "consumer", SessionID: "consumer-session"},
+		TokenBudget: 1000, MaxItems: 4,
+	}
+	planned, _ := teamnote.PlanRecall(candidates, request, teamnote.RecallPolicy{SuppressDuplicates: true, DegradeRelated: true})
+
+	s.Require().Len(planned, 2)
+	s.Equal("primary-1", planned[0].Note.ID)
+	s.Equal([]string{"primary-1", "shared"}, planned[0].SourceNoteIDs)
+	s.Equal("primary-2", planned[1].Note.ID)
+	// The already-delivered shared note must not consume the single remaining
+	// related slot; the still-undelivered cutover note takes it instead.
+	s.Equal([]string{"primary-2", "cutover"}, planned[1].SourceNoteIDs)
+}
+
+func (s *recallSuite) TestBudgetRejectedBundleLeavesRelatedPromotableToPrimary() {
+	primary := recallCandidate(
+		"note-primary", "payments",
+		"Payments status remains amber because the reconciliation backlog, the settlement retries, and the ledger export verification are still being worked through by the payments crew.",
+		0.9, nil,
+	)
+	primary.RelatedSubjects = []string{"ledger-sync"}
+	related := recallCandidate("note-related", "ledger-sync", "Payments status is green.", 0.8, nil)
+	request := teamnote.RecallRequest{
+		Actor: teamnote.Actor{UserID: "owner", AgentID: "consumer", SessionID: "consumer-session"},
+		Query: "payments status", TokenBudget: 30,
+	}
+	policy := teamnote.RecallPolicy{
+		CandidateLimit: 10, SuppressDuplicates: true, DegradeRelated: true, DisableRelationMarginalUtility: true,
+	}
+
+	planned, trace := teamnote.PlanRecall([]teamnote.RecallCandidate{primary, related}, request, policy)
+
+	// The primary bundle exceeds the budget even degraded; its related note
+	// must stay in the order and be promoted to a standalone primary.
+	s.Require().Len(planned, 1)
+	s.Equal("note-related", planned[0].Note.ID)
+	s.Equal([]string{"note-related"}, planned[0].SourceNoteIDs)
+	rejected := false
+	for _, rejection := range trace.Rejections {
+		if rejection.NoteID == "note-primary" && rejection.Reason == teamnote.RejectTokenBudget {
+			rejected = true
+		}
+	}
+	s.True(rejected, "primary must be rejected on token budget")
 }
 
 func candidateTraceByID(s *recallSuite, traces []teamnote.RecallCandidateTrace, noteID string) teamnote.RecallCandidateTrace {

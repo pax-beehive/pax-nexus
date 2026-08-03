@@ -74,9 +74,13 @@ type ActivityDelta struct {
 	ToolBreakdown map[string]int64
 }
 
-// Project derives the audit batch for one stream scan. It is a pure decision
-// layer: no I/O, deterministic for a given (stream, events) pair, and
-// tolerant of legacy events without tool types or contract metadata.
+// Project derives the audit batch for one stream scan. events is the
+// uncommitted window (stream.Committed, stream.Head]; every derived row is
+// incremental to what earlier batches already committed, and approvals whose
+// tool_call landed in an earlier batch surface as ApprovalUpdates. It is a
+// pure decision layer: no I/O, deterministic for a given (stream, events)
+// pair, and tolerant of legacy events without tool types or contract
+// metadata.
 func Project(stream Stream, events []session.SessionEvent) Batch {
 	batch := Batch{
 		ScopeID: stream.ScopeID,

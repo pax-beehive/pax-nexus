@@ -77,7 +77,7 @@ func (s *operationsHTTPIntegrationSuite) SetupSuite() {
 	_, err = identity.ClaimBootstrap(ctx, session.Principal, "bootstrap")
 	s.Require().NoError(err)
 	s.sessionToken = session.Token
-	operationsService, err := onprem.NewOperationsService(store.Operations(), onprem.OperationsConfig{
+	operationsService, err := onprem.NewOperationsService(store.Operations(onprem.LocalScopeID), onprem.OperationsConfig{
 		EventRetention: 7 * 24 * time.Hour, StorageRetention: 90 * 24 * time.Hour,
 	})
 	s.Require().NoError(err)
@@ -89,7 +89,7 @@ func (s *operationsHTTPIntegrationSuite) SetupSuite() {
 		evidencelake.New(store.Sessions()), operationsIntegrationExtractor{},
 		teamruntime.Config{
 			NoteStore: noteStore, Logger: slog.New(slog.DiscardHandler),
-			ExtractionObserver: onprem.NewExtractionObserver(store.Operations(), slog.New(slog.DiscardHandler)),
+			ExtractionObserver: onprem.NewExtractionObserver(store.Operations(onprem.LocalScopeID), slog.New(slog.DiscardHandler)),
 		},
 	)
 	s.Require().NoError(err)
@@ -110,7 +110,7 @@ func (s *operationsHTTPIntegrationSuite) SetupSuite() {
 		runtime, &credentialService{}, memory, &channelService{},
 		slog.New(slog.DiscardHandler),
 		handler.WithHumanIdentity(identity, &oidcService{}, "/portal", false),
-		handler.WithOperations(operationsService, store.Operations()),
+		handler.WithOperations(operationsService, store.Operations(onprem.LocalScopeID)),
 	)
 	s.Require().NoError(err)
 	s.handler = configured
@@ -181,7 +181,7 @@ WHERE operation_kind = 'extraction.run' AND outcome = 'succeeded'`).Scan(&extrac
 }`, "Authorization", "Bearer agent")
 	s.Contains(compatibilityRecall, "items")
 
-	_, err := s.store.Operations().CaptureStorage(context.Background(), time.Now().UTC())
+	_, err := s.store.Operations(onprem.LocalScopeID).CaptureStorage(context.Background(), time.Now().UTC())
 	s.Require().NoError(err)
 
 	summary := s.request("/v1/admin/operations/summary")

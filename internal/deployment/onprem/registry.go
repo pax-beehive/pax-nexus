@@ -638,10 +638,13 @@ func (s *RegistryService) RetireAdminAgent(
 	resourceVersion int64,
 	idempotencyKey string,
 ) (AgentProfile, error) {
+	if err := authorizeHumanAdmin(principal); err != nil {
+		return AgentProfile{}, err
+	}
+	// Only the workspace owner may retire an agent. The admin check above
+	// keeps the error taxonomy: an invalid principal is Unauthorized, a
+	// member is Forbidden there, and an admin is Forbidden here.
 	if principal.Role != RoleOwner {
-		if err := authorizeHumanAdmin(principal); err != nil {
-			return AgentProfile{}, err
-		}
 		return AgentProfile{}, ErrForbidden
 	}
 	profile, err := s.GetAdminAgent(ctx, principal, agentID)
@@ -914,10 +917,13 @@ func applyAgentUpdate(profile *AgentProfile, request UpdateAgentRequest, now tim
 		if *request.Status != AgentStatusActive && *request.Status != AgentStatusSuspended {
 			return fmt.Errorf("%w: unsupported agent status %q", ErrInvalidIdentityInput, *request.Status)
 		}
-		if profile.Status == AgentStatusRetired ||
-			(profile.Status != AgentStatusSuspended && *request.Status == AgentStatusActive) {
+		if profile.Status == AgentStatusRetired {
 			return ErrInvalidStateTransition
 		}
+		// Between the two settable statuses every move is legal: activation
+		// from suspended, suspension from active, and same-status sets as
+		// idempotent no-ops in both directions (active->active used to be
+		// rejected while suspended->suspended was silently accepted).
 		profile.Status = *request.Status
 	}
 	profile.UpdatedAt = now

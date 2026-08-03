@@ -211,6 +211,8 @@ func (e *OpenAI) Extract(ctx context.Context, slice evidencelake.Slice) (Result,
 // periodic-summary calls are drained. Including active extractions prevents a
 // wait from missing background work that is started concurrently. Evaluation
 // harnesses use it before closing their call journal so usage is not lost.
+// It returns the background errors accumulated since the previous successful
+// wait; a reported error is drained and not repeated by later waits.
 func (e *OpenAI) WaitForBackground(ctx context.Context) error {
 	return e.lifecycle.wait(ctx, false)
 }
@@ -250,7 +252,7 @@ func (e *OpenAI) extractSlice(ctx context.Context, slice evidencelake.Slice) (Re
 		return Result{}, err
 	}
 	result, _, err := e.complete(ctx, []chatMessage{
-		{Role: "system", Content: systemPrompt},
+		{Role: "system", Content: sliceSystemPrompt},
 		{Role: "user", Content: prompt},
 	})
 	if err != nil {
@@ -362,38 +364,41 @@ func buildPrompt(slice evidencelake.Slice, promptVersion string) (string, error)
 	return string(encoded), nil
 }
 
-func decodeResponse(body []byte) (Result, string, error) {
+// decodeChatContent unmarshals one chat-completion response body, returning
+// the fence-trimmed message content and the token usage. Callers wrap the
+// error with their protocol-specific context.
+func decodeChatContent(body []byte) (string, Usage, error) {
 	var response chatResponse
 	if err := json.Unmarshal(body, &response); err != nil {
-		return Result{}, "", fmt.Errorf("decode extractor response: %w", errors.Join(ErrInvalidModelResponse, err))
+		return "", Usage{}, errors.Join(ErrInvalidModelResponse, err)
 	}
 	if len(response.Choices) == 0 {
-		return Result{}, "", fmt.Errorf("extractor response has no choices: %w", ErrInvalidModelResponse)
+		return "", Usage{}, fmt.Errorf("response has no choices: %w", ErrInvalidModelResponse)
 	}
-	content := trimCodeFence(response.Choices[0].Message.Content)
+	return trimCodeFence(response.Choices[0].Message.Content), Usage{
+		InputTokens: response.Usage.PromptTokens, OutputTokens: response.Usage.CompletionTokens,
+		PromptCacheHitTokens:  response.Usage.PromptCacheHitTokens,
+		PromptCacheMissTokens: response.Usage.PromptCacheMissTokens,
+	}, nil
+}
+
+func decodeResponse(body []byte) (Result, string, error) {
+	content, usage, err := decodeChatContent(body)
+	if err != nil {
+		return Result{}, "", fmt.Errorf("decode extractor response: %w", err)
+	}
 	var output candidateOutput
 	if err := json.Unmarshal([]byte(content), &output); err != nil {
 		return Result{}, "", fmt.Errorf("decode extractor candidates: %w", errors.Join(ErrInvalidModelResponse, err))
 	}
-	return Result{
-		Candidates: output.Candidates,
-		Usage: Usage{
-			InputTokens: response.Usage.PromptTokens, OutputTokens: response.Usage.CompletionTokens,
-			PromptCacheHitTokens:  response.Usage.PromptCacheHitTokens,
-			PromptCacheMissTokens: response.Usage.PromptCacheMissTokens,
-		},
-	}, content, nil
+	return Result{Candidates: output.Candidates, Usage: usage}, content, nil
 }
 
 func decodeResponseV11(body []byte) (Result, string, error) {
-	var response chatResponse
-	if err := json.Unmarshal(body, &response); err != nil {
-		return Result{}, "", fmt.Errorf("decode extractor response: %w", errors.Join(ErrInvalidModelResponse, err))
+	content, usage, err := decodeChatContent(body)
+	if err != nil {
+		return Result{}, "", fmt.Errorf("decode extractor response: %w", err)
 	}
-	if len(response.Choices) == 0 {
-		return Result{}, "", fmt.Errorf("extractor response has no choices: %w", ErrInvalidModelResponse)
-	}
-	content := trimCodeFence(response.Choices[0].Message.Content)
 	normalized, err := normalizeV11OptionalTimes(content)
 	if err != nil {
 		return Result{}, "", err
@@ -402,14 +407,7 @@ func decodeResponseV11(body []byte) (Result, string, error) {
 	if err := json.Unmarshal(normalized, &output); err != nil {
 		return Result{}, "", fmt.Errorf("decode extractor candidates: %w", errors.Join(ErrInvalidModelResponse, err))
 	}
-	return Result{
-		Candidates: output.Candidates,
-		Usage: Usage{
-			InputTokens: response.Usage.PromptTokens, OutputTokens: response.Usage.CompletionTokens,
-			PromptCacheHitTokens:  response.Usage.PromptCacheHitTokens,
-			PromptCacheMissTokens: response.Usage.PromptCacheMissTokens,
-		},
-	}, content, nil
+	return Result{Candidates: output.Candidates, Usage: usage}, content, nil
 }
 
 func decodeCandidateContentV11(content string) (Result, error) {
@@ -527,6 +525,12 @@ func candidateProposalRejectionReason(
 	authority teamnote.TransitionAuthority,
 	events []teamnote.SessionEvent,
 ) string {
+	if candidate.Kind == teamnote.KindSourceSpan {
+		// Source spans preserve every new-event byte as raw source text by
+		// contract; a proposal remains source text and is never promoted into
+		// canonical state, so the proposal-only admission gate does not apply.
+		return ""
+	}
 	if !evidenceIsOnlyNonCommittalProposal(candidate.EvidenceEventIDs, events) ||
 		transitionAuthorityContainsCommittedCandidate(authority, candidate) {
 		return ""
@@ -909,7 +913,10 @@ func trimCodeFence(content string) string {
 	return strings.Join(lines[1:len(lines)-1], "\n")
 }
 
-const systemPrompt = `You extract short-lived collaboration notes from session events.
+// sliceSystemPrompt is the v1 slice-mode extraction prompt. The name is
+// distinct from the (*OpenAI).systemPrompt method, which selects the active
+// protocol's prompt.
+const sliceSystemPrompt = `You extract short-lived collaboration notes from session events.
 Return exactly one JSON object in this shape:
 {"candidates":[{"action":"create","kind":"status","subject":"stable short subject","identity_ref":"","body":"concise factual note","task_ref":"","thread_ref":"","valid_at":null,"invalid_at":null,"related_subjects":[],"audience_agent_ids":[],"evidence_event_ids":["event-id"]}]}
 Allowed actions are create, update, resolve. Allowed kinds are status, blocker,

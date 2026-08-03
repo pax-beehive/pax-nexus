@@ -3,6 +3,7 @@ package recall_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -264,6 +265,251 @@ func (s *routerSuite) TestRejectsInvalidConfigurationAndRequests() {
 	s.Require().Error(err)
 	_, err = router.Get(context.Background(), recall.GetRequest{Ref: "wiki:any"})
 	s.Require().Error(err)
+}
+
+func (s *routerSuite) TestValidateSearchReportsTheFailingField() {
+	team := teamNotePathFunc(func(context.Context, teamnote.RecallRequest) (teamnote.NoteEnvelope, error) {
+		return teamnote.NoteEnvelope{}, nil
+	})
+	router, err := recall.NewRouter(team, nil, recall.Config{})
+	s.Require().NoError(err)
+
+	cases := []struct {
+		name        string
+		mutate      func(request *recall.SearchRequest)
+		wantMessage string
+	}{
+		{
+			name:        "unsupported intent",
+			mutate:      func(request *recall.SearchRequest) { request.Intent = "batch" },
+			wantMessage: `unsupported intent "batch"`,
+		},
+		{
+			name:        "empty query",
+			mutate:      func(request *recall.SearchRequest) { request.Query = "  " },
+			wantMessage: "query and positive token budget are required",
+		},
+		{
+			name:        "non-positive token budget",
+			mutate:      func(request *recall.SearchRequest) { request.TokenBudget = 0 },
+			wantMessage: "query and positive token budget are required",
+		},
+		{
+			name:        "negative max items",
+			mutate:      func(request *recall.SearchRequest) { request.MaxItems = -1 },
+			wantMessage: "max items must not be negative",
+		},
+		{
+			name: "active intent without llm_wiki source",
+			mutate: func(request *recall.SearchRequest) {
+				request.Intent = recall.IntentActive
+				request.Source = ""
+			},
+			wantMessage: "active search requires llm_wiki source",
+		},
+	}
+	for _, current := range cases {
+		s.Run(current.name, func() {
+			request := passiveRequest()
+			current.mutate(&request)
+			_, searchErr := router.Search(context.Background(), request)
+			s.Require().ErrorContains(searchErr, current.wantMessage)
+		})
+	}
+}
+
+func (s *routerSuite) TestTeamNoteOnlySearchMarksWikiHintSkippedAsDisabled() {
+	team := teamNotePathFunc(func(context.Context, teamnote.RecallRequest) (teamnote.NoteEnvelope, error) {
+		envelope := sufficientEnvelope("The release is Friday.")
+		envelope.ObservationID = 17
+		return envelope, nil
+	})
+	router, err := recall.NewRouter(team, nil, recall.Config{})
+	s.Require().NoError(err)
+
+	result, err := router.Search(context.Background(), passiveRequest())
+
+	s.Require().NoError(err)
+	s.Require().Len(result.Hits, 1)
+	s.Equal(recall.DispositionEvidence, result.Hits[0].Disposition)
+	s.Equal("note", result.Hits[0].Ref)
+	s.True(result.EvidenceSufficient)
+	s.Equal(int64(17), result.ObservationID)
+	s.Equal(recall.PathCompleted, result.Trace.TeamNote.Status)
+	s.Equal(recall.PathSkipped, result.Trace.WikiHint.Status)
+	s.Equal("disabled", result.Trace.WikiHint.Reason)
+	s.Equal(recall.PathSkipped, result.Trace.WikiSearch.Status)
+	s.Equal("passive_search", result.Trace.WikiSearch.Reason)
+}
+
+func (s *routerSuite) TestTeamNoteOnlySearchWrapsFailureAndMarksPathFailed() {
+	teamErr := errors.New("team note store unavailable")
+	team := teamNotePathFunc(func(context.Context, teamnote.RecallRequest) (teamnote.NoteEnvelope, error) {
+		return teamnote.NoteEnvelope{}, teamErr
+	})
+	router, err := recall.NewRouter(team, nil, recall.Config{})
+	s.Require().NoError(err)
+
+	result, err := router.Search(context.Background(), passiveRequest())
+
+	s.Require().ErrorIs(err, teamErr)
+	s.Require().ErrorContains(err, "search team note memory")
+	s.Empty(result.Hits)
+	s.Equal(recall.PathFailed, result.Trace.TeamNote.Status)
+	s.Equal("team note store unavailable", result.Trace.TeamNote.Error)
+	s.Equal(recall.PathSkipped, result.Trace.WikiHint.Status)
+	s.Equal("disabled", result.Trace.WikiHint.Reason)
+}
+
+func (s *routerSuite) TestGetReportsUnavailableWikiAndWrapsWikiFailures() {
+	team := teamNotePathFunc(func(context.Context, teamnote.RecallRequest) (teamnote.NoteEnvelope, error) {
+		return teamnote.NoteEnvelope{}, nil
+	})
+
+	s.Run("nil wiki path is unavailable", func() {
+		router, err := recall.NewRouter(team, nil, recall.Config{})
+		s.Require().NoError(err)
+		_, err = router.Get(context.Background(), recall.GetRequest{Ref: "wiki:release"})
+		s.Require().ErrorContains(err, "wiki path is unavailable")
+	})
+	s.Run("empty ref is rejected", func() {
+		router, err := recall.NewRouter(team, &wikiPath{}, recall.Config{})
+		s.Require().NoError(err)
+		_, err = router.Get(context.Background(), recall.GetRequest{Ref: "  "})
+		s.Require().ErrorContains(err, "ref is required")
+	})
+	s.Run("wiki failure is wrapped", func() {
+		getErr := errors.New("document missing")
+		wiki := &wikiPath{get: func(context.Context, recall.GetRequest) (recall.MemoryDocument, error) {
+			return recall.MemoryDocument{}, getErr
+		}}
+		router, err := recall.NewRouter(team, wiki, recall.Config{})
+		s.Require().NoError(err)
+		_, err = router.Get(context.Background(), recall.GetRequest{Ref: "wiki:release"})
+		s.Require().ErrorIs(err, getErr)
+		s.Require().ErrorContains(err, "get wiki document")
+	})
+}
+
+func (s *routerSuite) TestTeamNoteItemsFallbackAttributesTokensToFirstItemOnly() {
+	team := teamNotePathFunc(func(context.Context, teamnote.RecallRequest) (teamnote.NoteEnvelope, error) {
+		return teamnote.NoteEnvelope{Items: []string{"first fact", "second fact"}, Tokens: 9}, nil
+	})
+	router, err := recall.NewRouter(team, nil, recall.Config{})
+	s.Require().NoError(err)
+
+	result, err := router.Search(context.Background(), passiveRequest())
+
+	s.Require().NoError(err)
+	s.Require().Len(result.Hits, 2)
+	s.Equal("first fact", result.Hits[0].Text)
+	s.Equal(9, result.Hits[0].Tokens)
+	s.Equal("second fact", result.Hits[1].Text)
+	s.Zero(result.Hits[1].Tokens)
+	s.Empty(result.Hits[0].Ref)
+	s.Equal(recall.DispositionEvidence, result.Hits[0].Disposition)
+	s.Equal(recall.DispositionEvidence, result.Hits[1].Disposition)
+	s.Zero(result.Trace.TeamNote.Candidates)
+}
+
+func (s *routerSuite) TestWikiHintOverBudgetIsDroppedWithSharedBudgetReason() {
+	team := teamNotePathFunc(func(context.Context, teamnote.RecallRequest) (teamnote.NoteEnvelope, error) {
+		envelope := insufficientEnvelope("The owner is Riley.")
+		envelope.Tokens = 60
+		return envelope, nil
+	})
+	wiki := &wikiPath{hint: func(context.Context, recall.SearchRequest) (recall.MemoryHit, error) {
+		return recall.MemoryHit{Text: "Search the release runbook.", Tokens: 10}, nil
+	}}
+	router, err := recall.NewRouter(team, wiki, recall.Config{EnablePassiveWikiHint: true})
+	s.Require().NoError(err)
+
+	result, err := router.Search(context.Background(), passiveRequest())
+
+	s.Require().NoError(err)
+	s.Require().Len(result.Hits, 1)
+	s.Equal(recall.DispositionEvidence, result.Hits[0].Disposition)
+	s.Equal(recall.PathCompleted, result.Trace.WikiHint.Status)
+	s.Equal(1, result.Trace.WikiHint.BudgetDrops)
+	s.Equal("shared_token_budget", result.Trace.WikiHint.Reason)
+	s.Zero(result.Trace.WikiHint.Candidates)
+}
+
+func (s *routerSuite) TestWikiHintWithoutTokensGetsAnEstimateFromText() {
+	hintText := "Search the runbook."
+	team := teamNotePathFunc(func(context.Context, teamnote.RecallRequest) (teamnote.NoteEnvelope, error) {
+		return insufficientEnvelope("The owner is Riley."), nil
+	})
+	wiki := &wikiPath{hint: func(context.Context, recall.SearchRequest) (recall.MemoryHit, error) {
+		return recall.MemoryHit{Text: hintText}, nil
+	}}
+	router, err := recall.NewRouter(team, wiki, recall.Config{EnablePassiveWikiHint: true})
+	s.Require().NoError(err)
+
+	result, err := router.Search(context.Background(), passiveRequest())
+
+	s.Require().NoError(err)
+	s.Require().Len(result.Hits, 2)
+	s.Equal(recall.DispositionHint, result.Hits[1].Disposition)
+	s.Equal((len([]rune(hintText))+3)/4, result.Hits[1].Tokens)
+	s.Equal(recall.PathCompleted, result.Trace.WikiHint.Status)
+	s.Equal(1, result.Trace.WikiHint.Candidates)
+}
+
+func (s *routerSuite) TestTeamNoteFailureCancelsPendingWikiHint() {
+	teamErr := errors.New("team note store unavailable")
+	wikiStarted := make(chan struct{})
+	wikiCancelled := make(chan struct{})
+	team := teamNotePathFunc(func(context.Context, teamnote.RecallRequest) (teamnote.NoteEnvelope, error) {
+		<-wikiStarted
+		return teamnote.NoteEnvelope{}, teamErr
+	})
+	wiki := &wikiPath{hint: func(ctx context.Context, _ recall.SearchRequest) (recall.MemoryHit, error) {
+		close(wikiStarted)
+		<-ctx.Done()
+		close(wikiCancelled)
+		return recall.MemoryHit{}, ctx.Err()
+	}}
+	router, err := recall.NewRouter(team, wiki, recall.Config{EnablePassiveWikiHint: true})
+	s.Require().NoError(err)
+
+	result, err := router.Search(context.Background(), passiveRequest())
+
+	s.Require().ErrorIs(err, teamErr)
+	s.Require().ErrorContains(err, "search team note memory")
+	s.Equal(recall.PathFailed, result.Trace.TeamNote.Status)
+	s.Equal(recall.PathCancelled, result.Trace.WikiHint.Status)
+	s.Equal("team_note_failed", result.Trace.WikiHint.Reason)
+	s.Eventually(func() bool {
+		select {
+		case <-wikiCancelled:
+			return true
+		default:
+			return false
+		}
+	}, time.Second, time.Millisecond)
+}
+
+func (s *routerSuite) TestActiveSearchDeadlineFailureIsClassifiedAsTimedOut() {
+	team := teamNotePathFunc(func(context.Context, teamnote.RecallRequest) (teamnote.NoteEnvelope, error) {
+		return teamnote.NoteEnvelope{}, nil
+	})
+	wiki := &wikiPath{search: func(context.Context, recall.SearchRequest) ([]recall.MemoryHit, error) {
+		return nil, fmt.Errorf("wiki backend: %w", context.DeadlineExceeded)
+	}}
+	router, err := recall.NewRouter(team, wiki, recall.Config{})
+	s.Require().NoError(err)
+
+	result, err := router.Search(context.Background(), recall.SearchRequest{
+		Intent: recall.IntentActive, Source: recall.SourceLLMWiki, Query: "release", TokenBudget: 64,
+	})
+
+	s.Require().ErrorIs(err, context.DeadlineExceeded)
+	s.Require().ErrorContains(err, "search wiki memory")
+	s.Empty(result.Hits)
+	s.Equal(recall.PathTimedOut, result.Trace.WikiSearch.Status)
+	s.Equal(recall.PathSkipped, result.Trace.TeamNote.Status)
+	s.Equal(recall.PathSkipped, result.Trace.WikiHint.Status)
 }
 
 type searchOutcome struct {

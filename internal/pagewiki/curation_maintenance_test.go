@@ -13,7 +13,7 @@ import (
 // an empty Page catalog; the embedded nil Repository panics loudly if
 // anything else is called. It is a package-internal stand-in for
 // memory.Repository, needed because this test file lives in package
-// pagewiki (to reach unexported catalogFingerprint/stableID) and importing
+// pagewiki (to reach unexported catalogFingerprint) and importing
 // the memory package from here would create an import cycle
 // (memory imports pagewiki).
 type stubCurationRepository struct {
@@ -82,7 +82,7 @@ func (s *curationMaintenanceSuite) SetupTest() {
 // empty Page catalog, so the test can poll the repository for the exact run
 // a tick is expected to save.
 func emptyCatalogRunID() string {
-	return stableID("curation-run", catalogFingerprint(PageCatalog{}))
+	return StableID("curation-run", catalogFingerprint(PageCatalog{}))
 }
 
 func (s *curationMaintenanceSuite) TestGivenPositiveIntervalWhenMaintenanceStartsThenARoundEventuallyRuns() {

@@ -616,6 +616,45 @@ func (s *RepositorySuite) TestGivenRetryableRunWhenReplacedThenSaveSucceeds() {
 	}
 }
 
+// TestGivenFailedPersistWhenRolledBackThenPreWriteStateIsRestored covers the
+// write-through rollback primitive the postgres adapter uses when a run's
+// database leg fails: a first-write rollback must remove the record entirely,
+// and a retry-overwrite rollback must restore the previous (failed) run even
+// though the interim record was a succeeded, otherwise-immutable one.
+func (s *RepositorySuite) TestGivenFailedPersistWhenRolledBackThenPreWriteStateIsRestored() {
+	succeeded := pagewiki.MaintenanceRun{
+		ID:               "run-rollback",
+		SourceRevisionID: "source-revision-1",
+		Status:           pagewiki.RunStatusSucceeded,
+		Targets: []pagewiki.MaintenanceTarget{
+			{ID: "target-1", Status: pagewiki.TargetStatusSucceeded},
+		},
+	}
+	s.Run("first write rolls back to absent", func() {
+		s.Require().NoError(s.repository.SaveMaintenanceRun(s.ctx, succeeded))
+
+		s.repository.RollbackMaintenanceRun(succeeded.ID, pagewiki.MaintenanceRun{}, false)
+
+		_, err := s.repository.MaintenanceRun(s.ctx, succeeded.ID)
+		s.Require().ErrorIs(err, pagewiki.ErrNotFound)
+	})
+	s.Run("overwrite rolls back to the previous failed run", func() {
+		previous := succeeded
+		previous.Status = pagewiki.RunStatusFailed
+		previous.Targets = []pagewiki.MaintenanceTarget{
+			{ID: "target-1", Status: pagewiki.TargetStatusFailed},
+		}
+		s.Require().NoError(s.repository.SaveMaintenanceRun(s.ctx, previous))
+		s.Require().NoError(s.repository.SaveMaintenanceRun(s.ctx, succeeded))
+
+		s.repository.RollbackMaintenanceRun(succeeded.ID, previous, true)
+
+		stored, err := s.repository.MaintenanceRun(s.ctx, succeeded.ID)
+		s.Require().NoError(err)
+		s.Require().Equal(pagewiki.RunStatusFailed, stored.Status)
+	})
+}
+
 func (s *RepositorySuite) TestGivenMissingValuesWhenReadThenNotFoundIsReturned() {
 	_, sourceErr := s.repository.SourceRevision(s.ctx, "missing")
 	_, pageErr := s.repository.PageByID(s.ctx, "missing")

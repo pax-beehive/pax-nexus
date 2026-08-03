@@ -22,23 +22,40 @@ type ServiceManagerConfig struct {
 	Options []ServiceOption
 }
 
+// serviceEntry is one scope's construction slot: its mutex serializes
+// building that scope's Service (including the repository resolution, which
+// may hydrate) so different scopes never wait on each other.
+type serviceEntry struct {
+	mu      sync.Mutex
+	service *Service // nil until built; resolution errors are not cached
+}
+
 // ServiceManager hands out one Service per scope, built lazily over a
 // RepositoryResolver on first use and cached for the process lifetime —
 // mirroring postgres.RepositoryManager's shape and caching contract.
 //
+// Service construction uses a two-tier locking scheme: the manager-wide
+// mutex is held just long enough to look up or create a per-scope entry;
+// each scope's construction (including repository resolution) is serialized
+// only by its own entry mutex. This ensures that different scopes never
+// block each other, even during expensive repository resolution. Same-scope
+// concurrent first-touch builds exactly once, and failed resolutions are not
+// cached — the next call retries.
+//
 // Start records the maintenance root context. ForScope starts each Service's
 // background tree/curation maintenance loops exactly once: immediately at
 // creation if Start has already run, or when Start itself runs, for every
-// scope resolved before that call. Holding mu across Service construction
-// gives single-flight creation per process, matching RepositoryManager.
+// scope resolved before that call.
 type ServiceManager struct {
 	repositories RepositoryResolver
 	config       ServiceManagerConfig
 
-	mu             sync.Mutex
-	services       map[string]*Service
-	started        bool
-	maintenanceCtx context.Context
+	mu                sync.Mutex
+	entries           map[string]*serviceEntry
+	services          map[string]*Service // for Start: services built before it ran
+	started           bool
+	maintenanceCtx    context.Context
+	cancelMaintenance context.CancelFunc
 }
 
 // NewServiceManager builds a ServiceManager over repositories. repositories
@@ -51,6 +68,7 @@ func NewServiceManager(repositories RepositoryResolver, config ServiceManagerCon
 	return &ServiceManager{
 		repositories: repositories,
 		config:       config,
+		entries:      make(map[string]*serviceEntry),
 		services:     make(map[string]*Service),
 	}, nil
 }
@@ -63,20 +81,36 @@ func (m *ServiceManager) ForScope(ctx context.Context, scopeID string) (*Service
 		return nil, fmt.Errorf("resolve pagewiki service: scope ID is required")
 	}
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	if service, ok := m.services[scopeID]; ok {
-		return service, nil
+	entry, ok := m.entries[scopeID]
+	if !ok {
+		entry = &serviceEntry{}
+		m.entries[scopeID] = entry
+	}
+	m.mu.Unlock()
+
+	entry.mu.Lock()
+	defer entry.mu.Unlock()
+	if entry.service != nil {
+		return entry.service, nil
 	}
 	repository, err := m.repositories(ctx, scopeID)
 	if err != nil {
 		return nil, fmt.Errorf("resolve pagewiki repository for scope %s: %w", scopeID, err)
 	}
 	service := NewService(repository, m.config.Planner, m.config.Editor, m.config.Options...)
+
+	// Register and snapshot the started flag under one mu hold: if Start has
+	// not run yet it will start this service's maintenance (it is in
+	// m.services); if it has, we start it here. Exactly one side fires.
+	m.mu.Lock()
 	m.services[scopeID] = service
-	if m.started {
-		service.StartTreeMaintenance(m.maintenanceCtx)
-		service.StartCurationMaintenance(m.maintenanceCtx)
+	started, maintenanceCtx := m.started, m.maintenanceCtx
+	m.mu.Unlock()
+	if started {
+		service.StartTreeMaintenance(maintenanceCtx)
+		service.StartCurationMaintenance(maintenanceCtx)
 	}
+	entry.service = service
 	return service, nil
 }
 
@@ -88,10 +122,27 @@ func (m *ServiceManager) ForScope(ctx context.Context, scopeID string) (*Service
 func (m *ServiceManager) Start(ctx context.Context) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	ctx, cancel := context.WithCancel(ctx)
 	m.started = true
 	m.maintenanceCtx = ctx
+	m.cancelMaintenance = cancel
 	for _, service := range m.services {
 		service.StartTreeMaintenance(ctx)
 		service.StartCurationMaintenance(ctx)
+	}
+}
+
+// Stop cancels the maintenance context recorded by Start, stopping every
+// per-scope Service's background tree/curation loop at its next select. The
+// loops are fire-and-forget by design — pending tree tasks are dropped on
+// cancellation (see Service.StartTreeMaintenance) and in-flight work
+// observes the same cancelled context — so Stop does not wait on them.
+// Stopping a manager that was never started is a no-op.
+func (m *ServiceManager) Stop() {
+	m.mu.Lock()
+	cancel := m.cancelMaintenance
+	m.mu.Unlock()
+	if cancel != nil {
+		cancel()
 	}
 }

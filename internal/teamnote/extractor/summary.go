@@ -33,6 +33,14 @@ func (e *OpenAI) consumeReadySummary(key EpisodeKey) error {
 		return nil
 	}
 	e.deleteSummaryFlight(key, flight)
+	if errors.Is(flight.persistErr, context.DeadlineExceeded) || errors.Is(flight.persistErr, context.Canceled) {
+		// An interrupted background persist is a lost optimization, not
+		// corrupted state: the episode is unchanged and a later slice simply
+		// re-triggers the summary. Surfacing it here would fail the next
+		// unrelated foreground extraction; the error still reaches
+		// WaitForBackground through the flight's lifecycle completion.
+		return nil
+	}
 	return flight.persistErr
 }
 
@@ -56,9 +64,12 @@ func (e *OpenAI) startSummary(ctx context.Context, key EpisodeKey, episode Episo
 
 	go func() {
 		background, cancel := context.WithTimeout(owned, backgroundProviderTimeout(e.config.ExecutionPolicy))
-		defer cancel()
 		flight.result, flight.err = e.computeSummary(background, episode)
-		flight.persistErr = e.persistSummaryOutcome(background, key, flight.result, flight.err)
+		cancel()
+		// Persist runs on the pre-timeout owned context: its own budget starts
+		// only after the episode lease is acquired, so a slow foreground
+		// extraction holding the lease cannot burn the persist budget.
+		flight.persistErr = e.persistSummaryOutcome(owned, key, flight.result, flight.err)
 		close(flight.done)
 		finishBackground(errors.Join(flight.err, flight.persistErr))
 	}()
@@ -73,6 +84,11 @@ func (e *OpenAI) persistSummaryOutcome(
 ) error {
 	releaseEpisode := e.acquireEpisode(key)
 	defer releaseEpisode()
+	// The persist timeout budget starts after the lease is acquired. Waiting
+	// behind a foreground extraction preserves the documented happens-before
+	// ordering without consuming the store-call budget.
+	ctx, cancel := context.WithTimeout(ctx, backgroundProviderTimeout(e.config.ExecutionPolicy))
+	defer cancel()
 	episode, found, err := e.config.EpisodeStore.LoadEpisode(ctx, key)
 	if err != nil {
 		return fmt.Errorf("load rolling extraction episode for summary: %w", err)
@@ -83,7 +99,7 @@ func (e *OpenAI) persistSummaryOutcome(
 	expectedVersion := episode.Version
 	if resultErr != nil {
 		recordSummaryFailure(&episode.Checkpoint, resultErr)
-	} else if err := applyPeriodicSummary(&episode, result, e.config.SummaryTailTokens); err != nil {
+	} else if err := applyPeriodicSummary(e.systemPrompt(), &episode, result, e.config.SummaryTailTokens); err != nil {
 		recordSummaryFailure(&episode.Checkpoint, err)
 	}
 	if err := e.config.EpisodeStore.SaveEpisode(ctx, episode, expectedVersion); err != nil {
@@ -132,11 +148,10 @@ func (e *OpenAI) computeSummary(ctx context.Context, episode Episode) (summaryRe
 }
 
 func decodeSummary(body []byte) (string, Usage, error) {
-	var response chatResponse
-	if err := json.Unmarshal(body, &response); err != nil || len(response.Choices) == 0 {
-		return "", Usage{}, fmt.Errorf("decode periodic summary response: %w", ErrInvalidModelResponse)
+	content, usage, err := decodeChatContent(body)
+	if err != nil {
+		return "", Usage{}, fmt.Errorf("decode periodic summary response: %w", err)
 	}
-	content := trimCodeFence(response.Choices[0].Message.Content)
 	var output struct {
 		Summary string `json:"summary"`
 	}
@@ -146,15 +161,10 @@ func decodeSummary(body []byte) (string, Usage, error) {
 	if strings.TrimSpace(output.Summary) == "" {
 		return "", Usage{}, fmt.Errorf("decode periodic summary: summary is empty: %w", ErrInvalidModelResponse)
 	}
-	usage := Usage{
-		InputTokens: response.Usage.PromptTokens, OutputTokens: response.Usage.CompletionTokens,
-		PromptCacheHitTokens:  response.Usage.PromptCacheHitTokens,
-		PromptCacheMissTokens: response.Usage.PromptCacheMissTokens,
-	}
 	return strings.TrimSpace(output.Summary), usage, nil
 }
 
-func applyPeriodicSummary(episode *Episode, result summaryResult, tailTokenBudget int) error {
+func applyPeriodicSummary(system string, episode *Episode, result summaryResult, tailTokenBudget int) error {
 	if result.baseMessageCount > len(episode.Messages) ||
 		digestMessages(episode.Messages[:result.baseMessageCount]) != result.baseDigest {
 		return fmt.Errorf("apply periodic extraction summary: snapshot is stale: %w", ErrEpisodeConflict)
@@ -170,7 +180,7 @@ func applyPeriodicSummary(episode *Episode, result summaryResult, tailTokenBudge
 	}
 	episode.Checkpoint = checkpoint
 	episode.Messages = messages
-	episode.EstimatedTokens = estimateEpisodeTokens(checkpoint, messages)
+	episode.EstimatedTokens = estimateEpisodeTokens(system, checkpoint, messages)
 	return nil
 }
 

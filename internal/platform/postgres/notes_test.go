@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"testing"
@@ -1010,11 +1011,17 @@ func (s *noteStoreSuite) TestHybridRecallFallsBackToLexicalWhenEmbeddingFails() 
 	producer := teamnote.Actor{UserID: "owner", AgentID: "producer", SessionID: "producer-session"}
 	evidence := event("fallback-event", producer, 1)
 	s.appendEvents(ctx, scopeID, evidence)
-	notes := s.newHybridNoteStore(failingEmbedder{})
+	var recallLog strings.Builder
+	notes, err := postgres.NewNoteStore(s.store, teamnote.DefaultTTLPolicy(), s.clock, postgres.RetrievalConfig{
+		Embedder: failingEmbedder{}, EmbeddingModel: "Qwen/Qwen3-Embedding-0.6B",
+		Policy: teamnote.RecallPolicy{SemanticThreshold: 0.65, CandidateLimit: 16},
+		Logger: slog.New(slog.NewTextHandler(&recallLog, nil)),
+	})
+	s.Require().NoError(err)
 	entry := candidate("fallback-candidate", teamnote.ActionCreate,
 		"The launch checklist belongs to User_7.", producer, evidence.ID)
 	entry.Subject = "launch checklist ownership"
-	_, err := notes.ApplyCandidate(ctx, scopeID, "fallback-run", entry, []teamnote.SessionEvent{evidence})
+	_, err = notes.ApplyCandidate(ctx, scopeID, "fallback-run", entry, []teamnote.SessionEvent{evidence})
 	s.Require().NoError(err)
 
 	envelope, err := notes.RecallNotes(ctx, scopeID, teamnote.RecallRequest{
@@ -1024,6 +1031,55 @@ func (s *noteStoreSuite) TestHybridRecallFallsBackToLexicalWhenEmbeddingFails() 
 	s.Require().NoError(err)
 	s.Require().Len(envelope.Items, 1)
 	s.Contains(envelope.Items[0], "User_7")
+	s.Contains(recallLog.String(), "semantic recall degraded to lexical-only retrieval",
+		"embedding failure must leave an operational signal")
+	s.Contains(recallLog.String(), scopeID)
+}
+
+func (s *noteStoreSuite) TestRecallObservationCleanupStaysScopeLocal() {
+	ctx := context.Background()
+	scopeID := uniqueScope("note-cleanup-local")
+	foreignScopeID := uniqueScope("note-cleanup-foreign")
+	producer := teamnote.Actor{UserID: "owner", AgentID: "producer", SessionID: "producer-session"}
+	evidence := event("cleanup-event", producer, 1)
+	s.appendEvents(ctx, scopeID, evidence)
+	notes := s.newNoteStore()
+	entry := candidate("cleanup-candidate", teamnote.ActionCreate,
+		"Cleanup remains scoped to the caller.", producer, evidence.ID)
+	_, err := notes.ApplyCandidate(ctx, scopeID, "cleanup-run", entry, []teamnote.SessionEvent{evidence})
+	s.Require().NoError(err)
+	for _, insert := range []struct {
+		scope   string
+		session string
+	}{
+		{scope: scopeID, session: "expired-local"},
+		{scope: foreignScopeID, session: "expired-foreign"},
+	} {
+		_, err := s.store.Pool().Exec(ctx, `
+INSERT INTO team_note_recall_observations (
+    scope_id, recipient_user_id, recipient_agent_id, recipient_session_id,
+    query_digest, token_budget, max_items, envelope, trace, duration_ms, created_at, expires_at
+) VALUES ($1, 'user', 'agent', $2, '\x00', 64, 1, '{}'::jsonb, '{}'::jsonb, 1, $3, $4)`,
+			insert.scope, insert.session, s.clock.Now().Add(-48*time.Hour), time.Now().UTC().Add(-time.Hour))
+		s.Require().NoError(err)
+	}
+
+	_, err = notes.RecallNotes(ctx, scopeID, teamnote.RecallRequest{
+		Actor:   teamnote.Actor{UserID: "owner", AgentID: "consumer", SessionID: "cleanup-consumer"},
+		TaskRef: "task-1", TokenBudget: 256, Query: "cleanup", MaxItems: 1,
+	})
+	s.Require().NoError(err)
+
+	var expiredLocal int64
+	s.Require().NoError(s.store.Pool().QueryRow(ctx, `
+SELECT count(*) FROM team_note_recall_observations
+WHERE scope_id = $1 AND recipient_session_id = 'expired-local'`, scopeID).Scan(&expiredLocal))
+	s.Zero(expiredLocal, "expired observations in the recall scope must be swept")
+	var expiredForeign int64
+	s.Require().NoError(s.store.Pool().QueryRow(ctx, `
+SELECT count(*) FROM team_note_recall_observations
+WHERE scope_id = $1 AND recipient_session_id = 'expired-foreign'`, foreignScopeID).Scan(&expiredForeign))
+	s.Equal(int64(1), expiredForeign, "recall must not delete expired observations of other scopes")
 }
 
 func (s *noteStoreSuite) TestEmbeddingBackfillMakesExistingNoteSemantic() {

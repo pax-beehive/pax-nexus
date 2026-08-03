@@ -163,8 +163,8 @@ func acceptedBriefs(decoded llmPlanResponse, input PlanInput) []PageBrief {
 		if len(accepted) >= plannerMaxBriefs {
 			break
 		}
-		brief, accepted_ok := acceptBrief(candidate, input)
-		if !accepted_ok {
+		brief, ok := acceptBrief(candidate, input)
+		if !ok {
 			continue
 		}
 		if _, exists := seenKeys[brief.Key]; exists {
@@ -219,7 +219,7 @@ func relatedTargets(accepted []plannedBrief, input PlanInput) map[string]Related
 			continue
 		}
 		targets[planned.brief.ProposedSlug] = RelatedPage{
-			ID:    stableID("page", input.SourceRevision.ID, planned.brief.Key),
+			ID:    StableID("page", input.SourceRevision.ID, planned.brief.Key),
 			Title: planned.brief.ProposedTitle,
 		}
 	}

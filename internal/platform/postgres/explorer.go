@@ -53,7 +53,7 @@ WHERE scope_id = $1
 ORDER BY updated_at DESC, note_id DESC
 LIMIT $10`,
 		s.scopeID, filter.Kind, filter.State, filter.AgentID, filter.TaskRef,
-		filter.ThreadRef, filter.Query, cursorValue, cursorNoteID, filter.Limit+1,
+		filter.ThreadRef, escapeLike(filter.Query), cursorValue, cursorNoteID, filter.Limit+1,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("list postgres explorer team notes: %w", err)
@@ -229,28 +229,46 @@ ORDER BY revision.revision DESC`, s.scopeID, noteID)
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate postgres explorer note revisions: %w", err)
 	}
+	if len(revisions) == 0 {
+		return revisions, nil
+	}
+	revisionNumbers := make([]int32, len(revisions))
+	for index := range revisions {
+		revisionNumbers[index] = int32(revisions[index].Revision)
+	}
+	evidenceByRevision, err := s.revisionEvidence(ctx, noteID, revisionNumbers)
+	if err != nil {
+		return nil, err
+	}
+	deliveriesByRevision, err := s.revisionDeliveries(ctx, noteID, revisionNumbers)
+	if err != nil {
+		return nil, err
+	}
 	for index := range revisions {
 		revision := &revisions[index]
-		var err error
-		revision.Evidence, err = s.revisionEvidence(ctx, noteID, revision.Revision)
-		if err != nil {
-			return nil, err
+		revision.Evidence = evidenceByRevision[revision.Revision]
+		if revision.Evidence == nil {
+			revision.Evidence = []explorer.SourceEvent{}
 		}
-		revision.Deliveries, err = s.revisionDeliveries(ctx, noteID, revision.Revision)
-		if err != nil {
-			return nil, err
+		revision.Deliveries = deliveriesByRevision[revision.Revision]
+		if revision.Deliveries == nil {
+			revision.Deliveries = []explorer.Delivery{}
 		}
 	}
 	return revisions, nil
 }
 
+// revisionEvidence loads the evidence events for every requested revision in
+// one query and groups them per revision, preserving the per-revision
+// occurred_at, sequence, event_id ordering the per-revision queries used.
 func (s *ExplorerStore) revisionEvidence(
 	ctx context.Context,
 	noteID string,
-	revision int,
-) ([]explorer.SourceEvent, error) {
+	revisions []int32,
+) (map[int][]explorer.SourceEvent, error) {
 	rows, err := s.pool.Query(ctx, `
-SELECT event.event_id, event.user_id, event.agent_id, event.session_id,
+SELECT evidence.revision,
+       event.event_id, event.user_id, event.agent_id, event.session_id,
        event.sequence, event.event_type, event.content, event.task_ref,
        event.thread_ref, event.visibility, event.occurred_at,
        event.captured_at, event.extracted_at
@@ -258,21 +276,28 @@ FROM note_evidence evidence
 JOIN session_events event
   ON event.scope_id = evidence.scope_id AND event.event_id = evidence.event_id
 WHERE evidence.scope_id = $1 AND evidence.note_id = $2
-  AND evidence.revision = $3
-ORDER BY event.occurred_at, event.sequence, event.event_id`,
-		s.scopeID, noteID, revision,
+  AND evidence.revision = ANY($3)
+ORDER BY evidence.revision, event.occurred_at, event.sequence, event.event_id`,
+		s.scopeID, noteID, revisions,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("list postgres explorer revision evidence: %w", err)
 	}
 	defer rows.Close()
-	events := make([]explorer.SourceEvent, 0)
+	events := make(map[int][]explorer.SourceEvent)
 	for rows.Next() {
-		event, err := scanSourceEvent(rows)
-		if err != nil {
+		var revision int
+		var event explorer.SourceEvent
+		if err := rows.Scan(
+			&revision,
+			&event.EventID, &event.UserID, &event.AgentID, &event.SessionID,
+			&event.Sequence, &event.Type, &event.Content, &event.TaskRef,
+			&event.ThreadRef, &event.Visibility, &event.OccurredAt,
+			&event.CapturedAt, &event.ExtractedAt,
+		); err != nil {
 			return nil, fmt.Errorf("scan postgres explorer revision evidence: %w", err)
 		}
-		events = append(events, event)
+		events[revision] = append(events[revision], event)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate postgres explorer revision evidence: %w", err)
@@ -280,34 +305,39 @@ ORDER BY event.occurred_at, event.sequence, event.event_id`,
 	return events, nil
 }
 
+// revisionDeliveries loads the deliveries for every requested revision in one
+// query and groups them per revision, preserving the per-revision
+// delivered_at DESC, recipient_session_id ordering.
 func (s *ExplorerStore) revisionDeliveries(
 	ctx context.Context,
 	noteID string,
-	revision int,
-) ([]explorer.Delivery, error) {
+	revisions []int32,
+) (map[int][]explorer.Delivery, error) {
 	rows, err := s.pool.Query(ctx, `
-SELECT recipient_user_id, recipient_agent_id, recipient_session_id,
+SELECT revision, recipient_user_id, recipient_agent_id, recipient_session_id,
        delivered_at, context_tokens
 FROM note_deliveries
-WHERE scope_id = $1 AND note_id = $2 AND revision = $3
-ORDER BY delivered_at DESC, recipient_session_id`,
-		s.scopeID, noteID, revision,
+WHERE scope_id = $1 AND note_id = $2 AND revision = ANY($3)
+ORDER BY revision, delivered_at DESC, recipient_session_id`,
+		s.scopeID, noteID, revisions,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("list postgres explorer revision deliveries: %w", err)
 	}
 	defer rows.Close()
-	deliveries := make([]explorer.Delivery, 0)
+	deliveries := make(map[int][]explorer.Delivery)
 	for rows.Next() {
+		var revision int
 		var delivery explorer.Delivery
 		if err := rows.Scan(
+			&revision,
 			&delivery.RecipientUserID, &delivery.RecipientAgentID,
 			&delivery.RecipientSessionID, &delivery.DeliveredAt,
 			&delivery.ContextTokens,
 		); err != nil {
 			return nil, fmt.Errorf("scan postgres explorer revision delivery: %w", err)
 		}
-		deliveries = append(deliveries, delivery)
+		deliveries[revision] = append(deliveries[revision], delivery)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate postgres explorer revision deliveries: %w", err)
@@ -625,6 +655,10 @@ ORDER BY note.updated_at DESC, note.note_id DESC`, s.scopeID, runID)
 	return notes, nil
 }
 
+// GetChannelDiagnostic reads an envelope by ID alone: onprem_channel_envelopes
+// has no scope_id column, so the unguessable envelope ID is the only guard
+// today. Scoping this table is deferred to SaaS Phase 3 per the on-prem/SaaS
+// split ADR (docs/decisions/2026-07-31-onprem-saas-split.md).
 func (s *ExplorerStore) GetChannelDiagnostic(
 	ctx context.Context,
 	envelopeID string,

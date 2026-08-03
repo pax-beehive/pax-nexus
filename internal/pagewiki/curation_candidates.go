@@ -41,7 +41,7 @@ func catalogFingerprint(catalog PageCatalog) string {
 		entries = append(entries, entry.ID+"@"+entry.CurrentRevisionID)
 	}
 	sort.Strings(entries)
-	return stableID("curation-fingerprint", entries...)
+	return StableID("curation-fingerprint", entries...)
 }
 
 // cosineSimilarity returns the cosine similarity of a and b. It returns 0

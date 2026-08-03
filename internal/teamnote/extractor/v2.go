@@ -207,20 +207,15 @@ type extractionOutputV2 struct {
 // decodeExtractionResponseV2 parses one v2 model response into its raw
 // products. Slice-grounded validation happens in mapExtractionV2.
 func decodeExtractionResponseV2(body []byte) (Result, string, error) {
-	var response chatResponse
-	if err := json.Unmarshal(body, &response); err != nil || len(response.Choices) == 0 {
-		return Result{}, "", fmt.Errorf("decode extractor v2 response: %w", ErrInvalidModelResponse)
+	content, usage, err := decodeChatContent(body)
+	if err != nil {
+		return Result{}, "", fmt.Errorf("decode extractor v2 response: %w", err)
 	}
-	content := trimCodeFence(response.Choices[0].Message.Content)
 	result, err := decodeExtractionContentV2(content)
 	if err != nil {
 		return Result{}, "", err
 	}
-	result.Usage = Usage{
-		InputTokens: response.Usage.PromptTokens, OutputTokens: response.Usage.CompletionTokens,
-		PromptCacheHitTokens:  response.Usage.PromptCacheHitTokens,
-		PromptCacheMissTokens: response.Usage.PromptCacheMissTokens,
-	}
+	result.Usage = usage
 	return result, content, nil
 }
 
@@ -434,7 +429,13 @@ func mapDecision(
 	grounded := false
 	for _, eventID := range decision.EvidenceEventIDs {
 		if _, ok := allEvents[eventID]; !ok {
-			return nil, fmt.Sprintf("decision cites unknown event %q", eventID)
+			// An evidence ID outside the current slice is prior-episode or
+			// hallucinated provenance. The prompt only requires grounding in
+			// the current new_event_ids, so the stale ID is stripped instead
+			// of voiding the decision, matching the v1 rolling semantics of
+			// removeHistoricalEvidence. A decision left without any current
+			// new event is still rejected below.
+			continue
 		}
 		if _, ok := newEvents[eventID]; ok {
 			grounded = true
@@ -521,16 +522,18 @@ func mapClaimCardDecision(
 	candidate.Subject = card.subject
 	candidate.Body = card.body
 	candidate.IdentityRef = card.identityRef
-	candidate.RelatedSubjects = card.relatedSubjects
+	// The claim-card prompt states that candidate.related_subjects is a schema
+	// placeholder and is not persisted by this strategy; the card is rendered
+	// from the primary claim only, so the model's value is cleared explicitly.
+	candidate.RelatedSubjects = nil
 	return candidate, ""
 }
 
 type claimCard struct {
-	kind            teamnote.NoteKind
-	subject         string
-	body            string
-	identityRef     string
-	relatedSubjects []string
+	kind        teamnote.NoteKind
+	subject     string
+	body        string
+	identityRef string
 }
 
 func buildClaimCard(decision StateDecision, claims map[string]Claim, slice evidencelake.Slice) (claimCard, string) {

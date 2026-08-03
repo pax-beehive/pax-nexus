@@ -74,7 +74,12 @@ func (h *Handler) ObserveSession(ctx context.Context, c *app.RequestContext) {
 			AcceptedItems: int64(receipt.Accepted), DuplicateItems: int64(receipt.Duplicate),
 		})
 	}
-	actor := batch.Events[0].Actor
+	// An empty batch is accepted by mapping and the runtime, so guard the
+	// actor lookup the same way observeSessionID does two lines up.
+	var actor teamnote.Actor
+	if len(batch.Events) > 0 {
+		actor = batch.Events[0].Actor
+	}
 	h.logger.InfoContext(ctx, "session batch observed",
 		"scope_id", scopeID, "user_id", actor.UserID, "agent_id", actor.AgentID, "session_id", actor.SessionID,
 		"events", len(batch.Events), "accepted", receipt.Accepted, "duplicates", receipt.Duplicate,

@@ -14,7 +14,7 @@ const (
 // service created exactly the topic it was supposed to, without duplicating
 // the hashing rule.
 func TopicIDForTest(parentID, slug string) string {
-	return stableID("topic", parentID, slug)
+	return StableID("topic", parentID, slug)
 }
 
 // EnqueueTreeInsertForTest queues one page for (re)placement, the same task

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 	"time"
@@ -24,6 +25,9 @@ type RetrievalConfig struct {
 	Embedder       textembedding.Embedder
 	EmbeddingModel string
 	Policy         teamnote.RecallPolicy
+	// Logger receives operational signals such as semantic recall degrading
+	// to lexical-only retrieval. Defaults to slog.Default when nil.
+	Logger *slog.Logger
 }
 
 type recallSnapshotItem struct {
@@ -46,6 +50,7 @@ type NoteStore struct {
 	policy    teamnote.TTLPolicy
 	clock     teamnote.Clock
 	retrieval RetrievalConfig
+	logger    *slog.Logger
 }
 
 func NewNoteStore(store *Store, policy teamnote.TTLPolicy, clock teamnote.Clock, retrieval RetrievalConfig) (*NoteStore, error) {
@@ -82,7 +87,11 @@ func NewNoteStore(store *Store, policy teamnote.TTLPolicy, clock teamnote.Clock,
 	if retrieval.Policy.CandidateLimit < 1 {
 		return nil, fmt.Errorf("create postgres note store: candidate limit must be positive")
 	}
-	return &NoteStore{store: store, policy: policy, clock: clock, retrieval: retrieval}, nil
+	logger := retrieval.Logger
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &NoteStore{store: store, policy: policy, clock: clock, retrieval: retrieval, logger: logger}, nil
 }
 
 func (s *NoteStore) ApplyCandidate(ctx context.Context, scopeID, runID string, candidate teamnote.Candidate, evidence []teamnote.SessionEvent) (note teamnote.Note, returnedErr error) {
@@ -274,6 +283,7 @@ func (s *NoteStore) RecallNotes(ctx context.Context, scopeID string, request tea
 	queryVector, embeddingErr := s.embedQuery(ctx, request.Query)
 	if embeddingErr != nil {
 		// Semantic recall is best effort; lexical recall remains available when the local model is unavailable.
+		s.logSemanticRecallDegraded(ctx, scopeID, embeddingErr)
 		queryVector = nil
 	}
 	tx, err := s.store.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -340,6 +350,7 @@ func (s *NoteStore) RecallCandidates(ctx context.Context, scopeID string, reques
 	queryVector, embeddingErr := s.embedQuery(ctx, request.Query)
 	if embeddingErr != nil {
 		// Semantic recall is best effort, mirroring RecallNotes.
+		s.logSemanticRecallDegraded(ctx, scopeID, embeddingErr)
 		queryVector = nil
 	}
 	tx, err := s.store.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -408,7 +419,10 @@ RETURNING observation_id`,
 	).Scan(&observationID); err != nil {
 		return 0, fmt.Errorf("save recall observation: %w", err)
 	}
-	if _, err := tx.Exec(ctx, `DELETE FROM team_note_recall_observations WHERE expires_at <= NOW()`); err != nil {
+	// Opportunistic cleanup stays inside the recall transaction for now but is
+	// limited to the current scope so tenants do not contend on each other's
+	// expired rows. Moving this to a dedicated sweep loop is a future change.
+	if _, err := tx.Exec(ctx, `DELETE FROM team_note_recall_observations WHERE scope_id = $1 AND expires_at <= NOW()`, scopeID); err != nil {
 		return 0, fmt.Errorf("delete expired recall observations: %w", err)
 	}
 	return observationID, nil
@@ -1006,6 +1020,14 @@ WHERE scope_id = $1 AND note_id = $2 AND current_revision = $5`,
 		return fmt.Errorf("record note embedding failure: %w", err)
 	}
 	return nil
+}
+
+// logSemanticRecallDegraded surfaces the silent fallback from hybrid to
+// lexical-only recall so operators can tell degraded retrieval quality apart
+// from genuinely empty results.
+func (s *NoteStore) logSemanticRecallDegraded(ctx context.Context, scopeID string, embeddingErr error) {
+	s.logger.WarnContext(ctx, "semantic recall degraded to lexical-only retrieval",
+		"scope_id", scopeID, "error", embeddingErr)
 }
 
 func (s *NoteStore) embedQuery(ctx context.Context, query string) ([]float32, error) {

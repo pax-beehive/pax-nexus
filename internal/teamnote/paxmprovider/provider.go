@@ -215,6 +215,14 @@ func (p *Provider) health(ctx context.Context) error {
 	return p.do(request, nil)
 }
 
+// putBatch validates every item, groups events by resolved actor, and sends
+// one session batch per actor sequentially. A mid-sequence failure returns
+// only the error: a JSON-RPC response carries either a result or an error,
+// never both, so refs of already-delivered batches cannot be represented.
+// The retry contract makes this safe: event IDs are stable (caller-provided
+// or derived via stableID), and the server ingests session events
+// idempotently (INSERT ... ON CONFLICT (scope_id, event_id) DO NOTHING), so
+// re-sending the whole batch dedupes already-delivered events.
 func (p *Provider) putBatch(ctx context.Context, items []memoryItem) ([]map[string]string, error) {
 	prepared := make([]preparedMemoryItem, len(items))
 	for index, item := range items {
@@ -405,8 +413,11 @@ func (p *Provider) newRequest(ctx context.Context, method, path string, payload 
 		}
 		body = bytes.NewReader(encoded)
 	}
-	target := p.baseURL.ResolveReference(&url.URL{Path: path})
-	request, err := http.NewRequestWithContext(ctx, method, target.String(), body)
+	// Join by string concatenation so a base URL path prefix such as
+	// https://host/team-memory is preserved; ResolveReference would discard it
+	// for absolute paths like /v1/session-batches.
+	target := strings.TrimRight(p.baseURL.String(), "/") + path
+	request, err := http.NewRequestWithContext(ctx, method, target, body)
 	if err != nil {
 		return nil, fmt.Errorf("create Team Memory request: %w", err)
 	}

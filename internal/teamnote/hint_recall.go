@@ -28,7 +28,7 @@ func planRecallHint(
 	if request.MaxItems > 0 && selectedNotes >= request.MaxItems {
 		return PlannedRecall{}, false
 	}
-	lead, score, ok := bestHintLead(candidates, request, policy, trace, true)
+	lead, score, ok := bestHintLead(candidates, request, policy, trace)
 	if !ok {
 		return PlannedRecall{}, false
 	}
@@ -54,7 +54,6 @@ func bestHintLead(
 	request RecallRequest,
 	policy RecallPolicy,
 	trace *RecallTrace,
-	passiveGap bool,
 ) (RecallCandidate, float64, bool) {
 	threshold := policy.HintThreshold
 	if threshold <= 0 {
@@ -67,7 +66,7 @@ func bestHintLead(
 		if candidateTrace == nil || !hintEligibleCandidate(candidate, *candidateTrace, request, policy) || recallIDSelected(trace.SelectedSet, candidate.ID) {
 			continue
 		}
-		score := hintUtility(candidate, request, *candidateTrace, passiveGap)
+		score := hintUtility(candidate, request, *candidateTrace)
 		if score >= threshold && score >= policy.HintMinMarginalUtility && score > bestScore {
 			best, bestScore = candidate, score
 		}
@@ -98,11 +97,10 @@ func hintEligibleCandidate(candidate RecallCandidate, trace RecallCandidateTrace
 	}
 }
 
-func hintUtility(candidate RecallCandidate, request RecallRequest, trace RecallCandidateTrace, passiveGap bool) float64 {
-	score := 0.0
-	if passiveGap {
-		score += 0.25
-	}
+func hintUtility(candidate RecallCandidate, request RecallRequest, trace RecallCandidateTrace) float64 {
+	// The passive-gap bonus is unconditional: hints are only planned after
+	// passive recall delivered nothing, so the gap always exists here.
+	score := 0.25
 	if candidate.SemanticScore != nil {
 		score += 0.40 * clampUnit(*candidate.SemanticScore)
 	}

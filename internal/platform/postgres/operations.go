@@ -27,6 +27,7 @@ const (
 type OperationsStore struct {
 	pool     *pgxpool.Pool
 	readPool *pgxpool.Pool
+	scopeID  string
 }
 
 func (s *OperationsStore) storageReadPool() *pgxpool.Pool {
@@ -141,22 +142,22 @@ func (s *OperationsStore) scanExtractionSummary(
 	err := s.pool.QueryRow(ctx, `
 SELECT
     (SELECT count(*) FROM extraction_runs
-      WHERE created_at >= $1 AND created_at < $2 AND ($3 = '' OR agent_id = $3)),
+      WHERE scope_id = $4 AND created_at >= $1 AND created_at < $2 AND ($3 = '' OR agent_id = $3)),
     (SELECT count(*) FROM extraction_runs
-      WHERE created_at >= $1 AND created_at < $2 AND status = 'completed' AND ($3 = '' OR agent_id = $3)),
+      WHERE scope_id = $4 AND created_at >= $1 AND created_at < $2 AND status = 'completed' AND ($3 = '' OR agent_id = $3)),
     (SELECT count(*) FROM extraction_runs
-      WHERE created_at >= $1 AND created_at < $2 AND status = 'quarantined' AND ($3 = '' OR agent_id = $3)),
+      WHERE scope_id = $4 AND created_at >= $1 AND created_at < $2 AND status = 'quarantined' AND ($3 = '' OR agent_id = $3)),
     (SELECT count(*) FROM extraction_runs
-      WHERE created_at >= $1 AND created_at < $2 AND status = 'failed' AND ($3 = '' OR agent_id = $3)),
+      WHERE scope_id = $4 AND created_at >= $1 AND created_at < $2 AND status = 'failed' AND ($3 = '' OR agent_id = $3)),
     (SELECT count(*) FROM note_revisions revisions
       JOIN team_notes notes ON notes.scope_id = revisions.scope_id AND notes.note_id = revisions.note_id
-      WHERE revisions.created_at >= $1 AND revisions.created_at < $2
+      WHERE revisions.scope_id = $4 AND revisions.created_at >= $1 AND revisions.created_at < $2
         AND ($3 = '' OR notes.origin_agent_id = $3)),
     (SELECT count(*) FROM session_events
-      WHERE extracted_at IS NULL AND ($3 = '' OR agent_id = $3)),
+      WHERE scope_id = $4 AND extracted_at IS NULL AND ($3 = '' OR agent_id = $3)),
     (SELECT min(captured_at) FROM session_events
-      WHERE extracted_at IS NULL AND ($3 = '' OR agent_id = $3))`,
-		filter.From, filter.To, filter.AgentID,
+      WHERE scope_id = $4 AND extracted_at IS NULL AND ($3 = '' OR agent_id = $3))`,
+		filter.From, filter.To, filter.AgentID, s.scopeID,
 	).Scan(
 		&result.Runs, &result.Completed, &result.Quarantined, &result.Failed,
 		&result.AdmittedRevisions, &result.UnextractedEvents, &result.OldestUnextractedAt,
@@ -209,7 +210,7 @@ WITH event_stats AS (
 note_stats AS (
     SELECT origin_agent_id AS agent_id, count(*) AS notes_authored
     FROM team_notes
-    WHERE created_at >= $1 AND created_at < $2 AND origin_agent_id <> ''
+    WHERE scope_id = $3 AND created_at >= $1 AND created_at < $2 AND origin_agent_id <> ''
     GROUP BY origin_agent_id
 ),
 agent_ids AS (
@@ -236,7 +237,7 @@ FROM agent_ids ids
 LEFT JOIN onprem_agents agents ON agents.agent_id = ids.agent_id
 LEFT JOIN event_stats events ON events.agent_id = ids.agent_id
 LEFT JOIN note_stats notes ON notes.agent_id = ids.agent_id
-ORDER BY ids.agent_id`, filter.From, filter.To)
+ORDER BY ids.agent_id`, filter.From, filter.To, s.scopeID)
 	if err != nil {
 		return nil, fmt.Errorf("list postgres agent stats: %w", err)
 	}
@@ -274,10 +275,10 @@ FROM (
     SELECT origin_agent_id AS agent_id, note_id, kind, subject, created_at,
            row_number() OVER (PARTITION BY origin_agent_id ORDER BY created_at DESC, note_id DESC) AS position
     FROM team_notes
-    WHERE origin_agent_id <> ''
+    WHERE scope_id = $1 AND origin_agent_id <> ''
 ) ranked
 WHERE position <= 5
-ORDER BY agent_id, created_at DESC, note_id DESC`)
+ORDER BY agent_id, created_at DESC, note_id DESC`, s.scopeID)
 	if err != nil {
 		return fmt.Errorf("list postgres agent recent notes: %w", err)
 	}
@@ -392,7 +393,7 @@ func (s *OperationsStore) GetRecallDiagnostic(
 SELECT observation_id, created_at, recipient_agent_id, recipient_session_id,
        duration_ms, token_budget, max_items, envelope, trace, expires_at <= NOW()
 FROM team_note_recall_observations
-WHERE observation_id = $1`, observationID).Scan(
+WHERE scope_id = $2 AND observation_id = $1`, observationID, s.scopeID).Scan(
 		&result.ObservationID, &result.OccurredAt, &result.AgentID, &result.SessionID,
 		&result.DurationMS, &result.TokenBudget, &result.MaxItems, &encodedEnvelope, &encodedTrace, &expired,
 	)
@@ -508,7 +509,7 @@ func (s *OperationsStore) CaptureStorage(
 	if err != nil {
 		warnings = append(warnings, "extraction_river_relations_unavailable")
 	} else {
-		definitions[1].tables = append(definitions[1].tables, riverTables...)
+		appendComponentTables(definitions, "extraction", riverTables)
 	}
 	components := make([]operations.StorageComponent, 0, len(definitions))
 	var categorizedBytes int64
@@ -552,6 +553,17 @@ RETURNING snapshot_id`, snapshot.SchemaVersion, snapshot.CapturedAt, snapshot.St
 		return operations.StorageSnapshot{}, fmt.Errorf("save postgres storage snapshot: %w", err)
 	}
 	return snapshot, nil
+}
+
+// appendComponentTables extends the named storage component's table list, so
+// callers never depend on the positional layout of storageDefinitions.
+func appendComponentTables(definitions []storageDefinition, name string, tables []string) {
+	for index := range definitions {
+		if definitions[index].name == name {
+			definitions[index].tables = append(definitions[index].tables, tables...)
+			return
+		}
+	}
 }
 
 func storageReadContext(parent context.Context, remainingReads int) (context.Context, context.CancelFunc) {

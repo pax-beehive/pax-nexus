@@ -2,10 +2,7 @@ package todoapp
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
-	"time"
 
 	"github.com/pax-beehive/pax-nexus/internal/session"
 )
@@ -40,7 +37,7 @@ func NewLakeReporter(sink EvidenceSink, opts ...lakeReporterOption) (*LakeReport
 	}
 	r := &LakeReporter{
 		sink:  sink,
-		newID: generateRandomID,
+		newID: defaultNewID,
 	}
 	for _, opt := range opts {
 		opt(r)
@@ -95,13 +92,4 @@ func (r *LakeReporter) Report(ctx context.Context, scopeID string, event ReportE
 	}
 
 	return nil
-}
-
-// generateRandomID generates a random 16-byte hex string.
-func generateRandomID() string {
-	buf := make([]byte, 16)
-	if _, err := rand.Read(buf); err != nil {
-		return fmt.Sprintf("id-%d", time.Now().UnixNano())
-	}
-	return hex.EncodeToString(buf)
 }

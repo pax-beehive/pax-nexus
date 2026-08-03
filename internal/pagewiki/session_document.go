@@ -79,8 +79,8 @@ func (SessionDocumentEditor) Edit(_ context.Context, input EditInput) (PageDraft
 	var selected *knowledgeUnit
 	for _, unit := range sessionKnowledgeUnits(input.SourceRevision) {
 		if unit.key == input.Brief.Key {
-			copy := unit
-			selected = &copy
+			matched := unit
+			selected = &matched
 			break
 		}
 	}
@@ -136,7 +136,7 @@ func addRelatedKnowledgeLinks(
 		targetID := briefs[candidate].TargetPageID
 		targetTitle := units[candidate].title
 		if briefs[candidate].Action == PageActionCreate {
-			targetID = stableID("page", sourceRevisionID, briefs[candidate].Key)
+			targetID = StableID("page", sourceRevisionID, briefs[candidate].Key)
 		}
 		if targetID != "" && targetTitle != "" {
 			briefs[index].RelatedPages = []RelatedPage{{
@@ -239,13 +239,13 @@ func labeledKnowledge(content string) (string, string, bool) {
 func knowledgeTitle(candidate, content string) string {
 	value := strings.ToLower(candidate + " " + content)
 	switch {
-	case containsAny(value, "retrieval", "search", "检索", "召回", "一到三跳"):
+	case ContainsAny(value, "retrieval", "search", "检索", "召回", "一到三跳"):
 		return "LLM Wiki Retrieval"
-	case containsAny(value, "source anchor", "source 原文", "citation", "引用区间", "evidence"):
+	case ContainsAny(value, "source anchor", "source 原文", "citation", "引用区间", "evidence"):
 		return "Evidence Grounding"
-	case containsAny(value, "wiki data", "wiki 数据", "数据建模", "page revision", "revisioned tree"):
+	case ContainsAny(value, "wiki data", "wiki 数据", "数据建模", "page revision", "revisioned tree"):
 		return "Wiki Data Model"
-	case containsAny(value, "experiment", "实验", "coal", "briquette", "煤球"):
+	case ContainsAny(value, "experiment", "实验", "coal", "briquette", "煤球"):
 		return "White Briquette Experiment"
 	}
 	if title := strings.TrimSpace(candidate); title != "" {
@@ -294,15 +294,6 @@ func uniqueStrings(values []string) []string {
 func containsString(values []string, target string) bool {
 	for _, value := range values {
 		if value == target {
-			return true
-		}
-	}
-	return false
-}
-
-func containsAny(value string, candidates ...string) bool {
-	for _, candidate := range candidates {
-		if strings.Contains(value, candidate) {
 			return true
 		}
 	}

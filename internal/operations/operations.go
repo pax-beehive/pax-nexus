@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -376,8 +377,10 @@ func DecodeCursor(value string) (time.Time, int64, error) {
 	if err != nil {
 		return time.Time{}, 0, ErrInvalidInput
 	}
-	var id int64
-	if _, err := fmt.Sscan(parts[1], &id); err != nil || id <= 0 {
+	// strconv.ParseInt parses the exact substring: trailing garbage such as
+	// "12abc" is rejected instead of being silently truncated to 12.
+	id, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil || id <= 0 {
 		return time.Time{}, 0, ErrInvalidInput
 	}
 	return timestamp.UTC(), id, nil

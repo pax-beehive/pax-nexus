@@ -151,6 +151,26 @@ func (s *channelStoreSuite) TestEnvelopeLifecycleIsAuthorizedAndIdempotent() {
 	}
 }
 
+func (s *channelStoreSuite) TestListRejectsUnknownCursorInsteadOfSilentEmptyPage() {
+	sender := s.issuePrincipal("cursor-sender")
+	recipient := s.issuePrincipal("cursor-recipient")
+	created, err := s.channel.Send(context.Background(), sender,
+		postgresChannelRequest(recipient.AgentID, uniqueCredentialValue("cursor-send")))
+	s.Require().NoError(err)
+
+	_, err = s.channel.List(context.Background(), recipient, onprem.ListEnvelopesFilter{
+		Cursor: uniqueCredentialValue("missing-envelope"),
+	})
+	s.Require().ErrorIs(err, onprem.ErrInvalidChannelRequest,
+		"a nonexistent cursor envelope must be a diagnosable client error")
+
+	page, err := s.channel.List(context.Background(), recipient, onprem.ListEnvelopesFilter{
+		Cursor: created.ID,
+	})
+	s.Require().NoError(err)
+	s.Empty(page, "a valid cursor pointing at the newest envelope yields an empty next page")
+}
+
 func (s *channelStoreSuite) TestSendRequiresAnActiveTargetAgent() {
 	sender := s.issuePrincipal("sender-target")
 	request := postgresChannelRequest(uniqueCredentialValue("missing-agent"), uniqueCredentialValue("missing"))

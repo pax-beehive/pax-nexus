@@ -84,7 +84,7 @@ func (h *Handler) ListTodos(
 	}
 	todos, err := h.service.ListTodos(ctx, principal.ScopeID, status)
 	if err != nil {
-		writeDomainError(c, err)
+		h.writeDomainError(c, err)
 		return
 	}
 	c.JSON(consts.StatusOK, todosToAPI(todos))
@@ -105,7 +105,7 @@ func (h *Handler) CreateTodo(
 	}
 	todo, err := h.service.CreateTodo(ctx, principal.ScopeID, principal.UserID, request.Title, body)
 	if err != nil {
-		writeDomainError(c, err)
+		h.writeDomainError(c, err)
 		return
 	}
 	c.JSON(consts.StatusCreated, todoToAPI(todo))
@@ -122,7 +122,7 @@ func (h *Handler) CompleteTodo(
 	}
 	todo, err := h.service.CompleteTodo(ctx, principal.ScopeID, principal.UserID, request.TodoID)
 	if err != nil {
-		writeDomainError(c, err)
+		h.writeDomainError(c, err)
 		return
 	}
 	c.JSON(consts.StatusOK, todoToAPI(todo))
@@ -135,7 +135,7 @@ func (h *Handler) ListTodoSuggestions(ctx context.Context, c *app.RequestContext
 	}
 	suggestions, err := h.service.PendingSuggestions(ctx, principal.ScopeID)
 	if err != nil {
-		writeDomainError(c, err)
+		h.writeDomainError(c, err)
 		return
 	}
 	c.JSON(consts.StatusOK, suggestionsToAPI(suggestions))
@@ -148,7 +148,7 @@ func (h *Handler) RefreshTodoSuggestions(ctx context.Context, c *app.RequestCont
 	}
 	created, err := h.service.RefreshSuggestions(ctx, principal.ScopeID)
 	if err != nil {
-		writeDomainError(c, err)
+		h.writeDomainError(c, err)
 		return
 	}
 	c.JSON(consts.StatusOK, &api.RefreshTodoSuggestionsResponse{Created: int32(created)})
@@ -165,7 +165,7 @@ func (h *Handler) AcceptTodoSuggestion(
 	}
 	todo, err := h.service.AcceptSuggestion(ctx, principal.ScopeID, principal.UserID, request.SuggestionID)
 	if err != nil {
-		writeDomainError(c, err)
+		h.writeDomainError(c, err)
 		return
 	}
 	c.JSON(consts.StatusOK, todoToAPI(todo))
@@ -181,7 +181,7 @@ func (h *Handler) DismissTodoSuggestion(
 		return
 	}
 	if err := h.service.DismissSuggestion(ctx, principal.ScopeID, principal.UserID, request.SuggestionID); err != nil {
-		writeDomainError(c, err)
+		h.writeDomainError(c, err)
 		return
 	}
 	c.JSON(consts.StatusOK, &api.DismissTodoSuggestionResponse{})

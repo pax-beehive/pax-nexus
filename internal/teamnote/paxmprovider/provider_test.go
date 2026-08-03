@@ -408,3 +408,23 @@ func TestPutUsesTimestampSequenceAndStableID(t *testing.T) {
 		t.Fatalf("unexpected event: %+v", payload.Events[0])
 	}
 }
+
+func (s *providerSuite) TestRequestsPreserveBaseURLPathPrefix() {
+	provider, err := paxmprovider.New(paxmprovider.Config{
+		BaseURL: "http://team-memory:8080/team-memory/", APIKey: "scope-key", UserID: "owner",
+		AgentID: "opencode-producer", ScopeID: "local-team",
+		Client: &http.Client{Transport: s.transport}, Logger: slog.New(slog.NewJSONHandler(&s.logs, nil)),
+	})
+	s.Require().NoError(err)
+	s.provider = provider
+
+	response := s.serve(`{"jsonrpc":"2.0","id":"prefix-health","method":"paxm.health","params":{}}`)
+	s.Nil(response["error"])
+	response = s.serve(`{"jsonrpc":"2.0","id":"prefix-put","method":"paxm.put","params":{` +
+		`"id":"prefix-event","text":"handoff","created_at":"2026-07-14T12:00:00Z","metadata":{"session_id":"session"}}}`)
+	s.Nil(response["error"])
+
+	s.Require().Len(s.transport.requests, 2)
+	s.Equal("/team-memory/healthz", s.transport.requests[0].URL.Path)
+	s.Equal("/team-memory/v1/session-batches", s.transport.requests[1].URL.Path)
+}

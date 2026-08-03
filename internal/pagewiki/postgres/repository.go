@@ -257,16 +257,30 @@ ON CONFLICT (scope_id, page_revision_id) DO NOTHING`,
 }
 
 func (r *Repository) SaveMaintenanceRun(ctx context.Context, run pagewiki.MaintenanceRun) error {
+	// Snapshot the pre-write state so a failed database leg can be undone:
+	// memory records first (it enforces the immutability rules), but a run
+	// the database rejected must not stay recorded as succeeded in memory —
+	// the consumer's retry would short-circuit on it and the row would never
+	// be persisted.
+	previous, err := r.memory.MaintenanceRun(ctx, run.ID)
+	existed := err == nil
+	if err != nil && !errors.Is(err, pagewiki.ErrNotFound) {
+		return fmt.Errorf("load previous MaintenanceRun %q: %w", run.ID, err)
+	}
 	if err := r.memory.SaveMaintenanceRun(ctx, run); err != nil {
 		return err
 	}
 	// The memory layer above has already enforced run immutability rules;
 	// updating on conflict lets a retried run replace its failed predecessor.
-	return r.insertJSON(ctx, `
+	if err := r.insertJSON(ctx, `
 INSERT INTO pagewiki_maintenance_runs (scope_id, run_id, payload)
 VALUES ($1, $2, $3)
 ON CONFLICT (scope_id, run_id) DO UPDATE
-SET payload = EXCLUDED.payload`, run.ID, run)
+SET payload = EXCLUDED.payload`, run.ID, run); err != nil {
+		r.memory.RollbackMaintenanceRun(run.ID, previous, existed)
+		return err
+	}
+	return nil
 }
 
 func (r *Repository) TopicTree(ctx context.Context) (pagewiki.TopicTree, error) {

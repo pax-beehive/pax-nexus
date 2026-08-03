@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -1692,4 +1693,96 @@ func extractionEventSlice(eventID, checksum string, sequence int64) evidencelake
 	slice.Events[0].ID = eventID
 	slice.Events[0].Sequence = sequence
 	return slice
+}
+
+func (s *openAISuite) TestWaitForBackgroundReportsBackgroundErrorOnlyOnce() {
+	backgroundErr := errors.New("background provider failed")
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		body, err := io.ReadAll(request.Body)
+		s.Require().NoError(err)
+		if strings.Contains(string(body), "KNOWLEDGE CONTEXT CHECKPOINT COMPACTION") {
+			return nil, backgroundErr
+		}
+		content := `{"candidates":[{"action":"create","kind":"status","subject":"release","body":"Release state.","evidence_event_ids":["event-1"]}]}`
+		return response(http.StatusOK, fmt.Sprintf(`{"choices":[{"message":{"content":%q}}],"usage":{"prompt_tokens":100}}`, content)), nil
+	})}
+	adapter, err := extractor.NewOpenAI(extractor.OpenAIConfig{
+		BaseURL: "http://extractor.test", Model: "model", Client: client,
+		ContextMode: extractor.ContextModeRolling, EpisodeStore: newMemoryEpisodeStore(),
+		CompactionEnabled: true, CompactStartTokens: 1, CompactTokens: 1000,
+	})
+	s.Require().NoError(err)
+	ctx := teamnote.WithScope(context.Background(), "scope-background-error-drain")
+	_, err = adapter.Extract(ctx, extractionEventSlice("event-1", "checksum-1", 1))
+	s.Require().NoError(err)
+
+	s.Require().ErrorIs(adapter.WaitForBackground(ctx), backgroundErr)
+	s.Require().NoError(adapter.WaitForBackground(ctx),
+		"a second wait must not repeat the already reported background error")
+}
+
+// blockableLoadEpisodeStore lets a test fail LoadEpisode calls on demand, so
+// a summary persist failure can be injected deterministically.
+type blockableLoadEpisodeStore struct {
+	*memoryEpisodeStore
+	mu      sync.Mutex
+	loadErr error
+}
+
+func (s *blockableLoadEpisodeStore) setLoadErr(err error) {
+	s.mu.Lock()
+	s.loadErr = err
+	s.mu.Unlock()
+}
+
+func (s *blockableLoadEpisodeStore) LoadEpisode(ctx context.Context, key extractor.EpisodeKey) (extractor.Episode, bool, error) {
+	s.mu.Lock()
+	err := s.loadErr
+	s.mu.Unlock()
+	if err != nil {
+		return extractor.Episode{}, false, err
+	}
+	return s.memoryEpisodeStore.LoadEpisode(ctx, key)
+}
+
+func (s *openAISuite) TestSummaryPersistDeadlineDoesNotFailNextForegroundExtraction() {
+	store := &blockableLoadEpisodeStore{memoryEpisodeStore: newMemoryEpisodeStore()}
+	releaseSummary := make(chan struct{})
+	client := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		body, err := io.ReadAll(request.Body)
+		s.Require().NoError(err)
+		if strings.Contains(string(body), "Update the rolling continuity summary") {
+			<-releaseSummary
+			content := `{"summary":"Release remains planned."}`
+			return response(http.StatusOK, fmt.Sprintf(`{"choices":[{"message":{"content":%q}}]}`, content)), nil
+		}
+		eventID := "event-1"
+		if strings.Contains(string(body), "event-2") {
+			eventID = "event-2"
+		}
+		content := fmt.Sprintf(`{"candidates":[{"action":"create","kind":"status","subject":"release","body":"Release state.","evidence_event_ids":[%q]}]}`, eventID)
+		return response(http.StatusOK, fmt.Sprintf(`{"choices":[{"message":{"content":%q}}]}`, content)), nil
+	})}
+	adapter, err := extractor.NewOpenAI(extractor.OpenAIConfig{
+		BaseURL: "http://extractor.test", Model: "model", Client: client,
+		ContextMode: extractor.ContextModeRolling, EpisodeStore: store,
+		SummaryEnabled: true, SummaryTriggerTokens: 1, SummaryTailTokens: 1,
+	})
+	s.Require().NoError(err)
+	ctx := teamnote.WithScope(context.Background(), "scope-summary-persist-deadline")
+	_, err = adapter.Extract(ctx, extractionEventSlice("event-1", "checksum-1", 1))
+	s.Require().NoError(err)
+
+	// Simulate the persist step timing out (the production shape is a store
+	// call failing after the persist budget was burned waiting for the
+	// episode lease behind a slow foreground extraction).
+	store.setLoadErr(fmt.Errorf("load episode: %w", context.DeadlineExceeded))
+	close(releaseSummary)
+	s.Require().ErrorIs(adapter.WaitForBackground(ctx), context.DeadlineExceeded,
+		"the interrupted persist is still reported to the background waiter")
+	store.setLoadErr(nil)
+
+	_, err = adapter.Extract(ctx, extractionEventSlice("event-2", "checksum-2", 2))
+	s.Require().NoError(err,
+		"a timed-out summary persist must not fail the next unrelated foreground extraction")
 }
