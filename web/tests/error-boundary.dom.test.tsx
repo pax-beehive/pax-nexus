@@ -40,13 +40,15 @@ describe("route boundary: a failing route keeps the shell usable", () => {
   it("renders a recovery card in place of the route, nav and identity survive", async () => {
     const consoleSpy = silenceConsoleError();
     const { fetch } = brokenThenHealedAgentsFetch();
-    await renderApp({ route: "/agents", me: makeMe(), fetch });
+    const { user } = await renderApp({ route: "/agents", me: makeMe(), fetch });
 
     // The route content is replaced by a recovery card...
     const alert = await screen.findByRole("alert");
     within(alert).getByRole("button", { name: "Retry" });
     within(alert).getByRole("button", { name: "Back to My Agents" });
-    // ...while the shell, navigation and identity stay put.
+    // ...while the shell, navigation and identity stay put (the Directory
+    // nav group is collapsed by default, so expand it first).
+    await user.click(screen.getByRole("button", { name: "Directory" }));
     expect(screen.getByRole("link", { name: "Members" })).toBeTruthy();
     expect(screen.getByText("alice@example.com")).toBeTruthy();
 
@@ -66,6 +68,8 @@ describe("route boundary: a failing route keeps the shell usable", () => {
     const { user } = await renderApp({ route: "/agents", me: makeMe(), fetch });
 
     await screen.findByRole("alert");
+    // The Directory nav group is collapsed by default; expand it to navigate.
+    await user.click(screen.getByRole("button", { name: "Directory" }));
     await user.click(screen.getByRole("link", { name: "Members" }));
 
     // The failing region is left behind; the new route renders normally.

@@ -28,23 +28,32 @@ function operationsNavLink(): HTMLElement | null {
   return document.querySelector('nav a[href="/admin/operations"]');
 }
 
+/** The Insights group is collapsed by default; expand it so capability
+    gating (not the group toggle) is what shows or hides the nav item. */
+async function expandInsights(user: { click: (el: HTMLElement) => Promise<void> }): Promise<void> {
+  await user.click(screen.getByRole("button", { name: "Insights" }));
+}
+
 describe("section 12 item 1: Operations nav follows the server capability", () => {
   it("shows the nav item for an active admin carrying view.operations", async () => {
-    await renderApp({ route: "/agents", me: opsMe(), fetch: agentsOnlyFetch });
+    const { user } = await renderApp({ route: "/agents", me: opsMe(), fetch: agentsOnlyFetch });
+    await expandInsights(user);
     expect(operationsNavLink()).not.toBeNull();
   });
 
   it("hides the nav item when the capability list is empty", async () => {
-    await renderApp({ route: "/agents", me: makeMe(), fetch: agentsOnlyFetch });
+    const { user } = await renderApp({ route: "/agents", me: makeMe(), fetch: agentsOnlyFetch });
+    await expandInsights(user);
     expect(operationsNavLink()).toBeNull();
   });
 
   it("hides the nav item when only unknown capabilities are published", async () => {
-    await renderApp({
+    const { user } = await renderApp({
       route: "/agents",
       me: makeMe({ capabilities: ["view.future-feature"] }),
       fetch: agentsOnlyFetch,
     });
+    await expandInsights(user);
     expect(operationsNavLink()).toBeNull();
   });
 
@@ -53,7 +62,8 @@ describe("section 12 item 1: Operations nav follows the server capability", () =
     // behavior is an empty list, not a role-based guess (doc section 2.1).
     const me = makeMe();
     delete (me as Partial<HumanMe>).capabilities;
-    await renderApp({ route: "/agents", me, fetch: agentsOnlyFetch });
+    const { user } = await renderApp({ route: "/agents", me, fetch: agentsOnlyFetch });
+    await expandInsights(user);
     expect(operationsNavLink()).toBeNull();
   });
 
@@ -71,7 +81,7 @@ describe("section 12 item 1: Operations nav follows the server capability", () =
 
 describe("section 12 item 2: route guard denies without firing Operations requests", () => {
   it("redirects a capable-looking admin without the capability back to /agents", async () => {
-    const { fetchMock } = await renderApp({
+    const { fetchMock, user } = await renderApp({
       route: "/admin/operations",
       me: makeMe({ capabilities: ["view.audit-future"] }),
       fetch: agentsOnlyFetch,
@@ -80,6 +90,7 @@ describe("section 12 item 2: route guard denies without firing Operations reques
     await screen.findByRole("heading", { name: "My Agents" });
     expect(window.location.pathname).toBe("/agents");
     expect(callsTo(fetchMock, "/v1/admin/operations")).toHaveLength(0);
+    await expandInsights(user);
     expect(operationsNavLink()).toBeNull();
   });
 
