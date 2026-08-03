@@ -12,16 +12,18 @@ import (
 	"github.com/pax-beehive/pax-nexus/internal/session"
 )
 
+// PageWikiConsumerStore serves every scope from one pool: each method either
+// takes the scope explicitly or reads it off the row, so a single instance
+// backs the process-wide session consumer.
 type PageWikiConsumerStore struct {
-	pool    *pgxpool.Pool
-	scopeID string
+	pool *pgxpool.Pool
 }
 
-func NewPageWikiConsumerStore(pool *pgxpool.Pool, scopeID string) (*PageWikiConsumerStore, error) {
-	if pool == nil || strings.TrimSpace(scopeID) == "" {
-		return nil, fmt.Errorf("create Page Wiki consumer store: pool and scope are required")
+func NewPageWikiConsumerStore(pool *pgxpool.Pool) (*PageWikiConsumerStore, error) {
+	if pool == nil {
+		return nil, fmt.Errorf("create Page Wiki consumer store: pool is required")
 	}
-	return &PageWikiConsumerStore{pool: pool, scopeID: scopeID}, nil
+	return &PageWikiConsumerStore{pool: pool}, nil
 }
 
 func (s *PageWikiConsumerStore) AutoInjectEnabled(ctx context.Context, scopeID string) (bool, error) {
@@ -48,6 +50,10 @@ ON CONFLICT (scope_id) DO UPDATE SET auto_inject = EXCLUDED.auto_inject, updated
 	return nil
 }
 
+// PendingStreams returns the pending streams of every scope whose ingestion
+// settings enable auto inject; the auto-inject decision stays per scope
+// through the settings join, and each row carries its own scope_id so the
+// consumer can resolve that scope's injector.
 func (s *PageWikiConsumerStore) PendingStreams(ctx context.Context) ([]sessionconsumer.Stream, error) {
 	return s.queryStreams(ctx, `
 SELECT stream.scope_id, stream.user_id, stream.agent_id, stream.session_id, stream.last_sequence
@@ -61,11 +67,10 @@ LEFT JOIN session_processor_cursors AS cursor
  AND cursor.agent_id = stream.agent_id
  AND cursor.session_id = stream.session_id
 WHERE stream.last_sequence > COALESCE(cursor.committed_sequence, 0)
-  AND stream.scope_id = $3
   AND stream.source = 'agent-session'
   AND stream.agent_id <> ''
 ORDER BY stream.updated_at
-LIMIT 100`, sessionconsumer.ProcessorName, sessionconsumer.ProcessorVersion, s.scopeID)
+LIMIT 100`, sessionconsumer.ProcessorName, sessionconsumer.ProcessorVersion)
 }
 
 // Progress reports the ingestion backlog for the status page. Unlike

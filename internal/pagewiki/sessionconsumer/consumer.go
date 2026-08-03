@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -94,45 +95,60 @@ type Rebuilder interface {
 	RebuildPageWiki(context.Context, string, string, string, time.Time) error
 }
 
+// InjectorFor and RebuilderFor resolve one scope's collaborators. The
+// consumer sweeps every scope from a single loop, so it holds resolvers
+// rather than instances: wiring builds them over the Page Wiki service and
+// repository managers, which hydrate a scope on first use and cache it.
+type InjectorFor func(ctx context.Context, scopeID string) (Injector, error)
+
+type RebuilderFor func(ctx context.Context, scopeID string) (Rebuilder, error)
+
+// scopeRebuild is one scope's rebuild slot: the state machine snapshot the
+// status endpoint reports plus the cutoff the queued run was armed with.
+// Every scope has its own, so one tenant's rebuild never swallows another's.
+type scopeRebuild struct {
+	status RebuildStatus
+	since  time.Time
+}
+
 type Controller struct {
-	store     Store
-	injector  Injector
-	rebuilder Rebuilder
-	logger    *slog.Logger
-	interval  time.Duration
-	trigger   chan struct{}
-	mu        sync.Mutex
-	failures  map[string]failureRecord
-	now       func() time.Time
-	// stateMu guards the rebuild fields below. It is separate from mu so
-	// status reads never wait behind a minutes-long injection scan.
-	stateMu      sync.Mutex
-	rebuild      RebuildStatus
-	rebuildScope string
-	rebuildSince time.Time
+	store        Store
+	injectorFor  InjectorFor
+	rebuilderFor RebuilderFor
+	logger       *slog.Logger
+	interval     time.Duration
+	trigger      chan struct{}
+	mu           sync.Mutex
+	failures     map[string]failureRecord
+	now          func() time.Time
+	// stateMu guards rebuilds below. It is separate from mu so status reads
+	// never wait behind a minutes-long injection scan.
+	stateMu  sync.Mutex
+	rebuilds map[string]*scopeRebuild
 }
 
 func New(
 	store Store,
-	injector Injector,
-	rebuilder Rebuilder,
+	injectorFor InjectorFor,
+	rebuilderFor RebuilderFor,
 	logger *slog.Logger,
 	interval time.Duration,
 ) (*Controller, error) {
-	if store == nil || injector == nil || rebuilder == nil || logger == nil {
+	if store == nil || injectorFor == nil || rebuilderFor == nil || logger == nil {
 		return nil, fmt.Errorf(
-			"create Page Wiki session consumer: store, injector, rebuilder, and logger are required",
+			"create Page Wiki session consumer: store, injector resolver, " +
+				"rebuilder resolver, and logger are required",
 		)
 	}
 	if interval <= 0 {
 		interval = 2 * time.Second
 	}
 	return &Controller{
-		store: store, injector: injector, rebuilder: rebuilder,
+		store: store, injectorFor: injectorFor, rebuilderFor: rebuilderFor,
 		logger: logger, interval: interval, trigger: make(chan struct{}, 1),
 		failures: make(map[string]failureRecord),
 		now:      time.Now,
-		rebuild:  RebuildStatus{State: RebuildIdle},
+		rebuilds: make(map[string]*scopeRebuild),
 	}, nil
 }
 
@@ -164,7 +180,7 @@ func (c *Controller) Status(ctx context.Context, scopeID string) (Status, error)
 	if err != nil {
 		return Status{}, fmt.Errorf("read Page Wiki ingestion status: %w", err)
 	}
-	status := Status{AutoInject: enabled, Rebuild: c.rebuildSnapshot()}
+	status := Status{AutoInject: enabled, Rebuild: c.rebuildSnapshot(scopeID)}
 	progress, err := c.store.Progress(ctx, scopeID)
 	if err != nil {
 		c.logger.WarnContext(ctx, "read Page Wiki ingestion progress", "error", err)
@@ -181,20 +197,27 @@ func (c *Controller) SetAutoInject(ctx context.Context, scopeID string, enabled 
 	if err := c.store.SetAutoInjectEnabled(ctx, scopeID, enabled); err != nil {
 		return Status{}, fmt.Errorf("set Page Wiki auto injection: %w", err)
 	}
-	return Status{AutoInject: enabled, Rebuild: c.rebuildSnapshot()}, nil
+	return Status{AutoInject: enabled, Rebuild: c.rebuildSnapshot(scopeID)}, nil
 }
 
+// Rebuild arms scopeID's own rebuild slot. A scope whose rebuild is already
+// queued or running keeps its armed cutoff and reads back its current state,
+// so repeated requests merge — per scope, independently of every other one.
 func (c *Controller) Rebuild(_ context.Context, scopeID string, since time.Time) (Status, error) {
 	if strings.TrimSpace(scopeID) == "" {
 		return Status{}, fmt.Errorf("rebuild Page Wiki: scope is required")
 	}
 	c.stateMu.Lock()
-	if c.rebuild.State != RebuildQueued && c.rebuild.State != RebuildRunning {
-		c.rebuild = RebuildStatus{State: RebuildQueued, FinishedAt: c.rebuild.FinishedAt}
-		c.rebuildScope = scopeID
-		c.rebuildSince = since
+	entry, found := c.rebuilds[scopeID]
+	if !found {
+		entry = &scopeRebuild{status: RebuildStatus{State: RebuildIdle}}
+		c.rebuilds[scopeID] = entry
 	}
-	snapshot := c.rebuild
+	if entry.status.State != RebuildQueued && entry.status.State != RebuildRunning {
+		entry.status = RebuildStatus{State: RebuildQueued, FinishedAt: entry.status.FinishedAt}
+		entry.since = since
+	}
+	snapshot := entry.status
 	c.stateMu.Unlock()
 	select {
 	case c.trigger <- struct{}{}:
@@ -203,31 +226,56 @@ func (c *Controller) Rebuild(_ context.Context, scopeID string, since time.Time)
 	return Status{AutoInject: true, Rebuild: snapshot}, nil
 }
 
-// maybeRebuild executes a queued rebuild on the consumer goroutine, using
-// the loop's context so a disconnected HTTP client cannot cancel it.
+// maybeRebuild drains the scopes with a queued rebuild on the consumer
+// goroutine, using the loop's context so a disconnected HTTP client cannot
+// cancel it.
 func (c *Controller) maybeRebuild(ctx context.Context) {
+	for _, scopeID := range c.queuedRebuildScopes() {
+		c.runScopeRebuild(ctx, scopeID)
+	}
+}
+
+// queuedRebuildScopes snapshots the scopes waiting for a rebuild in a
+// deterministic order. Scopes queued after the snapshot are picked up by the
+// next tick: Rebuild always pings the trigger, and the trigger's one slot of
+// buffer means that wakeup survives an in-flight tick.
+func (c *Controller) queuedRebuildScopes() []string {
 	c.stateMu.Lock()
-	if c.rebuild.State != RebuildQueued {
+	defer c.stateMu.Unlock()
+	scopes := make([]string, 0, len(c.rebuilds))
+	for scopeID, entry := range c.rebuilds {
+		if entry.status.State == RebuildQueued {
+			scopes = append(scopes, scopeID)
+		}
+	}
+	sort.Strings(scopes)
+	return scopes
+}
+
+// runScopeRebuild moves one scope from queued to running, executes it, and
+// records its terminal state. Only that scope's slot is touched, so a
+// concurrent request for another scope keeps its own queued state.
+func (c *Controller) runScopeRebuild(ctx context.Context, scopeID string) {
+	c.stateMu.Lock()
+	entry, found := c.rebuilds[scopeID]
+	if !found || entry.status.State != RebuildQueued {
 		c.stateMu.Unlock()
 		return
 	}
-	c.rebuild.State = RebuildRunning
-	scopeID, since := c.rebuildScope, c.rebuildSince
+	entry.status.State = RebuildRunning
+	since := entry.since
 	c.stateMu.Unlock()
 
-	c.mu.Lock()
-	err := c.rebuilder.RebuildPageWiki(ctx, scopeID, ProcessorName, ProcessorVersion, since)
-	if err == nil {
-		c.failures = make(map[string]failureRecord)
-	}
-	c.mu.Unlock()
+	err := c.rebuildScope(ctx, scopeID, since)
 
 	c.stateMu.Lock()
 	if err != nil {
-		c.rebuild = RebuildStatus{State: RebuildFailed, Error: err.Error(), FinishedAt: c.rebuild.FinishedAt}
+		entry.status = RebuildStatus{
+			State: RebuildFailed, Error: err.Error(), FinishedAt: entry.status.FinishedAt,
+		}
 	} else {
 		finished := c.now()
-		c.rebuild = RebuildStatus{State: RebuildIdle, FinishedAt: &finished}
+		entry.status = RebuildStatus{State: RebuildIdle, FinishedAt: &finished}
 	}
 	c.stateMu.Unlock()
 	if err != nil {
@@ -235,16 +283,52 @@ func (c *Controller) maybeRebuild(ctx context.Context) {
 	}
 }
 
-func (c *Controller) rebuildSnapshot() RebuildStatus {
-	c.stateMu.Lock()
-	defer c.stateMu.Unlock()
-	return c.rebuild
+// rebuildScope resolves the scope's rebuilder before taking mu — hydrating a
+// cold scope must not block the injection scan — then rebuilds under mu so a
+// rebuild never races an in-flight injection. A successful rebuild clears
+// only that scope's injection backoff.
+func (c *Controller) rebuildScope(ctx context.Context, scopeID string, since time.Time) error {
+	rebuilder, err := c.rebuilderFor(ctx, scopeID)
+	if err != nil {
+		return fmt.Errorf("resolve Page Wiki rebuilder: %w", err)
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if err := rebuilder.RebuildPageWiki(ctx, scopeID, ProcessorName, ProcessorVersion, since); err != nil {
+		return err
+	}
+	prefix := scopeID + "/"
+	for key := range c.failures {
+		if strings.HasPrefix(key, prefix) {
+			delete(c.failures, key)
+		}
+	}
+	return nil
 }
 
+// rebuildSnapshot reports scopeID's rebuild state. A scope that never
+// requested one reads back idle, the state every scope starts in.
+func (c *Controller) rebuildSnapshot(scopeID string) RebuildStatus {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	if entry, found := c.rebuilds[scopeID]; found {
+		return entry.status
+	}
+	return RebuildStatus{State: RebuildIdle}
+}
+
+// rebuildQueued reports whether any scope is waiting for a rebuild: the scan
+// yields to a queued rebuild whichever scope asked for it, because the
+// rebuild needs the same lock the scan holds.
 func (c *Controller) rebuildQueued() bool {
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()
-	return c.rebuild.State == RebuildQueued
+	for _, entry := range c.rebuilds {
+		if entry.status.State == RebuildQueued {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *Controller) InjectSession(
@@ -318,7 +402,13 @@ func (c *Controller) consume(ctx context.Context, stream Stream) error {
 	}
 	request := injectionRequest(stream, events)
 	ctx = session.WithScope(ctx, stream.ScopeID)
-	result, err := c.injector.InjectSession(ctx, request)
+	// Resolve per stream: one loop serves every scope, and a scope whose
+	// service cannot be resolved must fail only its own streams.
+	injector, err := c.injectorFor(ctx, stream.ScopeID)
+	if err != nil {
+		return fmt.Errorf("resolve Page Wiki injector: %w", err)
+	}
+	result, err := injector.InjectSession(ctx, request)
 	if err != nil {
 		return fmt.Errorf("inject Page Wiki session: %w", err)
 	}

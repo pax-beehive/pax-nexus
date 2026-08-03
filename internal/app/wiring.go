@@ -53,9 +53,9 @@ func buildPageWikiHTTPHandler(
 		return nil, nil, nil, fmt.Errorf("initialize Page Wiki repository: %w", err)
 	}
 	// Eagerly hydrate the on-prem scope at boot, preserving today's
-	// hydrate-at-boot fail-fast behavior. Tasks 6-7 move consumers onto
-	// repositoryManager/serviceManager directly; for now downstream wiring
-	// keeps using the resolved repository/service below.
+	// hydrate-at-boot fail-fast behavior. The session consumer now resolves
+	// every scope through the managers; the Page Wiki HTTP transport still
+	// takes the resolved repository/service below until Task 7 moves it.
 	repository, err := repositoryManager.ForScope(ctx, onprem.LocalScopeID)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("initialize Page Wiki repository: %w", err)
@@ -90,11 +90,22 @@ func buildPageWikiHTTPHandler(
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("initialize Page Wiki service: %w", err)
 	}
-	consumerStore, err := postgres.NewPageWikiConsumerStore(store.Pool(), onprem.LocalScopeID)
+	consumerStore, err := postgres.NewPageWikiConsumerStore(store.Pool())
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	controller, err := sessionconsumer.New(consumerStore, service, repository, logger, 2*time.Second)
+	// The consumer sweeps every scope from one loop, resolving each stream's
+	// service and each rebuild's repository through the managers above.
+	controller, err := sessionconsumer.New(
+		consumerStore,
+		func(ctx context.Context, scopeID string) (sessionconsumer.Injector, error) {
+			return serviceManager.ForScope(ctx, scopeID)
+		},
+		func(ctx context.Context, scopeID string) (sessionconsumer.Rebuilder, error) {
+			return repositoryManager.ForScope(ctx, scopeID)
+		},
+		logger, 2*time.Second,
+	)
 	if err != nil {
 		return nil, nil, nil, err
 	}
