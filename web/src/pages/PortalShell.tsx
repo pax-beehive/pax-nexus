@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { NavLink, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import { matchPath, NavLink, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { can, hasServerCapability, type Capability } from "../lib/capabilities";
 import { peekPendingInvitation, peekReturnUrl } from "../lib/continuations";
@@ -79,6 +79,39 @@ function RequireServerCapability({
 }
 
 const SIDE_COLLAPSED_KEY = "portal.side-collapsed";
+const NAV_GROUPS_KEY = "portal.nav-groups";
+
+interface NavItem {
+  to: string;
+  label: string;
+  end?: boolean;
+}
+
+interface NavGroupDef {
+  id: string;
+  label: string;
+  items: NavItem[];
+}
+
+/** Default open state per nav group; stored toggles merge on top of this. */
+const NAV_GROUP_DEFAULTS: Record<string, boolean> = {
+  personal: true,
+  knowledge: true,
+  directory: false,
+  fleet: false,
+  insights: false,
+};
+
+function loadNavGroupState(): Record<string, boolean> {
+  try {
+    const raw = localStorage.getItem(NAV_GROUPS_KEY);
+    const stored = raw ? (JSON.parse(raw) as Record<string, boolean>) : {};
+    return { ...NAV_GROUP_DEFAULTS, ...stored };
+  } catch {
+    // Corrupted JSON falls back to the defaults.
+    return { ...NAV_GROUP_DEFAULTS };
+  }
+}
 
 export function PortalShell({ me }: { me: HumanMe }) {
   const { logout } = useAuth();
@@ -90,6 +123,72 @@ export function PortalShell({ me }: { me: HumanMe }) {
   const [sideCollapsed, setSideCollapsed] = useState(
     () => localStorage.getItem(SIDE_COLLAPSED_KEY) === "1",
   );
+  const [groupOpen, setGroupOpen] = useState<Record<string, boolean>>(loadNavGroupState);
+
+  const groups: NavGroupDef[] = [
+    {
+      id: "personal",
+      label: "Personal",
+      items: [{ to: "/agents", label: "My Agents", end: true }],
+    },
+    { id: "knowledge", label: "Knowledge", items: [{ to: "/apps", label: "Apps" }] },
+  ];
+  if (adminLike) {
+    groups.push(
+      {
+        id: "directory",
+        label: "Directory",
+        items: [
+          { to: "/admin/members", label: "Members" },
+          { to: "/admin/invitations", label: "Invitations" },
+        ],
+      },
+      {
+        id: "fleet",
+        label: "Fleet",
+        items: [
+          { to: "/admin/agents", label: "All Agents" },
+          { to: "/admin/devices", label: "Devices" },
+        ],
+      },
+      {
+        id: "insights",
+        label: "Insights",
+        items: [
+          ...(hasServerCapability(me, "view.operations")
+            ? [{ to: "/admin/pulse", label: "Pulse" }]
+            : []),
+          ...(hasServerCapability(me, "view.team-memory")
+            ? [{ to: "/admin/explorer", label: "Explorer" }]
+            : []),
+          { to: "/admin/audit", label: "Audit Events" },
+          { to: "/admin/session-audit", label: "Session Audit" },
+          ...(hasServerCapability(me, "view.operations")
+            ? [{ to: "/admin/operations", label: "Operations" }]
+            : []),
+        ],
+      },
+    );
+  }
+
+  // The group holding the active route always renders open; this is a render
+  // overlay only, the user's stored toggles stay untouched.
+  const activeGroupId = groups.find((group) =>
+    group.items.some((item) =>
+      matchPath({ path: item.to, end: item.end ?? false }, location.pathname),
+    ),
+  )?.id;
+
+  const isGroupOpen = (id: string): boolean => id === activeGroupId || (groupOpen[id] ?? false);
+
+  const toggleGroup = (id: string) => {
+    setGroupOpen((current) => {
+      const open = id === activeGroupId || (current[id] ?? false);
+      const next = { ...current, [id]: !open };
+      localStorage.setItem(NAV_GROUPS_KEY, JSON.stringify(next));
+      return next;
+    });
+  };
 
   const toggleSide = () => {
     setSideCollapsed((current) => {
@@ -127,54 +226,30 @@ export function PortalShell({ me }: { me: HumanMe }) {
         {!sideCollapsed && (
           <>
         <nav className="nav" aria-label="Portal navigation">
-          <div className="nav-label">Personal</div>
-          <NavLink to="/agents" className={navClass} end>
-            My Agents
-          </NavLink>
-          <div className="nav-label">Knowledge</div>
-          <NavLink to="/apps" className={navClass}>
-            Apps
-          </NavLink>
-          {adminLike && (
-            <>
-              <div className="nav-label">Directory</div>
-              <NavLink to="/admin/members" className={navClass}>
-                Members
-              </NavLink>
-              <NavLink to="/admin/invitations" className={navClass}>
-                Invitations
-              </NavLink>
-              <div className="nav-label">Fleet</div>
-              <NavLink to="/admin/agents" className={navClass}>
-                All Agents
-              </NavLink>
-              <NavLink to="/admin/devices" className={navClass}>
-                Devices
-              </NavLink>
-              <div className="nav-label">Insights</div>
-              {hasServerCapability(me, "view.operations") && (
-                <NavLink to="/admin/pulse" className={navClass}>
-                  Pulse
-                </NavLink>
-              )}
-              {hasServerCapability(me, "view.team-memory") && (
-                <NavLink to="/admin/explorer" className={navClass}>
-                  Explorer
-                </NavLink>
-              )}
-              <NavLink to="/admin/audit" className={navClass}>
-                Audit Events
-              </NavLink>
-              <NavLink to="/admin/session-audit" className={navClass}>
-                Session Audit
-              </NavLink>
-              {hasServerCapability(me, "view.operations") && (
-                <NavLink to="/admin/operations" className={navClass}>
-                  Operations
-                </NavLink>
-              )}
-            </>
-          )}
+          {groups.map((group) => {
+            const open = isGroupOpen(group.id);
+            return (
+              <div className="nav-group" key={group.id}>
+                <button
+                  type="button"
+                  className="nav-label nav-group-toggle"
+                  aria-expanded={open}
+                  onClick={() => toggleGroup(group.id)}
+                >
+                  <span>{group.label}</span>
+                  <span className="nav-chevron" aria-hidden="true">
+                    ▾
+                  </span>
+                </button>
+                {open &&
+                  group.items.map((item) => (
+                    <NavLink key={item.to} to={item.to} className={navClass} end={item.end}>
+                      {item.label}
+                    </NavLink>
+                  ))}
+              </div>
+            );
+          })}
         </nav>
         <div className="side-foot">
           <div className="theme-picker">
