@@ -30,6 +30,10 @@ type HumanPrincipal struct {
 	Email            string
 	EmailVerified    bool
 	SessionID        string
+	// ScopeID is the team-memory scope this principal's membership grants
+	// access to. On-prem installs always resolve it to LocalScopeID; the
+	// SaaS control plane will populate it from the "current team".
+	ScopeID string
 }
 
 func (p HumanPrincipal) HasCapability(capability HumanCapability) bool {

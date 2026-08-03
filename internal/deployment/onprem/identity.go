@@ -214,6 +214,15 @@ func NewIdentityService(
 	}, nil
 }
 
+// localizePrincipal stamps the single on-prem scope onto a principal. Every
+// IdentityService boundary that hands a principal to transports must apply
+// it, so handlers resolve scope from the principal instead of importing
+// LocalScopeID themselves.
+func localizePrincipal(principal HumanPrincipal) HumanPrincipal {
+	principal.ScopeID = LocalScopeID
+	return principal
+}
+
 func (s *IdentityService) Login(ctx context.Context, identity ExternalIdentity) (HumanSession, error) {
 	identity.Issuer = strings.TrimSpace(identity.Issuer)
 	identity.Subject = strings.TrimSpace(identity.Subject)
@@ -241,6 +250,7 @@ func (s *IdentityService) Login(ctx context.Context, identity ExternalIdentity) 
 		return HumanSession{}, fmt.Errorf("persist human login: %w", err)
 	}
 	principal.SessionID = id
+	principal = localizePrincipal(principal)
 	return HumanSession{Token: token, ExpiresAt: record.ExpiresAt, Principal: principal}, nil
 }
 
@@ -262,7 +272,7 @@ func (s *IdentityService) AuthenticateSession(ctx context.Context, token string)
 	if err != nil {
 		return HumanPrincipal{}, fmt.Errorf("authenticate human session: %w", err)
 	}
-	return principal, nil
+	return localizePrincipal(principal), nil
 }
 
 func (s *IdentityService) Logout(ctx context.Context, token string) error {
@@ -301,7 +311,7 @@ func (s *IdentityService) ClaimBootstrap(
 	if err != nil {
 		return HumanPrincipal{}, fmt.Errorf("claim on-prem bootstrap: %w", err)
 	}
-	return claimed, nil
+	return localizePrincipal(claimed), nil
 }
 
 func (s *IdentityService) CreateInvitation(
@@ -377,7 +387,7 @@ func (s *IdentityService) AcceptInvitation(
 	if err != nil {
 		return HumanPrincipal{}, fmt.Errorf("accept membership invitation: %w", err)
 	}
-	return accepted, nil
+	return localizePrincipal(accepted), nil
 }
 
 func (s *IdentityService) ListInvitations(
