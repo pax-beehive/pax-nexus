@@ -57,4 +57,28 @@ LIMIT $3`, scopeID, now, limit)
 	return items, nil
 }
 
+// ListScopes enumerates the scopes that currently have team notes — the
+// population the suggestion-refresh sweep serves. Scope discovery is
+// data-driven until the control plane provides a team registry (Phase 3).
+func (d *TodoNoteDirectory) ListScopes(ctx context.Context) ([]string, error) {
+	rows, err := d.pool.Query(ctx, `SELECT DISTINCT scope_id FROM team_notes`)
+	if err != nil {
+		return nil, fmt.Errorf("list todo scopes: %w", err)
+	}
+	defer rows.Close()
+	scopeIDs := make([]string, 0)
+	for rows.Next() {
+		var scopeID string
+		if err := rows.Scan(&scopeID); err != nil {
+			return nil, fmt.Errorf("list todo scopes: %w", err)
+		}
+		scopeIDs = append(scopeIDs, scopeID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list todo scopes: %w", err)
+	}
+	return scopeIDs, nil
+}
+
 var _ todoapp.NoteDirectory = (*TodoNoteDirectory)(nil)
+var _ todoapp.ScopeLister = (*TodoNoteDirectory)(nil)

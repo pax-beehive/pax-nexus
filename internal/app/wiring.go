@@ -306,7 +306,7 @@ func buildTodoApp(
 	if err != nil {
 		return nil, nil, fmt.Errorf("initialize Todo App HTTP handler: %w", err)
 	}
-	stop := todoapp.StartSuggestionRefresh(ctx, service, onprem.LocalScopeID, config.todoRefreshInterval, logger)
+	stop := todoapp.StartSuggestionRefresh(ctx, service, noteDirectory, config.todoRefreshInterval, logger)
 	return configured, stop, nil
 }
 

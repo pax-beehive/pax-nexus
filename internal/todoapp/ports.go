@@ -25,6 +25,13 @@ type NoteDirectory interface {
 	ListOpenActionItems(ctx context.Context, scopeID string, limit int) ([]ActionItem, error)
 }
 
+// ScopeLister enumerates the scopes the suggestion-refresh sweep should
+// serve. Scope discovery is data-driven until the control plane provides a
+// team registry (Phase 3).
+type ScopeLister interface {
+	ListScopes(ctx context.Context) ([]string, error)
+}
+
 type Rewriter interface {
 	Rewrite(ctx context.Context, item ActionItem) (title string, body string, err error)
 }

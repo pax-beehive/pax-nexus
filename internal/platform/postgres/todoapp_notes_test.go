@@ -2,6 +2,7 @@ package postgres_test
 
 import (
 	"context"
+	"sort"
 	"testing"
 	"time"
 
@@ -117,6 +118,47 @@ func TestTodoNoteDirectory_ListOpenActionItems_ScopeIsolationPerCall(t *testing.
 	require.NoError(t, err)
 	require.Len(t, other, 1)
 	require.Equal(t, "note-other", other[0].NoteID)
+}
+
+// TestTodoNoteDirectory_ListScopes proves ListScopes enumerates every scope
+// with team notes: it is the population the suggestion-refresh sweep serves.
+// The DB behind this suite is shared across the whole test binary (and
+// across runs), so — like the other tests in this file — the two scopes
+// under test use uniqueScope rather than fixed literals, and the assertion
+// checks that both are present rather than that they are the only rows
+// returned.
+func TestTodoNoteDirectory_ListScopes(t *testing.T) {
+	dsn := testDSN(t)
+	ctx := context.Background()
+
+	store, err := postgres.Open(ctx, dsn)
+	require.NoError(t, err)
+	defer store.Close()
+	require.NoError(t, store.Migrate(ctx))
+
+	scopeA := uniqueScope("todoapp-notes-scopes")
+	scopeB := uniqueScope("todoapp-notes-scopes")
+	base := time.Now().UTC().Truncate(time.Second)
+
+	seedTeamNote(t, store.Pool(), teamNoteSeed{
+		scopeID: scopeA, noteID: "note-a", kind: "blocker",
+		subject: "A blocker", body: "a body", state: "active",
+		updatedAt: base,
+	})
+	seedTeamNote(t, store.Pool(), teamNoteSeed{
+		scopeID: scopeB, noteID: "note-b", kind: "handoff",
+		subject: "B handoff", body: "b body", state: "active",
+		updatedAt: base,
+	})
+
+	directory, err := postgres.NewTodoNoteDirectory(store.Pool())
+	require.NoError(t, err)
+
+	scopes, err := directory.ListScopes(ctx)
+	require.NoError(t, err)
+	sort.Strings(scopes)
+	require.Contains(t, scopes, scopeA)
+	require.Contains(t, scopes, scopeB)
 }
 
 type teamNoteSeed struct {

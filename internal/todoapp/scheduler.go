@@ -3,13 +3,15 @@ package todoapp
 import (
 	"context"
 	"log/slog"
+	"sort"
 	"time"
 )
 
-// StartSuggestionRefresh runs Service.RefreshSuggestions once immediately and
-// then on a fixed interval, until the returned stop function is called.
-// The shape mirrors startOperationsMaintenance in main.go.
-func StartSuggestionRefresh(ctx context.Context, service *Service, scopeID string, interval time.Duration, logger *slog.Logger) func() {
+// StartSuggestionRefresh runs a sweep of Service.RefreshSuggestions over
+// every scope reported by scopes once immediately and then on a fixed
+// interval, until the returned stop function is called. The shape mirrors
+// startOperationsMaintenance in main.go.
+func StartSuggestionRefresh(ctx context.Context, service *Service, scopes ScopeLister, interval time.Duration, logger *slog.Logger) func() {
 	if interval <= 0 {
 		interval = time.Hour
 	}
@@ -17,7 +19,7 @@ func StartSuggestionRefresh(ctx context.Context, service *Service, scopeID strin
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		refreshSuggestions(refreshContext, service, scopeID, logger)
+		refreshSuggestions(refreshContext, service, scopes, logger)
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		for {
@@ -25,7 +27,7 @@ func StartSuggestionRefresh(ctx context.Context, service *Service, scopeID strin
 			case <-refreshContext.Done():
 				return
 			case <-ticker.C:
-				refreshSuggestions(refreshContext, service, scopeID, logger)
+				refreshSuggestions(refreshContext, service, scopes, logger)
 			}
 		}
 	}()
@@ -35,15 +37,25 @@ func StartSuggestionRefresh(ctx context.Context, service *Service, scopeID strin
 	}
 }
 
-// refreshSuggestions runs a single refresh pass, logging failures without
-// propagating them: suggestion refresh is best-effort background work.
-func refreshSuggestions(ctx context.Context, service *Service, scopeID string, logger *slog.Logger) {
-	created, err := service.RefreshSuggestions(ctx, scopeID)
+// refreshSuggestions runs a single sweep pass over every scope reported by
+// scopes, in sorted order for determinism. Each scope's refresh failure is
+// logged and skipped so one scope's trouble never stops the rest of the
+// sweep: suggestion refresh is best-effort background work.
+func refreshSuggestions(ctx context.Context, service *Service, scopes ScopeLister, logger *slog.Logger) {
+	scopeIDs, err := scopes.ListScopes(ctx)
 	if err != nil {
-		logger.Warn("todo suggestion refresh failed", "error", err)
+		logger.WarnContext(ctx, "todo suggestion refresh: list scopes failed", "error", err)
 		return
 	}
-	if created > 0 {
-		logger.Info("todo suggestions refreshed", "created", created)
+	sort.Strings(scopeIDs)
+	for _, scopeID := range scopeIDs {
+		created, err := service.RefreshSuggestions(ctx, scopeID)
+		if err != nil {
+			logger.WarnContext(ctx, "todo suggestion refresh failed", "scope_id", scopeID, "error", err)
+			continue
+		}
+		if created > 0 {
+			logger.InfoContext(ctx, "todo suggestions refreshed", "scope_id", scopeID, "created", created)
+		}
 	}
 }
