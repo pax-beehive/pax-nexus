@@ -1,11 +1,14 @@
-# The portal is served as static files from object storage behind the load
-# balancer, same-origin with /v1 (see docs/saas-plan.md). It is still built
-# here so the assets and the API binary come out of one build and share the
-# image digest the pipeline promotes: a separately built frontend can drift
-# from the API it talks to.
+# The portal is served behind the same load balancer as the API, same-origin
+# with /v1 (see docs/saas-plan.md), so the browser sees one host and the
+# cookie model needs no CORS. It is built here rather than separately so the
+# assets and the API binary come out of one build: a separately built
+# frontend can drift from the API it talks to.
 #
-# CI exports the assets without running the API image:
+# Two consumers:
+#   docker buildx build --target web        -t <repo>/web:<tag> --push .
 #   docker buildx build --target web-assets --output type=local,dest=out/web .
+# The first is the static server deployed beside the API; the second exports
+# the raw files for anyone serving them from object storage instead.
 FROM node:22-bookworm AS web-build
 WORKDIR /web
 COPY web/package.json web/package-lock.json ./
@@ -18,6 +21,13 @@ RUN npm run build
 # web-assets exists only to be exported; it must not be the final stage.
 FROM scratch AS web-assets
 COPY --from=web-build /web/dist /
+
+# The static server. try_files is what makes client-side routes such as
+# /join resolve; see deploy/web/Caddyfile.
+FROM caddy:2.10-alpine AS web
+COPY deploy/web/Caddyfile /etc/caddy/Caddyfile
+COPY --from=web-build /web/dist /srv
+EXPOSE 8080
 
 FROM golang:1.25-bookworm AS build
 
