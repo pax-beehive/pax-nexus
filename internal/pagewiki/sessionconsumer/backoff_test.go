@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"sync"
 	"testing"
 	"time"
 
@@ -41,7 +42,11 @@ func (s *backoffStore) Progress(context.Context, string) (Progress, error) {
 	return Progress{}, nil
 }
 
+// flakyInjector's fields are guarded by mu: several backoff tests give two
+// scopes the same injector instance, and Task 5's per-scope jobs can now
+// call InjectSession concurrently from different goroutines.
 type flakyInjector struct {
+	mu    sync.Mutex
 	err   error
 	calls int
 }
@@ -49,9 +54,12 @@ type flakyInjector struct {
 func (i *flakyInjector) InjectSession(
 	context.Context, pagewiki.InjectSessionRequest,
 ) (pagewiki.InjectResult, error) {
+	i.mu.Lock()
 	i.calls++
-	if i.err != nil {
-		return pagewiki.InjectResult{}, i.err
+	err := i.err
+	i.mu.Unlock()
+	if err != nil {
+		return pagewiki.InjectResult{}, err
 	}
 	return pagewiki.InjectResult{
 		Run: pagewiki.MaintenanceRun{Status: pagewiki.RunStatusSucceeded},
@@ -62,6 +70,15 @@ type noopRebuilder struct{}
 
 func (noopRebuilder) RebuildPageWiki(context.Context, string, string, string, time.Time) error {
 	return nil
+}
+
+// scanSync runs one dispatch tick and waits for every job to finish. Task 5
+// replaced the old synchronous scan pass with async per-scope jobs; these
+// pre-pool backoff tests want the old deterministic call-count semantics, so
+// this helper restores them without touching the tests' assertions.
+func (c *Controller) scanSync(ctx context.Context) {
+	c.tick(ctx)
+	c.jobs.Wait()
 }
 
 func newBackoffFixture(t *testing.T) (*backoffStore, *flakyInjector, *Controller, *time.Time) {
@@ -93,22 +110,22 @@ func TestScanSkipsFailingStreamUntilBackoffExpires(t *testing.T) {
 	_, injector, controller, now := newBackoffFixture(t)
 	ctx := context.Background()
 
-	controller.scan(ctx) // attempt 1: delay = 1s << 1 = 2s
+	controller.scanSync(ctx) // attempt 1: delay = 1s << 1 = 2s
 	require.Equal(t, 1, injector.calls)
 
-	controller.scan(ctx) // inside the 2s window
+	controller.scanSync(ctx) // inside the 2s window
 	require.Equal(t, 1, injector.calls)
 
 	*now = now.Add(3 * time.Second)
-	controller.scan(ctx) // attempt 2: delay = 1s << 2 = 4s
+	controller.scanSync(ctx) // attempt 2: delay = 1s << 2 = 4s
 	require.Equal(t, 2, injector.calls)
 
 	*now = now.Add(3 * time.Second)
-	controller.scan(ctx) // still inside the 4s window
+	controller.scanSync(ctx) // still inside the 4s window
 	require.Equal(t, 2, injector.calls)
 
 	*now = now.Add(2 * time.Second)
-	controller.scan(ctx)
+	controller.scanSync(ctx)
 	require.Equal(t, 3, injector.calls)
 }
 
@@ -116,11 +133,11 @@ func TestHeadAdvanceResetsBackoff(t *testing.T) {
 	store, injector, controller, _ := newBackoffFixture(t)
 	ctx := context.Background()
 
-	controller.scan(ctx)
+	controller.scanSync(ctx)
 	require.Equal(t, 1, injector.calls)
 
 	store.streams[0].Head = 3 // new events arrived
-	controller.scan(ctx)      // no clock movement needed
+	controller.scanSync(ctx)  // no clock movement needed
 	require.Equal(t, 2, injector.calls)
 }
 
@@ -128,18 +145,18 @@ func TestSuccessClearsBackoffAndAttemptsRestart(t *testing.T) {
 	_, injector, controller, now := newBackoffFixture(t)
 	ctx := context.Background()
 
-	controller.scan(ctx)
-	controller.scan(ctx)
+	controller.scanSync(ctx)
+	controller.scanSync(ctx)
 	require.Equal(t, 1, injector.calls)
 
 	injector.err = nil
 	*now = now.Add(time.Hour)
-	controller.scan(ctx)
+	controller.scanSync(ctx)
 	require.Equal(t, 2, injector.calls)
 	require.Empty(t, controller.failures)
 
 	injector.err = errors.New("planner down again")
-	controller.scan(ctx)
+	controller.scanSync(ctx)
 	require.Equal(t, 3, injector.calls)
 	record := controller.failures["local-team/agent-1/session-1"]
 	require.Equal(t, 1, record.attempts, "attempts must restart after a success")
@@ -149,7 +166,7 @@ func TestManualInjectBypassesAndClearsBackoff(t *testing.T) {
 	_, injector, controller, _ := newBackoffFixture(t)
 	ctx := context.Background()
 
-	controller.scan(ctx) // stream now backed off
+	controller.scanSync(ctx) // stream now backed off
 	require.Equal(t, 1, injector.calls)
 
 	injector.err = nil
@@ -163,7 +180,7 @@ func TestRebuildClearsAllBackoff(t *testing.T) {
 	_, _, controller, _ := newBackoffFixture(t)
 	ctx := context.Background()
 
-	controller.scan(ctx)
+	controller.scanSync(ctx)
 	require.NotEmpty(t, controller.failures)
 
 	_, err := controller.Rebuild(ctx, "local-team", time.Time{})
@@ -186,7 +203,7 @@ func TestRebuildClearsOnlyItsOwnScopeBackoff(t *testing.T) {
 	})
 	ctx := context.Background()
 
-	controller.scan(ctx)
+	controller.scanSync(ctx)
 	require.Contains(t, controller.failures, "local-team/agent-1/session-1")
 	require.Contains(t, controller.failures, "other-team/agent-2/session-2")
 
@@ -236,7 +253,7 @@ func TestUnresolvableScopeBacksOffWithoutStoppingTheScan(t *testing.T) {
 	require.NoError(t, err)
 	ctx := context.Background()
 
-	controller.scan(ctx)
+	controller.scanSync(ctx)
 
 	require.Equal(t, 1, injector.calls, "the resolvable scope must still be injected")
 	require.Contains(t, controller.failures, "broken-team/agent-1/session-1")
