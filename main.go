@@ -950,7 +950,7 @@ func buildHTTPHandler(
 	if err != nil {
 		return nil, nil, fmt.Errorf("configure on-prem operations: %w", err)
 	}
-	explorerService, err := onprem.NewExplorerService(store.Explorer())
+	explorerService, err := onprem.NewExplorerService(store.Explorer(onprem.LocalScopeID))
 	if err != nil {
 		return nil, nil, fmt.Errorf("configure team memory explorer: %w", err)
 	}

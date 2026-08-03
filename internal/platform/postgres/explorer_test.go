@@ -48,7 +48,7 @@ func (s *explorerStoreSuite) SetupSuite() {
 	s.Require().NoError(err)
 	s.Require().NoError(store.Migrate(ctx))
 	s.store = store
-	s.explorer = store.Explorer()
+	s.explorer = store.Explorer(onprem.LocalScopeID)
 }
 
 func (s *explorerStoreSuite) TearDownSuite() {
@@ -96,6 +96,19 @@ func (s *explorerStoreSuite) TestListTeamNotesFiltersScopeAndPaginates() {
 	s.Require().NoError(err)
 	s.Require().Len(second, 1)
 	s.Equal("note-old", second[0].NoteID)
+}
+
+func (s *explorerStoreSuite) TestExplorerScopeComesFromAccessor() {
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	s.insertNote(onprem.LocalScopeID, "note-local", "blocker", "Release blocker", "Waiting for approval", "codex", now)
+	s.insertNote("other-scope", "note-other", "blocker", "Release blocker", "Waiting for approval", "codex", now)
+
+	other := s.store.Explorer("other-scope")
+	notes, err := other.ListTeamNotes(ctx, explorer.TeamNoteFilter{Kind: "blocker", Limit: 10})
+	s.Require().NoError(err)
+	s.Require().Len(notes, 1)
+	s.Equal("note-other", notes[0].NoteID)
 }
 
 func (s *explorerStoreSuite) TestGetTeamNoteReturnsSourceToRecallChain() {
