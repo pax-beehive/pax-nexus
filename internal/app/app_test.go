@@ -925,6 +925,42 @@ func (s *configSuite) TestExtractionObserverRecordsEverySliceOutcome() {
 	}
 }
 
+// TestParsesOIDCAuthorizationParameters covers the escape hatch for
+// providers whose authorize endpoint needs a parameter standard OIDC does
+// not define. WorkOS AuthKit is the motivating case: without
+// provider=authkit it rejects the request as an invalid connection selector.
+func (s *configSuite) TestParsesOIDCAuthorizationParameters() {
+	tests := []struct {
+		name      string
+		raw       string
+		want      map[string]string
+		wantError bool
+	}{
+		{name: "unset", raw: "", want: nil},
+		{name: "single pair", raw: "provider=authkit", want: map[string]string{"provider": "authkit"}},
+		{
+			name: "several pairs with spacing", raw: " provider=authkit , prompt=login ",
+			want: map[string]string{"provider": "authkit", "prompt": "login"},
+		},
+		{name: "value containing an equals sign", raw: "hint=a=b", want: map[string]string{"hint": "a=b"}},
+		{name: "missing separator", raw: "provider", wantError: true},
+		{name: "empty name", raw: "=authkit", wantError: true},
+	}
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			parsed, err := parseAuthorizationParameters(test.raw)
+
+			if test.wantError {
+				s.Require().Error(err)
+				s.ErrorContains(err, "TEAM_MEMORY_OIDC_AUTH_PARAMS")
+				return
+			}
+			s.Require().NoError(err)
+			s.Equal(test.want, parsed)
+		})
+	}
+}
+
 func (s *configSuite) TestRejectsPartialOIDCConfiguration() {
 	s.T().Setenv("TEAM_MEMORY_DATABASE_URL", "postgres://database")
 	s.T().Setenv("TEAM_MEMORY_EXTRACTOR_MODE", "noop")
