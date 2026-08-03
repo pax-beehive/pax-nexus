@@ -50,8 +50,12 @@ func Run(ctx context.Context, logger *slog.Logger) error {
 		return fmt.Errorf("initialize storage: %w", err)
 	}
 	defer store.Close()
-	if err := store.Migrate(ctx); err != nil {
-		return fmt.Errorf("initialize storage schema: %w", err)
+	// Single-binary on-prem installs keep migrating on boot. Managed
+	// deployments should instead run cmd/team-memory-migrate as a job before
+	// rolling out instances; both paths share migrateStores so they cannot
+	// drift.
+	if err := migrateStores(ctx, store); err != nil {
+		return err
 	}
 	sessions := store.Sessions()
 	candidateExtractor, err := buildExtractor(config, store.Episodes())
@@ -92,9 +96,6 @@ func Run(ctx context.Context, logger *slog.Logger) error {
 	})
 	if err != nil {
 		return fmt.Errorf("initialize extraction queue: %w", err)
-	}
-	if err := extractionqueue.Migrate(ctx, store.Pool()); err != nil {
-		return fmt.Errorf("initialize extraction queue schema: %w", err)
 	}
 	if err := sessions.ConfigureExtractionEnqueuer(queue); err != nil {
 		return fmt.Errorf("connect extraction queue: %w", err)

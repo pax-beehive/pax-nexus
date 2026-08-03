@@ -92,7 +92,7 @@ const repoRootFromPackageDir = "../.."
 
 func (s *configSuite) SetupTest() {
 	for _, name := range []string{
-		"TEAM_MEMORY_DATABASE_URL", "TEAM_MEMORY_API_KEYS", "TEAM_MEMORY_LISTEN_ADDRESS",
+		"TEAM_MEMORY_DATABASE_URL", "TEAM_MEMORY_API_KEYS", "TEAM_MEMORY_LISTEN_ADDRESS", "PORT",
 		"TEAM_MEMORY_ADMIN_API_KEY", "TEAM_MEMORY_CREDENTIAL_ROTATION_OVERLAP", "TEAM_MEMORY_DEVICE_AGENT_LIMIT",
 		"TEAM_MEMORY_WIKI_HINT_ENABLED",
 		"TEAM_MEMORY_OPERATIONS_EVENT_RETENTION", "TEAM_MEMORY_OPERATIONS_STORAGE_RETENTION",
@@ -174,6 +174,47 @@ func (s *configSuite) TestLoadsNoopConfiguration() {
 	adapter, err := buildExtractor(config)
 	s.Require().NoError(err)
 	s.IsType(extractor.Noop{}, adapter)
+}
+
+// TestListenAddressFallsBackToPortEnvironment covers the managed-runtime
+// contract: Cloud Run (and Heroku-style platforms) inject PORT and expect the
+// process to bind it. TEAM_MEMORY_LISTEN_ADDRESS stays authoritative so an
+// on-prem operator can still bind a specific interface.
+func (s *configSuite) TestListenAddressFallsBackToPortEnvironment() {
+	tests := []struct {
+		name          string
+		listenAddress string
+		port          string
+		want          string
+	}{
+		{name: "neither set keeps the default", want: ":8080"},
+		{name: "PORT alone is honored", port: "9090", want: ":9090"},
+		{name: "padded PORT is trimmed", port: " 9090 ", want: ":9090"},
+		{
+			name: "explicit listen address wins over PORT", listenAddress: "127.0.0.1:7000",
+			port: "9090", want: "127.0.0.1:7000",
+		},
+		{name: "non-numeric PORT is ignored", port: "http", want: ":8080"},
+		{name: "out-of-range PORT is ignored", port: "70000", want: ":8080"},
+	}
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			s.T().Setenv("TEAM_MEMORY_DATABASE_URL", "postgres://database")
+			s.T().Setenv("TEAM_MEMORY_API_KEYS", `{"key":"scope"}`)
+			s.T().Setenv("TEAM_MEMORY_EXTRACTOR_MODE", "noop")
+			if test.listenAddress != "" {
+				s.T().Setenv("TEAM_MEMORY_LISTEN_ADDRESS", test.listenAddress)
+			}
+			if test.port != "" {
+				s.T().Setenv("PORT", test.port)
+			}
+
+			config, err := loadConfig()
+
+			s.Require().NoError(err)
+			s.Equal(test.want, config.listenAddress)
+		})
+	}
 }
 
 func (s *configSuite) TestLoadsExtractorThinkingMode() {

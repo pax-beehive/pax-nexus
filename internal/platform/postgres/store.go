@@ -16,6 +16,19 @@ var migrations embed.FS
 
 const migrationAdvisoryLockName = "pax-nexus.platform-postgres.migrate"
 
+// schemaAdvisoryLockName guards every schema change a deployment applies,
+// not just this package's. Store.Migrate serializes itself with
+// migrationAdvisoryLockName, but the extraction queue's River migrations
+// take no lock of their own, so two processes migrating at once can deadlock
+// with one holding this package's tables while the other holds River's.
+// Callers that apply both wrap them in WithSchemaLock.
+//
+// The key differs from migrationAdvisoryLockName on purpose: the outer lock
+// is session-scoped and held on its own connection, so sharing a key with
+// the inner transaction-scoped lock would make Store.Migrate block on a lock
+// its own caller already holds.
+const schemaAdvisoryLockName = "pax-nexus.platform-postgres.schema"
+
 type Store struct {
 	pool           *pgxpool.Pool
 	operationsPool *pgxpool.Pool
@@ -136,6 +149,38 @@ var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
 // an ILIKE pattern such as '%' || $n || '%'.
 func escapeLike(value string) string {
 	return likeEscaper.Replace(value)
+}
+
+// WithSchemaLock runs apply while holding a session-scoped advisory lock
+// that covers every schema change a deployment applies, so concurrent
+// migrators serialize instead of deadlocking against each other. Use it
+// whenever more than one migration source runs together (this package's
+// schema plus the extraction queue's River schema); Store.Migrate on its own
+// is already serialized by its transaction-scoped lock.
+//
+// The lock is held on a dedicated connection for the duration of apply and
+// is always released, including when apply panics.
+func (s *Store) WithSchemaLock(ctx context.Context, apply func(context.Context) error) (resultErr error) {
+	connection, err := s.pool.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("acquire postgres schema lock connection: %w", err)
+	}
+	defer connection.Release()
+	if _, err := connection.Exec(
+		ctx, `SELECT pg_advisory_lock(hashtextextended($1, 0))`, schemaAdvisoryLockName,
+	); err != nil {
+		return fmt.Errorf("acquire postgres schema lock: %w", err)
+	}
+	defer func() {
+		// Release on the same connection that took the lock, and outside the
+		// caller's context so a cancelled migration still unlocks.
+		if _, err := connection.Exec(
+			context.WithoutCancel(ctx), `SELECT pg_advisory_unlock(hashtextextended($1, 0))`, schemaAdvisoryLockName,
+		); err != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("release postgres schema lock: %w", err))
+		}
+	}()
+	return apply(ctx)
 }
 
 func (s *Store) Migrate(ctx context.Context) (resultErr error) {

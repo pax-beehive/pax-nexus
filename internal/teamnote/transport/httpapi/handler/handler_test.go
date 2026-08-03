@@ -1058,3 +1058,81 @@ func performWithPath(
 	}
 	return ut.PerformRequest(engine, method, "/"+value, requestBody, headers...)
 }
+
+// TestReadiness covers the readiness probe's three states. Unlike /healthz,
+// which is a static liveness answer, /readyz reports whether the backing
+// store is reachable so a load balancer can drain an instance whose database
+// is down without the runtime restarting the container.
+// TestReadinessIsReachableUnauthenticatedThroughGeneratedRouter proves the
+// probe is actually served at /readyz without credentials. The handler test
+// above exercises the decision; this one guards the generated route
+// registration, which is the part that breaks silently after an IDL change.
+func (s *onPremHandlerSuite) TestReadinessIsReachableUnauthenticatedThroughGeneratedRouter() {
+	probed := false
+	configured, err := handler.NewOnPrem(
+		s.runtime, s.credentials, s.memory, s.channel, slog.New(slog.DiscardHandler),
+		handler.WithReadinessCheck(func(context.Context) error {
+			probed = true
+			return nil
+		}),
+	)
+	s.Require().NoError(err)
+	hertz := server.New()
+	hertz.Use(handler.InstanceMiddleware(configured))
+	router.GeneratedRegister(hertz)
+
+	response := ut.PerformRequest(hertz.Engine, http.MethodGet, "/readyz", nil)
+
+	s.Equal(consts.StatusOK, response.Code)
+	s.Contains(response.Body.String(), `"status":"ok"`)
+	s.True(probed, "the route must reach the configured readiness check")
+}
+
+func (s *onPremHandlerSuite) TestReadiness() {
+	tests := []struct {
+		name       string
+		check      func(context.Context) error
+		wantCode   int
+		wantBody   string
+		unwantBody string
+	}{
+		{
+			name:  "no check configured reports ready",
+			check: nil, wantCode: consts.StatusOK, wantBody: `"status":"ok"`,
+		},
+		{
+			name:     "reachable store reports ready",
+			check:    func(context.Context) error { return nil },
+			wantCode: consts.StatusOK, wantBody: `"status":"ok"`,
+		},
+		{
+			name: "unreachable store reports unavailable without leaking detail",
+			check: func(context.Context) error {
+				return errors.New("dial tcp 10.0.0.1:5432: connection refused")
+			},
+			wantCode: consts.StatusServiceUnavailable, wantBody: `"status":"unavailable"`,
+			unwantBody: "10.0.0.1",
+		},
+	}
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			options := []handler.OnPremOption{}
+			if test.check != nil {
+				options = append(options, handler.WithReadinessCheck(test.check))
+			}
+			configured, err := handler.NewOnPrem(
+				s.runtime, s.credentials, s.memory, s.channel, slog.New(slog.DiscardHandler), options...,
+			)
+			s.Require().NoError(err)
+
+			response := perform(configured.Readiness, http.MethodGet, "", "")
+
+			s.Equal(test.wantCode, response.Code)
+			s.Contains(response.Body.String(), test.wantBody)
+			if test.unwantBody != "" {
+				s.NotContains(response.Body.String(), test.unwantBody,
+					"a readiness failure must not leak connection detail to unauthenticated callers")
+			}
+		})
+	}
+}

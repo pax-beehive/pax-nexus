@@ -45,10 +45,16 @@ type Handler struct {
 	llmUsage     LLMUsage
 	sessionAudit SessionAuditQuery
 	recorder     operations.Recorder
+	readiness    ReadinessCheck
 	portalURL    string
 	cookieSecure bool
 	logger       *slog.Logger
 }
+
+// ReadinessCheck reports whether the process can serve traffic. It is
+// expected to be cheap (a store round-trip, not a query) because load
+// balancers call it continuously; a nil error means ready.
+type ReadinessCheck func(context.Context) error
 
 type CredentialLifecycle interface {
 	Authenticate(context.Context, string) (onprem.Principal, error)
@@ -220,6 +226,19 @@ func WithSessionAudit(query SessionAuditQuery) OnPremOption {
 			return fmt.Errorf("configure session audit: query is required")
 		}
 		configured.sessionAudit = query
+		return nil
+	}
+}
+
+// WithReadinessCheck wires the probe behind GET /readyz. Without it the
+// endpoint reports ready unconditionally, matching /healthz — a deployment
+// with no store to check has nothing to wait for.
+func WithReadinessCheck(check ReadinessCheck) OnPremOption {
+	return func(configured *Handler) error {
+		if check == nil {
+			return fmt.Errorf("configure readiness check: check is required")
+		}
+		configured.readiness = check
 		return nil
 	}
 }
