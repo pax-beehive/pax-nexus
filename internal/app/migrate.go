@@ -1,0 +1,92 @@
+package app
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"os"
+	"strings"
+
+	"github.com/pax-beehive/pax-nexus/internal/platform/postgres"
+	"github.com/pax-beehive/pax-nexus/internal/platform/textembedding"
+	"github.com/pax-beehive/pax-nexus/internal/teamnote/extractionqueue"
+)
+
+// Migrate brings the database schema up to date and returns. It exists so a
+// deployment pipeline can run migrations as a standalone job before rolling
+// out new instances, instead of relying on migrate-on-boot: a managed
+// runtime starts several instances at once, and schema changes should land
+// before any of them serve traffic.
+//
+// It reads only TEAM_MEMORY_DATABASE_URL rather than the full application
+// configuration on purpose. A migration job has no HTTP transport and no
+// identity provider, so forcing it to carry the authentication, OIDC, and
+// extractor variables would be a deployment footgun with no upside.
+//
+// Run still migrates on boot (see Run), which keeps single-binary on-prem
+// installs working unchanged. Both paths call migrateStores, so the job and
+// the boot path can never drift.
+func Migrate(ctx context.Context, logger *slog.Logger) error {
+	databaseURL := strings.TrimSpace(os.Getenv("TEAM_MEMORY_DATABASE_URL"))
+	if databaseURL == "" {
+		return fmt.Errorf("TEAM_MEMORY_DATABASE_URL is required")
+	}
+	store, err := postgres.Open(ctx, databaseURL)
+	if err != nil {
+		return fmt.Errorf("initialize storage: %w", err)
+	}
+	defer store.Close()
+	// The job resizes the embedding column, so it must resolve the width
+	// exactly the way the running service does, or the two disagree.
+	dimensions, err := migrationEmbeddingDimensions()
+	if err != nil {
+		return err
+	}
+	if err := migrateStores(ctx, store, dimensions); err != nil {
+		return err
+	}
+	logger.InfoContext(ctx, "database schema migrated")
+	return nil
+}
+
+// migrateStores applies the team-memory schema and the extraction queue's
+// River schema, in that order, under one schema lock.
+//
+// The lock is what makes concurrent migration safe. Store.Migrate serializes
+// itself, but River's migrations take no lock, so without the outer lock two
+// processes migrating at once deadlock: one holds this package's tables
+// while the other holds River's. That happens in practice whenever a
+// migration job overlaps an instance still migrating on boot.
+func migrateStores(ctx context.Context, store *postgres.Store, embeddingDimensions int) error {
+	return store.WithSchemaLock(ctx, func(ctx context.Context) error {
+		if err := store.Migrate(ctx); err != nil {
+			return fmt.Errorf("initialize storage schema: %w", err)
+		}
+		// The embedding column's width is deployment specific, so it is
+		// reconciled here rather than fixed in a static migration.
+		if err := postgres.ReconcileEmbeddingDimensions(ctx, store.Pool(), embeddingDimensions); err != nil {
+			return err
+		}
+		if err := extractionqueue.Migrate(ctx, store.Pool()); err != nil {
+			return fmt.Errorf("initialize extraction queue schema: %w", err)
+		}
+		return nil
+	})
+}
+
+// migrationEmbeddingDimensions resolves the stored vector width from the
+// same environment the service reads, so a migration job and the instances
+// it precedes always agree on the column's width.
+func migrationEmbeddingDimensions() (int, error) {
+	override, err := nonNegativeIntEnvironment("TEAM_MEMORY_EMBEDDING_DIMENSIONS", 0)
+	if err != nil {
+		return 0, err
+	}
+	if strings.TrimSpace(os.Getenv("TEAM_MEMORY_EMBEDDING_BASE_URL")) == "" {
+		if override > 0 {
+			return override, nil
+		}
+		return postgres.DefaultEmbeddingDimensions, nil
+	}
+	return textembedding.ModelDimensions(os.Getenv("TEAM_MEMORY_EMBEDDING_MODEL"), override)
+}

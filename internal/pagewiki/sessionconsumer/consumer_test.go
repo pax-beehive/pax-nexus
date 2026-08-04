@@ -91,6 +91,38 @@ func (s *consumerSuite) SetupTest() {
 	s.Require().NoError(err)
 }
 
+// TestStopDrainsTheConsumeLoop is the shutdown seam's leak guard: Stop must
+// cancel the loop and block until the background goroutine has exited, so
+// the composition root can shut consumers down in order instead of relying
+// on context cancellation alone.
+func (s *consumerSuite) TestStopDrainsTheConsumeLoop() {
+	s.consumer.Start(context.Background())
+	select {
+	case <-s.store.advanced:
+	case <-time.After(2 * time.Second):
+		s.Fail("consumer never ran a tick")
+	}
+
+	stopContext, cancelStop := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelStop()
+	s.Require().NoError(s.consumer.Stop(stopContext))
+
+	// A second Stop is a no-op rather than a panic on the closed done channel.
+	s.Require().NoError(s.consumer.Stop(stopContext))
+}
+
+// TestStopWithoutStartIsANoOp covers the failed-build unwind path, where the
+// composition root stops consumers it assembled but never started.
+func (s *consumerSuite) TestStopWithoutStartIsANoOp() {
+	consumer, err := sessionconsumer.New(
+		s.store, s.resolver.injectorFor, s.resolver.rebuilderFor,
+		slog.New(slog.DiscardHandler), time.Hour,
+	)
+	s.Require().NoError(err)
+
+	s.Require().NoError(consumer.Stop(context.Background()))
+}
+
 func (s *consumerSuite) TestManualInjectionBuildsCitedSourceAndAdvancesIndependentCursor() {
 	result, err := s.consumer.InjectSession(context.Background(), "local-team", "runtime-demo")
 
@@ -149,6 +181,7 @@ func (s *consumerSuite) TestSetAutoInjectSurfacesQueuedRebuildState() {
 
 func (s *consumerSuite) TestRebuildQueuesAndRunsInBackground() {
 	cutoff := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	s.store.enabled["local-team"] = true
 
 	status, err := s.consumer.Rebuild(context.Background(), "local-team", cutoff)
 
@@ -1146,6 +1179,84 @@ func (s *consumerSuite) TestScanYieldsToQueuedRebuildBetweenStreams() {
 	// scan yielded after the first stream: exactly one injection happened
 	// before the rebuild.
 	s.Equal([]string{"inject", "rebuild"}, log.snapshot()[:2])
+}
+
+// TestScanYieldsToWaitingManualInject pins the PR #66 yield contract for the
+// manual inject endpoint: while the scan sweeps a multi-stream backlog on a
+// slow injector, a user-facing InjectSession must run right after the
+// in-flight stream instead of waiting behind the whole sweep.
+func (s *consumerSuite) TestScanYieldsToWaitingManualInject() {
+	s.store.streams = append(s.store.streams,
+		sessionconsumer.Stream{
+			ScopeID: "local-team",
+			Actor:   session.Actor{UserID: "owner", AgentID: "agent-2", SessionID: "second-demo"},
+			Head:    5,
+		},
+		sessionconsumer.Stream{
+			ScopeID: "local-team",
+			Actor:   session.Actor{UserID: "owner", AgentID: "agent-3", SessionID: "third-demo"},
+			Head:    9,
+		},
+	)
+	s.injector.entered = make(chan struct{}, 8)
+	release := make(chan struct{}, 8)
+	s.injector.release = release
+	defer close(release)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s.consumer.Start(ctx)
+	select {
+	case <-s.injector.entered:
+	case <-time.After(time.Second):
+		s.Fail("first injection did not start")
+		return
+	}
+
+	manualDone := make(chan error, 1)
+	go func() {
+		_, err := s.consumer.InjectSession(context.Background(), "local-team", "runtime-demo")
+		manualDone <- err
+	}()
+	s.Require().Eventually(func() bool {
+		return s.consumer.InjectWaitingForTest()
+	}, time.Second, time.Millisecond, "manual inject never registered as waiting")
+
+	// Two tokens: the first finishes the in-flight backlog stream, the second
+	// serves the manual injection. Without the yield the second token feeds
+	// the next backlog stream instead and the manual inject stays locked out
+	// for the whole sweep.
+	release <- struct{}{}
+	release <- struct{}{}
+
+	select {
+	case err := <-manualDone:
+		s.Require().NoError(err)
+	case <-time.After(2 * time.Second):
+		s.Fail("manual inject stalled behind the scan sweep")
+		return
+	}
+	for _, sourceID := range s.injector.sourceIDs() {
+		s.NotContains(sourceID, "second-demo", "scan must yield before the next backlog stream")
+		s.NotContains(sourceID, "third-demo", "scan must yield before the next backlog stream")
+	}
+}
+
+// TestRebuildReportsPersistedAutoInjectState pins that the rebuild response
+// reads auto-inject from the store instead of hardcoding true: a queued
+// rebuild has not enabled ingestion yet, and a failed one never will.
+func (s *consumerSuite) TestRebuildReportsPersistedAutoInjectState() {
+	status, err := s.consumer.Rebuild(context.Background(), "local-team", time.Time{})
+	s.Require().NoError(err)
+	s.False(status.AutoInject, "auto_inject must reflect the store, which has not enabled ingestion")
+
+	s.store.enabled["local-team"] = true
+	status, err = s.consumer.Rebuild(context.Background(), "local-team", time.Time{})
+	s.Require().NoError(err)
+	s.True(status.AutoInject)
+
+	s.store.statusErr = errors.New("status unavailable")
+	_, err = s.consumer.Rebuild(context.Background(), "local-team", time.Time{})
+	s.Require().ErrorContains(err, "status unavailable")
 }
 
 func (i *recordingInjector) InjectSession(

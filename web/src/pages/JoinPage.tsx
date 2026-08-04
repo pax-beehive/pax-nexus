@@ -127,7 +127,13 @@ export function JoinPage() {
         </div>
       </>
     );
-  } else if (state.kind === "active" || state.kind === "suspended") {
+  } else if (
+    state.kind === "suspended" ||
+    (state.kind === "active" && (state.me.teams?.length ?? 0) === 0)
+  ) {
+    // On-prem single-membership rule: an active account cannot accept another
+    // invitation. In saas a user may belong to multiple teams, so the active
+    // state falls through to the accept form below.
     body = (
       <>
         <h1>Accept invitation</h1>
@@ -138,7 +144,8 @@ export function JoinPage() {
       </>
     );
   } else {
-    const email = state.kind === "no-membership" ? state.me.email : undefined;
+    const email =
+      state.kind === "no-membership" || state.kind === "active" ? state.me.email : undefined;
     body = (
       <>
         <h1>Accept invitation</h1>

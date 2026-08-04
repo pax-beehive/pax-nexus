@@ -4,6 +4,8 @@ import { apiError } from "../api/client";
 import { beginAction, createAgent } from "../api/actions";
 import { listMyAgents } from "../api/queries";
 import type { AgentProfile } from "../api/types";
+import { useAuth } from "../auth/AuthContext";
+import { currentTeam } from "../lib/teams";
 import { usePagedList } from "../lib/usePagedList";
 import { useErrorHandler } from "../lib/useErrorHandler";
 import { validateAgentId, validateDisplayName } from "../lib/validation";
@@ -128,6 +130,10 @@ function CreateAgentModal({
 export function MyAgentsPage() {
   const navigate = useNavigate();
   const handleError = useErrorHandler();
+  const { state } = useAuth();
+  // SaaS profile: the page (and every other scoped view) follows the
+  // session's current team (design/m3-teams 04).
+  const teamName = state.kind === "active" ? currentTeam(state.me)?.name : undefined;
   const [filter, setFilter] = useState<string>("all");
   const [createOpen, setCreateOpen] = useState(false);
   const list = usePagedList(
@@ -145,7 +151,9 @@ export function MyAgentsPage() {
         <div>
           <h1>My Agents</h1>
           <p className="muted flush">
-            Register and manage the Agent identities you own
+            {teamName
+              ? `${teamName} team scope`
+              : "Register and manage the Agent identities you own"}
           </p>
         </div>
         <Button variant="primary" onClick={() => setCreateOpen(true)}>

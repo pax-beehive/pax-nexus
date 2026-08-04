@@ -171,7 +171,9 @@ func (s *postgresConsumerSuite) TestRebuildClearsDerivedWikiAndMakesSessionPendi
 	status, err := controller.Rebuild(s.ctx, s.scopeID, time.Time{})
 
 	s.Require().NoError(err)
-	s.True(status.AutoInject)
+	// The queued response reports the persisted setting: ingestion has not
+	// been enabled for this scope yet — only the rebuild's commit enables it.
+	s.False(status.AutoInject)
 	// Rebuild only queues; the consumer loop executes it. Drive that pass
 	// explicitly so the DB assertions below observe the post-rebuild state
 	// without racing a background scan.
@@ -180,6 +182,7 @@ func (s *postgresConsumerSuite) TestRebuildClearsDerivedWikiAndMakesSessionPendi
 	executed, err := controller.Status(s.ctx, s.scopeID)
 	s.Require().NoError(err)
 	s.Equal(sessionconsumer.RebuildIdle, executed.Rebuild.State)
+	s.True(executed.AutoInject, "a committed rebuild re-enables ingestion")
 	navigation, err := repository.Navigation(s.ctx)
 	s.Require().NoError(err)
 	s.Empty(navigation.Roots)

@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/pax-beehive/pax-nexus/internal/deployment/onprem"
+	"github.com/pax-beehive/pax-nexus/internal/platform/postgres"
+	"github.com/pax-beehive/pax-nexus/internal/platform/textembedding"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote/extractionbudget"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote/extractor"
@@ -25,6 +27,9 @@ type applicationConfig struct {
 	oidcClientSecret               string
 	oidcRedirectURL                string
 	oidcFlowSecret                 string
+	oidcAuthParams                 string
+	oidcAuthorizationParameters    map[string]string
+	oidcIdentitySource             string
 	secretPepper                   string
 	memberGrantablePermissions     []onprem.Permission
 	portalURL                      string
@@ -66,6 +71,9 @@ type applicationConfig struct {
 	maxSlicesPerJob                int
 	embeddingBaseURL               string
 	embeddingModel                 string
+	embeddingAPIKey                string
+	embeddingDimensionsOverride    int
+	embeddingDimensions            int
 	embeddingTimeout               time.Duration
 	recallCandidateStrategy        teamnote.RecallCandidateStrategy
 	llmwikiMode                    string
@@ -81,6 +89,33 @@ type applicationConfig struct {
 }
 
 func loadConfig() (applicationConfig, error) {
+	config, err := loadBaseConfig()
+	if err != nil {
+		return applicationConfig{}, err
+	}
+	if err = loadAuthenticationConfig(&config); err != nil {
+		return applicationConfig{}, err
+	}
+	return config, nil
+}
+
+// loadSaaSConfig loads the multi-team SaaS profile configuration: the shared
+// base settings plus the SaaS authentication rules (OIDC required, no legacy
+// keys or bootstrap).
+func loadSaaSConfig() (applicationConfig, error) {
+	config, err := loadBaseConfig()
+	if err != nil {
+		return applicationConfig{}, err
+	}
+	if err = loadSaaSAuthenticationConfig(&config); err != nil {
+		return applicationConfig{}, err
+	}
+	return config, nil
+}
+
+// loadBaseConfig loads everything the on-prem and SaaS profiles share; the
+// authentication mode is validated per profile afterwards.
+func loadBaseConfig() (applicationConfig, error) {
 	config := applicationConfig{
 		databaseURL: os.Getenv("TEAM_MEMORY_DATABASE_URL"), listenAddress: os.Getenv("TEAM_MEMORY_LISTEN_ADDRESS"),
 		extractorMode: os.Getenv("TEAM_MEMORY_EXTRACTOR_MODE"), extractorBaseURL: os.Getenv("TEAM_MEMORY_EXTRACTOR_BASE_URL"),
@@ -98,13 +133,15 @@ func loadConfig() (applicationConfig, error) {
 		extractionCandidateStrategy: os.Getenv("TEAM_MEMORY_EXTRACTION_CANDIDATE_STRATEGY"),
 		embeddingBaseURL:            os.Getenv("TEAM_MEMORY_EMBEDDING_BASE_URL"),
 		embeddingModel:              os.Getenv("TEAM_MEMORY_EMBEDDING_MODEL"),
-		adminAPIKey:                 os.Getenv("TEAM_MEMORY_ADMIN_API_KEY"),
+		adminAPIKey:                 strings.TrimSpace(os.Getenv("TEAM_MEMORY_ADMIN_API_KEY")),
 		bootstrapSecret:             os.Getenv("TEAM_MEMORY_BOOTSTRAP_SECRET"),
 		oidcIssuer:                  os.Getenv("TEAM_MEMORY_OIDC_ISSUER"),
 		oidcClientID:                os.Getenv("TEAM_MEMORY_OIDC_CLIENT_ID"),
 		oidcClientSecret:            os.Getenv("TEAM_MEMORY_OIDC_CLIENT_SECRET"),
 		oidcRedirectURL:             os.Getenv("TEAM_MEMORY_OIDC_REDIRECT_URL"),
 		oidcFlowSecret:              os.Getenv("TEAM_MEMORY_OIDC_FLOW_SECRET"),
+		oidcAuthParams:              os.Getenv("TEAM_MEMORY_OIDC_AUTH_PARAMS"),
+		oidcIdentitySource:          os.Getenv("TEAM_MEMORY_OIDC_IDENTITY_SOURCE"),
 		secretPepper:                os.Getenv("TEAM_MEMORY_SECRET_PEPPER"),
 		portalURL:                   os.Getenv("TEAM_MEMORY_PORTAL_URL"),
 	}
@@ -127,9 +164,7 @@ func loadConfig() (applicationConfig, error) {
 	if config.todoRefreshInterval, err = durationEnvironment("TODOAPP_REFRESH_INTERVAL", time.Hour); err != nil {
 		return applicationConfig{}, err
 	}
-	if config.listenAddress == "" {
-		config.listenAddress = ":8080"
-	}
+	config.listenAddress = resolveListenAddress(config.listenAddress, os.Getenv("PORT"))
 	if config.extractorMode == "" {
 		config.extractorMode = "openai"
 	}
@@ -148,11 +183,23 @@ func loadConfig() (applicationConfig, error) {
 	if config.embeddingModel == "" && strings.TrimSpace(config.embeddingBaseURL) != "" {
 		config.embeddingModel = "Qwen/Qwen3-Embedding-0.6B"
 	}
+	// The width follows the configured model. It is resolved only when an
+	// embedding runtime is configured at all, so a deployment without
+	// semantic recall never has to name a model just to satisfy this.
+	if strings.TrimSpace(config.embeddingBaseURL) != "" {
+		if config.embeddingDimensions, err = textembedding.ModelDimensions(
+			config.embeddingModel, config.embeddingDimensionsOverride,
+		); err != nil {
+			return applicationConfig{}, err
+		}
+	} else {
+		config.embeddingDimensions = postgres.DefaultEmbeddingDimensions
+		if config.embeddingDimensionsOverride > 0 {
+			config.embeddingDimensions = config.embeddingDimensionsOverride
+		}
+	}
 	if strings.TrimSpace(config.databaseURL) == "" {
 		return applicationConfig{}, fmt.Errorf("TEAM_MEMORY_DATABASE_URL is required")
-	}
-	if err = loadAuthenticationConfig(&config); err != nil {
-		return applicationConfig{}, err
 	}
 	return config, nil
 }
@@ -189,6 +236,17 @@ func loadOnPremConfig(config *applicationConfig) error {
 	}
 	if config.wikiHintEnabled, err = boolEnvironment("TEAM_MEMORY_WIKI_HINT_ENABLED", false); err != nil {
 		return err
+	}
+	if config.oidcAuthorizationParameters, err = parseAuthorizationParameters(config.oidcAuthParams); err != nil {
+		return err
+	}
+	// No recall.WikiPath implementation is wired anywhere yet: enabling the
+	// hint would only crash startup deep inside the recall router with a
+	// confusing error. Reject it here, at config load, until one exists.
+	if config.wikiHintEnabled {
+		return fmt.Errorf(
+			"TEAM_MEMORY_WIKI_HINT_ENABLED is not supported: no wiki recall path implementation is wired",
+		)
 	}
 	if config.operationsEventRetention, err = durationEnvironment(
 		"TEAM_MEMORY_OPERATIONS_EVENT_RETENTION", 7*24*time.Hour,
@@ -279,6 +337,45 @@ func loadAuthenticationConfig(config *applicationConfig) error {
 	return nil
 }
 
+// loadSaaSAuthenticationConfig validates the SaaS profile's authentication
+// mode: OIDC human sign-in is mandatory (sign-up creates a team, so there
+// is no bootstrap and no legacy static keys), and every on-prem-only
+// authentication setting is rejected loudly instead of being half-honored.
+func loadSaaSAuthenticationConfig(config *applicationConfig) error {
+	if strings.TrimSpace(os.Getenv("TEAM_MEMORY_API_KEYS")) != "" {
+		return fmt.Errorf("TEAM_MEMORY_API_KEYS is not supported in the saas profile: agents enroll per team")
+	}
+	if strings.TrimSpace(config.adminAPIKey) != "" {
+		return fmt.Errorf("TEAM_MEMORY_ADMIN_API_KEY is not supported in the saas profile")
+	}
+	if strings.TrimSpace(config.bootstrapSecret) != "" {
+		return fmt.Errorf("TEAM_MEMORY_BOOTSTRAP_SECRET is not supported in the saas profile: sign-up creates a team")
+	}
+	if saasOIDCSettingCount(*config) != 5 {
+		return fmt.Errorf("all TEAM_MEMORY_OIDC_* settings are required in the saas profile")
+	}
+	if len(strings.TrimSpace(config.secretPepper)) < 32 {
+		return fmt.Errorf("TEAM_MEMORY_SECRET_PEPPER must contain at least 32 characters in the saas profile")
+	}
+	return nil
+}
+
+// saasOIDCSettingCount counts the OIDC settings the SaaS profile requires
+// (the on-prem bootstrap secret is deliberately not among them).
+func saasOIDCSettingCount(config applicationConfig) int {
+	values := []string{
+		config.oidcIssuer, config.oidcClientID, config.oidcClientSecret,
+		config.oidcRedirectURL, config.oidcFlowSecret,
+	}
+	configured := 0
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			configured++
+		}
+	}
+	return configured
+}
+
 func permissionListEnvironment(name string, fallback string) ([]onprem.Permission, error) {
 	raw := strings.TrimSpace(os.Getenv(name))
 	if raw == "" {
@@ -351,7 +448,7 @@ func loadExtractionConfig(config *applicationConfig) error {
 	if config.sliceTokenLimit, err = intEnvironment("TEAM_MEMORY_SLICE_TOKEN_LIMIT", 8192); err != nil {
 		return err
 	}
-	if config.sliceOverlap, err = intEnvironment("TEAM_MEMORY_SLICE_OVERLAP", 3); err != nil {
+	if config.sliceOverlap, err = nonNegativeIntEnvironment("TEAM_MEMORY_SLICE_OVERLAP", 3); err != nil {
 		return err
 	}
 	if config.maxSlicesPerJob, err = intEnvironment(
@@ -441,6 +538,15 @@ func loadRetrievalConfig(config *applicationConfig) error {
 	if config.embeddingTimeout, err = durationEnvironment("TEAM_MEMORY_EMBEDDING_TIMEOUT", 10*time.Second); err != nil {
 		return err
 	}
+	// The stored vector width follows the model a deployment actually runs,
+	// so a hosted provider is not truncated to a small local runtime's width.
+	// The variable is only an override; resolving it needs the model, which
+	// is defaulted after this, so the resolution happens in loadConfig.
+	if config.embeddingDimensionsOverride, err = nonNegativeIntEnvironment(
+		"TEAM_MEMORY_EMBEDDING_DIMENSIONS", 0,
+	); err != nil {
+		return err
+	}
 	config.recallCandidateStrategy, err = teamnote.ResolveRecallCandidateStrategy("")
 	if err != nil {
 		return fmt.Errorf("resolve build recall candidate strategy: %w", err)
@@ -494,6 +600,66 @@ func intEnvironment(name string, fallback int) (int, error) {
 	}
 	if parsed <= 0 {
 		return 0, fmt.Errorf("%s must be a positive integer", name)
+	}
+	return parsed, nil
+}
+
+// parseAuthorizationParameters reads TEAM_MEMORY_OIDC_AUTH_PARAMS, a
+// comma-separated list of name=value pairs appended to the OIDC
+// authorization request. Standard OIDC needs none; the setting exists for
+// providers that require one to select an authentication method, such as
+// WorkOS AuthKit's provider=authkit. Only the first "=" separates the pair,
+// so a value may itself contain one.
+func parseAuthorizationParameters(raw string) (map[string]string, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return nil, nil
+	}
+	parameters := make(map[string]string)
+	for _, pair := range strings.Split(trimmed, ",") {
+		name, value, found := strings.Cut(strings.TrimSpace(pair), "=")
+		name = strings.TrimSpace(name)
+		if !found || name == "" {
+			return nil, fmt.Errorf(
+				"TEAM_MEMORY_OIDC_AUTH_PARAMS must be comma-separated name=value pairs, got %q", pair,
+			)
+		}
+		parameters[name] = strings.TrimSpace(value)
+	}
+	return parameters, nil
+}
+
+// resolveListenAddress picks the address the HTTP server binds. An explicit
+// TEAM_MEMORY_LISTEN_ADDRESS always wins, so an on-prem operator can bind a
+// specific interface. Otherwise a managed runtime's PORT (Cloud Run injects
+// it, and the platform requires the process to bind exactly that port) is
+// honored; a malformed or out-of-range PORT is ignored rather than failing
+// startup, because the runtime, not the operator, sets it.
+func resolveListenAddress(listenAddress, port string) string {
+	if trimmed := strings.TrimSpace(listenAddress); trimmed != "" {
+		return trimmed
+	}
+	if parsed, err := strconv.Atoi(strings.TrimSpace(port)); err == nil && parsed > 0 && parsed <= 65535 {
+		return fmt.Sprintf(":%d", parsed)
+	}
+	return ":8080"
+}
+
+// nonNegativeIntEnvironment mirrors intEnvironment but additionally accepts
+// an explicit 0. TEAM_MEMORY_SLICE_OVERLAP uses it because the evidence lake
+// explicitly supports a zero overlap, while every other integer variable
+// keeps intEnvironment's strictly-positive validation.
+func nonNegativeIntEnvironment(name string, fallback int) (int, error) {
+	value := os.Getenv(name)
+	if value == "" {
+		return fallback, nil
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be a non-negative integer: %w", name, err)
+	}
+	if parsed < 0 {
+		return 0, fmt.Errorf("%s must be a non-negative integer", name)
 	}
 	return parsed, nil
 }

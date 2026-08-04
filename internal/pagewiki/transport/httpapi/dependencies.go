@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/cloudwego/hertz/pkg/app"
@@ -34,10 +35,15 @@ type Reader interface {
 // Dependencies resolves the Injector and Reader a request should use.
 // Wiring decides, per invocation, which scope's service and repository to
 // hand back; the handler never caches the result, so every endpoint sees a
-// freshly resolved pair for every request. On-prem wiring currently pins
-// the resolution to a single scope (see internal/app.buildPageWikiHTTPHandler);
-// per-request tenant resolution on this transport is Phase 3 work.
-type Dependencies func(ctx context.Context) (Injector, Reader, error)
+// freshly resolved pair for every request. The request is passed through so
+// multi-tenant wiring can authenticate it (human session or agent
+// credential) and resolve the caller's team; single-scope wiring ignores it.
+type Dependencies func(ctx context.Context, request *app.RequestContext) (Injector, Reader, error)
+
+// ErrScopeUnresolved means wiring could not attribute the request to a
+// scope (no valid human session or agent credential). The transport maps it
+// to 401.
+var ErrScopeUnresolved = errors.New("page wiki request scope could not be resolved")
 
 type Handler struct {
 	dependencies Dependencies

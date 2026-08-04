@@ -2,6 +2,7 @@ package todoapp
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"sort"
 	"time"
@@ -50,6 +51,12 @@ func refreshSuggestions(ctx context.Context, service *Service, scopes ScopeListe
 	sort.Strings(scopeIDs)
 	for _, scopeID := range scopeIDs {
 		created, err := service.RefreshSuggestions(ctx, scopeID)
+		if errors.Is(err, ErrRefreshInProgress) {
+			// Another caller (e.g. a portal click) is already refreshing this
+			// scope; the sweep will pick it up next interval.
+			logger.InfoContext(ctx, "todo suggestion refresh skipped: already in progress", "scope_id", scopeID)
+			continue
+		}
 		if err != nil {
 			logger.WarnContext(ctx, "todo suggestion refresh failed", "scope_id", scopeID, "error", err)
 			continue

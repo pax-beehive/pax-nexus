@@ -43,6 +43,46 @@ func (s *teiSuite) TestEmbedsAndNormalizesRequestedDimensions() {
 	s.Equal([][]float32{{0.6, 0.8}, {0, 1}}, vectors)
 }
 
+// TestSendsAuthorizationOnlyWhenConfigured covers hosted embedding
+// providers. A local runtime needs no credential and must not receive an
+// empty Authorization header; a hosted one such as OpenAI rejects the
+// request without a bearer token.
+func (s *teiSuite) TestSendsAuthorizationOnlyWhenConfigured() {
+	tests := []struct {
+		name   string
+		apiKey string
+		want   string
+	}{
+		{name: "local runtime sends no credential", apiKey: "", want: ""},
+		{name: "hosted provider sends a bearer token", apiKey: "sk-test", want: "Bearer sk-test"},
+		{name: "surrounding whitespace is trimmed", apiKey: "  sk-test\n", want: "Bearer sk-test"},
+	}
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			var authorization string
+			var present bool
+			httpClient := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+				authorization = request.Header.Get("Authorization")
+				_, present = request.Header["Authorization"]
+				return response(`{"data":[{"index":0,"embedding":[3,4]}]}`), nil
+			})}
+			client, err := textembedding.NewOpenAI(textembedding.OpenAIConfig{
+				BaseURL: "https://api.openai.com", Model: "text-embedding-3-small",
+				Dimensions: 2, Client: httpClient, APIKey: test.apiKey,
+			})
+			s.Require().NoError(err)
+
+			_, err = client.Embed(context.Background(), []string{"first"})
+
+			s.Require().NoError(err)
+			s.Equal(test.want, authorization)
+			if test.want == "" {
+				s.False(present, "an unauthenticated runtime must not receive the header at all")
+			}
+		})
+	}
+}
+
 func (s *teiSuite) TestRejectsShortAndInvalidResponses() {
 	tests := []struct {
 		name string
@@ -80,5 +120,43 @@ func response(body string) *http.Response {
 		StatusCode: http.StatusOK,
 		Header:     make(http.Header),
 		Body:       io.NopCloser(strings.NewReader(body)),
+	}
+}
+
+// TestModelDimensionsResolvesKnownModels pins the model-to-width mapping.
+// Configuring both a model and a width invites them to disagree, so the
+// model decides and an explicit width is only an override -- which a
+// Matryoshka model still needs when a deployment wants it below native
+// width.
+func (s *teiSuite) TestModelDimensionsResolvesKnownModels() {
+	tests := []struct {
+		name      string
+		model     string
+		override  int
+		want      int
+		wantError string
+	}{
+		{name: "OpenAI small", model: "text-embedding-3-small", want: 1536},
+		{name: "OpenAI large", model: "text-embedding-3-large", want: 3072},
+		{name: "Qwen3 0.6B", model: "Qwen/Qwen3-Embedding-0.6B", want: 1024},
+		{name: "bare Qwen3 name", model: "Qwen3-Embedding-0.6B", want: 1024},
+		{name: "case and spacing are ignored", model: "  TEXT-EMBEDDING-3-SMALL ", want: 1536},
+		{name: "override wins over the model", model: "text-embedding-3-small", override: 384, want: 384},
+		{name: "override carries an unknown model", model: "some/new-model", override: 768, want: 768},
+		{name: "unknown model without an override", model: "some/new-model", wantError: "some/new-model"},
+	}
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			width, err := textembedding.ModelDimensions(test.model, test.override)
+
+			if test.wantError != "" {
+				s.Require().Error(err)
+				s.Require().ErrorContains(err, test.wantError)
+				s.Require().ErrorContains(err, "TEAM_MEMORY_EMBEDDING_DIMENSIONS")
+				return
+			}
+			s.Require().NoError(err)
+			s.Equal(test.want, width)
+		})
 	}
 }

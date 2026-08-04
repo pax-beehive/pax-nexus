@@ -35,7 +35,7 @@ func (s *Service) RunCurationRound(ctx context.Context) (CurationRun, error) {
 		return CurationRun{}, fmt.Errorf("load Page catalog: %w", err)
 	}
 	fingerprint := catalogFingerprint(catalog)
-	runID := stableID("curation-run", fingerprint)
+	runID := StableID("curation-run", fingerprint)
 	if existing, done, err := s.existingCurationRun(ctx, runID); done {
 		return existing, err
 	}
@@ -614,7 +614,7 @@ func buildCurationCitations(
 			return nil, fmt.Errorf("%w: anchors are required", ErrInvalidCitation)
 		}
 		citations = append(citations, PageCitation{
-			ID:             stableID("citation", revisionID, fmt.Sprint(index)),
+			ID:             StableID("citation", revisionID, fmt.Sprint(index)),
 			PageRevisionID: revisionID,
 			SectionKey:     draft.SectionKey,
 			StartByte:      start,

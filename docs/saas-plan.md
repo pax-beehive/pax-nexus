@@ -210,6 +210,37 @@ M1 is deliberately a near-zero-code milestone: it proves the entire
 GCP + Cloudflare + WorkOS spine with the product as it exists today,
 before any multi-tenancy refactor risk is taken.
 
+### M3 status (2026-08-04)
+
+Landed:
+
+- Control plane storage: `team_*` tables (migration 029), audit rows carry
+  `scope_id` (on-prem rows default `local-team`), Postgres adapters under
+  `internal/platform/postgres/saas_*.go`.
+- Domain services in `internal/deployment/saas` (`ControlPlane`, `Registry`,
+  `Credentials`) reusing the on-prem types and handler interfaces; devices
+  and channel deliberately return `ErrUnsupportedInSaaS` (501).
+- HTTP surface: `POST/GET /v1/teams`, `POST /v1/me/current-team`, `/v1/me`
+  carries `teams` + `current_team_id`; session-audit filters use the
+  principal's scope.
+- Wiring: `app.RunSaaS` + `cmd/team-memory-saas` (`make build-saas`);
+  per-request scope resolution for operations/explorer and the Page Wiki
+  transport (human session or agent credential); OIDC-only auth mode with
+  legacy keys and bootstrap rejected at config load.
+- Verification: two-team HTTP isolation e2e
+  (`internal/app/saas_isolation_test.go`) — members, agents, invitations,
+  notes write/recall, audit events, team switching, 501 surfaces.
+
+Deferred / known gaps:
+
+- Frontend (team switcher, onboarding) is P6 and not started.
+- Operations *recorder*, extraction observer, and operations maintenance
+  still attribute to `local-team` in the SaaS profile (read models are
+  per-request scoped); LLM-usage attribution for request-driven wiki
+  maintenance follows context scope or the default.
+- Postgres RLS, scope-sweep backed by the `teams` registry, M4 quotas,
+  domain-capture auto-join.
+
 ## 10. Cost (steady-state, early stage, per environment)
 
 | Item | Monthly (USD, approx) |

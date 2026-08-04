@@ -51,6 +51,10 @@ type fakeRepository struct {
 	// lastScopeID records the scopeID passed to the most recent call, so
 	// tests can assert the Service threads the caller's scope through.
 	lastScopeID string
+
+	// saveSuggestionErr, when set, makes SaveSuggestion fail, letting tests
+	// simulate a partial failure between the two accept writes.
+	saveSuggestionErr error
 }
 
 func (f *fakeRepository) SaveTodo(_ context.Context, scopeID string, todo todoapp.Todo) error {
@@ -88,6 +92,9 @@ func (f *fakeRepository) ListTodos(_ context.Context, scopeID string, status tod
 
 func (f *fakeRepository) SaveSuggestion(_ context.Context, scopeID string, suggestion todoapp.Suggestion) error {
 	f.lastScopeID = scopeID
+	if f.saveSuggestionErr != nil {
+		return f.saveSuggestionErr
+	}
 	f.suggestions[suggestion.ID] = suggestion
 	return nil
 }
@@ -796,6 +803,98 @@ func (s *ServiceSuite) TestServiceThreadsScopeToRepository() {
 	}
 }
 
+// TestAcceptSuggestionRetryAfterSuggestionSaveFailureYieldsOneTodo simulates
+// the partial failure the accept flow must survive: the todo write succeeds
+// but the suggestion status write fails. The retried accept must converge on
+// the same (deterministically identified) todo row instead of creating a
+// second todo for the same suggestion.
+func (s *ServiceSuite) TestAcceptSuggestionRetryAfterSuggestionSaveFailureYieldsOneTodo() {
+	suggestion := todoapp.Suggestion{
+		ID: "sugg-1", Fingerprint: "note-1", NoteID: "note-1", Kind: "action",
+		Title: "Fix bug", Body: "Critical", Status: todoapp.SuggestionPending,
+	}
+	s.repo.suggestions[suggestion.ID] = suggestion
+
+	s.repo.saveSuggestionErr = errors.New("connection reset by peer")
+	_, err := s.service.AcceptSuggestion(s.ctx, "local-team", "user-1", suggestion.ID)
+	s.Require().Error(err)
+
+	s.repo.saveSuggestionErr = nil
+	todo, err := s.service.AcceptSuggestion(s.ctx, "local-team", "user-1", suggestion.ID)
+	s.Require().NoError(err)
+	s.Require().Equal(suggestion.ID, todo.SuggestionID)
+
+	todos, err := s.repo.ListTodos(s.ctx, "local-team", "")
+	s.Require().NoError(err)
+	s.Require().Len(todos, 1, "a retried accept must not create a second todo")
+	s.Require().Equal(todo.ID, todos[0].ID)
+
+	accepted, err := s.repo.SuggestionByID(s.ctx, "local-team", suggestion.ID)
+	s.Require().NoError(err)
+	s.Require().Equal(todoapp.SuggestionAccepted, accepted.Status)
+}
+
+// TestBlankUserIDIsRejectedAcrossMutations pins the validation consistency
+// fix: every user-attributed mutation rejects a blank userID the same way
+// CreateTodo always has, instead of silently persisting anonymous activity.
+func (s *ServiceSuite) TestBlankUserIDIsRejectedAcrossMutations() {
+	cases := []struct {
+		name string
+		call func() error
+	}{
+		{name: "CompleteTodo", call: func() error {
+			_, err := s.service.CompleteTodo(s.ctx, "local-team", "  ", "todo-1")
+			return err
+		}},
+		{name: "AcceptSuggestion", call: func() error {
+			_, err := s.service.AcceptSuggestion(s.ctx, "local-team", "", "sugg-1")
+			return err
+		}},
+		{name: "DismissSuggestion", call: func() error {
+			return s.service.DismissSuggestion(s.ctx, "local-team", "", "sugg-1")
+		}},
+	}
+	for _, tc := range cases {
+		s.Run(tc.name, func() {
+			s.Require().ErrorIs(tc.call(), todoapp.ErrInvalidInput)
+		})
+	}
+}
+
+func (s *ServiceSuite) TestListTodosRejectsUnknownStatus() {
+	_, err := s.service.ListTodos(s.ctx, "local-team", todoapp.TodoStatus("archived"))
+	s.Require().ErrorIs(err, todoapp.ErrInvalidInput)
+
+	// The two known statuses and "all" stay accepted.
+	for _, status := range []todoapp.TodoStatus{"", todoapp.TodoOpen, todoapp.TodoDone} {
+		_, err := s.service.ListTodos(s.ctx, "local-team", status)
+		s.Require().NoError(err)
+	}
+}
+
+// TestConcurrentCompletesEmitExactlyOneEvent pins CompleteTodo's documented
+// idempotency under concurrency: with the read-check-write serialized per
+// scope, exactly one of the racing completes observes open->done and only
+// that one reports a todo_completed lake event.
+func (s *ServiceSuite) TestConcurrentCompletesEmitExactlyOneEvent() {
+	todo, err := s.service.CreateTodo(s.ctx, "local-team", "user-1", "Race me", "")
+	s.Require().NoError(err)
+
+	var wg sync.WaitGroup
+	for range 16 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := s.service.CompleteTodo(s.ctx, "local-team", "user-1", todo.ID)
+			s.NoError(err) // require is not goroutine-safe; assert only
+		}()
+	}
+	wg.Wait()
+
+	s.Require().Len(s.reporter.events, 1, "concurrent completes must emit exactly one todo_completed event")
+	s.Require().Equal(todoapp.EventTodoCompleted, s.reporter.events[0].Type)
+}
+
 // blockingNotes lets a test hold ListOpenActionItems open for one scope
 // while asserting that a different scope's call is not blocked behind it.
 // started reports the scope of each call the instant it is invoked (before
@@ -871,6 +970,57 @@ func (s *ServiceSuite) TestRefreshSuggestionsSerializesPerScopeNotGlobally() {
 	case <-time.After(2 * time.Second):
 		close(notes.unblock)
 		s.FailNow("scope-b's refresh must not be blocked by scope-a's in-flight refresh")
+	}
+
+	close(notes.unblock)
+	wg.Wait()
+}
+
+// TestConcurrentRefreshSameScopeFailsFastWithErrRefreshInProgress proves a
+// second refresh for a scope whose refresh is still running (e.g. stuck in
+// LLM rewrites) returns promptly with ErrRefreshInProgress instead of
+// queueing behind the held lock.
+func (s *ServiceSuite) TestConcurrentRefreshSameScopeFailsFastWithErrRefreshInProgress() {
+	notes := &blockingNotes{
+		items:      map[string][]todoapp.ActionItem{"scope-a": {}},
+		blockScope: "scope-a",
+		unblock:    make(chan struct{}),
+		started:    make(chan string, 1),
+	}
+	service, err := todoapp.NewService(todoapp.ServiceConfig{
+		Repository: s.repo,
+		Notes:      notes,
+		Reporter:   s.reporter,
+		Clock:      s.clock,
+		NewID:      func() string { return "id" },
+	})
+	s.Require().NoError(err)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		_, err := service.RefreshSuggestions(s.ctx, "scope-a")
+		s.NoError(err) // require is not goroutine-safe; assert only
+	}()
+	select {
+	case got := <-notes.started:
+		s.Require().Equal("scope-a", got, "the first refresh must have started (and now be blocked)")
+	case <-time.After(2 * time.Second):
+		s.FailNow("the first refresh never started")
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := service.RefreshSuggestions(s.ctx, "scope-a")
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		s.Require().ErrorIs(err, todoapp.ErrRefreshInProgress)
+	case <-time.After(2 * time.Second):
+		close(notes.unblock)
+		s.FailNow("the second refresh must return promptly instead of blocking behind the first")
 	}
 
 	close(notes.unblock)

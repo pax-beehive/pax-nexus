@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -34,10 +33,9 @@ type Result struct {
 	Sources    int    `json:"sources"`
 }
 
-type EvidenceLocation struct {
-	SourcePath string
-	Anchor     string
-}
+// EvidenceLocation aliases the shared workspace evidence location, keeping
+// this package's exported surface stable.
+type EvidenceLocation = workspace.EvidenceLocation
 
 type record struct {
 	SchemaVersion   string    `json:"schema_version"`
@@ -136,28 +134,10 @@ func Build(ctx context.Context, config Config) (Result, error) {
 	return result, nil
 }
 
+// SourceMap maps every dataset turn ID to its rendered Source location via
+// the shared workspace implementation.
 func SourceMap(root string) (map[string]EvidenceLocation, error) {
-	encoded, err := os.ReadFile(filepath.Join(root, ".pax", "manifest.json"))
-	if err != nil {
-		return nil, fmt.Errorf("read workspace manifest: %w", err)
-	}
-	var manifest workspace.Manifest
-	if err := json.Unmarshal(encoded, &manifest); err != nil {
-		return nil, fmt.Errorf("decode workspace manifest: %w", err)
-	}
-	result := make(map[string]EvidenceLocation)
-	for _, source := range manifest.Sources {
-		for _, anchor := range source.Anchors {
-			if _, duplicate := result[anchor.TurnID]; duplicate {
-				return nil, fmt.Errorf("duplicate evidence ID %s", anchor.TurnID)
-			}
-			result[anchor.TurnID] = EvidenceLocation{
-				SourcePath: source.Path,
-				Anchor:     anchor.ID,
-			}
-		}
-	}
-	return result, nil
+	return workspace.SourceEvidenceMap(root)
 }
 
 func loadCase(path, caseID string) (result record, resultErr error) {
@@ -200,8 +180,9 @@ func loadCase(path, caseID string) (result record, resultErr error) {
 		if selected != nil {
 			return record{}, fmt.Errorf("duplicate dataset case %q", requestedID)
 		}
-		copy := candidate
-		selected = &copy
+		// candidate is a fresh per-iteration variable (Go >= 1.22 loop
+		// semantics), so its address is stable to keep.
+		selected = &candidate
 	}
 	if selected == nil {
 		return record{}, fmt.Errorf("dataset case %q not found", requestedID)

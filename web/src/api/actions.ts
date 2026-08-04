@@ -25,6 +25,7 @@ import type {
   Member,
   MembershipStatus,
   Role,
+  Team,
 } from "./types";
 import type { WikiGenerationSettings, WikiIngestionStatus } from "./wiki";
 import type { TodoItem } from "./todo";
@@ -116,6 +117,35 @@ export function acceptInvitation(token: string, idempotencyKey: string): Promise
     method: "POST",
     headers: { ...JSON_HEADERS, "Idempotency-Key": idempotencyKey },
     body: JSON.stringify({ token }),
+  });
+}
+
+// ---- Teams (saas profile) ----
+
+/**
+ * Create a team; the caller becomes its owner. Works with no existing
+ * membership. The slug is derived server-side from the name; a 409
+ * team_slug_conflict means the derived slug is taken.
+ */
+export async function createTeam(name: string, idempotencyKey: string): Promise<Team> {
+  const res = await humanFetch<{ team: Team }>("/v1/teams", {
+    method: "POST",
+    headers: { ...JSON_HEADERS, "Idempotency-Key": idempotencyKey },
+    body: JSON.stringify({ name }),
+  });
+  return res.team;
+}
+
+/**
+ * Point the caller's session at another team they belong to. Returns the
+ * full re-scoped principal (same shape as GET /v1/me); 403 not_team_member
+ * when the caller has no active membership in the target team.
+ */
+export function switchCurrentTeam(teamId: string, idempotencyKey: string): Promise<HumanMe> {
+  return humanFetch<HumanMe>("/v1/me/current-team", {
+    method: "POST",
+    headers: { ...JSON_HEADERS, "Idempotency-Key": idempotencyKey },
+    body: JSON.stringify({ team_id: teamId }),
   });
 }
 

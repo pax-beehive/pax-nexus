@@ -38,8 +38,11 @@ type RecallIntent struct {
 	ThreadRef      string     `json:"thread_ref,omitempty"`
 	ValidAt        *time.Time `json:"valid_at,omitempty"`
 	ChangedSince   *time.Time `json:"changed_since,omitempty"`
-	RelationBudget int        `json:"relation_budget"`
-	TokenBudget    int        `json:"token_budget"`
+	// RelationBudget is informational-only: the planner hardcodes one related
+	// hop and never consults this field. It stays serialized so persisted
+	// trace JSON keeps its shape.
+	RelationBudget int `json:"relation_budget"`
+	TokenBudget    int `json:"token_budget"`
 }
 
 // RecallLane identifies one inspectable candidate retrieval path.

@@ -351,13 +351,31 @@ func toolGrep(root, arguments string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	resolvedRoot, err := resolveWorkspaceRoot(root)
+	if err != nil {
+		return nil, err
+	}
 	query := strings.ToLower(input.Query)
 	var matches []string
 	err = filepath.WalkDir(target, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
+		relative, relErr := filepath.Rel(resolvedRoot, path)
+		if relErr != nil {
+			return relErr
+		}
+		relative = filepath.ToSlash(relative)
 		if entry.IsDir() {
+			if relative == ".git" || strings.HasPrefix(relative, ".git/") ||
+				relative == ".pax/runs" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		// grep honors exactly the read_file allow-list: content the agent
+		// cannot read_file must not surface through search either.
+		if !agentReadableFile(relative) {
 			return nil
 		}
 		info, infoErr := entry.Info()
@@ -367,12 +385,26 @@ func toolGrep(root, arguments string) ([]string, error) {
 		if info.Size() > 2<<20 {
 			return nil
 		}
-		return grepFile(root, path, query, &matches)
+		return grepFile(resolvedRoot, path, query, &matches)
 	})
 	if err != nil && !errors.Is(err, fs.SkipAll) {
 		return nil, fmt.Errorf("grep workspace: %w", err)
 	}
 	return matches, nil
+}
+
+// resolveWorkspaceRoot returns the symlink-resolved absolute workspace root,
+// matching the resolved paths resolveAgentReadPath hands to callers.
+func resolveWorkspaceRoot(root string) (string, error) {
+	rootAbsolute, err := filepath.Abs(root)
+	if err != nil {
+		return "", fmt.Errorf("resolve workspace root: %w", err)
+	}
+	resolved, err := filepath.EvalSymlinks(rootAbsolute)
+	if err != nil {
+		return "", fmt.Errorf("resolve workspace root: %w", err)
+	}
+	return resolved, nil
 }
 
 func grepFile(root, path, query string, matches *[]string) error {
@@ -517,6 +549,15 @@ func toolMoveFile(root, arguments string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// Renaming onto an existing page would silently clobber it, bypassing
+	// write_file's replace_text guard for established pages.
+	if _, err := os.Lstat(to); err == nil {
+		return "", errors.New(
+			"move destination already exists; use replace_text to merge or delete_file first",
+		)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", fmt.Errorf("inspect move destination: %w", err)
+	}
 	if err := os.MkdirAll(filepath.Dir(to), 0o755); err != nil {
 		return "", fmt.Errorf("create destination directory: %w", err)
 	}
@@ -561,13 +602,9 @@ func resolveAgentReadPath(root, input string) (string, string, error) {
 		return "", "", err
 	}
 	allowed := relative == "." ||
-		relative == "AGENTS.md" ||
-		relative == ".pax/base.json" ||
-		relative == ".pax/manifest.json" ||
 		relative == "sources" ||
-		strings.HasPrefix(relative, "sources/") ||
 		relative == "wiki" ||
-		strings.HasPrefix(relative, "wiki/")
+		agentReadableFile(relative)
 	if !allowed {
 		return "", "", errors.New("reads are restricted to AGENTS.md, sources/, wiki/, and public .pax metadata")
 	}
@@ -579,6 +616,17 @@ func resolveAgentReadPath(root, input string) (string, string, error) {
 		return "", "", err
 	}
 	return evaluated, relative, nil
+}
+
+// agentReadableFile reports whether the workspace-relative file path is on
+// the agent read allow-list shared by read_file and grep: AGENTS.md, the two
+// public .pax metadata files, and everything under sources/ and wiki/.
+func agentReadableFile(relative string) bool {
+	return relative == "AGENTS.md" ||
+		relative == ".pax/base.json" ||
+		relative == ".pax/manifest.json" ||
+		strings.HasPrefix(relative, "sources/") ||
+		strings.HasPrefix(relative, "wiki/")
 }
 
 func resolveAgentWritePath(root, input string) (string, string, error) {

@@ -221,6 +221,18 @@ func (s *onPremHandlerSuite) TestObserveSessionBindsPrincipalFromCredential() {
 	s.Equal("membership-1", event.Actor.MembershipID)
 }
 
+// TestObserveSessionAcceptsEmptyBatchWithoutPanic guards the success-path
+// log line: an empty (but well-formed) batch passes mapping and the runtime,
+// so the actor lookup must not index Events[0] unguarded.
+func (s *onPremHandlerSuite) TestObserveSessionAcceptsEmptyBatchWithoutPanic() {
+	s.runtime.EXPECT().ObserveSession(gomock.Any(), gomock.Any()).Return(teamnote.IngestReceipt{}, nil)
+
+	response := perform(s.handler.ObserveSession, http.MethodPost, `{"events":[],"complete":true}`, "agent")
+
+	s.Equal(consts.StatusOK, response.Code)
+	s.Contains(response.Body.String(), `"accepted":0`)
+}
+
 func (s *onPremHandlerSuite) TestObserveSessionCredentialFailures() {
 	validBody := `{"events":[{"id":"event-1","actor":{"user_id":"owner","agent_id":"agent-1","session_id":"session-1"},"sequence":1,"type":"assistant","content":"Tests fail.","occurred_at":"2026-07-21T08:00:00Z"}],"complete":true}`
 	for _, test := range []struct {
@@ -641,6 +653,18 @@ func (s *credentialService) Authenticate(_ context.Context, apiKey string) (onpr
 			ScopeID: onprem.LocalScopeID, CredentialID: "credential-2",
 			Permissions: []onprem.Permission{onprem.PermissionSearch},
 		}, nil
+	case "channel-send-only":
+		return onprem.Principal{
+			UserID: "owner", MembershipID: "membership-1", AgentID: "agent-1",
+			ScopeID: onprem.LocalScopeID, CredentialID: "credential-3",
+			Permissions: []onprem.Permission{onprem.PermissionChannelSend},
+		}, nil
+	case "channel-receive-only":
+		return onprem.Principal{
+			UserID: "owner", MembershipID: "membership-1", AgentID: "agent-1",
+			ScopeID: onprem.LocalScopeID, CredentialID: "credential-4",
+			Permissions: []onprem.Permission{onprem.PermissionChannelReceive},
+		}, nil
 	case "device":
 		return onprem.Principal{
 			UserID: "owner", MembershipID: "membership-1",
@@ -722,6 +746,9 @@ type channelService struct {
 	principal   onprem.Principal
 	sendRequest onprem.SendEnvelopeRequest
 	acceptedID  string
+	archivedID  string
+	getErr      error
+	archiveErr  error
 }
 
 func (s *channelService) Send(
@@ -749,6 +776,9 @@ func (s *channelService) Get(
 	_ string,
 ) (onprem.ChannelEnvelope, error) {
 	s.principal = principal
+	if s.getErr != nil {
+		return onprem.ChannelEnvelope{}, s.getErr
+	}
 	return handlerTestChannelEnvelope(validHandlerPayload()), nil
 }
 
@@ -767,9 +797,13 @@ func (s *channelService) Accept(
 func (s *channelService) Archive(
 	_ context.Context,
 	principal onprem.Principal,
-	_ string,
+	envelopeID string,
 ) (onprem.ChannelEnvelope, error) {
 	s.principal = principal
+	if s.archiveErr != nil {
+		return onprem.ChannelEnvelope{}, s.archiveErr
+	}
+	s.archivedID = envelopeID
 	envelope := handlerTestChannelEnvelope(validHandlerPayload())
 	envelope.Status = onprem.EnvelopeStatusArchived
 	return envelope, nil
@@ -1023,4 +1057,82 @@ func performWithPath(
 		requestBody = &ut.Body{Body: bytes.NewBufferString(body), Len: len(body)}
 	}
 	return ut.PerformRequest(engine, method, "/"+value, requestBody, headers...)
+}
+
+// TestReadiness covers the readiness probe's three states. Unlike /healthz,
+// which is a static liveness answer, /readyz reports whether the backing
+// store is reachable so a load balancer can drain an instance whose database
+// is down without the runtime restarting the container.
+// TestReadinessIsReachableUnauthenticatedThroughGeneratedRouter proves the
+// probe is actually served at /readyz without credentials. The handler test
+// above exercises the decision; this one guards the generated route
+// registration, which is the part that breaks silently after an IDL change.
+func (s *onPremHandlerSuite) TestReadinessIsReachableUnauthenticatedThroughGeneratedRouter() {
+	probed := false
+	configured, err := handler.NewOnPrem(
+		s.runtime, s.credentials, s.memory, s.channel, slog.New(slog.DiscardHandler),
+		handler.WithReadinessCheck(func(context.Context) error {
+			probed = true
+			return nil
+		}),
+	)
+	s.Require().NoError(err)
+	hertz := server.New()
+	hertz.Use(handler.InstanceMiddleware(configured))
+	router.GeneratedRegister(hertz)
+
+	response := ut.PerformRequest(hertz.Engine, http.MethodGet, "/readyz", nil)
+
+	s.Equal(consts.StatusOK, response.Code)
+	s.Contains(response.Body.String(), `"status":"ok"`)
+	s.True(probed, "the route must reach the configured readiness check")
+}
+
+func (s *onPremHandlerSuite) TestReadiness() {
+	tests := []struct {
+		name       string
+		check      func(context.Context) error
+		wantCode   int
+		wantBody   string
+		unwantBody string
+	}{
+		{
+			name:  "no check configured reports ready",
+			check: nil, wantCode: consts.StatusOK, wantBody: `"status":"ok"`,
+		},
+		{
+			name:     "reachable store reports ready",
+			check:    func(context.Context) error { return nil },
+			wantCode: consts.StatusOK, wantBody: `"status":"ok"`,
+		},
+		{
+			name: "unreachable store reports unavailable without leaking detail",
+			check: func(context.Context) error {
+				return errors.New("dial tcp 10.0.0.1:5432: connection refused")
+			},
+			wantCode: consts.StatusServiceUnavailable, wantBody: `"status":"unavailable"`,
+			unwantBody: "10.0.0.1",
+		},
+	}
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			options := []handler.OnPremOption{}
+			if test.check != nil {
+				options = append(options, handler.WithReadinessCheck(test.check))
+			}
+			configured, err := handler.NewOnPrem(
+				s.runtime, s.credentials, s.memory, s.channel, slog.New(slog.DiscardHandler), options...,
+			)
+			s.Require().NoError(err)
+
+			response := perform(configured.Readiness, http.MethodGet, "", "")
+
+			s.Equal(test.wantCode, response.Code)
+			s.Contains(response.Body.String(), test.wantBody)
+			if test.unwantBody != "" {
+				s.NotContains(response.Body.String(), test.unwantBody,
+					"a readiness failure must not leak connection detail to unauthenticated callers")
+			}
+		})
+	}
 }

@@ -3,7 +3,6 @@ package handler
 import (
 	"context"
 	"errors"
-	"strconv"
 	"strings"
 	"time"
 
@@ -14,7 +13,20 @@ import (
 	api "github.com/pax-beehive/pax-nexus/internal/teamnote/transport/httpapi/model/teammemory/api"
 )
 
+// requireChannel answers 501 when no channel lifecycle is wired (the SaaS
+// profile has no channel surface), matching the unwired-registry pattern.
+func (h *Handler) requireChannel(c *app.RequestContext) bool {
+	if h.channel == nil {
+		c.String(consts.StatusNotImplemented, "channel is not configured")
+		return false
+	}
+	return true
+}
+
 func (h *Handler) SendChannelEnvelope(ctx context.Context, c *app.RequestContext) {
+	if !h.requireChannel(c) {
+		return
+	}
 	startedAt := time.Now().UTC()
 	principal, ok, authorizationCode := h.authorizeAgent(ctx, c, onprem.PermissionChannelSend)
 	if !ok {
@@ -67,6 +79,9 @@ func (h *Handler) SendChannelEnvelope(ctx context.Context, c *app.RequestContext
 }
 
 func (h *Handler) ListChannelEnvelopes(ctx context.Context, c *app.RequestContext) {
+	if !h.requireChannel(c) {
+		return
+	}
 	permission := onprem.PermissionChannelReceive
 	direction := strings.TrimSpace(string(c.QueryArgs().Peek("direction")))
 	if direction == onprem.EnvelopeDirectionSent {
@@ -76,7 +91,7 @@ func (h *Handler) ListChannelEnvelopes(ctx context.Context, c *app.RequestContex
 	if !ok {
 		return
 	}
-	limit, err := channelQueryLimit(c)
+	limit, err := queryLimit(c)
 	if err != nil {
 		c.String(consts.StatusBadRequest, "invalid channel envelope limit")
 		return
@@ -98,6 +113,9 @@ func (h *Handler) ListChannelEnvelopes(ctx context.Context, c *app.RequestContex
 }
 
 func (h *Handler) GetChannelEnvelope(ctx context.Context, c *app.RequestContext) {
+	if !h.requireChannel(c) {
+		return
+	}
 	principal, ok := h.authorize(ctx, c, onprem.PermissionChannelReceive)
 	if !ok {
 		return
@@ -142,6 +160,9 @@ func (h *Handler) updateChannelEnvelope(
 	kind operations.Kind,
 	update func(context.Context, onprem.Principal, string) (onprem.ChannelEnvelope, error),
 ) {
+	if !h.requireChannel(c) {
+		return
+	}
 	startedAt := time.Now().UTC()
 	principal, ok, authorizationCode := h.authorizeAgent(ctx, c, onprem.PermissionChannelReceive)
 	if !ok {
@@ -185,14 +206,6 @@ func channelOperationFailure(err error) (operations.Outcome, string) {
 	default:
 		return operationFailure(err)
 	}
-}
-
-func channelQueryLimit(c *app.RequestContext) (int, error) {
-	raw := strings.TrimSpace(string(c.QueryArgs().Peek("limit")))
-	if raw == "" {
-		return 0, nil
-	}
-	return strconv.Atoi(raw)
 }
 
 func (h *Handler) writeChannelError(ctx context.Context, c *app.RequestContext, operation string, err error) {

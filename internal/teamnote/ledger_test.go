@@ -113,6 +113,88 @@ func (s *ledgerSuite) TestSoftTTLExpiresNotes() {
 	s.Require().Empty(envelope.Items)
 }
 
+func (s *ledgerSuite) TestFutureInvalidAtStaysRecallableUntilBoundary() {
+	evidence := producerEvent("event-future-invalid", "The freeze window is active until further notice.")
+	boundary := s.clock.now.Add(time.Hour)
+	note, err := s.ledger.Apply(context.Background(), teamnote.Candidate{
+		ID: "candidate-future-invalid", Action: teamnote.ActionCreate, Kind: teamnote.KindStatus,
+		Subject: "freeze window", Body: "The freeze window is active until further notice.", TaskRef: "release-42",
+		Origin: evidence.Actor, EvidenceEventIDs: []string{evidence.ID}, InvalidAt: timePointer(boundary),
+	}, []teamnote.SessionEvent{evidence})
+	s.Require().NoError(err)
+	s.Require().Equal(teamnote.StateActive, note.State)
+
+	before, err := s.ledger.Recall(context.Background(), consumerRecall("release-42", "before-boundary"))
+	s.Require().NoError(err)
+	s.Require().Len(before.Items, 1)
+	s.Contains(before.Items[0], "The freeze window is active until further notice.")
+
+	s.clock.now = boundary.Add(time.Minute)
+	after, err := s.ledger.Recall(context.Background(), consumerRecall("release-42", "after-boundary"))
+	s.Require().NoError(err)
+	s.Empty(after.Items)
+}
+
+func (s *ledgerSuite) TestPastInvalidAtIsResolvedOnAdmission() {
+	evidence := producerEvent("event-past-invalid", "The freeze window already ended.")
+	note, err := s.ledger.Apply(context.Background(), teamnote.Candidate{
+		ID: "candidate-past-invalid", Action: teamnote.ActionCreate, Kind: teamnote.KindStatus,
+		Subject: "freeze window", Body: "The freeze window already ended.", TaskRef: "release-42",
+		Origin: evidence.Actor, EvidenceEventIDs: []string{evidence.ID},
+		InvalidAt: timePointer(s.clock.now.Add(-time.Hour)),
+	}, []teamnote.SessionEvent{evidence})
+	s.Require().NoError(err)
+	s.Require().Equal(teamnote.StateResolved, note.State)
+
+	envelope, err := s.ledger.Recall(context.Background(), consumerRecall("release-42", "resolved-consumer"))
+	s.Require().NoError(err)
+	s.Empty(envelope.Items)
+}
+
+func (s *ledgerSuite) TestApplyRejectsEmptyDurableReplayResult() {
+	_, err := s.ledger.ApplyRun(context.Background(), teamnote.ExtractionRun{ID: "collided-run"})
+	s.Require().NoError(err)
+
+	evidence := producerEvent("event-collided-run", "The build passed.")
+	_, err = s.ledger.Apply(context.Background(), teamnote.Candidate{
+		ID: "collided-run", Action: teamnote.ActionCreate, Kind: teamnote.KindStatus,
+		Subject: "build", Body: "The build passed.", TaskRef: "release-42",
+		Origin: evidence.Actor, EvidenceEventIDs: []string{evidence.ID},
+	}, []teamnote.SessionEvent{evidence})
+	s.Require().ErrorIs(err, teamnote.ErrExtractionRunConflict)
+}
+
+func (s *ledgerSuite) TestSoftExpiryIsClampedToHardBoundary() {
+	tests := []struct {
+		name  string
+		lease teamnote.LeasePolicy
+	}{
+		{name: "soft before hard keeps soft lease", lease: teamnote.LeasePolicy{SoftTTL: time.Hour, HardTTL: 2 * time.Hour}},
+		{name: "soft beyond hard clamps to hard lease", lease: teamnote.LeasePolicy{SoftTTL: 48 * time.Hour, HardTTL: time.Hour}},
+	}
+	for index, test := range tests {
+		s.Run(test.name, func() {
+			ledger := teamnote.NewLedger(teamnote.TTLPolicy{teamnote.KindStatus: test.lease}, s.clock)
+			evidence := producerEvent(fmt.Sprintf("event-clamp-%d", index), "The deployment is running.")
+			note, err := ledger.Apply(context.Background(), teamnote.Candidate{
+				ID: fmt.Sprintf("candidate-clamp-%d", index), Action: teamnote.ActionCreate, Kind: teamnote.KindStatus,
+				Subject: "deployment", Body: "The deployment is running.", TaskRef: "release-42",
+				Origin: evidence.Actor, EvidenceEventIDs: []string{evidence.ID},
+			}, []teamnote.SessionEvent{evidence})
+			s.Require().NoError(err)
+			s.False(note.SoftExpiresAt.After(note.HardExpiresAt))
+			s.Equal(minDuration(test.lease.SoftTTL, test.lease.HardTTL), note.SoftExpiresAt.Sub(note.CreatedAt))
+		})
+	}
+}
+
+func minDuration(left, right time.Duration) time.Duration {
+	if left < right {
+		return left
+	}
+	return right
+}
+
 func (s *ledgerSuite) TestAdmissionRejectsUnsafeCandidates() {
 	evidence := producerEvent("event-safe", "The build passed.")
 	privateEvidence := evidence

@@ -3,6 +3,7 @@ package runtime_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"testing"
@@ -343,6 +344,7 @@ func (s *appSuite) TestCapsSlicesAndReportsContinuation() {
 
 type runtimeExtractor struct {
 	result extractor.Result
+	err    error
 	calls  int
 }
 
@@ -368,12 +370,16 @@ func (s *recordingNoteStore) RecallNotes(ctx context.Context, scopeID string, re
 
 func (e *runtimeExtractor) Extract(_ context.Context, _ evidencelake.Slice) (extractor.Result, error) {
 	e.calls++
+	if e.err != nil {
+		return extractor.Result{}, e.err
+	}
 	return e.result, nil
 }
 
 type runtimeRepository struct {
-	events  map[string][]teamnote.SessionEvent
-	cursors map[string]int64
+	events     map[string][]teamnote.SessionEvent
+	cursors    map[string]int64
+	advanceErr error
 }
 
 func newRuntimeRepository() *runtimeRepository {
@@ -422,6 +428,9 @@ func (r *runtimeRepository) ExtractionCursor(_ context.Context, scopeID string, 
 }
 
 func (r *runtimeRepository) AdvanceExtractionCursor(_ context.Context, scopeID string, actor teamnote.Actor, cursor int64) error {
+	if r.advanceErr != nil {
+		return r.advanceErr
+	}
 	r.cursors[runtimeStreamKey(scopeID, actor)] = cursor
 	return nil
 }
@@ -444,4 +453,102 @@ func runtimeEvent(id string, actor teamnote.Actor) teamnote.SessionEvent {
 
 func runtimeStreamKey(scopeID string, actor teamnote.Actor) string {
 	return fmt.Sprintf("%s/%s/%s", scopeID, actor.AgentID, actor.SessionID)
+}
+
+func (s *appSuite) TestProcessExtractionObservesExtractorFailureStatus() {
+	tests := []struct {
+		name       string
+		extractErr error
+		wantStatus teamruntime.ExtractionStatus
+	}{
+		{
+			name:       "deadline exceeded is observed as timed out",
+			extractErr: fmt.Errorf("call extractor model: %w", context.DeadlineExceeded),
+			wantStatus: teamruntime.ExtractionTimedOut,
+		},
+		{
+			name:       "cancellation is observed as cancelled",
+			extractErr: fmt.Errorf("call extractor model: %w", context.Canceled),
+			wantStatus: teamruntime.ExtractionCancelled,
+		},
+		{
+			name:       "generic failure is observed as failed",
+			extractErr: errors.New("provider exploded"),
+			wantStatus: teamruntime.ExtractionFailed,
+		},
+	}
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			repository := newRuntimeRepository()
+			failingExtractor := &runtimeExtractor{err: test.extractErr}
+			observations := make([]teamruntime.ExtractionObservation, 0, 1)
+			app, err := teamruntime.New(evidencelake.New(repository), failingExtractor, teamruntime.Config{
+				ExtractionObserver: func(_ context.Context, observation teamruntime.ExtractionObservation) {
+					observations = append(observations, observation)
+				},
+			})
+			s.Require().NoError(err)
+			ctx := teamnote.WithScope(context.Background(), "scope-extract-failure")
+			actor := teamnote.Actor{UserID: "owner", AgentID: "producer", SessionID: "producer-session"}
+			_, err = app.ObserveSession(ctx, teamnote.SessionBatch{
+				Events: []teamnote.SessionEvent{runtimeEvent("event-failure", actor)}, Complete: true,
+			})
+			s.Require().NoError(err)
+
+			more, err := app.ProcessExtraction(ctx, actor, 1, false)
+
+			s.Require().Error(err)
+			s.Require().ErrorIs(err, test.extractErr)
+			s.False(more)
+			s.Require().Len(observations, 1)
+			s.Equal(test.wantStatus, observations[0].Status)
+			s.Zero(repository.cursors[runtimeStreamKey("scope-extract-failure", actor)],
+				"a failed extraction must not advance the cursor")
+		})
+	}
+}
+
+func (s *appSuite) TestCommitSliceFailureSurfacesAndRerunDoesNotDoubleApply() {
+	store := newRecordingNoteStore()
+	observations := make([]teamruntime.ExtractionObservation, 0, 2)
+	app, err := teamruntime.New(evidencelake.New(s.repository), s.extractor, teamruntime.Config{
+		NoteStore: store,
+		ExtractionObserver: func(_ context.Context, observation teamruntime.ExtractionObservation) {
+			observations = append(observations, observation)
+		},
+	})
+	s.Require().NoError(err)
+	ctx := teamnote.WithScope(context.Background(), "scope-commit-failure")
+	actor := teamnote.Actor{UserID: "owner", AgentID: "producer", SessionID: "producer-session"}
+	event := runtimeEvent("event-commit", actor)
+	s.extractor.result = extractor.Result{Candidates: []teamnote.Candidate{{
+		ID: "candidate-commit", Action: teamnote.ActionCreate, Kind: teamnote.KindStatus,
+		Subject: "release", Body: "Tests are failing.", TaskRef: "release-42",
+		Origin: actor, EvidenceEventIDs: []string{event.ID},
+	}}}
+	_, err = app.ObserveSession(ctx, teamnote.SessionBatch{Events: []teamnote.SessionEvent{event}, Complete: true})
+	s.Require().NoError(err)
+
+	commitErr := errors.New("advance cursor unavailable")
+	s.repository.advanceErr = commitErr
+	_, err = app.ProcessExtraction(ctx, actor, 1, false)
+	s.Require().ErrorIs(err, commitErr, "a commit failure after a successful apply must surface")
+	s.Require().Len(store.runs, 1, "the extraction run was applied before the commit failed")
+	s.Require().Len(observations, 1)
+	s.Equal(teamruntime.ExtractionFailed, observations[0].Status)
+
+	s.repository.advanceErr = nil
+	more, err := app.ProcessExtraction(ctx, actor, 1, false)
+	s.Require().NoError(err)
+	s.False(more)
+	s.Equal(2, s.extractor.calls, "the uncommitted slice is re-extracted")
+	s.Require().Len(store.runs, 2)
+	s.Equal(store.runs[0].ID, store.runs[1].ID, "the retry replays the same run identity")
+
+	envelope, err := app.RecallNotes(ctx, teamnote.RecallRequest{
+		Actor:   teamnote.Actor{UserID: "owner", AgentID: "consumer", SessionID: "consumer-session"},
+		TaskRef: "release-42", TokenBudget: 256,
+	})
+	s.Require().NoError(err)
+	s.Require().Len(envelope.Items, 1, "run-ID idempotency must not double-apply the candidate")
 }

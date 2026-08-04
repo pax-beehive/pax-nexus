@@ -471,7 +471,7 @@ func TestGeneratedHandlerFixturesAreComplete(t *testing.T) {
 // the given injector/reader pair, used by fixture-driven tests below that
 // do not care about per-request resolution.
 func fixedDependencies(injector Injector, reader Reader) Dependencies {
-	return func(context.Context) (Injector, Reader, error) {
+	return func(context.Context, *app.RequestContext) (Injector, Reader, error) {
 		return injector, reader, nil
 	}
 }
@@ -480,7 +480,7 @@ func TestDependenciesAreResolvedPerRequestWithoutHandlerLevelCaching(t *testing.
 	t.Parallel()
 	calls := 0
 	handler := &Handler{
-		dependencies: func(context.Context) (Injector, Reader, error) {
+		dependencies: func(context.Context, *app.RequestContext) (Injector, Reader, error) {
 			calls++
 			return failingInjector{err: pagewiki.ErrUnavailable},
 				failingReader{err: pagewiki.ErrUnavailable},
@@ -522,7 +522,7 @@ func TestDependencyResolutionErrorMapsThroughTheExistingErrorConvention(t *testi
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			handler := &Handler{
-				dependencies: func(context.Context) (Injector, Reader, error) {
+				dependencies: func(context.Context, *app.RequestContext) (Injector, Reader, error) {
 					return nil, nil, tt.err
 				},
 			}

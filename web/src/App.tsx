@@ -9,6 +9,7 @@ import { NotConfiguredPage } from "./pages/NotConfiguredPage";
 import { BootstrapPage } from "./pages/BootstrapPage";
 import { JoinPage } from "./pages/JoinPage";
 import { EntryPage } from "./pages/EntryPage";
+import { OnboardingPage } from "./pages/OnboardingPage";
 import { SuspendedPage } from "./pages/SuspendedPage";
 import { PortalShell } from "./pages/PortalShell";
 import { WikiBrowsePage } from "./pages/WikiBrowsePage";
@@ -62,15 +63,19 @@ function AppRoutes() {
           has no membership yet; the page branches on auth state itself. */}
       <Route path="/join" element={<JoinPage />} />
       {state.kind === "unauthenticated" && <Route path="*" element={<LoginPage />} />}
-      {state.kind === "no-membership" && (
+      {state.kind === "no-membership" && state.profile === "onprem" && (
         <>
           <Route path="/bootstrap" element={<BootstrapPage />} />
           <Route path="*" element={<EntryPage />} />
         </>
       )}
+      {state.kind === "no-membership" && state.profile === "saas" && (
+        <Route path="*" element={<OnboardingPage />} />
+      )}
       {state.kind === "suspended" && <Route path="*" element={<SuspendedPage />} />}
       {state.kind === "active" && (
         <>
+          <Route path="/onboarding" element={<OnboardingPage />} />
           <Route
             path="/wiki/browse"
             element={

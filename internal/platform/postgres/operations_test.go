@@ -22,6 +22,7 @@ type operationsStoreSuite struct {
 	suite.Suite
 	store      *postgres.Store
 	operations *postgres.OperationsStore
+	scope      string
 	now        time.Time
 	adminPool  *pgxpool.Pool
 	schema     string
@@ -49,7 +50,8 @@ func (s *operationsStoreSuite) SetupSuite() {
 	s.Require().NoError(err)
 	s.Require().NoError(store.Migrate(ctx))
 	s.store = store
-	s.operations = store.Operations()
+	s.scope = "operations-suite-scope"
+	s.operations = store.Operations(s.scope)
 	s.now = time.Now().UTC().Truncate(time.Microsecond)
 }
 
@@ -91,10 +93,15 @@ func (s *operationsStoreSuite) TestRecordListSummaryAndCursor() {
 		StartedAt: s.now.Add(2 * time.Minute), CompletedAt: s.now.Add(2 * time.Minute), ErrorCode: "provider_unavailable",
 	})
 
+	s.insertUnextractedEvent(s.scope, uniqueCredentialValue("summary-event"), agentID)
+	s.insertUnextractedEvent(uniqueScope("operations-foreign"), uniqueCredentialValue("foreign-event"), agentID)
+
 	summary, err := s.operations.Summary(ctx, operations.TimeFilter{
 		From: s.now.Add(-time.Hour), To: s.now.Add(time.Hour), AgentID: agentID,
 	}, s.now.Add(time.Hour))
 	s.Require().NoError(err)
+	s.Equal(int64(1), summary.Extraction.UnextractedEvents,
+		"extraction summary must only count session events in the bound scope")
 	s.Equal(int64(1), summary.Observations.Requests)
 	s.Equal(int64(3), summary.Observations.InputEvents)
 	s.Equal(int64(2), summary.Observations.EventsWritten)
@@ -162,9 +169,22 @@ INSERT INTO team_note_recall_observations (
     scope_id, recipient_user_id, recipient_agent_id, recipient_session_id,
     query_digest, token_budget, max_items, envelope, trace, duration_ms, created_at, expires_at
 ) VALUES ($1, 'user', 'agent', 'session', $2, 128, 3, $3::jsonb, $4::jsonb, 17, $5, $6)
-RETURNING observation_id`, uniqueScope("operations-recall"), digest[:], string(encodedEnvelope),
+RETURNING observation_id`, s.scope, digest[:], string(encodedEnvelope),
 		string(encodedTrace), s.now, s.now.Add(24*time.Hour)).Scan(&observationID)
 	s.Require().NoError(err)
+	var foreignObservationID int64
+	err = s.store.Pool().QueryRow(ctx, `
+INSERT INTO team_note_recall_observations (
+    scope_id, recipient_user_id, recipient_agent_id, recipient_session_id,
+    query_digest, token_budget, max_items, envelope, trace, duration_ms, created_at, expires_at
+) VALUES ($1, 'user', 'agent', 'session', $2, 128, 3, $3::jsonb, $4::jsonb, 17, $5, $6)
+RETURNING observation_id`, uniqueScope("operations-foreign-recall"), digest[:], string(encodedEnvelope),
+		string(encodedTrace), s.now, s.now.Add(24*time.Hour)).Scan(&foreignObservationID)
+	s.Require().NoError(err)
+
+	_, err = s.operations.GetRecallDiagnostic(ctx, foreignObservationID)
+	s.Require().ErrorIs(err, operations.ErrRecallNotFound,
+		"recall diagnostics must not resolve observations from other scopes")
 
 	diagnostic, err := s.operations.GetRecallDiagnostic(ctx, observationID)
 	s.Require().NoError(err)
@@ -186,7 +206,7 @@ INSERT INTO team_note_recall_observations (
     scope_id, recipient_user_id, recipient_agent_id, recipient_session_id,
     query_digest, token_budget, max_items, envelope, trace, duration_ms, created_at, expires_at
 ) VALUES ($1, 'user', 'agent', 'session', $2, 64, 3, '{}'::jsonb, '{}'::jsonb, 1, $3, $4)
-RETURNING observation_id`, uniqueScope("operations-expired-recall"), digest[:],
+RETURNING observation_id`, s.scope, digest[:],
 		time.Now().UTC().Add(-2*time.Hour), time.Now().UTC().Add(-time.Hour),
 	).Scan(&observationID)
 	s.Require().NoError(err)
@@ -379,12 +399,13 @@ VALUES ($1, $2, 'Codex Agent', 'codex', 'active', $3, $3)`, agentID, membershipI
 		InputItems: 7, AcceptedItems: 7,
 	})
 
-	scope := uniqueScope("operations-stats")
 	for index := 0; index < 7; index++ {
-		s.insertStatsNote(scope, fmt.Sprintf("%s-note-%d", agentID, index), agentID,
+		s.insertStatsNote(s.scope, fmt.Sprintf("%s-note-%d", agentID, index), agentID,
 			fmt.Sprintf("stats subject %d", index), s.now.Add(time.Duration(index)*time.Minute))
 	}
-	s.insertStatsNote(scope, agentID+"-old-note", agentID, "old subject", s.now.Add(-2*time.Hour))
+	s.insertStatsNote(s.scope, agentID+"-old-note", agentID, "old subject", s.now.Add(-2*time.Hour))
+	s.insertStatsNote(uniqueScope("operations-foreign-stats"), agentID+"-foreign-note", agentID,
+		"foreign subject", s.now.Add(10*time.Minute))
 
 	stats, err := s.operations.AgentStats(ctx, operations.TimeFilter{
 		From: s.now.Add(-time.Hour), To: s.now.Add(time.Hour),
@@ -412,6 +433,10 @@ VALUES ($1, $2, 'Codex Agent', 'codex', 'active', $3, $3)`, agentID, membershipI
 	s.Require().NotNil(agent.LastActiveAt)
 	s.Equal(s.now.Add(6*time.Minute), agent.LastActiveAt.UTC())
 	s.Require().Len(agent.RecentNotes, 5)
+	for _, note := range agent.RecentNotes {
+		s.NotEqual(agentID+"-foreign-note", note.NoteID,
+			"recent notes must not leak team notes from other scopes")
+	}
 	s.Equal(agentID+"-note-6", agent.RecentNotes[0].NoteID)
 	s.Equal("fact", agent.RecentNotes[0].Kind)
 	s.Equal("stats subject 6", agent.RecentNotes[0].Subject)
@@ -451,6 +476,16 @@ INSERT INTO team_notes (
           'active', 1, $6, $7, $8, $8)`,
 		scope, noteID, "key-"+noteID, subject, agentID,
 		createdAt.Add(24*time.Hour), createdAt.Add(30*24*time.Hour), createdAt)
+	s.Require().NoError(err)
+}
+
+func (s *operationsStoreSuite) insertUnextractedEvent(scope, eventID, agentID string) {
+	_, err := s.store.Pool().Exec(context.Background(), `
+INSERT INTO session_events (
+    scope_id, event_id, user_id, agent_id, session_id, sequence,
+    event_type, content, occurred_at, captured_at
+) VALUES ($1, $2, 'user', $3, 'summary-session', 1, 'message', 'pending extraction', $4, $4)`,
+		scope, eventID, agentID, s.now)
 	s.Require().NoError(err)
 }
 

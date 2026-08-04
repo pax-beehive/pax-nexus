@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 	"time"
@@ -16,14 +17,25 @@ import (
 )
 
 const (
-	EmbeddingDimensions = 384
-	queryInstruction    = "Retrieve Team Notes containing facts, decisions, blockers, ownership, deadlines, or status relevant to the current agent request."
+	// DefaultEmbeddingDimensions is the width a deployment gets when it does
+	// not choose one. It suits a small local runtime; a hosted provider with
+	// a wider Matryoshka model should configure its own width rather than
+	// have its vectors truncated to this one.
+	DefaultEmbeddingDimensions = 384
+	queryInstruction           = "Retrieve Team Notes containing facts, decisions, blockers, ownership, deadlines, or status relevant to the current agent request."
 )
 
 type RetrievalConfig struct {
 	Embedder       textembedding.Embedder
 	EmbeddingModel string
-	Policy         teamnote.RecallPolicy
+	// EmbeddingDimensions is the stored vector width. It must match the
+	// team_notes.embedding column, which ReconcileEmbeddingDimensions keeps
+	// in step. Zero means DefaultEmbeddingDimensions.
+	EmbeddingDimensions int
+	Policy              teamnote.RecallPolicy
+	// Logger receives operational signals such as semantic recall degrading
+	// to lexical-only retrieval. Defaults to slog.Default when nil.
+	Logger *slog.Logger
 }
 
 type recallSnapshotItem struct {
@@ -46,6 +58,7 @@ type NoteStore struct {
 	policy    teamnote.TTLPolicy
 	clock     teamnote.Clock
 	retrieval RetrievalConfig
+	logger    *slog.Logger
 }
 
 func NewNoteStore(store *Store, policy teamnote.TTLPolicy, clock teamnote.Clock, retrieval RetrievalConfig) (*NoteStore, error) {
@@ -55,34 +68,53 @@ func NewNoteStore(store *Store, policy teamnote.TTLPolicy, clock teamnote.Clock,
 	if retrieval.Embedder != nil && strings.TrimSpace(retrieval.EmbeddingModel) == "" {
 		return nil, fmt.Errorf("create postgres note store: embedding model is required when embedding is enabled")
 	}
-	if retrieval.Policy == (teamnote.RecallPolicy{}) {
-		retrieval.Policy = teamnote.DefaultRecallPolicy()
+	if retrieval.EmbeddingDimensions <= 0 {
+		retrieval.EmbeddingDimensions = DefaultEmbeddingDimensions
 	}
-	if retrieval.Policy.SemanticThreshold == 0 {
-		retrieval.Policy.SemanticThreshold = teamnote.DefaultRecallPolicy().SemanticThreshold
+	if err := applyRecallPolicyDefaults(&retrieval.Policy); err != nil {
+		return nil, err
 	}
-	if retrieval.Policy.SemanticThreshold < 0 || retrieval.Policy.SemanticThreshold > 1 {
-		return nil, fmt.Errorf("create postgres note store: semantic threshold must be between zero and one")
+	logger := retrieval.Logger
+	if logger == nil {
+		logger = slog.Default()
 	}
-	if retrieval.Policy.HintSemanticThreshold == 0 {
-		retrieval.Policy.HintSemanticThreshold = retrieval.Policy.SemanticThreshold
+	return &NoteStore{store: store, policy: policy, clock: clock, retrieval: retrieval, logger: logger}, nil
+}
+
+// applyRecallPolicyDefaults fills the unset fields of a recall policy and
+// rejects out-of-range ones. It lives apart from NewNoteStore so the
+// constructor reads as construction rather than a wall of validation.
+func applyRecallPolicyDefaults(policy *teamnote.RecallPolicy) error {
+	defaults := teamnote.DefaultRecallPolicy()
+	if *policy == (teamnote.RecallPolicy{}) {
+		*policy = defaults
 	}
-	if retrieval.Policy.HintSemanticThreshold < 0 || retrieval.Policy.HintSemanticThreshold > 1 {
-		return nil, fmt.Errorf("create postgres note store: hint semantic threshold must be between zero and one")
+	if policy.SemanticThreshold == 0 {
+		policy.SemanticThreshold = defaults.SemanticThreshold
 	}
-	if retrieval.Policy.HintMinQueryRelevance < 0 || retrieval.Policy.HintMinQueryRelevance > 1 {
-		return nil, fmt.Errorf("create postgres note store: hint minimum query relevance must be between zero and one")
+	if policy.HintSemanticThreshold == 0 {
+		policy.HintSemanticThreshold = policy.SemanticThreshold
 	}
-	if retrieval.Policy.HintMinMarginalUtility < 0 || retrieval.Policy.HintMinMarginalUtility > 1 {
-		return nil, fmt.Errorf("create postgres note store: hint minimum marginal utility must be between zero and one")
+	if policy.CandidateLimit == 0 {
+		policy.CandidateLimit = defaults.CandidateLimit
 	}
-	if retrieval.Policy.CandidateLimit == 0 {
-		retrieval.Policy.CandidateLimit = teamnote.DefaultRecallPolicy().CandidateLimit
+	for _, bounded := range []struct {
+		name  string
+		value float64
+	}{
+		{name: "semantic threshold", value: policy.SemanticThreshold},
+		{name: "hint semantic threshold", value: policy.HintSemanticThreshold},
+		{name: "hint minimum query relevance", value: policy.HintMinQueryRelevance},
+		{name: "hint minimum marginal utility", value: policy.HintMinMarginalUtility},
+	} {
+		if bounded.value < 0 || bounded.value > 1 {
+			return fmt.Errorf("create postgres note store: %s must be between zero and one", bounded.name)
+		}
 	}
-	if retrieval.Policy.CandidateLimit < 1 {
-		return nil, fmt.Errorf("create postgres note store: candidate limit must be positive")
+	if policy.CandidateLimit < 1 {
+		return fmt.Errorf("create postgres note store: candidate limit must be positive")
 	}
-	return &NoteStore{store: store, policy: policy, clock: clock, retrieval: retrieval}, nil
+	return nil
 }
 
 func (s *NoteStore) ApplyCandidate(ctx context.Context, scopeID, runID string, candidate teamnote.Candidate, evidence []teamnote.SessionEvent) (note teamnote.Note, returnedErr error) {
@@ -274,6 +306,7 @@ func (s *NoteStore) RecallNotes(ctx context.Context, scopeID string, request tea
 	queryVector, embeddingErr := s.embedQuery(ctx, request.Query)
 	if embeddingErr != nil {
 		// Semantic recall is best effort; lexical recall remains available when the local model is unavailable.
+		s.logSemanticRecallDegraded(ctx, scopeID, embeddingErr)
 		queryVector = nil
 	}
 	tx, err := s.store.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -340,6 +373,7 @@ func (s *NoteStore) RecallCandidates(ctx context.Context, scopeID string, reques
 	queryVector, embeddingErr := s.embedQuery(ctx, request.Query)
 	if embeddingErr != nil {
 		// Semantic recall is best effort, mirroring RecallNotes.
+		s.logSemanticRecallDegraded(ctx, scopeID, embeddingErr)
 		queryVector = nil
 	}
 	tx, err := s.store.pool.BeginTx(ctx, pgx.TxOptions{})
@@ -408,7 +442,10 @@ RETURNING observation_id`,
 	).Scan(&observationID); err != nil {
 		return 0, fmt.Errorf("save recall observation: %w", err)
 	}
-	if _, err := tx.Exec(ctx, `DELETE FROM team_note_recall_observations WHERE expires_at <= NOW()`); err != nil {
+	// Opportunistic cleanup stays inside the recall transaction for now but is
+	// limited to the current scope so tenants do not contend on each other's
+	// expired rows. Moving this to a dedicated sweep loop is a future change.
+	if _, err := tx.Exec(ctx, `DELETE FROM team_note_recall_observations WHERE scope_id = $1 AND expires_at <= NOW()`, scopeID); err != nil {
 		return 0, fmt.Errorf("delete expired recall observations: %w", err)
 	}
 	return observationID, nil
@@ -882,7 +919,7 @@ func (s *NoteStore) refreshEmbedding(ctx context.Context, scopeID string, note t
 	if err != nil {
 		return s.recordEmbeddingError(ctx, scopeID, note, err)
 	}
-	if len(vectors) != 1 || len(vectors[0]) != EmbeddingDimensions {
+	if len(vectors) != 1 || len(vectors[0]) != s.retrieval.EmbeddingDimensions {
 		return s.recordEmbeddingError(ctx, scopeID, note, fmt.Errorf("unexpected embedding dimensions"))
 	}
 	return s.saveEmbedding(ctx, scopeID, note, vectors[0])
@@ -948,7 +985,7 @@ func (s *NoteStore) recordTargetEmbeddingErrors(ctx context.Context, targets []e
 func (s *NoteStore) saveTargetEmbeddings(ctx context.Context, targets []embeddingTarget, vectors [][]float32) (int, error) {
 	completed := 0
 	for index, target := range targets {
-		if len(vectors[index]) != EmbeddingDimensions {
+		if len(vectors[index]) != s.retrieval.EmbeddingDimensions {
 			if err := s.recordEmbeddingError(ctx, target.ScopeID, target.Note, fmt.Errorf("unexpected embedding dimensions")); err != nil {
 				return completed, err
 			}
@@ -1008,6 +1045,14 @@ WHERE scope_id = $1 AND note_id = $2 AND current_revision = $5`,
 	return nil
 }
 
+// logSemanticRecallDegraded surfaces the silent fallback from hybrid to
+// lexical-only recall so operators can tell degraded retrieval quality apart
+// from genuinely empty results.
+func (s *NoteStore) logSemanticRecallDegraded(ctx context.Context, scopeID string, embeddingErr error) {
+	s.logger.WarnContext(ctx, "semantic recall degraded to lexical-only retrieval",
+		"scope_id", scopeID, "error", embeddingErr)
+}
+
 func (s *NoteStore) embedQuery(ctx context.Context, query string) ([]float32, error) {
 	if s.retrieval.Embedder == nil || strings.TrimSpace(query) == "" {
 		return nil, nil
@@ -1017,8 +1062,8 @@ func (s *NoteStore) embedQuery(ctx context.Context, query string) ([]float32, er
 	if err != nil {
 		return nil, fmt.Errorf("embed recall query: %w", err)
 	}
-	if len(vectors) != 1 || len(vectors[0]) != EmbeddingDimensions {
-		return nil, fmt.Errorf("embed recall query: expected one %d-dimensional vector", EmbeddingDimensions)
+	if len(vectors) != 1 || len(vectors[0]) != s.retrieval.EmbeddingDimensions {
+		return nil, fmt.Errorf("embed recall query: expected one %d-dimensional vector", s.retrieval.EmbeddingDimensions)
 	}
 	return vectors[0], nil
 }

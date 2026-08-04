@@ -129,6 +129,13 @@ type Controller struct {
 	failuresMu sync.Mutex
 	failures   map[string]failureRecord
 	now        func() time.Time
+	// injectWaiters counts, per scope, the manual InjectSession callers
+	// waiting on that scope's lock. A scope's job yields to them between
+	// streams, exactly like it yields to a queued rebuild: a user-facing
+	// inject must never sit behind a whole backlog sweep of multi-minute
+	// LLM injections.
+	waitersMu     sync.Mutex
+	injectWaiters map[string]int
 	// stateMu guards rebuilds below. It is separate from the scope locks so
 	// status reads never wait behind a minutes-long injection scan.
 	stateMu  sync.Mutex
@@ -143,6 +150,8 @@ type Controller struct {
 	inFlightMu sync.Mutex
 	inFlight   map[string]bool
 	jobs       sync.WaitGroup
+	cancel     context.CancelFunc
+	done       chan struct{}
 }
 
 // Option configures a Controller at construction. See WithInjectConcurrency.
@@ -181,12 +190,13 @@ func New(
 	c := &Controller{
 		store: store, injectorFor: injectorFor, rebuilderFor: rebuilderFor,
 		logger: logger, interval: interval, trigger: make(chan struct{}, 1),
-		scopeLocks: make(map[string]*sync.Mutex),
-		failures:   make(map[string]failureRecord),
-		now:        time.Now,
-		rebuilds:   make(map[string]*scopeRebuild),
-		slots:      make(chan struct{}, 2),
-		inFlight:   make(map[string]bool),
+		scopeLocks:    make(map[string]*sync.Mutex),
+		failures:      make(map[string]failureRecord),
+		injectWaiters: make(map[string]int),
+		now:           time.Now,
+		rebuilds:      make(map[string]*scopeRebuild),
+		slots:         make(chan struct{}, 2),
+		inFlight:      make(map[string]bool),
 	}
 	for _, option := range options {
 		if err := option(c); err != nil {
@@ -196,8 +206,13 @@ func New(
 	return c, nil
 }
 
+// Start launches the background consume loop. It stops when ctx is
+// cancelled or Stop is called.
 func (c *Controller) Start(ctx context.Context) {
-	go func() {
+	ctx, c.cancel = context.WithCancel(ctx)
+	c.done = make(chan struct{})
+	go func(done chan struct{}) {
+		defer close(done)
 		c.tick(ctx)
 		ticker := time.NewTicker(c.interval)
 		defer ticker.Stop()
@@ -211,7 +226,24 @@ func (c *Controller) Start(ctx context.Context) {
 				c.tick(ctx)
 			}
 		}
-	}()
+	}(c.done)
+}
+
+// Stop cancels the consume loop and waits for the background goroutine to
+// exit, bounded by ctx. An in-flight injection or rebuild observes the same
+// cancelled context. Stopping a controller that was never started is a
+// no-op.
+func (c *Controller) Stop(ctx context.Context) error {
+	if c.cancel == nil {
+		return nil
+	}
+	c.cancel()
+	select {
+	case <-c.done:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("stop Page Wiki session consumer: %w", ctx.Err())
+	}
 }
 
 type scopeJob struct {
@@ -325,7 +357,11 @@ func (c *Controller) runScopeJob(ctx context.Context, job scopeJob, slotHeld boo
 		if ctx.Err() != nil {
 			return
 		}
-		if c.rebuildQueuedFor(job.scopeID) {
+		// A queued rebuild wipes everything this pass would build, and a
+		// waiting manual inject is a user staring at a spinner; yield the
+		// scope's lock now instead of after the whole backlog. The remaining
+		// streams are picked up by the next tick.
+		if c.rebuildQueuedFor(job.scopeID) || c.injectWaitingFor(job.scopeID) {
 			break
 		}
 		if c.backedOff(stream, now) {
@@ -388,9 +424,18 @@ func (c *Controller) SetAutoInject(ctx context.Context, scopeID string, enabled 
 // Rebuild arms scopeID's own rebuild slot. A scope whose rebuild is already
 // queued or running keeps its armed cutoff and reads back its current state,
 // so repeated requests merge — per scope, independently of every other one.
-func (c *Controller) Rebuild(_ context.Context, scopeID string, since time.Time) (Status, error) {
+//
+// The response's AutoInject reflects the store: the rebuild itself enables
+// ingestion only when its commit succeeds (postgres Repository
+// RebuildPageWiki), so a queued — or later failed — rebuild must not report
+// auto_inject as already on.
+func (c *Controller) Rebuild(ctx context.Context, scopeID string, since time.Time) (Status, error) {
 	if strings.TrimSpace(scopeID) == "" {
 		return Status{}, fmt.Errorf("rebuild Page Wiki: scope is required")
+	}
+	enabled, err := c.store.AutoInjectEnabled(ctx, scopeID)
+	if err != nil {
+		return Status{}, fmt.Errorf("rebuild Page Wiki: read ingestion status: %w", err)
 	}
 	c.stateMu.Lock()
 	entry, found := c.rebuilds[scopeID]
@@ -405,7 +450,7 @@ func (c *Controller) Rebuild(_ context.Context, scopeID string, since time.Time)
 	snapshot := entry.status
 	c.stateMu.Unlock()
 	c.ping()
-	return Status{AutoInject: true, Rebuild: snapshot}, nil
+	return Status{AutoInject: enabled, Rebuild: snapshot}, nil
 }
 
 // maybeRebuild drains every queued scope rebuild on the caller's
@@ -538,6 +583,28 @@ func (c *Controller) clearScopeFailures(scopeID string) {
 	}
 }
 
+// addInjectWaiter registers a manual InjectSession caller as waiting for
+// scopeID's lock and returns the func that deregisters it.
+func (c *Controller) addInjectWaiter(scopeID string) func() {
+	c.waitersMu.Lock()
+	c.injectWaiters[scopeID]++
+	c.waitersMu.Unlock()
+	return func() {
+		c.waitersMu.Lock()
+		c.injectWaiters[scopeID]--
+		c.waitersMu.Unlock()
+	}
+}
+
+// injectWaitingFor reports whether a manual InjectSession call is waiting
+// for scopeID's lock; the scope's job yields to it exactly like it yields
+// to a queued rebuild.
+func (c *Controller) injectWaitingFor(scopeID string) bool {
+	c.waitersMu.Lock()
+	defer c.waitersMu.Unlock()
+	return c.injectWaiters[scopeID] > 0
+}
+
 func (c *Controller) InjectSession(
 	ctx context.Context,
 	scopeID string,
@@ -553,6 +620,11 @@ func (c *Controller) InjectSession(
 	if len(streams) == 0 {
 		return InjectResult{}, ErrSessionNotFound
 	}
+	// Register as a waiter before contending for the scope lock (consume
+	// takes it per stream) so this scope's in-flight job yields at its next
+	// between-streams checkpoint instead of finishing the whole sweep first.
+	deregister := c.addInjectWaiter(scopeID)
+	defer deregister()
 	for _, stream := range streams {
 		c.clearFailure(stream)
 		if err := c.consume(ctx, stream); err != nil {

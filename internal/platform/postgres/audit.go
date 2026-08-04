@@ -31,9 +31,13 @@ func NewAuditStore(pool *pgxpool.Pool) (*AuditStore, error) {
 	return &AuditStore{pool: pool}, nil
 }
 
+// PendingStreams returns streams whose head moved past this processor's
+// committed cursor. Each stream carries that committed cursor so the scan
+// reads only the uncommitted window instead of replaying the full history.
 func (s *AuditStore) PendingStreams(ctx context.Context) ([]audit.Stream, error) {
 	rows, err := s.pool.Query(ctx, `
-SELECT stream.scope_id, stream.user_id, stream.agent_id, stream.session_id, stream.last_sequence
+SELECT stream.scope_id, stream.user_id, stream.agent_id, stream.session_id,
+       stream.last_sequence, COALESCE(cursor.committed_sequence, 0)
 FROM session_streams AS stream
 LEFT JOIN session_processor_cursors AS cursor
   ON cursor.processor_name = $1
@@ -59,6 +63,7 @@ LIMIT 100`, audit.ProcessorName, audit.ProcessorVersion)
 			&stream.Actor.AgentID,
 			&stream.Actor.SessionID,
 			&stream.Head,
+			&stream.Committed,
 		); err != nil {
 			return nil, fmt.Errorf("scan session audit pending stream: %w", err)
 		}
@@ -70,6 +75,9 @@ LIMIT 100`, audit.ProcessorName, audit.ProcessorVersion)
 	return streams, nil
 }
 
+// SessionEvents reads the uncommitted window (Committed, Head] of one
+// stream. The lower bound keeps re-projection incremental: events at or
+// below the committed cursor were already applied in a previous batch.
 func (s *AuditStore) SessionEvents(
 	ctx context.Context,
 	stream audit.Stream,
@@ -78,8 +86,10 @@ func (s *AuditStore) SessionEvents(
 SELECT event_id, user_id, agent_id, session_id, sequence, event_type, content,
        task_ref, thread_ref, visibility, occurred_at, captured_at, extracted_at, metadata
 FROM session_events
-WHERE scope_id = $1 AND agent_id = $2 AND session_id = $3 AND sequence <= $4
-ORDER BY sequence`, stream.ScopeID, stream.Actor.AgentID, stream.Actor.SessionID, stream.Head)
+WHERE scope_id = $1 AND agent_id = $2 AND session_id = $3
+  AND sequence > $4 AND sequence <= $5
+ORDER BY sequence`,
+		stream.ScopeID, stream.Actor.AgentID, stream.Actor.SessionID, stream.Committed, stream.Head)
 	if err != nil {
 		return nil, fmt.Errorf("query session audit events: %w", err)
 	}

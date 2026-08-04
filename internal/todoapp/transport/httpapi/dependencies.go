@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/pax-beehive/pax-nexus/internal/deployment/onprem"
@@ -34,15 +35,33 @@ type HumanAuthenticator interface {
 type Handler struct {
 	service  Service
 	identity HumanAuthenticator // nil => endpoints answer 501 not_configured
+	logger   *slog.Logger
+}
+
+// Option customizes the Handler.
+type Option func(*Handler)
+
+// WithLogger sets the logger used for error detail that must not reach the
+// browser. Defaults to slog.Default().
+func WithLogger(logger *slog.Logger) Option {
+	return func(h *Handler) {
+		if logger != nil {
+			h.logger = logger
+		}
+	}
 }
 
 // New creates the Todo App HTTP handler. service is required; identity may be
 // nil when the human portal is not configured for this deployment.
-func New(service Service, identity HumanAuthenticator) (*Handler, error) {
+func New(service Service, identity HumanAuthenticator, opts ...Option) (*Handler, error) {
 	if service == nil {
 		return nil, fmt.Errorf("create Todo App HTTP handler: service is required")
 	}
-	return &Handler{service: service, identity: identity}, nil
+	handler := &Handler{service: service, identity: identity, logger: slog.Default()}
+	for _, opt := range opts {
+		opt(handler)
+	}
+	return handler, nil
 }
 
 // InstanceMiddleware attaches the handler to every request in the group it is

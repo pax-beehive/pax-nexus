@@ -11,6 +11,7 @@ import (
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/pax-beehive/pax-nexus/internal/audit"
 	"github.com/pax-beehive/pax-nexus/internal/deployment/onprem"
+	"github.com/pax-beehive/pax-nexus/internal/deployment/saas"
 	"github.com/pax-beehive/pax-nexus/internal/explorer"
 	"github.com/pax-beehive/pax-nexus/internal/operations"
 	"github.com/pax-beehive/pax-nexus/internal/pagewiki"
@@ -38,6 +39,7 @@ type Handler struct {
 	identity     HumanIdentityLifecycle
 	oidc         OIDCLifecycle
 	registry     AgentRegistryLifecycle
+	teams        TeamLifecycle
 	operations   OperationsLifecycle
 	explorer     ExplorerLifecycle
 	wikiControl  WikiControl
@@ -45,10 +47,16 @@ type Handler struct {
 	llmUsage     LLMUsage
 	sessionAudit SessionAuditQuery
 	recorder     operations.Recorder
+	readiness    ReadinessCheck
 	portalURL    string
 	cookieSecure bool
 	logger       *slog.Logger
 }
+
+// ReadinessCheck reports whether the process can serve traffic. It is
+// expected to be cheap (a store round-trip, not a query) because load
+// balancers call it continuously; a nil error means ready.
+type ReadinessCheck func(context.Context) error
 
 type CredentialLifecycle interface {
 	Authenticate(context.Context, string) (onprem.Principal, error)
@@ -82,6 +90,17 @@ type HumanIdentityLifecycle interface {
 	UpdateMember(context.Context, onprem.HumanPrincipal, string, onprem.UpdateMemberRequest) (onprem.Member, error)
 	ListAuditEvents(context.Context, onprem.HumanPrincipal, onprem.AuditFilter) ([]onprem.AuditEvent, error)
 	GetAuditEvent(context.Context, onprem.HumanPrincipal, int64) (onprem.AuditEvent, error)
+}
+
+// TeamLifecycle is the SaaS multi-team control plane surface behind
+// /v1/teams and /v1/me/current-team. Only the SaaS profile wires it;
+// saas.ControlPlane satisfies it structurally. /v1/me also consults it to
+// populate the teams payload, so a wired TeamLifecycle doubles as the
+// profile marker for team-aware responses.
+type TeamLifecycle interface {
+	CreateTeam(context.Context, onprem.HumanPrincipal, string, string) (saas.Team, error)
+	ListTeams(context.Context, onprem.HumanPrincipal) ([]saas.TeamSummary, error)
+	SwitchTeam(context.Context, onprem.HumanPrincipal, string) (onprem.HumanPrincipal, error)
 }
 
 type OIDCLifecycle interface {
@@ -169,6 +188,19 @@ func WithAgentRegistry(registry AgentRegistryLifecycle) OnPremOption {
 	}
 }
 
+// WithTeams wires the SaaS team control plane surface. Without it the team
+// endpoints answer 501 and /v1/me omits the team fields, which is exactly
+// the on-prem profile's behavior.
+func WithTeams(teams TeamLifecycle) OnPremOption {
+	return func(configured *Handler) error {
+		if teams == nil {
+			return fmt.Errorf("configure teams: team lifecycle is required")
+		}
+		configured.teams = teams
+		return nil
+	}
+}
+
 func WithOperations(service OperationsLifecycle, recorder operations.Recorder) OnPremOption {
 	return func(configured *Handler) error {
 		if service == nil || recorder == nil {
@@ -224,6 +256,19 @@ func WithSessionAudit(query SessionAuditQuery) OnPremOption {
 	}
 }
 
+// WithReadinessCheck wires the probe behind GET /readyz. Without it the
+// endpoint reports ready unconditionally, matching /healthz — a deployment
+// with no store to check has nothing to wait for.
+func WithReadinessCheck(check ReadinessCheck) OnPremOption {
+	return func(configured *Handler) error {
+		if check == nil {
+			return fmt.Errorf("configure readiness check: check is required")
+		}
+		configured.readiness = check
+		return nil
+	}
+}
+
 func WithHumanIdentity(
 	identity HumanIdentityLifecycle,
 	oidc OIDCLifecycle,
@@ -257,8 +302,11 @@ func NewOnPrem(
 	logger *slog.Logger,
 	options ...OnPremOption,
 ) (*Handler, error) {
-	if runtime == nil || credentials == nil || memory == nil || channel == nil || logger == nil {
-		return nil, fmt.Errorf("create on-prem HTTP handler: runtime, credentials, memory, channel, and logger are required")
+	// channel is deliberately optional: profiles without a channel surface
+	// (the SaaS profile) wire nil and the channel endpoints answer 501,
+	// matching every other unwired option.
+	if runtime == nil || credentials == nil || memory == nil || logger == nil {
+		return nil, fmt.Errorf("create on-prem HTTP handler: runtime, credentials, memory, and logger are required")
 	}
 	configured := &Handler{
 		runtime: runtime, resolver: StaticAPIKeys{}, credentials: credentials, memory: memory, channel: channel, logger: logger,

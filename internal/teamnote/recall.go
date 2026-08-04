@@ -171,10 +171,7 @@ func PlanRecall(candidates []RecallCandidate, request RecallRequest, policy Reca
 	relationCandidates, _ := selectFinalStateFamilies(candidates, intent)
 	allNotes := recallRelationEligibleNotes(relationCandidates, intent, observationTime)
 	relationPlans := traceRecallRelations(&trace, ranked, allNotes, request, policy)
-	ranked, selectionRejections := orderRecallCandidatesByCoverage(ranked, relationPlans, request, intent)
-	for _, rejection := range selectionRejections {
-		recordRecallRejection(&trace, rejection)
-	}
+	ranked = orderRecallCandidatesByCoverage(ranked, relationPlans, request, intent)
 	planned := make([]PlannedRecall, 0, len(ranked))
 	usedTokens := 0
 	selectedNotes := 0
@@ -185,11 +182,6 @@ func PlanRecall(candidates []RecallCandidate, request RecallRequest, policy Reca
 		if request.MaxItems > 0 && selectedNotes >= request.MaxItems {
 			recordMaxItemsDrops(&trace, ranked[index:], relationPlans)
 			break
-		}
-		if policy.SuppressDuplicates && intent.Mode != RecallModeHistory && intent.Mode != RecallModeChangesSince &&
-			duplicatesSelected(candidate.Note, planned) {
-			recordRecallRejection(&trace, RecallRejection{NoteID: candidate.ID, Reason: RejectDuplicate})
-			continue
 		}
 		recordPreBudgetSelection(&trace, candidate.ID)
 		remainingRelated := 0
@@ -264,11 +256,12 @@ func planRecallRelated(
 	for _, note := range available {
 		recordPreBudgetSelection(trace, note.ID)
 	}
-	selected := eligible
+	// Truncate after excluding already-selected notes so delivered notes do
+	// not consume the remaining related-item slots.
+	selected := available
 	if request.MaxItems > 0 && len(selected) > max(0, remaining) {
 		selected = selected[:max(0, remaining)]
 	}
-	selected = excludeRecallIDs(selected, trace.SelectedSet)
 	if request.MaxItems <= 0 {
 		return selected
 	}
@@ -293,7 +286,7 @@ func traceRecallRelations(
 	for _, primary := range ranked {
 		reachable := relatedNotes(primary.Note, allNotes)
 		recordRecallReachable(trace, reachable)
-		relevant := relevantRelatedNotes(reachable, request.Query, 0, false)
+		relevant := relevantRelatedNotes(reachable, request.Query)
 		eligible, lowUtility := relevant, []RecallRejection(nil)
 		if !policy.DisableRelationMarginalUtility {
 			eligible, lowUtility = marginallyUsefulRelatedNotes(primary.Note, relevant, request)
@@ -542,17 +535,6 @@ func recordRecallRelationCostDrops(trace *RecallTrace, primary Note, related []N
 	}
 }
 
-// duplicatesSelected reports whether a candidate restates an already selected
-// note by near-identical body terms.
-func duplicatesSelected(note Note, planned []PlannedRecall) bool {
-	for _, delivery := range planned {
-		if bodyOverlap(note.Body, delivery.Note.Body) >= duplicateBodySimilarity {
-			return true
-		}
-	}
-	return false
-}
-
 func excludeRecallIDs(related []Note, selectedIDs []string) []Note {
 	if len(related) == 0 {
 		return related
@@ -631,12 +613,9 @@ func rankRecallCandidates(
 	result := make([]RecallCandidate, 0, lanes.capacity())
 	var rejections []RecallRejection
 	for _, candidate := range candidates {
-		admitted, rejection, keep, semanticFallback := admitRecallCandidate(
+		admitted, rejection, keep := admitRecallCandidate(
 			candidate, request, intent, observationTime, evidenceThreshold(policy), lanes,
 		)
-		if semanticFallback {
-			lanes.semanticFallback[candidate.ID] = struct{}{}
-		}
 		if keep {
 			result = append(result, admitted)
 			continue
@@ -648,10 +627,9 @@ func rankRecallCandidates(
 }
 
 type recallLaneSet struct {
-	exact            map[string]struct{}
-	lexical          map[string]struct{}
-	semantic         map[string]struct{}
-	semanticFallback map[string]struct{}
+	exact    map[string]struct{}
+	lexical  map[string]struct{}
+	semantic map[string]struct{}
 }
 
 func (lanes recallLaneSet) capacity() int {
@@ -682,7 +660,7 @@ func recallLaneMembership(
 
 	lanes := recallLaneSet{
 		exact: make(map[string]struct{}, limit), lexical: make(map[string]struct{}, limit),
-		semantic: make(map[string]struct{}, limit), semanticFallback: make(map[string]struct{}, limit),
+		semantic: make(map[string]struct{}, limit),
 	}
 	for rank, candidate := range lexical {
 		if rank >= limit || candidate.LexicalScore <= 0 {
@@ -714,28 +692,28 @@ func admitRecallCandidate(
 	observationTime time.Time,
 	evidenceThreshold float64,
 	lanes recallLaneSet,
-) (RecallCandidate, RecallRejection, bool, bool) {
+) (RecallCandidate, RecallRejection, bool) {
 	candidate = evaluateRecallRanking(candidate, request, intent, observationTime)
 	if candidate.hardGateFailure != "" {
-		return candidate, RecallRejection{NoteID: candidate.ID, Reason: candidate.hardGateFailure}, false, false
+		return candidate, RecallRejection{NoteID: candidate.ID, Reason: candidate.hardGateFailure}, false
 	}
 	_, exactRetrieved := lanes.exact[candidate.ID]
 	_, lexicalRetrieved := lanes.lexical[candidate.ID]
 	_, semanticRetrieved := lanes.semantic[candidate.ID]
 	if QueryRelevant(candidate.Note, request.Query) && (lexicalRetrieved || exactRetrieved) {
 		candidate.explicitLane = 1
-		return candidate, RecallRejection{}, true, false
+		return candidate, RecallRejection{}, true
 	}
 	if semanticRetrieved && QuerySemanticallyRelevant(candidate.Note, request.Query) {
 		if semanticEvidenceSupported(candidate, evidenceThreshold) {
-			return candidate, RecallRejection{}, true, true
+			return candidate, RecallRejection{}, true
 		}
-		return candidate, RecallRejection{NoteID: candidate.ID, Reason: RejectEvidenceGate}, false, true
+		return candidate, RecallRejection{NoteID: candidate.ID, Reason: RejectEvidenceGate}, false
 	}
 	if !exactRetrieved && !lexicalRetrieved && !semanticRetrieved {
-		return candidate, RecallRejection{NoteID: candidate.ID, Reason: RejectFusionLimit}, false, false
+		return candidate, RecallRejection{NoteID: candidate.ID, Reason: RejectFusionLimit}, false
 	}
-	return candidate, RecallRejection{NoteID: candidate.ID, Reason: RejectRelevanceGate}, false, semanticRetrieved
+	return candidate, RecallRejection{NoteID: candidate.ID, Reason: RejectRelevanceGate}, false
 }
 
 func evaluatedRecallCandidates(

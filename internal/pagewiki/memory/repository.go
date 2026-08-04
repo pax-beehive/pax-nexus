@@ -447,7 +447,7 @@ func (r *Repository) validateLinks(
 				link.SectionKey,
 			)
 		}
-		start, end, valid := exactTextRange(section.Markdown, link.ExactText)
+		start, end, valid := pagewiki.ExactTextRange(section.Markdown, link.ExactText)
 		if !valid || start != link.StartByte || end != link.EndByte {
 			return fmt.Errorf(
 				"%w: Link exact text is not uniquely grounded",
@@ -467,14 +467,6 @@ func (r *Repository) validateLinks(
 		}
 	}
 	return nil
-}
-
-func exactTextRange(content, exactText string) (int, int, bool) {
-	if exactText == "" || strings.Count(content, exactText) != 1 {
-		return 0, 0, false
-	}
-	start := strings.Index(content, exactText)
-	return start, start + len(exactText), true
 }
 
 func (r *Repository) validateTopics(
@@ -873,6 +865,27 @@ func (r *Repository) SaveMaintenanceRun(
 	}
 	r.runs[run.ID] = cloneRun(run)
 	return nil
+}
+
+// RollbackMaintenanceRun restores run id's pre-write state after a failed
+// write-through persist: the postgres adapter records a run here first, and
+// when the database leg fails it must undo the in-memory record — leaving it
+// would make the journal claim a success the database does not hold, so the
+// consumer's retry would short-circuit on the succeeded in-memory run and
+// the row would never land. It deliberately bypasses SaveMaintenanceRun's
+// immutability validation: restoring the pre-write state is not a new write.
+func (r *Repository) RollbackMaintenanceRun(
+	id string,
+	previous pagewiki.MaintenanceRun,
+	existed bool,
+) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !existed {
+		delete(r.runs, id)
+		return
+	}
+	r.runs[id] = cloneRun(previous)
 }
 
 func (r *Repository) MaintenanceRun(

@@ -34,6 +34,30 @@ export interface HumanMe {
   // Server-issued capabilities (operations doc section 2.1); rolling upgrades
   // may omit the field, consumers must treat that as an empty list.
   capabilities: string[];
+  // SaaS profile only (M3): the caller's teams and the session's current
+  // team. Absent entirely on on-prem; an empty teams list also serializes as
+  // absent, so field presence alone cannot identify the profile — the
+  // AuthContext probes GET /v1/teams when it needs to disambiguate.
+  teams?: TeamSummary[];
+  current_team_id?: string;
+}
+
+/** TeamSummary: one team the caller belongs to (saas profile). */
+export interface TeamSummary {
+  team_id: string;
+  name: string;
+  slug: string;
+  role: Role;
+  membership_id: string;
+}
+
+/** Team: the full team record, returned by POST /v1/teams. */
+export interface Team {
+  team_id: string;
+  name: string;
+  slug: string;
+  created_at: string;
+  resource_version: number;
 }
 
 export interface Member {

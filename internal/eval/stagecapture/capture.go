@@ -104,7 +104,7 @@ func (o *Observer) captureExtraction(
 }
 
 func (o *Observer) captureRecall(ctx context.Context, target Target) (stageeval.Observation, extractionSnapshot, error) {
-	context := target.Fixture.RecallContext
+	recallContext := target.Fixture.RecallContext
 	rows, err := o.pool.Query(ctx, `
 SELECT envelope, extraction_snapshot, extraction_provenance, trace, duration_ms
 FROM team_note_recall_observations
@@ -113,8 +113,8 @@ WHERE scope_id = $1
   AND recipient_agent_id = $3
   AND recipient_session_id = $4
   AND token_budget = $5
-ORDER BY observation_id`, target.ScopeID, context.ConsumerUserID, target.RecipientAgentID,
-		target.RecipientSessionID, context.TokenBudget,
+ORDER BY observation_id`, target.ScopeID, recallContext.ConsumerUserID, target.RecipientAgentID,
+		target.RecipientSessionID, recallContext.TokenBudget,
 	)
 	if err != nil {
 		return stageeval.Observation{}, extractionSnapshot{}, fmt.Errorf("query recall observations: %w", err)
@@ -129,7 +129,6 @@ ORDER BY observation_id`, target.ScopeID, context.ConsumerUserID, target.Recipie
 		return stageeval.Observation{}, extractionSnapshot{}, fmt.Errorf("scan recall observations: %w", err)
 	}
 	if len(recalls) == 0 {
-		recallContext := target.Fixture.RecallContext
 		return stageeval.Observation{
 			CaseID: target.Fixture.CaseID, Stage: stageeval.StageRecall,
 			SourceRevision: target.Fixture.SourceRevision, RecallContext: &recallContext,
@@ -140,6 +139,10 @@ ORDER BY observation_id`, target.ScopeID, context.ConsumerUserID, target.Recipie
 			},
 		}, extractionSnapshot{}, nil
 	}
+	// First-row semantics: every recall row for a fixture shares the same
+	// extraction run, so the extraction snapshot and provenance are read
+	// from recalls[0] only, while items, traces, and durations below merge
+	// across all rows.
 	var snapshot extractionSnapshot
 	if err := json.Unmarshal(recalls[0].ExtractionSnapshot, &snapshot.Items); err != nil {
 		return stageeval.Observation{}, extractionSnapshot{}, fmt.Errorf("decode recall extraction snapshot: %w", err)
@@ -176,7 +179,6 @@ ORDER BY observation_id`, target.ScopeID, context.ConsumerUserID, target.Recipie
 			})
 		}
 	}
-	recallContext := target.Fixture.RecallContext
 	provenance := map[string]string{
 		"scope_id": target.ScopeID, "recipient_agent_id": target.RecipientAgentID,
 		"recipient_session_id": target.RecipientSessionID,

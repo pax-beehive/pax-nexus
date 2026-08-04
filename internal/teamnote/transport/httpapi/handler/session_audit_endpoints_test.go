@@ -36,7 +36,7 @@ func (s *sessionAuditHandlerSuite) SetupTest() {
 	s.controller = gomock.NewController(s.T())
 	s.identity = &humanIdentityService{principal: onprem.HumanPrincipal{
 		UserID: "owner-user", MembershipID: "owner-membership", Role: onprem.RoleOwner,
-		MembershipStatus: onprem.MembershipStatusActive,
+		MembershipStatus: onprem.MembershipStatusActive, ScopeID: onprem.LocalScopeID,
 	}}
 	s.query = auditmocks.NewMockQuery(s.controller)
 	s.handler = s.newHandler(handler.WithSessionAudit(s.query))
@@ -103,6 +103,21 @@ func (s *sessionAuditHandlerSuite) TestToolCallsDefaultsAndEmptyResult() {
 
 	s.Equal(consts.StatusOK, response.Code)
 	s.JSONEq(`{"tool_calls":[]}`, response.Body.String())
+}
+
+// TestFiltersUseThePrincipalScope pins the SaaS behavior: the audit filter
+// scope comes from the authenticated principal (its current team), not from
+// a hardcoded constant. On-prem principals always carry the local-team
+// scope, which keeps the on-prem behavior identical.
+func (s *sessionAuditHandlerSuite) TestFiltersUseThePrincipalScope() {
+	s.identity.principal.ScopeID = "team_beta"
+	s.query.EXPECT().ListToolCalls(gomock.Any(), audit.ToolCallFilter{
+		ScopeID: "team_beta", Limit: 50,
+	}).Return(nil, nil)
+
+	response := s.authenticated("/v1/admin/session-audit/tool-calls")
+
+	s.Equal(consts.StatusOK, response.Code)
 }
 
 func (s *sessionAuditHandlerSuite) TestRejectsInvalidToolCallFilters() {

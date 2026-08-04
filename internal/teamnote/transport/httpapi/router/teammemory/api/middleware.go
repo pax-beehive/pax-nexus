@@ -595,3 +595,23 @@ func _listsessionaudittoolcallsMw() []app.HandlerFunc {
 	// your code...
 	return nil
 }
+
+func _readinessMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _listteamsMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _createteamMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _switchcurrentteamMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}

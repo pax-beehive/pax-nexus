@@ -54,10 +54,9 @@ type Prepared struct {
 	Sources   int    `json:"sources"`
 }
 
-type EvidenceLocation struct {
-	SourcePath string
-	Anchor     string
-}
+// EvidenceLocation aliases the shared workspace evidence location, keeping
+// this package's exported surface stable.
+type EvidenceLocation = workspace.EvidenceLocation
 
 type CaseResult struct {
 	ID           string `json:"id"`
@@ -188,27 +187,10 @@ func Score(fixturePath, root string) (Report, error) {
 	return report, nil
 }
 
+// LoadSourceMap maps every evaluator event ID to its rendered Source
+// location via the shared workspace implementation.
 func LoadSourceMap(root string) (map[string]EvidenceLocation, error) {
-	encoded, err := os.ReadFile(filepath.Join(root, ".pax", "manifest.json"))
-	if err != nil {
-		return nil, fmt.Errorf("read workspace manifest: %w", err)
-	}
-	var manifest workspace.Manifest
-	if err := json.Unmarshal(encoded, &manifest); err != nil {
-		return nil, fmt.Errorf("decode workspace manifest: %w", err)
-	}
-	result := make(map[string]EvidenceLocation)
-	for _, source := range manifest.Sources {
-		for _, anchor := range source.Anchors {
-			if _, duplicate := result[anchor.TurnID]; duplicate {
-				return nil, fmt.Errorf("duplicate evaluator event ID %s", anchor.TurnID)
-			}
-			result[anchor.TurnID] = EvidenceLocation{
-				SourcePath: source.Path, Anchor: anchor.ID,
-			}
-		}
-	}
-	return result, nil
+	return workspace.SourceEvidenceMap(root)
 }
 
 func loadFixture(path string) (Fixture, error) {

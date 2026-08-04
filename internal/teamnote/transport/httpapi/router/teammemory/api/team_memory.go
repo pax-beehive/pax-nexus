@@ -18,6 +18,7 @@ func Register(r *server.Hertz) {
 
 	root := r.Group("/", rootMw()...)
 	root.GET("/healthz", append(_healthMw(), handler.Health)...)
+	root.GET("/readyz", append(_readinessMw(), handler.Readiness)...)
 	{
 		_v1 := root.Group("/v1", _v1Mw()...)
 		_v1.GET("/agent-identity", append(_getagentidentityMw(), handler.GetAgentIdentity)...)
@@ -26,6 +27,8 @@ func Register(r *server.Hertz) {
 		_v1.POST("/observations", append(_observebatchMw(), handler.ObserveBatch)...)
 		_v1.POST("/session-batches", append(_observesessionMw(), handler.ObserveSession)...)
 		_v1.POST("/stream-batches", append(_observestreamMw(), handler.ObserveStream)...)
+		_v1.GET("/teams", append(_listteamsMw(), handler.ListTeams)...)
+		_v1.POST("/teams", append(_createteamMw(), handler.CreateTeam)...)
 		{
 			_admin := _v1.Group("/admin", _adminMw()...)
 			_admin.POST("/agent-enrollments", append(_createagentenrollmentMw(), handler.CreateAgentEnrollment)...)
@@ -165,6 +168,7 @@ func Register(r *server.Hertz) {
 			_me := _v1.Group("/me", _meMw()...)
 			_me.GET("/agents", append(_listownedagentsMw(), handler.ListOwnedAgents)...)
 			_me.POST("/agents", append(_createownedagentMw(), handler.CreateOwnedAgent)...)
+			_me.POST("/current-team", append(_switchcurrentteamMw(), handler.SwitchCurrentTeam)...)
 			_me.POST("/device-enrollments", append(_createdeviceenrollmentMw(), handler.CreateDeviceEnrollment)...)
 			{
 				_agents1 := _me.Group("/agents", _agents1Mw()...)

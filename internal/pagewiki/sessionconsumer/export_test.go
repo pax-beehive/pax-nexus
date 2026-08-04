@@ -20,3 +20,17 @@ func (c *Controller) DispatchTickForTest(ctx context.Context) {
 func (c *Controller) WaitJobsForTest() {
 	c.jobs.Wait()
 }
+
+// InjectWaitingForTest reports whether any manual InjectSession call is
+// registered as waiting for a scope lock; tests use it to sequence a
+// waiting inject against an in-flight scan deterministically.
+func (c *Controller) InjectWaitingForTest() bool {
+	c.waitersMu.Lock()
+	defer c.waitersMu.Unlock()
+	for _, count := range c.injectWaiters {
+		if count > 0 {
+			return true
+		}
+	}
+	return false
+}

@@ -15,7 +15,7 @@ import (
 // signalingRepository wraps memory.Repository, signaling on curationRuns
 // every time SaveCurationRun is called. It lets tests observe a curation
 // maintenance tick without depending on the package's internal run-ID
-// hashing (catalogFingerprint/stableID are unexported).
+// hashing (catalogFingerprint is unexported).
 type signalingRepository struct {
 	*memory.Repository
 	curationRuns chan struct{}
@@ -237,10 +237,10 @@ func TestServiceForScopeColdResolutionDoesNotBlockOtherScopes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	coldResult := make(chan error, 1)
 	go func() {
-		if _, err := manager.ForScope(context.Background(), "cold"); err != nil {
-			t.Error(err)
-		}
+		_, coldErr := manager.ForScope(context.Background(), "cold")
+		coldResult <- coldErr
 	}()
 	<-entered
 
@@ -257,6 +257,7 @@ func TestServiceForScopeColdResolutionDoesNotBlockOtherScopes(t *testing.T) {
 		t.Fatal("hot scope blocked behind cold scope's repository resolution")
 	}
 	close(release)
+	require.NoError(t, <-coldResult)
 }
 
 func TestServiceForScopeResolvesConcurrentFirstTouchExactlyOnce(t *testing.T) {

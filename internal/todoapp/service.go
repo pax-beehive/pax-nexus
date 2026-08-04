@@ -3,7 +3,9 @@ package todoapp
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -34,20 +36,24 @@ type Service struct {
 	clock    func() time.Time
 	newID    func() string
 
-	// refreshLocks serializes RefreshSuggestions per scope; two scopes must
-	// be able to refresh concurrently, while one scope's refresh stays
-	// single-flight.
+	// refreshLocks keeps RefreshSuggestions single-flight per scope; two
+	// scopes must be able to refresh concurrently, while a second refresh
+	// for the same scope fails fast with ErrRefreshInProgress.
 	refreshLocks sync.Map // scopeID -> *sync.Mutex
+
+	// completeLocks serializes CompleteTodo's read-check-write per scope so
+	// concurrent completes of the same todo emit exactly one lake event.
+	completeLocks sync.Map // scopeID -> *sync.Mutex
 }
 
-// refreshLock returns the mutex guarding RefreshSuggestions for scopeID,
+// scopeLock returns the per-scope mutex stored in locks for scopeID,
 // creating it on first use.
-func (s *Service) refreshLock(scopeID string) *sync.Mutex {
-	stored, _ := s.refreshLocks.LoadOrStore(scopeID, &sync.Mutex{})
+func scopeLock(locks *sync.Map, scopeID string) *sync.Mutex {
+	stored, _ := locks.LoadOrStore(scopeID, &sync.Mutex{})
 	lock, ok := stored.(*sync.Mutex)
 	if !ok {
-		// Unreachable: refreshLocks only ever stores *sync.Mutex values.
-		panic("todoapp: refreshLocks contains a non-*sync.Mutex value")
+		// Unreachable: the maps only ever store *sync.Mutex values.
+		panic("todoapp: scope lock map contains a non-*sync.Mutex value")
 	}
 	return lock
 }
@@ -121,28 +127,20 @@ func (s *Service) CreateTodo(ctx context.Context, scopeID, userID, title, body s
 // CompleteTodo marks a todo as done and reports the completion.
 // If the todo is already done, it returns unchanged (idempotent).
 // If the todo is not found, it returns ErrNotFound.
+// It rejects a blank scopeID or userID with ErrInvalidInput.
 // If reporting fails, it logs a warning but returns success.
 func (s *Service) CompleteTodo(ctx context.Context, scopeID, userID, todoID string) (Todo, error) {
-	if strings.TrimSpace(scopeID) == "" {
+	if strings.TrimSpace(scopeID) == "" || strings.TrimSpace(userID) == "" {
 		return Todo{}, fmt.Errorf("complete todo: %w", ErrInvalidInput)
 	}
 
-	todo, err := s.repo.TodoByID(ctx, scopeID, todoID)
+	todo, transitioned, err := s.completeTodoOnce(ctx, scopeID, todoID)
 	if err != nil {
 		return Todo{}, err
 	}
-
-	// If already done, return unchanged (idempotent)
-	if todo.Status == TodoDone {
+	if !transitioned {
+		// Already done: idempotent success without a second lake event.
 		return todo, nil
-	}
-
-	// Mark as done
-	todo.Status = TodoDone
-	todo.UpdatedAt = s.clock()
-
-	if err := s.repo.SaveTodo(ctx, scopeID, todo); err != nil {
-		return Todo{}, err
 	}
 
 	// Report the completion
@@ -163,11 +161,40 @@ func (s *Service) CompleteTodo(ctx context.Context, scopeID, userID, todoID stri
 	return todo, nil
 }
 
+// completeTodoOnce performs the open->done transition under the per-scope
+// completion lock, so exactly one of any concurrent completes for the same
+// todo observes the transition (and therefore reports the lake event). It
+// returns transitioned=false when the todo was already done.
+func (s *Service) completeTodoOnce(ctx context.Context, scopeID, todoID string) (Todo, bool, error) {
+	lock := scopeLock(&s.completeLocks, scopeID)
+	lock.Lock()
+	defer lock.Unlock()
+
+	todo, err := s.repo.TodoByID(ctx, scopeID, todoID)
+	if err != nil {
+		return Todo{}, false, err
+	}
+	if todo.Status == TodoDone {
+		return todo, false, nil
+	}
+
+	todo.Status = TodoDone
+	todo.UpdatedAt = s.clock()
+	if err := s.repo.SaveTodo(ctx, scopeID, todo); err != nil {
+		return Todo{}, false, err
+	}
+	return todo, true, nil
+}
+
 // ListTodos returns all todos with the given status.
-// If status is empty, returns all todos.
+// If status is empty, returns all todos; any value other than the known
+// statuses is rejected with ErrInvalidInput.
 func (s *Service) ListTodos(ctx context.Context, scopeID string, status TodoStatus) ([]Todo, error) {
 	if strings.TrimSpace(scopeID) == "" {
 		return nil, fmt.Errorf("list todos: %w", ErrInvalidInput)
+	}
+	if status != "" && status != TodoOpen && status != TodoDone {
+		return nil, fmt.Errorf("list todos: unknown status %q: %w", status, ErrInvalidInput)
 	}
 	return s.repo.ListTodos(ctx, scopeID, status)
 }
@@ -175,15 +202,20 @@ func (s *Service) ListTodos(ctx context.Context, scopeID string, status TodoStat
 // RefreshSuggestions fetches open action items from the NoteDirectory,
 // creates pending suggestions for new items (using fingerprint deduplication),
 // and returns the count of newly created suggestions.
-// Serialized per scope to prevent concurrent updates within a scope, while
-// letting different scopes refresh concurrently.
+// Refreshes are single-flight per scope: a refresh can spend minutes inside
+// LLM rewrites, so instead of queueing callers behind a held mutex (which
+// would block a portal click behind the background sweep), a second refresh
+// for the same scope fails fast with ErrRefreshInProgress while different
+// scopes still refresh concurrently.
 func (s *Service) RefreshSuggestions(ctx context.Context, scopeID string) (int, error) {
 	if strings.TrimSpace(scopeID) == "" {
 		return 0, fmt.Errorf("refresh suggestions: %w", ErrInvalidInput)
 	}
 
-	lock := s.refreshLock(scopeID)
-	lock.Lock()
+	lock := scopeLock(&s.refreshLocks, scopeID)
+	if !lock.TryLock() {
+		return 0, fmt.Errorf("refresh suggestions for scope %s: %w", scopeID, ErrRefreshInProgress)
+	}
 	defer lock.Unlock()
 
 	// Load open action items from notes
@@ -255,10 +287,14 @@ func (s *Service) PendingSuggestions(ctx context.Context, scopeID string) ([]Sug
 
 // AcceptSuggestion converts a pending suggestion into a todo.
 // The suggestion must be in pending status, otherwise returns ErrInvalidTransition.
+// It rejects a blank scopeID or userID with ErrInvalidInput.
 // Creates a todo with source TodoSourceSuggestion and reports EventSuggestionAccepted.
+// The accepted todo's ID is derived deterministically from the suggestion ID,
+// so a retry after a partial failure (todo saved, suggestion update failed)
+// converges on the same todo row instead of creating a duplicate.
 // If reporting fails, logs a warning but succeeds.
 func (s *Service) AcceptSuggestion(ctx context.Context, scopeID, userID, suggestionID string) (Todo, error) {
-	if strings.TrimSpace(scopeID) == "" {
+	if strings.TrimSpace(scopeID) == "" || strings.TrimSpace(userID) == "" {
 		return Todo{}, fmt.Errorf("accept suggestion: %w", ErrInvalidInput)
 	}
 
@@ -273,23 +309,9 @@ func (s *Service) AcceptSuggestion(ctx context.Context, scopeID, userID, suggest
 		return Todo{}, fmt.Errorf("accept suggestion %s: %w", suggestionID, ErrInvalidTransition)
 	}
 
-	// Create the todo
 	now := s.clock()
-	todo := Todo{
-		ID:           s.newID(),
-		Title:        suggestion.Title,
-		Body:         suggestion.Body,
-		Status:       TodoOpen,
-		Source:       TodoSourceSuggestion,
-		SuggestionID: suggestion.ID,
-		NoteID:       suggestion.NoteID,
-		CreatedBy:    userID,
-		CreatedAt:    now,
-		UpdatedAt:    now,
-	}
-
-	// Save the todo
-	if err := s.repo.SaveTodo(ctx, scopeID, todo); err != nil {
+	todo, err := s.acceptedTodo(ctx, scopeID, userID, suggestion, now)
+	if err != nil {
 		return Todo{}, err
 	}
 
@@ -318,12 +340,59 @@ func (s *Service) AcceptSuggestion(ctx context.Context, scopeID, userID, suggest
 	return todo, nil
 }
 
+// acceptedTodo returns the todo an accept converges on: if a previous accept
+// already persisted the todo but failed before updating the suggestion, the
+// existing row is reused as-is (preserving any completion that happened in
+// between); otherwise a fresh todo is created and saved under the
+// deterministic accepted-todo ID.
+func (s *Service) acceptedTodo(
+	ctx context.Context,
+	scopeID, userID string,
+	suggestion Suggestion,
+	now time.Time,
+) (Todo, error) {
+	todoID := acceptedTodoID(suggestion.ID)
+	existing, err := s.repo.TodoByID(ctx, scopeID, todoID)
+	if err == nil {
+		return existing, nil
+	}
+	if !errors.Is(err, ErrNotFound) {
+		return Todo{}, err
+	}
+
+	todo := Todo{
+		ID:           todoID,
+		Title:        suggestion.Title,
+		Body:         suggestion.Body,
+		Status:       TodoOpen,
+		Source:       TodoSourceSuggestion,
+		SuggestionID: suggestion.ID,
+		NoteID:       suggestion.NoteID,
+		CreatedBy:    userID,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+	if err := s.repo.SaveTodo(ctx, scopeID, todo); err != nil {
+		return Todo{}, err
+	}
+	return todo, nil
+}
+
+// acceptedTodoID derives the accepted todo's ID deterministically from the
+// suggestion ID: SaveTodo upserts by ID in both repository adapters, so a
+// retried accept lands on the same todo row instead of minting a duplicate.
+func acceptedTodoID(suggestionID string) string {
+	digest := sha256.Sum256([]byte("todoapp:accepted-todo:" + suggestionID))
+	return hex.EncodeToString(digest[:16])
+}
+
 // DismissSuggestion marks a pending suggestion as dismissed.
 // The suggestion must be in pending status, otherwise returns ErrInvalidTransition.
+// It rejects a blank scopeID or userID with ErrInvalidInput.
 // Reports EventSuggestionDismissed.
 // If reporting fails, logs a warning but succeeds.
 func (s *Service) DismissSuggestion(ctx context.Context, scopeID, userID, suggestionID string) error {
-	if strings.TrimSpace(scopeID) == "" {
+	if strings.TrimSpace(scopeID) == "" || strings.TrimSpace(userID) == "" {
 		return fmt.Errorf("dismiss suggestion: %w", ErrInvalidInput)
 	}
 

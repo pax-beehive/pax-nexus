@@ -98,6 +98,35 @@ func (s *explorerStoreSuite) TestListTeamNotesFiltersScopeAndPaginates() {
 	s.Equal("note-old", second[0].NoteID)
 }
 
+func (s *explorerStoreSuite) TestListTeamNotesTreatsSearchMetacharactersLiterally() {
+	ctx := context.Background()
+	base := time.Now().UTC().Truncate(time.Microsecond)
+	s.insertNote(onprem.LocalScopeID, "note-percent", "status", "Rollout 100% complete", "done", "codex", base)
+	s.insertNote(onprem.LocalScopeID, "note-plain", "status", "Rollout 100x complete", "done", "codex", base.Add(-time.Minute))
+	s.insertNote(onprem.LocalScopeID, "note-underscore", "status", "job_ref registered", "done", "codex", base.Add(-2*time.Minute))
+	s.insertNote(onprem.LocalScopeID, "note-word", "status", "jobsref registered", "done", "codex", base.Add(-3*time.Minute))
+
+	searches := []struct {
+		name   string
+		query  string
+		expect []string
+	}{
+		{name: "literal percent", query: "100%", expect: []string{"note-percent"}},
+		{name: "literal underscore", query: "job_ref", expect: []string{"note-underscore"}},
+	}
+	for _, search := range searches {
+		s.Run(search.name, func() {
+			notes, err := s.explorer.ListTeamNotes(ctx, explorer.TeamNoteFilter{Query: search.query, Limit: 10})
+			s.Require().NoError(err)
+			found := make([]string, 0, len(notes))
+			for _, note := range notes {
+				found = append(found, note.NoteID)
+			}
+			s.Equal(search.expect, found)
+		})
+	}
+}
+
 func (s *explorerStoreSuite) TestExplorerScopeComesFromAccessor() {
 	ctx := context.Background()
 	now := time.Now().UTC().Truncate(time.Microsecond)
@@ -145,25 +174,39 @@ INSERT INTO extraction_runs (
 		onprem.LocalScopeID, now)
 	s.Require().NoError(err)
 	_, err = s.store.Pool().Exec(ctx, `
+INSERT INTO session_events (
+    scope_id, event_id, user_id, agent_id, session_id, sequence,
+    event_type, content, task_ref, occurred_at, captured_at
+) VALUES ($1, 'event-detail-2', 'user', 'codex', 'session-source', 2,
+          'message', 'The release was approved', 'release', $2, $2)`,
+		onprem.LocalScopeID, now.Add(time.Second))
+	s.Require().NoError(err)
+	_, err = s.store.Pool().Exec(ctx, `
 INSERT INTO note_candidates (
     scope_id, candidate_id, run_id, action, kind, subject, body,
     origin_user_id, origin_agent_id, origin_session_id, evidence_event_ids,
     admission_status
-) VALUES ($1, 'candidate-detail', 'run-detail', 'create', 'blocker',
-          'Release blocker', 'Waiting for approval', 'user', 'codex',
-          'session-source', ARRAY['event-detail'], 'admitted')`,
+) VALUES
+    ($1, 'candidate-detail', 'run-detail', 'create', 'blocker',
+     'Release blocker', 'Waiting for approval', 'user', 'codex',
+     'session-source', ARRAY['event-detail'], 'admitted'),
+    ($1, 'candidate-detail-2', 'run-detail', 'update', 'blocker',
+     'Release blocker', 'Approved', 'user', 'codex',
+     'session-source', ARRAY['event-detail-2'], 'admitted')`,
 		onprem.LocalScopeID)
 	s.Require().NoError(err)
 	_, err = s.store.Pool().Exec(ctx, `
 INSERT INTO note_revisions (
     scope_id, note_id, revision, candidate_id, operation, body, created_at
-) VALUES ($1, 'note-detail', 1, 'candidate-detail', 'create',
-          'Waiting for approval', $2)`,
-		onprem.LocalScopeID, now)
+) VALUES
+    ($1, 'note-detail', 1, 'candidate-detail', 'create', 'Waiting for approval', $2),
+    ($1, 'note-detail', 2, 'candidate-detail-2', 'update', 'Approved', $3)`,
+		onprem.LocalScopeID, now, now.Add(time.Second))
 	s.Require().NoError(err)
 	_, err = s.store.Pool().Exec(ctx, `
 INSERT INTO note_evidence (scope_id, note_id, revision, event_id)
-VALUES ($1, 'note-detail', 1, 'event-detail')`,
+VALUES ($1, 'note-detail', 1, 'event-detail'),
+       ($1, 'note-detail', 2, 'event-detail-2')`,
 		onprem.LocalScopeID)
 	s.Require().NoError(err)
 	_, err = s.store.Pool().Exec(ctx, `
@@ -224,13 +267,19 @@ INSERT INTO team_note_recall_observations (
 	s.Require().NoError(err)
 	s.Equal("Waiting for approval", detail.Note.Body)
 	s.Require().Len(detail.RelatedNotes, 2)
-	s.Require().Len(detail.Revisions, 1)
-	s.Equal("run-detail", detail.Revisions[0].Extraction.RunID)
-	s.Equal("candidate-detail", detail.Revisions[0].Candidate.CandidateID)
-	s.Equal("Release blocker", detail.Revisions[0].Candidate.Subject)
+	s.Require().Len(detail.Revisions, 2)
+	s.Equal(2, detail.Revisions[0].Revision)
+	s.Equal("candidate-detail-2", detail.Revisions[0].Candidate.CandidateID)
 	s.Require().Len(detail.Revisions[0].Evidence, 1)
-	s.Equal("The release is waiting for approval", detail.Revisions[0].Evidence[0].Content)
-	s.Require().Len(detail.Revisions[0].Deliveries, 1)
+	s.Equal("The release was approved", detail.Revisions[0].Evidence[0].Content)
+	s.Empty(detail.Revisions[0].Deliveries)
+	s.Equal(1, detail.Revisions[1].Revision)
+	s.Equal("run-detail", detail.Revisions[1].Extraction.RunID)
+	s.Equal("candidate-detail", detail.Revisions[1].Candidate.CandidateID)
+	s.Equal("Release blocker", detail.Revisions[1].Candidate.Subject)
+	s.Require().Len(detail.Revisions[1].Evidence, 1)
+	s.Equal("The release is waiting for approval", detail.Revisions[1].Evidence[0].Content)
+	s.Require().Len(detail.Revisions[1].Deliveries, 1)
 	s.Require().Len(detail.RecallObservations, 2)
 	s.True(detail.RecallObservations[0].Delivered)
 	s.Equal("evidence", detail.RecallObservations[0].Disposition)

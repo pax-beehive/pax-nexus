@@ -13,15 +13,17 @@ import {
   type ReactNode,
 } from "react";
 import { apiError } from "../api/client";
-import { getMe } from "../api/queries";
+import { getMe, listTeams } from "../api/queries";
 import { logout as logoutAction } from "../api/actions";
 import type { HumanMe } from "../api/types";
+
+export type DeploymentProfile = "saas" | "onprem";
 
 export type AuthState =
   | { kind: "loading" }
   | { kind: "unauthenticated" }
   | { kind: "not-configured" }
-  | { kind: "no-membership"; me: HumanMe }
+  | { kind: "no-membership"; me: HumanMe; profile: DeploymentProfile }
   | { kind: "active"; me: HumanMe }
   | { kind: "suspended"; me: HumanMe };
 
@@ -35,9 +37,38 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 function classify(me: HumanMe): AuthState {
-  if (!me.membership_id) return { kind: "no-membership", me };
   if (me.membership_status === "suspended") return { kind: "suspended", me };
   return { kind: "active", me };
+}
+
+// Profile probe (M3): /v1/me omits `teams` both on on-prem and for a saas
+// user with zero teams, so the no-membership branch cannot tell the two
+// profiles apart from field presence. GET /v1/teams disambiguates (200 in
+// saas, 501 not_configured on on-prem; any other failure is treated as
+// on-prem so the bootstrap-claim entry stays reachable). The result is a
+// deployment property, so it is cached in tab-scoped sessionStorage.
+const PROFILE_PROBE_KEY = "portal.deployment-profile";
+
+async function probeProfile(): Promise<DeploymentProfile> {
+  try {
+    const cached = sessionStorage.getItem(PROFILE_PROBE_KEY);
+    if (cached === "saas" || cached === "onprem") return cached;
+  } catch {
+    // sessionStorage may be unavailable; fall through to the network probe.
+  }
+  let profile: DeploymentProfile = "onprem";
+  try {
+    await listTeams();
+    profile = "saas";
+  } catch {
+    // 501 not_configured or any unexpected failure: on-prem profile.
+  }
+  try {
+    sessionStorage.setItem(PROFILE_PROBE_KEY, profile);
+  } catch {
+    // Best-effort cache; a fresh probe per page load is acceptable.
+  }
+  return profile;
 }
 
 // Rolling upgrades may omit `capabilities` from /v1/me; normalize to an
@@ -52,8 +83,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refresh = useCallback(async () => {
     try {
-      const me = await getMe();
-      setState(classify(withCapabilities(me)));
+      const me = withCapabilities(await getMe());
+      if (!me.membership_id) {
+        // No-membership needs the profile to choose between the saas
+        // onboarding page and the on-prem bootstrap entry page.
+        const profile = await probeProfile();
+        setState({ kind: "no-membership", me, profile });
+        return;
+      }
+      setState(classify(me));
     } catch (err) {
       if (apiError(err, 501)) {
         setState({ kind: "not-configured" });

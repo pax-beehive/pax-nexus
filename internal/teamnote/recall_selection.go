@@ -105,15 +105,18 @@ type recallSelectionOption struct {
 
 // orderRecallCandidatesByCoverage chooses primary evidence bundles by
 // uncovered requested facts before token cost. It leaves final packing and
-// delivery claims to PlanRecall.
+// delivery claims to PlanRecall. Every input candidate is retained in the
+// returned order: candidates absorbed into an earlier bundle's related block
+// are only skipped by PlanRecall when that bundle is actually planned, so a
+// budget-rejected or degraded bundle leaves them promotable to primary.
 func orderRecallCandidatesByCoverage(
 	candidates []RecallCandidate,
 	relationPlans map[string][]Note,
 	request RecallRequest,
 	intent RecallIntent,
-) ([]RecallCandidate, []RecallRejection) {
+) []RecallCandidate {
 	if strings.TrimSpace(request.Query) == "" || intent.Mode == RecallModeHistory || intent.Mode == RecallModeChangesSince {
-		return candidates, nil
+		return candidates
 	}
 	entities := relationQueryEntities(searchableTerms(request.Query))
 	covered := make(map[string]struct{})
@@ -136,6 +139,7 @@ func orderRecallCandidatesByCoverage(
 			})
 		}
 		if len(options) == 0 {
+			ordered = append(ordered, remaining...)
 			break
 		}
 		best := options[0]
@@ -155,7 +159,7 @@ func orderRecallCandidatesByCoverage(
 		}
 		remaining = removeRecallCandidate(remaining, best.candidate.ID)
 	}
-	return ordered, nil
+	return ordered
 }
 
 func recallBundleFactGain(

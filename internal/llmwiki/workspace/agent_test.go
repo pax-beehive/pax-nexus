@@ -463,6 +463,130 @@ func (s *agentSuite) TestRejectsInvalidAgentConfigurationAndToolInputs() {
 	s.Contains(joined, "decode tool arguments")
 }
 
+// TestGrepHonorsReadAllowList proves grep over "." surfaces nothing from
+// .git/ or .pax/runs/: search must honor exactly the same allow-list as
+// read_file instead of walking everything under the resolved path.
+func (s *agentSuite) TestGrepHonorsReadAllowList() {
+	// A real Git checkout gives the workspace a .git directory with a HEAD,
+	// so the validator's Git change budget stays green.
+	store := filepath.Join(s.T().TempDir(), "wiki.git")
+	_, err := workspace.InitStore(context.Background(), store, s.root)
+	s.Require().NoError(err)
+	root := filepath.Join(s.T().TempDir(), "checkout")
+	s.Require().NoError(workspace.Checkout(context.Background(), store, root))
+	s.T().Cleanup(func() {
+		err := os.Chmod(filepath.Join(root, "sources"), 0o755)
+		if err != nil && !os.IsNotExist(err) {
+			s.Require().NoError(err)
+		}
+	})
+
+	const marker = "grep-leak-marker"
+	s.Require().NoError(os.WriteFile(
+		filepath.Join(root, ".git", "leak.txt"), []byte(marker+" in git internals\n"), 0o644,
+	))
+	s.Require().NoError(os.MkdirAll(filepath.Join(root, ".pax", "runs"), 0o755))
+	s.Require().NoError(os.WriteFile(
+		filepath.Join(root, ".pax", "runs", "previous.json"), []byte(`{"note":"`+marker+`"}`), 0o644,
+	))
+	s.Require().NoError(os.MkdirAll(filepath.Join(root, "wiki", "pages"), 0o755))
+	s.Require().NoError(os.WriteFile(
+		filepath.Join(root, "wiki", "pages", "durable.md"),
+		[]byte("# Durable page\n\nEstablished "+marker+" knowledge stays readable.\n"),
+		0o644,
+	))
+	s.Require().NoError(os.WriteFile(
+		filepath.Join(root, "wiki", "index.md"),
+		[]byte("# Wiki\n\n[Durable](pages/durable.md)\n"),
+		0o644,
+	))
+
+	client := &scriptedChatClient{responses: []llm.ChatResponse{
+		{
+			Message: llm.ChatMessage{
+				Role: "assistant",
+				ToolCalls: []llm.ToolCall{
+					call("grep", `{"query":"`+marker+`","path":"."}`),
+				},
+			},
+		},
+		{Message: llm.ChatMessage{Role: "assistant", Content: "Done."}},
+	}}
+	result, err := workspace.RunAgent(context.Background(), workspace.AgentConfig{
+		Root: root, Client: client,
+	}, workspace.AgentRequest{RunID: "grep-allowlist", Instruction: "Search the workspace."})
+	s.Require().NoError(err)
+	s.True(result.Validation.Valid, result.Validation.String())
+
+	s.Require().Len(client.requests, 2)
+	var joined string
+	for _, message := range client.requests[1].Messages {
+		if message.Role == "tool" {
+			joined += message.Content
+		}
+	}
+	s.Contains(joined, "wiki/pages/durable.md")
+	s.NotContains(joined, ".git")
+	s.NotContains(joined, ".pax/runs")
+	s.NotContains(joined, "git internals")
+}
+
+// TestMoveRefusesToOverwriteExistingDestination proves move_file cannot
+// clobber an existing page (which would sidestep write_file's replace_text
+// guard), while a move to a fresh destination still succeeds.
+func (s *agentSuite) TestMoveRefusesToOverwriteExistingDestination() {
+	s.Require().NoError(os.WriteFile(
+		filepath.Join(s.root, "wiki", "pages", "one.md"),
+		[]byte("# Page one\n\nContent one.\n"),
+		0o644,
+	))
+	s.Require().NoError(os.WriteFile(
+		filepath.Join(s.root, "wiki", "pages", "two.md"),
+		[]byte("# Page two\n\nContent two.\n"),
+		0o644,
+	))
+	s.Require().NoError(os.WriteFile(
+		filepath.Join(s.root, "wiki", "index.md"),
+		[]byte("# Wiki\n\n[One](pages/renamed.md)\n[Two](pages/two.md)\n"),
+		0o644,
+	))
+	client := &scriptedChatClient{responses: []llm.ChatResponse{
+		{
+			Message: llm.ChatMessage{
+				Role: "assistant",
+				ToolCalls: []llm.ToolCall{
+					call("move_file", `{"from":"wiki/pages/one.md","to":"wiki/pages/two.md"}`),
+					call("move_file", `{"from":"wiki/pages/one.md","to":"wiki/pages/renamed.md"}`),
+				},
+			},
+		},
+		{Message: llm.ChatMessage{Role: "assistant", Content: "Done."}},
+	}}
+
+	result, err := workspace.RunAgent(context.Background(), workspace.AgentConfig{
+		Root: s.root, Client: client,
+	}, workspace.AgentRequest{RunID: "move-guard", Instruction: "Reorganize the Wiki."})
+	s.Require().NoError(err)
+	s.True(result.Validation.Valid, result.Validation.String())
+
+	// The refused overwrite left page two intact; the allowed move landed.
+	two, err := os.ReadFile(filepath.Join(s.root, "wiki", "pages", "two.md"))
+	s.Require().NoError(err)
+	s.Equal("# Page two\n\nContent two.\n", string(two))
+	renamed, err := os.ReadFile(filepath.Join(s.root, "wiki", "pages", "renamed.md"))
+	s.Require().NoError(err)
+	s.Equal("# Page one\n\nContent one.\n", string(renamed))
+	s.NoFileExists(filepath.Join(s.root, "wiki", "pages", "one.md"))
+
+	var joined string
+	for _, message := range client.requests[1].Messages {
+		if message.Role == "tool" {
+			joined += message.Content
+		}
+	}
+	s.Contains(joined, "move destination already exists")
+}
+
 type scriptedChatClient struct {
 	responses []llm.ChatResponse
 	requests  []llm.ChatRequest

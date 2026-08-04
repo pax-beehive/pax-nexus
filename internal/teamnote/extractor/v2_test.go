@@ -711,3 +711,36 @@ func (s *extractionV2Suite) TestDanglingClaimReferenceDoesNotVoidDirectEvidence(
 	s.Equal([]string{"event-1"}, result.Candidates[0].EvidenceEventIDs)
 	s.Empty(result.Trace.DecisionRejections)
 }
+
+func (s *extractionV2Suite) TestDecisionCitingHistoricalEventKeepsCandidateWithStaleEvidenceStripped() {
+	decisions := `{"decision":"create","identity_ref":"decision/release","evidence_event_ids":["event-1","prior-episode-event"],"reason_codes":["explicit_new_fact"],"candidate":{"kind":"status","subject":"release","body":"Tests are failing."}}`
+	client := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		return response(http.StatusOK, v2Body("", decisions)), nil
+	})}
+	adapter := newV2Adapter(s, client)
+
+	result, err := adapter.Extract(teamnote.WithScope(context.Background(), "scope-v2-stale-evidence"), v2Slice())
+
+	s.Require().NoError(err)
+	s.Require().NotNil(result.Trace)
+	s.Empty(result.Trace.DecisionRejections)
+	s.Require().Len(result.Candidates, 1)
+	s.Equal([]string{"event-1"}, result.Candidates[0].EvidenceEventIDs,
+		"the stale prior-episode ID must be stripped, not reject the whole decision")
+}
+
+func (s *extractionV2Suite) TestDecisionCitingOnlyUnknownEventsIsStillRejected() {
+	decisions := `{"decision":"create","identity_ref":"decision/release","evidence_event_ids":["prior-episode-event"],"reason_codes":["explicit_new_fact"],"candidate":{"kind":"status","subject":"release","body":"Tests are failing."}}`
+	client := &http.Client{Transport: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		return response(http.StatusOK, v2Body("", decisions)), nil
+	})}
+	adapter := newV2Adapter(s, client)
+
+	result, err := adapter.Extract(teamnote.WithScope(context.Background(), "scope-v2-stale-only"), v2Slice())
+
+	s.Require().NoError(err)
+	s.Empty(result.Candidates)
+	s.Require().NotNil(result.Trace)
+	s.Require().Len(result.Trace.DecisionRejections, 1)
+	s.Contains(result.Trace.DecisionRejections[0].Reason, "no grounded evidence")
+}

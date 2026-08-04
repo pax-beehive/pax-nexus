@@ -33,6 +33,9 @@ type repositoryEntry struct {
 type RepositoryManager struct {
 	mu      sync.Mutex
 	entries map[string]*repositoryEntry
+	// hydrate builds one scope's Repository. It defaults to NewRepository
+	// over the constructor's pool/options; tests override it to exercise the
+	// locking contract without a database.
 	hydrate func(ctx context.Context, scopeID string) (*Repository, error)
 }
 

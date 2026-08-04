@@ -48,7 +48,7 @@ func (e *OpenAI) executeProvider(
 	if maxTokens == 0 {
 		maxTokens = outputBudget(policy, callType)
 	}
-	for attempt := 1; attempt <= policy.MaxAttempts; attempt++ {
+	for attempt := 1; ; attempt++ {
 		startedAt := time.Now()
 		attemptCtx, cancel := context.WithTimeout(ctx, policy.AttemptTimeout)
 		responseBody, status, err := e.providerRequest(attemptCtx, messages, maxTokens)
@@ -66,14 +66,13 @@ func (e *OpenAI) executeProvider(
 		if err == nil {
 			return responseBody, nil
 		}
-		if !retryable || attempt == policy.MaxAttempts {
+		if !retryable || attempt >= policy.MaxAttempts {
 			return nil, fmt.Errorf("execute %s provider attempt %d: %w", callType, attempt, err)
 		}
 		if err := waitProviderRetry(ctx, policy.RetryBackoff); err != nil {
 			return nil, fmt.Errorf("execute %s provider after attempt %d: %w", callType, attempt, err)
 		}
 	}
-	return nil, fmt.Errorf("execute extractor provider: exhausted attempts")
 }
 
 func outputBudget(policy ExecutionPolicy, callType ProviderCallType) int {
