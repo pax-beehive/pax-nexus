@@ -341,3 +341,50 @@ func (s *storeSuite) TestSchemaLockReleasesAfterFailure() {
 		s.Fail("the schema lock was not released after a failed migration")
 	}
 }
+
+// TestReconcileEmbeddingDimensionsResizesAndClearsVectors pins the width
+// reconciliation. The column is fixed in SQL but the right width is
+// deployment specific, so changing it must resize the column and drop the
+// now-unusable vectors, marking their rows for re-embedding rather than
+// leaving provenance that claims they are current.
+func (s *storeSuite) TestReconcileEmbeddingDimensionsResizesAndClearsVectors() {
+	ctx := context.Background()
+	pool := s.store.Pool()
+	columnWidth := func() int {
+		var width int
+		s.Require().NoError(pool.QueryRow(ctx, `
+			SELECT COALESCE(atttypmod, 0) FROM pg_attribute
+			WHERE attrelid = 'team_notes'::regclass AND attname = 'embedding' AND NOT attisdropped
+		`).Scan(&width))
+		return width
+	}
+	original := columnWidth()
+	s.T().Cleanup(func() {
+		s.Require().NoError(postgres.ReconcileEmbeddingDimensions(context.Background(), pool, original))
+	})
+
+	// Reconciling to the width already in place must not touch anything.
+	s.Require().NoError(postgres.ReconcileEmbeddingDimensions(ctx, pool, original))
+	s.Equal(original, columnWidth())
+
+	widened := original + 128
+	s.Require().NoError(postgres.ReconcileEmbeddingDimensions(ctx, pool, widened))
+	s.Equal(widened, columnWidth(), "the column must follow the configured width")
+
+	var staleProvenance int
+	s.Require().NoError(pool.QueryRow(ctx, `
+		SELECT count(*) FROM team_notes WHERE embedding IS NOT NULL OR embedding_model <> ''
+	`).Scan(&staleProvenance))
+	s.Zero(staleProvenance,
+		"vectors at the old width must be dropped and their rows marked for re-embedding")
+}
+
+// TestReconcileEmbeddingDimensionsRejectsNonPositiveWidth guards the guard:
+// a misconfigured width must fail loudly rather than silently rewrite the
+// column to something unusable.
+func (s *storeSuite) TestReconcileEmbeddingDimensionsRejectsNonPositiveWidth() {
+	err := postgres.ReconcileEmbeddingDimensions(context.Background(), s.store.Pool(), 0)
+
+	s.Require().Error(err)
+	s.ErrorContains(err, "positive width")
+}

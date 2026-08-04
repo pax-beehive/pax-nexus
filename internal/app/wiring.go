@@ -604,7 +604,9 @@ func buildHTTPHandler(
 		oidcAuthenticator, err := onprem.NewOIDCAuthenticator(ctx, onprem.OIDCConfig{
 			Issuer: config.oidcIssuer, ClientID: config.oidcClientID,
 			ClientSecret: config.oidcClientSecret, RedirectURL: config.oidcRedirectURL,
-			FlowSecret: config.oidcFlowSecret,
+			FlowSecret:              config.oidcFlowSecret,
+			AuthorizationParameters: config.oidcAuthorizationParameters,
+			IdentitySource:          onprem.OIDCIdentitySource(config.oidcIdentitySource),
 		})
 		if err != nil {
 			return nil, nil, fmt.Errorf("configure on-prem OIDC: %w", err)
@@ -708,7 +710,8 @@ func buildEmbedder(config applicationConfig) (textembedding.Embedder, error) {
 		return nil, nil
 	}
 	return textembedding.NewOpenAI(textembedding.OpenAIConfig{
-		BaseURL: config.embeddingBaseURL, Model: config.embeddingModel, Dimensions: postgres.EmbeddingDimensions,
+		BaseURL: config.embeddingBaseURL, Model: config.embeddingModel,
+		Dimensions: config.embeddingDimensions, APIKey: config.embeddingAPIKey,
 		Client: &http.Client{Timeout: config.embeddingTimeout},
 	})
 }

@@ -54,7 +54,7 @@ func Run(ctx context.Context, logger *slog.Logger) error {
 	// deployments should instead run cmd/team-memory-migrate as a job before
 	// rolling out instances; both paths share migrateStores so they cannot
 	// drift.
-	if err := migrateStores(ctx, store); err != nil {
+	if err := migrateStores(ctx, store, config.embeddingDimensions); err != nil {
 		return err
 	}
 	sessions := store.Sessions()
@@ -168,7 +168,8 @@ func initializeStores(
 ) (*postgres.NoteStore, *postgres.LLMUsageStore, error) {
 	noteStore, err := postgres.NewNoteStore(store, teamnote.DefaultTTLPolicy(), teamnote.SystemClock{}, postgres.RetrievalConfig{
 		Embedder: embedder, EmbeddingModel: config.embeddingModel,
-		Policy: config.recallCandidateStrategy.Policy, Logger: logger,
+		EmbeddingDimensions: config.embeddingDimensions,
+		Policy:              config.recallCandidateStrategy.Policy, Logger: logger,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("initialize note store: %w", err)

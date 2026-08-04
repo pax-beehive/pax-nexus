@@ -120,7 +120,7 @@ func (s *configSuite) SetupTest() {
 		"TEAM_MEMORY_SLICE_EVENT_LIMIT", "TEAM_MEMORY_SLICE_TOKEN_LIMIT",
 		"TEAM_MEMORY_SLICE_OVERLAP", "TEAM_MEMORY_MAX_SLICES_PER_JOB",
 		"TEAM_MEMORY_EMBEDDING_BASE_URL", "TEAM_MEMORY_EMBEDDING_MODEL",
-		"TEAM_MEMORY_EMBEDDING_TIMEOUT", "TEAM_MEMORY_SEMANTIC_THRESHOLD",
+		"TEAM_MEMORY_EMBEDDING_TIMEOUT", "TEAM_MEMORY_SEMANTIC_THRESHOLD", "TEAM_MEMORY_EMBEDDING_DIMENSIONS", "TEAM_MEMORY_EMBEDDING_API_KEY",
 		"TEAM_MEMORY_RETRIEVAL_CANDIDATE_LIMIT", "TEAM_MEMORY_HINT_RECALL_ENABLED", "TEAM_MEMORY_HINT_SEMANTIC_THRESHOLD", "TEAM_MEMORY_HINT_THRESHOLD", "TEAM_MEMORY_HINT_MIN_QUERY_RELEVANCE", "TEAM_MEMORY_HINT_MIN_MARGINAL_UTILITY",
 		"LLMWIKI_ORGANIZER_MODE", "LLMWIKI_LLM_BASE_URL", "LLMWIKI_LLM_API_KEY",
 		"LLMWIKI_LLM_MODEL",
@@ -921,6 +921,108 @@ func (s *configSuite) TestExtractionObserverRecordsEverySliceOutcome() {
 			s.Equal(int64(2), store.recorded.ResultItems)
 			s.Equal("run-1", store.recorded.DetailID)
 			s.NoError(store.recorded.Validate())
+		})
+	}
+}
+
+// TestParsesOIDCAuthorizationParameters covers the escape hatch for
+// providers whose authorize endpoint needs a parameter standard OIDC does
+// not define. WorkOS AuthKit is the motivating case: without
+// provider=authkit it rejects the request as an invalid connection selector.
+func (s *configSuite) TestParsesOIDCAuthorizationParameters() {
+	tests := []struct {
+		name      string
+		raw       string
+		want      map[string]string
+		wantError bool
+	}{
+		{name: "unset", raw: "", want: nil},
+		{name: "single pair", raw: "provider=authkit", want: map[string]string{"provider": "authkit"}},
+		{
+			name: "several pairs with spacing", raw: " provider=authkit , prompt=login ",
+			want: map[string]string{"provider": "authkit", "prompt": "login"},
+		},
+		{name: "value containing an equals sign", raw: "hint=a=b", want: map[string]string{"hint": "a=b"}},
+		{name: "missing separator", raw: "provider", wantError: true},
+		{name: "empty name", raw: "=authkit", wantError: true},
+	}
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			parsed, err := parseAuthorizationParameters(test.raw)
+
+			if test.wantError {
+				s.Require().Error(err)
+				s.ErrorContains(err, "TEAM_MEMORY_OIDC_AUTH_PARAMS")
+				return
+			}
+			s.Require().NoError(err)
+			s.Equal(test.want, parsed)
+		})
+	}
+}
+
+// TestEmbeddingDimensionsFollowTheModel pins that a deployment configures
+// the model it runs and the stored width follows, rather than configuring
+// both and risking a mismatch that only surfaces as a failed write.
+func (s *configSuite) TestEmbeddingDimensionsFollowTheModel() {
+	tests := []struct {
+		name      string
+		baseURL   string
+		model     string
+		override  string
+		want      int
+		wantError string
+	}{
+		{name: "embedding disabled keeps the default width", want: 384},
+		{
+			name: "hosted model decides the width", baseURL: "https://api.openai.com",
+			model: "text-embedding-3-small", want: 1536,
+		},
+		{
+			name: "local model decides the width", baseURL: "http://127.0.0.1:8081",
+			model: "Qwen/Qwen3-Embedding-0.6B", want: 1024,
+		},
+		{
+			name: "override wins", baseURL: "https://api.openai.com",
+			model: "text-embedding-3-small", override: "384", want: 384,
+		},
+		{
+			name:    "unknown model without an override is rejected",
+			baseURL: "https://vendor.example", model: "mystery-model",
+			wantError: "mystery-model",
+		},
+	}
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			s.T().Setenv("TEAM_MEMORY_DATABASE_URL", "postgres://database")
+			s.T().Setenv("TEAM_MEMORY_API_KEYS", `{"key":"scope"}`)
+			s.T().Setenv("TEAM_MEMORY_EXTRACTOR_MODE", "noop")
+			if test.baseURL != "" {
+				s.T().Setenv("TEAM_MEMORY_EMBEDDING_BASE_URL", test.baseURL)
+			}
+			if test.model != "" {
+				s.T().Setenv("TEAM_MEMORY_EMBEDDING_MODEL", test.model)
+			}
+			if test.override != "" {
+				s.T().Setenv("TEAM_MEMORY_EMBEDDING_DIMENSIONS", test.override)
+			}
+
+			config, err := loadConfig()
+
+			if test.wantError != "" {
+				s.Require().Error(err)
+				s.ErrorContains(err, test.wantError)
+				return
+			}
+			s.Require().NoError(err)
+			s.Equal(test.want, config.embeddingDimensions)
+
+			// The migration job resizes the column, so it must resolve the
+			// same width the service validates against.
+			migrationWidth, migrationErr := migrationEmbeddingDimensions()
+			s.Require().NoError(migrationErr)
+			s.Equal(config.embeddingDimensions, migrationWidth,
+				"the migration job and the service must agree on the column width")
 		})
 	}
 }
