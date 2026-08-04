@@ -28,6 +28,11 @@ const (
 	// embeddingBackfillRetryDelay paces retries of the background backfill
 	// after a transient failure (e.g. the embedding service briefly down).
 	embeddingBackfillRetryDelay = 30 * time.Second
+	// maxRequestBodySize raises Hertz's ~4 MiB default so session backfill
+	// of large CLI session files fits (they reach tens of MiB). Cloud Run's
+	// hard request cap is 32 MiB, so stay just under it; the on-prem
+	// compose stack has no smaller proxy cap in front.
+	maxRequestBodySize = 30 * 1024 * 1024
 )
 
 // deploymentProfile selects which control plane the process serves: the
@@ -152,7 +157,10 @@ func runProfile(ctx context.Context, logger *slog.Logger, profile deploymentProf
 	}
 	go continueEmbeddingBackfill(ctx, noteStore, embeddingBackfillRetryDelay, logger)
 
-	h := server.Default(server.WithHostPorts(config.listenAddress))
+	h := server.Default(
+		server.WithHostPorts(config.listenAddress),
+		server.WithMaxRequestBodySize(maxRequestBodySize),
+	)
 	h.Use(handler.InstanceMiddleware(services.team))
 	h.Use(pagewikihttp.InstanceMiddleware(services.pageWiki))
 	h.Use(todoapphttp.InstanceMiddleware(services.todo))

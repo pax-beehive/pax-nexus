@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -427,4 +428,112 @@ func (s *providerSuite) TestRequestsPreserveBaseURLPathPrefix() {
 	s.Require().Len(s.transport.requests, 2)
 	s.Equal("/team-memory/healthz", s.transport.requests[0].URL.Path)
 	s.Equal("/team-memory/v1/session-batches", s.transport.requests[1].URL.Path)
+}
+
+// batchItemJSON builds one putBatch item with the given text size driver.
+func batchItemJSON(id, sessionID string, sequence int, text string) string {
+	return fmt.Sprintf(
+		`{"id":%q,"text":%q,"created_at":"2026-07-14T12:00:00Z","metadata":{"session_id":%q,"sequence":"%d"}}`,
+		id, text, sessionID, sequence,
+	)
+}
+
+func (s *providerSuite) serveBatch(items []string) map[string]any {
+	return s.serve(`{"jsonrpc":"2.0","id":"batch-chunks","method":"paxm.putBatch","params":{"items":[` +
+		strings.Join(items, ",") + `]}}`)
+}
+
+type chunkPayload struct {
+	Complete bool `json:"complete"`
+	Events   []struct {
+		ID string `json:"id"`
+	} `json:"events"`
+}
+
+func (s *providerSuite) decodeChunks() []chunkPayload {
+	chunks := make([]chunkPayload, len(s.transport.bodies))
+	for index, body := range s.transport.bodies {
+		s.Require().NoError(json.Unmarshal(body, &chunks[index]))
+	}
+	return chunks
+}
+
+func chunkIDs(chunk chunkPayload) []string {
+	ids := make([]string, len(chunk.Events))
+	for index := range chunk.Events {
+		ids[index] = chunk.Events[index].ID
+	}
+	return ids
+}
+
+func (s *providerSuite) TestPutBatchChunksAtTheSizeBudget() {
+	// Four ~1 MiB events from one actor exceed the 3 MiB chunk budget:
+	// the upload must split into two requests, only the last completing
+	// the session.
+	text := strings.Repeat("x", 1024*1024)
+	items := []string{
+		batchItemJSON("e1", "session-a", 1, text),
+		batchItemJSON("e2", "session-a", 2, text),
+		batchItemJSON("e3", "session-a", 3, text),
+		batchItemJSON("e4", "session-a", 4, text),
+	}
+	response := s.serveBatch(items)
+	s.Nil(response["error"])
+	s.Require().Len(s.transport.requests, 2)
+	for _, body := range s.transport.bodies {
+		s.LessOrEqual(len(body), 3*1024*1024+4096, "every chunk stays under the 3 MiB budget")
+	}
+	chunks := s.decodeChunks()
+	s.False(chunks[0].Complete, "all but the actor's last chunk arrive incomplete")
+	s.True(chunks[1].Complete, "the actor's last chunk completes the session")
+	s.Equal([]string{"e1", "e2"}, chunkIDs(chunks[0]))
+	s.Equal([]string{"e3", "e4"}, chunkIDs(chunks[1]))
+}
+
+func (s *providerSuite) TestPutBatchChunksKeepActorsSeparate() {
+	text := strings.Repeat("y", 1024*1024)
+	items := []string{
+		batchItemJSON("a1", "session-a", 1, text),
+		batchItemJSON("b1", "session-b", 1, text),
+		batchItemJSON("a2", "session-a", 2, text),
+		batchItemJSON("b2", "session-b", 2, text),
+		batchItemJSON("a3", "session-a", 3, text),
+		batchItemJSON("b3", "session-b", 3, text),
+	}
+	response := s.serveBatch(items)
+	s.Nil(response["error"])
+	s.Require().Len(s.transport.requests, 4, "two actors at two chunks each")
+	chunks := s.decodeChunks()
+	s.Equal([]string{"a1", "a2"}, chunkIDs(chunks[0]))
+	s.False(chunks[0].Complete)
+	s.Equal([]string{"a3"}, chunkIDs(chunks[1]))
+	s.True(chunks[1].Complete)
+	s.Equal([]string{"b1", "b2"}, chunkIDs(chunks[2]))
+	s.False(chunks[2].Complete)
+	s.Equal([]string{"b3"}, chunkIDs(chunks[3]))
+	s.True(chunks[3].Complete)
+
+	result, ok := response["result"].(map[string]any)
+	s.Require().True(ok)
+	refs, ok := result["refs"].([]any)
+	s.Require().True(ok)
+	s.Len(refs, 6, "refs keep the input item order across chunks")
+}
+
+func (s *providerSuite) TestPutBatchSendsOversizedSingleEventAlone() {
+	// A single event larger than the chunk budget goes alone in its own
+	// request; the 30 MiB server limit is what governs it.
+	items := []string{
+		batchItemJSON("big", "session-a", 1, strings.Repeat("z", 4*1024*1024)),
+		batchItemJSON("small", "session-a", 2, "tail"),
+	}
+	response := s.serveBatch(items)
+	s.Nil(response["error"])
+	s.Require().Len(s.transport.requests, 2)
+	s.Greater(len(s.transport.bodies[0]), 3*1024*1024, "the oversized event exceeds the chunk budget alone")
+	chunks := s.decodeChunks()
+	s.Equal([]string{"big"}, chunkIDs(chunks[0]))
+	s.False(chunks[0].Complete)
+	s.Equal([]string{"small"}, chunkIDs(chunks[1]))
+	s.True(chunks[1].Complete)
 }
