@@ -710,7 +710,8 @@ func buildEmbedder(config applicationConfig) (textembedding.Embedder, error) {
 		return nil, nil
 	}
 	return textembedding.NewOpenAI(textembedding.OpenAIConfig{
-		BaseURL: config.embeddingBaseURL, Model: config.embeddingModel, Dimensions: postgres.EmbeddingDimensions,
+		BaseURL: config.embeddingBaseURL, Model: config.embeddingModel,
+		Dimensions: config.embeddingDimensions, APIKey: config.embeddingAPIKey,
 		Client: &http.Client{Timeout: config.embeddingTimeout},
 	})
 }

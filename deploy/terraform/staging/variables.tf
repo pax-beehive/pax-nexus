@@ -118,3 +118,34 @@ variable "oidc_identity_source" {
   EOT
   default     = "token_response_user"
 }
+
+variable "llmwiki_model" {
+  type        = string
+  description = <<-EOT
+    Model for the Page Wiki maintainers and the Todo rewriter. Flash
+    currently outperforms pro, so every path uses it.
+  EOT
+  default     = "deepseek-v4-flash"
+}
+
+variable "embedding_base_url" {
+  type        = string
+  description = "OpenAI-compatible embedding API. Empty disables semantic recall."
+  default     = "https://api.openai.com"
+}
+
+variable "embedding_model" {
+  type        = string
+  description = "Embedding model."
+  default     = "text-embedding-3-small"
+}
+
+variable "embedding_dimensions" {
+  type        = number
+  description = <<-EOT
+    Stored vector width. It must match what the model emits, and the
+    team_notes.embedding column is resized to it on migration, which discards
+    existing vectors and re-embeds them. text-embedding-3-small emits 1536.
+  EOT
+  default     = 1536
+}

@@ -35,7 +35,11 @@ func Migrate(ctx context.Context, logger *slog.Logger) error {
 		return fmt.Errorf("initialize storage: %w", err)
 	}
 	defer store.Close()
-	if err := migrateStores(ctx, store); err != nil {
+	dimensions, err := intEnvironment("TEAM_MEMORY_EMBEDDING_DIMENSIONS", postgres.DefaultEmbeddingDimensions)
+	if err != nil {
+		return err
+	}
+	if err := migrateStores(ctx, store, dimensions); err != nil {
 		return err
 	}
 	logger.InfoContext(ctx, "database schema migrated")
@@ -50,10 +54,15 @@ func Migrate(ctx context.Context, logger *slog.Logger) error {
 // processes migrating at once deadlock: one holds this package's tables
 // while the other holds River's. That happens in practice whenever a
 // migration job overlaps an instance still migrating on boot.
-func migrateStores(ctx context.Context, store *postgres.Store) error {
+func migrateStores(ctx context.Context, store *postgres.Store, embeddingDimensions int) error {
 	return store.WithSchemaLock(ctx, func(ctx context.Context) error {
 		if err := store.Migrate(ctx); err != nil {
 			return fmt.Errorf("initialize storage schema: %w", err)
+		}
+		// The embedding column's width is deployment specific, so it is
+		// reconciled here rather than fixed in a static migration.
+		if err := postgres.ReconcileEmbeddingDimensions(ctx, store.Pool(), embeddingDimensions); err != nil {
+			return err
 		}
 		if err := extractionqueue.Migrate(ctx, store.Pool()); err != nil {
 			return fmt.Errorf("initialize extraction queue schema: %w", err)

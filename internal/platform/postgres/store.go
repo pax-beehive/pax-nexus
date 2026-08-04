@@ -242,3 +242,49 @@ func (s *Store) Migrate(ctx context.Context) (resultErr error) {
 	}
 	return nil
 }
+
+// ReconcileEmbeddingDimensions widens or narrows team_notes.embedding to the
+// width a deployment's embedding model produces.
+//
+// The column's width is fixed in SQL but the right value is deployment
+// specific: a local runtime and a hosted provider emit different widths, and
+// truncating a wider model to the narrower one throws away signal the
+// deployment paid for. Migrations are static, so this reconciles the column
+// afterwards, inside the same schema lock.
+//
+// Changing the width invalidates every stored vector, so they are cleared
+// and marked for re-embedding rather than left at a width the model can no
+// longer produce. The backfill loop recomputes them.
+func ReconcileEmbeddingDimensions(ctx context.Context, pool *pgxpool.Pool, dimensions int) error {
+	if dimensions <= 0 {
+		return fmt.Errorf("reconcile embedding dimensions: positive width is required")
+	}
+	var current int
+	err := pool.QueryRow(ctx, `
+		SELECT COALESCE(atttypmod, 0)
+		FROM pg_attribute
+		WHERE attrelid = 'team_notes'::regclass AND attname = 'embedding' AND NOT attisdropped
+	`).Scan(&current)
+	if err != nil {
+		return fmt.Errorf("read embedding column width: %w", err)
+	}
+	if current == dimensions {
+		return nil
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		ALTER TABLE team_notes
+		    ALTER COLUMN embedding TYPE vector(%d) USING NULL
+	`, dimensions)); err != nil {
+		return fmt.Errorf("set embedding column width to %d: %w", dimensions, err)
+	}
+	// Clearing the provenance is what makes the backfill pick these rows up
+	// again; the vectors themselves were already dropped by the USING NULL.
+	if _, err := pool.Exec(ctx, `
+		UPDATE team_notes
+		SET embedding_model = '', embedding_revision = NULL, embedding_error = ''
+		WHERE embedding_model <> '' OR embedding_revision IS NOT NULL
+	`); err != nil {
+		return fmt.Errorf("reset embedding provenance after width change: %w", err)
+	}
+	return nil
+}

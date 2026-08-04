@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/pax-beehive/pax-nexus/internal/deployment/onprem"
+	"github.com/pax-beehive/pax-nexus/internal/platform/postgres"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote/extractionbudget"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote/extractor"
@@ -69,6 +70,8 @@ type applicationConfig struct {
 	maxSlicesPerJob                int
 	embeddingBaseURL               string
 	embeddingModel                 string
+	embeddingAPIKey                string
+	embeddingDimensions            int
 	embeddingTimeout               time.Duration
 	recallCandidateStrategy        teamnote.RecallCandidateStrategy
 	llmwikiMode                    string
@@ -451,6 +454,13 @@ func boolEnvironment(name string, fallback bool) (bool, error) {
 func loadRetrievalConfig(config *applicationConfig) error {
 	var err error
 	if config.embeddingTimeout, err = durationEnvironment("TEAM_MEMORY_EMBEDDING_TIMEOUT", 10*time.Second); err != nil {
+		return err
+	}
+	// The stored vector width follows the model a deployment actually runs,
+	// so a hosted provider is not truncated to a small local runtime's width.
+	if config.embeddingDimensions, err = intEnvironment(
+		"TEAM_MEMORY_EMBEDDING_DIMENSIONS", postgres.DefaultEmbeddingDimensions,
+	); err != nil {
 		return err
 	}
 	config.recallCandidateStrategy, err = teamnote.ResolveRecallCandidateStrategy("")

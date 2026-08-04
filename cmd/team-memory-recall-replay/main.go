@@ -190,7 +190,7 @@ func openEmbedder(baseURL, model string) (textembedding.Embedder, error) {
 		return nil, nil
 	}
 	embedder, err := textembedding.NewOpenAI(textembedding.OpenAIConfig{
-		BaseURL: baseURL, Model: model, Dimensions: postgres.EmbeddingDimensions,
+		BaseURL: baseURL, Model: model, Dimensions: postgres.DefaultEmbeddingDimensions,
 		Client: &http.Client{Timeout: 60 * time.Second},
 	})
 	if err != nil {

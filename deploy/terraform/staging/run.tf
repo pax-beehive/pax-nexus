@@ -142,5 +142,7 @@ locals {
     TEAM_MEMORY_OIDC_FLOW_SECRET   = google_secret_manager_secret.generated["oidc-flow-secret"].secret_id
     TEAM_MEMORY_OIDC_CLIENT_SECRET = google_secret_manager_secret.external["oidc-client-secret"].secret_id
     TEAM_MEMORY_EXTRACTOR_API_KEY  = google_secret_manager_secret.external["extractor-api-key"].secret_id
+    LLMWIKI_LLM_API_KEY            = google_secret_manager_secret.external["extractor-api-key"].secret_id
+    TEAM_MEMORY_EMBEDDING_API_KEY  = google_secret_manager_secret.external["embedding-api-key"].secret_id
   }
 }

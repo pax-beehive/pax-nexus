@@ -25,14 +25,22 @@ type OpenAIConfig struct {
 	Model      string
 	Dimensions int
 	Client     *http.Client
+	// APIKey authenticates against a hosted provider. A local runtime needs
+	// none, and an empty value sends no Authorization header at all.
+	APIKey string
 }
 
-// OpenAI is an adapter for an OpenAI-compatible local embedding runtime.
+// OpenAI is an adapter for any OpenAI-compatible embedding runtime, local
+// or hosted. Responses are truncated to the configured dimensions and
+// re-normalized, so a provider returning a longer Matryoshka vector (such as
+// OpenAI's text-embedding-3-small at 1536) is used correctly at the shorter
+// length the store expects.
 type OpenAI struct {
 	endpoint   string
 	model      string
 	dimensions int
 	client     *http.Client
+	apiKey     string
 }
 
 func NewOpenAI(config OpenAIConfig) (*OpenAI, error) {
@@ -53,6 +61,7 @@ func NewOpenAI(config OpenAIConfig) (*OpenAI, error) {
 	return &OpenAI{
 		endpoint: baseURL.String(), model: config.Model,
 		dimensions: config.Dimensions, client: config.Client,
+		apiKey: strings.TrimSpace(config.APIKey),
 	}, nil
 }
 
@@ -73,6 +82,9 @@ func (o *OpenAI) Embed(ctx context.Context, texts []string) ([][]float32, error)
 		return nil, fmt.Errorf("create embedding request: %w", err)
 	}
 	request.Header.Set("Content-Type", "application/json")
+	if o.apiKey != "" {
+		request.Header.Set("Authorization", "Bearer "+o.apiKey)
+	}
 	response, err := o.client.Do(request)
 	if err != nil {
 		return nil, fmt.Errorf("send embedding request: %w", err)

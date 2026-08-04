@@ -1219,7 +1219,7 @@ type semanticEmbedder struct{}
 func (semanticEmbedder) Embed(_ context.Context, texts []string) ([][]float32, error) {
 	result := make([][]float32, 0, len(texts))
 	for _, text := range texts {
-		vector := make([]float32, postgres.EmbeddingDimensions)
+		vector := make([]float32, postgres.DefaultEmbeddingDimensions)
 		if text == "Instruct: Retrieve Team Notes containing facts, decisions, blockers, ownership, deadlines, or status relevant to the current agent request.\nQuery:What is stopping the launch?" ||
 			text == "Kind: blocker\nSubject: release approval\nBody: Release remains blocked pending legal approval." {
 			vector[0] = 1
@@ -1236,7 +1236,7 @@ type allSemanticEmbedder struct{}
 func (allSemanticEmbedder) Embed(_ context.Context, texts []string) ([][]float32, error) {
 	result := make([][]float32, len(texts))
 	for index := range result {
-		result[index] = make([]float32, postgres.EmbeddingDimensions)
+		result[index] = make([]float32, postgres.DefaultEmbeddingDimensions)
 		result[index][0] = 1
 	}
 	return result, nil

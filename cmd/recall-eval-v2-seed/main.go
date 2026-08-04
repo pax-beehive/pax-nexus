@@ -72,7 +72,7 @@ func run(ctx context.Context, arguments []string) error {
 		return fmt.Errorf("load fixed recall cohort: %w", err)
 	}
 	embedder, err := textembedding.NewOpenAI(textembedding.OpenAIConfig{
-		BaseURL: *embeddingURL, Model: *embeddingModel, Dimensions: postgres.EmbeddingDimensions,
+		BaseURL: *embeddingURL, Model: *embeddingModel, Dimensions: postgres.DefaultEmbeddingDimensions,
 		Client: &http.Client{Timeout: 30 * time.Second},
 	})
 	if err != nil {

@@ -24,6 +24,7 @@ locals {
   external_secrets = [
     "oidc-client-secret", # WorkOS API key
     "extractor-api-key",  # DeepSeek
+    "embedding-api-key",  # OpenAI, for semantic recall
   ]
 
   # The Cloud Run socket integration exposes the instance as a unix socket
