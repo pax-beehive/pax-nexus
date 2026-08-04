@@ -670,3 +670,177 @@ func (s *saasStoreSuite) TestAgentSuspensionRevokesCredentials() {
 	_, err = s.store.SaaSCredentials().ResolveCredential(ctx, credential.ID, credential.KeyDigest, now)
 	s.Require().ErrorIs(err, onprem.ErrUnauthorized, "suspending the agent must revoke its credentials")
 }
+
+// enrollDevice creates and exchanges a device enrollment for the team's
+// owner, returning the device credential record and its plaintext key
+// digest pair for further calls.
+func (s *saasStoreSuite) enrollDevice(
+	teamID string, owner onprem.Member, label string,
+) (device onprem.CredentialRecord, enrollment onprem.EnrollmentRecord) {
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	enrollment = onprem.EnrollmentRecord{
+		ID: uniqueCredentialValue(label + "-device-enrollment"), TokenDigest: credentialDigest(uniqueCredentialValue(label + "-device-secret")),
+		UserID: owner.UserID, AgentID: "", CredentialLabel: label,
+		Permissions: []onprem.Permission{onprem.PermissionAgentProvision},
+		GrantablePermissions: []onprem.Permission{
+			onprem.PermissionObserve, onprem.PermissionSearch, onprem.PermissionGet,
+		},
+		CreatedAt: now, ExpiresAt: now.Add(time.Hour), DigestKeyVersion: 1,
+		Kind: onprem.CredentialKindDevice,
+	}
+	s.Require().NoError(s.store.SaaSCredentials().CreateDeviceEnrollment(ctx, teamID, owner.MembershipID, enrollment))
+	device = onprem.CredentialRecord{
+		ID: uniqueCredentialValue(label + "-device"), KeyDigest: credentialDigest(uniqueCredentialValue(label + "-device-key")),
+		CreatedAt: now, DigestKeyVersion: 1,
+	}
+	exchanged, err := s.store.SaaSCredentials().ExchangeEnrollment(ctx, enrollment.ID, enrollment.TokenDigest, device, now)
+	s.Require().NoError(err)
+	s.Equal(onprem.CredentialKindDevice, exchanged.Kind, "exchange must surface the enrollment kind")
+	s.Equal(enrollment.GrantablePermissions, exchanged.GrantablePermissions)
+	s.Empty(exchanged.AgentID)
+	return device, enrollment
+}
+
+func (s *saasStoreSuite) TestTeamDeviceLifecycle() {
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	ownerUserID := s.insertUser("device-owner")
+	team, owner := s.createTeam(ownerUserID, "device")
+	otherTeam, _ := s.createTeam(ownerUserID, "device-other")
+	actor := onprem.HumanPrincipal{UserID: ownerUserID, MembershipID: owner.MembershipID}
+
+	device, _ := s.enrollDevice(team.TeamID, owner, "workstation")
+
+	scoped, err := s.store.SaaSCredentials().ResolveCredential(ctx, device.ID, device.KeyDigest, now)
+	s.Require().NoError(err)
+	s.Equal(onprem.CredentialKindDevice, scoped.Kind)
+	s.Equal(team.TeamID, scoped.TeamID)
+	s.Equal([]onprem.Permission{onprem.PermissionAgentProvision}, scoped.Permissions)
+	s.ElementsMatch(
+		[]onprem.Permission{onprem.PermissionObserve, onprem.PermissionSearch, onprem.PermissionGet},
+		scoped.GrantablePermissions,
+	)
+
+	// An agent-kind credential cannot drive provisioning, and the device
+	// cannot provision outside its own team.
+	_, err = s.store.SaaSCredentials().ProvisionAgentCredential(ctx, otherTeam.TeamID, device.ID,
+		onprem.AgentProfile{}, onprem.CredentialRecord{}, 16, now)
+	s.Require().ErrorIs(err, onprem.ErrUnauthorized)
+
+	profile := onprem.AgentProfile{
+		AgentID: uniqueCredentialValue("provisioned-agent"), OwnerMembershipID: owner.MembershipID,
+		OwnerUserID: ownerUserID, DisplayName: "Provisioned Bot", AgentType: "kimi",
+		Status: onprem.AgentStatusActive, DirectoryVisible: true, CreatedAt: now, UpdatedAt: now,
+		ResourceVersion: 1, ProvisionedBy: device.ID,
+	}
+	provisionedKey := onprem.CredentialRecord{
+		ID: uniqueCredentialValue("provisioned-credential"), KeyDigest: credentialDigest(uniqueCredentialValue("provisioned-key")),
+		UserID: ownerUserID, MembershipID: owner.MembershipID, AgentID: profile.AgentID,
+		Label: profile.DisplayName, Permissions: []onprem.Permission{onprem.PermissionGet},
+		CreatedAt: now, DigestKeyVersion: 1, Kind: onprem.CredentialKindAgent, ProvisionedBy: device.ID,
+	}
+	outcome, err := s.store.SaaSCredentials().ProvisionAgentCredential(
+		ctx, team.TeamID, device.ID, profile, provisionedKey, 16, now)
+	s.Require().NoError(err)
+	s.True(outcome.AgentCreated)
+	s.Empty(outcome.RotatedFromCredentialID)
+
+	provisionedScoped, err := s.store.SaaSCredentials().ResolveCredential(ctx, provisionedKey.ID, provisionedKey.KeyDigest, now)
+	s.Require().NoError(err)
+	s.Equal(onprem.CredentialKindAgent, provisionedScoped.Kind)
+	s.Equal(device.ID, provisionedScoped.ProvisionedBy)
+
+	// Re-provisioning the same agent rotates its credential: the old key
+	// dies and the outcome names it. The successor is stamped a second
+	// later so the provisioned-history ordering below is deterministic.
+	rotatedKey := provisionedKey
+	rotatedKey.ID = uniqueCredentialValue("provisioned-credential-rotated")
+	rotatedKey.KeyDigest = credentialDigest(uniqueCredentialValue("provisioned-key-rotated"))
+	rotatedKey.CreatedAt = now.Add(time.Second)
+	outcome, err = s.store.SaaSCredentials().ProvisionAgentCredential(
+		ctx, team.TeamID, device.ID, profile, rotatedKey, 16, now)
+	s.Require().NoError(err)
+	s.False(outcome.AgentCreated)
+	s.Equal(provisionedKey.ID, outcome.RotatedFromCredentialID)
+	_, err = s.store.SaaSCredentials().ResolveCredential(ctx, provisionedKey.ID, provisionedKey.KeyDigest, now)
+	s.Require().ErrorIs(err, onprem.ErrUnauthorized)
+
+	// The active-agent cap counts distinct agents per device.
+	_, err = s.store.SaaSCredentials().ProvisionAgentCredential(ctx, team.TeamID, device.ID,
+		onprem.AgentProfile{
+			AgentID: uniqueCredentialValue("capped-agent"), OwnerMembershipID: owner.MembershipID,
+			OwnerUserID: ownerUserID, DisplayName: "Capped Bot", Status: onprem.AgentStatusActive,
+		},
+		onprem.CredentialRecord{
+			ID: uniqueCredentialValue("capped-credential"), KeyDigest: credentialDigest(uniqueCredentialValue("capped-key")),
+			CreatedAt: now,
+		}, 1, now)
+	s.Require().ErrorIs(err, onprem.ErrDeviceAgentLimitExceeded)
+
+	// Device surfaces: list, get (with provisioned history), cross-team
+	// invisibility.
+	devices, err := s.store.SaaSCredentials().ListDevices(ctx, team.TeamID, onprem.DeviceFilter{Limit: 10})
+	s.Require().NoError(err)
+	s.Require().Len(devices, 1)
+	s.Equal(device.ID, devices[0].CredentialID)
+	s.Equal("workstation", devices[0].DeviceName)
+	s.Equal(int64(1), devices[0].ProvisionedAgentCount)
+
+	otherDevices, err := s.store.SaaSCredentials().ListDevices(ctx, otherTeam.TeamID, onprem.DeviceFilter{Limit: 10})
+	s.Require().NoError(err)
+	s.Empty(otherDevices)
+
+	detail, err := s.store.SaaSCredentials().GetDevice(ctx, team.TeamID, device.ID)
+	s.Require().NoError(err)
+	s.Equal(device.ID, detail.Device.CredentialID)
+	s.Require().Len(detail.Agents, 2, "rotated history: both provisioned credential rows")
+	s.Equal(profile.AgentID, detail.Agents[0].AgentID)
+	s.Nil(detail.Agents[0].RevokedAt, "newest first: the active rotated credential")
+	s.NotNil(detail.Agents[1].RevokedAt, "the rotated-away credential is revoked")
+
+	_, err = s.store.SaaSCredentials().GetDevice(ctx, otherTeam.TeamID, device.ID)
+	s.Require().ErrorIs(err, onprem.ErrCredentialNotFound)
+
+	history, err := s.store.SaaSCredentials().ListDeviceProvisionedAgents(ctx, team.TeamID, device.ID)
+	s.Require().NoError(err)
+	s.Len(history, 2)
+	otherHistory, err := s.store.SaaSCredentials().ListDeviceProvisionedAgents(ctx, otherTeam.TeamID, device.ID)
+	s.Require().NoError(err)
+	s.Empty(otherHistory)
+
+	// Device credentials are revoke-and-rebuild, never rotatable.
+	err = s.store.SaaSCredentials().RotateCredential(ctx, team.TeamID, device.ID, onprem.CredentialRecord{
+		ID: uniqueCredentialValue("device-rotation"), KeyDigest: credentialDigest(uniqueCredentialValue("rotation-key")),
+		CreatedAt: now,
+	}, now.Add(time.Minute))
+	s.Require().ErrorIs(err, onprem.ErrForbidden)
+
+	// Revoking the device cascades to its provisioned credentials and
+	// replays idempotently.
+	revokeKey := uniqueCredentialValue("device-revoke-key")
+	summary, err := s.store.SaaSCredentials().RevokeDevice(ctx, team.TeamID, actor, device.ID, revokeKey, now)
+	s.Require().NoError(err)
+	s.Equal(device.ID, summary.CredentialID)
+	s.Require().NotNil(summary.RevokedAt)
+	s.Zero(summary.ProvisionedAgentCount)
+
+	_, err = s.store.SaaSCredentials().ResolveCredential(ctx, rotatedKey.ID, rotatedKey.KeyDigest, now)
+	s.Require().ErrorIs(err, onprem.ErrUnauthorized, "the cascade must kill provisioned credentials")
+	_, err = s.store.SaaSCredentials().ResolveCredential(ctx, device.ID, device.KeyDigest, now)
+	s.Require().ErrorIs(err, onprem.ErrUnauthorized)
+
+	replayed, err := s.store.SaaSCredentials().RevokeDevice(ctx, team.TeamID, actor, device.ID, revokeKey, now)
+	s.Require().NoError(err)
+	s.Equal(summary.CredentialID, replayed.CredentialID)
+	s.Require().NotNil(replayed.RevokedAt)
+	s.True(summary.RevokedAt.Equal(*replayed.RevokedAt), "replay returns the stored revocation time")
+	_, err = s.store.SaaSCredentials().RevokeDevice(ctx, team.TeamID, actor, device.ID, uniqueCredentialValue("other-key"), now)
+	s.Require().ErrorIs(err, onprem.ErrIdempotencyConflict)
+
+	revokedDevices, err := s.store.SaaSCredentials().ListDevices(ctx, team.TeamID, onprem.DeviceFilter{Status: "revoked", Limit: 10})
+	s.Require().NoError(err)
+	s.Len(revokedDevices, 1)
+
+	s.Equal(team.TeamID, s.auditScope(device.ID), "device audit rows must carry the team scope")
+}

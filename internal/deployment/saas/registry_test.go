@@ -361,26 +361,122 @@ func (s *registrySuite) TestUnsupportedSurfaces() {
 			_, err := s.service.RevokeAdminCredential(context.Background(), ownerPrincipal(), "agent-1", "cred-1", "")
 			return err
 		}},
-		{"CreateDeviceEnrollment", func() error {
-			_, _, err := s.service.CreateDeviceEnrollment(context.Background(), ownerPrincipal(), onprem.DeviceEnrollmentRequest{})
-			return err
-		}},
-		{"RevokeDevice", func() error {
-			_, err := s.service.RevokeDevice(context.Background(), ownerPrincipal(), "cred-1", "")
-			return err
-		}},
-		{"ListDevices", func() error {
-			_, err := s.service.ListDevices(context.Background(), ownerPrincipal(), onprem.DeviceFilter{})
-			return err
-		}},
-		{"GetDevice", func() error {
-			_, err := s.service.GetDevice(context.Background(), ownerPrincipal(), "cred-1")
-			return err
-		}},
 	}
 	for _, tc := range cases {
 		s.Run(tc.name, func() {
 			s.Require().ErrorIs(tc.call(), saas.ErrUnsupportedInSaaS)
 		})
 	}
+}
+
+func (s *registrySuite) TestCreateDeviceEnrollment() {
+	s.Run("creates a device enrollment with the configured default grantable set", func() {
+		s.credentials.EXPECT().CreateDeviceEnrollment(gomock.Any(), "team_alpha", "mbr_owner", gomock.Any()).
+			DoAndReturn(func(_ context.Context, _, _ string, record onprem.EnrollmentRecord) error {
+				s.Equal(onprem.CredentialKindDevice, record.Kind)
+				s.Empty(record.AgentID)
+				s.Equal("workstation", record.CredentialLabel)
+				s.Equal([]onprem.Permission{onprem.PermissionAgentProvision}, record.Permissions)
+				s.ElementsMatch(
+					[]onprem.Permission{onprem.PermissionObserve, onprem.PermissionSearch, onprem.PermissionGet},
+					record.GrantablePermissions,
+				)
+				return nil
+			})
+		enrollment, grantable, err := s.service.CreateDeviceEnrollment(context.Background(), ownerPrincipal(), onprem.DeviceEnrollmentRequest{
+			DeviceName: "workstation",
+		})
+		s.Require().NoError(err)
+		s.Contains(enrollment.Token, "tm_enroll_generated-id.generated-secret")
+		s.Len(grantable, 3)
+	})
+
+	s.Run("narrows the grantable set on request", func() {
+		s.credentials.EXPECT().CreateDeviceEnrollment(gomock.Any(), "team_alpha", "mbr_owner", gomock.Any()).
+			DoAndReturn(func(_ context.Context, _, _ string, record onprem.EnrollmentRecord) error {
+				s.Equal([]onprem.Permission{onprem.PermissionGet}, record.GrantablePermissions)
+				return nil
+			})
+		_, grantable, err := s.service.CreateDeviceEnrollment(context.Background(), ownerPrincipal(), onprem.DeviceEnrollmentRequest{
+			DeviceName: "workstation", GrantablePermissions: []onprem.Permission{onprem.PermissionGet},
+		})
+		s.Require().NoError(err)
+		s.Equal([]onprem.Permission{onprem.PermissionGet}, grantable)
+	})
+
+	cases := []struct {
+		name      string
+		actor     onprem.HumanPrincipal
+		request   onprem.DeviceEnrollmentRequest
+		expectErr error
+	}{
+		{
+			"member cannot enroll devices", func() onprem.HumanPrincipal {
+				principal := ownerPrincipal()
+				principal.Role = onprem.RoleMember
+				return principal
+			}(),
+			onprem.DeviceEnrollmentRequest{DeviceName: "workstation"}, onprem.ErrForbidden,
+		},
+		{
+			"device name is required", ownerPrincipal(),
+			onprem.DeviceEnrollmentRequest{}, onprem.ErrInvalidIdentityInput,
+		},
+		{
+			"grantable must stay inside the configured set", ownerPrincipal(),
+			onprem.DeviceEnrollmentRequest{
+				DeviceName: "workstation", GrantablePermissions: []onprem.Permission{onprem.PermissionChannelSend},
+			}, onprem.ErrInvalidIdentityInput,
+		},
+		{
+			"negative expiry is invalid", ownerPrincipal(),
+			onprem.DeviceEnrollmentRequest{DeviceName: "workstation", ExpiresIn: -time.Minute}, onprem.ErrInvalidIdentityInput,
+		},
+	}
+	for _, tc := range cases {
+		s.Run(tc.name, func() {
+			_, _, err := s.service.CreateDeviceEnrollment(context.Background(), tc.actor, tc.request)
+			s.Require().ErrorIs(err, tc.expectErr)
+		})
+	}
+}
+
+func (s *registrySuite) TestDeviceAdministration() {
+	s.Run("revoke device passes team scope and idempotency key", func() {
+		s.credentials.EXPECT().RevokeDevice(gomock.Any(), "team_alpha", gomock.Any(), "cred-1", "key-1", s.now).
+			DoAndReturn(func(_ context.Context, _ string, actor onprem.HumanPrincipal, _, _ string, _ time.Time) (onprem.DeviceSummary, error) {
+				s.Equal("mbr_owner", actor.MembershipID)
+				return onprem.DeviceSummary{CredentialID: "cred-1", DeviceName: "workstation"}, nil
+			})
+		summary, err := s.service.RevokeDevice(context.Background(), ownerPrincipal(), "cred-1", "key-1")
+		s.Require().NoError(err)
+		s.Equal("cred-1", summary.CredentialID)
+	})
+
+	s.Run("list devices is team-filtered", func() {
+		s.credentials.EXPECT().ListDevices(gomock.Any(), "team_alpha", gomock.Any()).
+			Return([]onprem.DeviceSummary{{CredentialID: "cred-1"}}, nil)
+		devices, err := s.service.ListDevices(context.Background(), ownerPrincipal(), onprem.DeviceFilter{})
+		s.Require().NoError(err)
+		s.Len(devices, 1)
+	})
+
+	s.Run("get device is team-filtered", func() {
+		s.credentials.EXPECT().GetDevice(gomock.Any(), "team_alpha", "cred-1").
+			Return(onprem.DeviceDetail{Device: onprem.DeviceSummary{CredentialID: "cred-1"}}, nil)
+		detail, err := s.service.GetDevice(context.Background(), ownerPrincipal(), "cred-1")
+		s.Require().NoError(err)
+		s.Equal("cred-1", detail.Device.CredentialID)
+	})
+
+	s.Run("member actor is forbidden and empty IDs are rejected", func() {
+		member := ownerPrincipal()
+		member.Role = onprem.RoleMember
+		_, err := s.service.ListDevices(context.Background(), member, onprem.DeviceFilter{})
+		s.Require().ErrorIs(err, onprem.ErrForbidden)
+		_, err = s.service.RevokeDevice(context.Background(), ownerPrincipal(), " ", "")
+		s.Require().ErrorIs(err, onprem.ErrCredentialNotFound)
+		_, err = s.service.GetDevice(context.Background(), ownerPrincipal(), " ")
+		s.Require().ErrorIs(err, onprem.ErrCredentialNotFound)
+	})
 }

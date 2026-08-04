@@ -223,8 +223,13 @@ Landed:
   `scope_id` (on-prem rows default `local-team`), Postgres adapters under
   `internal/platform/postgres/saas_*.go`.
 - Domain services in `internal/deployment/saas` (`ControlPlane`, `Registry`,
-  `Credentials`) reusing the on-prem types and handler interfaces; devices
-  and channel deliberately return `ErrUnsupportedInSaaS` (501).
+  `Credentials`) reusing the on-prem types and handler interfaces; the
+  channel surface deliberately returns `ErrUnsupportedInSaaS` (501).
+- Team-scoped device enrollment and provisioning (migration 030):
+  `paxl device connect`/`provision` works against the SaaS deployment;
+  device credentials, grantable permission narrowing, provisioned-by
+  lineage, active-agent cap, and revoke cascade all mirror on-prem inside
+  the owner's team (HTTP coverage in the isolation e2e).
 - HTTP surface: `POST/GET /v1/teams`, `POST /v1/me/current-team`, `/v1/me`
   carries `teams` + `current_team_id`; session-audit filters use the
   principal's scope.
@@ -246,8 +251,8 @@ Deferred / known gaps:
   still attribute to `local-team` in the SaaS profile (read models are
   per-request scoped); LLM-usage attribution for request-driven wiki
   maintenance follows context scope or the default.
-- Team rename/delete endpoints, SaaS device enrollment, `CreateTeam`
-  server-side current-team switch (the portal switches explicitly).
+- Team rename/delete endpoints, `CreateTeam` server-side current-team
+  switch (the portal switches explicitly).
 - Postgres RLS, scope-sweep backed by the `teams` registry, M4 quotas,
   domain-capture auto-join.
 

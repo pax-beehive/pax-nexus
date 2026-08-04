@@ -13,6 +13,10 @@ import (
 type CredentialConfig struct {
 	RotationOverlap time.Duration
 	SecretPepper    string
+	// DeviceAgentLimit caps how many distinct agents a single device
+	// credential may keep actively provisioned at once. Values <= 0 default
+	// to 16 in NewCredentials, mirroring the on-prem default.
+	DeviceAgentLimit int
 }
 
 type credentialOptions struct {
@@ -66,6 +70,9 @@ func NewCredentials(
 	if configured.clock == nil || configured.tokenSource == nil {
 		return nil, fmt.Errorf("create saas credential service: clock and token source are required")
 	}
+	if config.DeviceAgentLimit <= 0 {
+		config.DeviceAgentLimit = 16
+	}
 	return &Credentials{
 		store: store, config: config, clock: configured.clock, tokenSource: configured.tokenSource,
 		digester: digester,
@@ -102,8 +109,9 @@ func (s *Credentials) Authenticate(ctx context.Context, apiKey string) (onprem.P
 	return onprem.Principal{
 		UserID: record.UserID, MembershipID: record.MembershipID, AgentID: record.AgentID,
 		ScopeID: scoped.TeamID, CredentialID: record.ID, CredentialLabel: record.Label,
-		Permissions: append([]onprem.Permission(nil), record.Permissions...),
-		Kind:        onprem.CredentialKindAgent,
+		Permissions:          append([]onprem.Permission(nil), record.Permissions...),
+		Kind:                 record.Kind,
+		GrantablePermissions: append([]onprem.Permission(nil), record.GrantablePermissions...),
 	}, nil
 }
 
@@ -140,7 +148,7 @@ func (s *Credentials) ExchangeEnrollment(ctx context.Context, token string) (onp
 	return onprem.IssuedCredential{
 		CredentialID: id, APIKey: apiKey, UserID: exchanged.UserID,
 		Permissions: append([]onprem.Permission(nil), exchanged.Permissions...),
-		Kind:        onprem.CredentialKindAgent,
+		Kind:        exchanged.Kind,
 		ExpiresAt:   exchanged.CredentialExpiresAt,
 	}, nil
 }
@@ -182,21 +190,114 @@ func (s *Credentials) RevokeCredential(context.Context, onprem.Principal, string
 	return ErrUnsupportedInSaaS
 }
 
-// ProvisionDeviceAgent is unsupported: device registration is an on-prem
-// workstation story.
+// ProvisionDeviceAgent creates or rotates the credential for an agent that
+// a device credential provisions. Only a device credential carrying
+// PermissionAgentProvision may call this; an agent credential is always
+// forbidden, even if it somehow carries the permission. The team scope
+// comes from the device credential's own row (principal.ScopeID), so a
+// device can only ever provision inside its own team.
 func (s *Credentials) ProvisionDeviceAgent(
-	context.Context,
-	onprem.Principal,
-	onprem.DeviceProvisionRequest,
+	ctx context.Context,
+	principal onprem.Principal,
+	request onprem.DeviceProvisionRequest,
 ) (onprem.ProvisionedAgentCredential, error) {
-	return onprem.ProvisionedAgentCredential{}, ErrUnsupportedInSaaS
+	if err := requireDeviceProvisioner(principal); err != nil {
+		return onprem.ProvisionedAgentCredential{}, err
+	}
+	agentID := strings.TrimSpace(request.AgentID)
+	displayName := strings.TrimSpace(request.DisplayName)
+	if err := validateAgentIdentity(agentID, displayName); err != nil {
+		return onprem.ProvisionedAgentCredential{}, err
+	}
+	agentType := strings.TrimSpace(request.AgentType)
+	if agentType == "" {
+		return onprem.ProvisionedAgentCredential{}, fmt.Errorf("%w: agent_type is required", onprem.ErrInvalidIdentityInput)
+	}
+	permissions, err := deviceGrantedPermissions(request.Permissions, principal.GrantablePermissions)
+	if err != nil {
+		return onprem.ProvisionedAgentCredential{}, err
+	}
+	id, apiKey, record, err := s.newCredential(onprem.CredentialRecord{
+		UserID: principal.UserID, MembershipID: principal.MembershipID, AgentID: agentID,
+		Label: displayName, Permissions: permissions,
+		Kind: onprem.CredentialKindAgent, ProvisionedBy: principal.CredentialID,
+	})
+	if err != nil {
+		return onprem.ProvisionedAgentCredential{}, err
+	}
+	now := record.CreatedAt
+	profile := onprem.AgentProfile{
+		AgentID: agentID, OwnerMembershipID: principal.MembershipID, OwnerUserID: principal.UserID,
+		DisplayName: displayName, AgentType: agentType, Status: onprem.AgentStatusActive,
+		DirectoryVisible: true, CreatedAt: now, UpdatedAt: now, ResourceVersion: 1,
+		ProvisionedBy: principal.CredentialID,
+	}
+	outcome, err := s.store.ProvisionAgentCredential(
+		ctx, principal.ScopeID, principal.CredentialID, profile, record, s.config.DeviceAgentLimit, now,
+	)
+	if err != nil {
+		return onprem.ProvisionedAgentCredential{}, fmt.Errorf("provision device agent: %w", err)
+	}
+	return onprem.ProvisionedAgentCredential{
+		CredentialID: id, APIKey: apiKey, AgentID: agentID, Permissions: permissions,
+		CreatedAt: now, RotatedFromCredentialID: outcome.RotatedFromCredentialID,
+		AgentCreated: outcome.AgentCreated,
+	}, nil
 }
 
+// ListDeviceProvisionedAgents returns every credential row (including
+// revoked history) the device credential in principal has provisioned in
+// its team. Subject to the same guard as ProvisionDeviceAgent.
 func (s *Credentials) ListDeviceProvisionedAgents(
-	context.Context,
-	onprem.Principal,
+	ctx context.Context,
+	principal onprem.Principal,
 ) ([]onprem.DeviceProvisionedAgent, error) {
-	return nil, ErrUnsupportedInSaaS
+	if err := requireDeviceProvisioner(principal); err != nil {
+		return nil, err
+	}
+	agents, err := s.store.ListDeviceProvisionedAgents(ctx, principal.ScopeID, principal.CredentialID)
+	if err != nil {
+		return nil, fmt.Errorf("list device provisioned agents: %w", err)
+	}
+	return agents, nil
+}
+
+// requireDeviceProvisioner is the guard shared by the device-scoped
+// provisioning endpoints, mirroring the on-prem guard with the deployment
+// pin replaced by a team scope: only a device credential carrying
+// PermissionAgentProvision, scoped to a team, may proceed.
+func requireDeviceProvisioner(principal onprem.Principal) error {
+	if strings.TrimSpace(principal.ScopeID) == "" || principal.CredentialID == "" ||
+		principal.Kind != onprem.CredentialKindDevice || !principal.HasPermission(onprem.PermissionAgentProvision) {
+		return onprem.ErrForbidden
+	}
+	return nil
+}
+
+// deviceGrantedPermissions mirrors the on-prem narrowing: an empty request
+// inherits the device's grantable set, an explicit request must stay inside
+// it.
+func deviceGrantedPermissions(requested, grantable []onprem.Permission) ([]onprem.Permission, error) {
+	if len(requested) == 0 {
+		if len(grantable) == 0 {
+			return nil, fmt.Errorf("%w: device has no grantable permissions", onprem.ErrForbidden)
+		}
+		return append([]onprem.Permission(nil), grantable...), nil
+	}
+	validated, err := validateExplicitPermissions(requested)
+	if err != nil {
+		return nil, err
+	}
+	allowed := make(map[onprem.Permission]struct{}, len(grantable))
+	for _, permission := range grantable {
+		allowed[permission] = struct{}{}
+	}
+	for _, permission := range validated {
+		if _, ok := allowed[permission]; !ok {
+			return nil, fmt.Errorf("%w: permission %q exceeds device grantable set", onprem.ErrForbidden, permission)
+		}
+	}
+	return validated, nil
 }
 
 func (s *Credentials) newCredential(base onprem.CredentialRecord) (string, string, onprem.CredentialRecord, error) {

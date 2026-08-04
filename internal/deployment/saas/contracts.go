@@ -155,13 +155,16 @@ type TeamRegistryStore interface {
 type TeamCredentialStore interface {
 	CreateOwnedEnrollment(ctx context.Context, teamID string, membershipID string, record onprem.EnrollmentRecord) error
 	// ExchangeEnrollment consumes an enrollment and issues the credential
-	// in the enrollment's team, mirroring the on-prem exchange.
+	// in the enrollment's team, mirroring the on-prem exchange. Device-kind
+	// enrollments (empty agent_id) exchange into device-kind credentials.
 	ExchangeEnrollment(ctx context.Context, enrollmentID string, digest onprem.Digest, credential onprem.CredentialRecord, now time.Time) (onprem.EnrollmentRecord, error)
 	// ResolveCredential authenticates an API key by digest and returns the
-	// credential plus its team as the scope.
+	// credential plus its team as the scope. Device-kind rows resolve
+	// without an agent row (they have none).
 	ResolveCredential(ctx context.Context, credentialID string, digest onprem.Digest, now time.Time) (ScopedCredential, error)
 	// RotateCredential expires the current credential and inserts its
-	// successor inside the same team.
+	// successor inside the same team. Device credentials are
+	// revoke-and-rebuild, not rotatable (onprem.ErrForbidden).
 	RotateCredential(ctx context.Context, teamID string, currentID string, replacement onprem.CredentialRecord, overlapUntil time.Time) error
 	ListOwnedEnrollments(ctx context.Context, teamID string, membershipID string, agentID string, filter onprem.AgentArtifactFilter, now time.Time) ([]onprem.AgentEnrollmentMetadata, error)
 	// RevokeOwnedEnrollment revokes with owner idempotency: replaying the
@@ -171,4 +174,27 @@ type TeamCredentialStore interface {
 	// RevokeOwnedCredential revokes with owner idempotency, mirroring
 	// RevokeOwnedEnrollment.
 	RevokeOwnedCredential(ctx context.Context, teamID string, membershipID string, actor onprem.HumanPrincipal, agentID string, credentialID string, idempotencyKey string, now time.Time) (onprem.AgentCredentialMetadata, error)
+
+	// CreateDeviceEnrollment inserts a device-kind enrollment (empty
+	// agent_id, grantable permission set) for an active membership of the
+	// team, mirroring the on-prem device enrollment.
+	CreateDeviceEnrollment(ctx context.Context, teamID string, membershipID string, record onprem.EnrollmentRecord) error
+	// ProvisionAgentCredential creates or rotates the credential for an
+	// agent the device credential (deviceCredentialID) provisions inside
+	// the same team, enforcing the device's active-agent cap, mirroring
+	// the on-prem ordered transaction. A device credential from another
+	// team resolves to onprem.ErrUnauthorized.
+	ProvisionAgentCredential(ctx context.Context, teamID string, deviceCredentialID string, profile onprem.AgentProfile, credential onprem.CredentialRecord, activeAgentLimit int, now time.Time) (onprem.ProvisionOutcome, error)
+	// ListDeviceProvisionedAgents returns every credential row (including
+	// revoked history) the device credential has provisioned in the team.
+	ListDeviceProvisionedAgents(ctx context.Context, teamID string, deviceCredentialID string) ([]onprem.DeviceProvisionedAgent, error)
+	// RevokeDevice revokes a device credential and, transactionally, every
+	// still-active credential it provisioned, with on-prem-style
+	// idempotent replay.
+	RevokeDevice(ctx context.Context, teamID string, actor onprem.HumanPrincipal, credentialID string, idempotencyKey string, now time.Time) (onprem.DeviceSummary, error)
+	// ListDevices returns the team's device-kind credentials (the admin
+	// device listing), newest first, with the on-prem keyset cursor.
+	ListDevices(ctx context.Context, teamID string, filter onprem.DeviceFilter) ([]onprem.DeviceSummary, error)
+	// GetDevice returns a device's summary plus its provisioned agents.
+	GetDevice(ctx context.Context, teamID string, credentialID string) (onprem.DeviceDetail, error)
 }

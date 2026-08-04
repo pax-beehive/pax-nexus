@@ -255,6 +255,14 @@ func (s *saasIsolationSuite) agent(user saasTestUser, method, path, body string)
 	return s.request(method, path, body, ut.Header{Key: "Authorization", Value: "Bearer " + user.agentAPIKey})
 }
 
+// decodeBodyMap decodes a response body into a generic object for
+// shape-agnostic assertions (presence checks, booleans, nested fields).
+func decodeBodyMap(s *suite.Suite, response *ut.ResponseRecorder) map[string]any {
+	var decoded map[string]any
+	s.Require().NoError(json.Unmarshal(response.Body.Bytes(), &decoded))
+	return decoded
+}
+
 // bodyField decodes a response body and walks the given object path to a
 // string field, failing the test on any shape mismatch (errcheck-safe typed
 // access for the JSON documents this suite consumes).
@@ -479,14 +487,119 @@ func (s *saasIsolationSuite) TestSaaSProfileIsolatesTeamsOverHTTP() {
 		s.Equal(http.StatusForbidden, response.Code)
 	})
 
+	var deviceAPIKey, provisionedAPIKey, deviceCredentialID string
+	s.Run("device enrollment and agent provisioning work in team A", func() {
+		enroll := s.human(userA, true, http.MethodPost, "/v1/me/device-enrollments",
+			`{"device_name":"workstation"}`)
+		s.Require().Equal(http.StatusCreated, enroll.Code, enroll.Body.String())
+		enrollBody := decodeBodyMap(&s.Suite, enroll)
+		s.Equal("workstation", enrollBody["device_name"])
+		s.NotEmpty(enrollBody["grantable_permissions"])
+
+		exchange := s.request(http.MethodPost, "/v1/agent-enrollments/exchange",
+			fmt.Sprintf(`{"token":%q}`, enrollBody["token"]))
+		s.Require().Equal(http.StatusOK, exchange.Code, exchange.Body.String())
+		deviceAPIKey = bodyField(&s.Suite, exchange, "api_key")
+		deviceCredentialID = bodyField(&s.Suite, exchange, "credential_id")
+		s.Equal(userA.principal.UserID, bodyField(&s.Suite, exchange, "user_id"),
+			"paxl device connect needs user_id in the exchange response")
+		s.NotEmpty(decodeBodyMap(&s.Suite, exchange)["permissions"])
+		s.Equal("device", bodyField(&s.Suite, exchange, "kind"))
+
+		provision := s.request(http.MethodPost, "/v1/device/agent-provisions",
+			fmt.Sprintf(`{"agent_id":"paxl-%s","display_name":"paxl","agent_type":"kimi"}`, s.runID),
+			ut.Header{Key: "Authorization", Value: "Bearer " + deviceAPIKey})
+		s.Require().Equal(http.StatusOK, provision.Code, provision.Body.String())
+		provisionBody := decodeBodyMap(&s.Suite, provision)
+		s.Equal(true, provisionBody["agent_created"])
+		provisionedAPIKey = bodyField(&s.Suite, provision, "api_key")
+
+		provisions := s.request(http.MethodGet, "/v1/device/agent-provisions", "",
+			ut.Header{Key: "Authorization", Value: "Bearer " + deviceAPIKey})
+		s.Require().Equal(http.StatusOK, provisions.Code, provisions.Body.String())
+		s.Contains(provisions.Body.String(), "paxl-"+s.runID)
+
+		devices := s.human(userA, false, http.MethodGet, "/v1/admin/devices", "")
+		s.Require().Equal(http.StatusOK, devices.Code)
+		s.Contains(devices.Body.String(), "workstation")
+	})
+
+	s.Run("provisioned agent credential works in team A and is invisible to team B", func() {
+		now := time.Now().UTC()
+		secret := "device-secret-" + s.runID
+		observe := s.request(http.MethodPost, "/v1/session-batches", fmt.Sprintf(`{
+		  "events":[{
+		    "id":"event-device-%s",
+		    "actor":{"user_id":"owner","agent_id":"paxl-%s","session_id":"session-device-%s"},
+		    "sequence":1,
+		    "type":"message",
+		    "content":%q,
+		    "task_ref":"device-release",
+		    "occurred_at":%q
+		  }],
+		  "complete":true
+		}`, s.runID, s.runID, s.runID, secret, now.Format(time.RFC3339Nano)),
+			ut.Header{Key: "Authorization", Value: "Bearer " + provisionedAPIKey})
+		s.Require().Equal(http.StatusOK, observe.Code, observe.Body.String())
+		s.Require().Eventually(func() bool {
+			var count int64
+			if err := s.store.Pool().QueryRow(ctx,
+				`SELECT count(*) FROM team_notes WHERE scope_id = $1 AND task_ref = 'device-release'`,
+				userA.teamID).Scan(&count); err != nil {
+				return false
+			}
+			return count == 1
+		}, 10*time.Second, 25*time.Millisecond, "the device-provisioned agent's note did not land in team A")
+
+		recallBody := fmt.Sprintf(`{
+		  "actor":{"user_id":"owner","agent_id":"paxl-%s","session_id":"recall-device-%s"},
+		  "task_ref":"device-release",
+		  "token_budget":256,
+		  "query":"secret",
+		  "max_items":3
+		}`, s.runID, s.runID)
+		recall := s.request(http.MethodPost, "/v1/notes/recall", recallBody,
+			ut.Header{Key: "Authorization", Value: "Bearer " + provisionedAPIKey})
+		s.Require().Equal(http.StatusOK, recall.Code, recall.Body.String())
+		s.Contains(recall.Body.String(), secret)
+
+		crossTeam := s.request(http.MethodPost, "/v1/notes/recall", recallBody,
+			ut.Header{Key: "Authorization", Value: "Bearer " + userB.agentAPIKey})
+		s.Require().Equal(http.StatusOK, crossTeam.Code, crossTeam.Body.String())
+		s.NotContains(crossTeam.Body.String(), secret)
+
+		devices := s.human(userB, false, http.MethodGet, "/v1/admin/devices", "")
+		s.Require().Equal(http.StatusOK, devices.Code)
+		s.NotContains(devices.Body.String(), "workstation")
+	})
+
+	s.Run("device revocation cascades to provisioned credentials and replays", func() {
+		revoke := s.request(http.MethodDelete, "/v1/admin/devices/"+deviceCredentialID, "",
+			ut.Header{Key: "Cookie", Value: "tm_human_session=" + userA.sessionToken + "; tm_csrf=" + csrfFor(userA.sessionToken)},
+			ut.Header{Key: "X-CSRF-Token", Value: csrfFor(userA.sessionToken)},
+			ut.Header{Key: "Idempotency-Key", Value: "revoke-device-" + s.runID},
+		)
+		s.Require().Equal(http.StatusOK, revoke.Code, revoke.Body.String())
+
+		replayed := s.request(http.MethodDelete, "/v1/admin/devices/"+deviceCredentialID, "",
+			ut.Header{Key: "Cookie", Value: "tm_human_session=" + userA.sessionToken + "; tm_csrf=" + csrfFor(userA.sessionToken)},
+			ut.Header{Key: "X-CSRF-Token", Value: csrfFor(userA.sessionToken)},
+			ut.Header{Key: "Idempotency-Key", Value: "revoke-device-" + s.runID},
+		)
+		s.Require().Equal(http.StatusOK, replayed.Code, replayed.Body.String())
+
+		provisions := s.request(http.MethodGet, "/v1/device/agent-provisions", "",
+			ut.Header{Key: "Authorization", Value: "Bearer " + deviceAPIKey})
+		s.Equal(http.StatusUnauthorized, provisions.Code, "the revoked device key must not authenticate")
+		recall := s.request(http.MethodPost, "/v1/notes/recall", `{"actor":{"user_id":"owner","agent_id":"x","session_id":"y"},"task_ref":"device-release","token_budget":128,"query":"secret","max_items":1}`,
+			ut.Header{Key: "Authorization", Value: "Bearer " + provisionedAPIKey})
+		s.Equal(http.StatusUnauthorized, recall.Code, "the cascade must kill the provisioned agent key")
+	})
+
 	s.Run("saas profile rejects on-prem-only surfaces", func() {
 		bootstrap := s.human(userA, true, http.MethodPost, "/v1/bootstrap/claim", "")
 		s.Equal(http.StatusNotImplemented, bootstrap.Code)
 		s.Contains(bootstrap.Body.String(), "unsupported_profile")
-
-		devices := s.human(userA, false, http.MethodGet, "/v1/admin/devices", "")
-		s.Equal(http.StatusNotImplemented, devices.Code)
-		s.Contains(devices.Body.String(), "unsupported_profile")
 
 		channel := s.agent(userA, http.MethodPost, "/v1/channel/envelopes",
 			`{"recipient_agent_id":"x","payload":{}}`)
