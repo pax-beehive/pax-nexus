@@ -107,3 +107,14 @@ variable "oidc_authorization_parameters" {
   EOT
   default     = "provider=authkit"
 }
+
+variable "oidc_identity_source" {
+  type        = string
+  description = <<-EOT
+    Where the authenticated identity is read from. Empty means the ID token,
+    which is what OIDC requires. WorkOS AuthKit never issues one -- its token
+    endpoint returns access_token, refresh_token, and a user object -- so
+    staging reads the user object instead.
+  EOT
+  default     = "token_response_user"
+}

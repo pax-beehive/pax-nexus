@@ -606,6 +606,7 @@ func buildHTTPHandler(
 			ClientSecret: config.oidcClientSecret, RedirectURL: config.oidcRedirectURL,
 			FlowSecret:              config.oidcFlowSecret,
 			AuthorizationParameters: config.oidcAuthorizationParameters,
+			IdentitySource:          onprem.OIDCIdentitySource(config.oidcIdentitySource),
 		})
 		if err != nil {
 			return nil, nil, fmt.Errorf("configure on-prem OIDC: %w", err)

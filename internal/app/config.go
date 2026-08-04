@@ -27,6 +27,7 @@ type applicationConfig struct {
 	oidcFlowSecret                 string
 	oidcAuthParams                 string
 	oidcAuthorizationParameters    map[string]string
+	oidcIdentitySource             string
 	secretPepper                   string
 	memberGrantablePermissions     []onprem.Permission
 	portalURL                      string
@@ -106,6 +107,7 @@ func loadConfig() (applicationConfig, error) {
 		oidcRedirectURL:             os.Getenv("TEAM_MEMORY_OIDC_REDIRECT_URL"),
 		oidcFlowSecret:              os.Getenv("TEAM_MEMORY_OIDC_FLOW_SECRET"),
 		oidcAuthParams:              os.Getenv("TEAM_MEMORY_OIDC_AUTH_PARAMS"),
+		oidcIdentitySource:          os.Getenv("TEAM_MEMORY_OIDC_IDENTITY_SOURCE"),
 		secretPepper:                os.Getenv("TEAM_MEMORY_SECRET_PEPPER"),
 		portalURL:                   os.Getenv("TEAM_MEMORY_PORTAL_URL"),
 	}
