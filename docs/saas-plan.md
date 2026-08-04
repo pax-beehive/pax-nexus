@@ -212,14 +212,24 @@ before any multi-tenancy refactor risk is taken.
 
 ### M3 status (2026-08-04)
 
+**Deployed to staging**: `nexus-stg.paxtech.net` runs the `saas` profile
+(image carries both binaries, terraform `profile` variable swaps the Cloud
+Run command and drops the bootstrap secret; migration 029 applied on
+boot). Rollback: `-var="profile=onprem"` plus the previous image.
+
 Landed:
 
 - Control plane storage: `team_*` tables (migration 029), audit rows carry
   `scope_id` (on-prem rows default `local-team`), Postgres adapters under
   `internal/platform/postgres/saas_*.go`.
 - Domain services in `internal/deployment/saas` (`ControlPlane`, `Registry`,
-  `Credentials`) reusing the on-prem types and handler interfaces; devices
-  and channel deliberately return `ErrUnsupportedInSaaS` (501).
+  `Credentials`) reusing the on-prem types and handler interfaces; the
+  channel surface deliberately returns `ErrUnsupportedInSaaS` (501).
+- Team-scoped device enrollment and provisioning (migration 030):
+  `paxl device connect`/`provision` works against the SaaS deployment;
+  device credentials, grantable permission narrowing, provisioned-by
+  lineage, active-agent cap, and revoke cascade all mirror on-prem inside
+  the owner's team (HTTP coverage in the isolation e2e).
 - HTTP surface: `POST/GET /v1/teams`, `POST /v1/me/current-team`, `/v1/me`
   carries `teams` + `current_team_id`; session-audit filters use the
   principal's scope.
@@ -229,15 +239,21 @@ Landed:
   legacy keys and bootstrap rejected at config load.
 - Verification: two-team HTTP isolation e2e
   (`internal/app/saas_isolation_test.go`) — members, agents, invitations,
-  notes write/recall, audit events, team switching, 501 surfaces.
+  notes write/recall, audit events, team switching, device provisioning,
+  501 surfaces.
+- Frontend (single build, profile detected at runtime): `OnboardingPage`
+  (create team / join with invitation), `TeamSwitcher` in the portal
+  sidebar, `/team` settings page; on-prem `EntryPage`/bootstrap unchanged.
+  Static mockups kept under `design/m3-teams/`.
 
 Deferred / known gaps:
 
-- Frontend (team switcher, onboarding) is P6 and not started.
 - Operations *recorder*, extraction observer, and operations maintenance
   still attribute to `local-team` in the SaaS profile (read models are
   per-request scoped); LLM-usage attribution for request-driven wiki
   maintenance follows context scope or the default.
+- Team rename/delete endpoints, `CreateTeam` server-side current-team
+  switch (the portal switches explicitly).
 - Postgres RLS, scope-sweep backed by the `teams` registry, M4 quotas,
   domain-capture auto-join.
 

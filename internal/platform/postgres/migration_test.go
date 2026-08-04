@@ -230,6 +230,9 @@ WHERE table_schema = $1 AND table_name = 'onprem_audit_events' AND column_name =
 		{"team_membership_invitations", "team_invitations_accept_idempotency_idx"},
 		{"team_agents", "team_agents_owner_idempotency_idx"},
 		{"team_agent_credentials", "team_agent_credentials_owner_revoke_idempotency_idx"},
+		{"team_agent_credentials", "team_agent_credentials_device_kind_idx"},
+		{"team_agent_credentials", "team_agent_credentials_provisioned_by_active_idx"},
+		{"team_agents", "team_agents_provisioned_by_idx"},
 	} {
 		var found bool
 		err := pool.QueryRow(ctx, `
@@ -240,4 +243,45 @@ SELECT EXISTS (
 		s.Require().NoError(err)
 		s.True(found, "index %s on %s missing", index.name, index.table)
 	}
+
+	// Migration 030: device provisioning columns and kind-aware agent_id
+	// rules (device rows carry an empty agent_id and no FK).
+	deviceColumns := map[string][]string{
+		"team_agent_credentials": {"kind", "provisioned_by", "grantable_permissions"},
+		"team_agent_enrollments": {"kind", "grantable_permissions"},
+		"team_agents":            {"provisioned_by"},
+	}
+	for table, expected := range deviceColumns {
+		for _, column := range expected {
+			var found bool
+			err := pool.QueryRow(ctx, `
+SELECT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = $1 AND table_name = $2 AND column_name = $3)`,
+				schema, table, column).Scan(&found)
+			s.Require().NoError(err)
+			s.True(found, "%s.%s missing", table, column)
+		}
+	}
+	for _, constraint := range []string{
+		"team_agent_credentials_kind_check", "team_agent_enrollments_kind_check",
+		"team_agent_credentials_agent_id_kind_check", "team_agent_enrollments_agent_id_kind_check",
+	} {
+		var found bool
+		err := pool.QueryRow(ctx, `
+SELECT EXISTS (
+    SELECT 1 FROM pg_constraint c
+    JOIN pg_namespace n ON n.oid = c.connamespace
+    WHERE n.nspname = $1 AND c.conname = $2)`, schema, constraint).Scan(&found)
+		s.Require().NoError(err)
+		s.True(found, "constraint %s missing", constraint)
+	}
+	var legacyFK bool
+	err = pool.QueryRow(ctx, `
+SELECT EXISTS (
+    SELECT 1 FROM pg_constraint c
+    JOIN pg_namespace n ON n.oid = c.connamespace
+    WHERE n.nspname = $1 AND c.conname = 'team_agent_credentials_agent_id_fkey')`, schema).Scan(&legacyFK)
+	s.Require().NoError(err)
+	s.False(legacyFK, "the 029 agent_id FK must be replaced by the kind-aware check")
 }

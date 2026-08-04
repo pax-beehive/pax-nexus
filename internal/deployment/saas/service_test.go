@@ -54,6 +54,7 @@ func (s *credentialsSuite) TestAuthenticateResolvesScopeFromCredential() {
 		CredentialRecord: onprem.CredentialRecord{
 			ID: "cred-1", UserID: "usr_owner", MembershipID: "mbr_owner", AgentID: "agent-1",
 			Label: "laptop", Permissions: []onprem.Permission{onprem.PermissionGet},
+			Kind: onprem.CredentialKindAgent,
 		},
 		TeamID: "team_alpha",
 	}
@@ -111,6 +112,7 @@ func (s *credentialsSuite) TestExchangeEnrollment() {
 				return onprem.EnrollmentRecord{
 					ID: "enr-1", UserID: "usr_owner", AgentID: "agent-1",
 					Permissions: []onprem.Permission{onprem.PermissionGet},
+					Kind:        onprem.CredentialKindAgent,
 				}, nil
 			})
 		issued, err := s.service.ExchangeEnrollment(context.Background(), token)
@@ -187,18 +189,153 @@ func (s *credentialsSuite) TestUnsupportedSurfaces() {
 		{"RevokeCredential", func() error {
 			return s.service.RevokeCredential(context.Background(), principal, "cred-1")
 		}},
-		{"ProvisionDeviceAgent", func() error {
-			_, err := s.service.ProvisionDeviceAgent(context.Background(), principal, onprem.DeviceProvisionRequest{})
-			return err
-		}},
-		{"ListDeviceProvisionedAgents", func() error {
-			_, err := s.service.ListDeviceProvisionedAgents(context.Background(), principal)
-			return err
-		}},
 	}
 	for _, tc := range cases {
 		s.Run(tc.name, func() {
 			s.Require().ErrorIs(tc.call(), saas.ErrUnsupportedInSaaS)
 		})
 	}
+}
+
+func devicePrincipal() onprem.Principal {
+	return onprem.Principal{
+		UserID: "usr_owner", MembershipID: "mbr_owner", ScopeID: "team_alpha",
+		CredentialID: "device-1", CredentialLabel: "workstation",
+		Permissions: []onprem.Permission{onprem.PermissionAgentProvision},
+		Kind:        onprem.CredentialKindDevice,
+		GrantablePermissions: []onprem.Permission{
+			onprem.PermissionObserve, onprem.PermissionSearch, onprem.PermissionGet,
+		},
+	}
+}
+
+func (s *credentialsSuite) TestProvisionDeviceAgent() {
+	s.Run("provisions inside the device credential's own team", func() {
+		s.store.EXPECT().ProvisionAgentCredential(
+			gomock.Any(), "team_alpha", "device-1", gomock.Any(), gomock.Any(), 16, s.now,
+		).DoAndReturn(func(_ context.Context, _, _ string, profile onprem.AgentProfile, credential onprem.CredentialRecord, _ int, _ time.Time) (onprem.ProvisionOutcome, error) {
+			s.Equal("agent-1", profile.AgentID)
+			s.Equal("device-1", profile.ProvisionedBy)
+			s.Equal("device-1", credential.ProvisionedBy)
+			s.Equal(onprem.CredentialKindAgent, credential.Kind)
+			return onprem.ProvisionOutcome{AgentCreated: true}, nil
+		})
+		issued, err := s.service.ProvisionDeviceAgent(context.Background(), devicePrincipal(), onprem.DeviceProvisionRequest{
+			AgentID: "agent-1", DisplayName: "Kimi CLI", AgentType: "kimi",
+		})
+		s.Require().NoError(err)
+		s.Equal("tm_key_generated-secret.generated-secret", issued.APIKey)
+		s.Equal("agent-1", issued.AgentID)
+		s.True(issued.AgentCreated)
+		s.ElementsMatch(
+			[]onprem.Permission{onprem.PermissionObserve, onprem.PermissionSearch, onprem.PermissionGet},
+			issued.Permissions,
+			"an empty request inherits the device's grantable set",
+		)
+	})
+
+	s.Run("rotation outcome surfaces the rotated credential", func() {
+		s.store.EXPECT().ProvisionAgentCredential(gomock.Any(), "team_alpha", "device-1", gomock.Any(), gomock.Any(), 16, s.now).
+			Return(onprem.ProvisionOutcome{RotatedFromCredentialID: "old-cred"}, nil)
+		issued, err := s.service.ProvisionDeviceAgent(context.Background(), devicePrincipal(), onprem.DeviceProvisionRequest{
+			AgentID: "agent-1", DisplayName: "Kimi CLI", AgentType: "kimi",
+			Permissions: []onprem.Permission{onprem.PermissionGet},
+		})
+		s.Require().NoError(err)
+		s.Equal("old-cred", issued.RotatedFromCredentialID)
+		s.False(issued.AgentCreated)
+	})
+
+	s.Run("store rejection keeps the error chain", func() {
+		s.store.EXPECT().ProvisionAgentCredential(gomock.Any(), "team_alpha", "device-1", gomock.Any(), gomock.Any(), 16, s.now).
+			Return(onprem.ProvisionOutcome{}, onprem.ErrUnauthorized)
+		_, err := s.service.ProvisionDeviceAgent(context.Background(), devicePrincipal(), onprem.DeviceProvisionRequest{
+			AgentID: "agent-1", DisplayName: "Kimi CLI", AgentType: "kimi",
+		})
+		s.Require().ErrorIs(err, onprem.ErrUnauthorized)
+	})
+
+	guardCases := []struct {
+		name      string
+		principal onprem.Principal
+	}{
+		{"agent credential is always forbidden", func() onprem.Principal {
+			principal := devicePrincipal()
+			principal.Kind = onprem.CredentialKindAgent
+			return principal
+		}()},
+		{"device without the provision permission", func() onprem.Principal {
+			principal := devicePrincipal()
+			principal.Permissions = nil
+			return principal
+		}()},
+		{"device without a team scope", func() onprem.Principal {
+			principal := devicePrincipal()
+			principal.ScopeID = ""
+			return principal
+		}()},
+	}
+	for _, tc := range guardCases {
+		s.Run(tc.name, func() {
+			_, err := s.service.ProvisionDeviceAgent(context.Background(), tc.principal, onprem.DeviceProvisionRequest{
+				AgentID: "agent-1", DisplayName: "Kimi CLI", AgentType: "kimi",
+			})
+			s.Require().ErrorIs(err, onprem.ErrForbidden)
+		})
+	}
+
+	permissionCases := []struct {
+		name      string
+		request   []onprem.Permission
+		grantable []onprem.Permission
+		expectErr error
+	}{
+		{"explicit subset is granted", []onprem.Permission{onprem.PermissionGet},
+			devicePrincipal().GrantablePermissions, nil},
+		{"request exceeding the grantable set", []onprem.Permission{onprem.PermissionChannelSend},
+			devicePrincipal().GrantablePermissions, onprem.ErrForbidden},
+		{"device with no grantable set cannot provision", nil, nil, onprem.ErrForbidden},
+	}
+	for _, tc := range permissionCases {
+		s.Run(tc.name, func() {
+			principal := devicePrincipal()
+			principal.GrantablePermissions = tc.grantable
+			if tc.expectErr == nil {
+				s.store.EXPECT().ProvisionAgentCredential(gomock.Any(), "team_alpha", "device-1", gomock.Any(), gomock.Any(), 16, s.now).
+					Return(onprem.ProvisionOutcome{AgentCreated: true}, nil)
+			}
+			_, err := s.service.ProvisionDeviceAgent(context.Background(), principal, onprem.DeviceProvisionRequest{
+				AgentID: "agent-1", DisplayName: "Kimi CLI", AgentType: "kimi", Permissions: tc.request,
+			})
+			if tc.expectErr == nil {
+				s.Require().NoError(err)
+				return
+			}
+			s.Require().ErrorIs(err, tc.expectErr)
+		})
+	}
+
+	s.Run("agent_type is required", func() {
+		_, err := s.service.ProvisionDeviceAgent(context.Background(), devicePrincipal(), onprem.DeviceProvisionRequest{
+			AgentID: "agent-1", DisplayName: "Kimi CLI",
+		})
+		s.Require().ErrorIs(err, onprem.ErrInvalidIdentityInput)
+	})
+}
+
+func (s *credentialsSuite) TestListDeviceProvisionedAgents() {
+	s.Run("returns the device's history inside its team", func() {
+		s.store.EXPECT().ListDeviceProvisionedAgents(gomock.Any(), "team_alpha", "device-1").
+			Return([]onprem.DeviceProvisionedAgent{{AgentID: "agent-1", CredentialID: "cred-1"}}, nil)
+		agents, err := s.service.ListDeviceProvisionedAgents(context.Background(), devicePrincipal())
+		s.Require().NoError(err)
+		s.Len(agents, 1)
+	})
+
+	s.Run("agent credentials are forbidden", func() {
+		principal := devicePrincipal()
+		principal.Kind = onprem.CredentialKindAgent
+		_, err := s.service.ListDeviceProvisionedAgents(context.Background(), principal)
+		s.Require().ErrorIs(err, onprem.ErrForbidden)
+	})
 }
