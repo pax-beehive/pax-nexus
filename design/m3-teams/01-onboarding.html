@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>01 — Onboarding (no membership)</title>
+<link rel="stylesheet" href="mock.css">
+</head>
+<body>
+<div class="mock-banner">MOCK — screen 01 · onboarding — design/m3-teams (static, no backend)</div>
+<div class="center-page">
+  <div class="center-box">
+    <h1 style="text-align: center;">Welcome to Team Memory</h1>
+    <p class="muted" style="text-align: center;">
+      Your account is not a member of any team yet. Create one or join an existing team.
+    </p>
+
+    <!-- Mode toggle: the Create pane below is the visible static state. -->
+    <div style="text-align: center; margin-bottom: 14px;">
+      <div class="seg" role="group" aria-label="onboarding mode">
+        <button type="button" class="on" aria-pressed="true">Create a team</button>
+        <button type="button" aria-pressed="false">Join with invitation</button>
+      </div>
+    </div>
+
+    <!-- Create-a-team pane (selected state of the seg toggle). -->
+    <div class="card">
+      <h3 style="margin-top: 0;">Create a team</h3>
+      <label for="team-name">Team name</label>
+      <input id="team-name" type="text" value="Acme ML" autocomplete="off">
+      <label for="team-slug">Slug</label>
+      <input id="team-slug" type="text" value="acme-ml" autocomplete="off">
+      <p class="small muted" style="margin: 4px 0 0;">
+        Derived from the team name; used in URLs and API scope identifiers. Lowercase letters, digits, and dashes only.
+      </p>
+      <div style="margin-top: 12px;">
+        <button type="button" class="btn primary">Create team</button>
+      </div>
+    </div>
+
+    <!-- Join pane: rendered stacked (secondary) for the mock; in the real app
+         this is the other state of the seg toggle. -->
+    <div class="card flat">
+      <h3 style="margin-top: 0;">Join with invitation</h3>
+      <label for="invite-token">Invitation token</label>
+      <input id="invite-token" type="text" placeholder="tm_invite_inv_01.xxxxxxxx" autocomplete="off">
+      <p class="small muted" style="margin: 4px 0 0;">
+        Invitation links arrive as <code>https://app.example.com/join#invite=tm_invite_...</code> —
+        paste the link or just the token.
+      </p>
+      <div style="margin-top: 12px;">
+        <button type="button" class="btn primary" disabled>Accept invitation</button>
+      </div>
+    </div>
+
+    <div class="note small">
+      Accepting an invitation adds you to that team with the invited role.
+      Creating a team makes you its <b>owner</b> (see <code>docs/saas-plan.md</code>, sign-up flow).
+      You can belong to multiple teams and switch between them later.
+    </div>
+
+    <p class="small muted" style="text-align: center;">
+      Signed in as lin@example.com via WorkOS &middot; <a href="#">Sign out</a>
+    </p>
+  </div>
+</div>
+</body>
+</html>

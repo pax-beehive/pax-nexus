@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/cloudwego/hertz/pkg/protocol"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
 	"github.com/pax-beehive/pax-nexus/internal/deployment/onprem"
+	"github.com/pax-beehive/pax-nexus/internal/deployment/saas"
 	api "github.com/pax-beehive/pax-nexus/internal/teamnote/transport/httpapi/model/teammemory/api"
 )
 
@@ -106,7 +108,34 @@ func (h *Handler) GetHumanMe(ctx context.Context, c *app.RequestContext) {
 	if !ok {
 		return
 	}
-	c.JSON(consts.StatusOK, humanPrincipalToAPI(principal))
+	response, err := h.humanMeResponse(ctx, principal)
+	if err != nil {
+		h.writeHumanError(c, "get human me", err)
+		return
+	}
+	c.JSON(consts.StatusOK, response)
+}
+
+// humanMeResponse builds the /v1/me payload. When the SaaS team lifecycle
+// is wired it attaches the caller's team list and current team; without it
+// (the on-prem profile) the response is exactly what it has always been.
+func (h *Handler) humanMeResponse(
+	ctx context.Context,
+	principal onprem.HumanPrincipal,
+) (*api.HumanMeResponse, error) {
+	response := humanPrincipalToAPI(principal)
+	if h.teams == nil {
+		return response, nil
+	}
+	summaries, err := h.teams.ListTeams(ctx, principal)
+	if err != nil {
+		return nil, fmt.Errorf("list teams for human me: %w", err)
+	}
+	response.Teams = teamSummariesToAPI(summaries)
+	if principal.ScopeID != "" {
+		response.CurrentTeamID = &principal.ScopeID
+	}
+	return response, nil
 }
 
 func (h *Handler) ListMembers(ctx context.Context, c *app.RequestContext) {
@@ -799,6 +828,9 @@ func (h *Handler) clearHumanCookies(c *app.RequestContext) {
 }
 
 func (h *Handler) writeHumanError(c *app.RequestContext, operation string, err error) {
+	if writeSaaSError(c, err) {
+		return
+	}
 	switch {
 	case errors.Is(err, onprem.ErrUnauthorized):
 		writeHumanAPIError(c, consts.StatusUnauthorized, "unauthorized", "authentication is required")
@@ -836,6 +868,22 @@ func (h *Handler) writeHumanError(c *app.RequestContext, operation string, err e
 		h.logger.Error("human identity request failed", "operation", operation, "error", err)
 		writeHumanAPIError(c, consts.StatusInternalServerError, "internal_error", "the request could not be completed")
 	}
+}
+
+// writeSaaSError maps the saas control plane sentinels to stable API error
+// codes and reports whether the error matched one of them.
+func writeSaaSError(c *app.RequestContext, err error) bool {
+	switch {
+	case errors.Is(err, saas.ErrTeamSlugConflict):
+		writeHumanAPIError(c, consts.StatusConflict, "team_slug_conflict", "the requested change conflicts with current state")
+	case errors.Is(err, saas.ErrNotTeamMember):
+		writeHumanAPIError(c, consts.StatusForbidden, "not_team_member", "the operation is not permitted")
+	case errors.Is(err, saas.ErrUnsupportedInSaaS):
+		writeHumanAPIError(c, consts.StatusNotImplemented, "unsupported_profile", "the operation is not supported in this deployment")
+	default:
+		return false
+	}
+	return true
 }
 
 func writeHumanAPIError(c *app.RequestContext, status int, code, message string) {

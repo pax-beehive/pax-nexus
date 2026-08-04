@@ -11,6 +11,7 @@ import (
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/pax-beehive/pax-nexus/internal/audit"
 	"github.com/pax-beehive/pax-nexus/internal/deployment/onprem"
+	"github.com/pax-beehive/pax-nexus/internal/deployment/saas"
 	"github.com/pax-beehive/pax-nexus/internal/explorer"
 	"github.com/pax-beehive/pax-nexus/internal/operations"
 	"github.com/pax-beehive/pax-nexus/internal/pagewiki"
@@ -38,6 +39,7 @@ type Handler struct {
 	identity     HumanIdentityLifecycle
 	oidc         OIDCLifecycle
 	registry     AgentRegistryLifecycle
+	teams        TeamLifecycle
 	operations   OperationsLifecycle
 	explorer     ExplorerLifecycle
 	wikiControl  WikiControl
@@ -88,6 +90,17 @@ type HumanIdentityLifecycle interface {
 	UpdateMember(context.Context, onprem.HumanPrincipal, string, onprem.UpdateMemberRequest) (onprem.Member, error)
 	ListAuditEvents(context.Context, onprem.HumanPrincipal, onprem.AuditFilter) ([]onprem.AuditEvent, error)
 	GetAuditEvent(context.Context, onprem.HumanPrincipal, int64) (onprem.AuditEvent, error)
+}
+
+// TeamLifecycle is the SaaS multi-team control plane surface behind
+// /v1/teams and /v1/me/current-team. Only the SaaS profile wires it;
+// saas.ControlPlane satisfies it structurally. /v1/me also consults it to
+// populate the teams payload, so a wired TeamLifecycle doubles as the
+// profile marker for team-aware responses.
+type TeamLifecycle interface {
+	CreateTeam(context.Context, onprem.HumanPrincipal, string, string) (saas.Team, error)
+	ListTeams(context.Context, onprem.HumanPrincipal) ([]saas.TeamSummary, error)
+	SwitchTeam(context.Context, onprem.HumanPrincipal, string) (onprem.HumanPrincipal, error)
 }
 
 type OIDCLifecycle interface {
@@ -171,6 +184,19 @@ func WithAgentRegistry(registry AgentRegistryLifecycle) OnPremOption {
 			return fmt.Errorf("configure agent registry: registry is required")
 		}
 		configured.registry = registry
+		return nil
+	}
+}
+
+// WithTeams wires the SaaS team control plane surface. Without it the team
+// endpoints answer 501 and /v1/me omits the team fields, which is exactly
+// the on-prem profile's behavior.
+func WithTeams(teams TeamLifecycle) OnPremOption {
+	return func(configured *Handler) error {
+		if teams == nil {
+			return fmt.Errorf("configure teams: team lifecycle is required")
+		}
+		configured.teams = teams
 		return nil
 	}
 }
@@ -276,8 +302,11 @@ func NewOnPrem(
 	logger *slog.Logger,
 	options ...OnPremOption,
 ) (*Handler, error) {
-	if runtime == nil || credentials == nil || memory == nil || channel == nil || logger == nil {
-		return nil, fmt.Errorf("create on-prem HTTP handler: runtime, credentials, memory, channel, and logger are required")
+	// channel is deliberately optional: profiles without a channel surface
+	// (the SaaS profile) wire nil and the channel endpoints answer 501,
+	// matching every other unwired option.
+	if runtime == nil || credentials == nil || memory == nil || logger == nil {
+		return nil, fmt.Errorf("create on-prem HTTP handler: runtime, credentials, memory, and logger are required")
 	}
 	configured := &Handler{
 		runtime: runtime, resolver: StaticAPIKeys{}, credentials: credentials, memory: memory, channel: channel, logger: logger,

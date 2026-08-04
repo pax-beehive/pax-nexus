@@ -16,6 +16,7 @@ import type {
   SessionAuditActivityDay,
   SessionAuditFinding,
   SessionAuditToolCall,
+  TeamSummary,
 } from "./types";
 import type { AgentScope } from "./actions";
 
@@ -39,6 +40,13 @@ function agentBase(scope: AgentScope, agentId: string): string {
 
 export function getMe(): Promise<HumanMe> {
   return humanFetch<HumanMe>("/v1/me");
+}
+
+// ---- Teams (saas profile; 501 not_configured on on-prem) ----
+
+export async function listTeams(): Promise<TeamSummary[]> {
+  const res = await humanFetch<{ teams?: TeamSummary[] }>("/v1/teams");
+  return res.teams ?? [];
 }
 
 // ---- My Agents ----

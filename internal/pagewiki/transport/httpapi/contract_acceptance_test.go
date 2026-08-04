@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/server"
 	"github.com/cloudwego/hertz/pkg/common/ut"
 	"github.com/pax-beehive/pax-nexus/internal/pagewiki"
@@ -551,7 +552,7 @@ func fixedDependencies(
 	injector httpapi.Injector,
 	reader httpapi.Reader,
 ) httpapi.Dependencies {
-	return func(context.Context) (httpapi.Injector, httpapi.Reader, error) {
+	return func(context.Context, *app.RequestContext) (httpapi.Injector, httpapi.Reader, error) {
 		return injector, reader, nil
 	}
 }

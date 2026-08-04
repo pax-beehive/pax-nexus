@@ -18,7 +18,8 @@ import (
 const auditDayLayout = "2006-01-02"
 
 func (h *Handler) ListSessionAuditToolCalls(ctx context.Context, c *app.RequestContext) {
-	if !h.authorizeSessionAudit(ctx, c) {
+	principal, ok := h.authorizeSessionAudit(ctx, c)
+	if !ok {
 		return
 	}
 	limit, err := queryLimit(c)
@@ -33,7 +34,7 @@ func (h *Handler) ListSessionAuditToolCalls(ctx context.Context, c *app.RequestC
 		return
 	}
 	calls, err := h.sessionAudit.ListToolCalls(ctx, audit.ToolCallFilter{
-		ScopeID: onprem.LocalScopeID, UserID: strings.TrimSpace(c.Query("user_id")),
+		ScopeID: principal.ScopeID, UserID: strings.TrimSpace(c.Query("user_id")),
 		AgentID: strings.TrimSpace(c.Query("agent_id")), SessionID: strings.TrimSpace(c.Query("session_id")),
 		RiskLevel: riskLevel, ApprovalState: approvalState, Limit: limit,
 	})
@@ -45,7 +46,8 @@ func (h *Handler) ListSessionAuditToolCalls(ctx context.Context, c *app.RequestC
 }
 
 func (h *Handler) ListSessionAuditFindings(ctx context.Context, c *app.RequestContext) {
-	if !h.authorizeSessionAudit(ctx, c) {
+	principal, ok := h.authorizeSessionAudit(ctx, c)
+	if !ok {
 		return
 	}
 	limit, err := queryLimit(c)
@@ -60,7 +62,7 @@ func (h *Handler) ListSessionAuditFindings(ctx context.Context, c *app.RequestCo
 		return
 	}
 	findings, err := h.sessionAudit.ListFindings(ctx, audit.FindingFilter{
-		ScopeID: onprem.LocalScopeID, UserID: strings.TrimSpace(c.Query("user_id")),
+		ScopeID: principal.ScopeID, UserID: strings.TrimSpace(c.Query("user_id")),
 		AgentID: strings.TrimSpace(c.Query("agent_id")), SessionID: strings.TrimSpace(c.Query("session_id")),
 		Kind: kind, Severity: severity, Limit: limit,
 	})
@@ -72,7 +74,8 @@ func (h *Handler) ListSessionAuditFindings(ctx context.Context, c *app.RequestCo
 }
 
 func (h *Handler) ListSessionAuditActivity(ctx context.Context, c *app.RequestContext) {
-	if !h.authorizeSessionAudit(ctx, c) {
+	principal, ok := h.authorizeSessionAudit(ctx, c)
+	if !ok {
 		return
 	}
 	limit, err := queryLimit(c)
@@ -91,7 +94,7 @@ func (h *Handler) ListSessionAuditActivity(ctx context.Context, c *app.RequestCo
 		return
 	}
 	days, err := h.sessionAudit.GetActivityDaily(ctx, audit.ActivityFilter{
-		ScopeID: onprem.LocalScopeID, UserID: strings.TrimSpace(c.Query("user_id")),
+		ScopeID: principal.ScopeID, UserID: strings.TrimSpace(c.Query("user_id")),
 		AgentID: strings.TrimSpace(c.Query("agent_id")),
 		FromDay: fromDay, ToDay: toDay, Limit: limit,
 	})
@@ -104,14 +107,15 @@ func (h *Handler) ListSessionAuditActivity(ctx context.Context, c *app.RequestCo
 
 // authorizeSessionAudit mirrors the operations capability: a missing
 // projection dependency answers 501, otherwise the request needs an active
-// human membership like every other admin read.
-func (h *Handler) authorizeSessionAudit(ctx context.Context, c *app.RequestContext) bool {
+// human membership like every other admin read. The returned principal
+// carries the scope the audit queries filter on: on-prem principals always
+// carry the local-team scope, SaaS principals their current team.
+func (h *Handler) authorizeSessionAudit(ctx context.Context, c *app.RequestContext) (onprem.HumanPrincipal, bool) {
 	if h.sessionAudit == nil {
 		writeHumanAPIError(c, consts.StatusNotImplemented, "not_configured", "session audit is not configured")
-		return false
+		return onprem.HumanPrincipal{}, false
 	}
-	_, ok := h.authorizeHumanMember(ctx, c, false)
-	return ok
+	return h.authorizeHumanMember(ctx, c, false)
 }
 
 func (h *Handler) writeSessionAuditError(c *app.RequestContext, operation string, err error) {

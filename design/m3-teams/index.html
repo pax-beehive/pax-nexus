@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>M3 teams GA shape — mockups index</title>
+<link rel="stylesheet" href="mock.css">
+</head>
+<body>
+<div class="mock-banner">MOCK — index · design/m3-teams (static, no backend)</div>
+<div class="center-page" style="align-items: flex-start; padding-top: 60px;">
+  <div style="width: 780px; max-width: 100%;">
+    <h1>Teams GA shape (M3) — visual mockups</h1>
+    <p class="muted">
+      Static HTML mockups for the multi-team milestone of the team-memory SaaS plan
+      (<code>docs/saas-plan.md</code>). No JavaScript, no backend; open states are rendered statically.
+      Design tokens and component classes are extracted from the real Human Portal
+      (<code>web/src/styles/</code>) with identical class names.
+    </p>
+
+    <div class="grid section">
+      <a class="card app-card" href="01-onboarding.html">
+        <div>
+          <h3>01 — Onboarding (no membership)</h3>
+          <p class="muted small">Post-login landing: create a team or join with an invitation token.</p>
+        </div>
+      </a>
+      <a class="card app-card" href="02-team-switcher.html">
+        <div>
+          <h3>02 — Team switcher</h3>
+          <p class="muted small">Portal sidebar with the new TeamSwitcher popover, statically rendered open, plus the collapsed-sidebar variant.</p>
+        </div>
+      </a>
+      <a class="card app-card" href="03-team-settings.html">
+        <div>
+          <h3>03 — Team settings</h3>
+          <p class="muted small">General / Members / Invitations tabs, all rendered stacked on one page.</p>
+        </div>
+      </a>
+      <a class="card app-card" href="04-agent-credentials.html">
+        <div>
+          <h3>04 — Agent credentials (per team)</h3>
+          <p class="muted small">Team-scoped agent list, credential and enrollment cards, issued-secret state.</p>
+        </div>
+      </a>
+    </div>
+
+    <div class="card section">
+      <h2 class="flush">User flow</h2>
+      <p class="small muted flush">
+        Sign in (WorkOS) &rarr; no team &rarr; <a href="01-onboarding.html">01 onboarding</a>
+        (create a team or accept an invitation) &rarr; portal with
+        <a href="02-team-switcher.html">02 team switcher</a> in the sidebar &rarr;
+        <a href="03-team-settings.html">03 team settings</a> (members, invitations, danger zone) &rarr;
+        <a href="04-agent-credentials.html">04 per-team agent credentials</a>.
+      </p>
+    </div>
+
+    <div class="card">
+      <h2 class="flush">Frontend-state implications (for later implementation)</h2>
+      <ul class="small muted" style="margin: 8px 0 0; padding-left: 18px;">
+        <li>Today <code>HumanMe</code> carries a single membership; <code>classify()</code> in
+          <code>web/src/auth/AuthContext.tsx</code> reduces it to <em>no-membership / member</em> states.</li>
+        <li>Multi-team changes that to <b>multiple memberships + an active team</b>: the auth state must hold
+          the membership list and the currently selected team, and re-classify when the active team changes.</li>
+        <li>Every scoped query (agents, credentials, members, invitations) must be re-fetched — or keyed —
+          by the active team, so switching teams invalidates cached lists.</li>
+        <li>The active team should persist across reloads (e.g. localStorage, like
+          <code>portal.side-collapsed</code>) and be sent to the API as the requested scope.</li>
+      </ul>
+    </div>
+
+    <p class="small faint">Fictitious data: teams "Acme ML" (owner) and "Weekend Projects" (member);
+      lin@example.com (current user), priya@example.com (admin), mateo@example.com (member),
+      sana@example.com (pending invite). Dates around late July / early August 2026.</p>
+  </div>
+</div>
+</body>
+</html>

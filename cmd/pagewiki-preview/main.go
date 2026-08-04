@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/server"
 	"github.com/pax-beehive/pax-nexus/internal/pagewiki"
 	"github.com/pax-beehive/pax-nexus/internal/pagewiki/memory"
@@ -58,7 +59,7 @@ func main() {
 		)
 	}
 
-	handler, err := pagewikihttp.New(func(context.Context) (pagewikihttp.Injector, pagewikihttp.Reader, error) {
+	handler, err := pagewikihttp.New(func(context.Context, *app.RequestContext) (pagewikihttp.Injector, pagewikihttp.Reader, error) {
 		return unavailableInjector{}, repository, nil
 	})
 	must(err)
