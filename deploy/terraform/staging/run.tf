@@ -118,8 +118,10 @@ resource "google_cloud_run_v2_service" "api" {
 
   lifecycle {
     # CI deploys new revisions by digest; Terraform owns the shape of the
-    # service, not which build is currently live.
-    ignore_changes = [template[0].containers[0].image, client, client_version]
+    # service, not which build is currently live. The service-level scaling
+    # block is populated by the API with zeroes and is not the template-level
+    # scaling this configuration sets, so ignoring it keeps plans clean.
+    ignore_changes = [template[0].containers[0].image, client, client_version, scaling]
   }
 }
 
@@ -133,6 +135,16 @@ locals {
     TEAM_MEMORY_OIDC_IDENTITY_SOURCE = var.oidc_identity_source
     TEAM_MEMORY_EXTRACTOR_BASE_URL   = var.extractor_base_url
     TEAM_MEMORY_EXTRACTOR_MODEL      = var.extractor_model
+    # The Page Wiki maintainers and the Todo rewriter share the extraction
+    # provider. Without them the wiki falls back to the deterministic
+    # planner and the rewriter copies verbatim.
+    LLMWIKI_ORGANIZER_MODE = "openai"
+    LLMWIKI_LLM_BASE_URL   = var.extractor_base_url
+    LLMWIKI_LLM_MODEL      = var.llmwiki_model
+    # Semantic recall. The stored vector width is derived from the model,
+    # so there is no second setting to keep in step with it.
+    TEAM_MEMORY_EMBEDDING_BASE_URL = var.embedding_base_url
+    TEAM_MEMORY_EMBEDDING_MODEL    = var.embedding_model
   }
 
   secret_environment = {
