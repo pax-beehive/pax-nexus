@@ -282,11 +282,45 @@ func (s *postgresConsumerSuite) TestProgressCountsBacklogAndLastProcessed() {
 	s.WithinDuration(time.Now(), *progress.LastProcessedAt, time.Minute)
 }
 
+// TestPendingStreamsCapsEachScopeSoNoTenantStarvesAnother pins the
+// multi-tenant fairness quota: one scope's huge (or permanently failing)
+// backlog may take at most 20 of the 100 slots per scan, so every other
+// scope's streams still surface.
+func (s *postgresConsumerSuite) TestPendingStreamsCapsEachScopeSoNoTenantStarvesAnother() {
+	for i := 0; i < 25; i++ {
+		s.seedStream(s.scopeID, fmt.Sprintf("bulk-session-%02d", i))
+	}
+	s.seedSession(s.otherScopeID)
+	consumerStore, err := platformpostgres.NewPageWikiConsumerStore(s.store.Pool())
+	s.Require().NoError(err)
+	s.Require().NoError(consumerStore.SetAutoInjectEnabled(s.ctx, s.scopeID, true))
+	s.Require().NoError(consumerStore.SetAutoInjectEnabled(s.ctx, s.otherScopeID, true))
+
+	streams, err := consumerStore.PendingStreams(s.ctx)
+
+	s.Require().NoError(err)
+	own := s.streamsForScope(streams, s.scopeID)
+	other := s.streamsForScope(streams, s.otherScopeID)
+	s.Len(own, 20, "a single scope must be capped at 20 slots per scan")
+	s.Require().Len(other, 1, "the second scope must not be starved")
+	s.Equal("runtime-session", other[0].Actor.SessionID)
+}
+
+// seedStream seeds one pending stream with its own session ID, so a test
+// can give a single scope a backlog wider than the per-scope quota.
+func (s *postgresConsumerSuite) seedStream(scopeID, sessionID string) {
+	_, err := s.store.Pool().Exec(s.ctx, `
+INSERT INTO session_streams (
+    scope_id, user_id, agent_id, session_id, last_sequence, complete, source, stream_id
+) VALUES ($1, 'owner', 'runtime-agent', $2, 1, TRUE, 'agent-session', $3)`, scopeID, sessionID, fmt.Sprintf("runtime-agent:%s", sessionID))
+	s.Require().NoError(err)
+}
+
 func (s *postgresConsumerSuite) seedSession(scopeID string) {
 	_, err := s.store.Pool().Exec(s.ctx, `
 INSERT INTO session_streams (
-    scope_id, user_id, agent_id, session_id, last_sequence, complete
-) VALUES ($1, 'owner', 'runtime-agent', 'runtime-session', 1, TRUE)`, scopeID)
+    scope_id, user_id, agent_id, session_id, last_sequence, complete, source, stream_id
+) VALUES ($1, 'owner', 'runtime-agent', 'runtime-session', 1, TRUE, 'agent-session', 'runtime-agent:runtime-session')`, scopeID)
 	s.Require().NoError(err)
 	_, err = s.store.Pool().Exec(s.ctx, `
 INSERT INTO session_events (

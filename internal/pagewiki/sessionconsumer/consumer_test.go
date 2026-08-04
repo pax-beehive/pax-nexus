@@ -232,9 +232,9 @@ func (s *consumerSuite) TestRebuildReturnsImmediatelyAndMergesWhileInjectionHold
 		return
 	}
 
-	// The scan goroutine now holds c.mu inside InjectSession. Rebuild must
-	// not touch that lock: if it did, these calls would hang and the suite
-	// would time out.
+	// The scan goroutine now holds local-team's scope lock inside
+	// InjectSession. Rebuild must not touch that lock: if it did, these
+	// calls would hang and the suite would time out.
 	first := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
 	second := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
 	status, err := s.consumer.Rebuild(context.Background(), "local-team", first)
@@ -470,6 +470,169 @@ func (s *consumerSuite) TestOneScanConsumesEveryScope() {
 	s.Equal("other-team", scopeID)
 }
 
+// TestManualInjectionOfOneScopeDoesNotWaitForAnother pins the per-scope
+// lock split: while scope-a's injection sits inside a slow LLM call,
+// scope-b's manual injection must complete instead of queueing behind a
+// process-global mutex.
+func (s *consumerSuite) TestManualInjectionOfOneScopeDoesNotWaitForAnother() {
+	s.store.streams = []sessionconsumer.Stream{
+		{ScopeID: "scope-a", Actor: session.Actor{UserID: "owner", AgentID: "agent-1", SessionID: "session-a"}, Head: 2},
+		{ScopeID: "scope-b", Actor: session.Actor{UserID: "owner", AgentID: "agent-1", SessionID: "session-b"}, Head: 2},
+	}
+	blocked := &recordingInjector{entered: make(chan struct{}, 1), release: make(chan struct{})}
+	s.resolver.setInjector("scope-a", blocked)
+
+	// releaseBlocked and wg guarantee cleanup on every return path, including
+	// an early s.Fail+return: the deferred releaseBlocked (LIFO, so it runs
+	// before wg.Wait) unblocks the still-parked scope-a goroutine, and
+	// wg.Wait joins both goroutines before the test returns.
+	var releaseOnce sync.Once
+	releaseBlocked := func() { releaseOnce.Do(func() { close(blocked.release) }) }
+	var wg sync.WaitGroup
+	defer wg.Wait()
+	defer releaseBlocked()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if _, err := s.consumer.InjectSession(context.Background(), "scope-a", "session-a"); err != nil {
+			s.T().Error(err)
+		}
+	}()
+	select {
+	case <-blocked.entered:
+	case <-time.After(time.Second):
+		s.Fail("scope-a injection did not start")
+		return
+	}
+
+	done := make(chan error, 1)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		_, err := s.consumer.InjectSession(context.Background(), "scope-b", "session-b")
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		s.Require().NoError(err)
+	case <-time.After(time.Second):
+		s.Fail("scope-b's manual injection blocked behind scope-a's")
+		return
+	}
+	releaseBlocked()
+}
+
+// TestRebuildOfOneScopeDoesNotWaitForAnotherScopesInjection pins the same
+// split for rebuilds: scope-b's queued rebuild must execute while scope-a
+// holds its own injection lock.
+func (s *consumerSuite) TestRebuildOfOneScopeDoesNotWaitForAnotherScopesInjection() {
+	s.store.streams = []sessionconsumer.Stream{
+		{ScopeID: "scope-a", Actor: session.Actor{UserID: "owner", AgentID: "agent-1", SessionID: "session-a"}, Head: 2},
+	}
+	blocked := &recordingInjector{entered: make(chan struct{}, 1), release: make(chan struct{})}
+	s.resolver.setInjector("scope-a", blocked)
+
+	var releaseOnce sync.Once
+	releaseBlocked := func() { releaseOnce.Do(func() { close(blocked.release) }) }
+	var wg sync.WaitGroup
+	defer wg.Wait()
+	defer releaseBlocked()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if _, err := s.consumer.InjectSession(context.Background(), "scope-a", "session-a"); err != nil {
+			s.T().Error(err)
+		}
+	}()
+	select {
+	case <-blocked.entered:
+	case <-time.After(time.Second):
+		s.Fail("scope-a injection did not start")
+		return
+	}
+
+	_, err := s.consumer.Rebuild(context.Background(), "scope-b", time.Time{})
+	s.Require().NoError(err)
+	rebuildDone := make(chan struct{})
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		s.consumer.RunQueuedRebuildForTest(context.Background())
+		close(rebuildDone)
+	}()
+	select {
+	case <-rebuildDone:
+		s.Require().Len(s.rebuilder.callsForScope("scope-b"), 1)
+	case <-time.After(time.Second):
+		s.Fail("scope-b's rebuild blocked behind scope-a's injection")
+		return
+	}
+	releaseBlocked()
+}
+
+// TestSecondSessionOfSameScopeWaitsForFirst is the mirror image of
+// TestManualInjectionOfOneScopeDoesNotWaitForAnother: within a single scope,
+// injections must still serialize on that scope's lock. A second manual
+// injection for the same scope must not reach its injector until the first
+// releases the scope lock. Mutating scopeLock to return a fresh *sync.Mutex
+// on every call (i.e. no real mutual exclusion) makes this test fail.
+func (s *consumerSuite) TestSecondSessionOfSameScopeWaitsForFirst() {
+	s.store.streams = []sessionconsumer.Stream{
+		{ScopeID: "scope-a", Actor: session.Actor{UserID: "owner", AgentID: "agent-1", SessionID: "session-1"}, Head: 2},
+		{ScopeID: "scope-a", Actor: session.Actor{UserID: "owner", AgentID: "agent-2", SessionID: "session-2"}, Head: 2},
+	}
+	blocked := &recordingInjector{entered: make(chan struct{}, 2), release: make(chan struct{})}
+	s.resolver.setInjector("scope-a", blocked)
+
+	var releaseOnce sync.Once
+	releaseBlocked := func() { releaseOnce.Do(func() { close(blocked.release) }) }
+	var wg sync.WaitGroup
+	defer wg.Wait()
+	defer releaseBlocked()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if _, err := s.consumer.InjectSession(context.Background(), "scope-a", "session-1"); err != nil {
+			s.T().Error(err)
+		}
+	}()
+	select {
+	case <-blocked.entered:
+	case <-time.After(time.Second):
+		s.Fail("session-1 injection did not start")
+		return
+	}
+
+	done := make(chan error, 1)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		_, err := s.consumer.InjectSession(context.Background(), "scope-a", "session-2")
+		done <- err
+	}()
+
+	// session-2 must still be waiting on the scope lock, not its injector,
+	// after a generous window: it has not even reached InjectSession yet.
+	select {
+	case <-blocked.entered:
+		s.Fail("session-2's injector ran before session-1 released the scope lock")
+		return
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	releaseBlocked()
+
+	select {
+	case err := <-done:
+		s.Require().NoError(err)
+	case <-time.After(time.Second):
+		s.Fail("session-2 injection did not complete after the scope lock was released")
+	}
+}
+
 func (s *consumerSuite) TestValidationRejectsIncompleteConfigurationAndInput() {
 	injectorFor, rebuilderFor := s.resolver.injectorFor, s.resolver.rebuilderFor
 	_, err := sessionconsumer.New(nil, injectorFor, rebuilderFor, slog.New(slog.DiscardHandler), time.Second)
@@ -611,7 +774,149 @@ func (s *consumerSuite) TestStoreFailuresAreReported() {
 	}
 }
 
+// TestTwoScopesInjectInParallelWithinTheConcurrencyCap pins the K=2 pool:
+// both scopes' injections must be in flight at the same time.
+func (s *consumerSuite) TestTwoScopesInjectInParallelWithinTheConcurrencyCap() {
+	s.store.streams = []sessionconsumer.Stream{
+		{ScopeID: "scope-a", Actor: session.Actor{UserID: "owner", AgentID: "agent-1", SessionID: "session-a"}, Head: 2},
+		{ScopeID: "scope-b", Actor: session.Actor{UserID: "owner", AgentID: "agent-1", SessionID: "session-b"}, Head: 2},
+	}
+	blockedA := &recordingInjector{entered: make(chan struct{}, 1), release: make(chan struct{})}
+	blockedB := &recordingInjector{entered: make(chan struct{}, 1), release: make(chan struct{})}
+	s.resolver.setInjector("scope-a", blockedA)
+	s.resolver.setInjector("scope-b", blockedB)
+
+	s.consumer.DispatchTickForTest(context.Background())
+
+	for name, entered := range map[string]chan struct{}{"scope-a": blockedA.entered, "scope-b": blockedB.entered} {
+		select {
+		case <-entered:
+		case <-time.After(time.Second):
+			s.Failf("not parallel", "%s's injection never started while the other scope held a slot", name)
+		}
+	}
+	close(blockedA.release)
+	close(blockedB.release)
+	s.consumer.WaitJobsForTest()
+}
+
+// TestConcurrencyOfOneKeepsScopesSerial pins WithInjectConcurrency(1): the
+// pool structure exists but only one scope's job may run at a time.
+func (s *consumerSuite) TestConcurrencyOfOneKeepsScopesSerial() {
+	consumer, err := sessionconsumer.New(
+		s.store, s.resolver.injectorFor, s.resolver.rebuilderFor,
+		slog.New(slog.DiscardHandler), time.Hour,
+		sessionconsumer.WithInjectConcurrency(1),
+	)
+	s.Require().NoError(err)
+	s.store.streams = []sessionconsumer.Stream{
+		{ScopeID: "scope-a", Actor: session.Actor{UserID: "owner", AgentID: "agent-1", SessionID: "session-a"}, Head: 2},
+		{ScopeID: "scope-b", Actor: session.Actor{UserID: "owner", AgentID: "agent-1", SessionID: "session-b"}, Head: 2},
+	}
+	blockedA := &recordingInjector{entered: make(chan struct{}, 1), release: make(chan struct{})}
+	recordedB := &recordingInjector{entered: make(chan struct{}, 1)}
+	s.resolver.setInjector("scope-a", blockedA)
+	s.resolver.setInjector("scope-b", recordedB)
+
+	consumer.DispatchTickForTest(context.Background())
+	select {
+	case <-blockedA.entered:
+	case <-time.After(time.Second):
+		s.Fail("scope-a's injection never started")
+		return
+	}
+	select {
+	case <-recordedB.entered:
+		s.Fail("K=1 must not run a second scope while the first holds the slot")
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(blockedA.release)
+	consumer.WaitJobsForTest()
+	select {
+	case <-recordedB.entered:
+	case <-time.After(time.Second):
+		s.Fail("scope-b's injection never ran after the slot freed")
+	}
+}
+
+// TestTickSkipsAScopeWhoseJobIsStillInFlight pins the dedup: a tick firing
+// while a scope's job runs must not pile a second job onto that scope.
+func (s *consumerSuite) TestTickSkipsAScopeWhoseJobIsStillInFlight() {
+	s.store.streams = []sessionconsumer.Stream{
+		{ScopeID: "scope-a", Actor: session.Actor{UserID: "owner", AgentID: "agent-1", SessionID: "session-a"}, Head: 2},
+	}
+	blocked := &recordingInjector{entered: make(chan struct{}, 4), release: make(chan struct{})}
+	s.resolver.setInjector("scope-a", blocked)
+
+	s.consumer.DispatchTickForTest(context.Background())
+	select {
+	case <-blocked.entered:
+	case <-time.After(time.Second):
+		s.Fail("scope-a's injection never started")
+		return
+	}
+	s.consumer.DispatchTickForTest(context.Background())
+	s.consumer.DispatchTickForTest(context.Background())
+	select {
+	case <-blocked.entered:
+		s.Fail("a second job entered scope-a while the first was still in flight")
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(blocked.release)
+	s.consumer.WaitJobsForTest()
+}
+
+func (s *consumerSuite) TestNewRejectsNonPositiveConcurrency() {
+	_, err := sessionconsumer.New(
+		s.store, s.resolver.injectorFor, s.resolver.rebuilderFor,
+		slog.New(slog.DiscardHandler), time.Hour,
+		sessionconsumer.WithInjectConcurrency(0),
+	)
+	s.Require().ErrorContains(err, "concurrency")
+}
+
+// TestDispatchRunsRebuildOnlyJobForScopeWithNoPendingStreams pins
+// buildScopeJobs's rebuild-only branch: a scope with a queued rebuild but no
+// pending streams still gets its own job and runs its rebuild.
+func (s *consumerSuite) TestDispatchRunsRebuildOnlyJobForScopeWithNoPendingStreams() {
+	s.store.streams = nil
+	cutoff := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+	_, err := s.consumer.Rebuild(context.Background(), "idle-team", cutoff)
+	s.Require().NoError(err)
+
+	s.consumer.DispatchTickForTest(context.Background())
+	s.consumer.WaitJobsForTest()
+
+	calls := s.rebuilder.callsForScope("idle-team")
+	s.Require().Len(calls, 1, "a scope with only a queued rebuild must still get a job")
+	s.Equal(cutoff, calls[0].since)
+	status, err := s.consumer.Status(context.Background(), "idle-team")
+	s.Require().NoError(err)
+	s.Equal(sessionconsumer.RebuildIdle, status.Rebuild.State)
+}
+
+// TestDispatchStillRunsQueuedRebuildWhenPendingStreamsFails pins tick's
+// error-handling: a failed PendingStreams query must not swallow queued
+// rebuilds, since a scope's rebuild is otherwise only discoverable through
+// buildScopeJobs's stream-derived index.
+func (s *consumerSuite) TestDispatchStillRunsQueuedRebuildWhenPendingStreamsFails() {
+	s.store.pendingErr = errors.New("scan query unavailable")
+	_, err := s.consumer.Rebuild(context.Background(), "local-team", time.Time{})
+	s.Require().NoError(err)
+
+	s.consumer.DispatchTickForTest(context.Background())
+	s.consumer.WaitJobsForTest()
+
+	calls := s.rebuilder.callsForScope("local-team")
+	s.Require().Len(calls, 1, "a queued rebuild must still run when the scan query fails")
+}
+
+// consumerStore's mutable fields are guarded by mu: with the pool dispatching
+// one goroutine per scope job, two scopes' jobs can call these methods
+// concurrently (Task 5), so the fake needs the same safety a real store
+// would have.
 type consumerStore struct {
+	mu          sync.Mutex
 	enabled     map[string]bool
 	streams     []sessionconsumer.Stream
 	events      []session.SessionEvent
@@ -628,6 +933,8 @@ type consumerStore struct {
 }
 
 func (s *consumerStore) AutoInjectEnabled(_ context.Context, scopeID string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.statusErr != nil {
 		return false, s.statusErr
 	}
@@ -635,6 +942,8 @@ func (s *consumerStore) AutoInjectEnabled(_ context.Context, scopeID string) (bo
 }
 
 func (s *consumerStore) SetAutoInjectEnabled(_ context.Context, scopeID string, enabled bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.settingErr != nil {
 		return s.settingErr
 	}
@@ -643,6 +952,8 @@ func (s *consumerStore) SetAutoInjectEnabled(_ context.Context, scopeID string, 
 }
 
 func (s *consumerStore) PendingStreams(context.Context) ([]sessionconsumer.Stream, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.pendingErr != nil {
 		return nil, s.pendingErr
 	}
@@ -654,6 +965,8 @@ func (s *consumerStore) StreamsBySessionID(
 	scopeID string,
 	sessionID string,
 ) ([]sessionconsumer.Stream, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.streamErr != nil {
 		return nil, s.streamErr
 	}
@@ -670,6 +983,8 @@ func (s *consumerStore) SessionEvents(
 	context.Context,
 	sessionconsumer.Stream,
 ) ([]session.SessionEvent, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.eventsErr != nil {
 		return nil, s.eventsErr
 	}
@@ -677,10 +992,13 @@ func (s *consumerStore) SessionEvents(
 }
 
 func (s *consumerStore) AdvanceCursor(context.Context, sessionconsumer.Stream) error {
+	s.mu.Lock()
 	if s.advanceErr != nil {
+		s.mu.Unlock()
 		return s.advanceErr
 	}
 	s.advances++
+	s.mu.Unlock()
 	select {
 	case s.advanced <- struct{}{}:
 	default:
@@ -689,6 +1007,8 @@ func (s *consumerStore) AdvanceCursor(context.Context, sessionconsumer.Stream) e
 }
 
 func (s *consumerStore) Progress(context.Context, string) (sessionconsumer.Progress, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.progressErr != nil {
 		return sessionconsumer.Progress{}, s.progressErr
 	}

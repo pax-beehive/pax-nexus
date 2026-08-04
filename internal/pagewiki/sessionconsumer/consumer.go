@@ -8,7 +8,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/pax-beehive/pax-nexus/internal/pagewiki"
@@ -119,20 +118,56 @@ type Controller struct {
 	logger       *slog.Logger
 	interval     time.Duration
 	trigger      chan struct{}
-	mu           sync.Mutex
-	failures     map[string]failureRecord
-	now          func() time.Time
-	// injectWaiters counts manual InjectSession callers currently waiting for
-	// mu. The scan yields to them at the same points it yields to a queued
-	// rebuild: a user-facing inject must never sit behind a whole backlog
-	// sweep of multi-minute LLM injections.
-	injectWaiters atomic.Int64
-	// stateMu guards rebuilds below. It is separate from mu so status reads
-	// never wait behind a minutes-long injection scan.
+	// scopeLocks serializes, per scope, the three operations that mutate a
+	// scope's wiki: scan-driven injection, manual InjectSession, and rebuild.
+	// Scopes never contend with each other; within a scope injection stays
+	// strictly serial (the wiki mirror is per-scope in-memory state).
+	scopeLocksMu sync.Mutex
+	scopeLocks   map[string]*sync.Mutex
+	// failuresMu guards failures; it is its own small lock so backoff
+	// bookkeeping never waits behind an in-flight injection.
+	failuresMu sync.Mutex
+	failures   map[string]failureRecord
+	now        func() time.Time
+	// injectWaiters counts, per scope, the manual InjectSession callers
+	// waiting on that scope's lock. A scope's job yields to them between
+	// streams, exactly like it yields to a queued rebuild: a user-facing
+	// inject must never sit behind a whole backlog sweep of multi-minute
+	// LLM injections.
+	waitersMu     sync.Mutex
+	injectWaiters map[string]int
+	// stateMu guards rebuilds below. It is separate from the scope locks so
+	// status reads never wait behind a minutes-long injection scan.
 	stateMu  sync.Mutex
 	rebuilds map[string]*scopeRebuild
-	cancel   context.CancelFunc
-	done     chan struct{}
+	// slots is the injection worker pool: a job (one scope's rebuild + its
+	// pending streams, in order) holds one slot for its whole run. Capacity
+	// is WithInjectConcurrency's K — the process-wide ceiling on concurrent
+	// LLM injection spend. Within a scope everything stays serial.
+	slots chan struct{}
+	// inFlight dedups jobs per scope: a tick firing while a scope's job is
+	// still running skips that scope instead of queueing behind it.
+	inFlightMu sync.Mutex
+	inFlight   map[string]bool
+	jobs       sync.WaitGroup
+	cancel     context.CancelFunc
+	done       chan struct{}
+}
+
+// Option configures a Controller at construction. See WithInjectConcurrency.
+type Option func(*Controller) error
+
+// WithInjectConcurrency caps how many scope jobs run at once (default 2).
+// K is a spend ceiling, not a fairness knob: a single-scope deployment
+// only ever produces one job regardless of K.
+func WithInjectConcurrency(k int) Option {
+	return func(c *Controller) error {
+		if k < 1 {
+			return fmt.Errorf("create Page Wiki session consumer: inject concurrency must be >= 1, got %d", k)
+		}
+		c.slots = make(chan struct{}, k)
+		return nil
+	}
 }
 
 func New(
@@ -141,6 +176,7 @@ func New(
 	rebuilderFor RebuilderFor,
 	logger *slog.Logger,
 	interval time.Duration,
+	options ...Option,
 ) (*Controller, error) {
 	if store == nil || injectorFor == nil || rebuilderFor == nil || logger == nil {
 		return nil, fmt.Errorf(
@@ -151,13 +187,23 @@ func New(
 	if interval <= 0 {
 		interval = 2 * time.Second
 	}
-	return &Controller{
+	c := &Controller{
 		store: store, injectorFor: injectorFor, rebuilderFor: rebuilderFor,
 		logger: logger, interval: interval, trigger: make(chan struct{}, 1),
-		failures: make(map[string]failureRecord),
-		now:      time.Now,
-		rebuilds: make(map[string]*scopeRebuild),
-	}, nil
+		scopeLocks:    make(map[string]*sync.Mutex),
+		failures:      make(map[string]failureRecord),
+		injectWaiters: make(map[string]int),
+		now:           time.Now,
+		rebuilds:      make(map[string]*scopeRebuild),
+		slots:         make(chan struct{}, 2),
+		inFlight:      make(map[string]bool),
+	}
+	for _, option := range options {
+		if err := option(c); err != nil {
+			return nil, err
+		}
+	}
+	return c, nil
 }
 
 // Start launches the background consume loop. It stops when ctx is
@@ -200,9 +246,154 @@ func (c *Controller) Stop(ctx context.Context) error {
 	}
 }
 
+type scopeJob struct {
+	scopeID string
+	streams []Stream
+}
+
 func (c *Controller) tick(ctx context.Context) {
-	c.maybeRebuild(ctx)
-	c.scan(ctx)
+	streams, err := c.store.PendingStreams(ctx)
+	if err != nil {
+		c.logger.ErrorContext(ctx, "Page Wiki scan failed", "error", err)
+		// Queued rebuilds must still run even when the scan query fails.
+		streams = nil
+	}
+	for _, job := range c.buildScopeJobs(streams) {
+		if !c.markInFlight(job.scopeID) {
+			continue
+		}
+		c.jobs.Add(1)
+		// Claim a free slot here, on the dispatch goroutine, rather than
+		// leaving every job's goroutine to race for it: two freshly spawned
+		// goroutines have no ordering guarantee (the Go scheduler may run
+		// the most recently spawned one first), so a naive race would let a
+		// later scope jump an earlier one. Grabbing what's available up
+		// front makes dispatch order equal slot-acquisition order for
+		// however many jobs fit; only the overflow blocks inside the job.
+		held := false
+		select {
+		case c.slots <- struct{}{}:
+			held = true
+		default:
+		}
+		go c.runScopeJob(ctx, job, held)
+	}
+}
+
+// buildScopeJobs groups the pending streams by scope, preserving the
+// store's fairness-interleaved order both across jobs (first appearance)
+// and within each job. Scopes with a queued rebuild but no pending streams
+// get a rebuild-only job.
+func (c *Controller) buildScopeJobs(streams []Stream) []scopeJob {
+	jobs := make([]scopeJob, 0, len(streams))
+	index := make(map[string]int)
+	for _, stream := range streams {
+		at, seen := index[stream.ScopeID]
+		if !seen {
+			at = len(jobs)
+			index[stream.ScopeID] = at
+			jobs = append(jobs, scopeJob{scopeID: stream.ScopeID})
+		}
+		jobs[at].streams = append(jobs[at].streams, stream)
+	}
+	for _, scopeID := range c.queuedRebuildScopes() {
+		if _, seen := index[scopeID]; !seen {
+			jobs = append(jobs, scopeJob{scopeID: scopeID})
+		}
+	}
+	return jobs
+}
+
+func (c *Controller) markInFlight(scopeID string) bool {
+	c.inFlightMu.Lock()
+	defer c.inFlightMu.Unlock()
+	if c.inFlight[scopeID] {
+		return false
+	}
+	c.inFlight[scopeID] = true
+	return true
+}
+
+func (c *Controller) clearInFlight(scopeID string) {
+	c.inFlightMu.Lock()
+	defer c.inFlightMu.Unlock()
+	delete(c.inFlight, scopeID)
+}
+
+// runScopeJob is one scope's turn: rebuild first if queued, then the
+// scope's streams in order. It holds one pool slot for its whole run and
+// yields to a rebuild queued mid-pass. slotHeld reports whether tick already
+// claimed the slot on the job's behalf; otherwise the job blocks here until
+// one frees up.
+//
+// The final rebuildQueuedFor recheck-and-ping is deferred, and registered
+// before clearInFlight's defer, so it runs after clearInFlight on every exit
+// path (including ctx cancellation) — defers run LIFO. Pinging first would
+// let the woken tick's markInFlight see this scope as still in-flight and
+// skip it, consuming the trigger's one-slot buffer with nobody left to ping
+// again until the next ticker fire (see queuedRebuildScopes).
+func (c *Controller) runScopeJob(ctx context.Context, job scopeJob, slotHeld bool) {
+	defer c.jobs.Done()
+	defer func() {
+		if c.rebuildQueuedFor(job.scopeID) {
+			c.ping()
+		}
+	}()
+	defer c.clearInFlight(job.scopeID)
+	if !slotHeld {
+		select {
+		case c.slots <- struct{}{}:
+		case <-ctx.Done():
+			return
+		}
+	}
+	defer func() { <-c.slots }()
+
+	if c.rebuildQueuedFor(job.scopeID) {
+		c.runScopeRebuild(ctx, job.scopeID)
+	}
+	now := c.now()
+	for _, stream := range job.streams {
+		if ctx.Err() != nil {
+			return
+		}
+		// A queued rebuild wipes everything this pass would build, and a
+		// waiting manual inject is a user staring at a spinner; yield the
+		// scope's lock now instead of after the whole backlog. The remaining
+		// streams are picked up by the next tick.
+		if c.rebuildQueuedFor(job.scopeID) || c.injectWaitingFor(job.scopeID) {
+			break
+		}
+		if c.backedOff(stream, now) {
+			continue
+		}
+		if err := c.consume(ctx, stream); err != nil {
+			record := c.recordFailure(stream)
+			c.logger.WarnContext(ctx, "Page Wiki session injection failed",
+				"scope_id", stream.ScopeID,
+				"agent_id", stream.Actor.AgentID,
+				"session_id", stream.Actor.SessionID,
+				"attempts", record.attempts,
+				"next_retry_at", record.nextRetryAt,
+				"error", err,
+			)
+			continue
+		}
+		c.clearFailure(stream)
+	}
+}
+
+// ping wakes the consumer loop; the one-slot buffer means a wakeup during
+// an in-flight tick is remembered, not lost. Callers that ping because a
+// scope's rebuild is still queued (runScopeJob, Rebuild) must not do so
+// while that scope is still marked in-flight — see runScopeJob's defer
+// ordering — or the tick this wakes will skip the scope via markInFlight
+// and consume the buffered wakeup for nothing.
+func (c *Controller) ping() {
+	select {
+	case c.trigger <- struct{}{}:
+	default:
+	}
 }
 
 func (c *Controller) Status(ctx context.Context, scopeID string) (Status, error) {
@@ -258,16 +449,13 @@ func (c *Controller) Rebuild(ctx context.Context, scopeID string, since time.Tim
 	}
 	snapshot := entry.status
 	c.stateMu.Unlock()
-	select {
-	case c.trigger <- struct{}{}:
-	default:
-	}
+	c.ping()
 	return Status{AutoInject: enabled, Rebuild: snapshot}, nil
 }
 
-// maybeRebuild drains the scopes with a queued rebuild on the consumer
-// goroutine, using the loop's context so a disconnected HTTP client cannot
-// cancel it.
+// maybeRebuild drains every queued scope rebuild on the caller's
+// goroutine. Production ticks fold rebuilds into scope jobs; this serial
+// path remains for the deterministic test driver.
 func (c *Controller) maybeRebuild(ctx context.Context) {
 	for _, scopeID := range c.queuedRebuildScopes() {
 		c.runScopeRebuild(ctx, scopeID)
@@ -277,7 +465,10 @@ func (c *Controller) maybeRebuild(ctx context.Context) {
 // queuedRebuildScopes snapshots the scopes waiting for a rebuild in a
 // deterministic order. Scopes queued after the snapshot are picked up by the
 // next tick: Rebuild always pings the trigger, and the trigger's one slot of
-// buffer means that wakeup survives an in-flight tick.
+// buffer means that wakeup survives an in-flight tick — as long as the scope
+// it names is no longer marked in-flight by the time that tick runs
+// markInFlight, which is why runScopeJob defers its own re-check-and-ping to
+// run after clearInFlight.
 func (c *Controller) queuedRebuildScopes() []string {
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()
@@ -322,26 +513,22 @@ func (c *Controller) runScopeRebuild(ctx context.Context, scopeID string) {
 	}
 }
 
-// rebuildScope resolves the scope's rebuilder before taking mu — hydrating a
-// cold scope must not block the injection scan — then rebuilds under mu so a
-// rebuild never races an in-flight injection. A successful rebuild clears
-// only that scope's injection backoff.
+// rebuildScope resolves the scope's rebuilder before taking its lock —
+// hydrating a cold scope must not block the injection scan — then rebuilds
+// under that scope's lock so a rebuild never races an in-flight injection.
+// A successful rebuild clears only that scope's injection backoff.
 func (c *Controller) rebuildScope(ctx context.Context, scopeID string, since time.Time) error {
 	rebuilder, err := c.rebuilderFor(ctx, scopeID)
 	if err != nil {
 		return fmt.Errorf("resolve Page Wiki rebuilder: %w", err)
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	lock := c.scopeLock(scopeID)
+	lock.Lock()
+	defer lock.Unlock()
 	if err := rebuilder.RebuildPageWiki(ctx, scopeID, ProcessorName, ProcessorVersion, since); err != nil {
 		return err
 	}
-	prefix := scopeID + "/"
-	for key := range c.failures {
-		if strings.HasPrefix(key, prefix) {
-			delete(c.failures, key)
-		}
-	}
+	c.clearScopeFailures(scopeID)
 	return nil
 }
 
@@ -356,24 +543,66 @@ func (c *Controller) rebuildSnapshot(scopeID string) RebuildStatus {
 	return RebuildStatus{State: RebuildIdle}
 }
 
-// rebuildQueued reports whether any scope is waiting for a rebuild: the scan
-// yields to a queued rebuild whichever scope asked for it, because the
-// rebuild needs the same lock the scan holds.
-func (c *Controller) rebuildQueued() bool {
-	c.stateMu.Lock()
-	defer c.stateMu.Unlock()
-	for _, entry := range c.rebuilds {
-		if entry.status.State == RebuildQueued {
-			return true
-		}
+// scopeLock returns scopeID's lock, creating it on first use. It serializes
+// scan-driven injection, manual InjectSession, and rebuild for that scope
+// only; other scopes never contend on it.
+func (c *Controller) scopeLock(scopeID string) *sync.Mutex {
+	c.scopeLocksMu.Lock()
+	defer c.scopeLocksMu.Unlock()
+	lock, ok := c.scopeLocks[scopeID]
+	if !ok {
+		lock = &sync.Mutex{}
+		c.scopeLocks[scopeID] = lock
 	}
-	return false
+	return lock
 }
 
-// injectWaiting reports whether a manual InjectSession call is waiting for
-// mu; the scan yields to it exactly like it yields to a queued rebuild.
-func (c *Controller) injectWaiting() bool {
-	return c.injectWaiters.Load() > 0
+// rebuildQueuedFor reports whether scopeID's own rebuild is waiting. The
+// scan yields only that scope's streams to it; other scopes are unaffected.
+func (c *Controller) rebuildQueuedFor(scopeID string) bool {
+	c.stateMu.Lock()
+	defer c.stateMu.Unlock()
+	entry, found := c.rebuilds[scopeID]
+	return found && entry.status.State == RebuildQueued
+}
+
+func (c *Controller) clearFailure(stream Stream) {
+	c.failuresMu.Lock()
+	defer c.failuresMu.Unlock()
+	delete(c.failures, streamKey(stream))
+}
+
+func (c *Controller) clearScopeFailures(scopeID string) {
+	c.failuresMu.Lock()
+	defer c.failuresMu.Unlock()
+	prefix := scopeID + "/"
+	for key := range c.failures {
+		if strings.HasPrefix(key, prefix) {
+			delete(c.failures, key)
+		}
+	}
+}
+
+// addInjectWaiter registers a manual InjectSession caller as waiting for
+// scopeID's lock and returns the func that deregisters it.
+func (c *Controller) addInjectWaiter(scopeID string) func() {
+	c.waitersMu.Lock()
+	c.injectWaiters[scopeID]++
+	c.waitersMu.Unlock()
+	return func() {
+		c.waitersMu.Lock()
+		c.injectWaiters[scopeID]--
+		c.waitersMu.Unlock()
+	}
+}
+
+// injectWaitingFor reports whether a manual InjectSession call is waiting
+// for scopeID's lock; the scope's job yields to it exactly like it yields
+// to a queued rebuild.
+func (c *Controller) injectWaitingFor(scopeID string) bool {
+	c.waitersMu.Lock()
+	defer c.waitersMu.Unlock()
+	return c.injectWaiters[scopeID] > 0
 }
 
 func (c *Controller) InjectSession(
@@ -391,14 +620,13 @@ func (c *Controller) InjectSession(
 	if len(streams) == 0 {
 		return InjectResult{}, ErrSessionNotFound
 	}
-	// Register as a waiter before taking mu so an in-flight scan yields at
-	// its next between-streams checkpoint instead of finishing the sweep.
-	c.injectWaiters.Add(1)
-	c.mu.Lock()
-	c.injectWaiters.Add(-1)
-	defer c.mu.Unlock()
+	// Register as a waiter before contending for the scope lock (consume
+	// takes it per stream) so this scope's in-flight job yields at its next
+	// between-streams checkpoint instead of finishing the whole sweep first.
+	deregister := c.addInjectWaiter(scopeID)
+	defer deregister()
 	for _, stream := range streams {
-		delete(c.failures, streamKey(stream))
+		c.clearFailure(stream)
 		if err := c.consume(ctx, stream); err != nil {
 			return InjectResult{}, err
 		}
@@ -406,43 +634,18 @@ func (c *Controller) InjectSession(
 	return InjectResult{ProcessedStreams: len(streams)}, nil
 }
 
-func (c *Controller) scan(ctx context.Context) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	streams, err := c.store.PendingStreams(ctx)
-	if err != nil {
-		c.logger.ErrorContext(ctx, "Page Wiki scan failed", "error", err)
-		return
-	}
-	now := c.now()
-	for _, stream := range streams {
-		// A queued rebuild wipes everything this pass would build, and a
-		// waiting manual inject is a user staring at a spinner; yield the
-		// lock now instead of after the whole backlog. The remaining streams
-		// are picked up by the next tick.
-		if c.rebuildQueued() || c.injectWaiting() {
-			return
-		}
-		if c.backedOff(stream, now) {
-			continue
-		}
-		if err := c.consume(ctx, stream); err != nil {
-			record := c.recordFailure(stream)
-			c.logger.WarnContext(ctx, "Page Wiki session injection failed",
-				"scope_id", stream.ScopeID,
-				"agent_id", stream.Actor.AgentID,
-				"session_id", stream.Actor.SessionID,
-				"attempts", record.attempts,
-				"next_retry_at", record.nextRetryAt,
-				"error", err,
-			)
-			continue
-		}
-		delete(c.failures, streamKey(stream))
-	}
-}
-
 func (c *Controller) consume(ctx context.Context, stream Stream) error {
+	ctx = session.WithScope(ctx, stream.ScopeID)
+	// Resolve before locking: resolution may hydrate a cold scope (a
+	// startup-class cost), and per-scope single-flight in the managers means
+	// only this scope's callers wait on it — never the lock's other holders.
+	injector, err := c.injectorFor(ctx, stream.ScopeID)
+	if err != nil {
+		return fmt.Errorf("resolve Page Wiki injector: %w", err)
+	}
+	lock := c.scopeLock(stream.ScopeID)
+	lock.Lock()
+	defer lock.Unlock()
 	events, err := c.store.SessionEvents(ctx, stream)
 	if err != nil {
 		return fmt.Errorf("read Page Wiki session events: %w", err)
@@ -451,13 +654,6 @@ func (c *Controller) consume(ctx context.Context, stream Stream) error {
 		return nil
 	}
 	request := injectionRequest(stream, events)
-	ctx = session.WithScope(ctx, stream.ScopeID)
-	// Resolve per stream: one loop serves every scope, and a scope whose
-	// service cannot be resolved must fail only its own streams.
-	injector, err := c.injectorFor(ctx, stream.ScopeID)
-	if err != nil {
-		return fmt.Errorf("resolve Page Wiki injector: %w", err)
-	}
 	result, err := injector.InjectSession(ctx, request)
 	if err != nil {
 		return fmt.Errorf("inject Page Wiki session: %w", err)
@@ -501,6 +697,8 @@ func injectionRequest(stream Stream, events []session.SessionEvent) pagewiki.Inj
 // backedOff reports whether the stream is still inside its retry window. A
 // head advance (new session events) always clears the way immediately.
 func (c *Controller) backedOff(stream Stream, now time.Time) bool {
+	c.failuresMu.Lock()
+	defer c.failuresMu.Unlock()
 	record, found := c.failures[streamKey(stream)]
 	if !found || record.head != stream.Head {
 		return false
@@ -509,6 +707,8 @@ func (c *Controller) backedOff(stream Stream, now time.Time) bool {
 }
 
 func (c *Controller) recordFailure(stream Stream) failureRecord {
+	c.failuresMu.Lock()
+	defer c.failuresMu.Unlock()
 	key := streamKey(stream)
 	record := c.failures[key]
 	if record.head != stream.Head {

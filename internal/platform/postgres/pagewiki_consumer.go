@@ -53,23 +53,37 @@ ON CONFLICT (scope_id) DO UPDATE SET auto_inject = EXCLUDED.auto_inject, updated
 // PendingStreams returns the pending streams of every scope whose ingestion
 // settings enable auto inject; the auto-inject decision stays per scope
 // through the settings join, and each row carries its own scope_id so the
-// consumer can resolve that scope's injector.
+// consumer can resolve that scope's injector. Each scope is capped at 20 rows
+// per call and ORDER BY scope_rank interleaves scopes round-robin so no
+// tenant's backlog can starve another (20 is a fairness constant, not a
+// throughput knob). Note: internal/platform/postgres/audit.go has an
+// intentionally untouched same-shaped query for read-only risk classification;
+// a delayed audit round is harmless and the starvation-prone shape is by design
+// there.
 func (s *PageWikiConsumerStore) PendingStreams(ctx context.Context) ([]sessionconsumer.Stream, error) {
 	return s.queryStreams(ctx, `
-SELECT stream.scope_id, stream.user_id, stream.agent_id, stream.session_id, stream.last_sequence
-FROM session_streams AS stream
-JOIN pagewiki_ingestion_settings AS setting
-  ON setting.scope_id = stream.scope_id AND setting.auto_inject = TRUE
-LEFT JOIN session_processor_cursors AS cursor
-  ON cursor.processor_name = $1
- AND cursor.processor_version = $2
- AND cursor.scope_id = stream.scope_id
- AND cursor.agent_id = stream.agent_id
- AND cursor.session_id = stream.session_id
-WHERE stream.last_sequence > COALESCE(cursor.committed_sequence, 0)
-  AND stream.source = 'agent-session'
-  AND stream.agent_id <> ''
-ORDER BY stream.updated_at
+SELECT scope_id, user_id, agent_id, session_id, last_sequence
+FROM (
+  SELECT stream.scope_id, stream.user_id, stream.agent_id,
+         stream.session_id, stream.last_sequence, stream.updated_at,
+         ROW_NUMBER() OVER (
+           PARTITION BY stream.scope_id ORDER BY stream.updated_at
+         ) AS scope_rank
+  FROM session_streams AS stream
+  JOIN pagewiki_ingestion_settings AS setting
+    ON setting.scope_id = stream.scope_id AND setting.auto_inject = TRUE
+  LEFT JOIN session_processor_cursors AS cursor
+    ON cursor.processor_name = $1
+   AND cursor.processor_version = $2
+   AND cursor.scope_id = stream.scope_id
+   AND cursor.agent_id = stream.agent_id
+   AND cursor.session_id = stream.session_id
+  WHERE stream.last_sequence > COALESCE(cursor.committed_sequence, 0)
+    AND stream.source = 'agent-session'
+    AND stream.agent_id <> ''
+) AS ranked
+WHERE scope_rank <= 20
+ORDER BY scope_rank, updated_at
 LIMIT 100`, sessionconsumer.ProcessorName, sessionconsumer.ProcessorVersion)
 }
 

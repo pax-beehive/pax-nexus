@@ -110,6 +110,10 @@ func buildPageWikiHTTPHandler(
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
+	injectConcurrency, err := parsePageWikiInjectConcurrency(config.pagewikiInjectConcurrency)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
 	// The consumer sweeps every scope from one loop, resolving each stream's
 	// service and each rebuild's repository through the managers above.
 	controller, err := sessionconsumer.New(
@@ -121,6 +125,7 @@ func buildPageWikiHTTPHandler(
 			return repositoryManager.ForScope(ctx, scopeID)
 		},
 		logger, 2*time.Second,
+		sessionconsumer.WithInjectConcurrency(injectConcurrency),
 	)
 	if err != nil {
 		return nil, nil, nil, nil, err
@@ -202,6 +207,21 @@ func parseNonNegativeEnvironment(raw, name string) (int, error) {
 		)
 	}
 	return parsed, nil
+}
+
+// parsePageWikiInjectConcurrency reads the injection worker-pool cap.
+// Unset means 2 — the conservative multi-tenant default; single-scope
+// deployments only ever produce one job so the value is inert on-prem.
+func parsePageWikiInjectConcurrency(raw string) (int, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return 2, nil
+	}
+	value, err := strconv.Atoi(trimmed)
+	if err != nil || value < 1 {
+		return 0, fmt.Errorf("TEAM_MEMORY_PAGEWIKI_INJECT_CONCURRENCY must be a positive integer, got %q", raw)
+	}
+	return value, nil
 }
 
 // parseTreeMaxDepth returns 0 when unset (callers apply the default).

@@ -10,11 +10,13 @@ import (
 	"github.com/pax-beehive/pax-nexus/internal/pagewiki/memory"
 )
 
-// repositoryEntry is one scope's hydration slot: its mutex serializes that
-// scope's hydration so different scopes never wait on each other.
+// repositoryEntry is one scope's hydration slot. Its mutex serializes
+// hydration of that scope only; the manager-wide mutex is held just long
+// enough to look the entry up, so a cold scope's (expensive, full-mirror)
+// hydration never blocks any other scope.
 type repositoryEntry struct {
 	mu         sync.Mutex
-	repository *Repository // nil until hydrated; hydration errors are not cached
+	repository *Repository // nil until hydrated; errors are not cached
 }
 
 // RepositoryManager hands out one hydrated Repository per scope. Each
@@ -22,37 +24,31 @@ type repositoryEntry struct {
 // instances are cached for the process lifetime; eviction of idle scopes is
 // deliberately deferred until the SaaS control plane exists.
 //
-// Hydration uses the same two-tier locking scheme as pagewiki.ServiceManager:
-// the manager-wide mutex is held just long enough to look up or create a
-// per-scope entry; each scope's hydration — minutes of Postgres replay on a
-// cold scope — is serialized only by its own entry mutex. A cached scope, or
-// any other scope, therefore never blocks behind another scope's cold
-// hydration; same-scope concurrent first-touch still hydrates exactly once,
-// and a failed hydration is not cached — the next call retries.
+// Hydration uses a two-tier locking scheme: the manager-wide mutex is held
+// just long enough to look up or create a per-scope entry; each scope's
+// hydration is serialized only by its own entry mutex. This ensures that
+// different scopes never block each other, even during expensive full-mirror
+// hydration. Same-scope concurrent first-touch hydrates exactly once, and
+// failed hydrations are not cached — the next call retries.
 type RepositoryManager struct {
-	pool    *pgxpool.Pool
-	options []memory.Option
-	// hydrate builds one scope's Repository. It defaults to NewRepository
-	// over pool/options; tests override it to exercise the locking contract
-	// without a database.
-	hydrate func(ctx context.Context, scopeID string) (*Repository, error)
-
 	mu      sync.Mutex
 	entries map[string]*repositoryEntry
+	// hydrate builds one scope's Repository. It defaults to NewRepository
+	// over the constructor's pool/options; tests override it to exercise the
+	// locking contract without a database.
+	hydrate func(ctx context.Context, scopeID string) (*Repository, error)
 }
 
 func NewRepositoryManager(pool *pgxpool.Pool, options ...memory.Option) (*RepositoryManager, error) {
 	if pool == nil {
 		return nil, fmt.Errorf("create pagewiki repository manager: pool is required")
 	}
-	manager := &RepositoryManager{
-		pool: pool, options: options,
+	return &RepositoryManager{
 		entries: make(map[string]*repositoryEntry),
-	}
-	manager.hydrate = func(ctx context.Context, scopeID string) (*Repository, error) {
-		return NewRepository(ctx, manager.pool, scopeID, manager.options...)
-	}
-	return manager, nil
+		hydrate: func(ctx context.Context, scopeID string) (*Repository, error) {
+			return NewRepository(ctx, pool, scopeID, options...)
+		},
+	}, nil
 }
 
 func (m *RepositoryManager) ForScope(ctx context.Context, scopeID string) (*Repository, error) {
