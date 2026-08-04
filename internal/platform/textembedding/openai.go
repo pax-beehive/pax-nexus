@@ -144,3 +144,45 @@ func truncateAndNormalize(vector []float32, dimensions int) ([]float32, error) {
 	}
 	return result, nil
 }
+
+// nativeModelDimensions maps an embedding model to the width it emits. A
+// deployment configures the model it runs, and the width follows from it,
+// because configuring both invites the two to disagree -- a mismatch that
+// surfaces only as a failed write or as silently discarded resolution.
+//
+// Keys are lower-cased and matched both fully qualified and bare, so
+// "Qwen/Qwen3-Embedding-0.6B" and "Qwen3-Embedding-0.6B" resolve alike.
+var nativeModelDimensions = map[string]int{
+	"text-embedding-3-small": 1536,
+	"text-embedding-3-large": 3072,
+	"text-embedding-ada-002": 1536,
+	"qwen3-embedding-0.6b":   1024,
+	"qwen3-embedding-4b":     2560,
+	"qwen3-embedding-8b":     4096,
+}
+
+// ModelDimensions resolves the stored vector width for a model.
+//
+// An explicit override always wins: a Matryoshka model is legitimately used
+// below its native width, and a model this build has never heard of still
+// needs a way in. Otherwise the width comes from the model. An unknown model
+// with no override is an error rather than a guess, because guessing wrong
+// is not visible until vectors fail to store.
+func ModelDimensions(model string, override int) (int, error) {
+	if override > 0 {
+		return override, nil
+	}
+	normalized := strings.ToLower(strings.TrimSpace(model))
+	if width, found := nativeModelDimensions[normalized]; found {
+		return width, nil
+	}
+	if index := strings.LastIndex(normalized, "/"); index >= 0 {
+		if width, found := nativeModelDimensions[normalized[index+1:]]; found {
+			return width, nil
+		}
+	}
+	return 0, fmt.Errorf(
+		"embedding model %q has no known vector width; set TEAM_MEMORY_EMBEDDING_DIMENSIONS to its width",
+		strings.TrimSpace(model),
+	)
+}

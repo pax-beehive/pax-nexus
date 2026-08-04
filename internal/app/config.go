@@ -10,6 +10,7 @@ import (
 
 	"github.com/pax-beehive/pax-nexus/internal/deployment/onprem"
 	"github.com/pax-beehive/pax-nexus/internal/platform/postgres"
+	"github.com/pax-beehive/pax-nexus/internal/platform/textembedding"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote/extractionbudget"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote/extractor"
@@ -71,6 +72,7 @@ type applicationConfig struct {
 	embeddingBaseURL               string
 	embeddingModel                 string
 	embeddingAPIKey                string
+	embeddingDimensionsOverride    int
 	embeddingDimensions            int
 	embeddingTimeout               time.Duration
 	recallCandidateStrategy        teamnote.RecallCandidateStrategy
@@ -151,6 +153,21 @@ func loadConfig() (applicationConfig, error) {
 	}
 	if config.embeddingModel == "" && strings.TrimSpace(config.embeddingBaseURL) != "" {
 		config.embeddingModel = "Qwen/Qwen3-Embedding-0.6B"
+	}
+	// The width follows the configured model. It is resolved only when an
+	// embedding runtime is configured at all, so a deployment without
+	// semantic recall never has to name a model just to satisfy this.
+	if strings.TrimSpace(config.embeddingBaseURL) != "" {
+		if config.embeddingDimensions, err = textembedding.ModelDimensions(
+			config.embeddingModel, config.embeddingDimensionsOverride,
+		); err != nil {
+			return applicationConfig{}, err
+		}
+	} else {
+		config.embeddingDimensions = postgres.DefaultEmbeddingDimensions
+		if config.embeddingDimensionsOverride > 0 {
+			config.embeddingDimensions = config.embeddingDimensionsOverride
+		}
 	}
 	if strings.TrimSpace(config.databaseURL) == "" {
 		return applicationConfig{}, fmt.Errorf("TEAM_MEMORY_DATABASE_URL is required")
@@ -458,8 +475,10 @@ func loadRetrievalConfig(config *applicationConfig) error {
 	}
 	// The stored vector width follows the model a deployment actually runs,
 	// so a hosted provider is not truncated to a small local runtime's width.
-	if config.embeddingDimensions, err = intEnvironment(
-		"TEAM_MEMORY_EMBEDDING_DIMENSIONS", postgres.DefaultEmbeddingDimensions,
+	// The variable is only an override; resolving it needs the model, which
+	// is defaulted after this, so the resolution happens in loadConfig.
+	if config.embeddingDimensionsOverride, err = nonNegativeIntEnvironment(
+		"TEAM_MEMORY_EMBEDDING_DIMENSIONS", 0,
 	); err != nil {
 		return err
 	}

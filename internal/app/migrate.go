@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/pax-beehive/pax-nexus/internal/platform/postgres"
+	"github.com/pax-beehive/pax-nexus/internal/platform/textembedding"
 	"github.com/pax-beehive/pax-nexus/internal/teamnote/extractionqueue"
 )
 
@@ -35,7 +36,9 @@ func Migrate(ctx context.Context, logger *slog.Logger) error {
 		return fmt.Errorf("initialize storage: %w", err)
 	}
 	defer store.Close()
-	dimensions, err := intEnvironment("TEAM_MEMORY_EMBEDDING_DIMENSIONS", postgres.DefaultEmbeddingDimensions)
+	// The job resizes the embedding column, so it must resolve the width
+	// exactly the way the running service does, or the two disagree.
+	dimensions, err := migrationEmbeddingDimensions()
 	if err != nil {
 		return err
 	}
@@ -69,4 +72,21 @@ func migrateStores(ctx context.Context, store *postgres.Store, embeddingDimensio
 		}
 		return nil
 	})
+}
+
+// migrationEmbeddingDimensions resolves the stored vector width from the
+// same environment the service reads, so a migration job and the instances
+// it precedes always agree on the column's width.
+func migrationEmbeddingDimensions() (int, error) {
+	override, err := nonNegativeIntEnvironment("TEAM_MEMORY_EMBEDDING_DIMENSIONS", 0)
+	if err != nil {
+		return 0, err
+	}
+	if strings.TrimSpace(os.Getenv("TEAM_MEMORY_EMBEDDING_BASE_URL")) == "" {
+		if override > 0 {
+			return override, nil
+		}
+		return postgres.DefaultEmbeddingDimensions, nil
+	}
+	return textembedding.ModelDimensions(os.Getenv("TEAM_MEMORY_EMBEDDING_MODEL"), override)
 }

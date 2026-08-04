@@ -122,3 +122,41 @@ func response(body string) *http.Response {
 		Body:       io.NopCloser(strings.NewReader(body)),
 	}
 }
+
+// TestModelDimensionsResolvesKnownModels pins the model-to-width mapping.
+// Configuring both a model and a width invites them to disagree, so the
+// model decides and an explicit width is only an override -- which a
+// Matryoshka model still needs when a deployment wants it below native
+// width.
+func (s *teiSuite) TestModelDimensionsResolvesKnownModels() {
+	tests := []struct {
+		name      string
+		model     string
+		override  int
+		want      int
+		wantError string
+	}{
+		{name: "OpenAI small", model: "text-embedding-3-small", want: 1536},
+		{name: "OpenAI large", model: "text-embedding-3-large", want: 3072},
+		{name: "Qwen3 0.6B", model: "Qwen/Qwen3-Embedding-0.6B", want: 1024},
+		{name: "bare Qwen3 name", model: "Qwen3-Embedding-0.6B", want: 1024},
+		{name: "case and spacing are ignored", model: "  TEXT-EMBEDDING-3-SMALL ", want: 1536},
+		{name: "override wins over the model", model: "text-embedding-3-small", override: 384, want: 384},
+		{name: "override carries an unknown model", model: "some/new-model", override: 768, want: 768},
+		{name: "unknown model without an override", model: "some/new-model", wantError: "some/new-model"},
+	}
+	for _, test := range tests {
+		s.Run(test.name, func() {
+			width, err := textembedding.ModelDimensions(test.model, test.override)
+
+			if test.wantError != "" {
+				s.Require().Error(err)
+				s.Require().ErrorContains(err, test.wantError)
+				s.Require().ErrorContains(err, "TEAM_MEMORY_EMBEDDING_DIMENSIONS")
+				return
+			}
+			s.Require().NoError(err)
+			s.Equal(test.want, width)
+		})
+	}
+}

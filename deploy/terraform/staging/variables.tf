@@ -136,16 +136,11 @@ variable "embedding_base_url" {
 
 variable "embedding_model" {
   type        = string
-  description = "Embedding model."
+  description = <<-EOT
+    Embedding model. Its native vector width is what gets stored; set
+    TEAM_MEMORY_EMBEDDING_DIMENSIONS only to override that, which a
+    Matryoshka model allows.
+  EOT
   default     = "text-embedding-3-small"
 }
 
-variable "embedding_dimensions" {
-  type        = number
-  description = <<-EOT
-    Stored vector width. It must match what the model emits, and the
-    team_notes.embedding column is resized to it on migration, which discards
-    existing vectors and re-embeds them. text-embedding-3-small emits 1536.
-  EOT
-  default     = 1536
-}
