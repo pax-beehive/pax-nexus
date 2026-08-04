@@ -428,6 +428,20 @@ func (m *MockTeamCredentialStore) EXPECT() *MockTeamCredentialStoreMockRecorder 
 	return m.recorder
 }
 
+// CreateDeviceEnrollment mocks base method.
+func (m *MockTeamCredentialStore) CreateDeviceEnrollment(ctx context.Context, teamID, membershipID string, record onprem.EnrollmentRecord) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateDeviceEnrollment", ctx, teamID, membershipID, record)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// CreateDeviceEnrollment indicates an expected call of CreateDeviceEnrollment.
+func (mr *MockTeamCredentialStoreMockRecorder) CreateDeviceEnrollment(ctx, teamID, membershipID, record any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateDeviceEnrollment", reflect.TypeOf((*MockTeamCredentialStore)(nil).CreateDeviceEnrollment), ctx, teamID, membershipID, record)
+}
+
 // CreateOwnedEnrollment mocks base method.
 func (m *MockTeamCredentialStore) CreateOwnedEnrollment(ctx context.Context, teamID, membershipID string, record onprem.EnrollmentRecord) error {
 	m.ctrl.T.Helper()
@@ -455,6 +469,51 @@ func (m *MockTeamCredentialStore) ExchangeEnrollment(ctx context.Context, enroll
 func (mr *MockTeamCredentialStoreMockRecorder) ExchangeEnrollment(ctx, enrollmentID, digest, credential, now any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExchangeEnrollment", reflect.TypeOf((*MockTeamCredentialStore)(nil).ExchangeEnrollment), ctx, enrollmentID, digest, credential, now)
+}
+
+// GetDevice mocks base method.
+func (m *MockTeamCredentialStore) GetDevice(ctx context.Context, teamID, credentialID string) (onprem.DeviceDetail, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetDevice", ctx, teamID, credentialID)
+	ret0, _ := ret[0].(onprem.DeviceDetail)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetDevice indicates an expected call of GetDevice.
+func (mr *MockTeamCredentialStoreMockRecorder) GetDevice(ctx, teamID, credentialID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDevice", reflect.TypeOf((*MockTeamCredentialStore)(nil).GetDevice), ctx, teamID, credentialID)
+}
+
+// ListDeviceProvisionedAgents mocks base method.
+func (m *MockTeamCredentialStore) ListDeviceProvisionedAgents(ctx context.Context, teamID, deviceCredentialID string) ([]onprem.DeviceProvisionedAgent, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListDeviceProvisionedAgents", ctx, teamID, deviceCredentialID)
+	ret0, _ := ret[0].([]onprem.DeviceProvisionedAgent)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListDeviceProvisionedAgents indicates an expected call of ListDeviceProvisionedAgents.
+func (mr *MockTeamCredentialStoreMockRecorder) ListDeviceProvisionedAgents(ctx, teamID, deviceCredentialID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDeviceProvisionedAgents", reflect.TypeOf((*MockTeamCredentialStore)(nil).ListDeviceProvisionedAgents), ctx, teamID, deviceCredentialID)
+}
+
+// ListDevices mocks base method.
+func (m *MockTeamCredentialStore) ListDevices(ctx context.Context, teamID string, filter onprem.DeviceFilter) ([]onprem.DeviceSummary, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListDevices", ctx, teamID, filter)
+	ret0, _ := ret[0].([]onprem.DeviceSummary)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListDevices indicates an expected call of ListDevices.
+func (mr *MockTeamCredentialStoreMockRecorder) ListDevices(ctx, teamID, filter any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDevices", reflect.TypeOf((*MockTeamCredentialStore)(nil).ListDevices), ctx, teamID, filter)
 }
 
 // ListOwnedCredentials mocks base method.
@@ -487,6 +546,21 @@ func (mr *MockTeamCredentialStoreMockRecorder) ListOwnedEnrollments(ctx, teamID,
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListOwnedEnrollments", reflect.TypeOf((*MockTeamCredentialStore)(nil).ListOwnedEnrollments), ctx, teamID, membershipID, agentID, filter, now)
 }
 
+// ProvisionAgentCredential mocks base method.
+func (m *MockTeamCredentialStore) ProvisionAgentCredential(ctx context.Context, teamID, deviceCredentialID string, profile onprem.AgentProfile, credential onprem.CredentialRecord, activeAgentLimit int, now time.Time) (onprem.ProvisionOutcome, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ProvisionAgentCredential", ctx, teamID, deviceCredentialID, profile, credential, activeAgentLimit, now)
+	ret0, _ := ret[0].(onprem.ProvisionOutcome)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ProvisionAgentCredential indicates an expected call of ProvisionAgentCredential.
+func (mr *MockTeamCredentialStoreMockRecorder) ProvisionAgentCredential(ctx, teamID, deviceCredentialID, profile, credential, activeAgentLimit, now any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ProvisionAgentCredential", reflect.TypeOf((*MockTeamCredentialStore)(nil).ProvisionAgentCredential), ctx, teamID, deviceCredentialID, profile, credential, activeAgentLimit, now)
+}
+
 // ResolveCredential mocks base method.
 func (m *MockTeamCredentialStore) ResolveCredential(ctx context.Context, credentialID string, digest onprem.Digest, now time.Time) (saas.ScopedCredential, error) {
 	m.ctrl.T.Helper()
@@ -500,6 +574,21 @@ func (m *MockTeamCredentialStore) ResolveCredential(ctx context.Context, credent
 func (mr *MockTeamCredentialStoreMockRecorder) ResolveCredential(ctx, credentialID, digest, now any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResolveCredential", reflect.TypeOf((*MockTeamCredentialStore)(nil).ResolveCredential), ctx, credentialID, digest, now)
+}
+
+// RevokeDevice mocks base method.
+func (m *MockTeamCredentialStore) RevokeDevice(ctx context.Context, teamID string, actor onprem.HumanPrincipal, credentialID, idempotencyKey string, now time.Time) (onprem.DeviceSummary, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RevokeDevice", ctx, teamID, actor, credentialID, idempotencyKey, now)
+	ret0, _ := ret[0].(onprem.DeviceSummary)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RevokeDevice indicates an expected call of RevokeDevice.
+func (mr *MockTeamCredentialStoreMockRecorder) RevokeDevice(ctx, teamID, actor, credentialID, idempotencyKey, now any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RevokeDevice", reflect.TypeOf((*MockTeamCredentialStore)(nil).RevokeDevice), ctx, teamID, actor, credentialID, idempotencyKey, now)
 }
 
 // RevokeOwnedCredential mocks base method.

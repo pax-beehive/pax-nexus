@@ -70,6 +70,7 @@ func buildSaaSIdentityServices(
 	}
 	credentials, err := saas.NewCredentials(store.SaaSCredentials(), saas.CredentialConfig{
 		RotationOverlap: config.credentialRotationOverlap, SecretPepper: config.secretPepper,
+		DeviceAgentLimit: config.deviceAgentLimit,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("configure saas credentials: %w", err)
