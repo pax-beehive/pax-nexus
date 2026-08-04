@@ -230,14 +230,19 @@ Landed:
 - Verification: two-team HTTP isolation e2e
   (`internal/app/saas_isolation_test.go`) — members, agents, invitations,
   notes write/recall, audit events, team switching, 501 surfaces.
+- Frontend (single build, profile detected at runtime): `OnboardingPage`
+  (create team / join with invitation), `TeamSwitcher` in the portal
+  sidebar, `/team` settings page; on-prem `EntryPage`/bootstrap unchanged.
+  Static mockups kept under `design/m3-teams/`.
 
 Deferred / known gaps:
 
-- Frontend (team switcher, onboarding) is P6 and not started.
 - Operations *recorder*, extraction observer, and operations maintenance
   still attribute to `local-team` in the SaaS profile (read models are
   per-request scoped); LLM-usage attribution for request-driven wiki
   maintenance follows context scope or the default.
+- Team rename/delete endpoints, SaaS device enrollment, `CreateTeam`
+  server-side current-team switch (the portal switches explicitly).
 - Postgres RLS, scope-sweep backed by the `teams` registry, M4 quotas,
   domain-capture auto-join.
 
