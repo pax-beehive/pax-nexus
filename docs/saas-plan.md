@@ -212,6 +212,11 @@ before any multi-tenancy refactor risk is taken.
 
 ### M3 status (2026-08-04)
 
+**Deployed to staging**: `nexus-stg.paxtech.net` runs the `saas` profile
+(image carries both binaries, terraform `profile` variable swaps the Cloud
+Run command and drops the bootstrap secret; migration 029 applied on
+boot). Rollback: `-var="profile=onprem"` plus the previous image.
+
 Landed:
 
 - Control plane storage: `team_*` tables (migration 029), audit rows carry
