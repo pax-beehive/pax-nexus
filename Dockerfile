@@ -52,10 +52,14 @@ RUN case "${EXTRACTION_CANDIDATE_STRATEGY}" in \
 # the same image so the schema it applies always matches this binary.
 RUN CGO_ENABLED=0 go build -trimpath -o /out/team-memory-migrate ./cmd/team-memory-migrate
 RUN CGO_ENABLED=0 go build -trimpath -o /out/paxm-team-memory-provider ./cmd/paxm-team-memory-provider
+# The SaaS control-plane binary ships in the same image; the deployment picks
+# the entrypoint per profile (see deploy/terraform/staging, variable "profile").
+RUN CGO_ENABLED=0 go build -trimpath -o /out/team-memory-saas ./cmd/team-memory-saas
 
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/team-memory /usr/local/bin/team-memory
 COPY --from=build /out/team-memory-migrate /usr/local/bin/team-memory-migrate
 COPY --from=build /out/paxm-team-memory-provider /usr/local/bin/paxm-team-memory-provider
+COPY --from=build /out/team-memory-saas /usr/local/bin/team-memory-saas
 USER nonroot:nonroot
 ENTRYPOINT ["/usr/local/bin/team-memory"]

@@ -46,6 +46,22 @@ variable "image" {
   default     = ""
 }
 
+variable "profile" {
+  type        = string
+  description = <<-EOT
+    Deployment profile: onprem runs the single-team binary from the image's
+    default entrypoint; saas swaps the container command to the multi-team
+    control-plane binary and drops the bootstrap-secret variable, which the
+    saas profile refuses to start with.
+  EOT
+  default     = "onprem"
+
+  validation {
+    condition     = contains(["onprem", "saas"], var.profile)
+    error_message = "profile must be \"onprem\" or \"saas\"."
+  }
+}
+
 variable "cloudflare_ipv4_ranges" {
   type        = list(string)
   description = <<-EOT
