@@ -37,7 +37,7 @@ func (h *Handler) inject(
 		writeError(requestContext, err)
 		return
 	}
-	injector, _, err := h.dependencies(ctx)
+	injector, _, err := h.dependencies(ctx, requestContext)
 	if err != nil {
 		writeError(requestContext, err)
 		return
@@ -55,7 +55,7 @@ func (h *Handler) GetMaintenanceRun(
 	requestContext *app.RequestContext,
 	request *api.MaintenanceRunRequest,
 ) {
-	_, reader, err := h.dependencies(ctx)
+	_, reader, err := h.dependencies(ctx, requestContext)
 	if err != nil {
 		writeError(requestContext, err)
 		return
@@ -73,7 +73,7 @@ func (h *Handler) GetPage(
 	requestContext *app.RequestContext,
 	request *api.PageBySlugRequest,
 ) {
-	_, reader, err := h.dependencies(ctx)
+	_, reader, err := h.dependencies(ctx, requestContext)
 	if err != nil {
 		writeError(requestContext, err)
 		return
@@ -109,7 +109,7 @@ func (h *Handler) ListPageRevisions(
 	requestContext *app.RequestContext,
 	request *api.PageBySlugRequest,
 ) {
-	_, reader, err := h.dependencies(ctx)
+	_, reader, err := h.dependencies(ctx, requestContext)
 	if err != nil {
 		writeError(requestContext, err)
 		return
@@ -132,7 +132,7 @@ func (h *Handler) GetPageRevision(
 	requestContext *app.RequestContext,
 	request *api.PageRevisionRequest,
 ) {
-	_, reader, err := h.dependencies(ctx)
+	_, reader, err := h.dependencies(ctx, requestContext)
 	if err != nil {
 		writeError(requestContext, err)
 		return
@@ -162,7 +162,7 @@ func (h *Handler) GetPageBacklinks(
 	requestContext *app.RequestContext,
 	request *api.PageBySlugRequest,
 ) {
-	_, reader, err := h.dependencies(ctx)
+	_, reader, err := h.dependencies(ctx, requestContext)
 	if err != nil {
 		writeError(requestContext, err)
 		return
@@ -185,7 +185,7 @@ func (h *Handler) Search(
 	requestContext *app.RequestContext,
 	request *api.SearchRequest,
 ) {
-	_, reader, err := h.dependencies(ctx)
+	_, reader, err := h.dependencies(ctx, requestContext)
 	if err != nil {
 		writeError(requestContext, err)
 		return
@@ -203,7 +203,7 @@ func (h *Handler) GetSourceRevision(
 	requestContext *app.RequestContext,
 	request *api.SourceRevisionRequest,
 ) {
-	_, reader, err := h.dependencies(ctx)
+	_, reader, err := h.dependencies(ctx, requestContext)
 	if err != nil {
 		writeError(requestContext, err)
 		return
@@ -221,7 +221,7 @@ func (h *Handler) GetSourceBacklinks(
 	requestContext *app.RequestContext,
 	request *api.SourceRevisionRequest,
 ) {
-	_, reader, err := h.dependencies(ctx)
+	_, reader, err := h.dependencies(ctx, requestContext)
 	if err != nil {
 		writeError(requestContext, err)
 		return
@@ -238,7 +238,7 @@ func (h *Handler) GetNavigation(
 	ctx context.Context,
 	requestContext *app.RequestContext,
 ) {
-	_, reader, err := h.dependencies(ctx)
+	_, reader, err := h.dependencies(ctx, requestContext)
 	if err != nil {
 		writeError(requestContext, err)
 		return
@@ -261,7 +261,7 @@ func (h *Handler) RebuildTopicTree(
 	requestContext *app.RequestContext,
 	request *api.RebuildTopicTreeRequest,
 ) {
-	injector, _, err := h.dependencies(ctx)
+	injector, _, err := h.dependencies(ctx, requestContext)
 	if err != nil {
 		writeError(requestContext, err)
 		return
@@ -277,6 +277,9 @@ func writeError(requestContext *app.RequestContext, err error) {
 	status := http.StatusUnprocessableEntity
 	code := "operation_failed"
 	switch {
+	case errors.Is(err, ErrScopeUnresolved):
+		status = http.StatusUnauthorized
+		code = "unauthorized"
 	case errors.Is(err, pagewiki.ErrUnavailable):
 		status = http.StatusServiceUnavailable
 		code = "unavailable"

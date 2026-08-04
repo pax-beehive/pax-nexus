@@ -88,6 +88,33 @@ type applicationConfig struct {
 }
 
 func loadConfig() (applicationConfig, error) {
+	config, err := loadBaseConfig()
+	if err != nil {
+		return applicationConfig{}, err
+	}
+	if err = loadAuthenticationConfig(&config); err != nil {
+		return applicationConfig{}, err
+	}
+	return config, nil
+}
+
+// loadSaaSConfig loads the multi-team SaaS profile configuration: the shared
+// base settings plus the SaaS authentication rules (OIDC required, no legacy
+// keys or bootstrap).
+func loadSaaSConfig() (applicationConfig, error) {
+	config, err := loadBaseConfig()
+	if err != nil {
+		return applicationConfig{}, err
+	}
+	if err = loadSaaSAuthenticationConfig(&config); err != nil {
+		return applicationConfig{}, err
+	}
+	return config, nil
+}
+
+// loadBaseConfig loads everything the on-prem and SaaS profiles share; the
+// authentication mode is validated per profile afterwards.
+func loadBaseConfig() (applicationConfig, error) {
 	config := applicationConfig{
 		databaseURL: os.Getenv("TEAM_MEMORY_DATABASE_URL"), listenAddress: os.Getenv("TEAM_MEMORY_LISTEN_ADDRESS"),
 		extractorMode: os.Getenv("TEAM_MEMORY_EXTRACTOR_MODE"), extractorBaseURL: os.Getenv("TEAM_MEMORY_EXTRACTOR_BASE_URL"),
@@ -171,9 +198,6 @@ func loadConfig() (applicationConfig, error) {
 	}
 	if strings.TrimSpace(config.databaseURL) == "" {
 		return applicationConfig{}, fmt.Errorf("TEAM_MEMORY_DATABASE_URL is required")
-	}
-	if err = loadAuthenticationConfig(&config); err != nil {
-		return applicationConfig{}, err
 	}
 	return config, nil
 }
@@ -309,6 +333,45 @@ func loadAuthenticationConfig(config *applicationConfig) error {
 		return fmt.Errorf("TEAM_MEMORY_SECRET_PEPPER must contain at least 32 characters in on-prem mode")
 	}
 	return nil
+}
+
+// loadSaaSAuthenticationConfig validates the SaaS profile's authentication
+// mode: OIDC human sign-in is mandatory (sign-up creates a team, so there
+// is no bootstrap and no legacy static keys), and every on-prem-only
+// authentication setting is rejected loudly instead of being half-honored.
+func loadSaaSAuthenticationConfig(config *applicationConfig) error {
+	if strings.TrimSpace(os.Getenv("TEAM_MEMORY_API_KEYS")) != "" {
+		return fmt.Errorf("TEAM_MEMORY_API_KEYS is not supported in the saas profile: agents enroll per team")
+	}
+	if strings.TrimSpace(config.adminAPIKey) != "" {
+		return fmt.Errorf("TEAM_MEMORY_ADMIN_API_KEY is not supported in the saas profile")
+	}
+	if strings.TrimSpace(config.bootstrapSecret) != "" {
+		return fmt.Errorf("TEAM_MEMORY_BOOTSTRAP_SECRET is not supported in the saas profile: sign-up creates a team")
+	}
+	if saasOIDCSettingCount(*config) != 5 {
+		return fmt.Errorf("all TEAM_MEMORY_OIDC_* settings are required in the saas profile")
+	}
+	if len(strings.TrimSpace(config.secretPepper)) < 32 {
+		return fmt.Errorf("TEAM_MEMORY_SECRET_PEPPER must contain at least 32 characters in the saas profile")
+	}
+	return nil
+}
+
+// saasOIDCSettingCount counts the OIDC settings the SaaS profile requires
+// (the on-prem bootstrap secret is deliberately not among them).
+func saasOIDCSettingCount(config applicationConfig) int {
+	values := []string{
+		config.oidcIssuer, config.oidcClientID, config.oidcClientSecret,
+		config.oidcRedirectURL, config.oidcFlowSecret,
+	}
+	configured := 0
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			configured++
+		}
+	}
+	return configured
 }
 
 func permissionListEnvironment(name string, fallback string) ([]onprem.Permission, error) {

@@ -27,6 +27,7 @@ import type {
   HumanMe,
   Invitation,
   Member,
+  TeamSummary,
 } from "../src/api/types";
 
 // ---- fetch stubbing (same Response-based style as client.test.ts) ----
@@ -165,6 +166,35 @@ export function makeNoMembershipMe(overrides: Partial<HumanMe> = {}): HumanMe {
     membership_id: undefined,
     role: undefined,
     membership_status: undefined,
+    ...overrides,
+  });
+}
+
+export function makeTeamSummary(overrides: Partial<TeamSummary> = {}): TeamSummary {
+  return {
+    team_id: "team_alpha",
+    name: "Acme ML",
+    slug: "acme-ml",
+    role: "owner",
+    membership_id: "mbr_01",
+    ...overrides,
+  };
+}
+
+/** SaaS active principal: two teams, session scoped to the first one. */
+export function makeSaasMe(overrides: Partial<HumanMe> = {}): HumanMe {
+  return makeMe({
+    teams: [
+      makeTeamSummary(),
+      makeTeamSummary({
+        team_id: "team_beta",
+        name: "Weekend Projects",
+        slug: "weekend-projects",
+        role: "member",
+        membership_id: "mbr_02",
+      }),
+    ],
+    current_team_id: "team_alpha",
     ...overrides,
   });
 }

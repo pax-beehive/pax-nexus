@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>02 — Team switcher</title>
+<link rel="stylesheet" href="mock.css">
+</head>
+<body>
+<div class="mock-banner">MOCK — screen 02 · team-switcher — design/m3-teams (static, no backend)</div>
+
+<div class="shell">
+  <aside class="side">
+    <div class="side-top">
+      <div class="brand">Team Memory <span>Portal</span></div>
+      <button type="button" class="side-toggle" aria-expanded="true" aria-label="Collapse navigation">&laquo;</button>
+    </div>
+
+    <!-- NEW component (MOCK only classes): TeamSwitcher, placed directly
+         under the .side-top brand block. The popover below is statically
+         rendered in its open state; in the real app it would be absolutely
+         positioned under the button. -->
+    <button type="button" class="team-switcher" aria-expanded="true">
+      <span class="team-avatar">A</span>
+      <span class="team-name">Acme ML</span>
+      <span class="badge b-role">owner</span>
+      <span class="chevron" aria-hidden="true">&#9662;</span>
+    </button>
+    <div class="team-pop" role="menu" aria-label="Switch team">
+      <button type="button" class="team-pop-row current" role="menuitem">
+        <span class="team-avatar">A</span>
+        <span class="row-name">Acme ML</span>
+        <span class="badge b-role">owner</span>
+        <span class="check" aria-hidden="true">&#10003;</span>
+      </button>
+      <button type="button" class="team-pop-row" role="menuitem">
+        <span class="team-avatar alt">W</span>
+        <span class="row-name">Weekend Projects</span>
+        <span class="badge b-role">member</span>
+      </button>
+      <div class="team-pop-divider"></div>
+      <button type="button" class="team-pop-row" role="menuitem">
+        <span class="plus">+</span>
+        <span class="row-name">Create a team</span>
+      </button>
+      <button type="button" class="team-pop-row" role="menuitem">
+        <span class="plus">&#8594;</span>
+        <span class="row-name">Join with invitation</span>
+      </button>
+    </div>
+    <div class="mock-note">
+      <strong>NEW component:</strong> TeamSwitcher popover — no dropdown primitive
+      exists in the portal today; placement under <code>.side-top</code> brand block.
+    </div>
+
+    <nav class="nav" aria-label="Portal navigation">
+      <div class="nav-group">
+        <button type="button" class="nav-label nav-group-toggle" aria-expanded="true">
+          <span>Personal</span><span class="nav-chevron" aria-hidden="true">&#9662;</span>
+        </button>
+        <a href="#" class="active">My Agents</a>
+      </div>
+      <div class="nav-group">
+        <button type="button" class="nav-label nav-group-toggle" aria-expanded="true">
+          <span>Knowledge</span><span class="nav-chevron" aria-hidden="true">&#9662;</span>
+        </button>
+        <a href="#">Apps</a>
+      </div>
+      <div class="nav-group">
+        <button type="button" class="nav-label nav-group-toggle" aria-expanded="true">
+          <span>Directory</span><span class="nav-chevron" aria-hidden="true">&#9662;</span>
+        </button>
+        <a href="#">Members</a>
+        <a href="#">Invitations</a>
+      </div>
+    </nav>
+    <div class="side-foot">
+      <div class="theme-picker">
+        <select aria-label="Theme">
+          <option selected>Beige theme</option>
+          <option>Dark theme</option>
+          <option>Arcade theme</option>
+        </select>
+      </div>
+      <div class="small">lin@example.com</div>
+      <div class="row between" style="margin-top: 4px;">
+        <span class="badge b-role">owner</span>
+        <button type="button" class="btn ghost sm">Sign out</button>
+      </div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="page-head">
+      <div>
+        <h1>My Agents</h1>
+        <p class="muted flush">Acme ML team scope — background content, the focus of this screen is the sidebar</p>
+      </div>
+      <button type="button" class="btn primary">+ Register agent</button>
+    </div>
+    <div class="card">
+      <table>
+        <thead>
+          <tr><th>Name</th><th>Status</th><th>Registered</th><th>Last active</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>claude-laptop</td>
+            <td><span class="badge b-active">active</span></td>
+            <td class="small">2026-07-28</td>
+            <td class="small">2026-08-03 18:42</td>
+          </tr>
+          <tr>
+            <td>ci-runner</td>
+            <td><span class="badge b-active">active</span></td>
+            <td class="small">2026-07-30</td>
+            <td class="small">2026-08-03 09:15</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="small muted">
+      Selecting another team in the switcher re-scopes this list (and every other
+      scoped view) to the newly active team.
+    </p>
+
+    <div class="mock-label">MOCK — variant: collapsed sidebar (54px)</div>
+    <p class="small muted" style="margin-top: 0;">
+      When the sidebar is collapsed, the TeamSwitcher reduces to the round team
+      avatar; the popover opens from the avatar.
+    </p>
+    <!-- Collapsed variant embedded in a demo frame so both states are visible
+         on one page (a second .shell would start below the sticky sidebar's
+         full-viewport height). -->
+    <div class="mock-frame">
+      <aside class="side collapsed">
+        <div class="side-top">
+          <button type="button" class="side-toggle" aria-expanded="false" aria-label="Expand navigation">&raquo;</button>
+        </div>
+        <!-- MOCK only usage: collapsed TeamSwitcher is just the round avatar. -->
+        <button type="button" class="team-switcher" style="justify-content: center; border: 0; padding: 8px 0;" aria-label="Switch team">
+          <span class="team-avatar round">A</span>
+        </button>
+      </aside>
+    </div>
+  </main>
+</div>
+
+</body>
+</html>

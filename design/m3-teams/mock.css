@@ -1,0 +1,232 @@
+/* Design tokens and component classes extracted from the real Human Portal
+   (web/src/styles/base.css and web/src/styles/components.css), beige default
+   theme. Class names are kept identical so these mockups can be compared
+   against the real app. Classes invented for the mockups are marked
+   "MOCK only". */
+
+:root {
+  --bg: #f6f4ef;          /* ambient warm white */
+  --surface: #fdfcf8;
+  --surface-2: #f1eee6;
+  --border: #e5e0d4;
+  --border-strong: #d6d0c0;
+  --text: #2b2822;
+  --muted: #7a7364;
+  --faint: #a39b8a;
+  --accent: #c15f3c;      /* claude terracotta */
+  --accent-hover: #a94e2e;
+  --accent-soft: #f7e9e2;
+  --ok: #3d7a52; --ok-bg: #e4efe6;
+  --warn: #8a6d1f; --warn-bg: #f6edd6;
+  --bad: #9c3d2e; --bad-bg: #f3e6e2;
+  --info: #2f5d9e; --info-bg: #e6edf8;
+  --input-bg: #fff;
+  --on-accent: #fff;
+  --secret-bg: #fffaf6;
+  --danger-border: #dfc4bc;
+  --warn-border: #e3d3a6;
+  --bad-border: #e0bfb6;
+  --accent-border: #e4cbbd;
+  --backdrop: rgba(43, 40, 34, .35);
+  --shadow: rgba(43, 40, 34, .22);
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --serif: "Charter", "Bitstream Charter", Georgia, "Times New Roman", serif;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", sans-serif;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 14px; line-height: 1.55; }
+h1, h2, h3 { font-family: var(--serif); font-weight: 600; letter-spacing: .01em; }
+h1 { font-size: 26px; margin: 0 0 4px; }
+h2 { font-size: 19px; margin: 0 0 12px; }
+h3 { font-size: 15px; margin: 18px 0 8px; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code, .mono { font-family: var(--mono); font-size: 12.5px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 5px; padding: 1px 5px; }
+.muted { color: var(--muted); } .faint { color: var(--faint); } .small { font-size: 12.5px; }
+.danger-text { color: var(--bad); }
+
+/* layout */
+.shell { display: flex; min-height: 100vh; }
+.side { width: 228px; flex: none; border-right: 1px solid var(--border); background: var(--surface); padding: 22px 14px 16px; position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; }
+.side.collapsed { width: 54px; padding: 22px 10px 16px; }
+.side-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 6px; border-bottom: 1px solid var(--border); }
+.side.collapsed .side-top { justify-content: center; border-bottom: 0; }
+.side-top .brand { flex: 1; border-bottom: 0; }
+.side-toggle { flex: none; width: 26px; height: 26px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface-2); color: var(--muted); font-size: 14px; line-height: 1; cursor: pointer; }
+.side-toggle:hover { border-color: var(--accent); color: var(--accent-hover); }
+.brand { font-family: var(--serif); font-size: 17px; font-weight: 600; padding: 0 10px 16px; border-bottom: 1px solid var(--border); }
+.brand span { color: var(--accent); }
+.nav { min-height: 0; overflow-y: auto; padding-bottom: 10px; }
+.nav-label { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--faint); padding: 12px 10px 4px; }
+.nav-group-toggle { display: flex; align-items: center; justify-content: space-between; width: 100%; border: 0; background: none; font-family: inherit; cursor: pointer; text-align: left; }
+.nav-group-toggle:hover { color: var(--text); }
+.nav-chevron { font-size: 9px; }
+.nav a { display: block; color: var(--text); padding: 7px 10px; border-radius: 8px; margin: 1px 0; }
+.nav a:hover { background: var(--surface-2); text-decoration: none; }
+.nav a.active { background: var(--accent-soft); color: var(--accent-hover); font-weight: 600; }
+.side-foot { flex: none; border-top: 1px solid var(--border); padding-top: 12px; }
+.main { flex: 1; min-width: 0; padding: 34px 40px 120px; max-width: 1000px; margin: 0 auto; }
+.page-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; gap: 16px; }
+
+/* components */
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; margin-bottom: 14px; }
+.card.flat { background: transparent; border-style: dashed; }
+.btn { display: inline-flex; align-items: center; gap: 6px; font: inherit; font-size: 13.5px; font-weight: 600; border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); border-radius: 9px; padding: 7px 14px; cursor: pointer; }
+.btn:hover { background: var(--surface-2); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.btn.primary:hover { background: var(--accent-hover); }
+.btn.danger { color: var(--bad); border-color: var(--danger-border); }
+.btn.danger:hover { background: var(--bad-bg); }
+.btn.ghost { border-color: transparent; background: transparent; color: var(--text); font-weight: 500; }
+.btn.ghost:hover { background: var(--surface-2); }
+.btn.sm { padding: 4px 10px; font-size: 12.5px; border-radius: 7px; }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+
+/* segmented control: single-choice presets rendered as one bordered group */
+.seg { display: inline-flex; border: 1px solid var(--border-strong); border-radius: 9px; overflow: hidden; background: var(--surface); }
+.seg button { font: inherit; font-size: 13px; font-weight: 600; border: 0; border-radius: 0; background: transparent; color: var(--muted); padding: 6px 12px; cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--border); }
+.seg button:hover { background: var(--surface-2); color: var(--text); }
+.seg button.on { background: var(--accent-soft); color: var(--accent-hover); }
+
+input[type=text], input[type=email], input[type=password], input[type=datetime-local], select, textarea {
+  font: inherit; font-size: 13.5px; width: 100%; padding: 8px 10px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--input-bg); color: var(--text); }
+input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+label { display: block; font-size: 12.5px; font-weight: 600; color: var(--muted); margin: 12px 0 4px; }
+.field-row { display: flex; gap: 14px; } .field-row > div { flex: 1; }
+table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+th { text-align: left; font-size: 11.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--faint); font-weight: 600; padding: 6px 10px; border-bottom: 1px solid var(--border); }
+td { padding: 9px 10px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+tr:last-child td { border-bottom: none; }
+.badge { display: inline-block; font-size: 11.5px; font-weight: 600; border-radius: 99px; padding: 2px 10px; }
+.b-active { background: var(--ok-bg); color: var(--ok); }
+.b-pending { background: var(--info-bg); color: var(--info); }
+.b-suspended { background: var(--warn-bg); color: var(--warn); }
+.b-retired, .b-removed, .b-revoked { background: var(--bad-bg); color: var(--bad); }
+.b-expired, .b-consumed, .b-accepted { background: var(--surface-2); color: var(--muted); }
+.b-role { background: var(--surface-2); color: var(--text); border: 1px solid var(--border); }
+.b-device { background: var(--info-bg); color: var(--info); }
+.b-human { background: var(--surface-2); color: var(--muted); }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); gap: 14px; }
+.row { display: flex; align-items: center; gap: 10px; }
+.between { justify-content: space-between; }
+.wrap { flex-wrap: wrap; }
+.stack { display: flex; flex-direction: column; gap: 10px; }
+.toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.toolbar select { width: auto; }
+.toolbar input[type=text] { width: min(240px, 100%); }
+.section { margin-top: 18px; }
+.flush { margin: 0; }
+
+.note { font-size: 12.5px; color: var(--muted); background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; margin: 10px 0; }
+.note.warn { background: var(--warn-bg); border-color: var(--warn-border); color: var(--warn); }
+.note.bad { background: var(--bad-bg); border-color: var(--bad-border); color: var(--bad); }
+.secret-card { border: 1.5px solid var(--accent); background: var(--secret-bg); border-radius: 12px; padding: 16px 18px; margin-bottom: 16px; }
+.secret-val { font-family: var(--mono); font-size: 13px; background: var(--surface-2); border: 1px dashed var(--border-strong); border-radius: 8px; padding: 8px 10px; word-break: break-all; margin: 8px 0; }
+.countdown { font-family: var(--mono); font-weight: 600; color: var(--accent-hover); }
+.tabs { display: flex; gap: 4px; margin-bottom: 14px; border-bottom: 1px solid var(--border); }
+.tabs button { font: inherit; font-size: 13px; border: none; background: none; padding: 8px 12px; cursor: pointer; color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.tabs button.on { color: var(--accent-hover); border-bottom-color: var(--accent); font-weight: 600; }
+.center-page { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
+.center-box { width: 420px; max-width: 100%; }
+.divider { border: none; border-top: 1px solid var(--border); margin: 18px 0; }
+
+/* theme picker (sidebar footer) */
+.theme-picker { margin: 0 0 10px; }
+.theme-picker select { width: 100%; padding: 5px 8px; font-size: 12.5px; }
+
+/* modal */
+.modal-backdrop { position: fixed; inset: 0; background: var(--backdrop); display: flex; align-items: center; justify-content: center; z-index: 50; }
+.modal { background: var(--surface); border-radius: 14px; width: 480px; max-width: 92vw; max-height: 86vh; overflow: auto; padding: 22px 24px; box-shadow: 0 18px 50px var(--shadow); }
+
+/* ------------------------------------------------------------------ */
+/* MOCK only: fixed banner identifying every page as a static mockup.  */
+/* ------------------------------------------------------------------ */
+.mock-banner {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+  background: var(--warn-bg); color: var(--warn);
+  border-bottom: 1px solid var(--warn-border);
+  font-family: var(--mono); font-size: 11.5px;
+  padding: 4px 12px; text-align: center;
+}
+/* MOCK only: reserve space for the fixed banner above normal flow. */
+body { padding-top: 26px; }
+/* MOCK only: sticky sidebar must sit below the banner. */
+.side { top: 26px; height: calc(100vh - 26px); }
+
+/* MOCK only: section labels marking tab panels / variants on one page. */
+.mock-label {
+  font-family: var(--mono); font-size: 11px; text-transform: uppercase;
+  letter-spacing: .08em; color: var(--warn);
+  border: 1px dashed var(--warn-border); border-radius: 6px;
+  display: inline-block; padding: 2px 8px; margin: 22px 0 8px;
+}
+
+/* MOCK only: annotation callout explaining an implementation note. */
+.mock-note {
+  font-size: 12.5px; color: var(--warn);
+  background: var(--warn-bg); border: 1px dashed var(--warn-border);
+  border-radius: 8px; padding: 8px 12px; margin: 10px 0;
+}
+.mock-note strong { color: var(--warn); }
+
+/* MOCK only: TeamSwitcher component. No dropdown/popover primitive exists
+   in the portal today; this is the proposed visual, placed directly under
+   the .side-top brand block. Colors use existing tokens only. */
+.team-switcher {
+  display: flex; align-items: center; gap: 9px; width: 100%;
+  border: 1px solid var(--border); border-radius: 10px;
+  background: var(--surface); padding: 8px 10px; margin: 10px 0 4px;
+  font: inherit; cursor: pointer; text-align: left;
+}
+.team-switcher:hover { border-color: var(--accent); }
+.team-switcher .team-name { flex: 1; min-width: 0; font-weight: 600; font-size: 13.5px; }
+.team-switcher .chevron { color: var(--faint); font-size: 10px; }
+.team-avatar {
+  flex: none; width: 28px; height: 28px; border-radius: 8px;
+  background: var(--accent-soft); color: var(--accent-hover);
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: 13px; font-family: var(--serif);
+}
+/* MOCK only: secondary team avatar tone (non-active teams in the popover). */
+.team-avatar.alt { background: var(--surface-2); color: var(--muted); }
+/* MOCK only: round avatar variant for the collapsed 54px sidebar. */
+.team-avatar.round { border-radius: 50%; width: 32px; height: 32px; }
+/* MOCK only: statically-rendered open popover of the TeamSwitcher. In the
+   real app this would be absolutely positioned under the button. */
+.team-pop {
+  border: 1px solid var(--border-strong); border-radius: 10px;
+  background: var(--surface); box-shadow: 0 10px 30px var(--shadow);
+  padding: 5px; margin: 2px 0 10px;
+  /* Real popovers overlay content; here the static width exceeds the sidebar
+     inner width so team names render without truncation. */
+  width: 280px;
+}
+.team-pop-row {
+  display: flex; align-items: center; gap: 9px; width: 100%;
+  border: 0; background: none; font: inherit; font-size: 13px;
+  padding: 7px 9px; border-radius: 7px; cursor: pointer; text-align: left;
+  color: var(--text);
+}
+.team-pop-row:hover { background: var(--surface-2); }
+.team-pop-row.current { background: var(--accent-soft); }
+.team-pop-row .row-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.team-pop-row .check { color: var(--accent-hover); font-weight: 700; }
+.team-pop-divider { border-top: 1px solid var(--border); margin: 5px 4px; }
+.team-pop-row .plus { color: var(--faint); width: 28px; text-align: center; flex: none; }
+
+/* MOCK only: danger-zone heading tone. */
+.danger-head { color: var(--bad); margin-top: 0; }
+
+/* MOCK only: demo frame embedding a sidebar variant inside page content. */
+.mock-frame {
+  border: 1px dashed var(--border-strong); border-radius: 10px;
+  padding: 10px; display: inline-block; background: var(--surface-2);
+}
+.mock-frame .side { position: static; height: auto; border: 1px solid var(--border); border-radius: 8px; }
+
+/* app launcher cards (extracted from web/src/styles/apps.css) */
+.app-card { display: flex; align-items: center; gap: 14px; color: var(--text); transition: border-color .15s; }
+.app-card:hover { border-color: var(--accent); text-decoration: none; }
+.app-card h3 { margin: 0 0 2px; }
+.app-card p { margin: 0; }

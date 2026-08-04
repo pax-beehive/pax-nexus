@@ -152,3 +152,92 @@ SELECT EXISTS (
 	s.Require().NoError(err)
 	s.True(uniqueExists)
 }
+
+func (s *migrationSuite) TestSaaSControlPlaneSchema() {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	schema := fmt.Sprintf("saas_control_plane_%d", time.Now().UnixNano())
+	quotedSchema := pgx.Identifier{schema}.Sanitize()
+	_, err := s.pool.Exec(ctx, "CREATE SCHEMA "+quotedSchema)
+	s.Require().NoError(err)
+	s.T().Cleanup(func() {
+		_, cleanupErr := s.pool.Exec(context.Background(), "DROP SCHEMA "+quotedSchema+" CASCADE")
+		s.NoError(cleanupErr)
+	})
+
+	config, err := pgxpool.ParseConfig(s.dsn)
+	s.Require().NoError(err)
+	config.ConnConfig.RuntimeParams["search_path"] = schema + ",public"
+	pool, err := pgxpool.NewWithConfig(ctx, config)
+	s.Require().NoError(err)
+	s.T().Cleanup(pool.Close)
+	s.Require().NoError(newStore(pool).Migrate(ctx))
+
+	for _, table := range []string{
+		"teams", "team_memberships", "team_membership_invitations", "team_human_sessions",
+		"team_agents", "team_agent_enrollments", "team_agent_credentials",
+	} {
+		var found bool
+		err := pool.QueryRow(ctx, `
+SELECT EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = $1 AND table_name = $2)`, schema, table).Scan(&found)
+		s.Require().NoError(err)
+		s.True(found, "table %s missing", table)
+	}
+
+	columns := map[string][]string{
+		"teams":                       {"team_id", "name", "slug", "created_by_user_id", "resource_version"},
+		"team_memberships":            {"membership_id", "team_id", "user_id", "role", "status", "create_idempotency_key"},
+		"team_membership_invitations": {"invitation_id", "team_id", "token_digest", "accept_idempotency_key"},
+		"team_human_sessions":         {"session_id", "user_id", "secret_digest", "current_team_id"},
+		"team_agents":                 {"agent_id", "team_id", "owner_membership_id", "creation_idempotency_key", "retire_idempotency_key"},
+		"team_agent_enrollments":      {"enrollment_id", "team_id", "membership_id", "agent_id", "revoke_idempotency_key"},
+		"team_agent_credentials":      {"credential_id", "team_id", "owner_membership_id", "agent_id", "key_digest", "revoke_idempotency_key"},
+		"onprem_audit_events":         {"scope_id"},
+	}
+	for table, expected := range columns {
+		for _, column := range expected {
+			var found bool
+			err := pool.QueryRow(ctx, `
+SELECT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = $1 AND table_name = $2 AND column_name = $3)`,
+				schema, table, column).Scan(&found)
+			s.Require().NoError(err)
+			s.True(found, "%s.%s missing", table, column)
+		}
+	}
+
+	// The audit scope column must default to the on-prem scope so existing
+	// writers stay valid without naming it.
+	var scopeDefault string
+	err = pool.QueryRow(ctx, `
+SELECT column_default FROM information_schema.columns
+WHERE table_schema = $1 AND table_name = 'onprem_audit_events' AND column_name = 'scope_id'`,
+		schema).Scan(&scopeDefault)
+	s.Require().NoError(err)
+	s.Equal("'local-team'::text", scopeDefault)
+
+	for _, index := range []struct {
+		table string
+		name  string
+	}{
+		{"teams", "teams_slug_idx"},
+		{"team_memberships", "team_memberships_live_user_team_idx"},
+		{"team_memberships", "team_memberships_create_idempotency_idx"},
+		{"team_membership_invitations", "team_invitations_accept_idempotency_idx"},
+		{"team_agents", "team_agents_owner_idempotency_idx"},
+		{"team_agent_credentials", "team_agent_credentials_owner_revoke_idempotency_idx"},
+	} {
+		var found bool
+		err := pool.QueryRow(ctx, `
+SELECT EXISTS (
+    SELECT 1 FROM pg_indexes
+    WHERE schemaname = $1 AND tablename = $2 AND indexname = $3)`,
+			schema, index.table, index.name).Scan(&found)
+		s.Require().NoError(err)
+		s.True(found, "index %s on %s missing", index.name, index.table)
+	}
+}

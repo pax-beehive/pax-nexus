@@ -333,6 +333,42 @@ struct HumanMeResponse {
   5: optional string role
   6: optional string membership_status
   7: required list<string> capabilities
+  8: optional list<TeamSummary> teams
+  9: optional string current_team_id
+}
+
+struct TeamSummary {
+  1: required string team_id
+  2: required string name
+  3: required string slug
+  4: required string role
+  5: required string membership_id
+}
+
+struct Team {
+  1: required string team_id
+  2: required string name
+  3: required string slug
+  4: required string created_at
+  5: required i64 resource_version
+}
+
+struct CreateTeamRequest {
+  1: required string name (api.body="name")
+}
+
+struct TeamResponse {
+  1: required Team team
+}
+
+struct ListTeamsRequest {}
+
+struct ListTeamsResponse {
+  1: required list<TeamSummary> teams
+}
+
+struct SwitchTeamRequest {
+  1: required string team_id (api.body="team_id")
 }
 
 struct WikiIngestionStatusRequest {}
@@ -1254,6 +1290,9 @@ service TeamMemoryService {
   EmptyResponse LogoutHuman(1: AuthLogoutRequest request) (api.post="/v1/auth/logout")
   HumanMeResponse ClaimBootstrap(1: BootstrapClaimRequest request) (api.post="/v1/bootstrap/claim")
   HumanMeResponse GetHumanMe(1: HumanMeRequest request) (api.get="/v1/me")
+  TeamResponse CreateTeam(1: CreateTeamRequest request) (api.post="/v1/teams")
+  ListTeamsResponse ListTeams(1: ListTeamsRequest request) (api.get="/v1/teams")
+  HumanMeResponse SwitchCurrentTeam(1: SwitchTeamRequest request) (api.post="/v1/me/current-team")
   WikiIngestionStatusResponse GetWikiIngestionStatus(1: WikiIngestionStatusRequest request) (api.get="/v1/wiki/ingestion")
   WikiIngestionStatusResponse UpdateWikiIngestion(1: UpdateWikiIngestionRequest request) (api.put="/v1/wiki/ingestion")
   InjectWikiSessionResponse InjectWikiSession(1: InjectWikiSessionRequest request) (api.post="/v1/wiki/sessions/:session_id/inject")

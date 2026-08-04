@@ -1,0 +1,139 @@
+/* Teams (saas profile, M3): sidebar team switcher and its popover, per
+   design/m3-teams 02. Tokens only; all three themes work through the shared
+   design-token overrides. */
+
+.team-switcher-wrap {
+  position: relative;
+}
+
+.team-switcher {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  padding: 8px 10px;
+  margin: 10px 0 4px;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.team-switcher:hover {
+  border-color: var(--accent);
+}
+.team-switcher:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.team-switcher .team-name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  font-size: 13.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.team-switcher .chevron {
+  color: var(--faint);
+  font-size: 10px;
+}
+
+/* Collapsed 54px sidebar: the button reduces to the round avatar. */
+.team-switcher.collapsed {
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  padding: 8px 0;
+}
+.team-switcher.collapsed:hover {
+  background: var(--surface-2);
+}
+
+.team-avatar {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 13px;
+  font-family: var(--serif);
+}
+/* Secondary tone for non-current teams in the popover. */
+.team-avatar.alt {
+  background: var(--surface-2);
+  color: var(--muted);
+}
+/* Round variant for the collapsed sidebar. */
+.team-avatar.round {
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+}
+
+/* Popover: absolutely positioned under the button; in the collapsed sidebar
+   it overlays the main content to the right. */
+.team-pop {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  z-index: 40;
+  width: 280px;
+  max-width: 80vw;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: 0 10px 30px var(--shadow);
+  padding: 5px;
+  margin: 2px 0 10px;
+}
+.team-pop-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  padding: 7px 9px;
+  border-radius: 7px;
+  cursor: pointer;
+  text-align: left;
+  color: var(--text);
+}
+.team-pop-row:hover {
+  background: var(--surface-2);
+}
+.team-pop-row.current {
+  background: var(--accent-soft);
+}
+.team-pop-row .row-name {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.team-pop-row .check {
+  color: var(--accent-hover);
+  font-weight: 700;
+}
+.team-pop-row .plus {
+  color: var(--faint);
+  width: 28px;
+  text-align: center;
+  flex: none;
+}
+.team-pop-divider {
+  border-top: 1px solid var(--border);
+  margin: 5px 4px;
+}

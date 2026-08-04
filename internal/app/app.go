@@ -30,10 +30,33 @@ const (
 	embeddingBackfillRetryDelay = 30 * time.Second
 )
 
+// deploymentProfile selects which control plane the process serves: the
+// single-installation on-prem profile or the multi-team SaaS profile. The
+// runtime, extraction, and storage wiring is shared; the profile decides
+// the HTTP handler construction and the authentication config rules.
+type deploymentProfile int
+
+const (
+	profileOnPrem deploymentProfile = iota
+	profileSaaS
+)
+
 // Run assembles and serves the on-prem team-memory application, blocking
 // until the HTTP server stops.
 func Run(ctx context.Context, logger *slog.Logger) error {
-	config, err := loadConfig()
+	return runProfile(ctx, logger, profileOnPrem)
+}
+
+// RunSaaS assembles and serves the multi-team SaaS team-memory application,
+// blocking until the HTTP server stops. It shares the on-prem runtime and
+// storage wiring; the delta is the SaaS control plane behind the HTTP
+// transport and per-request team scope resolution.
+func RunSaaS(ctx context.Context, logger *slog.Logger) error {
+	return runProfile(ctx, logger, profileSaaS)
+}
+
+func runProfile(ctx context.Context, logger *slog.Logger, profile deploymentProfile) error {
+	config, err := loadProfileConfig(profile)
 	if err != nil {
 		return fmt.Errorf("load service config: %w", err)
 	}
@@ -110,6 +133,7 @@ func Run(ctx context.Context, logger *slog.Logger) error {
 		usageStore,
 		config,
 		logger,
+		profile,
 	)
 	if err != nil {
 		return err
@@ -194,6 +218,15 @@ func closeExtractor(ctx context.Context, candidateExtractor extractor.Extractor)
 		return nil
 	}
 	return lifecycle.Close(ctx)
+}
+
+// loadProfileConfig loads the configuration for the selected deployment
+// profile; the profiles share every non-authentication setting.
+func loadProfileConfig(profile deploymentProfile) (applicationConfig, error) {
+	if profile == profileSaaS {
+		return loadSaaSConfig()
+	}
+	return loadConfig()
 }
 
 func wrapOptionalError(operation string, err error) error {

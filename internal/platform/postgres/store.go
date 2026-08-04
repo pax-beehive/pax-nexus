@@ -11,7 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-//go:embed migrations/001_init.sql migrations/002_temporal_notes.sql migrations/003_note_relations.sql migrations/004_extraction_latency.sql migrations/005_note_embeddings.sql migrations/006_note_identity.sql migrations/007_extraction_run_actor.sql migrations/008_extraction_run_candidates.sql migrations/009_extraction_run_result.sql migrations/010_note_identity_ref.sql migrations/011_recall_observations.sql migrations/012_extraction_episodes.sql migrations/013_recall_trace.sql migrations/014_recall_hint_deliveries.sql migrations/015_onprem_credentials.sql migrations/016_onprem_channel_envelopes.sql migrations/017_onprem_identity_registry.sql migrations/018_onprem_operations.sql migrations/019_onprem_device_provisioning.sql migrations/020_pagewiki_session_consumer.sql migrations/021_evidence_streams.sql migrations/022_pagewiki_topic_trees.sql migrations/023_todoapp.sql migrations/024_pagewiki_generation_settings.sql migrations/025_llm_usage_events.sql migrations/026_pagewiki_curation.sql migrations/027_pagewiki_type_registry.sql migrations/028_session_audit.sql
+//go:embed migrations/001_init.sql migrations/002_temporal_notes.sql migrations/003_note_relations.sql migrations/004_extraction_latency.sql migrations/005_note_embeddings.sql migrations/006_note_identity.sql migrations/007_extraction_run_actor.sql migrations/008_extraction_run_candidates.sql migrations/009_extraction_run_result.sql migrations/010_note_identity_ref.sql migrations/011_recall_observations.sql migrations/012_extraction_episodes.sql migrations/013_recall_trace.sql migrations/014_recall_hint_deliveries.sql migrations/015_onprem_credentials.sql migrations/016_onprem_channel_envelopes.sql migrations/017_onprem_identity_registry.sql migrations/018_onprem_operations.sql migrations/019_onprem_device_provisioning.sql migrations/020_pagewiki_session_consumer.sql migrations/021_evidence_streams.sql migrations/022_pagewiki_topic_trees.sql migrations/023_todoapp.sql migrations/024_pagewiki_generation_settings.sql migrations/025_llm_usage_events.sql migrations/026_pagewiki_curation.sql migrations/027_pagewiki_type_registry.sql migrations/028_session_audit.sql migrations/029_saas_control_plane.sql
 var migrations embed.FS
 
 const migrationAdvisoryLockName = "pax-nexus.platform-postgres.migrate"
@@ -30,14 +30,17 @@ const migrationAdvisoryLockName = "pax-nexus.platform-postgres.migrate"
 const schemaAdvisoryLockName = "pax-nexus.platform-postgres.schema"
 
 type Store struct {
-	pool           *pgxpool.Pool
-	operationsPool *pgxpool.Pool
-	sessions       *SessionRepository
-	episodes       *EpisodeStore
-	credentials    *CredentialStore
-	channel        *ChannelStore
-	identity       *IdentityStore
-	registry       *RegistryStore
+	pool            *pgxpool.Pool
+	operationsPool  *pgxpool.Pool
+	sessions        *SessionRepository
+	episodes        *EpisodeStore
+	credentials     *CredentialStore
+	channel         *ChannelStore
+	identity        *IdentityStore
+	registry        *RegistryStore
+	saasIdentity    *SaaSIdentityStore
+	saasRegistry    *SaaSRegistryStore
+	saasCredentials *SaaSCredentialStore
 }
 
 func Open(ctx context.Context, dsn string) (*Store, error) {
@@ -80,13 +83,16 @@ func Open(ctx context.Context, dsn string) (*Store, error) {
 
 func newStore(pool *pgxpool.Pool) *Store {
 	return &Store{
-		pool:        pool,
-		sessions:    &SessionRepository{pool: pool},
-		episodes:    &EpisodeStore{pool: pool},
-		credentials: &CredentialStore{pool: pool},
-		channel:     &ChannelStore{pool: pool},
-		identity:    &IdentityStore{pool: pool},
-		registry:    &RegistryStore{pool: pool},
+		pool:            pool,
+		sessions:        &SessionRepository{pool: pool},
+		episodes:        &EpisodeStore{pool: pool},
+		credentials:     &CredentialStore{pool: pool},
+		channel:         &ChannelStore{pool: pool},
+		identity:        &IdentityStore{pool: pool},
+		registry:        &RegistryStore{pool: pool},
+		saasIdentity:    &SaaSIdentityStore{pool: pool},
+		saasRegistry:    &SaaSRegistryStore{pool: pool},
+		saasCredentials: &SaaSCredentialStore{pool: pool},
 	}
 }
 
@@ -123,6 +129,22 @@ func (s *Store) Identity() *IdentityStore {
 
 func (s *Store) Registry() *RegistryStore {
 	return s.registry
+}
+
+// SaaSIdentity returns the multi-team control plane store for teams,
+// team memberships and invitations, and team human sessions.
+func (s *Store) SaaSIdentity() *SaaSIdentityStore {
+	return s.saasIdentity
+}
+
+// SaaSRegistry returns the per-team agent registry store.
+func (s *Store) SaaSRegistry() *SaaSRegistryStore {
+	return s.saasRegistry
+}
+
+// SaaSCredentials returns the team agent enrollment/credential store.
+func (s *Store) SaaSCredentials() *SaaSCredentialStore {
+	return s.saasCredentials
 }
 
 // Operations returns an operations read-model store bound to the given
@@ -228,6 +250,7 @@ func (s *Store) Migrate(ctx context.Context) (resultErr error) {
 		"migrations/026_pagewiki_curation.sql",
 		"migrations/027_pagewiki_type_registry.sql",
 		"migrations/028_session_audit.sql",
+		"migrations/029_saas_control_plane.sql",
 	} {
 		migration, err := migrations.ReadFile(path)
 		if err != nil {

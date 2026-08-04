@@ -13,7 +13,20 @@ import (
 	api "github.com/pax-beehive/pax-nexus/internal/teamnote/transport/httpapi/model/teammemory/api"
 )
 
+// requireChannel answers 501 when no channel lifecycle is wired (the SaaS
+// profile has no channel surface), matching the unwired-registry pattern.
+func (h *Handler) requireChannel(c *app.RequestContext) bool {
+	if h.channel == nil {
+		c.String(consts.StatusNotImplemented, "channel is not configured")
+		return false
+	}
+	return true
+}
+
 func (h *Handler) SendChannelEnvelope(ctx context.Context, c *app.RequestContext) {
+	if !h.requireChannel(c) {
+		return
+	}
 	startedAt := time.Now().UTC()
 	principal, ok, authorizationCode := h.authorizeAgent(ctx, c, onprem.PermissionChannelSend)
 	if !ok {
@@ -66,6 +79,9 @@ func (h *Handler) SendChannelEnvelope(ctx context.Context, c *app.RequestContext
 }
 
 func (h *Handler) ListChannelEnvelopes(ctx context.Context, c *app.RequestContext) {
+	if !h.requireChannel(c) {
+		return
+	}
 	permission := onprem.PermissionChannelReceive
 	direction := strings.TrimSpace(string(c.QueryArgs().Peek("direction")))
 	if direction == onprem.EnvelopeDirectionSent {
@@ -97,6 +113,9 @@ func (h *Handler) ListChannelEnvelopes(ctx context.Context, c *app.RequestContex
 }
 
 func (h *Handler) GetChannelEnvelope(ctx context.Context, c *app.RequestContext) {
+	if !h.requireChannel(c) {
+		return
+	}
 	principal, ok := h.authorize(ctx, c, onprem.PermissionChannelReceive)
 	if !ok {
 		return
@@ -141,6 +160,9 @@ func (h *Handler) updateChannelEnvelope(
 	kind operations.Kind,
 	update func(context.Context, onprem.Principal, string) (onprem.ChannelEnvelope, error),
 ) {
+	if !h.requireChannel(c) {
+		return
+	}
 	startedAt := time.Now().UTC()
 	principal, ok, authorizationCode := h.authorizeAgent(ctx, c, onprem.PermissionChannelReceive)
 	if !ok {

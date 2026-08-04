@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>03 — Team settings</title>
+<link rel="stylesheet" href="mock.css">
+</head>
+<body>
+<div class="mock-banner">MOCK — screen 03 · team-settings — design/m3-teams (static, no backend)</div>
+
+<div class="shell">
+  <aside class="side">
+    <div class="side-top">
+      <div class="brand">Team Memory <span>Portal</span></div>
+      <button type="button" class="side-toggle" aria-expanded="true" aria-label="Collapse navigation">&laquo;</button>
+    </div>
+
+    <!-- TeamSwitcher, closed state (see 02-team-switcher.html for the open popover). -->
+    <button type="button" class="team-switcher" aria-expanded="false">
+      <span class="team-avatar">A</span>
+      <span class="team-name">Acme ML</span>
+      <span class="badge b-role">owner</span>
+      <span class="chevron" aria-hidden="true">&#9662;</span>
+    </button>
+
+    <nav class="nav" aria-label="Portal navigation">
+      <div class="nav-group">
+        <button type="button" class="nav-label nav-group-toggle" aria-expanded="true">
+          <span>Personal</span><span class="nav-chevron" aria-hidden="true">&#9662;</span>
+        </button>
+        <a href="#">My Agents</a>
+      </div>
+      <div class="nav-group">
+        <button type="button" class="nav-label nav-group-toggle" aria-expanded="true">
+          <span>Knowledge</span><span class="nav-chevron" aria-hidden="true">&#9662;</span>
+        </button>
+        <a href="#">Apps</a>
+      </div>
+      <div class="nav-group">
+        <button type="button" class="nav-label nav-group-toggle" aria-expanded="true">
+          <span>Directory</span><span class="nav-chevron" aria-hidden="true">&#9662;</span>
+        </button>
+        <a href="#">Members</a>
+        <a href="#">Invitations</a>
+        <a href="#" class="active">Team settings</a>
+      </div>
+    </nav>
+    <div class="side-foot">
+      <div class="theme-picker">
+        <select aria-label="Theme">
+          <option selected>Beige theme</option>
+          <option>Dark theme</option>
+          <option>Arcade theme</option>
+        </select>
+      </div>
+      <div class="small">lin@example.com</div>
+      <div class="row between" style="margin-top: 4px;">
+        <span class="badge b-role">owner</span>
+        <button type="button" class="btn ghost sm">Sign out</button>
+      </div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="page-head">
+      <div>
+        <h1>Team settings</h1>
+        <p class="muted flush">Acme ML &middot; 4 members</p>
+      </div>
+    </div>
+
+    <div class="tabs" role="tablist">
+      <button type="button" class="on" role="tab" aria-selected="true">General</button>
+      <button type="button" role="tab" aria-selected="false">Members</button>
+      <button type="button" role="tab" aria-selected="false">Invitations</button>
+    </div>
+
+    <!-- All three tab panels are rendered stacked in this mock so a single
+         page shows everything; each is preceded by a MOCK section label. -->
+
+    <div class="mock-label">MOCK — tab panel: General</div>
+    <div class="card">
+      <h2 class="flush">General</h2>
+      <table>
+        <tbody>
+          <tr><th style="width: 140px; border-bottom: 1px solid var(--border);">Team name</th><td>Acme ML</td></tr>
+          <tr><th style="border-bottom: 1px solid var(--border);">Slug</th><td class="mono small">acme-ml</td></tr>
+          <tr><th style="border-bottom: 1px solid var(--border);">Created</th><td>2026-07-28</td></tr>
+          <tr><th style="border-bottom: none;">Your role</th><td><span class="badge b-role">owner</span></td></tr>
+        </tbody>
+      </table>
+      <div style="margin-top: 12px;">
+        <button type="button" class="btn">Rename team</button>
+      </div>
+    </div>
+    <div class="card" style="border-color: var(--bad-border);">
+      <h2 class="danger-head flush">Danger zone</h2>
+      <div class="row between wrap">
+        <div>
+          <b>Delete team</b>
+          <p class="small muted flush">Deletes all agents, credentials, and stored knowledge in this team. This cannot be undone.</p>
+        </div>
+        <button type="button" class="btn danger">Delete team</button>
+      </div>
+      <div class="mock-note" style="margin-bottom: 0;">
+        <strong>owner only</strong> — the button is hidden for admins and members;
+        the backend still rejects non-owner delete requests.
+      </div>
+    </div>
+
+    <div class="mock-label">MOCK — tab panel: Members</div>
+    <div class="card">
+      <h2 class="flush">Members</h2>
+      <table>
+        <thead>
+          <tr><th>Member</th><th>Role</th><th>Status</th><th>Joined</th><th></th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>lin@example.com <span class="faint small">(you)</span></td>
+            <td><span class="badge b-role">owner</span></td>
+            <td><span class="badge b-active">active</span></td>
+            <td class="small">2026-07-28</td>
+            <td><button type="button" class="btn sm">Edit</button></td>
+          </tr>
+          <tr>
+            <td>priya@example.com</td>
+            <td><span class="badge b-role">admin</span></td>
+            <td><span class="badge b-active">active</span></td>
+            <td class="small">2026-07-29</td>
+            <td><button type="button" class="btn sm">Edit</button></td>
+          </tr>
+          <tr>
+            <td>mateo@example.com</td>
+            <td><span class="badge b-role">member</span></td>
+            <td><span class="badge b-active">active</span></td>
+            <td class="small">2026-07-31</td>
+            <td><button type="button" class="btn sm">Edit</button></td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="note small">
+        The team always keeps at least one active owner; the server rejects changes that
+        break this constraint. Suspending a member revokes their agent credentials in this team only.
+      </div>
+    </div>
+
+    <!-- Statically rendered "Edit member" modal: real chrome (.modal) rendered
+         inline without .modal-backdrop so it is visible on the page. -->
+    <div class="mock-label">MOCK — statically rendered open modal: Edit member</div>
+    <div class="modal" style="max-width: 480px;">
+      <h2 class="flush">Edit priya@example.com</h2>
+      <div class="field-row">
+        <div>
+          <label for="em-role">role</label>
+          <select id="em-role">
+            <option>owner</option>
+            <option selected>admin</option>
+            <option>member</option>
+          </select>
+        </div>
+        <div>
+          <label for="em-status">status</label>
+          <select id="em-status">
+            <option selected>active</option>
+            <option>suspended</option>
+            <option>removed</option>
+          </select>
+        </div>
+      </div>
+      <div class="note small">
+        Role changes apply to this team only; the user's roles in other teams are unaffected.
+      </div>
+      <div class="row" style="justify-content: flex-end;">
+        <button type="button" class="btn ghost">Cancel</button>
+        <button type="button" class="btn primary">Save</button>
+      </div>
+    </div>
+
+    <div class="mock-label">MOCK — tab panel: Invitations</div>
+    <div class="card">
+      <div class="row between">
+        <h2 class="flush">Invitations</h2>
+        <button type="button" class="btn primary sm">+ Create invitation</button>
+      </div>
+      <table>
+        <thead>
+          <tr><th>Email</th><th>Role</th><th>Status</th><th>Created</th><th></th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>sana@example.com</td>
+            <td><span class="badge b-role">member</span></td>
+            <td><span class="badge b-pending">pending</span></td>
+            <td class="small">2026-08-02</td>
+            <td><button type="button" class="btn danger sm">Revoke</button></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Statically rendered "Invitation created" one-time-secret state. -->
+    <div class="mock-label">MOCK — statically rendered state: Invitation created</div>
+    <div class="secret-card">
+      <div class="row between">
+        <strong>Invitation created — the token is shown only once</strong>
+      </div>
+      <div class="secret-val">https://app.example.com/join#invite=tm_invite_inv_01.8f3k29dmc4pqa7x0</div>
+      <div class="row wrap">
+        <button type="button" class="btn primary sm">Copy Join URL</button>
+        <button type="button" class="btn ghost sm">I've saved it, close</button>
+      </div>
+      <div class="note warn small" style="margin-bottom: 0;">
+        The token lives in the URL fragment (<code>#invite=</code>) and never reaches server access
+        logs or the Referer header. If the token is lost, revoke the invitation and create a new one.
+      </div>
+    </div>
+
+  </main>
+</div>
+
+</body>
+</html>

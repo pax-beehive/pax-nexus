@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/pax-beehive/pax-nexus/internal/audit"
 	"github.com/pax-beehive/pax-nexus/internal/deployment/onprem"
 	"github.com/pax-beehive/pax-nexus/internal/evidencelake"
@@ -38,6 +39,8 @@ func buildPageWikiHTTPHandler(
 	usageStore *postgres.LLMUsageStore,
 	config applicationConfig,
 	logger *slog.Logger,
+	profile deploymentProfile,
+	saasServices *saasIdentityServices,
 ) (*pagewikihttp.Handler, *pagewiki.ServiceManager, *sessionconsumer.Controller, handler.WikiSettings, error) {
 	treeMaxDepth, err := parseTreeMaxDepth(config.llmwikiTreeMaxDepth)
 	if err != nil {
@@ -53,14 +56,22 @@ func buildPageWikiHTTPHandler(
 	if err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("initialize Page Wiki repository: %w", err)
 	}
-	// Eagerly hydrate the on-prem scope at boot, preserving today's
-	// hydrate-at-boot fail-fast behavior. The session consumer, and the Page
-	// Wiki HTTP transport below, both resolve every request's scope through
-	// the managers; this eager call only exists to fail fast at startup and
-	// pre-warm the manager cache so the transport's per-request resolution
-	// below is a cache hit.
-	if _, err := repositoryManager.ForScope(ctx, onprem.LocalScopeID); err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("initialize Page Wiki repository: %w", err)
+	// The SaaS profile resolves every request's team from its authenticated
+	// principal; the on-prem profile keeps the single pinned scope, including
+	// the hydrate-at-boot fail-fast behavior below.
+	resolveScope := onPremWikiScope
+	if profile == profileSaaS {
+		resolveScope = saasWikiScopeResolver(saasServices)
+	} else {
+		// Eagerly hydrate the on-prem scope at boot, preserving today's
+		// hydrate-at-boot fail-fast behavior. The session consumer, and the Page
+		// Wiki HTTP transport below, both resolve every request's scope through
+		// the managers; this eager call only exists to fail fast at startup and
+		// pre-warm the manager cache so the transport's per-request resolution
+		// below is a cache hit.
+		if _, err := repositoryManager.ForScope(ctx, onprem.LocalScopeID); err != nil {
+			return nil, nil, nil, nil, fmt.Errorf("initialize Page Wiki repository: %w", err)
+		}
 	}
 	planner, editor, navigator, curator, err := buildPageWikiMaintainers(usageStore, config, logger)
 	if err != nil {
@@ -88,10 +99,12 @@ func buildPageWikiHTTPHandler(
 	if err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("initialize Page Wiki service manager: %w", err)
 	}
-	// Same eager-hydrate/fail-fast/cache-warm rationale as the repository
-	// above.
-	if _, err := serviceManager.ForScope(ctx, onprem.LocalScopeID); err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("initialize Page Wiki service: %w", err)
+	if profile != profileSaaS {
+		// Same eager-hydrate/fail-fast/cache-warm rationale as the repository
+		// above.
+		if _, err := serviceManager.ForScope(ctx, onprem.LocalScopeID); err != nil {
+			return nil, nil, nil, nil, fmt.Errorf("initialize Page Wiki service: %w", err)
+		}
 	}
 	consumerStore, err := postgres.NewPageWikiConsumerStore(store.Pool())
 	if err != nil {
@@ -112,17 +125,21 @@ func buildPageWikiHTTPHandler(
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
-	// The transport resolves its injector/reader pair fresh on every
-	// request through the managers above, pinned to the on-prem scope; this
-	// is the deliberate Phase 2 profile pin. Per-request tenant resolution
-	// on this transport arrives with Phase 3 auth.
+	// The transport resolves its injector/reader pair fresh on every request
+	// through the managers above. On-prem the scope resolver pins the on-prem
+	// scope; the SaaS profile authenticates the request (human session or
+	// agent credential) and resolves its team (see saasWikiScopeResolver).
 	configured, err := pagewikihttp.New(
-		func(ctx context.Context) (pagewikihttp.Injector, pagewikihttp.Reader, error) {
-			service, err := serviceManager.ForScope(ctx, onprem.LocalScopeID)
+		func(ctx context.Context, request *app.RequestContext) (pagewikihttp.Injector, pagewikihttp.Reader, error) {
+			scopeID, err := resolveScope(ctx, request)
 			if err != nil {
 				return nil, nil, err
 			}
-			repository, err := repositoryManager.ForScope(ctx, onprem.LocalScopeID)
+			service, err := serviceManager.ForScope(ctx, scopeID)
+			if err != nil {
+				return nil, nil, err
+			}
+			repository, err := repositoryManager.ForScope(ctx, scopeID)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -348,9 +365,18 @@ func buildApplicationHTTPHandlers(
 	usageStore *postgres.LLMUsageStore,
 	config applicationConfig,
 	logger *slog.Logger,
+	profile deploymentProfile,
 ) (*applicationServices, error) {
+	var saasServices *saasIdentityServices
+	if profile == profileSaaS {
+		var err error
+		saasServices, err = buildSaaSIdentityServices(ctx, store, config)
+		if err != nil {
+			return nil, err
+		}
+	}
 	pageHandler, wikiServices, wikiControl, wikiSettings, err := buildPageWikiHTTPHandler(
-		ctx, store, embedder, usageStore, config, logger,
+		ctx, store, embedder, usageStore, config, logger, profile, saasServices,
 	)
 	if err != nil {
 		return nil, err
@@ -359,22 +385,29 @@ func buildApplicationHTTPHandlers(
 	if err != nil {
 		return nil, err
 	}
-	teamHandler, identity, err := buildHTTPHandler(
-		ctx,
-		runtime,
-		store,
-		operationRecorder,
-		usageStore,
-		config,
-		logger,
-		wikiControl,
-		wikiSettings,
-		auditStore,
-	)
-	if err != nil {
-		return nil, err
+	var teamHandler *handler.Handler
+	var authenticator todoapphttp.HumanAuthenticator
+	if profile == profileSaaS {
+		teamHandler, err = buildSaaSHTTPHandler(
+			ctx, runtime, store, operationRecorder, usageStore, config, logger,
+			wikiControl, wikiSettings, auditStore, saasServices,
+		)
+		if err != nil {
+			return nil, err
+		}
+		authenticator = saasServices.controlPlane
+	} else {
+		var identity *onprem.IdentityService
+		teamHandler, identity, err = buildHTTPHandler(
+			ctx, runtime, store, operationRecorder, usageStore, config, logger,
+			wikiControl, wikiSettings, auditStore,
+		)
+		if err != nil {
+			return nil, err
+		}
+		authenticator = todoAuthenticator(identity)
 	}
-	todoHandler, startTodoRefresh, err := buildTodoApp(ctx, store, lake, usageStore, identity, config, logger)
+	todoHandler, startTodoRefresh, err := buildTodoApp(ctx, store, lake, usageStore, authenticator, config, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -388,8 +421,8 @@ func buildApplicationHTTPHandlers(
 // buildTodoApp wires the Todo App domain service, its Postgres-backed
 // repository and note directory, its evidence-lake reporter, an optional LLM
 // rewriter reusing the LLMWIKI_LLM_* configuration, and the HTTP transport.
-// identity may be nil (legacy API-key mode); the transport then answers 501
-// for every route. The background suggestion-refresh scheduler is returned
+// authenticator may be nil (legacy API-key mode); the transport then answers
+// 501 for every route. The background suggestion-refresh scheduler is returned
 // as a deferred start closure so Run launches it only after every build step
 // has succeeded.
 func buildTodoApp(
@@ -397,7 +430,7 @@ func buildTodoApp(
 	store *postgres.Store,
 	lake *evidencelake.Lake,
 	usageStore *postgres.LLMUsageStore,
-	identity *onprem.IdentityService,
+	authenticator todoapphttp.HumanAuthenticator,
 	config applicationConfig,
 	logger *slog.Logger,
 ) (*todoapphttp.Handler, func(context.Context) func(), error) {
@@ -423,7 +456,7 @@ func buildTodoApp(
 	if err != nil {
 		return nil, nil, fmt.Errorf("initialize Todo App service: %w", err)
 	}
-	configured, err := todoapphttp.New(service, todoAuthenticator(identity), todoapphttp.WithLogger(logger))
+	configured, err := todoapphttp.New(service, authenticator, todoapphttp.WithLogger(logger))
 	if err != nil {
 		return nil, nil, fmt.Errorf("initialize Todo App HTTP handler: %w", err)
 	}

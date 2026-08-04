@@ -2,9 +2,11 @@ import { useState } from "react";
 import { matchPath, NavLink, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { can, hasServerCapability, type Capability } from "../lib/capabilities";
+import { hasTeams } from "../lib/teams";
 import { peekPendingInvitation, peekReturnUrl } from "../lib/continuations";
 import { RoleBadge } from "../components/Badge";
 import { Button } from "../components/Button";
+import { TeamSwitcher } from "../components/TeamSwitcher";
 import { THEMES, THEME_LABELS, useTheme, type Theme } from "../lib/theme";
 import { ErrorBoundary } from "../components/ErrorBoundary";
 import { useToast } from "../components/Toasts";
@@ -25,6 +27,7 @@ import { AdminExplorerPage } from "./AdminExplorerPage";
 import { AdminTeamNoteDetailPage } from "./AdminTeamNoteDetailPage";
 import { WikiStatusPage } from "./WikiStatusPage";
 import { AppsPage } from "./AppsPage";
+import { TeamSettingsPage } from "./TeamSettingsPage";
 
 function navClass({ isActive }: { isActive: boolean }): string {
   return isActive ? "active" : "";
@@ -119,6 +122,8 @@ export function PortalShell({ me }: { me: HumanMe }) {
   const navigate = useNavigate();
   const location = useLocation();
   const adminLike = can(me.role, "view.members");
+  // SaaS profile: the principal carries its team list on /v1/me.
+  const saas = hasTeams(me);
   const [theme, setTheme] = useTheme();
   const [sideCollapsed, setSideCollapsed] = useState(
     () => localStorage.getItem(SIDE_COLLAPSED_KEY) === "1",
@@ -133,16 +138,25 @@ export function PortalShell({ me }: { me: HumanMe }) {
     },
     { id: "knowledge", label: "Knowledge", items: [{ to: "/apps", label: "Apps" }] },
   ];
+  if (saas || adminLike) {
+    // Team settings is visible to every team member in saas; the member /
+    // invitation admin pages stay role-gated.
+    groups.push({
+      id: "directory",
+      label: "Directory",
+      items: [
+        ...(saas ? [{ to: "/team", label: "Team settings" }] : []),
+        ...(adminLike
+          ? [
+              { to: "/admin/members", label: "Members" },
+              { to: "/admin/invitations", label: "Invitations" },
+            ]
+          : []),
+      ],
+    });
+  }
   if (adminLike) {
     groups.push(
-      {
-        id: "directory",
-        label: "Directory",
-        items: [
-          { to: "/admin/members", label: "Members" },
-          { to: "/admin/invitations", label: "Invitations" },
-        ],
-      },
       {
         id: "fleet",
         label: "Fleet",
@@ -223,6 +237,9 @@ export function PortalShell({ me }: { me: HumanMe }) {
             {sideCollapsed ? "»" : "«"}
           </button>
         </div>
+        {/* SaaS only: team switcher sits directly under the brand block and
+            stays visible (avatar-only) when the sidebar is collapsed. */}
+        {saas && <TeamSwitcher me={me} collapsed={sideCollapsed} />}
         {!sideCollapsed && (
           <>
         <nav className="nav" aria-label="Portal navigation">
@@ -279,9 +296,11 @@ export function PortalShell({ me }: { me: HumanMe }) {
       <main className="main">
         {/* Route-level boundary: a failing route keeps the shell and nav
             usable. Keying by pathname remounts the boundary on navigation,
-            so moving to another route always recovers the content area. */}
+            so moving to another route always recovers the content area.
+            Keying by current team remounts scoped pages after a team switch,
+            so every view refetches against the newly active team. */}
         <ErrorBoundary
-          key={location.pathname}
+          key={`${location.pathname}:${me.current_team_id ?? ""}`}
           region="route"
           escapeLabel="Back to My Agents"
           onEscape={() => navigate("/agents")}
@@ -291,6 +310,7 @@ export function PortalShell({ me }: { me: HumanMe }) {
             <Route path="/agents/:agentId" element={<AgentDetailPage />} />
             <Route path="/apps" element={<AppsPage />} />
             <Route path="/wiki" element={<WikiStatusPage me={me} />} />
+            {saas && <Route path="/team" element={<TeamSettingsPage me={me} />} />}
             <Route
               path="/admin/members"
               element={
