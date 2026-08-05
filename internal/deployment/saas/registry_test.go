@@ -495,7 +495,7 @@ func (s *registrySuite) TestListExpiringEnrollmentsRequiresOwnerOrAdmin() {
 
 	s.Run("owner is allowed and the call is team-scoped", func() {
 		before := s.now.Add(24 * time.Hour)
-		s.credentials.EXPECT().ListExpiringEnrollments(gomock.Any(), "team_alpha", before, 20).
+		s.credentials.EXPECT().ListExpiringEnrollments(gomock.Any(), "team_alpha", before, s.now, 20).
 			Return([]onprem.AgentEnrollmentMetadata{{EnrollmentID: "enrollment-1"}}, nil)
 		result, err := s.service.ListExpiringEnrollments(context.Background(), ownerPrincipal(), before, 20)
 		s.Require().NoError(err)

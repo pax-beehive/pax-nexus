@@ -372,6 +372,7 @@ func (s *SaaSCredentialStore) ListExpiringEnrollments(
 	ctx context.Context,
 	teamID string,
 	before time.Time,
+	now time.Time,
 	limit int,
 ) ([]onprem.AgentEnrollmentMetadata, error) {
 	rows, err := s.pool.Query(ctx, `
@@ -382,7 +383,7 @@ func (s *SaaSCredentialStore) ListExpiringEnrollments(
 			       CASE
 			           WHEN consumed_at IS NOT NULL THEN 'consumed'
 			           WHEN revoked_at IS NOT NULL THEN 'revoked'
-			           WHEN expires_at <= $2 THEN 'expired'
+			           WHEN expires_at <= $3 THEN 'expired'
 			           ELSE 'pending'
 			       END AS status
 			FROM team_agent_enrollments enrollments
@@ -390,8 +391,8 @@ func (s *SaaSCredentialStore) ListExpiringEnrollments(
 		) team_enrollments
 		WHERE consumed_at IS NULL AND revoked_at IS NULL AND expires_at < $2
 		ORDER BY expires_at ASC, enrollment_id ASC
-		LIMIT $3
-	`, teamID, before, limit)
+		LIMIT $4
+	`, teamID, before, now, limit)
 	if err != nil {
 		return nil, fmt.Errorf("query postgres team expiring enrollments: %w", err)
 	}

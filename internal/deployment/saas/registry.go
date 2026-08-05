@@ -531,7 +531,7 @@ func (s *Registry) ListExpiringEnrollments(
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
-	result, err := s.credentials.ListExpiringEnrollments(ctx, principal.ScopeID, before, limit)
+	result, err := s.credentials.ListExpiringEnrollments(ctx, principal.ScopeID, before, s.clock().UTC(), limit)
 	if err != nil {
 		return nil, fmt.Errorf("list team expiring enrollments: %w", err)
 	}

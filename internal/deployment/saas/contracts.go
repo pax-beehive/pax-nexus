@@ -200,6 +200,9 @@ type TeamCredentialStore interface {
 	// ListExpiringEnrollments returns pending enrollments across the whole
 	// team whose token expires before the cutoff, soonest first, scoped by
 	// team_id — the multi-tenant counterpart of
-	// onprem.RegistryStore.ListExpiringEnrollments.
-	ListExpiringEnrollments(ctx context.Context, teamID string, before time.Time, limit int) ([]onprem.AgentEnrollmentMetadata, error)
+	// onprem.RegistryStore.ListExpiringEnrollments. `now` is the status
+	// baseline (matching ListOwnedEnrollments' convention): the CASE
+	// compares expires_at against `now`, never against `before`, so a
+	// still-pending row inside the lookahead window is reported 'pending'.
+	ListExpiringEnrollments(ctx context.Context, teamID string, before time.Time, now time.Time, limit int) ([]onprem.AgentEnrollmentMetadata, error)
 }

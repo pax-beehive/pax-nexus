@@ -58,7 +58,11 @@ func (s *identityRegistryStoreSuite) insertActiveUserWithMembership(label string
 // internal/deployment/onprem/registry_test.go). It asserts the method is
 // team-wide (spans two different owning memberships, unlike the
 // owner-scoped ListOwnedEnrollments), excludes consumed/revoked/out-of-range
-// rows, and orders soonest-expiry first.
+// rows, orders soonest-expiry first, and — the status baseline bug this test
+// was extended to catch — reports a row that hasn't actually expired yet
+// (expires_at is after `now` but before the lookahead cutoff `before`) as
+// 'pending', not 'expired'. A row already past `now` is still included (it's
+// within the lookahead window) but correctly reported 'expired'.
 func (s *identityRegistryStoreSuite) TestListExpiringEnrollmentsIsTeamWideAndFiltersLifecycleState() {
 	ctx := context.Background()
 	registry := s.store.Registry()
@@ -85,12 +89,19 @@ func (s *identityRegistryStoreSuite) TestListExpiringEnrollmentsIsTeamWideAndFil
 	}
 
 	// soonB and soonA belong to different owning memberships (team-wide, not
-	// owner-scoped) and both fall inside the cutoff window: they must both
-	// appear, soonest expiry first regardless of which membership owns them.
+	// owner-scoped), have not actually expired yet (expires_at is after
+	// `now`), and both fall inside the cutoff window: they must both appear,
+	// soonest expiry first, with status 'pending' — not 'expired'.
 	soonB := newRecord("soon-b", userB, membershipB, now.Add(2*time.Hour))
 	s.Require().NoError(registry.CreateDeviceEnrollment(ctx, membershipB, soonB))
 	soonA := newRecord("soon-a", userA, membershipA, now.Add(1*time.Hour))
 	s.Require().NoError(registry.CreateDeviceEnrollment(ctx, membershipA, soonA))
+
+	// alreadyExpired is already past `now` (expires_at is in the past) but
+	// still inside the lookahead window relative to `cutoff`: it must appear
+	// (it's unconsumed and unrevoked) and be reported status 'expired'.
+	alreadyExpired := newRecord("already-expired", userA, membershipA, now.Add(-1*time.Hour))
+	s.Require().NoError(registry.CreateDeviceEnrollment(ctx, membershipA, alreadyExpired))
 
 	// consumedSoon is inside the cutoff window but already claimed: must be
 	// excluded even though its expiry alone would qualify it.
@@ -113,18 +124,26 @@ func (s *identityRegistryStoreSuite) TestListExpiringEnrollmentsIsTeamWideAndFil
 	outOfRange := newRecord("out-of-range", userA, membershipA, now.Add(100*time.Hour))
 	s.Require().NoError(registry.CreateDeviceEnrollment(ctx, membershipA, outOfRange))
 
-	results, err := registry.ListExpiringEnrollments(ctx, cutoff, 500)
+	results, err := registry.ListExpiringEnrollments(ctx, cutoff, now, 500)
 	s.Require().NoError(err)
 
-	var ids []string
+	type idStatus struct {
+		id     string
+		status string
+	}
+	var matches []idStatus
 	for _, result := range results {
 		if result.EnrollmentID == soonA.ID || result.EnrollmentID == soonB.ID ||
-			result.EnrollmentID == consumedSoon.ID || result.EnrollmentID == revokedSoon.ID ||
-			result.EnrollmentID == outOfRange.ID {
-			ids = append(ids, result.EnrollmentID)
+			result.EnrollmentID == alreadyExpired.ID || result.EnrollmentID == consumedSoon.ID ||
+			result.EnrollmentID == revokedSoon.ID || result.EnrollmentID == outOfRange.ID {
+			matches = append(matches, idStatus{id: result.EnrollmentID, status: result.Status})
 		}
 	}
-	s.Equal([]string{soonA.ID, soonB.ID}, ids, "expects only the two pending, in-range enrollments, soonest first")
+	s.Equal([]idStatus{
+		{id: alreadyExpired.ID, status: "expired"},
+		{id: soonA.ID, status: "pending"},
+		{id: soonB.ID, status: "pending"},
+	}, matches, "expects only the pending/expired, in-range enrollments, soonest expiry first, with correct status")
 }
 
 func (s *identityRegistryStoreSuite) TestOwnedAgentMutationsDisambiguateZeroRowConflicts() {

@@ -753,7 +753,7 @@ func (s *registryStore) ListOwnedEnrollments(
 // order, status derivation, scope isolation) is covered against Postgres in
 // internal/platform/postgres/identity_registry_test.go.
 func (s *registryStore) ListExpiringEnrollments(
-	_ context.Context, _ time.Time, _ int,
+	_ context.Context, _ time.Time, _ time.Time, _ int,
 ) ([]onprem.AgentEnrollmentMetadata, error) {
 	return nil, nil
 }

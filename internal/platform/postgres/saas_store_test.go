@@ -850,7 +850,11 @@ func (s *saasStoreSuite) TestTeamDeviceLifecycle() {
 // covered in internal/deployment/saas/registry_test.go). Unlike the on-prem
 // counterpart, team_agent_enrollments spans multiple teams in the same
 // table, so this is the scope-isolation test the plan calls for: another
-// team's pending, in-range enrollment must not leak into the result.
+// team's pending, in-range enrollment must not leak into the result. It also
+// covers the status baseline: a row that hasn't actually expired yet
+// (expires_at after `now` but before the lookahead cutoff `before`) must be
+// reported 'pending', not 'expired'; a row already past `now` is reported
+// 'expired'.
 func (s *saasStoreSuite) TestListExpiringEnrollmentsIsTeamScopedAndFiltersLifecycleState() {
 	ctx := context.Background()
 	now := time.Now().UTC().Truncate(time.Microsecond)
@@ -877,9 +881,16 @@ func (s *saasStoreSuite) TestListExpiringEnrollmentsIsTeamScopedAndFiltersLifecy
 		}
 	}
 
-	// soon is inside the cutoff window in the target team: must appear.
+	// soon has not actually expired yet (expires_at is after `now`) but
+	// falls inside the cutoff window in the target team: must appear with
+	// status 'pending'.
 	soon := newRecord("soon", owner, now.Add(1*time.Hour))
 	s.Require().NoError(s.store.SaaSCredentials().CreateDeviceEnrollment(ctx, team.TeamID, owner.MembershipID, soon))
+
+	// alreadyExpired is already past `now` but still inside the lookahead
+	// window: must appear (unconsumed, unrevoked) with status 'expired'.
+	alreadyExpired := newRecord("already-expired", owner, now.Add(-1*time.Hour))
+	s.Require().NoError(s.store.SaaSCredentials().CreateDeviceEnrollment(ctx, team.TeamID, owner.MembershipID, alreadyExpired))
 
 	// consumedSoon is inside the cutoff window but already claimed: excluded.
 	consumedSoon := newRecord("consumed-soon", owner, now.Add(2*time.Hour))
@@ -906,20 +917,27 @@ func (s *saasStoreSuite) TestListExpiringEnrollmentsIsTeamScopedAndFiltersLifecy
 	foreignSoon := newRecord("foreign-soon", otherOwner, now.Add(1*time.Hour))
 	s.Require().NoError(s.store.SaaSCredentials().CreateDeviceEnrollment(ctx, otherTeam.TeamID, otherOwner.MembershipID, foreignSoon))
 
-	results, err := s.store.SaaSCredentials().ListExpiringEnrollments(ctx, team.TeamID, cutoff, 500)
+	results, err := s.store.SaaSCredentials().ListExpiringEnrollments(ctx, team.TeamID, cutoff, now, 500)
 	s.Require().NoError(err)
 
-	var ids []string
+	type idStatus struct {
+		id     string
+		status string
+	}
+	var matches []idStatus
 	for _, result := range results {
-		if result.EnrollmentID == soon.ID || result.EnrollmentID == consumedSoon.ID ||
-			result.EnrollmentID == revokedSoon.ID || result.EnrollmentID == outOfRange.ID ||
-			result.EnrollmentID == foreignSoon.ID {
-			ids = append(ids, result.EnrollmentID)
+		if result.EnrollmentID == soon.ID || result.EnrollmentID == alreadyExpired.ID ||
+			result.EnrollmentID == consumedSoon.ID || result.EnrollmentID == revokedSoon.ID ||
+			result.EnrollmentID == outOfRange.ID || result.EnrollmentID == foreignSoon.ID {
+			matches = append(matches, idStatus{id: result.EnrollmentID, status: result.Status})
 		}
 	}
-	s.Equal([]string{soon.ID}, ids, "expects only the pending, in-range, same-team enrollment")
+	s.Equal([]idStatus{
+		{id: alreadyExpired.ID, status: "expired"},
+		{id: soon.ID, status: "pending"},
+	}, matches, "expects only the pending/expired, in-range, same-team enrollments, soonest expiry first, with correct status")
 
-	otherTeamResults, err := s.store.SaaSCredentials().ListExpiringEnrollments(ctx, otherTeam.TeamID, cutoff, 500)
+	otherTeamResults, err := s.store.SaaSCredentials().ListExpiringEnrollments(ctx, otherTeam.TeamID, cutoff, now, 500)
 	s.Require().NoError(err)
 	var otherIDs []string
 	for _, result := range otherTeamResults {

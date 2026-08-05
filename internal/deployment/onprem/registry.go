@@ -206,11 +206,15 @@ type RegistryStore interface {
 	CreateDeviceEnrollment(context.Context, string, EnrollmentRecord) error
 	ListOwnedEnrollments(context.Context, string, string, AgentArtifactFilter, time.Time) ([]AgentEnrollmentMetadata, error)
 	// ListExpiringEnrollments returns pending enrollments across the whole
-	// team whose token expires before the cutoff. On-prem installs are
-	// single-tenant (HumanPrincipal.ScopeID always resolves to LocalScopeID
-	// on this path), so this store method takes no scope parameter; the
-	// SaaS equivalent lives on saas.TeamCredentialStore, scoped by team ID.
-	ListExpiringEnrollments(context.Context, time.Time, int) ([]AgentEnrollmentMetadata, error)
+	// team whose token expires before the cutoff. `now` is the status
+	// baseline (matching ListOwnedEnrollments' convention: the CASE compares
+	// expires_at against `now`, never against the selection cutoff
+	// `before`), so a still-pending row inside the lookahead window is
+	// reported 'pending', not 'expired'. On-prem installs are single-tenant
+	// (HumanPrincipal.ScopeID always resolves to LocalScopeID on this path),
+	// so this store method takes no scope parameter; the SaaS equivalent
+	// lives on saas.TeamCredentialStore, scoped by team ID.
+	ListExpiringEnrollments(context.Context, time.Time, time.Time, int) ([]AgentEnrollmentMetadata, error)
 	RevokeOwnedEnrollment(context.Context, string, HumanPrincipal, string, string, string, time.Time) (AgentEnrollmentMetadata, error)
 	ListOwnedCredentials(context.Context, string, string, AgentArtifactFilter, time.Time) ([]AgentCredentialMetadata, error)
 	RevokeOwnedCredential(context.Context, string, HumanPrincipal, string, string, string, time.Time) (AgentCredentialMetadata, error)
@@ -526,7 +530,7 @@ func (s *RegistryService) ListExpiringEnrollments(
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
-	return s.store.ListExpiringEnrollments(ctx, before, limit)
+	return s.store.ListExpiringEnrollments(ctx, before, s.clock().UTC(), limit)
 }
 
 func (s *RegistryService) RevokeEnrollment(
