@@ -606,7 +606,7 @@ func (s *operationsStoreSuite) TestRecordRejectsAnEventWithoutAScope() {
 		StartedAt:   s.now,
 		CompletedAt: s.now,
 	})
-	s.Require().Error(err)
+	s.Require().ErrorIs(err, operations.ErrInvalidInput)
 }
 
 // The recorded row must carry the scope from the EVENT, not the one the store
