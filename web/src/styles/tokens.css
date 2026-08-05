@@ -92,9 +92,13 @@
   --radius-md: 0;
   --radius-lg: 0;
 
-  --shadow-sm: 0 1px 2px color-mix(in srgb, #2d2b2b 14%, transparent);
-  --shadow-md: 0 3px 10px color-mix(in srgb, #2d2b2b 16%, transparent);
-  --shadow-lg: 0 12px 32px color-mix(in srgb, #2d2b2b 22%, transparent);
+  /* 阴影走 --color-neutral-900 而不是写死 #2d2b2b：中性色阶在每个主题里都会
+     整体反转，900 档永远是「与背景对比最强的那一端」。写死深色的话，dark 主题
+     （--color-bg: #201e1d）下 .dialog / .modal / .palette / .menu-pop / .elev-*
+     的立体感会完全消失。--backdrop 早就是这么做的，这里对齐它。 */
+  --shadow-sm: 0 1px 2px color-mix(in srgb, var(--color-neutral-900) 14%, transparent);
+  --shadow-md: 0 3px 10px color-mix(in srgb, var(--color-neutral-900) 16%, transparent);
+  --shadow-lg: 0 12px 32px color-mix(in srgb, var(--color-neutral-900) 22%, transparent);
 
   --backdrop: color-mix(in srgb, var(--color-neutral-900) 50%, transparent);
 }

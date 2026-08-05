@@ -65,11 +65,18 @@ textarea { min-height: 90px; resize: vertical; }
   background: color-mix(in srgb, var(--color-text) 7%, transparent);
 }
 
-/* — cards — */
+/* — cards —
+   1px 分隔线 + 下外边距：相邻的两张卡片都坐在 --color-surface 上，没有边框
+   就会在页面背景上糊成一整块。用 gap 排版的容器（.stack / .grid / .row）自己
+   管间距，这里把外边距还回去，避免双倍留白。 */
 .card {
   display: flex; flex-direction: column; gap: var(--space-2);
-  padding: var(--space-3); border-radius: var(--radius-md); background: var(--color-surface);
+  padding: var(--space-3); border-radius: var(--radius-md);
+  background: var(--color-surface);
+  border: 1px solid var(--color-divider);
+  margin-bottom: var(--space-3);
 }
+.stack > .card, .grid > .card, .row > .card { margin-bottom: 0; }
 .card.flat { background: transparent; border: 1px solid var(--color-divider); }
 .card-kicker, .kicker {
   font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--color-accent);
@@ -147,7 +154,7 @@ textarea { min-height: 90px; resize: vertical; }
 .agent-card { cursor: pointer; }
 .agent-card:hover { background: color-mix(in srgb, var(--color-text) 5%, transparent); }
 .field-row { display: grid; gap: var(--space-3); grid-template-columns: 1fr 1fr; }
-.filter-label { font-size: 12px; color: color-mix(in srgb, var(--color-text) 70%, transparent); }
+.filter-label { font-size: 12px; margin-bottom: 0; color: color-mix(in srgb, var(--color-text) 70%, transparent); }
 
 /* — 兼容别名（临时）—
    阶段 1 不改页面内部结构，而 18 处页面代码仍手写 className="badge b-…"
@@ -170,6 +177,21 @@ textarea { min-height: 90px; resize: vertical; }
   background: var(--color-accent-100); color: var(--color-accent-800);
 }
 .b-role { border: 1px solid var(--color-accent); background: transparent; color: var(--color-accent); }
+
+/* 旧的「点式修饰符」写法。Button.tsx 现在发的是 btn-ghost / btn-sm，但这几处
+   调用点把类名手写在 <a>/<span> 上，不经过组件：
+     .btn.ghost   AgentDetailView（每个 Agent 详情页的返回链接）、
+                  AdminDeviceDetailPage
+     .btn.sm      pulse/AgentGrid
+     .danger-text Countdown（一次性口令倒计时的 Expired 态）、
+                  AdminSessionAuditPage
+   阶段 1 不改这些页面，所以别名放在这里；页面迁到 <Button>/<Tag> 后删除。
+   **禁止在新代码里使用这三个名字。** */
+.btn.ghost { color: var(--color-accent); padding-inline: var(--space-1); }
+.btn.ghost:hover:not(:disabled) { background: color-mix(in srgb, var(--color-accent) 10%, transparent); }
+.btn.ghost:active:not(:disabled) { background: color-mix(in srgb, var(--color-accent) 18%, transparent); }
+.btn.sm { font-size: 12px; padding: 4px var(--space-2); }
+.danger-text { color: var(--color-accent); }
 
 /* .tabs 与 .seg 的差别在语义（多视图 vs 同一数据的取值），过渡期外观一致。 */
 .tabs { display: inline-flex; border-bottom: 2px solid var(--color-divider); }
