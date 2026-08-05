@@ -42,6 +42,17 @@ func (s *explorerServiceSuite) TestOwnerListsNormalizedTeamNotes() {
 	s.Equal("note-1", notes[0].NoteID)
 }
 
+func (s *explorerServiceSuite) TestOwnerReadsNoteMix() {
+	at := time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC)
+	s.repository.mix = []explorer.NoteKindCount{{Kind: "decision", Count: 2}, {Kind: "blocker", Count: 1}}
+
+	mix, err := s.service.NoteMix(context.Background(), activeOwner(), at)
+
+	s.Require().NoError(err)
+	s.Equal(s.repository.mix, mix)
+	s.True(at.Equal(s.repository.mixAt))
+}
+
 func activeOwner() onprem.HumanPrincipal {
 	return onprem.HumanPrincipal{
 		UserID: "owner", MembershipID: "membership", Role: onprem.RoleOwner,
@@ -52,6 +63,8 @@ func activeOwner() onprem.HumanPrincipal {
 type explorerRepository struct {
 	notes  []explorer.TeamNoteSummary
 	filter explorer.TeamNoteFilter
+	mix    []explorer.NoteKindCount
+	mixAt  time.Time
 }
 
 func (r *explorerRepository) ListTeamNotes(
@@ -78,4 +91,12 @@ func (r *explorerRepository) GetChannelDiagnostic(
 	string,
 ) (explorer.ChannelDiagnostic, error) {
 	return explorer.ChannelDiagnostic{}, nil
+}
+
+func (r *explorerRepository) NoteMix(
+	_ context.Context,
+	at time.Time,
+) ([]explorer.NoteKindCount, error) {
+	r.mixAt = at
+	return r.mix, nil
 }
