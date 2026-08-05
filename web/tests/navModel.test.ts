@@ -90,14 +90,26 @@ describe("sectionForPath", () => {
   });
 
   it("uses longest-prefix-match, not first-match-in-order", () => {
-    const sections = navSections(makeMe({ role: "admin" }));
-    // /apps/wiki and /apps/wiki/search: /apps has prefix /apps, but /apps/wiki
-    // is longer. If the function naively returned first match, this would still
-    // match /apps, but the longest-prefix guard ensures /apps/wiki is preferred.
-    // Construct a path deep under an item to prove longest-prefix wins.
-    expect(sectionForPath(sections, "/apps/wiki/search/results")?.id).toBe("apps");
-    // Verify that if we had a hypothetical /apps-other section, the slash guard
-    // would prevent matching it, proving both guards are active.
-    expect(sectionForPath(sections, "/apps-other")).toBeUndefined();
+    // Hand-constructed sections with genuinely nested prefixes. navSections() only
+    // emits disjoint top-level sections, so we must build this manually to test
+    // the longest-prefix tie-break when first-match would give the wrong answer.
+    const sections: NavSection[] = [
+      {
+        id: "outer",
+        label: "Outer",
+        to: "/management",
+        items: [{ to: "/management", label: "Root" }],
+      },
+      {
+        id: "inner",
+        label: "Inner",
+        to: "/management/devices",
+        items: [{ to: "/management/devices", label: "Devices" }],
+      },
+    ];
+    // Under first-match-in-order, /management/devices/dev_01 would match the
+    // "outer" section (prefix /management matches). Under longest-prefix,
+    // /management/devices matches longer, so "inner" wins.
+    expect(sectionForPath(sections, "/management/devices/dev_01")?.id).toBe("inner");
   });
 });
