@@ -85,3 +85,33 @@
 .toolbar input, .toolbar select { width: auto; }
 .section { margin-top: var(--space-6); }
 .flush { margin: 0; }
+
+/* — 响应式 —
+   1280 以上是设计基准；以下逐级收窄。宽内容（表格、图表）由各自的容器
+   横向滚动，页面主体在任何断点都不允许出现横向滚动。 */
+@media (max-width: 1280px) {
+  .page { padding: 22px 20px 80px; }
+}
+
+@media (max-width: 900px) {
+  .topbar-brand { min-width: 0; font-size: 18px; padding: 10px 14px; }
+  .topbar-search { min-width: 0; }
+  .topbar-search span:first-child { display: none; }
+  .topbar-user .small { display: none; }
+  .subnav { top: 53px; }
+}
+
+@media (max-width: 640px) {
+  .page { padding: 16px 12px 64px; }
+  .page-head { flex-direction: column; align-items: flex-start; gap: var(--space-2); }
+  h1 { font-size: 30px; }
+  h2 { font-size: 24px; }
+  .field-row { grid-template-columns: 1fr; }
+  .metric-tile { border-right: 0; border-bottom: 1px solid var(--color-divider); }
+}
+
+/* 表格在窄屏自己滚，页面主体不横向溢出。 */
+.table-scroll { overflow-x: auto; }
+@media (max-width: 900px) {
+  .card > table, .card > .table { display: block; overflow-x: auto; }
+}
