@@ -20,7 +20,7 @@ describe("section 10 item 4: lost invitation create response", () => {
   it("does not retry; the pending record appears in the list and is revocable", async () => {
     let pendingVisible = false;
     const { fetchMock, user } = await renderApp({
-      route: "/admin/invitations",
+      route: "/management/invitations",
       me: makeMe(),
       fetch: async (path, init) => {
         if (path === "/v1/admin/invitations" && init.method === "POST") {

@@ -28,7 +28,7 @@ describe("Members: status and role filters are labeled selects", () => {
   };
 
   it("both selects have visible labels and filter independently", async () => {
-    const { user } = await renderApp({ route: "/admin/members", me: makeMe(), fetch: membersFetch });
+    const { user } = await renderApp({ route: "/management/members", me: makeMe(), fetch: membersFetch });
     await screen.findByRole("heading", { name: "Members" });
 
     const statusFilter = screen.getByLabelText("Status");
@@ -51,7 +51,7 @@ describe("Members: status and role filters are labeled selects", () => {
 describe("All Agents: owner select and status group", () => {
   it("the owner filter select has an accessible name and the tabs expose state", async () => {
     await renderApp({
-      route: "/admin/agents",
+      route: "/management/agents",
       me: makeMe(),
       fetch: (path, init) => {
         if (path.startsWith("/v1/admin/members")) return jsonResponse({ members: [] });
@@ -73,8 +73,11 @@ describe("All Agents: owner select and status group", () => {
 
 describe("My Agents / Invitations: tab groups follow the same pattern", () => {
   it("My Agents status tabs are labeled and pressed-aware", async () => {
+    // /management is the member-rooted "my access" view for every role
+    // (stand-in for phase 3's AccessTree), so the default owner principal
+    // lands on MyAgentsPage just like a member does.
     const { user } = await renderApp({
-      route: "/agents",
+      route: "/management",
       me: makeMe(),
       fetch: (path, init) => {
         if (path.startsWith("/v1/me/agents")) return jsonResponse({ agents: [] });
@@ -91,7 +94,7 @@ describe("My Agents / Invitations: tab groups follow the same pattern", () => {
 
   it("Invitations status tabs are labeled and pressed-aware", async () => {
     await renderApp({
-      route: "/admin/invitations",
+      route: "/management/invitations",
       me: makeMe(),
       fetch: (path, init) => {
         if (path.startsWith("/v1/admin/invitations")) return jsonResponse({ invitations: [] });
@@ -108,9 +111,12 @@ describe("My Agents / Invitations: tab groups follow the same pattern", () => {
 
 describe("Agent artifacts: enrollment and credential filter groups", () => {
   it("both tab groups on the agent detail page are labeled and pressed-aware", async () => {
+    // /management/agents/:agentId dispatches AdminAgentDetailPage to
+    // admin-likes and AgentDetailPage (the self-serve page under test) to
+    // everyone else (brief-mandated stand-in until phase 4).
     await renderApp({
-      route: "/agents/agent-1",
-      me: makeMe(),
+      route: "/management/agents/agent-1",
+      me: makeMe({ role: "member" }),
       fetch: (path, init) => {
         if (path === "/v1/me/agents/agent-1" && init.method === "GET") {
           return jsonResponse({ agent: makeAgent() });

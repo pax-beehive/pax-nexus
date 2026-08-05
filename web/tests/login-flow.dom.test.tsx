@@ -20,7 +20,7 @@ function noApiCalls(): never {
 
 describe("section 10 item 1: OIDC continuation for ordinary pages", () => {
   it("routes an unauthenticated visitor to the login page and preserves the target as return_url", async () => {
-    const { user } = await renderApp({ route: "/admin/members", me: null, fetch: noApiCalls });
+    const { user } = await renderApp({ route: "/management/members", me: null, fetch: noApiCalls });
 
     // The guard renders the login page; the target page never mounts, so no
     // admin API call is fired while unauthenticated.
@@ -30,12 +30,15 @@ describe("section 10 item 1: OIDC continuation for ordinary pages", () => {
     // Starting OIDC is a top-level navigation; before leaving, the current
     // internal path is stored as the read-once return_url continuation.
     await user.click(loginButton);
-    expect(sessionStorage.getItem("return_url")).toBe("/admin/members");
+    expect(sessionStorage.getItem("return_url")).toBe("/management/members");
   });
 
   // Doc section 10 item 1: after the OIDC round trip lands on "/",
   // ContinuationRedirect navigates to the saved return_url and PortalShell's
-  // catch-all DefaultRedirect yields while a continuation is pending.
+  // catch-all DefaultRedirect yields while a continuation is pending. The
+  // seeded return_url is deliberately the OLD path: a bookmark saved before
+  // this task's route migration must still resolve, via the now-live
+  // legacy redirect table, to the new canonical path.
   it("restores the pre-login target page after the OIDC round trip", async () => {
     await renderApp({
       route: "/",
@@ -49,7 +52,7 @@ describe("section 10 item 1: OIDC continuation for ordinary pages", () => {
     });
 
     await screen.findByRole("heading", { name: "Members" });
-    expect(window.location.pathname).toBe("/admin/members");
+    expect(window.location.pathname).toBe("/management/members");
     // The continuation is read-once.
     expect(sessionStorage.getItem("return_url")).toBeNull();
   });
@@ -78,18 +81,18 @@ describe("section 10 item 14: cookie misconfiguration must not loop", () => {
     // Boot at a deep link with no session; the guard renders the login page
     // in place without any automatic navigation.
     const { fetchMock, user } = await renderApp({
-      route: "/admin/members",
+      route: "/management/members",
       me: null,
       fetch: noApiCalls,
     });
     await screen.findByRole("button", { name: /Continue with OIDC/ });
-    expect(window.location.pathname).toBe("/admin/members");
+    expect(window.location.pathname).toBe("/management/members");
 
     // After the OIDC callback, a Secure-cookie misconfiguration still yields
     // 401. The manual retry must not auto-redirect: the user stays put.
     await user.click(screen.getByRole("button", { name: "Already signed in? Click to retry" }));
     await screen.findByRole("button", { name: /Continue with OIDC/ });
     await waitFor(() => expect(callsTo(fetchMock, "/v1/me")).toHaveLength(2));
-    expect(window.location.pathname).toBe("/admin/members");
+    expect(window.location.pathname).toBe("/management/members");
   });
 });

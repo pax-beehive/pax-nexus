@@ -16,7 +16,13 @@ function agentsFetch(path: string, init: RequestInit): Response {
 }
 
 async function openCreateAgentModal() {
-  const app = await renderApp({ route: "/agents", me: makeMe(), fetch: agentsFetch });
+  // /management is the member-rooted "my access" view for every role, so the
+  // Create Agent trigger is reachable there regardless of the principal.
+  const app = await renderApp({
+    route: "/management",
+    me: makeMe(),
+    fetch: agentsFetch,
+  });
   const trigger = await screen.findByRole("button", { name: "+ Create Agent" });
   await app.user.click(trigger);
   const dialog = await screen.findByRole("dialog", { name: "Create Agent" });

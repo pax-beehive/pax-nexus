@@ -1,88 +1,242 @@
-/* Shared components and utilities. */
+/* Modernist 组件类。纯 CSS，无 JS。改观感请先改 tokens.css。 */
 
-/* components */
-.card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; margin-bottom: 14px; }
-.card.flat { background: transparent; border-style: dashed; }
-.btn { display: inline-flex; align-items: center; gap: 6px; font: inherit; font-size: 13.5px; font-weight: 600; border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); border-radius: 9px; padding: 7px 14px; cursor: pointer; }
-.btn:hover { background: var(--surface-2); }
-.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
-.btn.primary:hover { background: var(--accent-hover); }
-.btn.danger { color: var(--bad); border-color: var(--danger-border); }
-.btn.danger:hover { background: var(--bad-bg); }
-.btn.ghost { border-color: transparent; background: transparent; color: var(--text); font-weight: 500; }
-.btn.ghost:hover { background: var(--surface-2); }
-.btn.sm { padding: 4px 10px; font-size: 12.5px; border-radius: 7px; }
-/* Dim only via opacity: forcing background to surface would render primary's
-   white label invisible on the light surface while disabled. */
-.btn:disabled { opacity: .45; cursor: not-allowed; }
+/* — rules — */
+.hr, .divider { height: 2px; border: 0; margin: var(--space-4) 0; background: var(--color-divider); }
 
-/* segmented control: single-choice presets rendered as one bordered group */
-.seg { display: inline-flex; border: 1px solid var(--border-strong); border-radius: 9px; overflow: hidden; background: var(--surface); }
-.seg button { font: inherit; font-size: 13px; font-weight: 600; border: 0; border-radius: 0; background: transparent; color: var(--muted); padding: 6px 12px; cursor: pointer; }
-.seg button + button { border-left: 1px solid var(--border); }
-.seg button:hover { background: var(--surface-2); color: var(--text); }
-.seg button.on { background: var(--accent-soft); color: var(--accent-hover); }
+/* — buttons — */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  cursor: pointer; text-decoration: none;
+  font-family: var(--font-heading); font-weight: var(--font-heading-weight);
+  font-size: 13px; line-height: 1.2; color: var(--color-text);
+  background: transparent; border: 1px solid transparent;
+  padding: calc(var(--space-2) * 0.85) var(--space-3);
+  border-radius: var(--radius-md);
+}
+.btn svg { display: block; }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn-primary { background: var(--color-accent); color: var(--color-bg); }
+.btn-primary:hover:not(:disabled) { background: var(--color-accent-600); }
+.btn-primary:active:not(:disabled) { background: var(--color-accent-700); }
+.btn-secondary { border-color: var(--color-divider); }
+.btn-secondary:hover:not(:disabled) { background: color-mix(in srgb, var(--color-text) 7%, transparent); }
+.btn-secondary:active:not(:disabled) { background: color-mix(in srgb, var(--color-text) 14%, transparent); }
+.btn-ghost { color: var(--color-accent); padding-inline: var(--space-1); }
+.btn-ghost:hover:not(:disabled) { background: color-mix(in srgb, var(--color-accent) 10%, transparent); }
+.btn-ghost:active:not(:disabled) { background: color-mix(in srgb, var(--color-accent) 18%, transparent); }
+.btn-icon { width: 34px; height: 34px; padding: 0; }
+.btn-block { width: 100%; justify-content: flex-start; text-align: left; }
+.btn-sm { font-size: 12px; padding: 4px var(--space-2); }
+/* 语义别名：外观与 .btn-primary 相同（两色制），仅标记意图。 */
+.btn-danger { }
 
-input[type=text], input[type=email], input[type=password], input[type=datetime-local], select, textarea {
-  font: inherit; font-size: 13.5px; width: 100%; padding: 8px 10px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--input-bg); color: var(--text); }
-input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
-label { display: block; font-size: 12.5px; font-weight: 600; color: var(--muted); margin: 12px 0 4px; }
-label.ck { display: flex; align-items: center; gap: 7px; font-weight: 500; color: var(--text); margin: 6px 0; }
-label.ck input { width: auto; }
-.field-row { display: flex; gap: 14px; } .field-row > div { flex: 1; }
-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
-th { text-align: left; font-size: 11.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--faint); font-weight: 600; padding: 6px 10px; border-bottom: 1px solid var(--border); }
-td { padding: 9px 10px; border-bottom: 1px solid var(--border); vertical-align: middle; }
-tr:last-child td { border-bottom: none; }
-.badge { display: inline-block; font-size: 11.5px; font-weight: 600; border-radius: 99px; padding: 2px 10px; }
-.b-active { background: var(--ok-bg); color: var(--ok); }
-.b-pending { background: var(--info-bg); color: var(--info); }
-.b-suspended { background: var(--warn-bg); color: var(--warn); }
-.b-retired, .b-removed, .b-revoked { background: var(--bad-bg); color: var(--bad); }
-.b-expired, .b-consumed, .b-accepted { background: var(--surface-2); color: var(--muted); }
-.b-role { background: var(--surface-2); color: var(--text); border: 1px solid var(--border); }
-.b-device { background: var(--info-bg); color: var(--info); }
-.b-human { background: var(--surface-2); color: var(--muted); }
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); gap: 14px; }
-.agent-card { cursor: pointer; transition: border-color .15s; }
-.agent-card:hover { border-color: var(--accent); }
-.row { display: flex; align-items: center; gap: 10px; }
-.between { justify-content: space-between; }
-.wrap { flex-wrap: wrap; }
+/* — forms — */
+.field > label {
+  display: block; font-size: 12px; margin-bottom: 5px;
+  color: color-mix(in srgb, var(--color-text) 70%, transparent);
+}
+.input, input[type="text"], input[type="email"], input[type="password"],
+input[type="search"], input[type="date"], select, textarea {
+  width: 100%; min-height: 36px; padding: 6px 10px; font: inherit;
+  font-size: 14px; color: var(--color-text); caret-color: var(--color-accent);
+  background: var(--color-surface);
+  border: 1px solid var(--color-divider); border-radius: var(--radius-md);
+}
+.input:hover, input:hover, select:hover, textarea:hover {
+  border-color: color-mix(in srgb, var(--color-text) 45%, transparent);
+}
+.input:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+  border-color: var(--color-accent); outline-offset: 0;
+}
+textarea { min-height: 90px; resize: vertical; }
+.ck { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: 14px; }
+.ck input { width: auto; min-height: 0; }
 
-/* layout utilities: cover the common spacing cases so pages do not inline them */
-.stack { display: flex; flex-direction: column; gap: 10px; }
-.toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.toolbar select { width: auto; }
-.toolbar input[type=text] { width: min(240px, 100%); }
-.section { margin-top: 18px; }
-.flush { margin: 0; }
+/* — segmented control — */
+.seg { display: inline-flex; overflow: hidden; border: 1px solid var(--color-divider); border-radius: var(--radius-md); }
+.seg-opt, .seg button {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 12px; font-size: 13px; cursor: pointer;
+  background: transparent; border: 0; color: inherit; font-family: inherit;
+}
+.seg-opt + .seg-opt, .seg button + button { border-left: 1px solid var(--color-divider); }
+.seg-opt:has(input:checked), .seg button.on { background: var(--color-accent); color: var(--color-bg); }
+.seg-opt:not(:has(input:checked)):hover, .seg button:not(.on):hover {
+  background: color-mix(in srgb, var(--color-text) 7%, transparent);
+}
 
-.note { font-size: 12.5px; color: var(--muted); background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; margin: 10px 0; }
-.note.warn { background: var(--warn-bg); border-color: var(--warn-border); color: var(--warn); }
-.note.bad { background: var(--bad-bg); border-color: var(--bad-border); color: var(--bad); }
-.secret-card { border: 1.5px solid var(--accent); background: var(--secret-bg); border-radius: 12px; padding: 16px 18px; margin-bottom: 16px; }
-.secret-val { font-family: var(--mono); font-size: 13px; background: var(--surface-2); border: 1px dashed var(--border-strong); border-radius: 8px; padding: 8px 10px; word-break: break-all; margin: 8px 0; }
-.countdown { font-family: var(--mono); font-weight: 600; color: var(--accent-hover); }
-.tabs { display: flex; gap: 4px; margin-bottom: 14px; border-bottom: 1px solid var(--border); }
-.filter-label { font-size: 12px; font-weight: 600; color: var(--muted); flex: none; margin: 0; }
-.tabs button { font: inherit; font-size: 13px; border: none; background: none; padding: 8px 12px; cursor: pointer; color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -1px; }
-.tabs button.on { color: var(--accent-hover); border-bottom-color: var(--accent); font-weight: 600; }
-.center-page { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
-.center-box { width: 420px; max-width: 100%; }
-.divider { border: none; border-top: 1px solid var(--border); margin: 18px 0; }
-.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+/* — cards —
+   1px 分隔线 + 下外边距：相邻的两张卡片都坐在 --color-surface 上，没有边框
+   就会在页面背景上糊成一整块。用 gap 排版的容器（.stack / .grid / .row）自己
+   管间距，这里把外边距还回去，避免双倍留白。 */
+.card {
+  display: flex; flex-direction: column; gap: var(--space-2);
+  padding: var(--space-3); border-radius: var(--radius-md);
+  background: var(--color-surface);
+  border: 1px solid var(--color-divider);
+  margin-bottom: var(--space-3);
+}
+.stack > .card, .grid > .card, .row > .card { margin-bottom: 0; }
+.card.flat { background: transparent; border: 1px solid var(--color-divider); }
+.card-kicker, .kicker {
+  font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--color-accent);
+}
+.card-title { font-family: var(--font-heading); font-weight: var(--font-heading-weight); font-size: 17px; line-height: 1.2; }
+.card-body { margin: 0; font-size: 13px; opacity: 0.8; flex: 1; }
+.card-meta { display: flex; align-items: center; gap: 6px; font-size: 11px; color: color-mix(in srgb, var(--color-text) 50%, transparent); }
+.elev-sm { box-shadow: var(--shadow-sm); }
+.elev-md { box-shadow: var(--shadow-md); }
+.elev-lg { box-shadow: var(--shadow-lg); }
 
-/* theme picker (sidebar footer) */
-.theme-picker { margin: 0 0 10px; }
-.theme-picker select { width: 100%; padding: 5px 8px; font-size: 12.5px; }
+/* — tags — */
+.tag {
+  display: inline-flex; align-items: center; font-size: 11px;
+  letter-spacing: 0.02em; padding: 3px 10px; border-radius: var(--radius-sm);
+}
+.tag-attention { background: var(--color-accent-100); color: var(--color-accent-800); }
+.tag-neutral { background: var(--color-neutral-100); color: var(--color-neutral-800); }
+.tag-outline { border: 1px solid var(--color-accent); color: var(--color-accent); }
 
-/* modal */
-.modal-backdrop { position: fixed; inset: 0; background: var(--backdrop); display: flex; align-items: center; justify-content: center; z-index: 50; }
-.modal { background: var(--surface); border-radius: 14px; width: 480px; max-width: 92vw; max-height: 86vh; overflow: auto; padding: 22px 24px; box-shadow: 0 18px 50px var(--shadow); }
+/* — tables — */
+.table, table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.table th, table th {
+  text-align: left; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: color-mix(in srgb, var(--color-text) 60%, transparent);
+  padding: var(--space-2); border-bottom: 2px solid var(--color-divider);
+}
+.table td, table td { padding: var(--space-2); border-bottom: 1px solid var(--color-divider); }
+.table tbody tr:hover, table tbody tr:hover { background: color-mix(in srgb, var(--color-text) 4%, transparent); }
 
-/* toast */
-.toasts { position: fixed; right: 18px; bottom: 18px; display: flex; flex-direction: column; gap: 8px; z-index: 80; }
-.toast { background: var(--text); color: var(--bg); border-radius: 10px; padding: 10px 16px; font-size: 13px; max-width: 380px; box-shadow: 0 8px 24px rgba(0, 0, 0, .25); animation: tin .2s ease; }
-.toast.ok { background: var(--ok); color: var(--bg); } .toast.bad { background: var(--bad); color: var(--bg); } .toast.warn { background: #7a5f14; color: var(--bg); }
-@keyframes tin { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; } }
+/* — dialog — */
+.dialog-backdrop, .modal-backdrop {
+  position: fixed; inset: 0; display: grid; place-items: center;
+  padding: var(--space-4); background: var(--backdrop); z-index: 50;
+}
+.dialog, .modal {
+  width: min(440px, 100%); display: flex; flex-direction: column; gap: var(--space-3);
+  padding: var(--space-4); border-radius: var(--radius-lg);
+  background: var(--color-surface); box-shadow: var(--shadow-lg);
+  max-height: 85vh; overflow-y: auto;
+}
+.dialog-title { font-family: var(--font-heading); font-weight: var(--font-heading-weight); font-size: 20px; }
+.dialog-body { font-size: 14px; opacity: 0.85; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-2); }
+
+/* — notices（两色制：需要注意 = accent，常态 = neutral） — */
+.note {
+  font-size: 13px; padding: var(--space-2) var(--space-3);
+  border-left: 2px solid var(--color-divider); background: var(--color-neutral-100);
+  margin: var(--space-2) 0;
+}
+.note.warn, .note.bad { border-left-color: var(--color-accent); background: var(--color-accent-100); }
+
+/* — toasts — */
+.toasts { position: fixed; right: var(--space-4); bottom: var(--space-4); display: grid; gap: var(--space-2); z-index: 60; }
+.toast {
+  font-size: 13px; padding: var(--space-2) var(--space-3);
+  background: var(--color-neutral-900); color: var(--color-neutral-100);
+  box-shadow: var(--shadow-md); border-left: 2px solid transparent;
+}
+.toast.bad, .toast.warn { border-left-color: var(--color-accent); }
+
+/* — one-time secrets — */
+.secret-card { border: 2px solid var(--color-accent); background: var(--color-accent-100); padding: var(--space-3); }
+.secret-val {
+  font-family: var(--font-mono); font-size: 13px; word-break: break-all;
+  background: var(--color-bg); border: 1px solid var(--color-divider); padding: var(--space-2);
+}
+.countdown { font-family: var(--font-mono); font-size: 12px; color: var(--color-accent); }
+
+/* — misc — */
+.center-page { min-height: 100vh; display: grid; place-items: center; padding: var(--space-6); }
+.center-box { width: min(460px, 100%); display: flex; flex-direction: column; gap: var(--space-3); }
+.grid { display: grid; gap: var(--space-3); grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+.agent-card { cursor: pointer; }
+.agent-card:hover { background: color-mix(in srgb, var(--color-text) 5%, transparent); }
+.field-row { display: grid; gap: var(--space-3); grid-template-columns: 1fr 1fr; }
+.filter-label { font-size: 12px; margin-bottom: 0; color: color-mix(in srgb, var(--color-text) 70%, transparent); }
+
+/* — 兼容别名（临时）—
+   阶段 1 不改页面内部结构，而 18 处页面代码仍手写 className="badge b-…"
+   （AdminOperationsPage 的 TONE_BADGE、AdminTeamNoteDetailPage、TodoPage、
+   WikiBrowsePage、AdminSessionAuditPage 的 b-risk-* / b-approval-* 等）。
+   这里把旧 badge 类映射到两色制外观，页面代码与其断言均无需改动。
+   每迁移一个页面到 <Tag> 就删掉对应行；阶段 6 结束时本块整体移除。
+   **禁止在新代码里使用 .badge / .b-*，新代码一律用 .tag / <Tag>。** */
+.badge {
+  display: inline-flex; align-items: center; font-size: 11px;
+  letter-spacing: 0.02em; padding: 3px 10px; border-radius: var(--radius-sm);
+  background: var(--color-neutral-100); color: var(--color-neutral-800);
+}
+/* 需要人处理 → accent；其余（含全部终态与正常态）→ 保持中性默认值。
+   注意 .b-failed 与 .b-retired 的区别：失败/超时的操作要人看（accent），
+   而"已退役"的 Agent 只是正常的终态（中性）。两者曾共用 .b-retired，
+   结果 failed 与 succeeded 渲染成同一个灰底。 */
+.b-suspended, .b-pending, .b-failed, .b-risk-high, .b-risk-critical,
+.b-approval-denied, .b-approval-unknown {
+  background: var(--color-accent-100); color: var(--color-accent-800);
+}
+.b-role { border: 1px solid var(--color-accent); background: transparent; color: var(--color-accent); }
+
+/* 旧的「点式修饰符」写法。Button.tsx 现在发的是 btn-ghost / btn-sm，但这几处
+   调用点把类名手写在 <a>/<span> 上，不经过组件：
+     .btn.ghost   AgentDetailView（每个 Agent 详情页的返回链接）、
+                  AdminDeviceDetailPage
+     .btn.sm      pulse/AgentGrid
+     .danger-text Countdown（一次性口令倒计时的 Expired 态）、
+                  AdminSessionAuditPage
+   阶段 1 不改这些页面，所以别名放在这里；页面迁到 <Button>/<Tag> 后删除。
+   **禁止在新代码里使用这三个名字。** */
+.btn.ghost { color: var(--color-accent); padding-inline: var(--space-1); }
+.btn.ghost:hover:not(:disabled) { background: color-mix(in srgb, var(--color-accent) 10%, transparent); }
+.btn.ghost:active:not(:disabled) { background: color-mix(in srgb, var(--color-accent) 18%, transparent); }
+.btn.sm { font-size: 12px; padding: 4px var(--space-2); }
+.danger-text { color: var(--color-accent); }
+
+/* .tabs 与 .seg 的差别在语义（多视图 vs 同一数据的取值），过渡期外观一致。 */
+.tabs { display: inline-flex; border-bottom: 2px solid var(--color-divider); }
+.tabs button {
+  padding: 8px 14px; font-size: 13px; cursor: pointer;
+  background: transparent; border: 0; color: inherit; font-family: inherit;
+  border-bottom: 2px solid transparent; margin-bottom: -2px;
+}
+.tabs button.on { border-bottom-color: var(--color-accent); color: var(--color-accent); }
+
+/* — 新增组件 — */
+.metric-tile { display: flex; flex-direction: column; gap: 4px; padding: var(--space-3); border-right: 1px solid var(--color-divider); }
+.metric-tile:last-child { border-right: 0; }
+.metric-value { display: flex; align-items: baseline; gap: 4px; }
+.metric-number { font-family: var(--font-heading); font-weight: var(--font-heading-weight); font-size: 34px; line-height: 1; }
+.metric-unit { font-size: 14px; opacity: 0.6; }
+
+.crumbs { font-size: 13px; margin-bottom: var(--space-2); }
+.crumbs a { color: inherit; }
+.crumb-sep { opacity: 0.4; }
+
+.empty-state { display: flex; flex-direction: column; align-items: center; gap: var(--space-2); padding: var(--space-8) var(--space-4); text-align: center; }
+.empty-mark {
+  font-family: var(--font-heading); font-weight: var(--font-heading-weight); font-size: 42px;
+  width: 72px; height: 72px; display: grid; place-items: center;
+  background: var(--color-accent); color: var(--color-bg);
+}
+
+/* — command palette — */
+.palette {
+  width: min(560px, 100%); background: var(--color-bg);
+  border: 2px solid var(--color-divider); box-shadow: var(--shadow-lg);
+  align-self: start; margin-top: 12vh;
+}
+.palette-input {
+  border: 0; border-bottom: 2px solid var(--color-divider); background: transparent;
+  min-height: 48px; font-size: 16px; border-radius: 0;
+}
+.palette-results { list-style: none; margin: 0; padding: 0; max-height: 50vh; overflow-y: auto; }
+.palette-results li {
+  display: flex; align-items: baseline; gap: 10px; padding: 9px 14px; cursor: pointer;
+  border-bottom: 1px solid var(--color-divider);
+}
+.palette-results li.on { background: var(--color-accent); color: var(--color-bg); }
+.palette-group { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; opacity: 0.55; min-width: 56px; }
+.palette-label { flex: 1; font-size: 14px; }
+.palette-hint { font-family: var(--font-mono); font-size: 11px; opacity: 0.6; }
+.palette-foot { padding: 8px 14px; border-top: 1px solid var(--color-divider); }

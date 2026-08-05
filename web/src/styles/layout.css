@@ -1,0 +1,158 @@
+/* 外壳与布局工具类。2px 主分隔线 / 1px 次分隔线是 Modernist 的骨架特征，
+   在这里统一定义，页面不要自行绘制分隔线。 */
+
+:root {
+  /* 顶栏高度。这是**权威值**而不是对现状的描述：.topbar 用它当固定高度，
+     .subnav 用它当 sticky 偏移，两者引用同一个变量，就不可能再对不上。
+     曾经 subnav 写死 top:57px（窄屏 53px）而顶栏实测 62px，滚动后 subnav
+     顶部 5-9px 被顶栏盖住 —— 顶栏高度并不随断点变化，估算的数字对不上。 */
+  --topbar-h: 62px;
+}
+
+.app-shell { min-height: 100vh; background: var(--color-bg); color: var(--color-text); }
+
+/* — 顶栏 —
+   横向收缩策略（1457px 以下必须放得下，页面主体任何断点都不横向滚动）：
+   品牌与检索框可压缩，导航项内边距随视口收敛，检索框文案与用户邮箱溢出省略，
+   导航条自身兜底可横向滚动。定宽的只有各单元的内边距。 */
+.topbar {
+  display: flex; align-items: stretch;
+  height: var(--topbar-h);
+  border-bottom: 2px solid var(--color-divider);
+  background: var(--color-bg);
+  position: sticky; top: 0; z-index: 30;
+}
+/* flex 项默认 min-width:auto，不给 0 就压不下去。 */
+.topbar > * { min-width: 0; }
+.topbar-cell {
+  display: flex; align-items: center; gap: 10px; flex: 0 0 auto;
+  padding: 0 18px; border-right: 1px solid var(--color-divider);
+}
+.topbar-brand {
+  font-family: var(--font-heading); font-weight: var(--font-heading-weight);
+  font-size: 21px; letter-spacing: -0.025em; line-height: 1.1;
+  padding: 10px 20px; flex: 0 0 auto; white-space: nowrap;
+  border-right: 1px solid var(--color-divider);
+  display: flex; align-items: center;
+}
+/* 团队切换器的外边距与 100% 宽是侧边栏时代的遗留，在一行的顶栏里不适用。 */
+.topbar-cell .team-switcher { width: auto; margin: 0; }
+.topbar-cell .team-switcher .team-name { max-width: 12ch; }
+.topbar-nav {
+  display: flex; align-items: stretch; flex: 0 1 auto; min-width: 0;
+  /* 兜底：极端窄的情况下导航条自己滚，绝不把横向滚动推给页面主体。 */
+  overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
+}
+.topbar-nav::-webkit-scrollbar { display: none; }
+.topbar-nav a {
+  display: flex; align-items: center; flex: none; white-space: nowrap;
+  padding: 0 clamp(10px, 1.1vw, 20px);
+  font-size: 13px; letter-spacing: 0.02em; color: inherit; text-decoration: none;
+  border-right: 1px solid var(--color-divider);
+}
+.topbar-nav a:hover { background: color-mix(in srgb, var(--color-text) 6%, transparent); }
+.topbar-nav a[aria-current="page"] { background: var(--color-accent); color: var(--color-bg); }
+.topbar-search {
+  margin-left: auto; flex: 0 1 auto; min-width: 0; overflow: hidden;
+  justify-content: flex-start;
+  border-left: 1px solid var(--color-divider); border-right: 0;
+  font-family: var(--font-body); font-weight: 400;
+  color: color-mix(in srgb, var(--color-text) 60%, transparent);
+}
+/* 提示文案先省略、再（窄屏）整条隐藏；⌘K 徽标始终保留。 */
+.topbar-search > span:first-child {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.topbar-kbd {
+  margin-left: auto; flex: none; border: 1px solid var(--color-divider);
+  padding: 1px 6px; font-size: 10px; letter-spacing: 0.06em; font-family: var(--font-mono);
+}
+.topbar-user { border-left: 1px solid var(--color-divider); border-right: 0; }
+.topbar-user .small {
+  max-width: 18ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* — 用户菜单 — */
+.menu-pop {
+  position: absolute; right: 0; top: 100%; min-width: 240px; z-index: 40;
+  background: var(--color-bg); border: 2px solid var(--color-divider); box-shadow: var(--shadow-lg);
+}
+.menu-pop [role="menuitem"] {
+  display: flex; width: 100%; align-items: center; gap: 10px;
+  padding: 10px 14px; border: 0; border-bottom: 1px solid var(--color-divider);
+  background: transparent; font-family: var(--font-body); font-size: 13px;
+  color: inherit; text-align: left; cursor: pointer; text-decoration: none;
+}
+.menu-pop [role="menuitem"]:last-child { border-bottom: 0; }
+.menu-pop [role="menuitem"]:hover { background: color-mix(in srgb, var(--color-text) 6%, transparent); }
+.menu-head { padding: 8px 14px; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; opacity: 0.5; border-bottom: 1px solid var(--color-divider); }
+
+/* — 二级导航 — */
+.subnav {
+  display: flex; align-items: stretch; gap: 2px; padding: 0 20px;
+  border-bottom: 2px solid var(--color-divider); background: var(--color-bg);
+  position: sticky; top: var(--topbar-h); z-index: 25; overflow-x: auto;
+}
+.subnav a {
+  padding: 10px 14px; font-size: 13px; color: inherit; text-decoration: none;
+  white-space: nowrap; border-bottom: 2px solid transparent; margin-bottom: -2px;
+}
+.subnav a:hover { color: var(--color-accent); }
+.subnav a[aria-current="page"] { border-bottom-color: var(--color-accent); color: var(--color-accent); }
+
+/* — 内容区 — */
+.page { padding: 26px 28px 96px; max-width: 1280px; }
+.page-head {
+  display: flex; justify-content: space-between; align-items: flex-end;
+  gap: var(--space-4); margin-bottom: var(--space-6);
+}
+
+/* — 工具类 — */
+.row { display: flex; align-items: center; gap: var(--space-2); }
+.row.between { justify-content: space-between; }
+.row.wrap { flex-wrap: wrap; }
+.stack { display: flex; flex-direction: column; gap: var(--space-3); }
+.toolbar { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.toolbar input, .toolbar select { width: auto; }
+.section { margin-top: var(--space-6); }
+.flush { margin: 0; }
+
+/* — 响应式 —
+   1280 以上是设计基准；以下逐级收窄。宽内容（表格、图表）由各自的容器
+   横向滚动，页面主体在任何断点都不允许出现横向滚动。 */
+@media (max-width: 1280px) {
+  .page { padding: 22px 20px 80px; }
+}
+
+/* 顶栏在这一档开始丢弃「可有可无」的文字：检索框提示语与用户邮箱。
+   ☰ 折叠仍然只发生在 900（与 useNarrow 的 JS 阈值一致），这里不动它。 */
+@media (max-width: 1180px) {
+  .topbar-brand { font-size: 18px; padding: 10px 14px; }
+  .topbar-search > span:first-child { display: none; }
+  .topbar-user .small { display: none; }
+  .topbar-cell .team-switcher .team-name { max-width: 9ch; }
+}
+
+@media (max-width: 640px) {
+  .page { padding: 16px 12px 64px; }
+  .page-head { flex-direction: column; align-items: flex-start; gap: var(--space-2); }
+  h1 { font-size: 30px; }
+  h2 { font-size: 24px; }
+  .field-row { grid-template-columns: 1fr; }
+  .metric-tile { border-right: 0; border-bottom: 1px solid var(--color-divider); }
+  /* 手机档：品牌再缩一档，团队切换器只留头像。 */
+  .topbar-brand { font-size: 16px; padding: 10px 10px; }
+  .topbar-cell { padding: 0 10px; }
+  .topbar-cell .team-switcher .team-name,
+  .topbar-cell .team-switcher .tag,
+  .topbar-cell .team-switcher .chevron { display: none; }
+}
+
+/* 表格在窄屏自己滚，页面主体不横向溢出。
+   选择器用后代而不是子代：表格不一定是 .card 的直接子元素（页面可能再包一层
+   容器），子代选择器一旦结构变化就静默失效，而且失效方式是「页面横向滚动」这种
+   jsdom 测不出来的症状。 */
+.table-scroll { overflow-x: auto; }
+@media (max-width: 900px) {
+  .card table, .card .table { display: block; overflow-x: auto; max-width: 100%; }
+}

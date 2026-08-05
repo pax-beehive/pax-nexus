@@ -1,5 +1,6 @@
-// The /wiki/browse route renders the wiki full-screen, outside the portal
-// shell (spec 2026-07-29-wiki-standalone-page section 1-2).
+// The wiki reader, mounted at /apps/wiki and /apps/wiki/:slug inside the
+// portal shell (the pre-redesign route rendered it full-screen outside the
+// shell; the top-bar IA replaced that).
 //
 // Several cases below were ported from the retired web/tests/wiki.dom.test.tsx
 // (see d874ac5~1), adapted to the /wiki/browse route: that file covered
@@ -24,17 +25,21 @@ import { wikiFetch } from "./wikiFixtures";
 setupDomTest();
 
 describe("wiki browse route", () => {
-  it("renders the wiki full-screen without the portal shell", async () => {
-    await renderApp({ route: "/wiki/browse", me: makeMe(), fetch: wikiFetch });
+  it("auto-selects the first page and moves its slug into the path", async () => {
+    await renderApp({ route: "/apps/wiki", me: makeMe(), fetch: wikiFetch });
 
     await waitFor(() => expect(screen.getByText("Alpha summary")).toBeTruthy());
-    // No portal navigation: the shell's nav links must not render.
-    expect(screen.queryByText("My Agents")).toBeNull();
-    // Back link to the portal status page is present.
-    expect(screen.getByRole("link", { name: /all apps/i })).toBeTruthy();
-    // Selecting the first page rewrote the URL under /wiki/browse.
-    expect(window.location.pathname).toBe("/wiki/browse");
-    expect(window.location.search).toBe("?page=alpha");
+    // Selecting the first page rewrote the URL under /apps/wiki/:slug — the
+    // slug lives in the path now, not in ?page=.
+    expect(window.location.pathname).toBe("/apps/wiki/alpha");
+    expect(window.location.search).toBe("");
+    // The wiki renders inside AppShell now, so the section nav is present.
+    // (This case used to assert queryByText("My Agents") was null, as proof
+    // the wiki rendered outside the portal shell — vacuous once the shell
+    // became a top bar, because that string no longer appears in it.)
+    within(screen.getByRole("navigation", { name: "Sections" })).getByRole("link", {
+      name: "Apps",
+    });
   });
 });
 
@@ -176,7 +181,7 @@ function sqliteFetch(path: string): Response {
 describe("wiki browse route topics and search", () => {
   it("renders the root layer's topic groups above its unclassified pages", async () => {
     await renderApp({
-      route: "/wiki/browse?page=sqlite",
+      route: "/apps/wiki/sqlite",
       me: makeMe(),
       fetch: (path) => {
         if (path === "/v1/wiki/navigation") {
@@ -200,7 +205,7 @@ describe("wiki browse route topics and search", () => {
 
   it("searches current revisions and opens a historical revision", async () => {
     const { user } = await renderApp({
-      route: "/wiki/browse?page=sqlite",
+      route: "/apps/wiki/sqlite",
       me: makeMe(),
       fetch: sqliteFetch,
     });
@@ -220,7 +225,7 @@ describe("wiki browse route topics and search", () => {
 
   it("shows a useful empty state when the wiki has no pages", async () => {
     await renderApp({
-      route: "/wiki/browse",
+      route: "/apps/wiki",
       me: makeMe(),
       fetch: (path) => {
         if (path === "/v1/wiki/ingestion") return jsonResponse({ auto_inject: false });
@@ -234,7 +239,7 @@ describe("wiki browse route topics and search", () => {
   });
 
   it("collapses the Source evidence section by default", async () => {
-    await renderApp({ route: "/wiki/browse", me: makeMe(), fetch: sqliteFetch });
+    await renderApp({ route: "/apps/wiki", me: makeMe(), fetch: sqliteFetch });
 
     await screen.findByRole("heading", { name: "SQLite" });
     const fold = document.querySelector("details.wiki-evidence-fold");
@@ -293,7 +298,7 @@ describe("wiki browse route retired page banner", () => {
 
   it("shows an archived banner with a link to the successor page", async () => {
     await renderApp({
-      route: "/wiki/browse?page=retired-page",
+      route: "/apps/wiki/retired-page",
       me: makeMe(),
       fetch: retiredFetch("sqlite"),
     });
@@ -301,12 +306,12 @@ describe("wiki browse route retired page banner", () => {
     await screen.findByRole("heading", { name: "Retired Page" });
     screen.getByText("This page has been archived.");
     const link = screen.getByRole("link", { name: "See successor page" });
-    expect(link.getAttribute("href")).toBe("/wiki?page=sqlite");
+    expect(link.getAttribute("href")).toBe("/apps/wiki/sqlite");
   });
 
   it("omits the successor link when no successor slug is present", async () => {
     await renderApp({
-      route: "/wiki/browse?page=retired-page",
+      route: "/apps/wiki/retired-page",
       me: makeMe(),
       fetch: retiredFetch(),
     });
@@ -355,7 +360,7 @@ describe("wiki browse route entity ontology", () => {
   }
 
   it("shows the entity type badge and relation label when they say something", async () => {
-    await renderApp({ route: "/wiki/browse?page=sqlite", me: makeMe(), fetch: typedFetch });
+    await renderApp({ route: "/apps/wiki/sqlite", me: makeMe(), fetch: typedFetch });
 
     await screen.findByRole("heading", { name: "SQLite" });
     expect(screen.getByText("system")).toBeTruthy();
@@ -363,7 +368,7 @@ describe("wiki browse route entity ontology", () => {
   });
 
   it("hides the badge and relation label for concept/relates-to fallbacks", async () => {
-    await renderApp({ route: "/wiki/browse?page=sqlite", me: makeMe(), fetch: fallbackFetch });
+    await renderApp({ route: "/apps/wiki/sqlite", me: makeMe(), fetch: fallbackFetch });
 
     await screen.findByRole("heading", { name: "SQLite" });
     // The link row itself still renders (target page title present)...
@@ -392,7 +397,7 @@ describe("wiki browse route navigation refresh", () => {
   it("polls the navigation tree every 3s once ingestion reports auto inject on", async () => {
     vi.useFakeTimers();
     resetBrowserState();
-    window.history.pushState({}, "", "/wiki/browse");
+    window.history.pushState({}, "", "/apps/wiki");
     const fetchMock = stubFetch((path) => {
       if (path === "/v1/me") return jsonResponse(makeMe());
       if (path === "/v1/wiki/ingestion") return jsonResponse({ auto_inject: true });
@@ -401,33 +406,36 @@ describe("wiki browse route navigation refresh", () => {
     render(<App />);
 
     const navCalls = () => callsTo(fetchMock, "/v1/wiki/navigation");
-    // Initial navigation load fires on mount; once the ingestion GET
+    // Initial navigation load fires on mount at /apps/wiki (no slug); it
+    // auto-selects the first page and rewrites the URL to /apps/wiki/alpha,
+    // which is a different Route match (slug now lives in the path) and so
+    // remounts the page for one more initial fetch. Once the ingestion GET
     // resolves auto_inject: true, usePolling's deps flip (false -> true)
-    // fires one more immediate cycle.
+    // fires one more immediate cycle on top of those two.
     for (let i = 0; i < 60; i++) {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(5);
       });
-      if (navCalls().length >= 2) break;
+      if (navCalls().length >= 3) break;
     }
-    expect(navCalls()).toHaveLength(2);
+    expect(navCalls()).toHaveLength(3);
 
     // The 3s cadence now runs, one refetch per tick, no duplicates.
     await act(async () => {
       await vi.advanceTimersByTimeAsync(3_000);
     });
-    expect(navCalls()).toHaveLength(3);
+    expect(navCalls()).toHaveLength(4);
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(3_000);
     });
-    expect(navCalls()).toHaveLength(4);
+    expect(navCalls()).toHaveLength(5);
   });
 
   it("never polls the navigation tree while ingestion reports auto inject off", async () => {
     vi.useFakeTimers();
     resetBrowserState();
-    window.history.pushState({}, "", "/wiki/browse");
+    window.history.pushState({}, "", "/apps/wiki");
     const fetchMock = stubFetch((path) => {
       if (path === "/v1/me") return jsonResponse(makeMe());
       if (path === "/v1/wiki/ingestion") return jsonResponse({ auto_inject: false });
@@ -436,18 +444,168 @@ describe("wiki browse route navigation refresh", () => {
     render(<App />);
 
     const navCalls = () => callsTo(fetchMock, "/v1/wiki/navigation");
+    // Initial mount at /apps/wiki fetches once, then auto-selecting the
+    // first page rewrites the URL to /apps/wiki/alpha (a different Route
+    // match) and remounts for one more fetch; auto inject stays off so no
+    // polling cycle follows either of those.
     for (let i = 0; i < 40; i++) {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(5);
       });
-      if (navCalls().length > 0) break;
+      if (navCalls().length >= 2) break;
     }
-    expect(navCalls()).toHaveLength(1);
+    expect(navCalls()).toHaveLength(2);
 
     // Several 3s ticks must not refetch while auto inject stays off.
     await act(async () => {
       await vi.advanceTimersByTimeAsync(10_000);
     });
-    expect(navCalls()).toHaveLength(1);
+    expect(navCalls()).toHaveLength(2);
+  });
+});
+
+// -- fix round 1/2: the navigation-tree effect must fetch and auto-select on
+// mount only, never on slug change (findings 1 and 2). This also requires
+// AppShell's content ErrorBoundary to key on routeKey(pathname), not the raw
+// pathname, so selecting a different wiki page doesn't remount the whole
+// page and re-trigger the effect from scratch (fix round 2). --
+
+function twoPageNavigation() {
+  return {
+    roots: [],
+    pages: [
+      { id: "page-alpha", slug: "alpha", title: "Alpha", rank: 0 },
+      { id: "page-beta", slug: "beta", title: "Beta", rank: 1 },
+    ],
+  };
+}
+
+function simplePage(slug: string, title: string) {
+  return {
+    id: `page-${slug}`,
+    slug,
+    title,
+    current_revision_id: `revision-${slug}`,
+    revision: {
+      id: `revision-${slug}`,
+      page_id: `page-${slug}`,
+      title,
+      summary: `${title} summary`,
+      sections: [],
+      markdown: `# ${title}`,
+      citations: [],
+      links: [],
+    },
+  };
+}
+
+function cadenceFetch(path: string): Response {
+  if (path === "/v1/wiki/ingestion") return jsonResponse({ auto_inject: false });
+  if (path === "/v1/wiki/navigation") return jsonResponse(twoPageNavigation());
+  if (path === "/v1/wiki/pages/alpha") return jsonResponse(simplePage("alpha", "Alpha"));
+  if (path === "/v1/wiki/pages/alpha/revisions") {
+    return jsonResponse({ revisions: [simplePage("alpha", "Alpha").revision] });
+  }
+  if (path === "/v1/wiki/pages/alpha/backlinks") return jsonResponse({ outgoing: [], incoming: [] });
+  if (path === "/v1/wiki/pages/beta") return jsonResponse(simplePage("beta", "Beta"));
+  if (path === "/v1/wiki/pages/beta/revisions") {
+    return jsonResponse({ revisions: [simplePage("beta", "Beta").revision] });
+  }
+  if (path === "/v1/wiki/pages/beta/backlinks") return jsonResponse({ outgoing: [], incoming: [] });
+  throw new Error(`unexpected path: ${path}`);
+}
+
+describe("wiki browse route navigation fetch cadence", () => {
+  it("fetches the navigation tree once per mount, not once per page selection", async () => {
+    const { user, fetchMock } = await renderApp({
+      route: "/apps/wiki/alpha",
+      me: makeMe(),
+      fetch: cadenceFetch,
+    });
+
+    await screen.findByRole("heading", { name: "Alpha" });
+    expect(callsTo(fetchMock, "/v1/wiki/navigation")).toHaveLength(1);
+
+    await user.click(screen.getByRole("button", { name: "Beta" }));
+    await screen.findByRole("heading", { name: "Beta" });
+
+    // Selecting a different page must not refetch the (expensive) navigation
+    // tree; only the fetches scoped to the newly selected page happen.
+    expect(callsTo(fetchMock, "/v1/wiki/navigation")).toHaveLength(1);
+  });
+
+  it("does not bounce back to the tree once already viewing a page absent from it", async () => {
+    // The very first mount legitimately auto-selects a tree page when no
+    // valid slug was requested (unchanged, and correct — there's nothing
+    // else to show). The bug this pins is different: having ALREADY landed
+    // on a valid page, selecting a page that isn't in the navigation tree
+    // (a retired page or search hit outside it) must not be silently
+    // bounced back once the tree effect settles again.
+    const { user } = await renderApp({
+      route: "/apps/wiki/alpha",
+      me: makeMe(),
+      fetch: (path) => {
+        if (path === "/v1/wiki/pages/hidden") return jsonResponse(simplePage("hidden", "Hidden"));
+        if (path === "/v1/wiki/pages/hidden/revisions") {
+          return jsonResponse({ revisions: [simplePage("hidden", "Hidden").revision] });
+        }
+        if (path === "/v1/wiki/pages/hidden/backlinks") {
+          return jsonResponse({ outgoing: [], incoming: [] });
+        }
+        if (path === "/v1/wiki/search?q=hidden") {
+          return jsonResponse({
+            results: [
+              {
+                page: { id: "page-hidden", slug: "hidden", title: "Hidden", current_revision_id: "revision-hidden" },
+                revision_id: "revision-hidden",
+                section_key: "body",
+                passage: "Hidden passage.",
+                score: 0.9,
+                citations: [],
+                links: [],
+              },
+            ],
+          });
+        }
+        return cadenceFetch(path);
+      },
+    });
+
+    await screen.findByRole("heading", { name: "Alpha" });
+
+    await user.type(screen.getByRole("searchbox", { name: "Search the wiki" }), "hidden");
+    await user.click(screen.getByRole("button", { name: "Search" }));
+    await user.click(await screen.findByRole("button", { name: /Hidden/ }));
+
+    await screen.findByRole("heading", { name: "Hidden" });
+    await waitFor(() => expect(window.location.pathname).toBe("/apps/wiki/hidden"));
+    // Give the (correctly non-refetching) navigation effect no chance to
+    // silently bounce this back to the first tree page.
+    expect(screen.queryByRole("heading", { name: "Alpha" })).toBeNull();
+  });
+
+  it("renders the page the URL points to after an external navigation (browser Back/Forward, palette jump)", async () => {
+    // selectedSlug is seeded once from the route param and otherwise only
+    // changed by selectPage; nothing previously synced it when the URL
+    // changed from OUTSIDE the component's own click handlers — a browser
+    // Back/Forward (pushState + popstate, simulated below) or a ⌘K palette
+    // jump straight to /apps/wiki/:slug both do exactly that. Collapsing
+    // the wiki route's remount key (routeKey.ts) removed the accidental
+    // full remount that used to paper over this.
+    await renderApp({
+      route: "/apps/wiki/alpha",
+      me: makeMe(),
+      fetch: cadenceFetch,
+    });
+
+    await screen.findByRole("heading", { name: "Alpha" });
+
+    await act(async () => {
+      window.history.pushState({}, "", "/apps/wiki/beta");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+
+    await screen.findByRole("heading", { name: "Beta" });
+    expect(screen.queryByRole("heading", { name: "Alpha" })).toBeNull();
   });
 });

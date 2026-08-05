@@ -1,58 +1,89 @@
-/* Theme overrides, applied via data-theme on <html> (see lib/theme.ts).
-   :root in base.css is the default beige light theme. Overrides must stay
-   limited to design tokens — no selector rules belong here. */
+/* 主题只覆盖颜色类 token（含 --backdrop），字体/间距/圆角/阴影是全局不变量。
+   默认 beige 主题就是 tokens.css 的 :root，不在这里重复声明。
+   两色制：accent 表示需要注意/主行动/危险，neutral 表示常态。 */
+
 [data-theme="dark"] {
-  --bg: #1b1916;
-  --surface: #24211d;
-  --surface-2: #2e2a25;
-  --border: #3c372f;
-  --border-strong: #4d463b;
-  --text: #ebe6db;
-  --muted: #a89f8e;
-  --faint: #7c7466;
-  --accent: #d97757;
-  --accent-hover: #e88d6d;
-  --accent-soft: #3d2b22;
-  --ok: #63a87c; --ok-bg: #223528;
-  --warn: #c7a54a; --warn-bg: #38301d;
-  --bad: #cf6f5a; --bad-bg: #3a2420;
-  --info: #7ba3d8; --info-bg: #232f42;
-  --input-bg: #1e1b18;
-  --on-accent: #fff;
-  --secret-bg: #2c241e;
-  --danger-border: #5c352d;
-  --warn-border: #54471f;
-  --bad-border: #5a322a;
-  --accent-border: #4d352a;
-  --backdrop: rgba(0, 0, 0, .5);
-  --shadow: rgba(0, 0, 0, .45);
+  --color-bg: #201e1d;
+  --color-surface: #2d2b2b;
+  --color-text: #f3f2f2;
+  --color-accent: #ff563c;
+  --color-accent-2: #ef6853;
+  --color-divider: color-mix(in srgb, #f3f2f2 35%, transparent);
+
+  --color-neutral-100: #2d2b2b;
+  --color-neutral-200: #444141;
+  --color-neutral-300: #605d5d;
+  --color-neutral-400: #7d7979;
+  --color-neutral-500: #9b9797;
+  --color-neutral-600: #bab6b6;
+  --color-neutral-700: #d7d3d3;
+  --color-neutral-800: #eae7e7;
+  --color-neutral-900: #f8f4f4;
+
+  --color-accent-100: #4d170e;
+  --color-accent-200: #7c1405;
+  --color-accent-300: #ae1800;
+  --color-accent-400: #dd2b0f;
+  --color-accent-500: #ff563c;
+  --color-accent-600: #ff9783;
+  --color-accent-700: #ffc4b8;
+  --color-accent-800: #ffe0d9;
+  --color-accent-900: #fff2ef;
+
+  --color-accent-2-100: #471d16;
+  --color-accent-2-200: #71261b;
+  --color-accent-2-300: #9e3526;
+  --color-accent-2-400: #c94b39;
+  --color-accent-2-500: #ef6853;
+  --color-accent-2-600: #ff9784;
+  --color-accent-2-700: #ffc4b9;
+  --color-accent-2-800: #ffe0da;
+  --color-accent-2-900: #fff2ef;
+
+  --backdrop: color-mix(in srgb, #000 62%, transparent);
 }
 
+/* Arcade：朱红铺底，白字。背景用 accent-600 (#dd2b0f) 而不是设计稿原本的
+   accent-500 (#ec3013)：后者配白字只有 4.20:1，达不到 WCAG AA 的 4.5，
+   降一档后是 4.74:1。色相差别几乎不可分辨，街机红的观感保留。
+   此主题下 --color-accent 反转为墨色，否则 .btn-primary 会消失在背景里。 */
 [data-theme="arcade"] {
-  --bg: #0d0b1e;
-  --surface: #171332;
-  --surface-2: #201a44;
-  --border: #322a5e;
-  --border-strong: #4a3f86;
-  --text: #e9e6ff;
-  --muted: #9d94d6;
-  --faint: #6b62a8;
-  --accent: #ff2e88;
-  --accent-hover: #ff5ca5;
-  --accent-soft: #3a1040;
-  --ok: #3df58a; --ok-bg: #0e2f20;
-  --warn: #ffd32e; --warn-bg: #33290f;
-  --bad: #ff5252; --bad-bg: #371326;
-  --info: #2ee6ff; --info-bg: #0e2838;
-  --input-bg: #120f2b;
-  --on-accent: #fff;
-  --secret-bg: #221040;
-  --danger-border: #6e2340;
-  --warn-border: #5c4a12;
-  --bad-border: #6e2038;
-  --accent-border: #5a1c50;
-  --backdrop: rgba(5, 3, 20, .6);
-  --shadow: rgba(5, 3, 20, .5);
-  /* Mono display type sells the arcade cabinet feel without extra assets. */
-  --serif: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --color-bg: #dd2b0f;
+  --color-surface: #c8240c;
+  --color-text: #ffffff;
+  --color-accent: #201e1d;
+  --color-accent-2: #4d170e;
+  --color-divider: color-mix(in srgb, #ffffff 45%, transparent);
+
+  --color-neutral-100: #c8240c;
+  --color-neutral-200: #b8200b;
+  --color-neutral-300: #a81f0b;
+  --color-neutral-400: #8d1a09;
+  --color-neutral-500: #ffb3a5;
+  --color-neutral-600: #ffc9bf;
+  --color-neutral-700: #ffdad3;
+  --color-neutral-800: #ffece8;
+  --color-neutral-900: #fff6f4;
+
+  --color-accent-100: #4d170e;
+  --color-accent-200: #3d1410;
+  --color-accent-300: #2d1110;
+  --color-accent-400: #251010;
+  --color-accent-500: #201e1d;
+  --color-accent-600: #2d2b2b;
+  --color-accent-700: #444141;
+  --color-accent-800: #ffece8;
+  --color-accent-900: #fff6f4;
+
+  --color-accent-2-100: #471d16;
+  --color-accent-2-200: #3a1712;
+  --color-accent-2-300: #2e120f;
+  --color-accent-2-400: #260f0d;
+  --color-accent-2-500: #201e1d;
+  --color-accent-2-600: #2d2b2b;
+  --color-accent-2-700: #444141;
+  --color-accent-2-800: #ffece8;
+  --color-accent-2-900: #fff6f4;
+
+  --backdrop: color-mix(in srgb, #201e1d 60%, transparent);
 }

@@ -43,7 +43,7 @@ function setVisibility(state: "visible" | "hidden"): void {
 function boot(handler?: FetchHandler) {
   vi.useFakeTimers();
   resetBrowserState();
-  window.history.pushState({}, "", "/admin/operations");
+  window.history.pushState({}, "", "/governance/pipeline");
   Object.defineProperty(document, "visibilityState", {
     configurable: true,
     get: () => visibility,

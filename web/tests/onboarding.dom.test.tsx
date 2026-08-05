@@ -17,6 +17,10 @@ import {
 
 setupDomTest();
 
+// Both a team-creator and an invitation acceptor land on /management, which
+// is the member-rooted "my access" view for every role (MyAgentsPage, the
+// stand-in until phase 3's AccessTree) — the Owner role does not change
+// which page the Management root renders.
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 const CREATED_TEAM = {
@@ -59,7 +63,7 @@ describe("saas onboarding: create a team", () => {
     await user.click(screen.getByRole("button", { name: "Create team" }));
 
     await screen.findByRole("heading", { name: "My Agents" });
-    expect(window.location.pathname).toBe("/agents");
+    expect(window.location.pathname).toBe("/management");
 
     const creates = callsTo(fetchMock, "/v1/teams", "POST");
     expect(creates).toHaveLength(1);

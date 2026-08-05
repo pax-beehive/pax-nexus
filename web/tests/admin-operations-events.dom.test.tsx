@@ -73,9 +73,18 @@ describe("section 12 item 7: empty successful recall differs from a failed one",
     const failedRow = within(eventsTable())
       .getByText("Team Note Recall")
       .closest("tr") as HTMLElement;
-    expect(within(failedRow).getByText("failed").className).toBe("badge b-retired");
+    expect(within(failedRow).getByText("failed").className).toBe("badge b-failed");
     expect(within(failedRow).queryByText("empty")).toBeNull();
     within(failedRow).getByText("llm_timeout");
+
+    // A failed outcome must not be painted like a successful one. The two
+    // shared no class *string* before either — but `bad` mapped to
+    // `b-retired`, which the stylesheet leaves at the neutral `.badge`
+    // default, so both rendered the same grey. The stylesheet assertion in
+    // tests/operations.test.ts pins the other half of this.
+    expect(within(failedRow).getByText("failed").className).not.toBe(
+      succeededBadge.className,
+    );
   });
 });
 
@@ -301,7 +310,7 @@ describe("section 12 item 13: drawer data never leaks to URL, storage or console
     await user.click(within(drawer()).getByRole("button", { name: "Close" }));
 
     // ...but it never reaches the URL, durable storage or the console.
-    expect(window.location.pathname).toBe("/admin/operations");
+    expect(window.location.pathname).toBe("/governance/pipeline");
     expect(window.location.search).toBe("");
     expect(window.location.hash).toBe("");
     expect(localStorage.length).toBe(0);

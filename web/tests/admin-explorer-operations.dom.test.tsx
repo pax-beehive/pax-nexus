@@ -26,7 +26,7 @@ function operationsResponse(path: string): Response {
 describe("Owner diagnostics from Operations", () => {
   it("opens extraction and capsule safe projections from event detail references", async () => {
     const { fetchMock, user } = await renderApp({
-      route: "/admin/operations",
+      route: "/governance/pipeline",
       me: makeMe({ capabilities: ["view.operations", "view.team-memory"] }),
       fetch: (path) => {
         if (path.startsWith("/v1/admin/operations/events")) {
