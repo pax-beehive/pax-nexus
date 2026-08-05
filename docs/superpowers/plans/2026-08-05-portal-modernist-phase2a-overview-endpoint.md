@@ -1,5 +1,20 @@
 # Modernist Portal 阶段 2a：Overview 聚合端点 实施计划
 
+> **STATUS (2026-08-05): PAUSED after Task 1.** Task 1's deliverables are already present on
+> `feat/portal-modernist-phase2` and must NOT be re-implemented: `internal/operations/series.go`
+> (`SeriesBucket`), `internal/platform/postgres/operations_series.go` (`OperationsStore.Series`
+> + its SQL, tested by `operations_series_test.go`). Tasks 2–5 have not been started.
+>
+> One thing Task 1 originally did is no longer true: it had added `Series` to the
+> `operations.Repository` interface, but the tenant-isolation branch's final review (F4) found
+> no caller went through the interface — only the concrete postgres method and a
+> compiler-satisfying stub in `internal/deployment/onprem/operations_test.go` used it — so the
+> interface method was removed. `series.go` and `operations_series.go` themselves are untouched
+> and still exactly match this plan's Step 1/Step 5. **Whoever resumes at Task 2 must first
+> re-add `Series(context.Context, TimeFilter, time.Duration) ([]SeriesBucket, error)` to the
+> `Repository` interface** (this plan's Task 1 Step 2) once Task 5's `overview_endpoint.go` gives
+> it a real consumer — do not skip that step because the method already exists concretely.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 新增只读端点 `GET /v1/admin/overview`，一次返回 Overview 落地页需要的全部数据：指标、分桶时间序列、Team Note 按 kind 的构成、以及跨四个来源汇流的 attention 队列。

@@ -1,5 +1,13 @@
 # Operation Events 租户隔离 实施计划
 
+> **STATUS (2026-08-05): COMPLETE.** All four tasks landed on `feat/portal-modernist-phase2`:
+> `7c2289f` (Task 1: scope column + attribution), `3d3c514` (Task 2: filter every read),
+> `2599136` (fix: scope the recall-diagnostic fallback's cross-tenant existence check),
+> `424407f` (Task 3: attribute recorded events to the acting team), `019880d` (Task 4:
+> cross-tenant isolation through the service layer). The checkboxes below were left unticked
+> by the implementer and do not reflect this — treat this header, not the checkboxes, as the
+> source of truth for what is done.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 让 `onprem_operation_events` 携带 `scope_id`，写入时记录事件所属团队、读取时按调用方团队过滤，消除多团队部署下 Operations 数据的跨租户可见。
