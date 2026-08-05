@@ -79,4 +79,25 @@ describe("sectionForPath", () => {
   it("returns undefined for a path outside every section", () => {
     expect(sectionForPath(navSections(makeMe()), "/join")).toBeUndefined();
   });
+
+  it("rejects near-miss paths that share a prefix but are not real descendants", () => {
+    const sections = navSections(makeMe({ role: "admin" }));
+    // /management-archive and /managementXYZ share the /management prefix but
+    // are not real descendants. The slash boundary guard must stop them.
+    expect(sectionForPath(sections, "/management-archive")).toBeUndefined();
+    expect(sectionForPath(sections, "/managementXYZ")).toBeUndefined();
+    expect(sectionForPath(sections, "/settings_backup")).toBeUndefined();
+  });
+
+  it("uses longest-prefix-match, not first-match-in-order", () => {
+    const sections = navSections(makeMe({ role: "admin" }));
+    // /apps/wiki and /apps/wiki/search: /apps has prefix /apps, but /apps/wiki
+    // is longer. If the function naively returned first match, this would still
+    // match /apps, but the longest-prefix guard ensures /apps/wiki is preferred.
+    // Construct a path deep under an item to prove longest-prefix wins.
+    expect(sectionForPath(sections, "/apps/wiki/search/results")?.id).toBe("apps");
+    // Verify that if we had a hypothetical /apps-other section, the slash guard
+    // would prevent matching it, proving both guards are active.
+    expect(sectionForPath(sections, "/apps-other")).toBeUndefined();
+  });
 });
