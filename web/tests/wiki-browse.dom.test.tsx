@@ -578,4 +578,29 @@ describe("wiki browse route navigation fetch cadence", () => {
     // silently bounce this back to the first tree page.
     expect(screen.queryByRole("heading", { name: "Alpha" })).toBeNull();
   });
+
+  it("renders the page the URL points to after an external navigation (browser Back/Forward, palette jump)", async () => {
+    // selectedSlug is seeded once from the route param and otherwise only
+    // changed by selectPage; nothing previously synced it when the URL
+    // changed from OUTSIDE the component's own click handlers — a browser
+    // Back/Forward (pushState + popstate, simulated below) or a ⌘K palette
+    // jump straight to /apps/wiki/:slug both do exactly that. Collapsing
+    // the wiki route's remount key (routeKey.ts) removed the accidental
+    // full remount that used to paper over this.
+    await renderApp({
+      route: "/apps/wiki/alpha",
+      me: makeMe(),
+      fetch: cadenceFetch,
+    });
+
+    await screen.findByRole("heading", { name: "Alpha" });
+
+    await act(async () => {
+      window.history.pushState({}, "", "/apps/wiki/beta");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+
+    await screen.findByRole("heading", { name: "Beta" });
+    expect(screen.queryByRole("heading", { name: "Alpha" })).toBeNull();
+  });
 });

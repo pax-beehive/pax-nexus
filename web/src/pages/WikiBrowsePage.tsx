@@ -64,6 +64,17 @@ export function WikiBrowsePage() {
   const [autoInject, setAutoInject] = useState(false);
   const [navigationRevision, setNavigationRevision] = useState(0);
 
+  // selectedSlug only self-updates via selectPage; nothing else syncs it
+  // when the route param changes out from under the component (browser
+  // Back/Forward, or a palette jump straight to /apps/wiki/:slug). Collapsing
+  // the wiki route's remount key (routeKey.ts) removed the accidental
+  // remount that used to paper over this, so it needs its own explicit
+  // sync — deliberately separate from the navigation-tree effect above,
+  // which must still never depend on routeSlug (see its comment).
+  useEffect(() => {
+    if (routeSlug !== selectedSlug) setSelectedSlug(routeSlug);
+  }, [routeSlug, selectedSlug]);
+
   useEffect(() => {
     const controller = new AbortController();
     getWikiIngestionStatus(controller.signal)
