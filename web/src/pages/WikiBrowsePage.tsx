@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   getWikiLinks,
@@ -30,6 +30,14 @@ export function WikiBrowsePage() {
   // Mounted at both /apps/wiki and /apps/wiki/:slug — the slug lives in the
   // route path, not the query string; only `revision` still rides ?revision=.
   const { slug: routeSlug = "" } = useParams();
+  // The navigation-tree effect below must fetch and auto-select on mount
+  // and on navigationRevision only, never on slug change (that fetch is
+  // the expensive one, and re-running the auto-select branch on every
+  // selection would silently bounce a page that isn't in the tree — e.g. a
+  // retired page reached via search — back to pages[0]). A ref lets the
+  // effect read the current route slug without depending on it.
+  const routeSlugRef = useRef(routeSlug);
+  routeSlugRef.current = routeSlug;
   const [topics, setTopics] = useState<WikiNavigationTopic[]>([]);
   const [rootPages, setRootPages] = useState<WikiNavigationPage[]>([]);
   const [topicPath, setTopicPath] = useState<string[]>([]);
@@ -98,7 +106,10 @@ export function WikiBrowsePage() {
         const pages = [...rootLevelPages, ...collectPages(roots)];
         setTopics(roots);
         setRootPages(rootLevelPages);
-        if (pages.length > 0 && !pages.some((candidate) => candidate.slug === routeSlug)) {
+        if (
+          pages.length > 0 &&
+          !pages.some((candidate) => candidate.slug === routeSlugRef.current)
+        ) {
           setSelectedSlug(pages[0].slug);
           updateLocation(pages[0].slug);
         }
@@ -110,7 +121,7 @@ export function WikiBrowsePage() {
         if (!controller.signal.aborted) setNavigationLoading(false);
       });
     return () => controller.abort();
-  }, [handleError, navigationRevision, routeSlug, updateLocation]);
+  }, [handleError, navigationRevision, updateLocation]);
 
   useEffect(() => {
     if (!selectedSlug) {

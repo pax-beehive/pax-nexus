@@ -17,10 +17,10 @@ import {
 
 setupDomTest();
 
-// Post-onboarding, /management dispatches AdminAgentsPage to admin-likes
-// and MyAgentsPage (the self-serve page these cases land on) to everyone
-// else (brief-mandated stand-in until phase 3's AccessTree); hence
-// `role: "member"` on the post-onboarding identity below.
+// Both a team-creator and an invitation acceptor land as Owner (makeSaasMe's
+// default role), so /management dispatches AdminAgentsPage ("All Agents")
+// for admin-likes (brief-mandated stand-in until phase 3's AccessTree) —
+// not the self-serve MyAgentsPage a member would see.
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 const CREATED_TEAM = {
@@ -36,7 +36,7 @@ describe("saas onboarding: create a team", () => {
     let created = false;
     const { fetchMock, user } = await renderApp({
       route: "/",
-      me: () => (created ? makeSaasMe({ role: "member" }) : makeNoMembershipMe()),
+      me: () => (created ? makeSaasMe() : makeNoMembershipMe()),
       fetch: (path, init) => {
         if (path === "/v1/teams" && init.method === "GET") return jsonResponse({ teams: [] });
         if (path === "/v1/teams" && init.method === "POST") {
@@ -44,9 +44,10 @@ describe("saas onboarding: create a team", () => {
         }
         if (path === "/v1/me/current-team" && init.method === "POST") {
           created = true;
-          return jsonResponse(makeSaasMe({ role: "member" }));
+          return jsonResponse(makeSaasMe());
         }
-        if (path.startsWith("/v1/me/agents")) return jsonResponse({ agents: [] });
+        if (path.startsWith("/v1/admin/agents")) return jsonResponse({ agents: [] });
+        if (path.startsWith("/v1/admin/members")) return jsonResponse({ members: [] });
         throw new Error(`unexpected fetch: ${init.method ?? "GET"} ${path}`);
       },
     });
@@ -62,7 +63,9 @@ describe("saas onboarding: create a team", () => {
 
     await user.click(screen.getByRole("button", { name: "Create team" }));
 
-    await screen.findByRole("heading", { name: "My Agents" });
+    // The team-creator is genuinely Owner (makeSaasMe's default role), so
+    // /management dispatches AdminAgentsPage ("All Agents").
+    await screen.findByRole("heading", { name: "All Agents" });
     expect(window.location.pathname).toBe("/management");
 
     const creates = callsTo(fetchMock, "/v1/teams", "POST");
@@ -107,14 +110,15 @@ describe("saas onboarding: join with invitation", () => {
     let joined = false;
     const { fetchMock, user } = await renderApp({
       route: "/",
-      me: () => (joined ? makeSaasMe({ role: "member" }) : makeNoMembershipMe()),
+      me: () => (joined ? makeSaasMe() : makeNoMembershipMe()),
       fetch: (path, init) => {
         if (path === "/v1/teams" && init.method === "GET") return jsonResponse({ teams: [] });
         if (path === "/v1/invitations/accept" && init.method === "POST") {
           joined = true;
-          return jsonResponse(makeSaasMe({ role: "member" }));
+          return jsonResponse(makeSaasMe());
         }
-        if (path.startsWith("/v1/me/agents")) return jsonResponse({ agents: [] });
+        if (path.startsWith("/v1/admin/agents")) return jsonResponse({ agents: [] });
+        if (path.startsWith("/v1/admin/members")) return jsonResponse({ members: [] });
         throw new Error(`unexpected fetch: ${init.method ?? "GET"} ${path}`);
       },
     });
@@ -127,7 +131,9 @@ describe("saas onboarding: join with invitation", () => {
     );
     await user.click(screen.getByRole("button", { name: "Accept invitation" }));
 
-    await screen.findByRole("heading", { name: "My Agents" });
+    // makeSaasMe()'s default role is Owner, so /management dispatches
+    // AdminAgentsPage ("All Agents").
+    await screen.findByRole("heading", { name: "All Agents" });
 
     const accepts = callsTo(fetchMock, "/v1/invitations/accept", "POST");
     expect(accepts).toHaveLength(1);
