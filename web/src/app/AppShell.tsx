@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import type { HumanMe } from "../api/types";
 import { ErrorBoundary } from "../components/ErrorBoundary";
@@ -17,6 +17,18 @@ export function AppShell({ me, children }: { me: HumanMe; children: ReactNode })
   const location = useLocation();
   const navigate = useNavigate();
   const [paletteOpen, setPaletteOpen] = useState(false);
+
+  // ⌘K / Ctrl-K 全局开关；Escape 由面板自己处理。
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setPaletteOpen((current) => !current);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
   const sections = navSections(me);
   const active = sectionForPath(sections, location.pathname);
 

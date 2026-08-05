@@ -194,3 +194,24 @@ textarea { min-height: 90px; resize: vertical; }
   width: 72px; height: 72px; display: grid; place-items: center;
   background: var(--color-accent); color: var(--color-bg);
 }
+
+/* — command palette — */
+.palette {
+  width: min(560px, 100%); background: var(--color-bg);
+  border: 2px solid var(--color-divider); box-shadow: var(--shadow-lg);
+  align-self: start; margin-top: 12vh;
+}
+.palette-input {
+  border: 0; border-bottom: 2px solid var(--color-divider); background: transparent;
+  min-height: 48px; font-size: 16px; border-radius: 0;
+}
+.palette-results { list-style: none; margin: 0; padding: 0; max-height: 50vh; overflow-y: auto; }
+.palette-results li {
+  display: flex; align-items: baseline; gap: 10px; padding: 9px 14px; cursor: pointer;
+  border-bottom: 1px solid var(--color-divider);
+}
+.palette-results li.on { background: var(--color-accent); color: var(--color-bg); }
+.palette-group { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; opacity: 0.55; min-width: 56px; }
+.palette-label { flex: 1; font-size: 14px; }
+.palette-hint { font-family: var(--font-mono); font-size: 11px; opacity: 0.6; }
+.palette-foot { padding: 8px 14px; border-top: 1px solid var(--color-divider); }
