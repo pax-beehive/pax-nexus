@@ -185,6 +185,27 @@ func (s *onPremHandlerSuite) TestObservationBindsActorFromCredential() {
 	s.Equal("membership-1", s.recorder.events[0].Actor.MembershipID)
 }
 
+// TestRecordedOperationEventCarriesCallersScopeNotOnPremSingleton is the
+// Task 3 regression test: recordAgentOperation must attribute the recorded
+// event to the authenticated principal's actual scope. Before the fix, this
+// call site hard-coded onprem.LocalScopeID ("local-team") regardless of
+// which team the request belonged to, which is exactly the misattribution
+// this task closes for the SaaS binary (internal/app/saas_wiring.go wires
+// the same handler with a real per-team principal.ScopeID).
+func (s *onPremHandlerSuite) TestRecordedOperationEventCarriesCallersScopeNotOnPremSingleton() {
+	s.runtime.EXPECT().ObserveSession(gomock.Any(), gomock.Any()).Return(
+		teamnote.IngestReceipt{Accepted: 1, Cursor: 1}, nil,
+	)
+	body := `{"session_id":"session-1","idempotency_key":"batch-1","events":[{"id":"event-1","sequence":1,"type":"assistant","content":"Release approved.","occurred_at":"2026-07-21T08:00:00Z"}],"complete":true}`
+
+	response := perform(s.handler.ObserveBatch, http.MethodPost, body, "team-agent")
+
+	s.Equal(consts.StatusOK, response.Code)
+	s.Require().Len(s.recorder.events, 1)
+	s.Equal("team-acme", s.recorder.events[0].ScopeID)
+	s.NotEqual(onprem.LocalScopeID, s.recorder.events[0].ScopeID)
+}
+
 func (s *onPremHandlerSuite) TestObserveSessionBindsPrincipalFromCredential() {
 	s.runtime.EXPECT().ObserveSession(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(ctx context.Context, batch teamnote.SessionBatch) (teamnote.IngestReceipt, error) {
@@ -672,6 +693,15 @@ func (s *credentialService) Authenticate(_ context.Context, apiKey string) (onpr
 			Kind:                 onprem.CredentialKindDevice,
 			Permissions:          []onprem.Permission{onprem.PermissionAgentProvision},
 			GrantablePermissions: []onprem.Permission{onprem.PermissionObserve, onprem.PermissionSearch, onprem.PermissionGet},
+		}, nil
+	case "team-agent":
+		// A SaaS caller: a principal whose scope is a real team, not the
+		// on-prem singleton. Recorded events for this caller must carry
+		// this scope, not onprem.LocalScopeID.
+		return onprem.Principal{
+			UserID: "owner", MembershipID: "membership-team", AgentID: "agent-team",
+			ScopeID: "team-acme", CredentialID: "credential-team",
+			Permissions: []onprem.Permission{onprem.PermissionObserve},
 		}, nil
 	default:
 		return onprem.Principal{}, onprem.ErrUnauthorized

@@ -9,9 +9,14 @@ import (
 	teamruntime "github.com/pax-beehive/pax-nexus/internal/teamnote/runtime"
 )
 
-// NewExtractionObserver adapts durable runtime slice outcomes to safe Operation Events.
+// NewExtractionObserver adapts durable runtime slice outcomes to safe
+// Operation Events. It cannot resolve the acting scope itself (this package
+// may not import teamnote or session, per internal/architecture's
+// dependency rules), so the composition root supplies scopeOf: a resolver
+// that reads whatever scope the extraction context carries.
 func NewExtractionObserver(
 	recorder operations.Recorder,
+	scopeOf func(context.Context) string,
 	logger *slog.Logger,
 ) func(context.Context, teamruntime.ExtractionObservation) {
 	return func(ctx context.Context, observation teamruntime.ExtractionObservation) {
@@ -25,10 +30,8 @@ func NewExtractionObserver(
 			completedAt = observation.StartedAt
 		}
 		outcome, errorCode := extractionOperationOutcome(observation.Status)
-		// TODO(Task 3): resolve the caller's real scope instead of hard-coding the
-		// on-prem singleton; this is the minimal repair to restore compilation.
 		event := operations.Event{
-			ScopeID: LocalScopeID, AttemptID: attemptID, Kind: operations.KindExtractionRun, Outcome: outcome,
+			ScopeID: scopeOf(ctx), AttemptID: attemptID, Kind: operations.KindExtractionRun, Outcome: outcome,
 			Actor: operations.Actor{
 				Kind: "agent", UserID: observation.Actor.UserID, AgentID: observation.Actor.AgentID,
 			},

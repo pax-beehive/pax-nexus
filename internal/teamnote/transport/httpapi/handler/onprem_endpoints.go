@@ -272,9 +272,10 @@ func (h *Handler) recordAgentOperation(
 	if completedAt.Before(event.StartedAt) {
 		completedAt = event.StartedAt
 	}
-	// TODO(Task 3): resolve the caller's real scope instead of hard-coding the
-	// on-prem singleton; this is the minimal repair to restore compilation.
-	event.ScopeID = onprem.LocalScopeID
+	// The authenticated principal already carried this scope through
+	// authorization above; attribute the recorded event to it rather than
+	// the on-prem singleton so SaaS teams' events are not misfiled.
+	event.ScopeID = principal.ScopeID
 	event.AttemptID = attemptID
 	event.Actor = operations.Actor{
 		Kind: "agent", UserID: principal.UserID, MembershipID: principal.MembershipID,

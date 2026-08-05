@@ -86,8 +86,9 @@ func maintainOperations(
 	// cannot starve the bookkeeping write.
 	recordContext, cancelRecord := context.WithTimeout(ctx, config.operationsMaintenanceTimeout)
 	defer cancelRecord()
-	// TODO(Task 3): resolve the caller's real scope instead of hard-coding the
-	// on-prem singleton; this is the minimal repair to restore compilation.
+	// Deliberately onprem.LocalScopeID, not per-team: retention is a
+	// process-level maintenance sweep that belongs to no team, so in SaaS no
+	// team should see the janitor's own bookkeeping in their Operations view.
 	_, err = recorder.Record(recordContext, operations.Event{
 		ScopeID: onprem.LocalScopeID, AttemptID: attemptID, Kind: operations.KindSystemRetention, Outcome: operations.OutcomeSucceeded,
 		Actor: operations.Actor{Kind: "system"}, StartedAt: now, CompletedAt: completedAt,

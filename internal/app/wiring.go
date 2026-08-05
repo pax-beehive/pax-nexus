@@ -574,6 +574,21 @@ func extractionUsageRecorder(
 	}
 }
 
+// extractionEventScope resolves the scope to attribute a recorded
+// extraction Operation Event to. internal/deployment/onprem may not import
+// teamnote or session (see internal/architecture's dependency rules), so it
+// cannot read the extraction context's scope itself; this resolver is
+// supplied to onprem.NewExtractionObserver by the composition root instead.
+// It mirrors extractionUsageRecorder above: read the scope the extraction
+// context carries, falling back to onprem.LocalScopeID when absent.
+func extractionEventScope(ctx context.Context) string {
+	scopeID, err := teamnote.ScopeFromContext(ctx)
+	if err != nil || strings.TrimSpace(scopeID) == "" {
+		return onprem.LocalScopeID
+	}
+	return scopeID
+}
+
 // buildHTTPHandler configures the team-memory HTTP transport. It also
 // returns the *onprem.IdentityService built for the human portal (nil in
 // legacy API-key mode), so callers can share it with other handlers that
