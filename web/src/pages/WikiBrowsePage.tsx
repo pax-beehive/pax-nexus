@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   getWikiLinks,
   getWikiNavigation,
@@ -27,13 +27,14 @@ const EMPTY_LINKS: WikiLinks = { outgoing: [], incoming: [] };
 export function WikiBrowsePage() {
   const navigate = useNavigate();
   const handleError = useErrorHandler();
+  // Mounted at both /apps/wiki and /apps/wiki/:slug — the slug lives in the
+  // route path, not the query string; only `revision` still rides ?revision=.
+  const { slug: routeSlug = "" } = useParams();
   const [topics, setTopics] = useState<WikiNavigationTopic[]>([]);
   const [rootPages, setRootPages] = useState<WikiNavigationPage[]>([]);
   const [topicPath, setTopicPath] = useState<string[]>([]);
   const [navigationLoading, setNavigationLoading] = useState(true);
-  const [selectedSlug, setSelectedSlug] = useState(
-    () => new URLSearchParams(window.location.search).get("page") ?? "",
-  );
+  const [selectedSlug, setSelectedSlug] = useState(() => routeSlug);
   const [page, setPage] = useState<WikiPage>();
   const [revision, setRevision] = useState<WikiRevision>();
   const [revisions, setRevisions] = useState<WikiRevision[]>([]);
@@ -71,10 +72,9 @@ export function WikiBrowsePage() {
 
   const updateLocation = useCallback(
     (slug: string, revisionID?: string) => {
-      const parameters = new URLSearchParams();
-      parameters.set("page", slug);
-      if (revisionID) parameters.set("revision", revisionID);
-      navigate({ pathname: "/wiki/browse", search: `?${parameters.toString()}` }, { replace: true });
+      const pathname = `/apps/wiki/${encodeURIComponent(slug)}`;
+      const search = revisionID ? `?revision=${encodeURIComponent(revisionID)}` : "";
+      navigate({ pathname, search }, { replace: true });
     },
     [navigate],
   );
@@ -98,8 +98,7 @@ export function WikiBrowsePage() {
         const pages = [...rootLevelPages, ...collectPages(roots)];
         setTopics(roots);
         setRootPages(rootLevelPages);
-        const requestedSlug = new URLSearchParams(window.location.search).get("page") ?? "";
-        if (pages.length > 0 && !pages.some((candidate) => candidate.slug === requestedSlug)) {
+        if (pages.length > 0 && !pages.some((candidate) => candidate.slug === routeSlug)) {
           setSelectedSlug(pages[0].slug);
           updateLocation(pages[0].slug);
         }
@@ -111,7 +110,7 @@ export function WikiBrowsePage() {
         if (!controller.signal.aborted) setNavigationLoading(false);
       });
     return () => controller.abort();
-  }, [handleError, navigationRevision, updateLocation]);
+  }, [handleError, navigationRevision, routeSlug, updateLocation]);
 
   useEffect(() => {
     if (!selectedSlug) {
@@ -295,7 +294,7 @@ export function WikiBrowsePage() {
                     <span>This page has been archived.</span>
                     {page.successor_slug && (
                       <a
-                        href={`/wiki?page=${encodeURIComponent(page.successor_slug)}`}
+                        href={`/apps/wiki/${encodeURIComponent(page.successor_slug)}`}
                         className="wiki-inline-link"
                         onClick={(event) => {
                           event.preventDefault();

@@ -34,9 +34,12 @@ function detailFetch(scope: "me" | "admin", agent: AgentFixture | Response) {
 
 describe("owner scope (/agents/:agentId)", () => {
   it("renders the agent head, badges, and full owner governance without the owner row", async () => {
+    // /management/agents/:agentId dispatches AdminAgentDetailPage to
+    // admin-likes and AgentDetailPage (the self-serve page under test) to
+    // everyone else (brief-mandated stand-in until phase 4).
     await renderApp({
-      route: "/agents/agent-1",
-      me: makeMe(),
+      route: "/management/agents/agent-1",
+      me: makeMe({ role: "member" }),
       fetch: detailFetch("me", makeAgent()),
     });
 
@@ -66,8 +69,8 @@ describe("owner scope (/agents/:agentId)", () => {
 
   it("renders the 404 card with a link back to /agents", async () => {
     await renderApp({
-      route: "/agents/agent-1",
-      me: makeMe(),
+      route: "/management/agents/agent-1",
+      me: makeMe({ role: "member" }),
       fetch: detailFetch("me", apiErrorResponse(404, "not_found", "no such agent")),
     });
 
@@ -79,7 +82,7 @@ describe("owner scope (/agents/:agentId)", () => {
 describe("admin scope (/admin/agents/:agentId)", () => {
   it("renders the owner row and admin governance constraints", async () => {
     await renderApp({
-      route: "/admin/agents/agent-1",
+      route: "/management/agents/agent-1",
       me: makeMe({ role: "admin" }),
       fetch: detailFetch("admin", makeAgent()),
     });
@@ -101,7 +104,7 @@ describe("admin scope (/admin/agents/:agentId)", () => {
 
   it("renders the 404 card with a link back to /admin/agents", async () => {
     await renderApp({
-      route: "/admin/agents/agent-1",
+      route: "/management/agents/agent-1",
       me: makeMe({ role: "admin" }),
       fetch: detailFetch("admin", apiErrorResponse(404, "not_found", "no such agent")),
     });

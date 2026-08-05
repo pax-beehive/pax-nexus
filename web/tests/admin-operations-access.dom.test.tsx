@@ -4,7 +4,7 @@
 // guard fires no Operations API request when access is denied.
 
 import { describe, expect, it } from "vitest";
-import { screen, waitFor } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import {
   apiErrorResponse,
   callsTo,
@@ -23,38 +23,38 @@ function agentsOnlyFetch(path: string, init: RequestInit): Response {
   throw new Error(`unexpected fetch: ${init.method ?? "GET"} ${path}`);
 }
 
-/** Nav link lookups stay inside <nav> so page content can never false-match. */
-function operationsNavLink(): HTMLElement | null {
-  return document.querySelector('nav a[href="/admin/operations"]');
-}
-
-/** The Insights group is collapsed by default; expand it so capability
-    gating (not the group toggle) is what shows or hides the nav item. */
-async function expandInsights(user: { click: (el: HTMLElement) => Promise<void> }): Promise<void> {
-  await user.click(screen.getByRole("button", { name: "Insights" }));
+/** The top bar's Governance subnav only renders once a Governance-section
+    route is current (there is no collapsible sidebar group to expand
+    anymore); "Pipeline health" is its Operations entry point. */
+function pipelineHealthLink(): HTMLElement | null {
+  const subnav = screen.queryByRole("navigation", { name: "Section pages" });
+  return subnav ? within(subnav).queryByRole("link", { name: "Pipeline health" }) : null;
 }
 
 describe("section 12 item 1: Operations nav follows the server capability", () => {
   it("shows the nav item for an active admin carrying view.operations", async () => {
-    const { user } = await renderApp({ route: "/agents", me: opsMe(), fetch: agentsOnlyFetch });
-    await expandInsights(user);
-    expect(operationsNavLink()).not.toBeNull();
+    // /governance/audit is a stable anchor available to any owner/admin
+    // (view.audit); once there, the subnav lists every visible Governance
+    // item, so "Pipeline health" shows purely from the server capability.
+    await renderApp({ route: "/governance/audit", me: opsMe(), fetch: agentsOnlyFetch });
+    await screen.findByRole("heading", { name: "Audit Events" });
+    expect(pipelineHealthLink()).not.toBeNull();
   });
 
   it("hides the nav item when the capability list is empty", async () => {
-    const { user } = await renderApp({ route: "/agents", me: makeMe(), fetch: agentsOnlyFetch });
-    await expandInsights(user);
-    expect(operationsNavLink()).toBeNull();
+    await renderApp({ route: "/governance/audit", me: makeMe(), fetch: agentsOnlyFetch });
+    await screen.findByRole("heading", { name: "Audit Events" });
+    expect(pipelineHealthLink()).toBeNull();
   });
 
   it("hides the nav item when only unknown capabilities are published", async () => {
-    const { user } = await renderApp({
-      route: "/agents",
+    await renderApp({
+      route: "/governance/audit",
       me: makeMe({ capabilities: ["view.future-feature"] }),
       fetch: agentsOnlyFetch,
     });
-    await expandInsights(user);
-    expect(operationsNavLink()).toBeNull();
+    await screen.findByRole("heading", { name: "Audit Events" });
+    expect(pipelineHealthLink()).toBeNull();
   });
 
   it("hides the nav item when the capabilities field is missing entirely", async () => {
@@ -62,41 +62,52 @@ describe("section 12 item 1: Operations nav follows the server capability", () =
     // behavior is an empty list, not a role-based guess (doc section 2.1).
     const me = makeMe();
     delete (me as Partial<HumanMe>).capabilities;
-    const { user } = await renderApp({ route: "/agents", me, fetch: agentsOnlyFetch });
-    await expandInsights(user);
-    expect(operationsNavLink()).toBeNull();
+    await renderApp({ route: "/governance/audit", me, fetch: agentsOnlyFetch });
+    await screen.findByRole("heading", { name: "Audit Events" });
+    expect(pipelineHealthLink()).toBeNull();
   });
 
-  it("hides the nav item for a Member even if a capability were published", async () => {
-    // The admin nav sections themselves are role-gated; a Member never sees
-    // the Operations entry point regardless of the capability payload.
+  it("shows the nav item for a Member once the capability is published", async () => {
+    // navModel.ts gates Pipeline health purely on the server-issued
+    // view.operations capability, never on the client role matrix (this
+    // file's own premise, doc section 12); a Member with the capability
+    // gets a Governance section containing only that one item.
     await renderApp({
-      route: "/agents",
+      route: "/governance/pipeline",
       me: makeMe({ role: "member", capabilities: ["view.operations"] }),
-      fetch: agentsOnlyFetch,
+      fetch: operationsFetch(),
     });
-    expect(operationsNavLink()).toBeNull();
+    await screen.findByRole("heading", { name: "Operations" });
+    expect(pipelineHealthLink()).not.toBeNull();
+    const subnav = screen.getByRole("navigation", { name: "Section pages" });
+    expect(within(subnav).queryByRole("link", { name: "Audit trail" })).toBeNull();
   });
 });
 
 describe("section 12 item 2: route guard denies without firing Operations requests", () => {
-  it("redirects a capable-looking admin without the capability back to /agents", async () => {
-    const { fetchMock, user } = await renderApp({
-      route: "/admin/operations",
+  it("redirects a capable-looking admin without the capability back to /management", async () => {
+    // Default makeMe() is owner (admin-like), so landingPath(me) resolves to
+    // /management, and /management dispatches AdminAgentsPage ("All
+    // Agents") for admin-likes (brief-mandated stand-in until phase 3).
+    const { fetchMock } = await renderApp({
+      route: "/governance/pipeline",
       me: makeMe({ capabilities: ["view.audit-future"] }),
-      fetch: agentsOnlyFetch,
+      fetch: (path, init) => {
+        if (path.startsWith("/v1/admin/agents")) return jsonResponse({ agents: [] });
+        if (path.startsWith("/v1/admin/members")) return jsonResponse({ members: [] });
+        return agentsOnlyFetch(path, init);
+      },
     });
 
-    await screen.findByRole("heading", { name: "My Agents" });
-    expect(window.location.pathname).toBe("/agents");
+    await screen.findByRole("heading", { name: "All Agents" });
+    expect(window.location.pathname).toBe("/management");
     expect(callsTo(fetchMock, "/v1/admin/operations")).toHaveLength(0);
-    await expandInsights(user);
-    expect(operationsNavLink()).toBeNull();
+    expect(pipelineHealthLink()).toBeNull();
   });
 
   it("an unauthenticated visitor lands on login with no Operations request", async () => {
     const { fetchMock } = await renderApp({
-      route: "/admin/operations",
+      route: "/governance/pipeline",
       me: null,
       fetch: agentsOnlyFetch,
     });
@@ -108,15 +119,19 @@ describe("section 12 item 2: route guard denies without firing Operations reques
   it("a 403 forbidden refreshes /v1/me and leaves the route when the capability is gone", async () => {
     // First boot publishes the capability; after the backend starts
     // answering 403 the refreshed identity no longer carries it (doc 11),
-    // so the guard redirects and the nav entry disappears.
+    // so the guard redirects. Default makeMe() (post-revoke) is owner, so
+    // landingPath is /management, which dispatches AdminAgentsPage for
+    // admin-likes (brief-mandated stand-in until phase 3).
     let privileged = true;
     const me = () => (privileged ? opsMe() : makeMe());
     const forbidden = () => apiErrorResponse(403, "forbidden", "capability revoked");
     const { fetchMock } = await renderApp({
-      route: "/admin/operations",
+      route: "/governance/pipeline",
       me,
       fetch: (path, init) => {
         if (path.startsWith("/v1/me/agents")) return jsonResponse({ agents: [] });
+        if (path.startsWith("/v1/admin/agents")) return jsonResponse({ agents: [] });
+        if (path.startsWith("/v1/admin/members")) return jsonResponse({ members: [] });
         if (path.startsWith("/v1/admin/operations/")) {
           privileged = false;
           return forbidden();
@@ -125,16 +140,16 @@ describe("section 12 item 2: route guard denies without firing Operations reques
       },
     });
 
-    await screen.findByRole("heading", { name: "My Agents" });
-    await waitFor(() => expect(operationsNavLink()).toBeNull());
-    expect(window.location.pathname).toBe("/agents");
+    await screen.findByRole("heading", { name: "All Agents" });
+    expect(window.location.pathname).toBe("/management");
+    expect(pipelineHealthLink()).toBeNull();
     // /v1/me was refetched at least once in response to the 403 (doc 11).
     expect(callsTo(fetchMock, "/v1/me").length).toBeGreaterThanOrEqual(2);
   });
 
   it("a 401 mid-session drops the cached identity and unmounts the console", async () => {
     const { fetchMock } = await renderApp({
-      route: "/admin/operations",
+      route: "/governance/pipeline",
       me: opsMe(),
       fetch: operationsFetch({
         summary: () => apiErrorResponse(401, "unauthorized", "session revoked"),

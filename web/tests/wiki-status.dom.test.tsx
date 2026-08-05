@@ -22,7 +22,7 @@ setupDomTest();
 describe("wiki status page", () => {
   it("shows ingestion controls, progress, and opens the full-screen wiki", async () => {
     const { user } = await renderApp({
-      route: "/wiki",
+      route: "/settings/memory",
       me: makeMe(),
       fetch: (path) => {
         if (path === "/v1/wiki/ingestion") {
@@ -38,16 +38,18 @@ describe("wiki status page", () => {
 
     await waitFor(() => expect(screen.getByRole("switch")).toBeTruthy());
     expect(screen.getByText("3")).toBeTruthy();
-    // Portal shell stays visible around the status page.
-    expect(screen.getByText("My Agents")).toBeTruthy();
+    // Portal shell (top bar) stays visible around the status page.
+    expect(screen.getByRole("navigation", { name: "Sections" })).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "Open Wiki" }));
-    await waitFor(() => expect(window.location.pathname).toBe("/wiki/browse"));
+    // Lands on /apps/wiki with no slug, then WikiBrowsePage auto-selects the
+    // first page and rewrites the URL to /apps/wiki/:slug.
+    await waitFor(() => expect(window.location.pathname).toBe("/apps/wiki/alpha"));
   });
 
   it("degrades to a progress-unavailable notice without blocking controls", async () => {
     await renderApp({
-      route: "/wiki",
+      route: "/settings/memory",
       me: makeMe(),
       fetch: (path) => {
         if (path === "/v1/wiki/ingestion") return jsonResponse({ auto_inject: false });
@@ -62,14 +64,14 @@ describe("wiki status page", () => {
   it("redirects legacy /wiki?page= deep links to the browse route", async () => {
     await renderApp({ route: "/wiki?page=alpha", me: makeMe(), fetch: wikiFetch });
 
-    await waitFor(() => expect(window.location.pathname).toBe("/wiki/browse"));
-    expect(window.location.search).toBe("?page=alpha");
+    await waitFor(() => expect(window.location.pathname).toBe("/apps/wiki/alpha"));
+    expect(window.location.search).toBe("");
     await waitFor(() => expect(screen.getByText("Alpha summary")).toBeTruthy());
   });
 
-  it("routes to the status page from the portal sidebar Wiki link", async () => {
+  it("routes to the status page from the portal top bar Settings link", async () => {
     const { user } = await renderApp({
-      route: "/agents",
+      route: "/management",
       me: makeMe(),
       fetch: (path) => {
         if (path === "/v1/wiki/ingestion") return jsonResponse({ auto_inject: false });
@@ -82,12 +84,10 @@ describe("wiki status page", () => {
       },
     });
 
-    const portalNav = screen.getByRole("navigation", { name: "Portal navigation" });
-    within(portalNav).getByText("Knowledge");
-    await user.click(within(portalNav).getByRole("link", { name: "Apps" }));
-    await user.click(screen.getByRole("link", { name: /Wiki policy/ }));
+    const topbar = screen.getByRole("navigation", { name: "Sections" });
+    await user.click(within(topbar).getByRole("link", { name: "Settings" }));
 
-    await waitFor(() => expect(window.location.pathname).toBe("/wiki"));
+    await waitFor(() => expect(window.location.pathname).toBe("/settings/memory"));
     await screen.findByRole("switch");
     expect(screen.getByRole("button", { name: "Open Wiki" })).toBeTruthy();
   });
@@ -99,7 +99,7 @@ describe("wiki status page", () => {
 describe("wiki status page ingestion controls", () => {
   it("toggles auto injection and manually injects a fixed session", async () => {
     const { user, fetchMock } = await renderApp({
-      route: "/wiki",
+      route: "/settings/memory",
       me: makeMe({ role: "member" }),
       fetch: (path, init) => {
         const method = init?.method ?? "GET";
@@ -132,7 +132,7 @@ describe("wiki status page ingestion controls", () => {
 
   it("lets an owner confirm a full Wiki rebuild without deleting Session Lake", async () => {
     const { user, fetchMock } = await renderApp({
-      route: "/wiki",
+      route: "/settings/memory",
       me: makeMe({ role: "owner" }),
       fetch: (path, init) => {
         const method = init?.method ?? "GET";
@@ -165,7 +165,7 @@ describe("wiki status page ingestion controls", () => {
     // sweep; the dialog must not hold the page hostage while it does.
     let releaseRebuild: (() => void) | undefined;
     const { user } = await renderApp({
-      route: "/wiki",
+      route: "/settings/memory",
       me: makeMe({ role: "owner" }),
       fetch: (path, init) => {
         const method = init?.method ?? "GET";
@@ -200,7 +200,7 @@ describe("wiki status page ingestion controls", () => {
 
   it("sends the lookback cutoff when a rebuild date is picked", async () => {
     const { user, fetchMock } = await renderApp({
-      route: "/wiki",
+      route: "/settings/memory",
       me: makeMe({ role: "owner" }),
       fetch: (path, init) => {
         const method = init?.method ?? "GET";
@@ -239,7 +239,7 @@ describe("wiki status page ingestion controls", () => {
 
   it("omits since when the rebuild date is left empty", async () => {
     const { user, fetchMock } = await renderApp({
-      route: "/wiki",
+      route: "/settings/memory",
       me: makeMe({ role: "owner" }),
       fetch: (path, init) => {
         const method = init?.method ?? "GET";
@@ -270,7 +270,7 @@ describe("wiki status page ingestion controls", () => {
 
   it("disables Reset & rebuild and shows progress while a rebuild runs", async () => {
     await renderApp({
-      route: "/wiki",
+      route: "/settings/memory",
       me: makeMe({ role: "owner" }),
       fetch: (path) => {
         if (path === "/v1/wiki/ingestion") {
@@ -291,7 +291,7 @@ describe("wiki status page ingestion controls", () => {
 
   it("surfaces a failed rebuild with its error", async () => {
     await renderApp({
-      route: "/wiki",
+      route: "/settings/memory",
       me: makeMe({ role: "owner" }),
       fetch: (path) => {
         if (path === "/v1/wiki/ingestion") {
@@ -316,7 +316,7 @@ describe("wiki status page ingestion controls", () => {
 
   it("hides the destructive rebuild control from members", async () => {
     await renderApp({
-      route: "/wiki",
+      route: "/settings/memory",
       me: makeMe({ role: "member" }),
       fetch: (path) => {
         if (path === "/v1/wiki/ingestion") return jsonResponse({ auto_inject: false });
@@ -337,7 +337,7 @@ describe("wiki status page ingestion controls", () => {
 describe("wiki status page generation settings", () => {
   it("renders defaults when no language or instructions are configured", async () => {
     await renderApp({
-      route: "/wiki",
+      route: "/settings/memory",
       me: makeMe(),
       fetch: (path, init) => {
         const method = init?.method ?? "GET";
@@ -365,7 +365,7 @@ describe("wiki status page generation settings", () => {
 
   it("saves the selected language and instructions", async () => {
     const { user, fetchMock } = await renderApp({
-      route: "/wiki",
+      route: "/settings/memory",
       me: makeMe(),
       fetch: (path, init) => {
         const method = init?.method ?? "GET";
@@ -399,7 +399,7 @@ describe("wiki status page generation settings", () => {
 
   it("falls back to a custom-language input for a value outside the presets", async () => {
     await renderApp({
-      route: "/wiki",
+      route: "/settings/memory",
       me: makeMe(),
       fetch: (path, init) => {
         const method = init?.method ?? "GET";
@@ -422,7 +422,7 @@ describe("wiki status page generation settings", () => {
 // -- LLM usage card (2026-07-31-llm-token-metering task 4) --
 describe("wiki status page LLM usage", () => {
   it("renders a table with a row per component plus a totals row", async () => {
-    await renderApp({ route: "/wiki", me: makeMe(), fetch: wikiFetch });
+    await renderApp({ route: "/settings/memory", me: makeMe(), fetch: wikiFetch });
 
     const card = await screen.findByRole("region", { name: "LLM token usage" });
     within(card).getByText("extractor");
@@ -435,7 +435,7 @@ describe("wiki status page LLM usage", () => {
   });
 
   it("refetches with the selected window when the select changes", async () => {
-    const { user, fetchMock } = await renderApp({ route: "/wiki", me: makeMe(), fetch: wikiFetch });
+    const { user, fetchMock } = await renderApp({ route: "/settings/memory", me: makeMe(), fetch: wikiFetch });
 
     const card = await screen.findByRole("region", { name: "LLM token usage" });
     expect(callsTo(fetchMock, "/v1/llm-usage?days=7")).toHaveLength(1);
@@ -447,7 +447,7 @@ describe("wiki status page LLM usage", () => {
 
   it("shows an unavailable note when the usage endpoint fails, page otherwise intact", async () => {
     await renderApp({
-      route: "/wiki",
+      route: "/settings/memory",
       me: makeMe(),
       fetch: (path) => {
         if (path.startsWith("/v1/llm-usage")) return apiErrorResponse(500, "internal", "boom");

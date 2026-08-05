@@ -68,7 +68,7 @@ function sessionAuditFetch(path: string, init: RequestInit): Response {
 describe("Session Audit page", () => {
   it("renders the Findings view first and fetches findings", async () => {
     const { fetchMock } = await renderApp({
-      route: "/admin/session-audit",
+      route: "/governance/sessions",
       me: makeMe(),
       fetch: sessionAuditFetch,
     });
@@ -92,7 +92,7 @@ describe("Session Audit page", () => {
 
   it("switches views through the toggle and keeps the view in the URL", async () => {
     const { fetchMock, user } = await renderApp({
-      route: "/admin/session-audit",
+      route: "/governance/sessions",
       me: makeMe(),
       fetch: sessionAuditFetch,
     });
@@ -114,7 +114,7 @@ describe("Session Audit page", () => {
 
   it("honors a shared ?view= link by opening that view directly", async () => {
     const { fetchMock } = await renderApp({
-      route: "/admin/session-audit?view=activity",
+      route: "/governance/sessions?view=activity",
       me: makeMe(),
       fetch: sessionAuditFetch,
     });

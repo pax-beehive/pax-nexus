@@ -4,7 +4,7 @@
 // team-scoped Members / Invitations admin pages.
 
 import { describe, expect, it } from "vitest";
-import { screen } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import { jsonResponse, makeSaasMe, renderApp, setupDomTest } from "./helpers";
 
 setupDomTest();
@@ -16,7 +16,7 @@ function agentsFetch(path: string, init: RequestInit): Response {
 
 describe("team settings page", () => {
   it("renders the general panel with team info and a disabled rename", async () => {
-    await renderApp({ route: "/team", me: makeSaasMe(), fetch: agentsFetch });
+    await renderApp({ route: "/settings/team", me: makeSaasMe(), fetch: agentsFetch });
 
     await screen.findByRole("heading", { name: "Team settings" });
     expect(screen.getAllByText("Acme ML").length).toBeGreaterThan(0);
@@ -41,7 +41,10 @@ describe("team settings page", () => {
         .some((link) => link.getAttribute("href") === "/admin/invitations"),
     ).toBe(true);
 
-    // The nav entry lives in the Directory group.
-    expect(screen.getAllByRole("link", { name: "Team settings" }).length).toBeGreaterThan(0);
+    // The nav entry lives in the Settings section's subnav, labeled "Team".
+    const subnav = screen.getByRole("navigation", { name: "Section pages" });
+    expect(within(subnav).getByRole("link", { name: "Team" }).getAttribute("aria-current")).toBe(
+      "page",
+    );
   });
 });

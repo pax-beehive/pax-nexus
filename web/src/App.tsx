@@ -11,9 +11,8 @@ import { JoinPage } from "./pages/JoinPage";
 import { EntryPage } from "./pages/EntryPage";
 import { OnboardingPage } from "./pages/OnboardingPage";
 import { SuspendedPage } from "./pages/SuspendedPage";
-import { PortalShell } from "./pages/PortalShell";
-import { WikiBrowsePage } from "./pages/WikiBrowsePage";
-import { TodoPage } from "./pages/TodoPage";
+import { AppShell } from "./app/AppShell";
+import { PortalRoutes } from "./app/routes";
 
 /**
  * After the OIDC round trip the backend always lands on the fixed
@@ -74,26 +73,14 @@ function AppRoutes() {
       )}
       {state.kind === "suspended" && <Route path="*" element={<SuspendedPage />} />}
       {state.kind === "active" && (
-        <>
-          <Route path="/onboarding" element={<OnboardingPage />} />
-          <Route
-            path="/wiki/browse"
-            element={
-              <ErrorBoundary region="route" fullPage>
-                <WikiBrowsePage />
-              </ErrorBoundary>
-            }
-          />
-          <Route
-            path="/todo"
-            element={
-              <ErrorBoundary region="route" fullPage>
-                <TodoPage />
-              </ErrorBoundary>
-            }
-          />
-          <Route path="*" element={<PortalShell me={state.me} />} />
-        </>
+        <Route
+          path="*"
+          element={
+            <AppShell me={state.me}>
+              <PortalRoutes me={state.me} />
+            </AppShell>
+          }
+        />
       )}
     </Routes>
   );
@@ -102,7 +89,7 @@ function AppRoutes() {
 export default function App() {
   // Outermost boundary: even a shell-level render failure leaves a safe
   // recovery page instead of a blank document (narrower boundaries live in
-  // PortalShell and Modal).
+  // AppShell and Modal).
   return (
     <ErrorBoundary region="app" fullPage>
       <ToastProvider>

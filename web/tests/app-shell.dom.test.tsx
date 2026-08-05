@@ -1,6 +1,5 @@
 // 外壳的 DOM 契约：顶栏项按角色渲染、subnav 跟随当前分区、用户菜单能登出。
 // 可见性的穷举在 tests/navModel.test.ts，这里只验证渲染与交互。
-// Task 9 接线后移除 .skip
 import { screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { jsonResponse, makeMe, renderApp, setupDomTest } from "./helpers";
@@ -18,7 +17,7 @@ function topbar(): HTMLElement {
   return screen.getByRole("navigation", { name: "Sections" });
 }
 
-describe.skip("AppShell top bar", () => {
+describe("AppShell top bar", () => {
   it("renders only the sections a member may see", async () => {
     await renderApp({
       route: "/management",

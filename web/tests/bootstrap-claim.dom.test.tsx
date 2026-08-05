@@ -28,6 +28,8 @@ function renderBootstrap(options: {
         return options.claim(path, init);
       }
       if (path.startsWith("/v1/me/agents")) return jsonResponse({ agents: [] });
+      if (path.startsWith("/v1/admin/agents")) return jsonResponse({ agents: [] });
+      if (path.startsWith("/v1/admin/members")) return jsonResponse({ members: [] });
       throw new Error(`unexpected fetch: ${path}`);
     },
   });
@@ -47,8 +49,11 @@ describe("section 10 item 3: concurrent bootstrap claim", () => {
     await user.type(screen.getByLabelText("Bootstrap secret"), "top-secret");
     await user.click(screen.getByRole("button", { name: "Claim Owner" }));
 
-    await screen.findByRole("heading", { name: "My Agents" });
-    expect(window.location.pathname).toBe("/agents");
+    // The winner is genuinely Owner, so /management dispatches
+    // AdminAgentsPage ("All Agents"), not the self-serve My Agents view
+    // (brief-mandated stand-in until phase 3's AccessTree).
+    await screen.findByRole("heading", { name: "All Agents" });
+    expect(window.location.pathname).toBe("/management");
   });
 
   it("the loser sees bootstrap_closed, refreshes /v1/me, and stays out of the console", async () => {

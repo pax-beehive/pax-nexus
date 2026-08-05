@@ -18,6 +18,10 @@ import {
 
 setupDomTest();
 
+// /management and /management/agents/:agentId dispatch to the self-serve
+// pages these cases exercise only for non-admin-like roles (brief-mandated
+// stand-in until phases 3-4 land the role-agnostic access tree); hence
+// `role: "member"` below rather than the default owner.
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 function artifactHandler(overrides?: {
@@ -42,8 +46,8 @@ describe("section 10 item 6: replaying agent create reuses the Idempotency-Key",
   it("a retry after a lost response sends the same key", async () => {
     let attempts = 0;
     const { fetchMock, user } = await renderApp({
-      route: "/agents",
-      me: makeMe(),
+      route: "/management",
+      me: makeMe({ role: "member" }),
       fetch: async (path, init) => {
         if (path === "/v1/me/agents" && init.method === "POST") {
           attempts += 1;
@@ -97,8 +101,8 @@ describe("section 10 item 6: replaying a credential revoke reuses the Idempotenc
     let attempts = 0;
     const base = artifactHandler({ credentials: [makeCredential()] });
     const { fetchMock, user } = await renderApp({
-      route: "/agents/agent-1",
-      me: makeMe(),
+      route: "/management/agents/agent-1",
+      me: makeMe({ role: "member" }),
       fetch: async (path, init) => {
         if (path === "/v1/me/agents/agent-1/credentials/cred_01" && init.method === "DELETE") {
           attempts += 1;
@@ -136,8 +140,8 @@ describe("section 10 item 6: replaying a credential revoke reuses the Idempotenc
 describe("section 10 item 11: a consumed enrollment leaves only metadata", () => {
   it("renders credential metadata without any secret material in the DOM", async () => {
     await renderApp({
-      route: "/agents/agent-1",
-      me: makeMe(),
+      route: "/management/agents/agent-1",
+      me: makeMe({ role: "member" }),
       fetch: artifactHandler({
         enrollments: [makeEnrollment({ status: "consumed" })],
         credentials: [makeCredential()],

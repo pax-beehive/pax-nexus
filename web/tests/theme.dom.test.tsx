@@ -1,45 +1,51 @@
+// 主题控件从侧边栏迁到 /settings/appearance；持久化与 data-theme 的行为不变。
 import { screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { getStoredTheme } from "../src/lib/theme";
 import { jsonResponse, makeMe, renderApp, setupDomTest } from "./helpers";
 
 setupDomTest();
 
-describe("Theme picker", () => {
-  it("defaults to beige, switches themes, and persists the choice", async () => {
-    const { user } = await renderApp({
-      route: "/agents",
+function appearanceFetch(path: string, init: RequestInit): Response {
+  if (path.startsWith("/v1/me/agents")) return jsonResponse({ agents: [] });
+  if (path.startsWith("/v1/teams")) return jsonResponse({ teams: [] });
+  throw new Error(`unexpected fetch: ${init.method ?? "GET"} ${path}`);
+}
+
+describe("Appearance", () => {
+  it("defaults to beige with no data-theme attribute", async () => {
+    await renderApp({
+      route: "/settings/appearance",
       me: makeMe({ role: "member" }),
-      fetch: (path) => {
-        if (path === "/v1/me/agents" || path.startsWith("/v1/me/agents?")) {
-          return jsonResponse({ agents: [] });
-        }
-        throw new Error(`unexpected fetch: ${path}`);
-      },
+      fetch: appearanceFetch,
     });
 
-    const picker = screen.getByRole("combobox", { name: "Theme" });
-    expect((picker as HTMLSelectElement).value).toBe("beige");
+    await screen.findByRole("heading", { name: "Appearance" });
     expect(document.documentElement.dataset.theme).toBeUndefined();
-
-    await user.selectOptions(picker, "dark");
-    expect(document.documentElement.dataset.theme).toBe("dark");
-    expect(localStorage.getItem("portal-theme")).toBe("dark");
-
-    await user.selectOptions(picker, "arcade");
-    expect(document.documentElement.dataset.theme).toBe("arcade");
-    expect(localStorage.getItem("portal-theme")).toBe("arcade");
-
-    await user.selectOptions(picker, "beige");
-    expect(document.documentElement.dataset.theme).toBeUndefined();
-    expect(localStorage.getItem("portal-theme")).toBe("beige");
   });
 
-  it("restores the stored theme on load", () => {
-    localStorage.setItem("portal-theme", "arcade");
-    expect(getStoredTheme()).toBe("arcade");
+  it("applies and persists a non-default theme", async () => {
+    const { user } = await renderApp({
+      route: "/settings/appearance",
+      me: makeMe({ role: "member" }),
+      fetch: appearanceFetch,
+    });
 
-    localStorage.setItem("portal-theme", "neon");
-    expect(getStoredTheme()).toBe("beige");
+    await user.click(await screen.findByRole("button", { name: "Dark" }));
+
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    expect(localStorage.getItem("portal-theme")).toBe("dark");
+  });
+
+  it("is reachable from the user menu", async () => {
+    const { user } = await renderApp({
+      route: "/management",
+      me: makeMe({ role: "member" }),
+      fetch: appearanceFetch,
+    });
+
+    await user.click(screen.getByRole("button", { name: /alice@example\.com/ }));
+    await user.click(screen.getByRole("menuitem", { name: "Appearance" }));
+
+    await screen.findByRole("heading", { name: "Appearance" });
   });
 });

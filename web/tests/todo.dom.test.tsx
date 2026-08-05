@@ -42,7 +42,7 @@ async function goToTodos(user: { click: (el: Element) => Promise<void> }) {
 describe("Todo app portal integration", () => {
   it("renders pending suggestions and open/done todos from the stubbed lists", async () => {
     const { user } = await renderApp({
-      route: "/agents",
+      route: "/management",
       me: makeMe({ role: "member" }),
       fetch: (path, init) => {
         const method = init.method ?? "GET";
@@ -72,7 +72,7 @@ describe("Todo app portal integration", () => {
 
   it("shows the empty state when there are no pending suggestions", async () => {
     const { user } = await renderApp({
-      route: "/agents",
+      route: "/management",
       me: makeMe({ role: "member" }),
       fetch: (path, init) => {
         const method = init.method ?? "GET";
@@ -94,7 +94,7 @@ describe("Todo app portal integration", () => {
   it("accepting a suggestion posts accept then refetches both lists", async () => {
     let accepted = false;
     const { user, fetchMock } = await renderApp({
-      route: "/agents",
+      route: "/management",
       me: makeMe({ role: "member" }),
       fetch: (path, init) => {
         const method = init.method ?? "GET";
@@ -127,7 +127,7 @@ describe("Todo app portal integration", () => {
   it("completing a todo posts complete then refetches both lists", async () => {
     let completed = false;
     const { user, fetchMock } = await renderApp({
-      route: "/agents",
+      route: "/management",
       me: makeMe({ role: "member" }),
       fetch: (path, init) => {
         const method = init.method ?? "GET";

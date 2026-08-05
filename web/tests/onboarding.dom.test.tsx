@@ -17,6 +17,10 @@ import {
 
 setupDomTest();
 
+// Post-onboarding, /management dispatches AdminAgentsPage to admin-likes
+// and MyAgentsPage (the self-serve page these cases land on) to everyone
+// else (brief-mandated stand-in until phase 3's AccessTree); hence
+// `role: "member"` on the post-onboarding identity below.
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 const CREATED_TEAM = {
@@ -32,7 +36,7 @@ describe("saas onboarding: create a team", () => {
     let created = false;
     const { fetchMock, user } = await renderApp({
       route: "/",
-      me: () => (created ? makeSaasMe() : makeNoMembershipMe()),
+      me: () => (created ? makeSaasMe({ role: "member" }) : makeNoMembershipMe()),
       fetch: (path, init) => {
         if (path === "/v1/teams" && init.method === "GET") return jsonResponse({ teams: [] });
         if (path === "/v1/teams" && init.method === "POST") {
@@ -40,7 +44,7 @@ describe("saas onboarding: create a team", () => {
         }
         if (path === "/v1/me/current-team" && init.method === "POST") {
           created = true;
-          return jsonResponse(makeSaasMe());
+          return jsonResponse(makeSaasMe({ role: "member" }));
         }
         if (path.startsWith("/v1/me/agents")) return jsonResponse({ agents: [] });
         throw new Error(`unexpected fetch: ${init.method ?? "GET"} ${path}`);
@@ -59,7 +63,7 @@ describe("saas onboarding: create a team", () => {
     await user.click(screen.getByRole("button", { name: "Create team" }));
 
     await screen.findByRole("heading", { name: "My Agents" });
-    expect(window.location.pathname).toBe("/agents");
+    expect(window.location.pathname).toBe("/management");
 
     const creates = callsTo(fetchMock, "/v1/teams", "POST");
     expect(creates).toHaveLength(1);
@@ -103,12 +107,12 @@ describe("saas onboarding: join with invitation", () => {
     let joined = false;
     const { fetchMock, user } = await renderApp({
       route: "/",
-      me: () => (joined ? makeSaasMe() : makeNoMembershipMe()),
+      me: () => (joined ? makeSaasMe({ role: "member" }) : makeNoMembershipMe()),
       fetch: (path, init) => {
         if (path === "/v1/teams" && init.method === "GET") return jsonResponse({ teams: [] });
         if (path === "/v1/invitations/accept" && init.method === "POST") {
           joined = true;
-          return jsonResponse(makeSaasMe());
+          return jsonResponse(makeSaasMe({ role: "member" }));
         }
         if (path.startsWith("/v1/me/agents")) return jsonResponse({ agents: [] });
         throw new Error(`unexpected fetch: ${init.method ?? "GET"} ${path}`);

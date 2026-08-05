@@ -25,16 +25,16 @@ setupDomTest();
 
 describe("wiki browse route", () => {
   it("renders the wiki full-screen without the portal shell", async () => {
-    await renderApp({ route: "/wiki/browse", me: makeMe(), fetch: wikiFetch });
+    await renderApp({ route: "/apps/wiki", me: makeMe(), fetch: wikiFetch });
 
     await waitFor(() => expect(screen.getByText("Alpha summary")).toBeTruthy());
     // No portal navigation: the shell's nav links must not render.
     expect(screen.queryByText("My Agents")).toBeNull();
     // Back link to the portal status page is present.
     expect(screen.getByRole("link", { name: /all apps/i })).toBeTruthy();
-    // Selecting the first page rewrote the URL under /wiki/browse.
-    expect(window.location.pathname).toBe("/wiki/browse");
-    expect(window.location.search).toBe("?page=alpha");
+    // Selecting the first page rewrote the URL under /apps/wiki/:slug.
+    expect(window.location.pathname).toBe("/apps/wiki/alpha");
+    expect(window.location.search).toBe("");
   });
 });
 
@@ -176,7 +176,7 @@ function sqliteFetch(path: string): Response {
 describe("wiki browse route topics and search", () => {
   it("renders the root layer's topic groups above its unclassified pages", async () => {
     await renderApp({
-      route: "/wiki/browse?page=sqlite",
+      route: "/apps/wiki/sqlite",
       me: makeMe(),
       fetch: (path) => {
         if (path === "/v1/wiki/navigation") {
@@ -200,7 +200,7 @@ describe("wiki browse route topics and search", () => {
 
   it("searches current revisions and opens a historical revision", async () => {
     const { user } = await renderApp({
-      route: "/wiki/browse?page=sqlite",
+      route: "/apps/wiki/sqlite",
       me: makeMe(),
       fetch: sqliteFetch,
     });
@@ -220,7 +220,7 @@ describe("wiki browse route topics and search", () => {
 
   it("shows a useful empty state when the wiki has no pages", async () => {
     await renderApp({
-      route: "/wiki/browse",
+      route: "/apps/wiki",
       me: makeMe(),
       fetch: (path) => {
         if (path === "/v1/wiki/ingestion") return jsonResponse({ auto_inject: false });
@@ -234,7 +234,7 @@ describe("wiki browse route topics and search", () => {
   });
 
   it("collapses the Source evidence section by default", async () => {
-    await renderApp({ route: "/wiki/browse", me: makeMe(), fetch: sqliteFetch });
+    await renderApp({ route: "/apps/wiki", me: makeMe(), fetch: sqliteFetch });
 
     await screen.findByRole("heading", { name: "SQLite" });
     const fold = document.querySelector("details.wiki-evidence-fold");
@@ -293,7 +293,7 @@ describe("wiki browse route retired page banner", () => {
 
   it("shows an archived banner with a link to the successor page", async () => {
     await renderApp({
-      route: "/wiki/browse?page=retired-page",
+      route: "/apps/wiki/retired-page",
       me: makeMe(),
       fetch: retiredFetch("sqlite"),
     });
@@ -301,12 +301,12 @@ describe("wiki browse route retired page banner", () => {
     await screen.findByRole("heading", { name: "Retired Page" });
     screen.getByText("This page has been archived.");
     const link = screen.getByRole("link", { name: "See successor page" });
-    expect(link.getAttribute("href")).toBe("/wiki?page=sqlite");
+    expect(link.getAttribute("href")).toBe("/apps/wiki/sqlite");
   });
 
   it("omits the successor link when no successor slug is present", async () => {
     await renderApp({
-      route: "/wiki/browse?page=retired-page",
+      route: "/apps/wiki/retired-page",
       me: makeMe(),
       fetch: retiredFetch(),
     });
@@ -355,7 +355,7 @@ describe("wiki browse route entity ontology", () => {
   }
 
   it("shows the entity type badge and relation label when they say something", async () => {
-    await renderApp({ route: "/wiki/browse?page=sqlite", me: makeMe(), fetch: typedFetch });
+    await renderApp({ route: "/apps/wiki/sqlite", me: makeMe(), fetch: typedFetch });
 
     await screen.findByRole("heading", { name: "SQLite" });
     expect(screen.getByText("system")).toBeTruthy();
@@ -363,7 +363,7 @@ describe("wiki browse route entity ontology", () => {
   });
 
   it("hides the badge and relation label for concept/relates-to fallbacks", async () => {
-    await renderApp({ route: "/wiki/browse?page=sqlite", me: makeMe(), fetch: fallbackFetch });
+    await renderApp({ route: "/apps/wiki/sqlite", me: makeMe(), fetch: fallbackFetch });
 
     await screen.findByRole("heading", { name: "SQLite" });
     // The link row itself still renders (target page title present)...
@@ -392,7 +392,7 @@ describe("wiki browse route navigation refresh", () => {
   it("polls the navigation tree every 3s once ingestion reports auto inject on", async () => {
     vi.useFakeTimers();
     resetBrowserState();
-    window.history.pushState({}, "", "/wiki/browse");
+    window.history.pushState({}, "", "/apps/wiki");
     const fetchMock = stubFetch((path) => {
       if (path === "/v1/me") return jsonResponse(makeMe());
       if (path === "/v1/wiki/ingestion") return jsonResponse({ auto_inject: true });
@@ -401,33 +401,36 @@ describe("wiki browse route navigation refresh", () => {
     render(<App />);
 
     const navCalls = () => callsTo(fetchMock, "/v1/wiki/navigation");
-    // Initial navigation load fires on mount; once the ingestion GET
+    // Initial navigation load fires on mount at /apps/wiki (no slug); it
+    // auto-selects the first page and rewrites the URL to /apps/wiki/alpha,
+    // which is a different Route match (slug now lives in the path) and so
+    // remounts the page for one more initial fetch. Once the ingestion GET
     // resolves auto_inject: true, usePolling's deps flip (false -> true)
-    // fires one more immediate cycle.
+    // fires one more immediate cycle on top of those two.
     for (let i = 0; i < 60; i++) {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(5);
       });
-      if (navCalls().length >= 2) break;
+      if (navCalls().length >= 3) break;
     }
-    expect(navCalls()).toHaveLength(2);
+    expect(navCalls()).toHaveLength(3);
 
     // The 3s cadence now runs, one refetch per tick, no duplicates.
     await act(async () => {
       await vi.advanceTimersByTimeAsync(3_000);
     });
-    expect(navCalls()).toHaveLength(3);
+    expect(navCalls()).toHaveLength(4);
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(3_000);
     });
-    expect(navCalls()).toHaveLength(4);
+    expect(navCalls()).toHaveLength(5);
   });
 
   it("never polls the navigation tree while ingestion reports auto inject off", async () => {
     vi.useFakeTimers();
     resetBrowserState();
-    window.history.pushState({}, "", "/wiki/browse");
+    window.history.pushState({}, "", "/apps/wiki");
     const fetchMock = stubFetch((path) => {
       if (path === "/v1/me") return jsonResponse(makeMe());
       if (path === "/v1/wiki/ingestion") return jsonResponse({ auto_inject: false });
@@ -436,18 +439,22 @@ describe("wiki browse route navigation refresh", () => {
     render(<App />);
 
     const navCalls = () => callsTo(fetchMock, "/v1/wiki/navigation");
+    // Initial mount at /apps/wiki fetches once, then auto-selecting the
+    // first page rewrites the URL to /apps/wiki/alpha (a different Route
+    // match) and remounts for one more fetch; auto inject stays off so no
+    // polling cycle follows either of those.
     for (let i = 0; i < 40; i++) {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(5);
       });
-      if (navCalls().length > 0) break;
+      if (navCalls().length >= 2) break;
     }
-    expect(navCalls()).toHaveLength(1);
+    expect(navCalls()).toHaveLength(2);
 
     // Several 3s ticks must not refetch while auto inject stays off.
     await act(async () => {
       await vi.advanceTimersByTimeAsync(10_000);
     });
-    expect(navCalls()).toHaveLength(1);
+    expect(navCalls()).toHaveLength(2);
   });
 });

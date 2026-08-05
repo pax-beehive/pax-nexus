@@ -10,9 +10,12 @@ setupDomTest();
 
 describe("provisioned_by badge", () => {
   it("distinguishes device-provisioned from human-registered agents in My Agents", async () => {
+    // /management dispatches AdminAgentsPage to admin-likes and
+    // MyAgentsPage (the self-serve page under test) to everyone else
+    // (brief-mandated stand-in until phase 3's AccessTree).
     await renderApp({
-      route: "/agents",
-      me: makeMe(),
+      route: "/management",
+      me: makeMe({ role: "member" }),
       fetch: (path) => {
         if (path.startsWith("/v1/me/agents")) {
           return jsonResponse({
@@ -38,7 +41,7 @@ describe("provisioned_by badge", () => {
 
   it("shows the badge on the admin agent detail", async () => {
     await renderApp({
-      route: "/admin/agents/personal-codex",
+      route: "/management/agents/personal-codex",
       me: makeMe(),
       fetch: (path) => {
         if (path === "/v1/admin/agents/personal-codex") {
@@ -66,7 +69,7 @@ describe("provisioned_by badge", () => {
 
   it("shows human-registered when the field is absent on the admin agent detail", async () => {
     await renderApp({
-      route: "/admin/agents/agent-1",
+      route: "/management/agents/agent-1",
       me: makeMe(),
       fetch: (path) => {
         if (path === "/v1/admin/agents/agent-1") return jsonResponse({ agent: makeAgent() });
