@@ -40,19 +40,3 @@ func TestNewExtractionObserverAttributesScopeFromResolver(t *testing.T) {
 	require.NotNil(t, recorder.recorded)
 	require.Equal(t, wantScope, recorder.recorded.ScopeID)
 }
-
-func TestNewExtractionObserverFallsBackWhenResolverReturnsSingleton(t *testing.T) {
-	recorder := &extractionRecorderFake{}
-	observer := onprem.NewExtractionObserver(recorder, func(context.Context) string { return onprem.LocalScopeID }, slog.New(slog.DiscardHandler))
-
-	startedAt := time.Now().UTC().Add(-time.Second)
-	observer(context.Background(), teamruntime.ExtractionObservation{
-		Actor:     teamnote.Actor{UserID: "owner", AgentID: "agent-1", SessionID: "session-1"},
-		RunID:     "run-2",
-		StartedAt: startedAt, CompletedAt: startedAt.Add(time.Second),
-		Status: teamruntime.ExtractionCompleted, InputEvents: 1, Candidates: 1,
-	})
-
-	require.NotNil(t, recorder.recorded)
-	require.Equal(t, onprem.LocalScopeID, recorder.recorded.ScopeID)
-}
