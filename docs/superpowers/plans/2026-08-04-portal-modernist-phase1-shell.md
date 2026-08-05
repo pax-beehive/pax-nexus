@@ -457,12 +457,22 @@ describe("themes", () => {
     expect(colorTokens().filter((t) => !overridden.has(t))).toEqual([]);
   });
 
+  // arcade 用 accent-600 而不是设计稿原本的 accent-500 (#ec3013)：后者配白字
+  // 只有 4.20:1，达不到 AA。这条断言就是当初发现该问题的地方，别放宽阈值。
   it.each([
     ["beige", "#f3f2f2", "#201e1d"],
     ["dark", "#201e1d", "#f3f2f2"],
-    ["arcade", "#ec3013", "#ffffff"],
+    ["arcade", "#dd2b0f", "#ffffff"],
   ])("theme %s meets WCAG AA for body text", (_name, bg, text) => {
     expect(contrastRatio(bg, text)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  // 主题块里声明的背景值必须就是上面校验过的那个，否则校验形同虚设。
+  it.each([
+    ["dark", "#201e1d"],
+    ["arcade", "#dd2b0f"],
+  ])("theme %s declares the verified background", (name, bg) => {
+    expect(themeBlock(themes, name)["--color-bg"]).toBe(bg);
   });
 });
 ```
@@ -522,18 +532,20 @@ Expected: FAIL —— 现有 `themes.css` 用的是旧 token 名（`--bg` `--sur
   --backdrop: color-mix(in srgb, #000 62%, transparent);
 }
 
-/* Arcade：朱红铺底。正文压在 accent-900 之上以满足 AA；此主题下
-   .btn-primary 反转为墨色底，否则按钮会消失在背景里。 */
+/* Arcade：朱红铺底，白字。背景用 accent-600 (#dd2b0f) 而不是设计稿原本的
+   accent-500 (#ec3013)：后者配白字只有 4.20:1，达不到 WCAG AA 的 4.5，
+   降一档后是 4.74:1。色相差别几乎不可分辨，街机红的观感保留。
+   此主题下 --color-accent 反转为墨色，否则 .btn-primary 会消失在背景里。 */
 [data-theme="arcade"] {
-  --color-bg: #ec3013;
-  --color-surface: #d4290f;
+  --color-bg: #dd2b0f;
+  --color-surface: #c8240c;
   --color-text: #ffffff;
   --color-accent: #201e1d;
   --color-accent-2: #4d170e;
   --color-divider: color-mix(in srgb, #ffffff 45%, transparent);
 
-  --color-neutral-100: #d4290f;
-  --color-neutral-200: #c2250d;
+  --color-neutral-100: #c8240c;
+  --color-neutral-200: #b8200b;
   --color-neutral-300: #a81f0b;
   --color-neutral-400: #8d1a09;
   --color-neutral-500: #ffb3a5;
@@ -569,7 +581,8 @@ Expected: FAIL —— 现有 `themes.css` 用的是旧 token 名（`--bg` `--sur
 - [ ] **Step 5: 运行测试确认通过**
 
 Run: `cd web && npx vitest run tests/design-tokens.test.ts`
-Expected: PASS。`#ec3013` 对 `#ffffff` 的对比度约 4.7，刚过 AA；若实现中改动了 arcade 背景，这条会立刻挡住。
+Expected: PASS。arcade 的 `#dd2b0f` 对 `#ffffff` 是 4.74，刚过 AA；beige 与 dark 都是 14.86。
+若有人把 arcade 背景改回设计稿原本的 `#ec3013`（4.20），这两条断言会立刻挡住。
 
 - [ ] **Step 6: 提交**
 

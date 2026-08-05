@@ -91,7 +91,11 @@ Archivo 字体文件随仓库自托管（设计稿已内嵌 3 个 woff2 子集�
 |---|---|---|
 | beige（默认） | `#f3f2f2` | `#201e1d` |
 | dark | `#201e1d` | `#f3f2f2` |
-| arcade | `#ec3013` | `#fff` |
+| arcade | `#dd2b0f` | `#fff` |
+
+arcade 用 `--color-accent-600` 而不是设计稿原本的 `--color-accent-500`（`#ec3013`）：
+后者配白字实测只有 4.20:1，达不到 WCAG AA 的 4.5；降一档后是 4.74:1，色相差别
+几乎不可分辨。这是 §9 风险表「arcade 对比度」那条的实际处置结果。
 
 仍通过 `<html data-theme>` 切换、由 `lib/theme.ts` 持久化，机制不变。
 主题切换入口从侧边栏底部的 `<select>` 迁到 `Settings › Appearance`。
