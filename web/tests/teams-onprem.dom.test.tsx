@@ -38,10 +38,8 @@ describe("on-prem profile regression", () => {
   });
 
   it("an active on-prem principal renders no team switcher or team nav entry", async () => {
-    // /management dispatches AdminAgentsPage to admin-likes and
-    // MyAgentsPage (the self-serve page whose team-scope subtitle this case
-    // checks) to everyone else (brief-mandated stand-in until phase 3's
-    // AccessTree); a member exercises the self-serve view.
+    // /management is the member-rooted "my access" view for every role;
+    // this case checks MyAgentsPage's team-scope subtitle for a member.
     await renderApp({
       route: "/management",
       me: makeMe({ role: "member" }),
@@ -73,13 +71,14 @@ describe("on-prem profile regression", () => {
       route: "/management",
       me: makeMe({ role: "owner" }),
       fetch: (path, init) => {
-        if (path.startsWith("/v1/admin/agents")) return jsonResponse({ agents: [] });
-        if (path.startsWith("/v1/admin/members")) return jsonResponse({ members: [] });
+        if (path.startsWith("/v1/me/agents")) return jsonResponse({ agents: [] });
         throw new Error(`unexpected fetch: ${init.method ?? "GET"} ${path}`);
       },
     });
 
-    await screen.findByRole("heading", { name: "All Agents" });
+    // Every role gets MyAgentsPage at the Management root; what an owner
+    // gains is the extra sub-navigation, which is what this case checks.
+    await screen.findByRole("heading", { name: "My Agents" });
     const subnav = screen.getByRole("navigation", { name: "Section pages" });
     within(subnav).getByRole("link", { name: "Members" });
     within(subnav).getByRole("link", { name: "Invitations" });

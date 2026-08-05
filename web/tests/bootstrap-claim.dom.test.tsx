@@ -49,10 +49,10 @@ describe("section 10 item 3: concurrent bootstrap claim", () => {
     await user.type(screen.getByLabelText("Bootstrap secret"), "top-secret");
     await user.click(screen.getByRole("button", { name: "Claim Owner" }));
 
-    // The winner is genuinely Owner, so /management dispatches
-    // AdminAgentsPage ("All Agents"), not the self-serve My Agents view
-    // (brief-mandated stand-in until phase 3's AccessTree).
-    await screen.findByRole("heading", { name: "All Agents" });
+    // The winner is genuinely Owner, and /management is the member-rooted
+    // "my access" view for every role (MyAgentsPage, the stand-in until
+    // phase 3's AccessTree).
+    await screen.findByRole("heading", { name: "My Agents" });
     expect(window.location.pathname).toBe("/management");
   });
 

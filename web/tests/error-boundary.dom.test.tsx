@@ -38,15 +38,14 @@ describe("route boundary: a failing route keeps the shell usable", () => {
   }
 
   it("renders a recovery card in place of the route, nav and identity survive", async () => {
-    // /management dispatches AdminAgentsPage to admin-likes and
-    // MyAgentsPage (the self-serve page whose /v1/me/agents render this
-    // test crashes) to everyone else (brief-mandated stand-in until phase
-    // 3's AccessTree).
+    // /management is the member-rooted "my access" view for every role, so
+    // the default owner principal lands on MyAgentsPage, whose /v1/me/agents
+    // render this test crashes.
     const consoleSpy = silenceConsoleError();
     const { fetch } = brokenThenHealedAgentsFetch();
     await renderApp({
       route: "/management",
-      me: makeMe({ role: "member" }),
+      me: makeMe(),
       fetch,
     });
 
@@ -74,21 +73,19 @@ describe("route boundary: a failing route keeps the shell usable", () => {
     const { fetch } = brokenThenHealedAgentsFetch();
     const { user } = await renderApp({
       route: "/management",
-      me: makeMe({ role: "member" }),
+      me: makeMe(),
       fetch,
     });
 
     await screen.findByRole("alert");
-    // A member can't reach the admin Members page (view.members-gated), so
-    // this proves recovery via a route any member can reach: Settings ->
-    // Appearance.
-    const topbar = screen.getByRole("navigation", { name: "Sections" });
-    await user.click(within(topbar).getByRole("link", { name: "Settings" }));
-    const subnav = await screen.findByRole("navigation", { name: "Section pages" });
-    await user.click(within(subnav).getByRole("link", { name: "Appearance" }));
+    // The sub-navigation sits outside the content boundary, so the owner can
+    // still navigate away from the crashed route (was: expanding the old
+    // sidebar's Directory group).
+    const subnav = screen.getByRole("navigation", { name: "Section pages" });
+    await user.click(within(subnav).getByRole("link", { name: "Members" }));
 
     // The failing region is left behind; the new route renders normally.
-    await screen.findByRole("heading", { name: "Appearance" });
+    await screen.findByRole("heading", { name: "Members" });
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
@@ -97,7 +94,7 @@ describe("route boundary: a failing route keeps the shell usable", () => {
     const { fetch, heal } = brokenThenHealedAgentsFetch();
     const { user } = await renderApp({
       route: "/management",
-      me: makeMe({ role: "member" }),
+      me: makeMe(),
       fetch,
     });
 

@@ -16,12 +16,11 @@ function agentsFetch(path: string, init: RequestInit): Response {
 }
 
 async function openCreateAgentModal() {
-  // /management dispatches AdminAgentsPage to admin-likes and MyAgentsPage
-  // (the self-serve page with the Create Agent trigger) to everyone else
-  // (brief-mandated stand-in until phase 3's AccessTree).
+  // /management is the member-rooted "my access" view for every role, so the
+  // Create Agent trigger is reachable there regardless of the principal.
   const app = await renderApp({
     route: "/management",
-    me: makeMe({ role: "member" }),
+    me: makeMe(),
     fetch: agentsFetch,
   });
   const trigger = await screen.findByRole("button", { name: "+ Create Agent" });

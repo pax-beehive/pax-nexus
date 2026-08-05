@@ -10,12 +10,11 @@ setupDomTest();
 
 describe("provisioned_by badge", () => {
   it("distinguishes device-provisioned from human-registered agents in My Agents", async () => {
-    // /management dispatches AdminAgentsPage to admin-likes and
-    // MyAgentsPage (the self-serve page under test) to everyone else
-    // (brief-mandated stand-in until phase 3's AccessTree).
+    // /management is the member-rooted "my access" view for every role, so
+    // the default owner principal lands on MyAgentsPage.
     await renderApp({
       route: "/management",
-      me: makeMe({ role: "member" }),
+      me: makeMe(),
       fetch: (path) => {
         if (path.startsWith("/v1/me/agents")) {
           return jsonResponse({

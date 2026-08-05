@@ -17,6 +17,43 @@ function topbar(): HTMLElement {
   return screen.getByRole("navigation", { name: "Sections" });
 }
 
+// Regression guard for the branch's worst defect: /management used to
+// dispatch AdminAgentsPage for admin-likes, and the "+ Create Agent" modal
+// lives only in MyAgentsPage — so an owner had no way anywhere in the portal
+// to register a personal agent. The Management root must stay the
+// member-rooted "my access" view for EVERY role; the team-wide list lives at
+// /management/agents, reachable from the sub-navigation.
+describe("Management root", () => {
+  it.each(["owner", "admin", "member"] as const)(
+    "gives a %s the create-agent trigger at /management",
+    async (role) => {
+      await renderApp({
+        route: "/management",
+        me: makeMe({ role }),
+        fetch: shellFetch,
+      });
+
+      await screen.findByRole("heading", { name: "My Agents" });
+      expect(screen.getByRole("button", { name: "+ Create Agent" })).toBeTruthy();
+    },
+  );
+
+  it("keeps the team-wide agent list at /management/agents for an owner", async () => {
+    await renderApp({
+      route: "/management/agents",
+      me: makeMe({ role: "owner" }),
+      fetch: (path, init) => {
+        if (path.startsWith("/v1/admin/members")) return jsonResponse({ members: [] });
+        return shellFetch(path, init);
+      },
+    });
+
+    await screen.findByRole("heading", { name: "All Agents" });
+    const sub = screen.getByRole("navigation", { name: "Section pages" });
+    within(sub).getByRole("link", { name: "Agents" });
+  });
+});
+
 describe("AppShell top bar", () => {
   it("renders only the sections a member may see", async () => {
     await renderApp({

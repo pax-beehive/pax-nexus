@@ -96,8 +96,15 @@ export function PortalRoutes({ me }: { me: HumanMe }) {
         }
       />
 
-      {/* 阶段 3 用 AccessTree 替换；现在按角色顶替。 */}
-      <Route path="/management" element={adminLike ? <AdminAgentsPage me={me} /> : <MyAgentsPage />} />
+      {/*
+        Management 根节点对所有角色都是「我的访问」视图（spec §"阶段 3 ·
+        Management"：根节点是本人）。阶段 3 用真正的 AccessTree 替换它。
+        这里**不能**按角色顶替成 AdminAgentsPage —— 注册个人 Agent 的入口
+        （+ Create Agent）只存在于 MyAgentsPage，一旦按 adminLike 分派，
+        owner/admin 在整个门户里就没有任何地方能注册自己的 Agent。
+        团队全量列表留在 /management/agents，由二级导航进入。
+      */}
+      <Route path="/management" element={<MyAgentsPage />} />
       <Route
         path="/management/members"
         element={

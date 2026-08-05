@@ -18,10 +18,11 @@ import {
 
 setupDomTest();
 
-// /management and /management/agents/:agentId dispatch to the self-serve
-// pages these cases exercise only for non-admin-like roles (brief-mandated
-// stand-in until phases 3-4 land the role-agnostic access tree); hence
-// `role: "member"` below rather than the default owner.
+// /management is the member-rooted "my access" view for every role, so the
+// default owner principal reaches MyAgentsPage there. /management/:agentId
+// still dispatches AdminAgentDetailPage to admin-likes (phase 4 merges the
+// two), so the detail cases below keep `role: "member"` to exercise the
+// self-serve AgentDetailPage.
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 function artifactHandler(overrides?: {
@@ -47,7 +48,7 @@ describe("section 10 item 6: replaying agent create reuses the Idempotency-Key",
     let attempts = 0;
     const { fetchMock, user } = await renderApp({
       route: "/management",
-      me: makeMe({ role: "member" }),
+      me: makeMe(),
       fetch: async (path, init) => {
         if (path === "/v1/me/agents" && init.method === "POST") {
           attempts += 1;
