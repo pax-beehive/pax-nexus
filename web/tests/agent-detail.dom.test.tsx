@@ -43,8 +43,14 @@ describe("owner scope (/agents/:agentId)", () => {
     await screen.findByRole("heading", { name: "Alice Codex" });
     expect(screen.getByText("agent-1")).toBeDefined();
     expect(screen.getByText("human-registered")).toBeDefined();
-    // Status badge in the page head and in the governance card.
-    expect(document.querySelectorAll(".badge.b-active").length).toBe(2);
+    // Status badge (the .tag span from Badge) in the page head and in the
+    // governance card. Scoped to .tag so it doesn't also match the
+    // Credentials filter tab labeled "active".
+    expect(
+      screen.getAllByText(
+        (content, element) => content === "active" && element?.classList.contains("tag") === true,
+      ).length,
+    ).toBe(2);
 
     // The owner row is admin-only.
     expect(screen.queryByText(/owner:/)).toBeNull();

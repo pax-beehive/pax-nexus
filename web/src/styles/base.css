@@ -1,79 +1,56 @@
-/* Visual style ported from docs/onprem-portal-mock.html (approved design mock). */
-:root {
-  --bg: #f6f4ef;          /* ambient warm white */
-  --surface: #fdfcf8;
-  --surface-2: #f1eee6;
-  --border: #e5e0d4;
-  --border-strong: #d6d0c0;
-  --text: #2b2822;
-  --muted: #7a7364;
-  --faint: #a39b8a;
-  --accent: #c15f3c;      /* claude terracotta */
-  --accent-hover: #a94e2e;
-  --accent-soft: #f7e9e2;
-  --ok: #3d7a52; --ok-bg: #e4efe6;
-  --warn: #8a6d1f; --warn-bg: #f6edd6;
-  --bad: #9c3d2e; --bad-bg: #f3e6e2;
-  --info: #2f5d9e; --info-bg: #e6edf8;
-  /* Derived tokens: themed per data-theme in themes.css. Components must
-     reference these instead of hardcoding colors. */
-  --input-bg: #fff;
-  --on-accent: #fff;
-  --secret-bg: #fffaf6;
-  --danger-border: #dfc4bc;
-  --warn-border: #e3d3a6;
-  --bad-border: #e0bfb6;
-  --accent-border: #e4cbbd;
-  --backdrop: rgba(43, 40, 34, .35);
-  --shadow: rgba(43, 40, 34, .22);
-  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  --serif: "Charter", "Bitstream Charter", Georgia, "Times New Roman", serif;
-  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", sans-serif;
+/* Reset、排版刻度与全局元素样式。token 见 tokens.css，组件类见 components.css，
+   布局与外壳见 layout.css。 */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.55;
+  font-weight: 400;
 }
-* { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 14px; line-height: 1.55; }
-h1, h2, h3 { font-family: var(--serif); font-weight: 600; letter-spacing: .01em; }
-h1 { font-size: 26px; margin: 0 0 4px; }
-h2 { font-size: 19px; margin: 0 0 12px; }
-h3 { font-size: 15px; margin: 18px 0 8px; }
-a { color: var(--accent); text-decoration: none; }
-a:hover { text-decoration: underline; }
-code, .mono { font-family: var(--mono); font-size: 12.5px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 5px; padding: 1px 5px; }
-.muted { color: var(--muted); } .faint { color: var(--faint); } .small { font-size: 12.5px; }
-.danger-text { color: var(--bad); }
 
-/* layout */
-.shell { display: flex; min-height: 100vh; }
-.side { width: 228px; flex: none; border-right: 1px solid var(--border); background: var(--surface); padding: 22px 14px 16px; position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; }
-.side.collapsed { width: 54px; padding: 22px 10px 16px; }
-.side-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 6px; border-bottom: 1px solid var(--border); }
-.side.collapsed .side-top { justify-content: center; border-bottom: 0; }
-.side-top .brand { flex: 1; border-bottom: 0; }
-.side-toggle { flex: none; width: 26px; height: 26px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface-2); color: var(--muted); font-size: 14px; line-height: 1; cursor: pointer; }
-.side-toggle:hover { border-color: var(--accent); color: var(--accent-hover); }
-.brand { font-family: var(--serif); font-size: 17px; font-weight: 600; padding: 0 10px 16px; border-bottom: 1px solid var(--border); }
-.brand span { color: var(--accent); }
-.nav { min-height: 0; overflow-y: auto; padding-bottom: 10px; }
-.nav-label { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--faint); padding: 12px 10px 4px; }
-.nav-group-toggle { display: flex; align-items: center; justify-content: space-between; width: 100%; border: 0; background: none; font-family: inherit; cursor: pointer; text-align: left; }
-.nav-group-toggle:hover { color: var(--text); }
-.nav-chevron { font-size: 9px; transition: transform .15s ease; }
-.nav-group-toggle[aria-expanded="false"] .nav-chevron { transform: rotate(-90deg); }
-.nav a { display: block; color: var(--text); padding: 7px 10px; border-radius: 8px; margin: 1px 0; }
-.nav a:hover { background: var(--surface-2); text-decoration: none; }
-.nav a.active { background: var(--accent-soft); color: var(--accent-hover); font-weight: 600; }
-.side-foot { flex: none; border-top: 1px solid var(--border); padding-top: 12px; }
-.main { flex: 1; min-width: 0; padding: 34px 40px 120px; max-width: 1000px; margin: 0 auto; }
-.page-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; gap: 16px; }
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  line-height: 1.12;
+  letter-spacing: -0.015em;
+  margin: 0 0 var(--space-2);
+}
+h1 { font-size: 42px; }
+h2 { font-size: 32px; }
+h3 { font-size: 25px; }
+h4 { font-size: 20px; }
+h5 { font-size: 16px; }
+h6 { font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; }
 
-@media (max-width: 820px) {
-  /* Sidebar becomes a top bar: full width, no sticky height, nav links in a
-     single horizontally scrollable row. */
-  .shell { flex-direction: column; }
-  .side, .side.collapsed { width: auto; height: auto; position: static; border-right: 0; border-bottom: 1px solid var(--border); padding: 12px 14px; }
-  .side .nav { display: flex; align-items: center; gap: 2px; overflow-x: auto; }
-  .side .nav-label { padding: 6px 8px 6px 4px; }
-  .side .nav a { white-space: nowrap; }
-  .side-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; border-top: 0; padding-top: 8px; }
-  .main { padding: 20px 16px 80px; }
+p { margin: 0 0 var(--space-3); }
+a { color: var(--color-accent); text-underline-offset: 3px; }
+img { display: block; max-width: 100%; }
+figure { margin: 0; }
+
+code, .mono {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+code {
+  background: var(--color-surface);
+  border: 1px solid var(--color-divider);
+  padding: 1px 5px;
+}
+
+.text-muted, .muted { color: color-mix(in srgb, var(--color-text) 55%, transparent); }
+.faint { color: color-mix(in srgb, var(--color-text) 40%, transparent); }
+.small { font-size: 12.5px; }
+
+:focus { outline: none; }
+:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+::selection { background: color-mix(in srgb, var(--color-accent) 30%, transparent); }
+
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
 }
