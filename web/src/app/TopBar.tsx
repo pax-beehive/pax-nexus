@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
-import { NavLink, useLocation } from "react-router-dom";
+import { NavLink } from "react-router-dom";
 import type { HumanMe } from "../api/types";
 import { hasTeams } from "../lib/teams";
 import { TeamSwitcher } from "../components/TeamSwitcher";
 import { Button } from "../components/Button";
-import { navSections, sectionForPath } from "./navModel";
+import type { NavSection } from "./navModel";
 import { TopBarMenu } from "./TopBarMenu";
 import { UserMenu } from "./UserMenu";
 
@@ -25,10 +25,18 @@ function useNarrow(): boolean {
   return narrow;
 }
 
-export function TopBar({ me, onOpenPalette }: { me: HumanMe; onOpenPalette: () => void }) {
-  const location = useLocation();
-  const sections = navSections(me);
-  const active = sectionForPath(sections, location.pathname);
+/** 分区表由 AppShell 算好传进来（命令面板用的是同一份，见 AppShell）。 */
+export function TopBar({
+  me,
+  sections,
+  activeId,
+  onOpenPalette,
+}: {
+  me: HumanMe;
+  sections: NavSection[];
+  activeId?: string;
+  onOpenPalette: () => void;
+}) {
   const narrow = useNarrow();
 
   return (
@@ -40,14 +48,14 @@ export function TopBar({ me, onOpenPalette }: { me: HumanMe; onOpenPalette: () =
         </div>
       )}
       {narrow ? (
-        <TopBarMenu sections={sections} activeId={active?.id} />
+        <TopBarMenu sections={sections} activeId={activeId} />
       ) : (
         <nav className="topbar-nav" aria-label="Sections">
           {sections.map((section) => (
             <NavLink
               key={section.id}
               to={section.to}
-              aria-current={section.id === active?.id ? "page" : undefined}
+              aria-current={section.id === activeId ? "page" : undefined}
             >
               {section.label}
             </NavLink>

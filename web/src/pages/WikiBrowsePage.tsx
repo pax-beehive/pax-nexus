@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import {
   getWikiLinks,
   getWikiNavigation,
@@ -222,7 +222,9 @@ export function WikiBrowsePage() {
     <div className="wiki wiki-browse">
       <header className="wiki-header">
         <div>
-          <Link className="app-back" to="/apps">← All apps</Link>
+          {/* 没有「← All apps」返回链接：启动页已经不存在，/apps 会重定向回
+              /apps/wiki，点一下等于自我跳转并把阅读器重挂载、静默回到第一页。
+              分区间的导航现在由顶栏 + 二级导航提供。 */}
           <h1>Wiki</h1>
           <p className="muted">Durable pages, revision history, and evidence in one place.</p>
         </div>

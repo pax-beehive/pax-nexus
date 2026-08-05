@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import type { HumanMe } from "../api/types";
 import { ErrorBoundary } from "../components/ErrorBoundary";
@@ -24,22 +24,40 @@ export function AppShell({ me, children }: { me: HumanMe; children: ReactNode })
   const [paletteOpen, setPaletteOpen] = useState(false);
 
   // ⌘K / Ctrl-K 全局开关；Escape 由面板自己处理。
+  //
+  // Ctrl-K 在输入框里是 macOS/readline 的「删到行尾」，无条件 preventDefault
+  // 会把它从每一个文本框里废掉。所以 ⌘K 始终生效，Ctrl-K 只在焦点不在可编辑
+  // 元素上时才接管。
   useEffect(() => {
+    const isEditable = (target: EventTarget | null): boolean => {
+      if (!(target instanceof HTMLElement)) return false;
+      if (target.isContentEditable) return true;
+      const tag = target.tagName;
+      return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+    };
     const onKeyDown = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
-        event.preventDefault();
-        setPaletteOpen((current) => !current);
-      }
+      if (event.key.toLowerCase() !== "k") return;
+      if (!event.metaKey && !(event.ctrlKey && !isEditable(event.target))) return;
+      event.preventDefault();
+      setPaletteOpen((current) => !current);
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
-  const sections = navSections(me);
+
+  // 顶栏与命令面板都要这份分区表：算一次往下传，而不是各算各的。每次渲染
+  // 重新生成数组还会让 CommandPalette 的 useMemo([sections]) 永远失效。
+  const sections = useMemo(() => navSections(me), [me]);
   const active = sectionForPath(sections, location.pathname);
 
   return (
     <div className="app-shell">
-      <TopBar me={me} onOpenPalette={() => setPaletteOpen(true)} />
+      <TopBar
+        me={me}
+        sections={sections}
+        activeId={active?.id}
+        onOpenPalette={() => setPaletteOpen(true)}
+      />
       <SubNav items={active?.items ?? []} />
       <main className="page">
         <ErrorBoundary

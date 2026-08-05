@@ -1,5 +1,6 @@
-// The /wiki/browse route renders the wiki full-screen, outside the portal
-// shell (spec 2026-07-29-wiki-standalone-page section 1-2).
+// The wiki reader, mounted at /apps/wiki and /apps/wiki/:slug inside the
+// portal shell (the pre-redesign route rendered it full-screen outside the
+// shell; the top-bar IA replaced that).
 //
 // Several cases below were ported from the retired web/tests/wiki.dom.test.tsx
 // (see d874ac5~1), adapted to the /wiki/browse route: that file covered
@@ -24,17 +25,21 @@ import { wikiFetch } from "./wikiFixtures";
 setupDomTest();
 
 describe("wiki browse route", () => {
-  it("renders the wiki full-screen without the portal shell", async () => {
+  it("auto-selects the first page and moves its slug into the path", async () => {
     await renderApp({ route: "/apps/wiki", me: makeMe(), fetch: wikiFetch });
 
     await waitFor(() => expect(screen.getByText("Alpha summary")).toBeTruthy());
-    // No portal navigation: the shell's nav links must not render.
-    expect(screen.queryByText("My Agents")).toBeNull();
-    // Back link to the portal status page is present.
-    expect(screen.getByRole("link", { name: /all apps/i })).toBeTruthy();
-    // Selecting the first page rewrote the URL under /apps/wiki/:slug.
+    // Selecting the first page rewrote the URL under /apps/wiki/:slug — the
+    // slug lives in the path now, not in ?page=.
     expect(window.location.pathname).toBe("/apps/wiki/alpha");
     expect(window.location.search).toBe("");
+    // The wiki renders inside AppShell now, so the section nav is present.
+    // (This case used to assert queryByText("My Agents") was null, as proof
+    // the wiki rendered outside the portal shell — vacuous once the shell
+    // became a top bar, because that string no longer appears in it.)
+    within(screen.getByRole("navigation", { name: "Sections" })).getByRole("link", {
+      name: "Apps",
+    });
   });
 });
 

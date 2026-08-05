@@ -76,6 +76,18 @@ describe("legacy route table", () => {
     expect(resolveLegacy("/wiki", "")).toBe("/settings/memory");
   });
 
+  // 书签里带尾斜杠很常见；不归一化的话它会多出一个空段、匹配不上任何模式，
+  // 然后被兜底重定向送到 /management —— 不是 404，但也不是本该去的地方。
+  it("resolves a bookmark that carries a trailing slash", () => {
+    expect(resolveLegacy("/admin/pulse/", "")).toBe("/overview");
+    expect(resolveLegacy("/agents/agent-1/", "")).toBe("/management/agents/agent-1");
+    expect(resolveLegacy("/wiki/browse/", "?page=lake-retention")).toBe(
+      "/apps/wiki/lake-retention",
+    );
+    // 根路径不受影响。
+    expect(resolveLegacy("/", "")).toBeUndefined();
+  });
+
   it("returns undefined for a path that was never legacy", () => {
     expect(resolveLegacy("/management", "")).toBeUndefined();
     expect(resolveLegacy("/join", "")).toBeUndefined();

@@ -67,14 +67,24 @@ function resolveWikiDeepLink(search: string): string | undefined {
   return revision ? `${base}?revision=${encodeURIComponent(revision)}` : base;
 }
 
+/**
+ * 尾斜杠归一化。书签里的 "/admin/pulse/" 会比模式多出一个空段，过不了
+ * matchPattern 的长度检查，于是掉进兜底重定向落到 /management 而不是
+ * /overview。根路径 "/" 保留。
+ */
+function normalize(pathname: string): string {
+  return pathname.length > 1 && pathname.endsWith("/") ? pathname.replace(/\/+$/, "") : pathname;
+}
+
 /** 旧路径 → 新路径；不是旧路径则返回 undefined。 */
 export function resolveLegacy(pathname: string, search: string): string | undefined {
-  if (pathname === "/wiki" || pathname === "/wiki/browse") {
+  const path = normalize(pathname);
+  if (path === "/wiki" || path === "/wiki/browse") {
     const deepLink = resolveWikiDeepLink(search);
     if (deepLink) return deepLink;
   }
   for (const route of LEGACY_ROUTES) {
-    const params = matchPattern(route.from, pathname);
+    const params = matchPattern(route.from, path);
     if (params) return fill(route.to, params);
   }
   return undefined;
