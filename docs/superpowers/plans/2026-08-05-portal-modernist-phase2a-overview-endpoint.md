@@ -16,20 +16,20 @@
 - **域包不得跨上下文导入。** `internal/operations`、`internal/explorer` 的允许导入列表为空；新增代码若在这两个包里 import 其他 `internal/` 上下文，`internal/architecture/dependencies_test.go` 会直接失败。组装在 handler。
 - **鉴权对齐既有面**：整个端点走 `h.authorizeOperations`（服务端 capability `view.operations`），与 `GetOperationsSummary` 完全一致。新增的团队级 enrollment 列举额外要求 owner/admin，与 Devices 列举一致。
 - **scope 隔离照抄相邻查询**：凡是所查的表**有** `scope_id` 列（`extraction_runs`、`note_revisions`、`team_notes`、`agent_enrollments`、`onprem_invitations`），新查询必须带 `scope_id = $N`，用 `s.scopeID`。
-- **已知例外，不要在本计划里"顺手修"**：`onprem_operation_events` **没有** `scope_id` 列，相邻的 `scanOperationSummary` / `ListEvents` 也没有 scope 过滤。这是一个已知的、用户已裁定推迟修复的多租户泄漏。本计划的时间序列查询读同一张表，**沿用同样的无 scope 过滤**，不要自行加一个不存在的列。见下方「已知缺陷」。
+- **`onprem_operation_events` 现在也有 scope 隔离**：`docs/superpowers/plans/2026-08-05-operation-events-tenant-isolation.md` 已经落地——该表加了 `scope_id` 列，`scanOperationSummary` / `ListEvents` / `scanAgentStats` / `Series` 的 events CTE 均已按 `s.scopeID` 过滤。本计划创建时这里曾是一个已知、用户裁定推迟修复的多租户泄漏（详见下方「已关闭的已知缺陷」）；泄漏已关闭，新查询按上一条「scope 隔离照抄相邻查询」处理即可，不再需要特殊对待这张表。
 - **测试命令**：`make test-unit`（全量 Go 单测）；单包 `go test ./internal/<pkg>/... -count=1`；Postgres 适配器测试需要真实数据库，见 `internal/platform/postgres/operations_test.go` 的 suite 模式（每个 suite 建独立 schema 再 DROP）。`make lint` 必须绿。
 - **IDL 是真源**：改 `idl/team_memory.thrift` 后必须 `make generate` 重新生成模型与路由，不要手改 `internal/teamnote/transport/httpapi/model/` 或 `router/` 下的文件。
 - **提交粒度**：每个 Task 末尾提交一次，前缀 `feat(operations):` / `feat(onprem):` / `feat(api):` 等。
 
-## 已知缺陷（本计划有意不修）
+## 已关闭的已知缺陷
 
-`onprem_operation_events` 无 `scope_id` 列，`scanOperationSummary` 与 `ListEvents` 均无 scope 过滤，
-所以在多团队 SaaS 下 Operations 的 observation/recall 计数、延迟分位、错误数与逐条事件跨租户可见。
-用户 2026-08-05 裁定：先做 Overview，隔离另开一条线修。
+本节曾记录一个已知、有意推迟修复的多租户泄漏：`onprem_operation_events` 当时无 `scope_id` 列，
+`scanOperationSummary` / `ListEvents` 均无 scope 过滤，Task 1 的时间序列里 `evidence` 与 `recalls`
+两列因此也跨租户可见。用户 2026-08-05 裁定先做 Overview、隔离另开一条线修。
 
-**本计划的连带后果**：Task 1 的时间序列里 `evidence` 与 `recalls` 两列来自这张表，因此同样不隔离；
-`facts` 一列来自 `note_revisions`，是隔离的。隔离修复落地后 Overview 的数字会变小，届时本计划新增
-的测试期望值需要一并更新。**这一点必须写进端点的 doc comment，不要只留在计划里。**
+那条线已经落地并关闭了这个泄漏，见 `docs/superpowers/plans/2026-08-05-operation-events-tenant-isolation.md`：
+表加了 `scope_id`，所有读路径（含本计划 Task 1 的 `Series`）都按调用方的 scope 过滤。下方 Task 1、
+Task 5 里提到"不隔离"的 doc comment 指令均已随之更新为已隔离的表述。
 
 ---
 
@@ -85,10 +85,10 @@ import "time"
 
 // SeriesBucket is one time bucket of the Overview throughput series.
 //
-// Evidence and Recalls are derived from onprem_operation_events, which has no
-// scope_id column — see the package's known-defect note. Facts comes from
-// note_revisions and IS scope-isolated. When operation-event isolation lands,
-// Evidence and Recalls shrink to the caller's own scope.
+// Evidence and Recalls are derived from onprem_operation_events, Facts from
+// note_revisions. Both sources are scope-isolated: each is filtered by its
+// own table's scope_id column, so every field on this struct reflects only
+// the caller's own team.
 type SeriesBucket struct {
 	BucketAt time.Time
 	Evidence int64
@@ -286,10 +286,11 @@ import (
 // buckets, so callers can plot it without reconstructing gaps.
 //
 // Two sources, exactly as Summary splits them: Evidence and Recalls come from
-// onprem_operation_events, Facts from note_revisions. The operation-events
-// table has no scope_id column, so those two columns are NOT scope-isolated —
-// this mirrors the adjacent scanOperationSummary and is a known, deliberately
-// deferred defect. note_revisions IS filtered by scope_id.
+// onprem_operation_events, Facts from note_revisions. Both are scope-isolated,
+// each against its own table's scope_id column — the events CTE uses $6, the
+// facts CTE uses $5. They are separate parameters on purpose even though both
+// carry s.scopeID: the two CTEs read different tables and are not the same
+// predicate merely written twice.
 func (s *OperationsStore) Series(
 	ctx context.Context,
 	filter operations.TimeFilter,
@@ -322,6 +323,7 @@ events AS (
     FROM onprem_operation_events
     WHERE started_at >= $1 AND started_at < $2
       AND ($4 = '' OR actor_agent_id = $4)
+      AND scope_id = $6
     GROUP BY 1
 ),
 facts AS (
@@ -345,7 +347,7 @@ FROM bucket_starts
 LEFT JOIN events ON events.bucket_at = bucket_starts.bucket_at
 LEFT JOIN facts ON facts.bucket_at = bucket_starts.bucket_at
 ORDER BY bucket_starts.bucket_at`,
-		filter.From, filter.To, seconds, filter.AgentID, s.scopeID)
+		filter.From, filter.To, seconds, filter.AgentID, s.scopeID, s.scopeID)
 	if err != nil {
 		return nil, fmt.Errorf("query postgres operation series: %w", err)
 	}
@@ -884,9 +886,9 @@ Expected: FAIL。
     `kind="invitation"`，`target=/management/invitations`
   - `registry.ListExpiringEnrollments(before = now+24h)` → `kind="enrollment"`，
     `target=/management/agents/<agent_id>`
-- **文件顶部的 doc comment 必须写明**：series 的 `evidence` 与 `recalls` 来自
-  `onprem_operation_events`，该表无 `scope_id` 列，因此在多团队部署下不隔离；这是已知且被有意
-  推迟的缺陷，隔离修复落地后这两列的数值会变小。不要只把这件事留在计划里。
+- `onprem_operation_events` 的 scope 隔离已经落地（见「已关闭的已知缺陷」），所以端点的 doc
+  comment 不需要再声明 series 的 `evidence` / `recalls` 跨租户可见——它们和其他字段一样只反映
+  调用方自己团队的数据，正常写文档即可，不必额外免责声明。
 
 - [ ] **Step 5: 运行测试确认通过**
 
@@ -915,5 +917,4 @@ git commit -m "feat(api): assemble the overview aggregate from four owning conte
 - [ ] 任一非关键来源失败时端点仍返回 200，对应区块为空
 - [ ] 无 `view.operations` 时 403 且不发起下游调用
 - [ ] `note_mix` 与 `ListExpiringEnrollments` 的 scope 隔离各有一条独立测试
-- [ ] 端点的 doc comment 写明了 operation-events 不隔离这一已知缺陷
 - [ ] 阶段 2b（Overview 页面 + 删除 Pulse）另出计划
