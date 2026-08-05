@@ -82,15 +82,27 @@ export function CommandPalette({
     }
     const controller = new AbortController();
     const timer = setTimeout(() => {
-      const agents = can(me.role, "view.all-agents")
-        ? listAdminAgents({ q: trimmed, limit: 5 })
-        : listMyAgents({ limit: 50 });
+      // Admin path is filtered server-side via `q`; self-serve `/v1/me/agents`
+      // has no `q` param, so that leg needs a client-side filter below —
+      // filtering the admin leg again would just drop legitimate server matches.
+      const selfServe = !can(me.role, "view.all-agents");
+      const agents = selfServe
+        ? listMyAgents({ limit: 50 }, controller.signal)
+        : listAdminAgents({ q: trimmed, limit: 5 }, controller.signal);
       void Promise.allSettled([agents, searchWiki(trimmed, controller.signal)]).then(
         ([agentResult, wikiResult]) => {
           if (controller.signal.aborted) return;
           const entries: Entry[] = [];
           if (agentResult.status === "fulfilled") {
-            for (const agent of agentResult.value.items.slice(0, 5)) {
+            const needle = trimmed.toLowerCase();
+            const matches = selfServe
+              ? agentResult.value.items.filter(
+                  (agent) =>
+                    agent.display_name.toLowerCase().includes(needle) ||
+                    agent.agent_id.toLowerCase().includes(needle),
+                )
+              : agentResult.value.items;
+            for (const agent of matches.slice(0, 5)) {
               entries.push({
                 id: `agent:${agent.agent_id}`,
                 group: "Agents",
