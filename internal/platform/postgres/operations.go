@@ -434,8 +434,8 @@ func (s *OperationsStore) hasRecallDiagnosticEvent(ctx context.Context, observat
 SELECT EXISTS (
     SELECT 1
     FROM onprem_operation_events
-    WHERE detail_kind = 'recall_observation' AND detail_id = $1
-)`, fmt.Sprintf("%d", observationID)).Scan(&linked)
+    WHERE detail_kind = 'recall_observation' AND detail_id = $1 AND scope_id = $2
+)`, fmt.Sprintf("%d", observationID), s.scopeID).Scan(&linked)
 	if err != nil {
 		return false, fmt.Errorf("check postgres recall diagnostic event: %w", err)
 	}

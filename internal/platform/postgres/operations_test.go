@@ -227,6 +227,42 @@ RETURNING observation_id`, s.scope, digest[:],
 	s.Require().ErrorIs(err, operations.ErrRecallNotFound)
 }
 
+// A caller must not be able to tell "this observation belongs to another
+// team" apart from "this observation never existed" — that distinction is a
+// boolean cross-tenant oracle over another team's recall activity.
+// team_note_recall_observations is already scope-isolated (see
+// TestRecallDiagnosticIsAnAllowlistedProjection), so the interesting case is
+// the *fallback* path through onprem_operation_events: an observation and its
+// linking event both live under a foreign scope, never under s.scope, and the
+// observation id comes from an auto-increment sequence so it cannot collide
+// with any other test's id.
+func (s *operationsStoreSuite) TestRecallDiagnosticTreatsAForeignScopeEventAsNotFound() {
+	ctx := context.Background()
+	foreignScope := uniqueScope("operations-foreign-diagnostic")
+	digest := sha256.Sum256([]byte("foreign scope diagnostic query"))
+	var observationID int64
+	err := s.store.Pool().QueryRow(ctx, `
+INSERT INTO team_note_recall_observations (
+    scope_id, recipient_user_id, recipient_agent_id, recipient_session_id,
+    query_digest, token_budget, max_items, envelope, trace, duration_ms, created_at, expires_at
+) VALUES ($1, 'user', 'agent', 'session', $2, 64, 3, '{}'::jsonb, '{}'::jsonb, 1, $3, $4)
+RETURNING observation_id`, foreignScope, digest[:],
+		time.Now().UTC().Add(-2*time.Hour), time.Now().UTC().Add(-time.Hour),
+	).Scan(&observationID)
+	s.Require().NoError(err)
+	_, err = s.operations.Record(ctx, operations.Event{
+		ScopeID: foreignScope, AttemptID: uniqueCredentialValue("foreign-diagnostic-event"),
+		Kind: operations.KindMemorySearch, Outcome: operations.OutcomeSucceeded,
+		Actor: operations.Actor{Kind: "agent"}, StartedAt: s.now, CompletedAt: s.now,
+		DetailKind: "recall_observation", DetailID: fmt.Sprintf("%d", observationID),
+	})
+	s.Require().NoError(err)
+
+	_, err = s.operations.GetRecallDiagnostic(ctx, observationID)
+	s.Require().ErrorIs(err, operations.ErrRecallNotFound,
+		"an observation and event belonging to another scope must be indistinguishable from one that never existed")
+}
+
 func (s *operationsStoreSuite) TestRetentionDeletesExpiredRowsInBoundedBatches() {
 	ctx := context.Background()
 	oldAttempt := uniqueCredentialValue("old-operation")
