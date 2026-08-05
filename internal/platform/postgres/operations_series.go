@@ -16,6 +16,9 @@ import (
 // table has no scope_id column, so those two columns are NOT scope-isolated —
 // this mirrors the adjacent scanOperationSummary and is a known, deliberately
 // deferred defect. note_revisions IS filtered by scope_id.
+//
+// filter.From is expected to be bucket-aligned; an unaligned From anchors the
+// first grid point to the preceding bucket boundary, not to From itself.
 func (s *OperationsStore) Series(
 	ctx context.Context,
 	filter operations.TimeFilter,

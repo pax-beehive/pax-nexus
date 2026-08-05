@@ -90,21 +90,59 @@ func (s *operationsSeriesSuite) TestSeriesReturnsEveryBucketIncludingEmptyOnes()
 }
 
 // A row exactly on the window's upper bound belongs to the next window, not to
-// the last bucket — the half-open interval must match Summary's.
+// the last bucket — the half-open interval must match Summary's. The window is
+// deliberately NOT bucket-aligned (To = base+55m with a 10m bucket) so the
+// boundary instant floors onto an EXISTING grid point (base+50m): with a
+// broken `<= $2` the excluded row's items would leak into that bucket's
+// total. A second, in-window row in the same bucket (1 second before the
+// bound) proves the bucket itself still works, distinguishing "boundary
+// correctly excluded" from "bucket is broken and reads zero no matter what".
 func (s *operationsSeriesSuite) TestSeriesExcludesTheUpperBound() {
 	ctx := context.Background()
+	// A distinct base from the other event-recording test in this suite:
+	// events are shared state across the suite's tests (no per-test cleanup),
+	// so overlapping windows on the same agent would cross-contaminate counts.
 	base := time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC)
-	s.recordObservation(ctx, base.Add(time.Hour), 5)
+	upperBound := base.Add(55 * time.Minute)
+
+	s.recordObservation(ctx, upperBound, 9)                     // == To: must be excluded
+	s.recordObservation(ctx, upperBound.Add(-1*time.Second), 5) // 1s before To: same bucket, must count
 
 	buckets, err := s.operations.Series(
 		ctx,
-		operations.TimeFilter{From: base, To: base.Add(time.Hour)},
+		operations.TimeFilter{From: base, To: upperBound},
 		10*time.Minute,
 	)
 	s.Require().NoError(err)
 	s.Require().Len(buckets, 6)
-	for _, bucket := range buckets {
-		s.Equal(int64(0), bucket.Evidence)
+	s.Equal(base.Add(50*time.Minute), buckets[5].BucketAt.UTC())
+	s.Equal(int64(5), buckets[5].Evidence)
+	for i := 0; i < 5; i++ {
+		s.Equal(int64(0), buckets[i].Evidence, "bucket %d", i)
+	}
+}
+
+// The facts half of the query is the ONLY scope-isolated half — it has the
+// real JOIN, the real scope_id filter, and its own grouping. A second note
+// revision in a different scope at the same instant proves the isolation:
+// if the scope filter or the join condition were wrong, the other scope's
+// revision would leak into this store's bucket.
+func (s *operationsSeriesSuite) TestSeriesCountsFactsOnlyForItsOwnScope() {
+	ctx := context.Background()
+	base := time.Date(2026, 8, 5, 14, 0, 0, 0, time.UTC)
+	at := base.Add(5 * time.Minute)
+
+	s.insertNoteRevision(s.scope, "run-series-own", "candidate-series-own", "note-series-own", at)
+	s.insertNoteRevision("series-suite-other-scope", "run-series-other", "candidate-series-other", "note-series-other", at)
+
+	filter := operations.TimeFilter{From: base, To: base.Add(time.Hour)}
+	buckets, err := s.operations.Series(ctx, filter, 10*time.Minute)
+	s.Require().NoError(err)
+	s.Require().Len(buckets, 6)
+
+	s.Equal(int64(1), buckets[0].Facts)
+	for i := 1; i < len(buckets); i++ {
+		s.Equal(int64(0), buckets[i].Facts, "bucket %d", i)
 	}
 }
 
@@ -125,6 +163,48 @@ func (s *operationsSeriesSuite) recordObservation(
 		InputItems:    accepted,
 		AcceptedItems: accepted,
 	})
+	s.Require().NoError(err)
+}
+
+// insertNoteRevision writes the minimal chain note_revisions requires:
+// extraction_runs -> note_candidates -> team_notes, then the revision itself,
+// so a test can exercise the facts CTE's join and scope_id filter directly.
+func (s *operationsSeriesSuite) insertNoteRevision(
+	scope, runID, candidateID, noteID string, at time.Time,
+) {
+	s.T().Helper()
+	ctx := context.Background()
+	_, err := s.store.Pool().Exec(ctx, `
+INSERT INTO extraction_runs (
+    scope_id, run_id, agent_id, session_id, from_sequence, to_sequence,
+    input_checksum, status, completed_at
+) VALUES ($1, $2, 'series-agent', 'series-session', 1, 1, $3, 'completed', $4)`,
+		scope, runID, "checksum-"+runID, at)
+	s.Require().NoError(err)
+	_, err = s.store.Pool().Exec(ctx, `
+INSERT INTO note_candidates (
+    scope_id, candidate_id, run_id, action, kind, subject, body,
+    origin_user_id, origin_agent_id, origin_session_id, evidence_event_ids,
+    admission_status
+) VALUES ($1, $2, $3, 'create', 'fact', 'series subject', 'series body',
+          'series-user', 'series-agent', 'series-session', ARRAY[]::TEXT[], 'admitted')`,
+		scope, candidateID, runID)
+	s.Require().NoError(err)
+	_, err = s.store.Pool().Exec(ctx, `
+INSERT INTO team_notes (
+    scope_id, note_id, note_key, kind, subject, body,
+    origin_user_id, origin_agent_id, origin_session_id,
+    state, current_revision, soft_expires_at, hard_expires_at, created_at, updated_at
+) VALUES ($1, $2, $3, 'fact', 'series subject', 'series body',
+          'series-user', 'series-agent', 'series-session',
+          'active', 1, $4, $5, $6, $6)`,
+		scope, noteID, "key-"+noteID, at.Add(24*time.Hour), at.Add(30*24*time.Hour), at)
+	s.Require().NoError(err)
+	_, err = s.store.Pool().Exec(ctx, `
+INSERT INTO note_revisions (
+    scope_id, note_id, revision, candidate_id, operation, body, created_at
+) VALUES ($1, $2, 1, $3, 'create', 'series body', $4)`,
+		scope, noteID, candidateID, at)
 	s.Require().NoError(err)
 }
 
