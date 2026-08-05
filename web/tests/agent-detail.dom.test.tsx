@@ -34,17 +34,26 @@ function detailFetch(scope: "me" | "admin", agent: AgentFixture | Response) {
 
 describe("owner scope (/agents/:agentId)", () => {
   it("renders the agent head, badges, and full owner governance without the owner row", async () => {
+    // /management/agents/:agentId dispatches AdminAgentDetailPage to
+    // admin-likes and AgentDetailPage (the self-serve page under test) to
+    // everyone else (brief-mandated stand-in until phase 4).
     await renderApp({
-      route: "/agents/agent-1",
-      me: makeMe(),
+      route: "/management/agents/agent-1",
+      me: makeMe({ role: "member" }),
       fetch: detailFetch("me", makeAgent()),
     });
 
     await screen.findByRole("heading", { name: "Alice Codex" });
     expect(screen.getByText("agent-1")).toBeDefined();
     expect(screen.getByText("human-registered")).toBeDefined();
-    // Status badge in the page head and in the governance card.
-    expect(document.querySelectorAll(".badge.b-active").length).toBe(2);
+    // Status badge (the .tag span from Badge) in the page head and in the
+    // governance card. Scoped to .tag so it doesn't also match the
+    // Credentials filter tab labeled "active".
+    expect(
+      screen.getAllByText(
+        (content, element) => content === "active" && element?.classList.contains("tag") === true,
+      ).length,
+    ).toBe(2);
 
     // The owner row is admin-only.
     expect(screen.queryByText(/owner:/)).toBeNull();
@@ -60,8 +69,8 @@ describe("owner scope (/agents/:agentId)", () => {
 
   it("renders the 404 card with a link back to /agents", async () => {
     await renderApp({
-      route: "/agents/agent-1",
-      me: makeMe(),
+      route: "/management/agents/agent-1",
+      me: makeMe({ role: "member" }),
       fetch: detailFetch("me", apiErrorResponse(404, "not_found", "no such agent")),
     });
 
@@ -73,7 +82,7 @@ describe("owner scope (/agents/:agentId)", () => {
 describe("admin scope (/admin/agents/:agentId)", () => {
   it("renders the owner row and admin governance constraints", async () => {
     await renderApp({
-      route: "/admin/agents/agent-1",
+      route: "/management/agents/agent-1",
       me: makeMe({ role: "admin" }),
       fetch: detailFetch("admin", makeAgent()),
     });
@@ -95,7 +104,7 @@ describe("admin scope (/admin/agents/:agentId)", () => {
 
   it("renders the 404 card with a link back to /admin/agents", async () => {
     await renderApp({
-      route: "/admin/agents/agent-1",
+      route: "/management/agents/agent-1",
       me: makeMe({ role: "admin" }),
       fetch: detailFetch("admin", apiErrorResponse(404, "not_found", "no such agent")),
     });

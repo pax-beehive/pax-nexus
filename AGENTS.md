@@ -110,9 +110,11 @@ on it. The API contract is `docs/on-prem-identity-frontend-integration.md`.
   (`variant`/`size` props map to the `.btn` class system); do not hand-write
   `className="btn …"` on `<button>` elements. Parent-scoped styles
   (`.tabs button`, `.seg button`, `.wiki-*`) stay plain `<button>`.
-- Global styles live in `web/src/styles/` by concern (base, themes,
-  components, operations, wiki, pulse) via `index.css`; add a new feature file
-  there instead of appending to an existing one. Use the layout utilities
+- 状态徽标一律通过 `components/Badge.tsx` 或 `components/Tag.tsx` 渲染。设计系统是
+  两色制：accent 表示需要注意/主行动/危险，neutral 表示常态；不要引入新的色相。
+- 全局样式在 `web/src/styles/`，按层组织：`tokens.css`（设计 token 单一真源）→
+  `themes.css` → `base.css` → `components.css` → `layout.css` → `features/*.css`。
+  新的特性样式在 `features/` 下新建文件。Use the layout utilities
   (`.toolbar`, `.stack`, `.section`, `.flush`, `.row`) instead of inline
   spacing styles; use `.seg` for single-choice preset toggles (not `.tabs`).
 - Themes (beige default, dark, arcade) are pure design-token overrides in
@@ -120,11 +122,6 @@ on it. The API contract is `docs/on-prem-identity-frontend-integration.md`.
   persisted by `web/src/lib/theme.ts`. Components must reference CSS
   variables, never hardcoded colors; new colors need a token in
   `styles/base.css` plus an override per theme.
-- Full-screen apps (wiki browse, todos) render outside `PortalShell` as
-  top-level routes in `App.tsx` with an `app-back` link to the `/apps`
-  launcher; in-shell management pages for those apps (e.g. wiki policy at
-  `/wiki`) stay inside the shell and are linked from the launcher's App
-  settings section.
 - Wiki markdown renders through `react-markdown` + `remark-gfm` in
   `web/src/components/wiki/WikiMarkdown.tsx`; do not hand-roll markdown
   parsing. Xanadu inline links are re-applied on top via the section-scoped

@@ -24,8 +24,8 @@ function agentsFetch(path: string, init: RequestInit): Response {
 describe("team switcher", () => {
   it("renders the current team under the brand block and lists all teams in the popover", async () => {
     const { user } = await renderApp({
-      route: "/agents",
-      me: makeSaasMe(),
+      route: "/management",
+      me: makeSaasMe({ role: "member" }),
       fetch: agentsFetch,
     });
 
@@ -55,9 +55,11 @@ describe("team switcher", () => {
   it("switches the current team and re-scopes the UI", async () => {
     let switched = false;
     const { fetchMock, user } = await renderApp({
-      route: "/agents",
+      route: "/management",
       me: () =>
-        switched ? makeSaasMe({ current_team_id: "team_beta" }) : makeSaasMe(),
+        switched
+          ? makeSaasMe({ role: "member", current_team_id: "team_beta" })
+          : makeSaasMe({ role: "member" }),
       fetch: (path, init) => {
         if (path === "/v1/me/current-team" && init.method === "POST") {
           switched = true;
@@ -90,8 +92,8 @@ describe("team switcher", () => {
 
   it("navigates to onboarding from the popover footer rows", async () => {
     const { user } = await renderApp({
-      route: "/agents",
-      me: makeSaasMe(),
+      route: "/management",
+      me: makeSaasMe({ role: "member" }),
       fetch: agentsFetch,
     });
 

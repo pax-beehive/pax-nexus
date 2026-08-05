@@ -1,11 +1,13 @@
-/* Global stylesheet entry. Keep each concern in its own file; add new
-   feature styles as a new file here rather than appending to an existing one. */
-@import "./base.css";
+/* 全局样式入口。按层导入：token → 主题 → 基础 → 组件 → 布局 → 特性。
+   新的特性样式请在 features/ 下新建文件，不要往已有文件追加。 */
+@import "./tokens.css";
 @import "./themes.css";
+@import "./base.css";
 @import "./components.css";
-@import "./apps.css";
-@import "./operations.css";
-@import "./wiki.css";
-@import "./pulse.css";
-@import "./session-audit.css";
-@import "./teams.css";
+@import "./layout.css";
+@import "./features/apps.css";
+@import "./features/operations.css";
+@import "./features/wiki.css";
+@import "./features/pulse.css";
+@import "./features/session-audit.css";
+@import "./features/teams.css";

@@ -41,7 +41,7 @@ function detailHandler(agent: () => ReturnType<typeof makeAgent>, onPatch?: (ini
 describe("section 10 item 10: governance capabilities and lifecycle actions", () => {
   it("an admin can suspend but never retire, edit, or resume a foreign agent", async () => {
     await renderApp({
-      route: "/admin/agents/agent-1",
+      route: "/management/agents/agent-1",
       me: makeMe({ role: "admin" }),
       fetch: detailHandler(() => makeAgent({ owner_membership_id: "mbr_02" })),
     });
@@ -56,7 +56,7 @@ describe("section 10 item 10: governance capabilities and lifecycle actions", ()
   it("the suspend confirmation spells out the cascade and PATCHes with optimistic locking", async () => {
     let suspended = false;
     const { fetchMock, user } = await renderApp({
-      route: "/admin/agents",
+      route: "/management/agents",
       me: makeMe(),
       fetch: (path, init) => {
         if (path === "/v1/admin/agents" && init.method === "GET") {
@@ -92,7 +92,7 @@ describe("section 10 item 10: governance capabilities and lifecycle actions", ()
   it("retire is a DELETE with Idempotency-Key; the edit form can never issue status=retired", async () => {
     let current = makeAgent();
     const { fetchMock, user } = await renderApp({
-      route: "/admin/agents/agent-1",
+      route: "/management/agents/agent-1",
       me: makeMe(),
       fetch: detailHandler(
         () => current,
@@ -140,7 +140,7 @@ describe("section 10 item 13: filter changes reset cursor pagination", () => {
   it("switching the status filter reloads from page one without mixing old results", async () => {
     const seen: string[] = [];
     const { user } = await renderApp({
-      route: "/admin/agents",
+      route: "/management/agents",
       me: makeMe(),
       fetch: (path, init) => {
         if (path.startsWith("/v1/admin/members")) return jsonResponse({ members: [] });

@@ -43,14 +43,15 @@ func WithRegistryTokenSource(source func() (string, error)) RegistryOption {
 // principal.ScopeID, while the admin directory and device methods are
 // unsupported in the SaaS profile.
 type Registry struct {
-	agents      TeamRegistryStore
-	credentials TeamCredentialStore
-	clock       func() time.Time
-	idSource    func() (string, error)
-	tokenSource func() (string, error)
-	digester    secretDigester
-	grantable   map[onprem.Permission]struct{}
-	portalURL   string
+	agents        TeamRegistryStore
+	credentials   TeamCredentialStore
+	clock         func() time.Time
+	idSource      func() (string, error)
+	tokenSource   func() (string, error)
+	digester      secretDigester
+	grantable     map[onprem.Permission]struct{}
+	grantableList []onprem.Permission
+	portalURL     string
 }
 
 func NewRegistry(
@@ -84,7 +85,8 @@ func NewRegistry(
 	return &Registry{
 		agents: agents, credentials: credentials, clock: configured.clock,
 		idSource: configured.idSource, tokenSource: configured.tokenSource,
-		digester: digester, grantable: grantable, portalURL: strings.TrimSpace(config.PortalURL),
+		digester: digester, grantable: grantable, grantableList: grantableList,
+		portalURL: strings.TrimSpace(config.PortalURL),
 	}, nil
 }
 
@@ -335,11 +337,11 @@ func (s *Registry) RevokeOwnedCredential(
 	return result, nil
 }
 
-// The admin directory and device methods below have no SaaS meaning: the
-// agent directory is an on-prem channel concept, cross-member admin agent
-// management is not part of M3, and device registration is an on-prem
-// workstation story. They exist so Registry satisfies the handler-facing
-// interface set; P3/P4 decides which endpoints the SaaS profile wires.
+// The admin directory methods below have no SaaS meaning: the agent
+// directory is an on-prem channel concept, and cross-member admin agent
+// management is not part of the team model. They exist so Registry
+// satisfies the handler-facing interface set; the device methods above are
+// fully implemented (team-scoped workstation enrollment).
 
 func (s *Registry) ListDirectoryAgents(context.Context, onprem.Principal, onprem.AgentFilter) ([]onprem.AgentProfile, error) {
 	return nil, ErrUnsupportedInSaaS
@@ -385,20 +387,130 @@ func (s *Registry) RevokeAdminCredential(context.Context, onprem.HumanPrincipal,
 	return onprem.AgentCredentialMetadata{}, ErrUnsupportedInSaaS
 }
 
-func (s *Registry) CreateDeviceEnrollment(context.Context, onprem.HumanPrincipal, onprem.DeviceEnrollmentRequest) (onprem.Enrollment, []onprem.Permission, error) {
-	return onprem.Enrollment{}, nil, ErrUnsupportedInSaaS
+// CreateDeviceEnrollment creates a one-time device enrollment token in the
+// principal's team, mirroring the on-prem service. Its second return value
+// is the effective grantable-permissions set actually persisted on the
+// enrollment record: the caller-supplied set when GrantablePermissions is
+// non-empty, or the registry's configured default otherwise.
+func (s *Registry) CreateDeviceEnrollment(
+	ctx context.Context,
+	principal onprem.HumanPrincipal,
+	request onprem.DeviceEnrollmentRequest,
+) (onprem.Enrollment, []onprem.Permission, error) {
+	if err := authorizeTeamAdmin(principal); err != nil {
+		return onprem.Enrollment{}, nil, err
+	}
+	deviceName := strings.TrimSpace(request.DeviceName)
+	if err := validateDeviceName(deviceName); err != nil {
+		return onprem.Enrollment{}, nil, err
+	}
+	grantable := request.GrantablePermissions
+	if len(grantable) == 0 {
+		grantable = append([]onprem.Permission(nil), s.grantableList...)
+	} else {
+		validated, err := validateExplicitPermissions(grantable)
+		if err != nil {
+			return onprem.Enrollment{}, nil, err
+		}
+		for _, permission := range validated {
+			if _, allowed := s.grantable[permission]; !allowed {
+				return onprem.Enrollment{}, nil, fmt.Errorf("%w: enrollment permission %q is not grantable", onprem.ErrInvalidIdentityInput, permission)
+			}
+		}
+		grantable = validated
+	}
+	expiresIn := request.ExpiresIn
+	if expiresIn == 0 {
+		expiresIn = defaultEnrollmentTTL
+	}
+	if expiresIn < 0 {
+		return onprem.Enrollment{}, nil, fmt.Errorf("%w: enrollment expiry must be positive", onprem.ErrInvalidIdentityInput)
+	}
+	id, err := s.idSource()
+	if err != nil {
+		return onprem.Enrollment{}, nil, fmt.Errorf("create device enrollment ID: %w", err)
+	}
+	secret, err := s.tokenSource()
+	if err != nil {
+		return onprem.Enrollment{}, nil, fmt.Errorf("create device enrollment secret: %w", err)
+	}
+	now := s.clock().UTC()
+	token, verifiableToken := enrollmentToken(id, secret, s.portalURL)
+	record := onprem.EnrollmentRecord{
+		ID: id, TokenDigest: s.digester.Digest(enrollmentDigestDomain, verifiableToken),
+		DigestKeyVersion: currentDigestKeyVersion, UserID: principal.UserID, MembershipID: principal.MembershipID,
+		Kind: onprem.CredentialKindDevice, AgentID: "", CredentialLabel: deviceName,
+		Permissions: []onprem.Permission{onprem.PermissionAgentProvision}, GrantablePermissions: grantable,
+		CreatedAt: now, ExpiresAt: now.Add(expiresIn),
+	}
+	if err := s.credentials.CreateDeviceEnrollment(ctx, principal.ScopeID, principal.MembershipID, record); err != nil {
+		return onprem.Enrollment{}, nil, fmt.Errorf("save device enrollment: %w", err)
+	}
+	return onprem.Enrollment{ID: id, Token: token, ExpiresAt: record.ExpiresAt}, grantable, nil
 }
 
-func (s *Registry) RevokeDevice(context.Context, onprem.HumanPrincipal, string, string) (onprem.DeviceSummary, error) {
-	return onprem.DeviceSummary{}, ErrUnsupportedInSaaS
+// RevokeDevice revokes a device credential in the principal's team and,
+// transactionally with the revoke, cascades to every agent credential the
+// device provisioned. Only an Owner or Admin may revoke a device.
+func (s *Registry) RevokeDevice(
+	ctx context.Context,
+	principal onprem.HumanPrincipal,
+	credentialID string,
+	idempotencyKey string,
+) (onprem.DeviceSummary, error) {
+	if err := authorizeTeamAdmin(principal); err != nil {
+		return onprem.DeviceSummary{}, err
+	}
+	credentialID = strings.TrimSpace(credentialID)
+	if credentialID == "" {
+		return onprem.DeviceSummary{}, onprem.ErrCredentialNotFound
+	}
+	summary, err := s.credentials.RevokeDevice(
+		ctx, principal.ScopeID, principal, credentialID, strings.TrimSpace(idempotencyKey), s.clock().UTC(),
+	)
+	if err != nil {
+		return onprem.DeviceSummary{}, fmt.Errorf("revoke team device: %w", err)
+	}
+	return summary, nil
 }
 
-func (s *Registry) ListDevices(context.Context, onprem.HumanPrincipal, onprem.DeviceFilter) ([]onprem.DeviceSummary, error) {
-	return nil, ErrUnsupportedInSaaS
+// ListDevices returns the device-kind credentials of the principal's team,
+// newest first. Only an Owner or Admin may list devices.
+func (s *Registry) ListDevices(
+	ctx context.Context,
+	principal onprem.HumanPrincipal,
+	filter onprem.DeviceFilter,
+) ([]onprem.DeviceSummary, error) {
+	if err := authorizeTeamAdmin(principal); err != nil {
+		return nil, err
+	}
+	devices, err := s.credentials.ListDevices(ctx, principal.ScopeID, normalizeDeviceFilter(filter))
+	if err != nil {
+		return nil, fmt.Errorf("list team devices: %w", err)
+	}
+	return devices, nil
 }
 
-func (s *Registry) GetDevice(context.Context, onprem.HumanPrincipal, string) (onprem.DeviceDetail, error) {
-	return onprem.DeviceDetail{}, ErrUnsupportedInSaaS
+// GetDevice returns a device credential's summary plus every credential row
+// it has provisioned (including revoked history) inside the principal's
+// team. Only an Owner or Admin may view a device's detail.
+func (s *Registry) GetDevice(
+	ctx context.Context,
+	principal onprem.HumanPrincipal,
+	credentialID string,
+) (onprem.DeviceDetail, error) {
+	if err := authorizeTeamAdmin(principal); err != nil {
+		return onprem.DeviceDetail{}, err
+	}
+	credentialID = strings.TrimSpace(credentialID)
+	if credentialID == "" {
+		return onprem.DeviceDetail{}, onprem.ErrCredentialNotFound
+	}
+	detail, err := s.credentials.GetDevice(ctx, principal.ScopeID, credentialID)
+	if err != nil {
+		return onprem.DeviceDetail{}, fmt.Errorf("get team device: %w", err)
+	}
+	return detail, nil
 }
 
 // validateAgentIdentity mirrors the on-prem agent ID/display-name rules.
@@ -493,6 +605,35 @@ func normalizeAgentFilter(filter onprem.AgentFilter) onprem.AgentFilter {
 }
 
 func normalizeArtifactFilter(filter onprem.AgentArtifactFilter) onprem.AgentArtifactFilter {
+	filter.Status = strings.TrimSpace(filter.Status)
+	filter.Cursor = strings.TrimSpace(filter.Cursor)
+	if filter.Limit <= 0 {
+		filter.Limit = 50
+	}
+	if filter.Limit > 100 {
+		filter.Limit = 100
+	}
+	return filter
+}
+
+// validateDeviceName mirrors the on-prem device name rules.
+func validateDeviceName(name string) error {
+	if name == "" {
+		return fmt.Errorf("%w: device_name is required", onprem.ErrInvalidIdentityInput)
+	}
+	if len(name) > 200 {
+		return fmt.Errorf("%w: device_name is too long", onprem.ErrInvalidIdentityInput)
+	}
+	for _, current := range name {
+		if current < 0x20 || current == 0x7f {
+			return fmt.Errorf("%w: device_name is invalid", onprem.ErrInvalidIdentityInput)
+		}
+	}
+	return nil
+}
+
+// normalizeDeviceFilter mirrors the on-prem device listing normalization.
+func normalizeDeviceFilter(filter onprem.DeviceFilter) onprem.DeviceFilter {
 	filter.Status = strings.TrimSpace(filter.Status)
 	filter.Cursor = strings.TrimSpace(filter.Cursor)
 	if filter.Limit <= 0 {

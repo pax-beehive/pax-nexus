@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { Link } from "react-router-dom";
 import {
   acceptTodoSuggestion,
   completeTodo,
@@ -126,9 +125,8 @@ export function TodoPage() {
   return (
     <div className="app-fullscreen">
       <div className="app-fullscreen-inner">
-        <Link className="app-back" to="/apps">
-          ← All apps
-        </Link>
+        {/* 「← All apps」已移除：启动页不存在了，/apps 只会重定向到 wiki。
+            分区间的导航由顶栏 + 二级导航提供。 */}
         <div className="page-head">
         <div>
           <h1>Todos</h1>

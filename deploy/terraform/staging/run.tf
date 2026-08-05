@@ -49,6 +49,11 @@ resource "google_cloud_run_v2_service" "api" {
     containers {
       image = var.image != "" ? var.image : "us-docker.pkg.dev/cloudrun/container/hello"
 
+      # The image carries both server binaries; the saas profile swaps the
+      # entrypoint to the control-plane binary. Unset on onprem so the
+      # image's own ENTRYPOINT applies.
+      command = var.profile == "saas" ? ["/usr/local/bin/team-memory-saas"] : null
+
       resources {
         limits = {
           cpu    = "1"
@@ -147,14 +152,21 @@ locals {
     TEAM_MEMORY_EMBEDDING_MODEL    = var.embedding_model
   }
 
-  secret_environment = {
-    TEAM_MEMORY_DATABASE_URL       = google_secret_manager_secret.generated["database-url"].secret_id
-    TEAM_MEMORY_SECRET_PEPPER      = google_secret_manager_secret.generated["secret-pepper"].secret_id
-    TEAM_MEMORY_BOOTSTRAP_SECRET   = google_secret_manager_secret.generated["bootstrap-secret"].secret_id
-    TEAM_MEMORY_OIDC_FLOW_SECRET   = google_secret_manager_secret.generated["oidc-flow-secret"].secret_id
-    TEAM_MEMORY_OIDC_CLIENT_SECRET = google_secret_manager_secret.external["oidc-client-secret"].secret_id
-    TEAM_MEMORY_EXTRACTOR_API_KEY  = google_secret_manager_secret.external["extractor-api-key"].secret_id
-    LLMWIKI_LLM_API_KEY            = google_secret_manager_secret.external["extractor-api-key"].secret_id
-    TEAM_MEMORY_EMBEDDING_API_KEY  = google_secret_manager_secret.external["embedding-api-key"].secret_id
-  }
+  # The saas profile has no bootstrap concept (sign-up creates a team) and
+  # refuses to start with TEAM_MEMORY_BOOTSTRAP_SECRET set, so the variable
+  # is only injected for the onprem profile.
+  secret_environment = merge(
+    {
+      TEAM_MEMORY_DATABASE_URL       = google_secret_manager_secret.generated["database-url"].secret_id
+      TEAM_MEMORY_SECRET_PEPPER      = google_secret_manager_secret.generated["secret-pepper"].secret_id
+      TEAM_MEMORY_OIDC_FLOW_SECRET   = google_secret_manager_secret.generated["oidc-flow-secret"].secret_id
+      TEAM_MEMORY_OIDC_CLIENT_SECRET = google_secret_manager_secret.external["oidc-client-secret"].secret_id
+      TEAM_MEMORY_EXTRACTOR_API_KEY  = google_secret_manager_secret.external["extractor-api-key"].secret_id
+      LLMWIKI_LLM_API_KEY            = google_secret_manager_secret.external["extractor-api-key"].secret_id
+      TEAM_MEMORY_EMBEDDING_API_KEY  = google_secret_manager_secret.external["embedding-api-key"].secret_id
+    },
+    var.profile == "onprem" ? {
+      TEAM_MEMORY_BOOTSTRAP_SECRET = google_secret_manager_secret.generated["bootstrap-secret"].secret_id
+    } : {},
+  )
 }

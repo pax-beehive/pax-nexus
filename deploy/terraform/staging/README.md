@@ -64,6 +64,27 @@ terraform apply \
   -var="web_image=${REPO}/web:${TAG}"
 ```
 
+### Deployment profile
+
+`profile` (default `onprem`) selects which server binary the API service
+runs. The image carries both; `-var="profile=saas"` swaps the container
+command to `/usr/local/bin/team-memory-saas` and drops
+`TEAM_MEMORY_BOOTSTRAP_SECRET` from the environment (the SaaS profile has
+no bootstrap concept and refuses to start with it set). Roll back with
+`-var="profile=onprem"`.
+
+Because the service image is in `ignore_changes` (CI owns it by digest),
+switching profiles on a live service is a two-step: point the service at an
+image that contains both binaries first, then apply the profile change:
+
+```sh
+gcloud run services update team-memory --region=asia-northeast1 \
+  --project=paxtech-stg --image="${REPO}/app:${TAG}"
+terraform apply -var="profile=saas" \
+  -var="oidc_issuer=https://api.workos.com/user_management/${CLIENT_ID}" \
+  -var="oidc_client_id=${CLIENT_ID}"
+```
+
 ## Building and pushing
 
 ```sh

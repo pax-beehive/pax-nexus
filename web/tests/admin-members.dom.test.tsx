@@ -50,7 +50,7 @@ async function openBobEditor(user: UserEvent) {
 describe("section 10 item 7: concurrent member edits", () => {
   it("resource_version_conflict refetches the member and refreshes the list", async () => {
     const { fetchMock, user } = await renderApp({
-      route: "/admin/members",
+      route: "/management/members",
       me: makeMe(),
       fetch: membersHandler(apiErrorResponse(409, "resource_version_conflict", "stale version")),
     });
@@ -79,7 +79,7 @@ describe("section 10 item 7: concurrent member edits", () => {
 
   it("other 409 codes never refetch the member", async () => {
     const { fetchMock, user } = await renderApp({
-      route: "/admin/members",
+      route: "/management/members",
       me: makeMe(),
       fetch: membersHandler(apiErrorResponse(409, "membership_conflict", "generic conflict")),
     });
@@ -94,7 +94,7 @@ describe("section 10 item 7: concurrent member edits", () => {
 describe("section 10 item 8: last active owner protection", () => {
   it("keeps the form and shows the server-side last_active_owner prompt", async () => {
     const { fetchMock, user } = await renderApp({
-      route: "/admin/members",
+      route: "/management/members",
       me: makeMe(),
       fetch: membersHandler(
         apiErrorResponse(409, "last_active_owner", "would remove the last active owner"),
@@ -125,7 +125,7 @@ describe("section 10 item 8: last active owner protection", () => {
 describe("section 10 item 9: membership suspended or removed mid-session", () => {
   it("a 401 on the next request drops the cached identity and unmounts member data", async () => {
     await renderApp({
-      route: "/admin/members",
+      route: "/management/members",
       me: makeMe(),
       fetch: (path) => {
         if (path.startsWith("/v1/admin/members")) {

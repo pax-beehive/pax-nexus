@@ -5,7 +5,7 @@
 // must not render the team switcher or the Team settings nav entry.
 
 import { describe, expect, it } from "vitest";
-import { screen } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import {
   apiErrorResponse,
   jsonResponse,
@@ -38,9 +38,11 @@ describe("on-prem profile regression", () => {
   });
 
   it("an active on-prem principal renders no team switcher or team nav entry", async () => {
+    // /management is the member-rooted "my access" view for every role;
+    // this case checks MyAgentsPage's team-scope subtitle for a member.
     await renderApp({
-      route: "/agents",
-      me: makeMe(),
+      route: "/management",
+      me: makeMe({ role: "member" }),
       fetch: (path, init) => {
         if (path.startsWith("/v1/me/agents")) return jsonResponse({ agents: [] });
         throw new Error(`unexpected fetch: ${init.method ?? "GET"} ${path}`);
@@ -50,12 +52,35 @@ describe("on-prem profile regression", () => {
     await screen.findByRole("heading", { name: "My Agents" });
     expect(screen.queryByRole("menu", { name: "Switch team" })).toBeNull();
     expect(screen.queryByRole("button", { name: /Switch team/ })).toBeNull();
-    expect(screen.queryByRole("link", { name: "Team settings" })).toBeNull();
     // The default subtitle stays (no team scope line).
     expect(
       screen.getByText("Register and manage the Agent identities you own"),
     ).toBeTruthy();
-    // Directory group is unchanged for the on-prem owner: Members/Invitations.
-    expect(screen.queryByRole("button", { name: "Directory" })).toBeTruthy();
+    // Settings has no Team entry: hasTeams(me) is false for an on-prem
+    // principal regardless of role (navModel.ts).
+    const topbar = screen.getByRole("navigation", { name: "Sections" });
+    within(topbar).getByRole("link", { name: "Settings" });
+    expect(screen.queryByRole("link", { name: "Team" })).toBeNull();
+  });
+
+  it("an active on-prem owner still sees the admin-like Management sub-items", async () => {
+    // Members/Invitations visibility is role-gated, not team-gated
+    // (navModel.ts); an on-prem owner (no teams field at all) must still
+    // get the full Management subnav.
+    await renderApp({
+      route: "/management",
+      me: makeMe({ role: "owner" }),
+      fetch: (path, init) => {
+        if (path.startsWith("/v1/me/agents")) return jsonResponse({ agents: [] });
+        throw new Error(`unexpected fetch: ${init.method ?? "GET"} ${path}`);
+      },
+    });
+
+    // Every role gets MyAgentsPage at the Management root; what an owner
+    // gains is the extra sub-navigation, which is what this case checks.
+    await screen.findByRole("heading", { name: "My Agents" });
+    const subnav = screen.getByRole("navigation", { name: "Section pages" });
+    within(subnav).getByRole("link", { name: "Members" });
+    within(subnav).getByRole("link", { name: "Invitations" });
   });
 });

@@ -53,9 +53,11 @@ export async function listTeams(): Promise<TeamSummary[]> {
 
 export async function listMyAgents(
   params: ListParams & { status?: string },
+  signal?: AbortSignal,
 ): Promise<Page<AgentProfile>> {
   const res = await humanFetch<{ agents: AgentProfile[]; next_cursor?: string }>(
     `/v1/me/agents${query({ status: params.status, limit: params.limit, cursor: params.cursor })}`,
+    { signal },
   );
   return { items: res.agents, nextCursor: res.next_cursor };
 }
@@ -134,6 +136,7 @@ export async function listInvitations(
 
 export async function listAdminAgents(
   params: ListParams & { owner_membership_id?: string; status?: string; q?: string },
+  signal?: AbortSignal,
 ): Promise<Page<AgentProfile>> {
   const res = await humanFetch<{ agents: AgentProfile[]; next_cursor?: string }>(
     `/v1/admin/agents${query({
@@ -143,6 +146,7 @@ export async function listAdminAgents(
       limit: params.limit,
       cursor: params.cursor,
     })}`,
+    { signal },
   );
   return { items: res.agents, nextCursor: res.next_cursor };
 }

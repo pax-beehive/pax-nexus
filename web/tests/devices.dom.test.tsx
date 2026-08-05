@@ -28,7 +28,7 @@ const SECRET = {
 describe("Devices list + device enrollment creation", () => {
   it("renders the list and creates a device enrollment without a permission matrix", async () => {
     const { fetchMock, user } = await renderApp({
-      route: "/admin/devices",
+      route: "/management/devices",
       me: makeMe(),
       fetch: (path, init) => {
         if (path.startsWith("/v1/admin/members")) {
@@ -82,7 +82,7 @@ describe("Devices list + device enrollment creation", () => {
 
   it("rejects an empty device_name locally without issuing a request", async () => {
     const { fetchMock, user } = await renderApp({
-      route: "/admin/devices",
+      route: "/management/devices",
       me: makeMe(),
       fetch: (path) => {
         if (path.startsWith("/v1/admin/members")) return jsonResponse({ members: [] });
@@ -134,7 +134,7 @@ describe("Device detail and cascade revocation", () => {
     });
 
     const { fetchMock, user } = await renderApp({
-      route: "/admin/devices/dev_01",
+      route: "/management/devices/dev_01",
       me: makeMe(),
       fetch: (path, init) => {
         if (path === "/v1/admin/devices/dev_01" && init.method === "DELETE") {

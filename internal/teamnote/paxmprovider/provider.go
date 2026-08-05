@@ -215,8 +215,20 @@ func (p *Provider) health(ctx context.Context) error {
 	return p.do(request, nil)
 }
 
+// sessionBatchChunkBudget caps the serialized size of one session-batches
+// request. The server accepts 30 MiB bodies (maxRequestBodySize in
+// internal/app), but on-prem deployments that have not upgraded still
+// enforce Hertz's ~4 MiB default, so chunks stay under 3 MiB and backfill
+// uploads work against both.
+const sessionBatchChunkBudget = 3 * 1024 * 1024
+
+// chunkEnvelopeOverhead covers the serialized {"events":[],"complete":...}
+// envelope plus per-event comma separators, with margin.
+const chunkEnvelopeOverhead = 64
+
 // putBatch validates every item, groups events by resolved actor, and sends
-// one session batch per actor sequentially. A mid-sequence failure returns
+// each actor's events as an ordered sequence of size-bounded session
+// batches (see chunkSessionBatch). A mid-sequence failure returns
 // only the error: a JSON-RPC response carries either a result or an error,
 // never both, so refs of already-delivered batches cannot be represented.
 // The retry contract makes this safe: event IDs are stable (caller-provided
@@ -233,24 +245,60 @@ func (p *Provider) putBatch(ctx context.Context, items []memoryItem) ([]map[stri
 		prepared[index] = value
 	}
 	refs := make([]map[string]string, len(prepared))
-	batches := make([]sessionBatchPayload, 0)
-	batchByActor := make(map[actor]int)
+	eventsByActor := make(map[actor][]sessionEventPayload)
+	actorOrder := make([]actor, 0)
 	for index, item := range prepared {
-		batchIndex, ok := batchByActor[item.event.Actor]
-		if !ok {
-			batchIndex = len(batches)
-			batchByActor[item.event.Actor] = batchIndex
-			batches = append(batches, sessionBatchPayload{Complete: true})
+		if _, ok := eventsByActor[item.event.Actor]; !ok {
+			actorOrder = append(actorOrder, item.event.Actor)
 		}
-		batches[batchIndex].Events = append(batches[batchIndex].Events, item.event)
+		eventsByActor[item.event.Actor] = append(eventsByActor[item.event.Actor], item.event)
 		refs[index] = item.ref
 	}
-	for _, batch := range batches {
-		if err := p.sendSessionBatch(ctx, batch); err != nil {
+	for _, itemActor := range actorOrder {
+		chunks, err := chunkSessionBatch(eventsByActor[itemActor])
+		if err != nil {
 			return nil, err
+		}
+		for _, chunk := range chunks {
+			if err := p.sendSessionBatch(ctx, chunk); err != nil {
+				return nil, err
+			}
 		}
 	}
 	return refs, nil
+}
+
+// chunkSessionBatch splits one actor's events into session batches whose
+// serialized payload stays under sessionBatchChunkBudget. Every chunk
+// except the last carries Complete: false, so the extraction queue defers
+// finalization (RequireCurrent + batch timeout) until the actor's last
+// chunk lands with Complete: true. Chunks never mix actors, and events keep
+// their input order within and across chunks. An event larger than the
+// budget goes alone in its own request and succeeds or fails on its own
+// merits.
+func chunkSessionBatch(events []sessionEventPayload) ([]sessionBatchPayload, error) {
+	chunks := make([]sessionBatchPayload, 0, 1)
+	current := make([]sessionEventPayload, 0, len(events))
+	currentBytes := chunkEnvelopeOverhead
+	flush := func() {
+		chunks = append(chunks, sessionBatchPayload{Events: current})
+		current = make([]sessionEventPayload, 0, len(events))
+		currentBytes = chunkEnvelopeOverhead
+	}
+	for _, event := range events {
+		encoded, err := json.Marshal(event)
+		if err != nil {
+			return nil, fmt.Errorf("encode session event %q: %w", event.ID, err)
+		}
+		if len(current) > 0 && currentBytes+len(encoded) > sessionBatchChunkBudget {
+			flush()
+		}
+		current = append(current, event)
+		currentBytes += len(encoded)
+	}
+	flush()
+	chunks[len(chunks)-1].Complete = true
+	return chunks, nil
 }
 
 func (p *Provider) put(ctx context.Context, item memoryItem) (map[string]string, error) {

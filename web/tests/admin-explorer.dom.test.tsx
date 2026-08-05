@@ -109,21 +109,36 @@ function noteDetail() {
 
 describe("Team Memory Explorer access and chain", () => {
   it("gates navigation and data fetch on view.team-memory", async () => {
+    // No view.team-memory capability: RequireCapability bounces to
+    // landingPath(me), which is /overview because view.operations is
+    // present (navModel.ts). Operations' own endpoints are stubbed only so
+    // that landing page can settle cleanly; the point of this case is what
+    // it must NOT fetch.
     const denied = await renderApp({
-      route: "/admin/explorer",
+      route: "/governance/memory",
       me: makeMe({ role: "admin", capabilities: ["view.operations"] }),
       fetch: (path) => {
-        if (path.startsWith("/v1/me/agents")) return jsonResponse({ agents: [] });
+        if (path.startsWith("/v1/admin/operations/agents")) {
+          return jsonResponse({
+            agents: [],
+            from_time: NOW,
+            to_time: NOW,
+            generated_at: NOW,
+          });
+        }
+        if (path.startsWith("/v1/admin/operations/events")) {
+          return jsonResponse({ events: [], generated_at: NOW });
+        }
         throw new Error(`unexpected fetch: ${path}`);
       },
     });
-    await screen.findByRole("heading", { name: "My Agents" });
-    expect(document.querySelector('nav a[href="/admin/explorer"]')).toBeNull();
+    await screen.findByRole("heading", { name: "Team Pulse" });
+    expect(document.querySelector('nav a[href="/governance/memory"]')).toBeNull();
     expect(callsTo(denied.fetchMock, "/v1/admin/team-notes")).toHaveLength(0);
     denied.unmount();
 
     await renderApp({
-      route: "/admin/explorer",
+      route: "/governance/memory",
       me: makeMe({ capabilities: ["view.operations", "view.team-memory"] }),
       fetch: (path) => {
         if (path.startsWith("/v1/admin/team-notes")) {
@@ -133,13 +148,13 @@ describe("Team Memory Explorer access and chain", () => {
       },
     });
     await screen.findByRole("heading", { name: "Team Memory Explorer" });
-    expect(document.querySelector('nav a[href="/admin/explorer"]')).not.toBeNull();
+    expect(document.querySelector('nav a[href="/governance/memory"]')).not.toBeNull();
     screen.getByRole("link", { name: "Release approval" });
   });
 
   it("opens a note and renders source, extraction, revision, delivery and recall", async () => {
     const { user } = await renderApp({
-      route: "/admin/explorer",
+      route: "/governance/memory",
       me: makeMe({ capabilities: ["view.operations", "view.team-memory"] }),
       fetch: (path) => {
         if (path === "/v1/admin/team-notes/note-1") return jsonResponse(noteDetail());
@@ -181,7 +196,7 @@ describe("Team Memory Explorer access and chain", () => {
       },
     ] as unknown as ReturnType<typeof noteDetail>["recall_observations"];
     await renderApp({
-      route: "/admin/explorer/notes/note-1",
+      route: "/governance/memory/note-1",
       me: makeMe({ capabilities: ["view.operations", "view.team-memory"] }),
       fetch: (path) => {
         if (path === "/v1/admin/team-notes/note-1") return jsonResponse(detail);
@@ -201,7 +216,7 @@ describe("Team Memory Explorer access and chain", () => {
       resolveOldPage = resolve;
     });
     const { user, fetchMock } = await renderApp({
-      route: "/admin/explorer",
+      route: "/governance/memory",
       me: makeMe({ capabilities: ["view.operations", "view.team-memory"] }),
       fetch: (path) => {
         if (path.includes("cursor=old-page")) return oldPage;

@@ -3,7 +3,7 @@
 // polling refresh never re-reads an already consumed Response body.
 //
 //   await renderApp({
-//     route: "/admin/operations",
+//     route: "/governance/pipeline",
 //     me: opsMe(),
 //     fetch: operationsFetch({
 //       events: () => jsonResponse({ events: [makeEvent()], generated_at: GEN_AT }),
@@ -261,12 +261,12 @@ export function statValue(scope: ParentNode, label: string): string | null {
 }
 
 /**
- * Mount the portal at /admin/operations with the Operations capability and
+ * Mount the portal at /governance/pipeline with the Operations capability and
  * wait for the first summary/events/storage cycle to settle.
  */
 export async function renderOperationsPage(endpoints: OperationsEndpoints = {}) {
   const app = await renderApp({
-    route: "/admin/operations",
+    route: "/governance/pipeline",
     me: opsMe(),
     fetch: operationsFetch(endpoints),
   });
@@ -280,12 +280,12 @@ export function eventsTable(): HTMLElement {
 }
 
 /**
- * Mount the portal at /admin/pulse with the Operations capability and wait
+ * Mount the portal at /overview with the Operations capability and wait
  * for the first agent-stats cycle to settle.
  */
 export async function renderPulsePage(endpoints: OperationsEndpoints = {}) {
   const app = await renderApp({
-    route: "/admin/pulse",
+    route: "/overview",
     me: opsMe(),
     fetch: operationsFetch(endpoints),
   });

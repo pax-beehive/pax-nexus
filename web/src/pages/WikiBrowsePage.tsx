@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import {
   getWikiLinks,
   getWikiNavigation,
@@ -26,14 +26,31 @@ const EMPTY_LINKS: WikiLinks = { outgoing: [], incoming: [] };
 
 export function WikiBrowsePage() {
   const navigate = useNavigate();
+  // react-router's non-data-router useNavigate() returns a new function
+  // identity whenever the current pathname changes (it closes over
+  // location.pathname internally), which is exactly what selecting a page
+  // does now that the slug lives in the path. A ref keeps updateLocation
+  // (below) — and therefore the navigation-tree effect that depends on it —
+  // stable across selections instead of re-running on every one.
+  const navigateRef = useRef(navigate);
+  navigateRef.current = navigate;
   const handleError = useErrorHandler();
+  // Mounted at both /apps/wiki and /apps/wiki/:slug — the slug lives in the
+  // route path, not the query string; only `revision` still rides ?revision=.
+  const { slug: routeSlug = "" } = useParams();
+  // The navigation-tree effect below must fetch and auto-select on mount
+  // and on navigationRevision only, never on slug change (that fetch is
+  // the expensive one, and re-running the auto-select branch on every
+  // selection would silently bounce a page that isn't in the tree — e.g. a
+  // retired page reached via search — back to pages[0]). A ref lets the
+  // effect read the current route slug without depending on it.
+  const routeSlugRef = useRef(routeSlug);
+  routeSlugRef.current = routeSlug;
   const [topics, setTopics] = useState<WikiNavigationTopic[]>([]);
   const [rootPages, setRootPages] = useState<WikiNavigationPage[]>([]);
   const [topicPath, setTopicPath] = useState<string[]>([]);
   const [navigationLoading, setNavigationLoading] = useState(true);
-  const [selectedSlug, setSelectedSlug] = useState(
-    () => new URLSearchParams(window.location.search).get("page") ?? "",
-  );
+  const [selectedSlug, setSelectedSlug] = useState(() => routeSlug);
   const [page, setPage] = useState<WikiPage>();
   const [revision, setRevision] = useState<WikiRevision>();
   const [revisions, setRevisions] = useState<WikiRevision[]>([]);
@@ -46,6 +63,17 @@ export function WikiBrowsePage() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [autoInject, setAutoInject] = useState(false);
   const [navigationRevision, setNavigationRevision] = useState(0);
+
+  // selectedSlug only self-updates via selectPage; nothing else syncs it
+  // when the route param changes out from under the component (browser
+  // Back/Forward, or a palette jump straight to /apps/wiki/:slug). Collapsing
+  // the wiki route's remount key (routeKey.ts) removed the accidental
+  // remount that used to paper over this, so it needs its own explicit
+  // sync — deliberately separate from the navigation-tree effect above,
+  // which must still never depend on routeSlug (see its comment).
+  useEffect(() => {
+    if (routeSlug !== selectedSlug) setSelectedSlug(routeSlug);
+  }, [routeSlug, selectedSlug]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -69,15 +97,11 @@ export function WikiBrowsePage() {
     [autoInject],
   );
 
-  const updateLocation = useCallback(
-    (slug: string, revisionID?: string) => {
-      const parameters = new URLSearchParams();
-      parameters.set("page", slug);
-      if (revisionID) parameters.set("revision", revisionID);
-      navigate({ pathname: "/wiki/browse", search: `?${parameters.toString()}` }, { replace: true });
-    },
-    [navigate],
-  );
+  const updateLocation = useCallback((slug: string, revisionID?: string) => {
+    const pathname = `/apps/wiki/${encodeURIComponent(slug)}`;
+    const search = revisionID ? `?revision=${encodeURIComponent(revisionID)}` : "";
+    navigateRef.current({ pathname, search }, { replace: true });
+  }, []);
 
   const selectPage = useCallback(
     (slug: string) => {
@@ -98,8 +122,10 @@ export function WikiBrowsePage() {
         const pages = [...rootLevelPages, ...collectPages(roots)];
         setTopics(roots);
         setRootPages(rootLevelPages);
-        const requestedSlug = new URLSearchParams(window.location.search).get("page") ?? "";
-        if (pages.length > 0 && !pages.some((candidate) => candidate.slug === requestedSlug)) {
+        if (
+          pages.length > 0 &&
+          !pages.some((candidate) => candidate.slug === routeSlugRef.current)
+        ) {
           setSelectedSlug(pages[0].slug);
           updateLocation(pages[0].slug);
         }
@@ -196,7 +222,9 @@ export function WikiBrowsePage() {
     <div className="wiki wiki-browse">
       <header className="wiki-header">
         <div>
-          <Link className="app-back" to="/apps">← All apps</Link>
+          {/* 没有「← All apps」返回链接：启动页已经不存在，/apps 会重定向回
+              /apps/wiki，点一下等于自我跳转并把阅读器重挂载、静默回到第一页。
+              分区间的导航现在由顶栏 + 二级导航提供。 */}
           <h1>Wiki</h1>
           <p className="muted">Durable pages, revision history, and evidence in one place.</p>
         </div>
@@ -295,7 +323,7 @@ export function WikiBrowsePage() {
                     <span>This page has been archived.</span>
                     {page.successor_slug && (
                       <a
-                        href={`/wiki?page=${encodeURIComponent(page.successor_slug)}`}
+                        href={`/apps/wiki/${encodeURIComponent(page.successor_slug)}`}
                         className="wiki-inline-link"
                         onClick={(event) => {
                           event.preventDefault();
