@@ -26,6 +26,14 @@ const EMPTY_LINKS: WikiLinks = { outgoing: [], incoming: [] };
 
 export function WikiBrowsePage() {
   const navigate = useNavigate();
+  // react-router's non-data-router useNavigate() returns a new function
+  // identity whenever the current pathname changes (it closes over
+  // location.pathname internally), which is exactly what selecting a page
+  // does now that the slug lives in the path. A ref keeps updateLocation
+  // (below) — and therefore the navigation-tree effect that depends on it —
+  // stable across selections instead of re-running on every one.
+  const navigateRef = useRef(navigate);
+  navigateRef.current = navigate;
   const handleError = useErrorHandler();
   // Mounted at both /apps/wiki and /apps/wiki/:slug — the slug lives in the
   // route path, not the query string; only `revision` still rides ?revision=.
@@ -78,14 +86,11 @@ export function WikiBrowsePage() {
     [autoInject],
   );
 
-  const updateLocation = useCallback(
-    (slug: string, revisionID?: string) => {
-      const pathname = `/apps/wiki/${encodeURIComponent(slug)}`;
-      const search = revisionID ? `?revision=${encodeURIComponent(revisionID)}` : "";
-      navigate({ pathname, search }, { replace: true });
-    },
-    [navigate],
-  );
+  const updateLocation = useCallback((slug: string, revisionID?: string) => {
+    const pathname = `/apps/wiki/${encodeURIComponent(slug)}`;
+    const search = revisionID ? `?revision=${encodeURIComponent(revisionID)}` : "";
+    navigateRef.current({ pathname, search }, { replace: true });
+  }, []);
 
   const selectPage = useCallback(
     (slug: string) => {

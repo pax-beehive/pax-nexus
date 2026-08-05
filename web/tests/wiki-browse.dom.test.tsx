@@ -458,3 +458,124 @@ describe("wiki browse route navigation refresh", () => {
     expect(navCalls()).toHaveLength(2);
   });
 });
+
+// -- fix round 1/2: the navigation-tree effect must fetch and auto-select on
+// mount only, never on slug change (findings 1 and 2). This also requires
+// AppShell's content ErrorBoundary to key on routeKey(pathname), not the raw
+// pathname, so selecting a different wiki page doesn't remount the whole
+// page and re-trigger the effect from scratch (fix round 2). --
+
+function twoPageNavigation() {
+  return {
+    roots: [],
+    pages: [
+      { id: "page-alpha", slug: "alpha", title: "Alpha", rank: 0 },
+      { id: "page-beta", slug: "beta", title: "Beta", rank: 1 },
+    ],
+  };
+}
+
+function simplePage(slug: string, title: string) {
+  return {
+    id: `page-${slug}`,
+    slug,
+    title,
+    current_revision_id: `revision-${slug}`,
+    revision: {
+      id: `revision-${slug}`,
+      page_id: `page-${slug}`,
+      title,
+      summary: `${title} summary`,
+      sections: [],
+      markdown: `# ${title}`,
+      citations: [],
+      links: [],
+    },
+  };
+}
+
+function cadenceFetch(path: string): Response {
+  if (path === "/v1/wiki/ingestion") return jsonResponse({ auto_inject: false });
+  if (path === "/v1/wiki/navigation") return jsonResponse(twoPageNavigation());
+  if (path === "/v1/wiki/pages/alpha") return jsonResponse(simplePage("alpha", "Alpha"));
+  if (path === "/v1/wiki/pages/alpha/revisions") {
+    return jsonResponse({ revisions: [simplePage("alpha", "Alpha").revision] });
+  }
+  if (path === "/v1/wiki/pages/alpha/backlinks") return jsonResponse({ outgoing: [], incoming: [] });
+  if (path === "/v1/wiki/pages/beta") return jsonResponse(simplePage("beta", "Beta"));
+  if (path === "/v1/wiki/pages/beta/revisions") {
+    return jsonResponse({ revisions: [simplePage("beta", "Beta").revision] });
+  }
+  if (path === "/v1/wiki/pages/beta/backlinks") return jsonResponse({ outgoing: [], incoming: [] });
+  throw new Error(`unexpected path: ${path}`);
+}
+
+describe("wiki browse route navigation fetch cadence", () => {
+  it("fetches the navigation tree once per mount, not once per page selection", async () => {
+    const { user, fetchMock } = await renderApp({
+      route: "/apps/wiki/alpha",
+      me: makeMe(),
+      fetch: cadenceFetch,
+    });
+
+    await screen.findByRole("heading", { name: "Alpha" });
+    expect(callsTo(fetchMock, "/v1/wiki/navigation")).toHaveLength(1);
+
+    await user.click(screen.getByRole("button", { name: "Beta" }));
+    await screen.findByRole("heading", { name: "Beta" });
+
+    // Selecting a different page must not refetch the (expensive) navigation
+    // tree; only the fetches scoped to the newly selected page happen.
+    expect(callsTo(fetchMock, "/v1/wiki/navigation")).toHaveLength(1);
+  });
+
+  it("does not bounce back to the tree once already viewing a page absent from it", async () => {
+    // The very first mount legitimately auto-selects a tree page when no
+    // valid slug was requested (unchanged, and correct — there's nothing
+    // else to show). The bug this pins is different: having ALREADY landed
+    // on a valid page, selecting a page that isn't in the navigation tree
+    // (a retired page or search hit outside it) must not be silently
+    // bounced back once the tree effect settles again.
+    const { user } = await renderApp({
+      route: "/apps/wiki/alpha",
+      me: makeMe(),
+      fetch: (path) => {
+        if (path === "/v1/wiki/pages/hidden") return jsonResponse(simplePage("hidden", "Hidden"));
+        if (path === "/v1/wiki/pages/hidden/revisions") {
+          return jsonResponse({ revisions: [simplePage("hidden", "Hidden").revision] });
+        }
+        if (path === "/v1/wiki/pages/hidden/backlinks") {
+          return jsonResponse({ outgoing: [], incoming: [] });
+        }
+        if (path === "/v1/wiki/search?q=hidden") {
+          return jsonResponse({
+            results: [
+              {
+                page: { id: "page-hidden", slug: "hidden", title: "Hidden", current_revision_id: "revision-hidden" },
+                revision_id: "revision-hidden",
+                section_key: "body",
+                passage: "Hidden passage.",
+                score: 0.9,
+                citations: [],
+                links: [],
+              },
+            ],
+          });
+        }
+        return cadenceFetch(path);
+      },
+    });
+
+    await screen.findByRole("heading", { name: "Alpha" });
+
+    await user.type(screen.getByRole("searchbox", { name: "Search the wiki" }), "hidden");
+    await user.click(screen.getByRole("button", { name: "Search" }));
+    await user.click(await screen.findByRole("button", { name: /Hidden/ }));
+
+    await screen.findByRole("heading", { name: "Hidden" });
+    await waitFor(() => expect(window.location.pathname).toBe("/apps/wiki/hidden"));
+    // Give the (correctly non-refetching) navigation effect no chance to
+    // silently bounce this back to the first tree page.
+    expect(screen.queryByRole("heading", { name: "Alpha" })).toBeNull();
+  });
+});
