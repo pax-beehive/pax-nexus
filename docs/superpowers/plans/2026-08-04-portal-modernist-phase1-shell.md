@@ -989,7 +989,9 @@ textarea { min-height: 90px; resize: vertical; }
 /* — 兼容别名（临时）—
    阶段 1 不改页面内部结构，而 18 处页面代码仍手写 className="badge b-…"
    （AdminOperationsPage 的 TONE_BADGE、AdminTeamNoteDetailPage、TodoPage、
-   WikiBrowsePage、AdminSessionAuditPage 的 b-risk-*/b-approval-* 等）。
+   WikiBrowsePage、AdminSessionAuditPage 的 b-risk-* / b-approval-* 等）。
+   注意 `*` 与 `/` 之间必须留空格：连写会提前闭合 CSS 注释，后面的文字会漏进
+   构建产物。
    这里把旧 badge 类映射到两色制外观，页面代码与其断言均无需改动。
    每迁移一个页面到 <Tag> 就删掉对应行；阶段 6 结束时本块整体移除。
    **禁止在新代码里使用 .badge / .b-*，新代码一律用 .tag / <Tag>。** */
