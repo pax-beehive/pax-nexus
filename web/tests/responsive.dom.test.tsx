@@ -95,15 +95,14 @@ describe("wide tables scroll inside their card (RESP-2)", () => {
     // A child combinator silently stops matching the moment a page wraps its
     // table in a container, and the failure mode — the page body scrolling
     // horizontally — is exactly what jsdom cannot see.
+    // Detached on purpose: a failing assertion must not leave a stray
+    // <table> in the document for the next case to trip over.
     const card = document.createElement("div");
     card.className = "card";
     card.innerHTML = "<div><table></table></div>";
-    document.body.append(card);
 
     const table = card.querySelector("table") as HTMLTableElement;
     expect(table.matches(narrowTableSelectors())).toBe(true);
-
-    card.remove();
   });
 
   it("matches the real Members table", async () => {
