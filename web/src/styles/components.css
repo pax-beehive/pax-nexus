@@ -176,3 +176,21 @@ textarea { min-height: 90px; resize: vertical; }
   border-bottom: 2px solid transparent; margin-bottom: -2px;
 }
 .tabs button.on { border-bottom-color: var(--color-accent); color: var(--color-accent); }
+
+/* — 新增组件 — */
+.metric-tile { display: flex; flex-direction: column; gap: 4px; padding: var(--space-3); border-right: 1px solid var(--color-divider); }
+.metric-tile:last-child { border-right: 0; }
+.metric-value { display: flex; align-items: baseline; gap: 4px; }
+.metric-number { font-family: var(--font-heading); font-weight: var(--font-heading-weight); font-size: 34px; line-height: 1; }
+.metric-unit { font-size: 14px; opacity: 0.6; }
+
+.crumbs { font-size: 13px; margin-bottom: var(--space-2); }
+.crumbs a { color: inherit; }
+.crumb-sep { opacity: 0.4; }
+
+.empty-state { display: flex; flex-direction: column; align-items: center; gap: var(--space-2); padding: var(--space-8) var(--space-4); text-align: center; }
+.empty-mark {
+  font-family: var(--font-heading); font-weight: var(--font-heading-weight); font-size: 42px;
+  width: 72px; height: 72px; display: grid; place-items: center;
+  background: var(--color-accent); color: var(--color-bg);
+}
