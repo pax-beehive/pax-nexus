@@ -212,17 +212,6 @@ func (r *operationsRepository) Summary(
 	return operations.Summary{From: filter.From, To: filter.To, GeneratedAt: generatedAt}, nil
 }
 
-func (r *operationsRepository) Series(
-	context.Context,
-	operations.TimeFilter,
-	time.Duration,
-) ([]operations.SeriesBucket, error) {
-	if r.err != nil {
-		return nil, r.err
-	}
-	return nil, nil
-}
-
 func (r *operationsRepository) ListEvents(
 	_ context.Context,
 	filter operations.EventFilter,

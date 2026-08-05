@@ -308,7 +308,6 @@ type AgentStatsReport struct {
 type Repository interface {
 	Record(context.Context, Event) (Event, error)
 	Summary(context.Context, TimeFilter, time.Time) (Summary, error)
-	Series(context.Context, TimeFilter, time.Duration) ([]SeriesBucket, error)
 	ListEvents(context.Context, EventFilter) ([]Event, error)
 	GetRecallDiagnostic(context.Context, int64) (RecallDiagnostic, error)
 	CaptureStorage(context.Context, time.Time) (StorageSnapshot, error)
