@@ -12,10 +12,11 @@ import (
 // buckets, so callers can plot it without reconstructing gaps.
 //
 // Two sources, exactly as Summary splits them: Evidence and Recalls come from
-// onprem_operation_events, Facts from note_revisions. The operation-events
-// table has no scope_id column, so those two columns are NOT scope-isolated —
-// this mirrors the adjacent scanOperationSummary and is a known, deliberately
-// deferred defect. note_revisions IS filtered by scope_id.
+// onprem_operation_events, Facts from note_revisions. Both are scope-isolated,
+// each against its own table's scope_id column — the events CTE uses $6, the
+// facts CTE uses $5. They are separate parameters on purpose even though both
+// carry s.scopeID: the two CTEs read different tables and are not the same
+// predicate merely written twice.
 //
 // filter.From is expected to be bucket-aligned; an unaligned From anchors the
 // first grid point to the preceding bucket boundary, not to From itself.
@@ -51,6 +52,7 @@ events AS (
     FROM onprem_operation_events
     WHERE started_at >= $1 AND started_at < $2
       AND ($4 = '' OR actor_agent_id = $4)
+      AND scope_id = $6
     GROUP BY 1
 ),
 facts AS (
@@ -74,7 +76,7 @@ FROM bucket_starts
 LEFT JOIN events ON events.bucket_at = bucket_starts.bucket_at
 LEFT JOIN facts ON facts.bucket_at = bucket_starts.bucket_at
 ORDER BY bucket_starts.bucket_at`,
-		filter.From, filter.To, seconds, filter.AgentID, s.scopeID)
+		filter.From, filter.To, seconds, filter.AgentID, s.scopeID, s.scopeID)
 	if err != nil {
 		return nil, fmt.Errorf("query postgres operation series: %w", err)
 	}

@@ -117,7 +117,8 @@ SELECT
     count(*) FILTER (WHERE outcome IN ('failed', 'timed_out', 'cancelled'))
 FROM onprem_operation_events
 WHERE started_at >= $1 AND started_at < $2
-  AND ($3 = '' OR actor_agent_id = $3)`, filter.From, filter.To, filter.AgentID).Scan(
+  AND ($3 = '' OR actor_agent_id = $3)
+  AND scope_id = $4`, filter.From, filter.To, filter.AgentID, s.scopeID).Scan(
 		&result.Observations.Requests, &result.Observations.Succeeded,
 		&result.Observations.InputEvents, &result.Observations.EventsWritten,
 		&result.Observations.DuplicateEvents, &result.Recalls.Requests,
@@ -205,6 +206,7 @@ WITH event_stats AS (
     FROM onprem_operation_events
     WHERE started_at >= $1 AND started_at < $2
       AND actor_agent_id IS NOT NULL AND actor_agent_id <> ''
+      AND scope_id = $3
     GROUP BY actor_agent_id
 ),
 note_stats AS (
@@ -327,9 +329,10 @@ WHERE started_at >= $1 AND started_at < $2
   AND ($4 = '' OR outcome = $4)
   AND ($5 = '' OR actor_agent_id = $5)
   AND ($6::timestamptz IS NULL OR (started_at, operation_event_id) < ($6, $7))
+  AND scope_id = $9
 ORDER BY started_at DESC, operation_event_id DESC
 LIMIT $8`, filter.From, filter.To, filter.Kind, filter.Outcome, filter.AgentID,
-		nullableTime(cursorTime), cursorID, filter.Limit+1)
+		nullableTime(cursorTime), cursorID, filter.Limit+1, s.scopeID)
 	if err != nil {
 		return nil, fmt.Errorf("list postgres operation events: %w", err)
 	}

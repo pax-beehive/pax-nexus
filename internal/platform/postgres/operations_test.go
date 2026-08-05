@@ -489,6 +489,24 @@ INSERT INTO session_events (
 	s.Require().NoError(err)
 }
 
+// recordScopedObservation writes an observation.observe event under an
+// explicit scope, distinct from recordEvent which always defaults to the
+// suite's own scope. It's the vehicle for TestReadsAreScopeIsolated: one
+// call under the suite's own scope, one under a foreign one.
+func (s *operationsStoreSuite) recordScopedObservation(
+	ctx context.Context, scopeID, agentID string,
+) operations.Event {
+	attempt, err := operations.NewAttemptID()
+	s.Require().NoError(err)
+	recorded, err := s.operations.Record(ctx, operations.Event{
+		ScopeID: scopeID, AttemptID: attempt, Kind: operations.KindObservationObserve,
+		Outcome: operations.OutcomeSucceeded, Actor: operations.Actor{Kind: "agent", AgentID: agentID},
+		StartedAt: s.now, CompletedAt: s.now, InputItems: 1, AcceptedItems: 1,
+	})
+	s.Require().NoError(err)
+	return recorded
+}
+
 func (s *operationsStoreSuite) recordEvent(event operations.Event) operations.Event {
 	if event.ScopeID == "" {
 		event.ScopeID = s.scope
@@ -505,6 +523,37 @@ func (s *operationsStoreSuite) operationExists(attemptID string, expected bool) 
 	).Scan(&exists)
 	s.Require().NoError(err)
 	s.Equal(expected, exists)
+}
+
+// The leak this migration closes: two teams' events live in one table, and
+// before the scope predicate every team's Operations view counted every other
+// team's traffic. Summary and ListEvents must each see only their own scope.
+//
+// This suite shares one schema across every test with no per-test cleanup,
+// and several other tests record observation.observe events near s.now under
+// s.scope too — so both events here use the SAME agent id, "own-event", which
+// no other test in this file uses. That serves two purposes at once: the
+// AgentID filter below keeps the query clean of the suite's other fixtures,
+// and because own- and foreign-scope events are otherwise indistinguishable
+// (same agent id, same instant), only a working scope filter can tell them
+// apart — the AgentID filter can't accidentally do that job for it.
+func (s *operationsStoreSuite) TestReadsAreScopeIsolated() {
+	ctx := context.Background()
+	window := operations.TimeFilter{
+		From: s.now.Add(-time.Hour), To: s.now.Add(time.Hour), AgentID: "own-event",
+	}
+
+	own := s.recordScopedObservation(ctx, s.scope, "own-event")
+	s.recordScopedObservation(ctx, "a-different-team", "own-event")
+
+	summary, err := s.operations.Summary(ctx, window, s.now)
+	s.Require().NoError(err)
+	s.Equal(int64(1), summary.Observations.Requests)
+
+	events, err := s.operations.ListEvents(ctx, operations.EventFilter{TimeFilter: window, Limit: 50})
+	s.Require().NoError(err)
+	s.Require().Len(events, 1)
+	s.Equal(own.OperationEventID, events[0].OperationEventID)
 }
 
 // An event must carry the scope it belongs to. Recording without one is a

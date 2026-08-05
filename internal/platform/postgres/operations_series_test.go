@@ -146,14 +146,45 @@ func (s *operationsSeriesSuite) TestSeriesCountsFactsOnlyForItsOwnScope() {
 	}
 }
 
+// The events half of the query (Evidence/Recalls) must be scope-isolated the
+// same way facts already is. A foreign-scope observation must not leak into
+// this store's Evidence count. Window chosen as 16:00-17:00 UTC on the same
+// date, non-overlapping with the other three tests in this suite (10:00-11:00,
+// 12:00-12:55, 14:00-15:00) since events here have no per-test cleanup.
+func (s *operationsSeriesSuite) TestSeriesCountsEventsOnlyForItsOwnScope() {
+	ctx := context.Background()
+	base := time.Date(2026, 8, 5, 16, 0, 0, 0, time.UTC)
+	at := base.Add(5 * time.Minute)
+
+	s.recordObservationForScope(ctx, s.scope, at, 4)
+	s.recordObservationForScope(ctx, "series-suite-foreign-events-scope", at, 11)
+
+	filter := operations.TimeFilter{From: base, To: base.Add(time.Hour)}
+	buckets, err := s.operations.Series(ctx, filter, 10*time.Minute)
+	s.Require().NoError(err)
+	s.Require().Len(buckets, 6)
+
+	s.Equal(int64(4), buckets[0].Evidence)
+	for i := 1; i < len(buckets); i++ {
+		s.Equal(int64(0), buckets[i].Evidence, "bucket %d", i)
+	}
+}
+
 func (s *operationsSeriesSuite) recordObservation(
 	ctx context.Context, at time.Time, accepted int64,
+) {
+	s.T().Helper()
+	s.recordObservationForScope(ctx, s.scope, at, accepted)
+}
+
+func (s *operationsSeriesSuite) recordObservationForScope(
+	ctx context.Context, scope string, at time.Time, accepted int64,
 ) {
 	s.T().Helper()
 	attempt, err := operations.NewAttemptID()
 	s.Require().NoError(err)
 	_, err = s.operations.Record(ctx, operations.Event{
-		ScopeID:       s.scope,
+		ScopeID:       scope,
 		AttemptID:     attempt,
 		Kind:          operations.KindObservationObserve,
 		Outcome:       operations.OutcomeSucceeded,
