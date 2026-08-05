@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   componentAvailability,
@@ -10,6 +11,7 @@ import {
   storageComponentLabel,
   STORAGE_STALE_MS,
   timeWindow,
+  TONE_BADGE,
 } from "../src/lib/operations";
 import type { OperationsStorageSnapshot, StorageComponent } from "../src/api/types";
 
@@ -62,6 +64,55 @@ describe("operationOutcomeTone", () => {
 
   it("treats unknown outcomes as muted instead of throwing", () => {
     expect(operationOutcomeTone("exploded")).toBe("muted");
+  });
+});
+
+// A failed operation must be visibly distinguishable from a successful one.
+// Asserting the two class strings differ is not enough — `bad` used to map to
+// `b-retired`, a *different* string that the stylesheet nonetheless leaves at
+// the neutral `.badge` default, so `failed` and `succeeded` rendered as the
+// same grey. These assertions therefore read components.css: the `bad` class
+// must appear in the accent selector list and the `ok` class must not.
+describe("TONE_BADGE paints failure differently from success", () => {
+  const components = readFileSync(
+    new URL("../src/styles/components.css", import.meta.url),
+    "utf8",
+  ).replace(/\/\*[\s\S]*?\*\//g, ""); // comments out of the way before parsing
+
+  /**
+   * Every `.b-*` selector the stylesheet paints with the accent background.
+   * Anything absent falls through to the neutral `.badge` default.
+   */
+  const accentSelectors = new Set<string>();
+  for (const rule of components.split("}")) {
+    const [selector, body] = rule.split("{");
+    if (body === undefined) continue;
+    if (!body.includes("background: var(--color-accent-100)")) continue;
+    for (const part of selector.split(",")) {
+      const name = part.trim();
+      if (name.startsWith(".b-")) accentSelectors.add(name);
+    }
+  }
+
+  it("gives the bad tone a class the stylesheet paints with the accent", () => {
+    expect(accentSelectors.size).toBeGreaterThan(0);
+    expect(accentSelectors.has(`.${TONE_BADGE.bad}`)).toBe(true);
+  });
+
+  it("leaves the ok tone at the neutral default", () => {
+    expect(accentSelectors.has(`.${TONE_BADGE.ok}`)).toBe(false);
+  });
+
+  it("does not reuse the retired-agent class, which must stay neutral", () => {
+    // `retired` is a terminal-but-normal agent state; painting it as
+    // attention would be wrong, so `bad` needs its own class.
+    expect(TONE_BADGE.bad).not.toBe("b-retired");
+    expect(accentSelectors.has(".b-retired")).toBe(false);
+  });
+
+  it("keeps every tone on a distinct class", () => {
+    const classes = Object.values(TONE_BADGE);
+    expect(new Set(classes).size).toBe(classes.length);
   });
 });
 

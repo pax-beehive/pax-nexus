@@ -83,11 +83,20 @@ export function operationOutcomeTone(outcome: string): OutcomeTone {
   }
 }
 
-/** Badge class per outcome tone, shared by the operations pages. */
+/**
+ * Badge class per outcome tone, shared by the operations pages.
+ *
+ * `bad` deliberately does NOT reuse `b-retired`: that class also marks a
+ * retired agent, which is a terminal-but-normal state and must stay neutral,
+ * whereas a failed or timed-out operation must read as needing attention.
+ * They shared a class once, which silently painted `failed` the same grey as
+ * `succeeded`. `b-failed` is accent-styled in components.css's legacy compat
+ * block alongside b-suspended / b-pending / b-risk-* / b-approval-*.
+ */
 export const TONE_BADGE: Record<OutcomeTone, string> = {
   ok: "b-active",
   warn: "b-suspended",
-  bad: "b-retired",
+  bad: "b-failed",
   muted: "b-expired",
 };
 

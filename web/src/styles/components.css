@@ -161,8 +161,11 @@ textarea { min-height: 90px; resize: vertical; }
   letter-spacing: 0.02em; padding: 3px 10px; border-radius: var(--radius-sm);
   background: var(--color-neutral-100); color: var(--color-neutral-800);
 }
-/* 需要人处理 → accent；其余（含全部终态与正常态）→ 保持中性默认值。 */
-.b-suspended, .b-pending, .b-risk-high, .b-risk-critical,
+/* 需要人处理 → accent；其余（含全部终态与正常态）→ 保持中性默认值。
+   注意 .b-failed 与 .b-retired 的区别：失败/超时的操作要人看（accent），
+   而"已退役"的 Agent 只是正常的终态（中性）。两者曾共用 .b-retired，
+   结果 failed 与 succeeded 渲染成同一个灰底。 */
+.b-suspended, .b-pending, .b-failed, .b-risk-high, .b-risk-critical,
 .b-approval-denied, .b-approval-unknown {
   background: var(--color-accent-100); color: var(--color-accent-800);
 }
