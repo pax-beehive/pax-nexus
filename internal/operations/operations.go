@@ -54,6 +54,10 @@ type Actor struct {
 }
 
 type Event struct {
+	// ScopeID is the team the attempt belongs to. The recorder is a
+	// process-level singleton shared by every team, so the scope travels on the
+	// event rather than on the store — same shape as platformllm.UsageEvent.
+	ScopeID          string
 	OperationEventID int64
 	AttemptID        string
 	Kind             Kind
@@ -87,7 +91,7 @@ func NewAttemptID() (string, error) {
 }
 
 func (e Event) Validate() error {
-	if strings.TrimSpace(e.AttemptID) == "" || !validKind(e.Kind) || !validOutcome(e.Outcome) ||
+	if strings.TrimSpace(e.ScopeID) == "" || strings.TrimSpace(e.AttemptID) == "" || !validKind(e.Kind) || !validOutcome(e.Outcome) ||
 		!validActorKind(e.Actor.Kind) || e.StartedAt.IsZero() || e.CompletedAt.Before(e.StartedAt) ||
 		e.DurationMS < 0 || anyNegative(e.InputItems, e.AcceptedItems, e.DuplicateItems, e.ResultItems,
 		e.DeliveredItems, e.EvidenceItems, e.HintItems, e.ReferenceItems) ||

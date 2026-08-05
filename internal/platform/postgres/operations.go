@@ -43,17 +43,17 @@ func (s *OperationsStore) Record(ctx context.Context, event operations.Event) (o
 	}
 	err := s.pool.QueryRow(ctx, `
 INSERT INTO onprem_operation_events (
-    attempt_id, operation_kind, outcome, actor_kind, actor_user_id,
+    scope_id, attempt_id, operation_kind, outcome, actor_kind, actor_user_id,
     actor_membership_id, actor_agent_id, actor_credential_id, session_id,
     started_at, completed_at, duration_ms, input_items, accepted_items,
     duplicate_items, result_items, delivered_items, evidence_items, hint_items,
     reference_items, input_tokens, output_tokens, detail_kind, detail_id, error_code
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
-    $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25
+    $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26
 )
 RETURNING operation_event_id`,
-		event.AttemptID, event.Kind, event.Outcome, event.Actor.Kind,
+		event.ScopeID, event.AttemptID, event.Kind, event.Outcome, event.Actor.Kind,
 		nullableText(event.Actor.UserID), nullableText(event.Actor.MembershipID),
 		nullableText(event.Actor.AgentID), nullableText(event.Actor.CredentialID),
 		nullableText(event.SessionID), event.StartedAt.UTC(), event.CompletedAt.UTC(), event.DurationMS,

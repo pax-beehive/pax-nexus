@@ -490,6 +490,9 @@ INSERT INTO session_events (
 }
 
 func (s *operationsStoreSuite) recordEvent(event operations.Event) operations.Event {
+	if event.ScopeID == "" {
+		event.ScopeID = s.scope
+	}
 	recorded, err := s.operations.Record(context.Background(), event)
 	s.Require().NoError(err)
 	return recorded
@@ -502,4 +505,49 @@ func (s *operationsStoreSuite) operationExists(attemptID string, expected bool) 
 	).Scan(&exists)
 	s.Require().NoError(err)
 	s.Equal(expected, exists)
+}
+
+// An event must carry the scope it belongs to. Recording without one is a
+// programming error, not a runtime condition — catching it at the boundary
+// stops unattributed rows from entering the table at all.
+func (s *operationsStoreSuite) TestRecordRejectsAnEventWithoutAScope() {
+	attempt, err := operations.NewAttemptID()
+	s.Require().NoError(err)
+	_, err = s.operations.Record(context.Background(), operations.Event{
+		AttemptID:   attempt,
+		Kind:        operations.KindObservationObserve,
+		Outcome:     operations.OutcomeSucceeded,
+		Actor:       operations.Actor{Kind: "agent", AgentID: "scope-test-agent"},
+		StartedAt:   s.now,
+		CompletedAt: s.now,
+	})
+	s.Require().Error(err)
+}
+
+// The recorded row must carry the scope from the EVENT, not the one the store
+// happens to be constructed with — the writer is a process-level singleton
+// serving every team, so binding to the store's scope would attribute every
+// team's traffic to whichever scope the process was wired with.
+func (s *operationsStoreSuite) TestRecordPersistsTheEventsOwnScope() {
+	ctx := context.Background()
+	attempt, err := operations.NewAttemptID()
+	s.Require().NoError(err)
+	recorded, err := s.operations.Record(ctx, operations.Event{
+		ScopeID:     "some-other-team",
+		AttemptID:   attempt,
+		Kind:        operations.KindObservationObserve,
+		Outcome:     operations.OutcomeSucceeded,
+		Actor:       operations.Actor{Kind: "agent", AgentID: "scope-test-agent"},
+		StartedAt:   s.now,
+		CompletedAt: s.now,
+	})
+	s.Require().NoError(err)
+
+	var stored string
+	err = s.store.Pool().QueryRow(ctx,
+		`SELECT scope_id FROM onprem_operation_events WHERE operation_event_id = $1`,
+		recorded.OperationEventID,
+	).Scan(&stored)
+	s.Require().NoError(err)
+	s.Equal("some-other-team", stored)
 }

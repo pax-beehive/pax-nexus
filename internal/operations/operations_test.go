@@ -23,13 +23,14 @@ func TestOperationsSuite(t *testing.T) {
 func (s *operationsSuite) TestEventValidationMatrix() {
 	now := time.Now().UTC()
 	valid := operations.Event{
-		AttemptID: "attempt", Kind: operations.KindMemorySearch, Outcome: operations.OutcomeSucceeded,
+		ScopeID: "test-scope", AttemptID: "attempt", Kind: operations.KindMemorySearch, Outcome: operations.OutcomeSucceeded,
 		Actor: operations.Actor{Kind: "agent"}, StartedAt: now, CompletedAt: now,
 	}
 	tests := []struct {
 		name  string
 		apply func(*operations.Event)
 	}{
+		{name: "missing scope", apply: func(event *operations.Event) { event.ScopeID = "" }},
 		{name: "missing attempt", apply: func(event *operations.Event) { event.AttemptID = "" }},
 		{name: "unknown kind", apply: func(event *operations.Event) { event.Kind = "unknown" }},
 		{name: "unknown outcome", apply: func(event *operations.Event) { event.Outcome = "unknown" }},

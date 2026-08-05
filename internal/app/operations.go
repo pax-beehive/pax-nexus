@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/pax-beehive/pax-nexus/internal/deployment/onprem"
 	"github.com/pax-beehive/pax-nexus/internal/operations"
 )
 
@@ -85,8 +86,10 @@ func maintainOperations(
 	// cannot starve the bookkeeping write.
 	recordContext, cancelRecord := context.WithTimeout(ctx, config.operationsMaintenanceTimeout)
 	defer cancelRecord()
+	// TODO(Task 3): resolve the caller's real scope instead of hard-coding the
+	// on-prem singleton; this is the minimal repair to restore compilation.
 	_, err = recorder.Record(recordContext, operations.Event{
-		AttemptID: attemptID, Kind: operations.KindSystemRetention, Outcome: operations.OutcomeSucceeded,
+		ScopeID: onprem.LocalScopeID, AttemptID: attemptID, Kind: operations.KindSystemRetention, Outcome: operations.OutcomeSucceeded,
 		Actor: operations.Actor{Kind: "system"}, StartedAt: now, CompletedAt: completedAt,
 		DurationMS: completedAt.Sub(now).Milliseconds(),
 		InputItems: deletedEvents + deletedSnapshots, AcceptedItems: deletedEvents + deletedSnapshots,

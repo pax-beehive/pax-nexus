@@ -25,8 +25,10 @@ func NewExtractionObserver(
 			completedAt = observation.StartedAt
 		}
 		outcome, errorCode := extractionOperationOutcome(observation.Status)
+		// TODO(Task 3): resolve the caller's real scope instead of hard-coding the
+		// on-prem singleton; this is the minimal repair to restore compilation.
 		event := operations.Event{
-			AttemptID: attemptID, Kind: operations.KindExtractionRun, Outcome: outcome,
+			ScopeID: LocalScopeID, AttemptID: attemptID, Kind: operations.KindExtractionRun, Outcome: outcome,
 			Actor: operations.Actor{
 				Kind: "agent", UserID: observation.Actor.UserID, AgentID: observation.Actor.AgentID,
 			},

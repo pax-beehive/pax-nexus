@@ -153,6 +153,7 @@ func (s *operationsSeriesSuite) recordObservation(
 	attempt, err := operations.NewAttemptID()
 	s.Require().NoError(err)
 	_, err = s.operations.Record(ctx, operations.Event{
+		ScopeID:       s.scope,
 		AttemptID:     attempt,
 		Kind:          operations.KindObservationObserve,
 		Outcome:       operations.OutcomeSucceeded,
@@ -213,6 +214,7 @@ func (s *operationsSeriesSuite) recordRecall(ctx context.Context, at time.Time) 
 	attempt, err := operations.NewAttemptID()
 	s.Require().NoError(err)
 	_, err = s.operations.Record(ctx, operations.Event{
+		ScopeID:     s.scope,
 		AttemptID:   attempt,
 		Kind:        operations.KindMemorySearch,
 		Outcome:     operations.OutcomeSucceeded,
