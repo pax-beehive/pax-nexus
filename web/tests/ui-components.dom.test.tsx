@@ -31,6 +31,16 @@ describe("Card", () => {
     expect(container.querySelector(".card-kicker")).toBeNull();
     expect(container.querySelector(".card-title")).toBeNull();
   });
+
+  it("merges className with the base card class", () => {
+    const { container: withClass } = render(<Card className="custom">body</Card>);
+    expect(withClass.querySelector(".card")?.className).toBe("card custom");
+  });
+
+  it("renders bare card without className", () => {
+    const { container: noClass } = render(<Card>body</Card>);
+    expect(noClass.querySelector(".card")?.className).toBe("card");
+  });
 });
 
 describe("Tag", () => {
@@ -42,6 +52,16 @@ describe("Tag", () => {
   it("renders the attention tone", () => {
     render(<Tag tone="attention">suspended</Tag>);
     expect(screen.getByText("suspended").className).toBe("tag tag-attention");
+  });
+
+  it("renders the outline tone", () => {
+    render(<Tag tone="outline">feature</Tag>);
+    expect(screen.getByText("feature").className).toBe("tag tag-outline");
+  });
+
+  it("renders the title attribute", () => {
+    render(<Tag title="This is a tag">labeled</Tag>);
+    expect(screen.getByText("labeled").getAttribute("title")).toBe("This is a tag");
   });
 });
 
@@ -113,6 +133,8 @@ describe("DataTable", () => {
     );
     screen.getByText("No agents");
     expect(screen.queryByRole("cell")).toBeNull();
+    expect(screen.queryByRole("table")).toBeNull();
+    expect(screen.queryByRole("columnheader")).toBeNull();
   });
 });
 
@@ -123,6 +145,17 @@ describe("MetricTile", () => {
     screen.getByText("1.9");
     screen.getByText("s");
     screen.getByText("p95");
+  });
+
+  it("omits unit and note when not provided", () => {
+    const { container } = render(<MetricTile label="Count" value="42" />);
+    screen.getByText("Count");
+    screen.getByText("42");
+    const unitElements = container.querySelectorAll(".metric-unit");
+    expect(unitElements.length).toBe(0);
+    const metricTile = container.querySelector(".metric-tile");
+    const muteElements = metricTile?.querySelectorAll(".muted");
+    expect(muteElements?.length).toBe(0);
   });
 });
 
@@ -152,5 +185,12 @@ describe("EmptyState", () => {
     screen.getByRole("heading", { name: "No pages yet" });
     screen.getByText("Pages appear after ingestion.");
     screen.getByRole("button", { name: "Refresh" });
+  });
+
+  it("omits mark when not provided", () => {
+    const { container } = render(<EmptyState title="Empty" />);
+    screen.getByRole("heading", { name: "Empty" });
+    const markElement = container.querySelector(".empty-mark");
+    expect(markElement).toBeNull();
   });
 });
