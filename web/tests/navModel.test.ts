@@ -1,6 +1,6 @@
 // 导航可见性是纯函数，单独测掉它，DOM 测试就只需要验证渲染而不必穷举角色。
 import { describe, expect, it } from "vitest";
-import { landingPath, navSections, sectionForPath } from "../src/app/navModel";
+import { landingPath, navSections, sectionForPath, type NavSection } from "../src/app/navModel";
 import { makeMe, makeSaasMe } from "./helpers";
 
 const sectionIds = (me = makeMe()) => navSections(me).map((s) => s.id);
