@@ -110,7 +110,7 @@ func runProfile(ctx context.Context, logger *slog.Logger, profile deploymentProf
 			return fmt.Errorf("initialize operations recorder: %w", recorderErr)
 		}
 		operationRecorder = dropCountingRecorder
-		runtimeConfig.ExtractionObserver = onprem.NewExtractionObserver(operationRecorder, logger)
+		runtimeConfig.ExtractionObserver = onprem.NewExtractionObserver(operationRecorder, extractionEventScope, logger)
 	}
 	lake := evidencelake.New(sessions)
 	runtime, err := teamruntime.New(lake, candidateExtractor, runtimeConfig)

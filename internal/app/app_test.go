@@ -905,7 +905,7 @@ func (s *configSuite) TestExtractionObserverRecordsEverySliceOutcome() {
 	for _, test := range tests {
 		s.Run(test.name, func() {
 			store := &operationsMaintenanceStoreFake{}
-			observer := onprem.NewExtractionObserver(store, slog.New(slog.DiscardHandler))
+			observer := onprem.NewExtractionObserver(store, extractionEventScope, slog.New(slog.DiscardHandler))
 			startedAt := time.Now().UTC().Add(-time.Second)
 			observer(context.Background(), teamruntime.ExtractionObservation{
 				Actor: teamnote.Actor{UserID: "owner", AgentID: "agent-1", SessionID: "session-1"},

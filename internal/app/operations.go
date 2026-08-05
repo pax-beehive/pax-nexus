@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/pax-beehive/pax-nexus/internal/deployment/onprem"
 	"github.com/pax-beehive/pax-nexus/internal/operations"
 )
 
@@ -85,8 +86,11 @@ func maintainOperations(
 	// cannot starve the bookkeeping write.
 	recordContext, cancelRecord := context.WithTimeout(ctx, config.operationsMaintenanceTimeout)
 	defer cancelRecord()
+	// Deliberately onprem.LocalScopeID, not per-team: retention is a
+	// process-level maintenance sweep that belongs to no team, so in SaaS no
+	// team should see the janitor's own bookkeeping in their Operations view.
 	_, err = recorder.Record(recordContext, operations.Event{
-		AttemptID: attemptID, Kind: operations.KindSystemRetention, Outcome: operations.OutcomeSucceeded,
+		ScopeID: onprem.LocalScopeID, AttemptID: attemptID, Kind: operations.KindSystemRetention, Outcome: operations.OutcomeSucceeded,
 		Actor: operations.Actor{Kind: "system"}, StartedAt: now, CompletedAt: completedAt,
 		DurationMS: completedAt.Sub(now).Milliseconds(),
 		InputItems: deletedEvents + deletedSnapshots, AcceptedItems: deletedEvents + deletedSnapshots,

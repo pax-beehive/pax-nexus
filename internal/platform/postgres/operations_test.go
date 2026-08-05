@@ -227,6 +227,42 @@ RETURNING observation_id`, s.scope, digest[:],
 	s.Require().ErrorIs(err, operations.ErrRecallNotFound)
 }
 
+// A caller must not be able to tell "this observation belongs to another
+// team" apart from "this observation never existed" — that distinction is a
+// boolean cross-tenant oracle over another team's recall activity.
+// team_note_recall_observations is already scope-isolated (see
+// TestRecallDiagnosticIsAnAllowlistedProjection), so the interesting case is
+// the *fallback* path through onprem_operation_events: an observation and its
+// linking event both live under a foreign scope, never under s.scope, and the
+// observation id comes from an auto-increment sequence so it cannot collide
+// with any other test's id.
+func (s *operationsStoreSuite) TestRecallDiagnosticTreatsAForeignScopeEventAsNotFound() {
+	ctx := context.Background()
+	foreignScope := uniqueScope("operations-foreign-diagnostic")
+	digest := sha256.Sum256([]byte("foreign scope diagnostic query"))
+	var observationID int64
+	err := s.store.Pool().QueryRow(ctx, `
+INSERT INTO team_note_recall_observations (
+    scope_id, recipient_user_id, recipient_agent_id, recipient_session_id,
+    query_digest, token_budget, max_items, envelope, trace, duration_ms, created_at, expires_at
+) VALUES ($1, 'user', 'agent', 'session', $2, 64, 3, '{}'::jsonb, '{}'::jsonb, 1, $3, $4)
+RETURNING observation_id`, foreignScope, digest[:],
+		time.Now().UTC().Add(-2*time.Hour), time.Now().UTC().Add(-time.Hour),
+	).Scan(&observationID)
+	s.Require().NoError(err)
+	_, err = s.operations.Record(ctx, operations.Event{
+		ScopeID: foreignScope, AttemptID: uniqueCredentialValue("foreign-diagnostic-event"),
+		Kind: operations.KindMemorySearch, Outcome: operations.OutcomeSucceeded,
+		Actor: operations.Actor{Kind: "agent"}, StartedAt: s.now, CompletedAt: s.now,
+		DetailKind: "recall_observation", DetailID: fmt.Sprintf("%d", observationID),
+	})
+	s.Require().NoError(err)
+
+	_, err = s.operations.GetRecallDiagnostic(ctx, observationID)
+	s.Require().ErrorIs(err, operations.ErrRecallNotFound,
+		"an observation and event belonging to another scope must be indistinguishable from one that never existed")
+}
+
 func (s *operationsStoreSuite) TestRetentionDeletesExpiredRowsInBoundedBatches() {
 	ctx := context.Background()
 	oldAttempt := uniqueCredentialValue("old-operation")
@@ -489,7 +525,28 @@ INSERT INTO session_events (
 	s.Require().NoError(err)
 }
 
+// recordScopedObservation writes an observation.observe event under an
+// explicit scope, distinct from recordEvent which always defaults to the
+// suite's own scope. It's the vehicle for TestReadsAreScopeIsolated: one
+// call under the suite's own scope, one under a foreign one.
+func (s *operationsStoreSuite) recordScopedObservation(
+	ctx context.Context, scopeID, agentID string,
+) operations.Event {
+	attempt, err := operations.NewAttemptID()
+	s.Require().NoError(err)
+	recorded, err := s.operations.Record(ctx, operations.Event{
+		ScopeID: scopeID, AttemptID: attempt, Kind: operations.KindObservationObserve,
+		Outcome: operations.OutcomeSucceeded, Actor: operations.Actor{Kind: "agent", AgentID: agentID},
+		StartedAt: s.now, CompletedAt: s.now, InputItems: 1, AcceptedItems: 1,
+	})
+	s.Require().NoError(err)
+	return recorded
+}
+
 func (s *operationsStoreSuite) recordEvent(event operations.Event) operations.Event {
+	if event.ScopeID == "" {
+		event.ScopeID = s.scope
+	}
 	recorded, err := s.operations.Record(context.Background(), event)
 	s.Require().NoError(err)
 	return recorded
@@ -502,4 +559,80 @@ func (s *operationsStoreSuite) operationExists(attemptID string, expected bool) 
 	).Scan(&exists)
 	s.Require().NoError(err)
 	s.Equal(expected, exists)
+}
+
+// The leak this migration closes: two teams' events live in one table, and
+// before the scope predicate every team's Operations view counted every other
+// team's traffic. Summary and ListEvents must each see only their own scope.
+//
+// This suite shares one schema across every test with no per-test cleanup,
+// and several other tests record observation.observe events near s.now under
+// s.scope too — so both events here use the SAME agent id, "own-event", which
+// no other test in this file uses. That serves two purposes at once: the
+// AgentID filter below keeps the query clean of the suite's other fixtures,
+// and because own- and foreign-scope events are otherwise indistinguishable
+// (same agent id, same instant), only a working scope filter can tell them
+// apart — the AgentID filter can't accidentally do that job for it.
+func (s *operationsStoreSuite) TestReadsAreScopeIsolated() {
+	ctx := context.Background()
+	window := operations.TimeFilter{
+		From: s.now.Add(-time.Hour), To: s.now.Add(time.Hour), AgentID: "own-event",
+	}
+
+	own := s.recordScopedObservation(ctx, s.scope, "own-event")
+	s.recordScopedObservation(ctx, "a-different-team", "own-event")
+
+	summary, err := s.operations.Summary(ctx, window, s.now)
+	s.Require().NoError(err)
+	s.Equal(int64(1), summary.Observations.Requests)
+
+	events, err := s.operations.ListEvents(ctx, operations.EventFilter{TimeFilter: window, Limit: 50})
+	s.Require().NoError(err)
+	s.Require().Len(events, 1)
+	s.Equal(own.OperationEventID, events[0].OperationEventID)
+}
+
+// An event must carry the scope it belongs to. Recording without one is a
+// programming error, not a runtime condition — catching it at the boundary
+// stops unattributed rows from entering the table at all.
+func (s *operationsStoreSuite) TestRecordRejectsAnEventWithoutAScope() {
+	attempt, err := operations.NewAttemptID()
+	s.Require().NoError(err)
+	_, err = s.operations.Record(context.Background(), operations.Event{
+		AttemptID:   attempt,
+		Kind:        operations.KindObservationObserve,
+		Outcome:     operations.OutcomeSucceeded,
+		Actor:       operations.Actor{Kind: "agent", AgentID: "scope-test-agent"},
+		StartedAt:   s.now,
+		CompletedAt: s.now,
+	})
+	s.Require().ErrorIs(err, operations.ErrInvalidInput)
+}
+
+// The recorded row must carry the scope from the EVENT, not the one the store
+// happens to be constructed with — the writer is a process-level singleton
+// serving every team, so binding to the store's scope would attribute every
+// team's traffic to whichever scope the process was wired with.
+func (s *operationsStoreSuite) TestRecordPersistsTheEventsOwnScope() {
+	ctx := context.Background()
+	attempt, err := operations.NewAttemptID()
+	s.Require().NoError(err)
+	recorded, err := s.operations.Record(ctx, operations.Event{
+		ScopeID:     "some-other-team",
+		AttemptID:   attempt,
+		Kind:        operations.KindObservationObserve,
+		Outcome:     operations.OutcomeSucceeded,
+		Actor:       operations.Actor{Kind: "agent", AgentID: "scope-test-agent"},
+		StartedAt:   s.now,
+		CompletedAt: s.now,
+	})
+	s.Require().NoError(err)
+
+	var stored string
+	err = s.store.Pool().QueryRow(ctx,
+		`SELECT scope_id FROM onprem_operation_events WHERE operation_event_id = $1`,
+		recorded.OperationEventID,
+	).Scan(&stored)
+	s.Require().NoError(err)
+	s.Equal("some-other-team", stored)
 }

@@ -170,7 +170,7 @@ test-scripts:
 
 integration-test: db-up
 	TEAM_MEMORY_TEST_POSTGRES_DSN='$(TEAM_MEMORY_TEST_POSTGRES_DSN)' \
-		GOCACHE=$${GOCACHE:-/tmp/team-memory-go-cache} go test -p 1 ./internal/platform/postgres ./internal/teamnote/extractionqueue ./internal/teamnote/transport/httpapi/handler ./internal/eval/stagecapture ./internal/eval/v2/postgresstore -count=1
+		GOCACHE=$${GOCACHE:-/tmp/team-memory-go-cache} go test -p 1 ./internal/platform/postgres ./internal/teamnote/extractionqueue ./internal/teamnote/transport/httpapi/handler ./internal/eval/stagecapture ./internal/eval/v2/postgresstore ./internal/app -count=1
 
 onprem-e2e:
 	./scripts/onprem-e2e.sh

@@ -176,6 +176,101 @@ func (s *saasWiringSuite) TestScopedOperationsService() {
 	})
 }
 
+// TestScopedOperationsServiceCrossTenantIsolation is the end-to-end proof
+// that the tenant-isolation fix (Tasks 1-3 of the operation-events plan)
+// actually closes the leak for a real request. Every other test covering
+// this table exercises the SQL layer directly against a store already bound
+// to one scope; this one drives two DIFFERENT onprem.HumanPrincipal values
+// through forPrincipal, which is what resolves a caller's team and binds
+// store.Operations(principal.ScopeID) per call in production. A bug in that
+// resolution — e.g. forPrincipal ignoring principal.ScopeID and reusing a
+// stale service — would leave every SQL-level test green while every
+// request still read the wrong team's data.
+//
+// Both scope IDs are suffixed with s.runID (a nanosecond timestamp) rather
+// than being static literals: this suite's database is shared and
+// persistent across runs with no per-test schema (unlike
+// operationsStoreSuite/saasIsolationSuite, which each create and drop their
+// own schema), so a static scope string would risk colliding with rows a
+// previous run of this same suite left behind. A scope no run has ever used
+// before cannot collide with anything already in the table.
+func (s *saasWiringSuite) TestScopedOperationsServiceCrossTenantIsolation() {
+	ctx := context.Background()
+	service, err := newScopedOperationsService(s.store, onprem.OperationsConfig{
+		EventRetention: 24 * time.Hour, StorageRetention: 7 * 24 * time.Hour,
+	})
+	s.Require().NoError(err)
+
+	scopeA := "ops_isolation_a_" + s.runID
+	scopeB := "ops_isolation_b_" + s.runID
+	now := time.Now().UTC()
+
+	// Writing goes straight through store.Operations(scopeID).Record: there
+	// is no service-layer write method (recording is done by the separate
+	// operations.Recorder wrapping the store, not by OperationsService).
+	// What this test proves is that READS through forPrincipal only ever
+	// see the scope of the principal that called them — that is where the
+	// leak Tasks 1-3 closed actually lived.
+	recordEvent := func(scopeID, agentID string) {
+		attempt, attemptErr := operations.NewAttemptID()
+		s.Require().NoError(attemptErr)
+		_, recordErr := s.store.Operations(scopeID).Record(ctx, operations.Event{
+			ScopeID: scopeID, AttemptID: attempt, Kind: operations.KindObservationObserve,
+			Outcome: operations.OutcomeSucceeded, Actor: operations.Actor{Kind: "agent", AgentID: agentID},
+			StartedAt: now, CompletedAt: now, InputItems: 1, AcceptedItems: 1,
+		})
+		s.Require().NoError(recordErr)
+	}
+	// Two events for A, one for B: unequal counts mean the assertions below
+	// cannot pass by coincidence from both sides looking the same.
+	recordEvent(scopeA, "agent-a")
+	recordEvent(scopeA, "agent-a")
+	recordEvent(scopeB, "agent-b")
+
+	principalA := onprem.HumanPrincipal{
+		UserID: "usr-a", MembershipID: "mbr-a", Role: onprem.RoleOwner,
+		MembershipStatus: onprem.MembershipStatusActive, ScopeID: scopeA,
+	}
+	principalB := onprem.HumanPrincipal{
+		UserID: "usr-b", MembershipID: "mbr-b", Role: onprem.RoleOwner,
+		MembershipStatus: onprem.MembershipStatusActive, ScopeID: scopeB,
+	}
+
+	s.Run("principal A sees only A's events through the service layer", func() {
+		summary, err := service.Summary(ctx, principalA, operations.TimeFilter{})
+		s.Require().NoError(err)
+		s.Equal(int64(2), summary.Observations.Requests)
+
+		events, err := service.ListEvents(ctx, principalA, operations.EventFilter{Limit: 50})
+		s.Require().NoError(err)
+		s.Require().Len(events, 2)
+		for _, event := range events {
+			s.Equal("agent-a", event.Actor.AgentID)
+		}
+
+		stats, err := service.AgentStats(ctx, principalA, operations.TimeFilter{})
+		s.Require().NoError(err)
+		s.Require().Len(stats.Agents, 1)
+		s.Equal("agent-a", stats.Agents[0].AgentID)
+	})
+
+	s.Run("principal B sees only B's event through the service layer", func() {
+		summary, err := service.Summary(ctx, principalB, operations.TimeFilter{})
+		s.Require().NoError(err)
+		s.Equal(int64(1), summary.Observations.Requests)
+
+		events, err := service.ListEvents(ctx, principalB, operations.EventFilter{Limit: 50})
+		s.Require().NoError(err)
+		s.Require().Len(events, 1)
+		s.Equal("agent-b", events[0].Actor.AgentID)
+
+		stats, err := service.AgentStats(ctx, principalB, operations.TimeFilter{})
+		s.Require().NoError(err)
+		s.Require().Len(stats.Agents, 1)
+		s.Equal("agent-b", stats.Agents[0].AgentID)
+	})
+}
+
 func (s *saasWiringSuite) TestScopedExplorerService() {
 	service := newScopedExplorerService(s.store)
 	owner := onprem.HumanPrincipal{

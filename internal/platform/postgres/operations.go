@@ -43,17 +43,17 @@ func (s *OperationsStore) Record(ctx context.Context, event operations.Event) (o
 	}
 	err := s.pool.QueryRow(ctx, `
 INSERT INTO onprem_operation_events (
-    attempt_id, operation_kind, outcome, actor_kind, actor_user_id,
+    scope_id, attempt_id, operation_kind, outcome, actor_kind, actor_user_id,
     actor_membership_id, actor_agent_id, actor_credential_id, session_id,
     started_at, completed_at, duration_ms, input_items, accepted_items,
     duplicate_items, result_items, delivered_items, evidence_items, hint_items,
     reference_items, input_tokens, output_tokens, detail_kind, detail_id, error_code
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
-    $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25
+    $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26
 )
 RETURNING operation_event_id`,
-		event.AttemptID, event.Kind, event.Outcome, event.Actor.Kind,
+		event.ScopeID, event.AttemptID, event.Kind, event.Outcome, event.Actor.Kind,
 		nullableText(event.Actor.UserID), nullableText(event.Actor.MembershipID),
 		nullableText(event.Actor.AgentID), nullableText(event.Actor.CredentialID),
 		nullableText(event.SessionID), event.StartedAt.UTC(), event.CompletedAt.UTC(), event.DurationMS,
@@ -117,7 +117,8 @@ SELECT
     count(*) FILTER (WHERE outcome IN ('failed', 'timed_out', 'cancelled'))
 FROM onprem_operation_events
 WHERE started_at >= $1 AND started_at < $2
-  AND ($3 = '' OR actor_agent_id = $3)`, filter.From, filter.To, filter.AgentID).Scan(
+  AND ($3 = '' OR actor_agent_id = $3)
+  AND scope_id = $4`, filter.From, filter.To, filter.AgentID, s.scopeID).Scan(
 		&result.Observations.Requests, &result.Observations.Succeeded,
 		&result.Observations.InputEvents, &result.Observations.EventsWritten,
 		&result.Observations.DuplicateEvents, &result.Recalls.Requests,
@@ -205,6 +206,7 @@ WITH event_stats AS (
     FROM onprem_operation_events
     WHERE started_at >= $1 AND started_at < $2
       AND actor_agent_id IS NOT NULL AND actor_agent_id <> ''
+      AND scope_id = $3
     GROUP BY actor_agent_id
 ),
 note_stats AS (
@@ -327,9 +329,10 @@ WHERE started_at >= $1 AND started_at < $2
   AND ($4 = '' OR outcome = $4)
   AND ($5 = '' OR actor_agent_id = $5)
   AND ($6::timestamptz IS NULL OR (started_at, operation_event_id) < ($6, $7))
+  AND scope_id = $9
 ORDER BY started_at DESC, operation_event_id DESC
 LIMIT $8`, filter.From, filter.To, filter.Kind, filter.Outcome, filter.AgentID,
-		nullableTime(cursorTime), cursorID, filter.Limit+1)
+		nullableTime(cursorTime), cursorID, filter.Limit+1, s.scopeID)
 	if err != nil {
 		return nil, fmt.Errorf("list postgres operation events: %w", err)
 	}
@@ -431,8 +434,8 @@ func (s *OperationsStore) hasRecallDiagnosticEvent(ctx context.Context, observat
 SELECT EXISTS (
     SELECT 1
     FROM onprem_operation_events
-    WHERE detail_kind = 'recall_observation' AND detail_id = $1
-)`, fmt.Sprintf("%d", observationID)).Scan(&linked)
+    WHERE detail_kind = 'recall_observation' AND detail_id = $1 AND scope_id = $2
+)`, fmt.Sprintf("%d", observationID), s.scopeID).Scan(&linked)
 	if err != nil {
 		return false, fmt.Errorf("check postgres recall diagnostic event: %w", err)
 	}

@@ -89,7 +89,8 @@ func (s *operationsHTTPIntegrationSuite) SetupSuite() {
 		evidencelake.New(store.Sessions()), operationsIntegrationExtractor{},
 		teamruntime.Config{
 			NoteStore: noteStore, Logger: slog.New(slog.DiscardHandler),
-			ExtractionObserver: onprem.NewExtractionObserver(store.Operations(onprem.LocalScopeID), slog.New(slog.DiscardHandler)),
+			ExtractionObserver: onprem.NewExtractionObserver(store.Operations(onprem.LocalScopeID),
+				func(context.Context) string { return onprem.LocalScopeID }, slog.New(slog.DiscardHandler)),
 		},
 	)
 	s.Require().NoError(err)
