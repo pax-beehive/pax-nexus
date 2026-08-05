@@ -516,6 +516,21 @@ func (mr *MockTeamCredentialStoreMockRecorder) ListDevices(ctx, teamID, filter a
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListDevices", reflect.TypeOf((*MockTeamCredentialStore)(nil).ListDevices), ctx, teamID, filter)
 }
 
+// ListExpiringEnrollments mocks base method.
+func (m *MockTeamCredentialStore) ListExpiringEnrollments(ctx context.Context, teamID string, before time.Time, limit int) ([]onprem.AgentEnrollmentMetadata, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListExpiringEnrollments", ctx, teamID, before, limit)
+	ret0, _ := ret[0].([]onprem.AgentEnrollmentMetadata)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListExpiringEnrollments indicates an expected call of ListExpiringEnrollments.
+func (mr *MockTeamCredentialStoreMockRecorder) ListExpiringEnrollments(ctx, teamID, before, limit any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListExpiringEnrollments", reflect.TypeOf((*MockTeamCredentialStore)(nil).ListExpiringEnrollments), ctx, teamID, before, limit)
+}
+
 // ListOwnedCredentials mocks base method.
 func (m *MockTeamCredentialStore) ListOwnedCredentials(ctx context.Context, teamID, membershipID, agentID string, filter onprem.AgentArtifactFilter, now time.Time) ([]onprem.AgentCredentialMetadata, error) {
 	m.ctrl.T.Helper()

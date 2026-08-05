@@ -844,3 +844,88 @@ func (s *saasStoreSuite) TestTeamDeviceLifecycle() {
 
 	s.Equal(team.TeamID, s.auditScope(device.ID), "device audit rows must carry the team scope")
 }
+
+// TestListExpiringEnrollmentsIsTeamScopedAndFiltersLifecycleState exercises
+// SaaSCredentialStore.ListExpiringEnrollments directly (authorization is
+// covered in internal/deployment/saas/registry_test.go). Unlike the on-prem
+// counterpart, team_agent_enrollments spans multiple teams in the same
+// table, so this is the scope-isolation test the plan calls for: another
+// team's pending, in-range enrollment must not leak into the result.
+func (s *saasStoreSuite) TestListExpiringEnrollmentsIsTeamScopedAndFiltersLifecycleState() {
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	cutoff := now.Add(24 * time.Hour)
+
+	ownerUserID := s.insertUser("expiring-team")
+	team, owner := s.createTeam(ownerUserID, "expiring-team")
+	otherOwnerUserID := s.insertUser("expiring-other-team")
+	otherTeam, otherOwner := s.createTeam(otherOwnerUserID, "expiring-other-team")
+
+	newRecord := func(label string, ownerMember onprem.Member, expiresAt time.Time) onprem.EnrollmentRecord {
+		return onprem.EnrollmentRecord{
+			ID:               uniqueCredentialValue("expiring-team-enrollment-" + label),
+			TokenDigest:      credentialDigest(uniqueCredentialValue("expiring-team-token-" + label)),
+			DigestKeyVersion: 1,
+			UserID:           ownerMember.UserID,
+			MembershipID:     ownerMember.MembershipID,
+			Kind:             onprem.CredentialKindDevice,
+			AgentID:          "",
+			CredentialLabel:  "device-" + label,
+			Permissions:      []onprem.Permission{onprem.PermissionAgentProvision},
+			CreatedAt:        now,
+			ExpiresAt:        expiresAt,
+		}
+	}
+
+	// soon is inside the cutoff window in the target team: must appear.
+	soon := newRecord("soon", owner, now.Add(1*time.Hour))
+	s.Require().NoError(s.store.SaaSCredentials().CreateDeviceEnrollment(ctx, team.TeamID, owner.MembershipID, soon))
+
+	// consumedSoon is inside the cutoff window but already claimed: excluded.
+	consumedSoon := newRecord("consumed-soon", owner, now.Add(2*time.Hour))
+	s.Require().NoError(s.store.SaaSCredentials().CreateDeviceEnrollment(ctx, team.TeamID, owner.MembershipID, consumedSoon))
+	_, err := s.store.Pool().Exec(ctx, `
+		UPDATE team_agent_enrollments SET consumed_at = $1 WHERE enrollment_id = $2
+	`, now, consumedSoon.ID)
+	s.Require().NoError(err)
+
+	// revokedSoon is inside the cutoff window but revoked: excluded.
+	revokedSoon := newRecord("revoked-soon", owner, now.Add(3*time.Hour))
+	s.Require().NoError(s.store.SaaSCredentials().CreateDeviceEnrollment(ctx, team.TeamID, owner.MembershipID, revokedSoon))
+	_, err = s.store.Pool().Exec(ctx, `
+		UPDATE team_agent_enrollments SET revoked_at = $1 WHERE enrollment_id = $2
+	`, now, revokedSoon.ID)
+	s.Require().NoError(err)
+
+	// outOfRange expires well beyond the cutoff: excluded.
+	outOfRange := newRecord("out-of-range", owner, now.Add(100*time.Hour))
+	s.Require().NoError(s.store.SaaSCredentials().CreateDeviceEnrollment(ctx, team.TeamID, owner.MembershipID, outOfRange))
+
+	// foreignSoon is pending and inside the cutoff window, but belongs to a
+	// different team: must not leak across the scope boundary.
+	foreignSoon := newRecord("foreign-soon", otherOwner, now.Add(1*time.Hour))
+	s.Require().NoError(s.store.SaaSCredentials().CreateDeviceEnrollment(ctx, otherTeam.TeamID, otherOwner.MembershipID, foreignSoon))
+
+	results, err := s.store.SaaSCredentials().ListExpiringEnrollments(ctx, team.TeamID, cutoff, 500)
+	s.Require().NoError(err)
+
+	var ids []string
+	for _, result := range results {
+		if result.EnrollmentID == soon.ID || result.EnrollmentID == consumedSoon.ID ||
+			result.EnrollmentID == revokedSoon.ID || result.EnrollmentID == outOfRange.ID ||
+			result.EnrollmentID == foreignSoon.ID {
+			ids = append(ids, result.EnrollmentID)
+		}
+	}
+	s.Equal([]string{soon.ID}, ids, "expects only the pending, in-range, same-team enrollment")
+
+	otherTeamResults, err := s.store.SaaSCredentials().ListExpiringEnrollments(ctx, otherTeam.TeamID, cutoff, 500)
+	s.Require().NoError(err)
+	var otherIDs []string
+	for _, result := range otherTeamResults {
+		if result.EnrollmentID == foreignSoon.ID {
+			otherIDs = append(otherIDs, result.EnrollmentID)
+		}
+	}
+	s.Equal([]string{foreignSoon.ID}, otherIDs, "the other team's own pending enrollment is visible on its own scope")
+}

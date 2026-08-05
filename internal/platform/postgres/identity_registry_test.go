@@ -52,6 +52,81 @@ func (s *identityRegistryStoreSuite) insertActiveUserWithMembership(label string
 	return userID, membershipID
 }
 
+// TestListExpiringEnrollmentsIsTeamWideAndFiltersLifecycleState exercises
+// RegistryStore.ListExpiringEnrollments directly (bypassing
+// RegistryService, whose authorization is covered in
+// internal/deployment/onprem/registry_test.go). It asserts the method is
+// team-wide (spans two different owning memberships, unlike the
+// owner-scoped ListOwnedEnrollments), excludes consumed/revoked/out-of-range
+// rows, and orders soonest-expiry first.
+func (s *identityRegistryStoreSuite) TestListExpiringEnrollmentsIsTeamWideAndFiltersLifecycleState() {
+	ctx := context.Background()
+	registry := s.store.Registry()
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	cutoff := now.Add(24 * time.Hour)
+
+	userA, membershipA := s.insertActiveUserWithMembership("expiring-owner-a")
+	userB, membershipB := s.insertActiveUserWithMembership("expiring-owner-b")
+
+	newRecord := func(label string, userID string, membershipID string, expiresAt time.Time) onprem.EnrollmentRecord {
+		return onprem.EnrollmentRecord{
+			ID:               uniqueCredentialValue("expiring-enrollment-" + label),
+			TokenDigest:      credentialDigest(uniqueCredentialValue("expiring-token-" + label)),
+			DigestKeyVersion: 1,
+			UserID:           userID,
+			MembershipID:     membershipID,
+			Kind:             onprem.CredentialKindDevice,
+			AgentID:          "",
+			CredentialLabel:  "device-" + label,
+			Permissions:      []onprem.Permission{onprem.PermissionAgentProvision},
+			CreatedAt:        now,
+			ExpiresAt:        expiresAt,
+		}
+	}
+
+	// soonB and soonA belong to different owning memberships (team-wide, not
+	// owner-scoped) and both fall inside the cutoff window: they must both
+	// appear, soonest expiry first regardless of which membership owns them.
+	soonB := newRecord("soon-b", userB, membershipB, now.Add(2*time.Hour))
+	s.Require().NoError(registry.CreateDeviceEnrollment(ctx, membershipB, soonB))
+	soonA := newRecord("soon-a", userA, membershipA, now.Add(1*time.Hour))
+	s.Require().NoError(registry.CreateDeviceEnrollment(ctx, membershipA, soonA))
+
+	// consumedSoon is inside the cutoff window but already claimed: must be
+	// excluded even though its expiry alone would qualify it.
+	consumedSoon := newRecord("consumed-soon", userA, membershipA, now.Add(3*time.Hour))
+	s.Require().NoError(registry.CreateDeviceEnrollment(ctx, membershipA, consumedSoon))
+	_, err := s.store.Pool().Exec(ctx, `
+		UPDATE agent_enrollments SET consumed_at = $1 WHERE enrollment_id = $2
+	`, now, consumedSoon.ID)
+	s.Require().NoError(err)
+
+	// revokedSoon is inside the cutoff window but revoked: must be excluded.
+	revokedSoon := newRecord("revoked-soon", userB, membershipB, now.Add(4*time.Hour))
+	s.Require().NoError(registry.CreateDeviceEnrollment(ctx, membershipB, revokedSoon))
+	_, err = s.store.Pool().Exec(ctx, `
+		UPDATE agent_enrollments SET revoked_at = $1 WHERE enrollment_id = $2
+	`, now, revokedSoon.ID)
+	s.Require().NoError(err)
+
+	// outOfRange expires well beyond the cutoff: must be excluded.
+	outOfRange := newRecord("out-of-range", userA, membershipA, now.Add(100*time.Hour))
+	s.Require().NoError(registry.CreateDeviceEnrollment(ctx, membershipA, outOfRange))
+
+	results, err := registry.ListExpiringEnrollments(ctx, cutoff, 500)
+	s.Require().NoError(err)
+
+	var ids []string
+	for _, result := range results {
+		if result.EnrollmentID == soonA.ID || result.EnrollmentID == soonB.ID ||
+			result.EnrollmentID == consumedSoon.ID || result.EnrollmentID == revokedSoon.ID ||
+			result.EnrollmentID == outOfRange.ID {
+			ids = append(ids, result.EnrollmentID)
+		}
+	}
+	s.Equal([]string{soonA.ID, soonB.ID}, ids, "expects only the two pending, in-range enrollments, soonest first")
+}
+
 func (s *identityRegistryStoreSuite) TestOwnedAgentMutationsDisambiguateZeroRowConflicts() {
 	ctx := context.Background()
 	now := time.Now().UTC().Truncate(time.Microsecond)
