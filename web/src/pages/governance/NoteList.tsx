@@ -67,6 +67,13 @@ export function NoteList({ activeNoteId }: { activeNoteId?: string }) {
             if (event.key === "Enter") setQuery(queryInput.trim());
           }}
         />
+        {/* I5: Enter-only submission left mouse/touch users with no way to
+            search at all -- the old page had a Search button, this restores
+            it. Kind/Agent/State stay onChange-immediate; only the free-text
+            query is deferred until submit. */}
+        <Button size="sm" onClick={() => setQuery(queryInput.trim())}>
+          搜索
+        </Button>
         <input
           aria-label="按 Agent 筛选"
           placeholder="Agent ID"
