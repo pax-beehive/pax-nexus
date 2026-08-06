@@ -1,6 +1,8 @@
 // Page-level DOM tests for the Session Audit admin page: it renders the
-// Findings view first, and the .seg toggle switches views while keeping the
-// selection in the URL search params.
+// Findings view first (as row cards), the Seg toggle switches views while
+// keeping the selection in the URL search params, the Findings "看这些调用"
+// action jumps to the tool-calls view with the session pre-filled, and the
+// "按天" view renders a data-driven bar chart.
 
 import { describe, expect, it } from "vitest";
 import { screen } from "@testing-library/react";
@@ -73,19 +75,19 @@ describe("Session Audit page", () => {
       fetch: sessionAuditFetch,
     });
 
-    await screen.findByRole("heading", { name: "Session Audit" });
+    await screen.findByRole("heading", { name: "Agent 到底做了什么" });
     await screen.findByText("destructive command without approval");
 
     expect(screen.getByRole("button", { name: "Findings" }).getAttribute("aria-pressed")).toBe(
       "true",
     );
-    expect(screen.getByRole("button", { name: "Tool Calls" }).getAttribute("aria-pressed")).toBe(
+    expect(screen.getByRole("button", { name: "工具调用" }).getAttribute("aria-pressed")).toBe(
       "false",
     );
     expect(callsTo(fetchMock, "/v1/admin/session-audit/findings")).toHaveLength(1);
     expect(callsTo(fetchMock, "/v1/admin/session-audit/tool-calls")).toHaveLength(0);
-    // Humanized kind label and severity badge render in the row (the filter
-    // select options carry the same text, hence the getAllByText).
+    // Humanized kind label and severity tag render in the row card (the
+    // filter select options carry the same text, hence getAllByText).
     expect(screen.getAllByText("High-risk unapproved").length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText("high").length).toBeGreaterThanOrEqual(1);
   });
@@ -98,12 +100,12 @@ describe("Session Audit page", () => {
     });
     await screen.findByText("destructive command without approval");
 
-    await user.click(screen.getByRole("button", { name: "Tool Calls" }));
+    await user.click(screen.getByRole("button", { name: "工具调用" }));
     await screen.findByText("rm -rf /tmp/x");
     expect(window.location.search).toBe("?view=tool-calls");
     expect(callsTo(fetchMock, "/v1/admin/session-audit/tool-calls")).toHaveLength(1);
 
-    await user.click(screen.getByRole("button", { name: "Activity" }));
+    await user.click(screen.getByRole("button", { name: "按天" }));
     await screen.findByText("2026-08-01");
     expect(window.location.search).toBe("?view=activity");
     expect(callsTo(fetchMock, "/v1/admin/session-audit/activity")).toHaveLength(1);
@@ -120,10 +122,58 @@ describe("Session Audit page", () => {
     });
 
     await screen.findByText("2026-08-01");
-    expect(screen.getByRole("button", { name: "Activity" }).getAttribute("aria-pressed")).toBe(
+    expect(screen.getByRole("button", { name: "按天" }).getAttribute("aria-pressed")).toBe(
       "true",
     );
     expect(callsTo(fetchMock, "/v1/admin/session-audit/activity")).toHaveLength(1);
     expect(callsTo(fetchMock, "/v1/admin/session-audit/findings")).toHaveLength(0);
+  });
+
+  it("三视图切换写进 URL 的 ?view=，刷新后停在同一视图", async () => {
+    const { user, unmount } = await renderApp({
+      route: "/governance/sessions",
+      me: makeMe(),
+      fetch: sessionAuditFetch,
+    });
+    await screen.findByText("destructive command without approval");
+
+    await user.click(screen.getByRole("button", { name: "按天" }));
+    await screen.findByText("2026-08-01");
+    expect(window.location.search).toBe("?view=activity");
+    const search = window.location.search;
+    unmount();
+
+    // Simulate a page refresh: re-render the app fresh at the URL the
+    // previous render left in the location bar.
+    await renderApp({
+      route: `/governance/sessions${search}`,
+      me: makeMe(),
+      fetch: sessionAuditFetch,
+    });
+    await screen.findByText("2026-08-01");
+    expect(screen.getByRole("button", { name: "按天" }).getAttribute("aria-pressed")).toBe(
+      "true",
+    );
+  });
+
+  it("Findings 的「看这些调用」切到工具调用视图并带上该 session", async () => {
+    const { fetchMock, user } = await renderApp({
+      route: "/governance/sessions",
+      me: makeMe(),
+      fetch: sessionAuditFetch,
+    });
+    await screen.findByText("destructive command without approval");
+
+    await user.click(screen.getByRole("button", { name: "看这些调用" }));
+    await screen.findByText("rm -rf /tmp/x");
+
+    expect(window.location.search).toContain("view=tool-calls");
+    expect(window.location.search).toContain("session=sess-1");
+    const toolCallCalls = callsTo(fetchMock, "/v1/admin/session-audit/tool-calls");
+    expect(toolCallCalls.length).toBeGreaterThanOrEqual(1);
+    expect(toolCallCalls.some((c) => c.path.includes("session_id=sess-1"))).toBe(true);
+    expect(
+      ((await screen.findByPlaceholderText("session_id")) as HTMLInputElement).value,
+    ).toBe("sess-1");
   });
 });

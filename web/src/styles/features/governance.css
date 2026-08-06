@@ -9,3 +9,9 @@
 .gv-audit-action { font-family: var(--font-heading); font-weight: var(--font-heading-weight); font-size: 13px; }
 .gv-audit-target { font-family: var(--font-mono); font-size: 11px; opacity: 0.5; }
 .gv-audit-open { border-bottom: 1px solid var(--color-divider); background: color-mix(in srgb, var(--color-text) 5%, transparent); padding: var(--space-3) var(--space-4) var(--space-3) 110px; font-family: var(--font-mono); font-size: 12px; line-height: 1.7; }
+
+/* Session audit: Findings row cards (task 3). */
+.gv-finding { display: grid; grid-template-columns: 120px minmax(280px, 1fr) 200px auto; gap: var(--space-4); align-items: start; padding: var(--space-4); border-bottom: 1px solid var(--color-divider); }
+.gv-finding-title { font-family: var(--font-heading); font-weight: var(--font-heading-weight); font-size: 15px; }
+.gv-finding-summary { font-size: 13px; opacity: 0.72; margin-top: var(--space-1); max-width: 68ch; }
+.gv-finding-ref { font-family: var(--font-mono); font-size: 11px; opacity: 0.45; margin-top: var(--space-2); }
