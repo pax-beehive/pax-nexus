@@ -82,12 +82,15 @@ Pipeline health / Memory explorer）按 Modernist 重画，并把 Memory explore
 
 | 格 | 取值 | 副标 |
 |---|---|---|
-| 扣下待查 | `extraction.quarantined` | `oldest_unextracted_at` 换算的相对时间 |
-| 失败 | `extraction.failed` | — |
-| 排队中 | `extraction.unextracted_events` | 「还没被读取的事件」 |
+| 扣下待查 | `extraction.quarantined` | — |
+| 失败 | `extraction.failed` | 「抽取失败；全部操作出错 N 次」（`errors`） |
+| 排队中 | `extraction.unextracted_events` | `oldest_unextracted_at` 换算的相对时间 |
 | 典型延迟 | `latency.p50_ms` | `p50` |
 | 最坏情况 | `latency.p95_ms` | `p95` |
 | 空手而归 | `recalls.empty` | 「证据不足或预算不够」 |
+
+（此表已按实现校准，见 §8 裁定 3——`oldest_unextracted_at` 挂在「排队中」而不是
+「扣下待查」，「失败」的副标带上了 `errors` 这个跨操作类型的更广口径计数。）
 
 下方两栏：左 Storage（既有 `StorageSnapshotView` / `StorageHistoryView`），
 右「最近的活儿」（既有事件流）。**区块级错误隔离照搬现状**——
@@ -149,8 +152,13 @@ Pipeline health / Memory explorer）按 Modernist 重画，并把 Memory explore
    | 抽取 | 模型 `model` · prompt `prompt_version` | 状态 `status`，用了 `input_tokens`+`output_tokens` token | `run_id` |
    | 候选 | `candidate.action` 一条 `candidate.kind` | `admission_status`；被拒时给出 `rejection_reason` | `candidate_id` |
    | 版本 | 第 `revision` 版 · `operation` | 正文摘要（首行截断） | `created_at` |
-   | 投递 | 投给 `deliveries.length` 个 Agent | 逐条列出接收方与状态 | `envelope_id` |
+   | 投递 | 投给 `deliveries.length` 个 Agent | 汇总共几次投递、消耗多少 `context_tokens` | 接收方 `recipient_agent_id` 列表（`formatRefList`，多条则「等 N 条」） |
    | 召回决策 | 见下 | | |
+
+   （投递行已按实现校准：`ExplorerDelivery`——`types.ts:453-459`——既没有
+   `envelope_id` 也没有 status 字段，所以「逐条列出接收方与状态 / 引用
+   `envelope_id`」是本文档原先的错误，不是实现的偏离。实际渲染的是一句汇总
+   加接收方 Agent ID 的 ref 列表，见 `provenance.ts` 的 `buildDeliveryStep`。）
 
    **召回决策不在版本内**（它挂在笔记上，不挂在某个版本上），所以它作为
    第三块单独渲染。
@@ -275,15 +283,44 @@ Explorer 左栏的笔记链接现在指向 legacy 的 `/admin/explorer/notes/:id
 用户不在场，以下取舍由作者独立判定，列此以便事后复核：
 
 1. **`bootstrap` 并入「系统」Seg 档。** 它只在首次安装时出现一次，单独占一格是浪费。
-   代价：无法单独筛 bootstrap 事件；`action` 自由文本框可以兜底。
+   代价（终审修复时改写：原文写错了）：不是「无法单独筛 bootstrap 事件」，而是**选
+   『系统』会静默漏掉 bootstrap 事件**——档位名承诺的集合是「bootstrap/human/agent/
+   system 里非人非 Agent 的那些」，它实际发出的查询却只是 `actor_kind=system`，不含
+   `bootstrap`。也没有真正的兜底：`action` 自由文本框筛的是动作名，筛不了
+   `actor_kind`，筛不出 bootstrap 事件。
 2. **Pipeline 第六格「Recalls refused / budget or hard gate」→「空手而归」。**
    `OperationsSummary` 没有「因预算或硬门禁被拒」的直接计数；`recalls.empty` 是
    最接近的诚实指标。副标写「证据不足或预算不够」而不是断言只有这两种原因。
-3. **设计稿 Pipeline 第一格「Held for review / oldest 41m」的 41m 用
-   `oldest_unextracted_at` 换算**——那其实是「最老的未抽取事件」而非
-   「最老的待查项」，两者不同。副标如实写「最老的未抽取事件」。
-4. **三个诊断端点退出主链。** 设计稿把溯源画成一条链，而 `getTeamNote` 一次就能
-   给出全部六段；让诊断端点参与主链只会引入 N+1 和更多失败面。它们降级为可选下钻。
+3. **Pipeline 六格副标的实际分布，与本文档 §2.3 原表不同**（终审修复时改写：原表
+   已按实现校准，见上）。`oldest_unextracted_at`（最老的未抽取事件）实际挂在第三格
+   「排队中」，而不是设计稿原定的第一格「扣下待查」——那个时间戳描述的是**还没被
+   抽取的事件积压**（unextracted backlog），不是**被扣下等待人工复核的候选**
+   （quarantine），两者是不同的概念，挂在「排队中」在语义上才对得上；第一格「扣下
+   待查」的副标因此是「—」。挪位本身是对的，只是本文档没跟上实现。另外，第二格
+   「失败」的副标在终审 I2 里追加了 `errors`（跨 recall / observation / extraction
+   三种操作类型、口径更广的出错计数），写成「抽取失败；全部操作出错 N 次」——
+   `errors` 在旧版 SummaryCards / PipelineHealthCard 消失后没有地方安放，这里复用了
+   一个原本是空「—」的副标位，也是对本文档原表的偏离。
+4. **三个诊断端点退出主链——但「降级为可选下钻」只做了一半。** 设计稿把溯源画成一条
+   链，而 `getTeamNote` 一次就能给出全部六段；让诊断端点参与主链只会引入 N+1 和更多
+   失败面，这半句照做了，也被测试钉死（`governance-explorer.dom.test.tsx` 断言诊断
+   端点零请求）。但「它们降级为可选下钻」没有兑现——`NoteProvenance.tsx` 里没有任何
+   「看原始记录」链接，`ExplorerDiagnosticDrawer` 也没有被接进 Explorer 右栏。本次
+   终审修复的范围不包含补上这个下钻，但要如实记账：相对旧的
+   `AdminTeamNoteDetailPage`，右栏压缩掉了下面这些信息，且**没有任何入口能找回来**：
+   - 每条源事件的正文（`event.content`）——旧页面逐条渲染，新版只给
+     `evidence.length` 和一份 event_id 的 ref 列表
+   - candidate 的 `subject` / `body`——新版只给 `admission_status` 与拒绝原因
+   - 投递的逐条明细表（Agent / Session / Tokens / Time）——新版只给一句汇总（见
+     §3.2 的校准）
+   - 到抽取运行诊断（`/admin/operations?detail=extraction_run&id=...`）的链接——
+     完全没有了
+   - 召回表的 `disposition` 列——新版的 `NoteRecalls` 表格没有这一列（见
+     §「本阶段丢掉的旧信息」）
+
+   最扎眼的一条：**源事件正文现在在 Explorer 里完全不可达**，而这一屏的 slogan
+   恰恰是「顺着它回到产生它的那次会话」——顺到 `session_id` 和 `event_id` 就到头
+   了，读不到那次会话里实际发生了什么。
 5. **`AdminTeamNoteDetailPage` 删除**（并入双栏右侧）。设计稿画的是单屏双栏，
    保留一个独立详情页会让同一内容有两个入口、两套布局。
 6. **Findings 从表格改成行卡，工具调用保持表格。** 设计稿如此：Finding 有长摘要，
@@ -291,6 +328,32 @@ Explorer 左栏的笔记链接现在指向 legacy 的 `/admin/explorer/notes/:id
 7. **不做「区块级隔离」的重新实现。** `pages/operations/hooks.ts` 的三个 region hook
    是既有的、已被测试覆盖的机制，本阶段只换呈现层。重写它们只会让一个已验收的
    属性重新变成未验收。
+
+### 8.1 本阶段丢掉的旧信息
+
+（终审修复时补记）以下信息在旧版（重写前的）页面上存在，本阶段重画后不再出现在
+任何屏幕上，也没有下钻或其它入口能找回来。这些取舍此前只活在
+`.superpowers/sdd/` 下的 SDD ledger 里——那个目录是 gitignored 的，不写进本文档，
+下一个人翻 spec 就会以为它们从未存在过：
+
+- **Pipeline `duplicate_events`。** 旧 `OperationsSummary.observations` 里的
+  `duplicate_events`（去重计数）在新的六格指标条上没有格位，也没有进任何副标——
+  唯一的例外是「失败」格副标里的 `errors`（终审 I2 加的，见 §8 裁定 3）。
+  `duplicate_events` 目前无处可见。
+- **Session audit 按天视图的 ToolBreakdown chips。** 旧的按天表格会展开
+  `tool_breakdown`（每种工具的调用次数）；新的柱状图（`SessionDaysChart`）只画
+  `event_count`/`session_count`/`tool_call_count`/`high_risk_count`，
+  `tool_breakdown` 这个字段仍在 API 响应里，但页面上没有任何地方渲染它。
+- **Explorer 左栏笔记卡片丢掉的字段。** 旧版 `AdminExplorerPage.tsx` 的列表列是
+  「Team Note / Kind / **Agent** / State / **Updated**」，并且在 `task_ref` /
+  `thread_ref` 任一存在时额外渲染一行。新的 `NoteList.tsx` 左栏卡片只有 subject、
+  `note_id · revision`、Kind tag、状态 Badge——**写它的 Agent、更新时间、
+  task_ref、thread_ref 全部不见了**。这些字段目前只能在点进某条笔记的右栏详情
+  （笔记头 / 溯源链）里间接拼凑出一部分（origin_agent_id 在笔记头，没有
+  task_ref/thread_ref），左栏本身不再显示。
+- **Explorer 右栏相对旧详情页压缩掉的信息。** 见 §8 裁定 4 的清单：每条源事件的
+  正文、candidate 的 subject/body、投递的逐条明细表、到抽取运行诊断的链接、
+  召回表的 `disposition` 列。
 
 ---
 
