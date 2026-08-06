@@ -85,6 +85,11 @@ function AppRoutes() {
               /welcome (doc section 5.1). Onprem only — saas has no bootstrap
               concept. */}
           {state.profile === "onprem" && <Route path="/bootstrap" element={<BootstrapPage />} />}
+          {/* app/routes.tsx registers /welcome again, inside PortalShell —
+              that registration only ever mounts for state.kind === "active",
+              this one only for "no-membership", so the two never collide for
+              a given session. See the mutual-exclusivity note on
+              WelcomePage's own doc comment in pages/WelcomePage.tsx. */}
           <Route path="/welcome" element={<WelcomePage />} />
           <Route path="*" element={<NoMembershipRedirect />} />
         </>

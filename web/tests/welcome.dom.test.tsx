@@ -116,20 +116,19 @@ describe("/welcome: no-membership catch-all", () => {
 });
 
 describe("/onboarding legacy redirect", () => {
-  it("redirects to /welcome instead of 404ing (old bookmarks / external links)", async () => {
+  it("redirects to /welcome instead of 404ing, and reaches real content (old bookmarks / external links)", async () => {
     // /onboarding only exists inside PortalRoutes (the active-session
     // shell) — a no-membership session never reaches it; that path is
     // already covered by the catch-all tests above. This exercises the
     // route this task actually edits (app/routes.tsx).
     //
-    // WelcomePage is not part of the shell's route table (it only makes
-    // sense for a no-membership session), so an active session that lands
-    // on /welcome has no matching route there either and continues on to
-    // its normal landing page (app/routes.tsx's DefaultRedirect). The net
-    // effect for an active user: the stale link no longer 404s, but also no
-    // longer reaches any team-creation UI — see task-1-report.md for the
-    // known gap this leaves in the team switcher's "Create a team" / "Join
-    // with invitation" footer rows, which still navigate to /onboarding.
+    // app/routes.tsx also registers /welcome itself (reachable only while
+    // active — App.tsx's own /welcome registration only mounts while
+    // no-membership, so the two never collide for a given session; see the
+    // mutual-exclusivity note on WelcomePage's doc comment), so an active
+    // session that follows a stale /onboarding link lands on real
+    // "join another team" content instead of silently bouncing back to its
+    // landing page.
     await renderApp({
       route: "/onboarding",
       me: makeSaasMe({ role: "member" }),
@@ -139,7 +138,8 @@ describe("/onboarding legacy redirect", () => {
       },
     });
 
-    await screen.findByRole("heading", { name: "My Agents" });
-    expect(window.location.pathname).toBe("/management");
+    await screen.findByRole("heading", { name: "加入另一个团队" });
+    expect(window.location.pathname).toBe("/welcome");
+    expect(screen.getByLabelText("邀请令牌或链接")).toBeTruthy();
   });
 });

@@ -25,6 +25,7 @@ import { TeamSettingsPage } from "../pages/TeamSettingsPage";
 import { AppearancePage } from "../pages/settings/AppearancePage";
 import { MemoryRulesPage } from "../pages/settings/MemoryRulesPage";
 import { ModelUsagePage } from "../pages/settings/ModelUsagePage";
+import { WelcomePage } from "../pages/WelcomePage";
 
 /** 角色矩阵门控；无权限一律回落地页，页面不挂载 = 不发请求。 */
 function RequireRole({
@@ -81,16 +82,21 @@ export function PortalRoutes({ me }: { me: HumanMe }) {
       ))}
 
       {/* The dedicated onboarding page is gone (phase 7 task 1 merged it into
-          /welcome). This route stays only so a stale bookmark or external link to
-          /onboarding does not 404 — the entry-unification page for a
-          no-membership session lives at /welcome, not inside the shell.
-          An already-active session that lands here (e.g. the team switcher's
-          "Create a team" / "Join with invitation" footer rows, which still
-          navigate to /onboarding) has no matching route at /welcome either,
-          so DefaultRedirect below bounces it on to landingPath(me) — see
-          team-switcher.dom.test.tsx and task-1-report.md for the known gap
-          this leaves (no self-serve create/join-another-team UI today). */}
+          /welcome). This route stays only so a stale bookmark or external
+          link to /onboarding does not 404 — it redirects on to /welcome,
+          which is also registered in this route table (below) so the team
+          switcher's "Create a team" / "Join with invitation" footer rows
+          (TeamSwitcher.tsx, which still navigate to /onboarding) keep
+          working. */}
       <Route path="/onboarding" element={<Navigate to="/welcome" replace />} />
+      {/* Reachable only from an active session (this route table only ever
+          renders for state.kind === "active" — see AppRoutes in App.tsx).
+          WelcomePage itself also has a /welcome route registered outside
+          PortalShell, in App.tsx, but only while state.kind ===
+          "no-membership"; the two states are mutually exclusive for a given
+          session, so exactly one of the two /welcome route registrations is
+          ever mounted at a time. */}
+      <Route path="/welcome" element={<WelcomePage />} />
 
       <Route
         path="/overview"

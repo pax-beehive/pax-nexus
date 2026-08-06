@@ -90,13 +90,14 @@ describe("team switcher", () => {
     expect(callsTo(fetchMock, "/v1/me").length).toBeGreaterThanOrEqual(2);
   });
 
-  it("the popover footer rows' /onboarding link no longer reaches a create/join page", async () => {
+  it("navigates to /welcome (join-another-team) from the popover footer rows", async () => {
     // Modernist Portal phase 7 task 1 merged the dedicated onboarding page
-    // into /welcome, which only makes sense for a no-membership session.
-    // /onboarding now redirects to /welcome (app/routes.tsx), but an active
-    // session has no route at /welcome either, so it bounces on to its
-    // normal landing page. These footer rows are a known gap left by that
-    // change (see task-1-report.md) — they no longer do anything.
+    // into /welcome; /onboarding now redirects there (app/routes.tsx). That
+    // route table also registers /welcome itself for an active session
+    // (App.tsx's own /welcome registration only mounts while no-membership,
+    // so the two never collide — see WelcomePage.tsx), so this footer row
+    // still reaches a real join-with-token screen instead of silently
+    // bouncing back to the landing page.
     const { user } = await renderApp({
       route: "/management",
       me: makeSaasMe({ role: "member" }),
@@ -111,9 +112,13 @@ describe("team switcher", () => {
       }),
     );
 
-    // Bounced straight back to the member landing page, not a join form.
-    await screen.findByRole("heading", { name: "My Agents" });
-    expect(window.location.pathname).toBe("/management");
-    expect(screen.queryByLabelText("Invitation token")).toBeNull();
+    // /onboarding -> /welcome, rendered inside the shell for this active
+    // session, with the "join another team" copy (not the bare
+    // no-membership waiting state).
+    await screen.findByRole("heading", { name: "加入另一个团队" });
+    expect(window.location.pathname).toBe("/welcome");
+    expect(screen.getByLabelText("邀请令牌或链接")).toBeTruthy();
+    // Bootstrap claim never applies to an already-active session.
+    expect(screen.queryByRole("button", { name: "前往认领 Owner" })).toBeNull();
   });
 });
