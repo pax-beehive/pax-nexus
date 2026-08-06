@@ -93,11 +93,14 @@ describe("OverviewPage", () => {
       me: makeMe({ capabilities: [] }),
       fetch: (path) => {
         if (path.startsWith("/v1/me/agents")) return jsonResponse({ agents: [] });
+        if (path.startsWith("/v1/admin/members")) return jsonResponse({ members: [] });
         throw new Error(`unexpected fetch: ${path}`);
       },
     });
 
-    await screen.findByRole("heading", { name: "My Agents" });
+    // Default makeMe() is owner, so /management (its landing redirect)
+    // renders the access tree.
+    await screen.findByRole("heading", { name: "Access flows downward" });
   });
 
   it("renders attention items and navigates on the CTA", async () => {

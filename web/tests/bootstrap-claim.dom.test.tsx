@@ -49,10 +49,9 @@ describe("section 10 item 3: concurrent bootstrap claim", () => {
     await user.type(screen.getByLabelText("Bootstrap secret"), "top-secret");
     await user.click(screen.getByRole("button", { name: "Claim Owner" }));
 
-    // The winner is genuinely Owner, and /management is the member-rooted
-    // "my access" view for every role (MyAgentsPage, the stand-in until
-    // phase 3's AccessTree).
-    await screen.findByRole("heading", { name: "My Agents" });
+    // The winner is genuinely Owner, and /management is admin+'s access
+    // tree.
+    await screen.findByRole("heading", { name: "Access flows downward" });
     expect(window.location.pathname).toBe("/management");
   });
 
@@ -79,6 +78,6 @@ describe("section 10 item 3: concurrent bootstrap claim", () => {
     expect(callsTo(fetchMock, "/v1/me")).toHaveLength(2);
     expect(window.location.pathname).toBe("/bootstrap");
     expect(screen.getByRole("heading", { name: "Claim the first Owner" })).toBeTruthy();
-    expect(screen.queryByRole("heading", { name: "My Agents" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Access flows downward" })).toBeNull();
   });
 });

@@ -18,11 +18,13 @@ import {
 
 setupDomTest();
 
-// /management is the member-rooted "my access" view for every role, so the
-// default owner principal reaches MyAgentsPage there. /management/:agentId
+// /management is admin+'s access tree now; the Create Agent trigger still
+// lives on MyAgentsPage, reachable at /management only for the member fork
+// (Task 9 moves owner/admin's own trigger to the access tree's machine
+// level), so the case below uses `role: "member"`. /management/:agentId
 // still dispatches AdminAgentDetailPage to admin-likes (phase 4 merges the
-// two), so the detail cases below keep `role: "member"` to exercise the
-// self-serve AgentDetailPage.
+// two), so the detail cases below also keep `role: "member"` to exercise
+// the self-serve AgentDetailPage.
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 function artifactHandler(overrides?: {
@@ -48,7 +50,7 @@ describe("section 10 item 6: replaying agent create reuses the Idempotency-Key",
     let attempts = 0;
     const { fetchMock, user } = await renderApp({
       route: "/management",
-      me: makeMe(),
+      me: makeMe({ role: "member" }),
       fetch: async (path, init) => {
         if (path === "/v1/me/agents" && init.method === "POST") {
           attempts += 1;

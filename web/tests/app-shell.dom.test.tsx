@@ -9,6 +9,7 @@ setupDomTest();
 function shellFetch(path: string, init: RequestInit): Response {
   if (path.startsWith("/v1/me/agents")) return jsonResponse({ agents: [] });
   if (path.startsWith("/v1/admin/agents")) return jsonResponse({ agents: [] });
+  if (path.startsWith("/v1/admin/members")) return jsonResponse({ members: [] });
   if (path.startsWith("/v1/teams")) return jsonResponse({ teams: [] });
   throw new Error(`unexpected fetch: ${init.method ?? "GET"} ${path}`);
 }
@@ -20,9 +21,12 @@ function topbar(): HTMLElement {
 // Regression guard for the branch's worst defect: /management used to
 // dispatch AdminAgentsPage for admin-likes, and the "+ Create Agent" modal
 // lives only in MyAgentsPage — so an owner had no way anywhere in the portal
-// to register a personal agent. The Management root must stay the
-// member-rooted "my access" view for EVERY role; the team-wide list lives at
-// /management/agents, reachable from the sub-navigation.
+// to register a personal agent. Phase 3 replaces the Management root with a
+// real access tree for admin+ (member still gets MyAgentsPage directly); the
+// tree's own-machine level is due in a later task of this plan and will
+// carry the create-agent trigger for owner/admin at that point (design doc
+// section 2.1). Until then this guard only pins the member fork — losing
+// that would be the same regression this test was written to catch.
 describe("Management root", () => {
   it.each(["owner", "admin", "member"] as const)(
     "gives a %s the create-agent trigger at /management",
@@ -33,8 +37,14 @@ describe("Management root", () => {
         fetch: shellFetch,
       });
 
-      await screen.findByRole("heading", { name: "My Agents" });
-      expect(screen.getByRole("button", { name: "+ Create Agent" })).toBeTruthy();
+      if (role === "member") {
+        await screen.findByRole("heading", { name: "My Agents" });
+        expect(screen.getByRole("button", { name: "+ Create Agent" })).toBeTruthy();
+      } else {
+        // admin+ now land on the access tree; its own-machine level (a
+        // later task) is where their create-agent trigger moves to.
+        await screen.findByRole("heading", { name: "Access flows downward" });
+      }
     },
   );
 

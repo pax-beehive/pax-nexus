@@ -19,30 +19,33 @@ function silenceConsoleError() {
 }
 
 describe("route boundary: a failing route keeps the shell usable", () => {
-  function brokenThenHealedAgentsFetch() {
+  function brokenThenHealedMembersFetch() {
     let healed = false;
     return {
       heal: () => {
         healed = true;
       },
       fetch: (path: string, init: RequestInit): Response => {
-        if (path.startsWith("/v1/me/agents")) {
-          // A malformed payload crashes the My Agents render; the backend
-          // healing is simulated by flipping the payload for later loads.
-          return jsonResponse({ agents: healed ? [] : [null] });
+        if (path.startsWith("/v1/admin/members")) {
+          // A malformed payload crashes the access tree's people-level
+          // render; the backend healing is simulated by flipping the
+          // payload for later loads.
+          return jsonResponse({ members: healed ? [] : [null] });
         }
-        if (path.startsWith("/v1/admin/members")) return jsonResponse({ members: [] });
+        if (path.startsWith("/v1/admin/agents")) return jsonResponse({ agents: [] });
+        if (path.startsWith("/v1/admin/devices")) return jsonResponse({ devices: [] });
+        if (path.startsWith("/v1/admin/invitations")) return jsonResponse({ invitations: [] });
         throw new Error(`unexpected fetch: ${init.method ?? "GET"} ${path}`);
       },
     };
   }
 
   it("renders a recovery card in place of the route, nav and identity survive", async () => {
-    // /management is the member-rooted "my access" view for every role, so
-    // the default owner principal lands on MyAgentsPage, whose /v1/me/agents
-    // render this test crashes.
+    // /management is admin+'s access tree, so the default owner principal
+    // lands on AccessTreePage, whose /v1/admin/members render this test
+    // crashes.
     const consoleSpy = silenceConsoleError();
-    const { fetch } = brokenThenHealedAgentsFetch();
+    const { fetch } = brokenThenHealedMembersFetch();
     await renderApp({
       route: "/management",
       me: makeMe(),
@@ -70,7 +73,7 @@ describe("route boundary: a failing route keeps the shell usable", () => {
 
   it("navigating to another route recovers the content area", async () => {
     silenceConsoleError();
-    const { fetch } = brokenThenHealedAgentsFetch();
+    const { fetch } = brokenThenHealedMembersFetch();
     const { user } = await renderApp({
       route: "/management",
       me: makeMe(),
@@ -80,18 +83,20 @@ describe("route boundary: a failing route keeps the shell usable", () => {
     await screen.findByRole("alert");
     // The sub-navigation sits outside the content boundary, so the owner can
     // still navigate away from the crashed route (was: expanding the old
-    // sidebar's Directory group).
+    // sidebar's Directory group). Invitations, not Members or Devices,
+    // because both of those also read the same /v1/admin/members endpoint
+    // this fixture crashes (Devices shows each device's owner name).
     const subnav = screen.getByRole("navigation", { name: "Section pages" });
-    await user.click(within(subnav).getByRole("link", { name: "Members" }));
+    await user.click(within(subnav).getByRole("link", { name: "Invitations" }));
 
     // The failing region is left behind; the new route renders normally.
-    await screen.findByRole("heading", { name: "Members" });
+    await screen.findByRole("heading", { name: "Invitations" });
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("retry remounts the route and recovers once the backend responds sanely", async () => {
     silenceConsoleError();
-    const { fetch, heal } = brokenThenHealedAgentsFetch();
+    const { fetch, heal } = brokenThenHealedMembersFetch();
     const { user } = await renderApp({
       route: "/management",
       me: makeMe(),
@@ -102,9 +107,9 @@ describe("route boundary: a failing route keeps the shell usable", () => {
     heal();
     await user.click(within(alert).getByRole("button", { name: "Retry" }));
 
-    await screen.findByRole("heading", { name: "My Agents" });
+    await screen.findByRole("heading", { name: "Access flows downward" });
     expect(screen.queryByRole("alert")).toBeNull();
-    await screen.findByText("No agents yet — click + Create Agent to get started.");
+    await screen.findByText("0 people");
   });
 });
 

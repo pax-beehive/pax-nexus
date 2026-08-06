@@ -10,11 +10,12 @@ setupDomTest();
 
 describe("provisioned_by badge", () => {
   it("distinguishes device-provisioned from human-registered agents in My Agents", async () => {
-    // /management is the member-rooted "my access" view for every role, so
-    // the default owner principal lands on MyAgentsPage.
+    // /management is admin+'s access tree now; MyAgentsPage is reachable
+    // there only for the member fork (Task 9 covers owner/admin's own
+    // agents via the access tree's machine level).
     await renderApp({
       route: "/management",
-      me: makeMe(),
+      me: makeMe({ role: "member" }),
       fetch: (path) => {
         if (path.startsWith("/v1/me/agents")) {
           return jsonResponse({

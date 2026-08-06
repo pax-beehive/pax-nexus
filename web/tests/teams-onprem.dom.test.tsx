@@ -72,13 +72,14 @@ describe("on-prem profile regression", () => {
       me: makeMe({ role: "owner" }),
       fetch: (path, init) => {
         if (path.startsWith("/v1/me/agents")) return jsonResponse({ agents: [] });
+        if (path.startsWith("/v1/admin/members")) return jsonResponse({ members: [] });
         throw new Error(`unexpected fetch: ${init.method ?? "GET"} ${path}`);
       },
     });
 
-    // Every role gets MyAgentsPage at the Management root; what an owner
-    // gains is the extra sub-navigation, which is what this case checks.
-    await screen.findByRole("heading", { name: "My Agents" });
+    // An owner gets the access tree at the Management root, plus the extra
+    // sub-navigation, which is what this case checks.
+    await screen.findByRole("heading", { name: "Access flows downward" });
     const subnav = screen.getByRole("navigation", { name: "Section pages" });
     within(subnav).getByRole("link", { name: "Members" });
     within(subnav).getByRole("link", { name: "Invitations" });
