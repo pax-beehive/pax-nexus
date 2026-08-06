@@ -128,6 +128,12 @@ type explorerLifecycle struct {
 	noteMixResult []explorer.NoteKindCount
 	noteMixErr    error
 
+	// noteMixBlock, when set, makes NoteMix hang on its context instead of
+	// returning — it exercises the Overview endpoint's per-source timeout: a
+	// hung source must degrade once its bounded context expires rather than
+	// stalling the whole request.
+	noteMixBlock bool
+
 	// countExpiring* back CountExpiringNotes, the Overview endpoint's
 	// expiring-soon tile. calls counts invocations so tests can assert the
 	// source was never reached (e.g. the Overview 403 path).
@@ -139,12 +145,16 @@ type explorerLifecycle struct {
 }
 
 func (s *explorerLifecycle) NoteMix(
-	_ context.Context,
+	ctx context.Context,
 	_ onprem.HumanPrincipal,
 	at time.Time,
 ) ([]explorer.NoteKindCount, error) {
 	s.noteMixCalls++
 	s.noteMixAt = at
+	if s.noteMixBlock {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
 	if s.noteMixErr != nil {
 		return nil, s.noteMixErr
 	}

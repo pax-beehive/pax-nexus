@@ -321,6 +321,28 @@ func (s *overviewHandlerSuite) TestExpiringCountFailureDegradesQuietlyWhileNoteM
 	)
 }
 
+// TestHungSourceDegradesAfterTimeout pins the per-source timeout bound: a
+// downstream read that hangs past overviewSourceTimeout must degrade only
+// its own section (here note mix, and by the "one degradation unit"
+// invariant, the expiring-count tile that rides along with it) instead of
+// stalling the whole request. overviewSourceTimeout is shrunk to 50ms for
+// the duration of this test via the package-var test hook, and restored
+// afterward so no other test observes the shrunk value.
+func (s *overviewHandlerSuite) TestHungSourceDegradesAfterTimeout() {
+	restore := *handler.OverviewSourceTimeoutForTest
+	*handler.OverviewSourceTimeoutForTest = 50 * time.Millisecond
+	defer func() { *handler.OverviewSourceTimeoutForTest = restore }()
+
+	s.explorer.noteMixBlock = true
+
+	response := s.perform("/v1/admin/overview?window=24h")
+
+	s.Equal(consts.StatusOK, response.Code)
+	body := s.decode(response)
+	s.Empty(body.NoteMix, "a timed-out note mix source must degrade to an empty section")
+	s.NotEmpty(body.Series, "other sections must stay intact when note mix times out")
+}
+
 // overviewSessionAudit is a minimal SessionAuditQuery fake for the Overview
 // suite: only ListFindings matters to the endpoint, byLevel lets tests supply
 // distinct results per severity filter, and calls counts invocations so the

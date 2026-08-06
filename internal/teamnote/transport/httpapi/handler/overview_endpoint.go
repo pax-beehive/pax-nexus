@@ -32,6 +32,10 @@ var overviewWindowSpecs = map[string]overviewWindowSpec{
 	"7d":  {span: 7 * 24 * time.Hour, bucket: 24 * time.Hour},
 }
 
+// overviewSourceTimeout bounds each downstream read; a hung source degrades
+// (or, for Summary, fails the request) instead of stalling the aggregate.
+var overviewSourceTimeout = 5 * time.Second
+
 const (
 	overviewDefaultWindow   = "24h"
 	overviewExpiringWithin  = 24 * time.Hour
@@ -117,11 +121,15 @@ func (h *Handler) GetOverview(ctx context.Context, c *app.RequestContext) {
 	wg.Add(6)
 	go func() {
 		defer wg.Done()
-		summary, summaryErr = h.operations.Summary(ctx, principal, filter)
+		sctx, cancel := context.WithTimeout(ctx, overviewSourceTimeout)
+		defer cancel()
+		summary, summaryErr = h.operations.Summary(sctx, principal, filter)
 	}()
 	go func() {
 		defer wg.Done()
-		result, err := h.operations.Series(ctx, principal, filter, spec.bucket)
+		sctx, cancel := context.WithTimeout(ctx, overviewSourceTimeout)
+		defer cancel()
+		result, err := h.operations.Series(sctx, principal, filter, spec.bucket)
 		if err != nil {
 			h.logOverviewDegraded("overview series degraded", err)
 			return
@@ -133,21 +141,25 @@ func (h *Handler) GetOverview(ctx context.Context, c *app.RequestContext) {
 		if h.explorer == nil {
 			return
 		}
-		noteMix, notesExpiring = h.overviewNoteMixAndExpiring(ctx, principal, now)
+		sctx, cancel := context.WithTimeout(ctx, overviewSourceTimeout)
+		defer cancel()
+		noteMix, notesExpiring = h.overviewNoteMixAndExpiring(sctx, principal, now)
 	}()
 	go func() {
 		defer wg.Done()
 		if h.sessionAudit == nil {
 			return
 		}
-		high, err := h.sessionAudit.ListFindings(ctx, audit.FindingFilter{
+		sctx, cancel := context.WithTimeout(ctx, overviewSourceTimeout)
+		defer cancel()
+		high, err := h.sessionAudit.ListFindings(sctx, audit.FindingFilter{
 			ScopeID: principal.ScopeID, Severity: string(audit.LevelHigh), Limit: overviewFindingsLimit,
 		})
 		if err != nil {
 			h.logOverviewDegraded("overview findings degraded", err, "severity", "high")
 			return
 		}
-		critical, err := h.sessionAudit.ListFindings(ctx, audit.FindingFilter{
+		critical, err := h.sessionAudit.ListFindings(sctx, audit.FindingFilter{
 			ScopeID: principal.ScopeID, Severity: string(audit.LevelCritical), Limit: overviewFindingsLimit,
 		})
 		if err != nil {
@@ -161,7 +173,9 @@ func (h *Handler) GetOverview(ctx context.Context, c *app.RequestContext) {
 		if h.identity == nil {
 			return
 		}
-		result, err := h.identity.ListInvitations(ctx, principal, onprem.InvitationFilter{
+		sctx, cancel := context.WithTimeout(ctx, overviewSourceTimeout)
+		defer cancel()
+		result, err := h.identity.ListInvitations(sctx, principal, onprem.InvitationFilter{
 			Status: onprem.InvitationStatusPending, Limit: overviewInvitationLimit,
 		})
 		if err != nil {
@@ -175,7 +189,9 @@ func (h *Handler) GetOverview(ctx context.Context, c *app.RequestContext) {
 		if h.registry == nil {
 			return
 		}
-		result, err := h.registry.ListExpiringEnrollments(ctx, principal, expiringBefore, overviewEnrollmentLimit)
+		sctx, cancel := context.WithTimeout(ctx, overviewSourceTimeout)
+		defer cancel()
+		result, err := h.registry.ListExpiringEnrollments(sctx, principal, expiringBefore, overviewEnrollmentLimit)
 		if err != nil {
 			h.logOverviewDegraded("overview enrollments degraded", err)
 			return
