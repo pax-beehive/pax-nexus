@@ -1,14 +1,14 @@
 // Overview landing page (portal-modernist phase 2b): a team-scoped snapshot
-// -- five headline metrics, throughput, note mix, and who is writing -- each
-// block owning its own loading/ready/error state so a failing region never
-// unmounts an unrelated one (mirrors AdminOperationsPage.tsx). The metrics
-// row, throughput chart and note mix share the overview aggregate region;
-// "who is writing" polls a separate, independent region. Responses stay in
-// React memory only -- never written to the URL, localStorage, analytics or
-// the console. `.ov-bottom` renders empty placeholder sections here; Task 7
-// fills the attention queue and event feed.
+// -- five headline metrics, throughput, note mix, who is writing, an
+// attention queue and a held-events feed -- each block owning its own
+// loading/ready/error state so a failing region never unmounts an unrelated
+// one (mirrors AdminOperationsPage.tsx). The metrics row, throughput chart,
+// note mix and attention queue share the overview aggregate region; "who is
+// writing" and the events feed each poll their own independent region.
+// Responses stay in React memory only -- never written to the URL,
+// localStorage, analytics or the console.
 
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { apiError } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { RegionError } from "../components/RegionError";
@@ -17,7 +17,9 @@ import { Tag } from "../components/Tag";
 import { TIME_WINDOW_PRESETS, type TimeWindowPreset } from "../lib/operations";
 import { currentTeam } from "../lib/teams";
 import { useErrorHandler } from "../lib/useErrorHandler";
-import { useOverviewRegion, useWritersRegion } from "./overview/hooks";
+import { AttentionQueue } from "./overview/AttentionQueue";
+import { EventsFeed } from "./overview/EventsFeed";
+import { useFeedRegion, useOverviewRegion, useWritersRegion } from "./overview/hooks";
 import { MetricsRow } from "./overview/MetricsRow";
 import { NoteMixBlock } from "./overview/NoteMixBlock";
 import { ThroughputChart } from "./overview/ThroughputChart";
@@ -41,6 +43,9 @@ export function OverviewPage() {
   const [window, setWindow] = useState<TimeWindowPreset>("24h");
   const overview = useOverviewRegion(window, onAuthError);
   const writers = useWritersRegion(window, onAuthError);
+  const feedScrolledRef = useRef(false);
+  const feed = useFeedRegion(feedScrolledRef, onAuthError);
+  const agentNames = new Map((writers.data ?? []).map((a) => [a.agent_id, a.display_name]));
 
   const heading = (me ? currentTeam(me)?.name : undefined) ?? "Overview";
   const today = new Date().toLocaleDateString();
@@ -128,9 +133,33 @@ export function OverviewPage() {
       </div>
 
       <div className="ov-bottom">
-        {/* Task 7 fills these with the attention queue and the event feed. */}
-        <section className="ov-block" aria-label="Needs your attention" />
-        <section className="ov-block" aria-label="What just happened" />
+        <section className="ov-block" aria-label="Needs your attention">
+          {overview.status === "loading" && <p className="muted small">Loading…</p>}
+          {overview.status === "error" && (
+            <RegionError error={overview.error} onRetry={overview.retry} />
+          )}
+          {overview.status === "ready" && overview.data && (
+            <>
+              {overview.error && (
+                <div className="note warn">Auto-refresh failed; the attention queue may be stale.</div>
+              )}
+              <AttentionQueue items={overview.data.attention} />
+            </>
+          )}
+        </section>
+        <section className="ov-block" aria-label="What just happened">
+          <EventsFeed
+            status={feed.status}
+            error={feed.error}
+            onRetry={feed.retry}
+            items={feed.items}
+            freshIds={feed.freshIds}
+            pending={feed.pending}
+            onApplyPending={feed.applyPending}
+            agentNames={agentNames}
+            scrolledRef={feedScrolledRef}
+          />
+        </section>
       </div>
     </>
   );

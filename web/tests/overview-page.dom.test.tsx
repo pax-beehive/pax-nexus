@@ -1,12 +1,22 @@
 // Page-level DOM tests for the Overview landing page (portal-modernist phase
 // 2b): the five metric tiles, window-driven refetch, block-level region
 // isolation (a failing aggregate never unmounts the writers block), the
-// positive empty state for an empty note mix, and capability gating.
+// positive empty state for an empty note mix, capability gating, the
+// attention queue (rendering + CTA navigation + its own empty state), and
+// the held-events feed (scroll-hold mechanics ported from AdminPulsePage's
+// useFeedRegion, and its own region isolation from the rest of the page).
 
 import { describe, expect, it } from "vitest";
-import { screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { apiErrorResponse, callsTo, jsonResponse, makeMe, renderApp, setupDomTest } from "./helpers";
-import { makeOverview, renderOverviewPage } from "./operationsFixtures";
+import {
+  eventsPage,
+  makeEvent,
+  makeOverview,
+  opsMe,
+  operationsFetch,
+  renderOverviewPage,
+} from "./operationsFixtures";
 
 setupDomTest();
 
@@ -81,5 +91,98 @@ describe("OverviewPage", () => {
     });
 
     await screen.findByRole("heading", { name: "My Agents" });
+  });
+
+  it("renders attention items and navigates on the CTA", async () => {
+    const app = await renderApp({
+      route: "/overview",
+      me: opsMe(),
+      fetch: (path, init) => {
+        // The CTA below navigates to /governance/sessions; feed it a bare
+        // empty findings page so Session Audit's own default view settles
+        // instead of throwing on an unstubbed fetch.
+        if (path.startsWith("/v1/admin/session-audit/findings")) {
+          return jsonResponse({ findings: [] });
+        }
+        return operationsFetch()(path, init);
+      },
+    });
+    await screen.findByRole("heading", { name: "Overview" });
+
+    // makeOverview()'s default attention items: a high-severity finding
+    // (CTA "Review", target /governance/sessions) and a high-severity
+    // quarantine (CTA "Inspect").
+    const findingRow = screen.getByText("High-risk tool call without approval").closest("li");
+    expect(findingRow?.querySelector(".tag-attention")).toBeTruthy();
+    screen.getByText("finding:41");
+    screen.getByRole("button", { name: "Inspect" });
+
+    await app.user.click(screen.getByRole("button", { name: "Review" }));
+
+    await screen.findByRole("heading", { name: "Session Audit" });
+  });
+
+  // 7. attention 空 → 正向空态
+  it("shows the positive empty state when nothing needs attention", async () => {
+    await renderOverviewPage({
+      overview: () =>
+        jsonResponse(
+          makeOverview({ attention: [], metrics: { ...makeOverview().metrics, attention_count: 0 } }),
+        ),
+    });
+
+    screen.getByText("Nothing needs you right now");
+  });
+
+  it("holds new events while the reader has scrolled", async () => {
+    let pollCount = 0;
+    const app = await renderOverviewPage({
+      overview: () => makeOverview(),
+      events: () =>
+        jsonResponse(
+          pollCount++ === 0
+            ? eventsPage([makeEvent()])
+            : eventsPage([
+                makeEvent({ attempt_id: "op_new1", operation_kind: "extraction.run" }),
+                makeEvent(),
+              ]),
+        ),
+    });
+
+    // First poll: a single "Memory Search" event, no held banner.
+    await screen.findByText("Memory Search");
+    expect(screen.queryByText("Extraction")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Show" })).toBeNull();
+
+    // Reader scrolls the feed down...
+    const feedList = document.getElementById("overview-feed") as HTMLElement;
+    fireEvent.scroll(feedList, { target: { scrollTop: 100 } });
+
+    // ...then a poll cycle lands a new event (triggered here via the
+    // feed's own "Refresh" button rather than waiting out the 10s
+    // interval): the update is held behind a notice instead of shifting
+    // the list under the reader.
+    await app.user.click(screen.getByRole("button", { name: "Refresh event feed" }));
+
+    await screen.findByText("1 new events held while you read");
+    expect(screen.queryByText("Extraction")).toBeNull();
+
+    await app.user.click(screen.getByRole("button", { name: "Show" }));
+
+    await screen.findByText("Extraction");
+    expect(screen.queryByText("1 new events held while you read")).toBeNull();
+  });
+
+  it("isolates an events-feed failure", async () => {
+    await renderOverviewPage({
+      overview: () => makeOverview(),
+      events: () => apiErrorResponse(500, "internal", "boom"),
+    });
+
+    // The feed region shows its own error...
+    await screen.findByText("Server error; try again later");
+    // ...while the metrics region (a separate region entirely) stays intact.
+    screen.getByText("Evidence captured");
+    screen.getByText(String(makeOverview().metrics.attention_count));
   });
 });

@@ -25,3 +25,21 @@
   .ov-mid, .ov-bottom { grid-template-columns: 1fr; }
   .ov-block { border-right: 0; border-bottom: 1px solid var(--color-divider); }
 }
+
+/* Events feed (Task 7): ported from pulse.css's .pulse-feed* -- ids/classes
+   renamed since AdminPulsePage.tsx and pulse.css are removed in Task 8. */
+.ov-feed { list-style: none; margin: 0; padding: 0; max-height: 380px; overflow-y: auto; display: flex; flex-direction: column; }
+.ov-feed-item { display: flex; align-items: center; gap: 12px; padding: 7px 10px; border-bottom: 1px solid var(--color-divider); border-radius: 6px; }
+.ov-feed-item:last-child { border-bottom: none; }
+.ov-feed-item.new { animation: ov-feed-slide-in .35s ease, ov-feed-flash 1.6s ease-out; }
+@keyframes ov-feed-slide-in {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes ov-feed-flash {
+  0% { background: var(--color-accent-100); }
+  100% { background: transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ov-feed-item.new { animation: none; }
+}
