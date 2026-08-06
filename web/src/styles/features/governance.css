@@ -18,16 +18,31 @@
 
 /* Session audit: per-day bar chart (task 4). Bar height is data-driven
    (event_count / max) via inline style, not a spacing utility — see
-   SessionDays.tsx. --color-accent is the two-color system's "needs
-   attention / primary action" role; arcade inverts it to ink so buttons
-   stay visible against the red page background, which means these bars go
-   ink-on-red under arcade too. That's the same trade the buttons already
-   make, so it's left as-is pending task 8's three-theme pass rather than
-   reached for a bespoke "always red" token that the palette doesn't have. */
+   SessionDays.tsx.
+   Task 8 three-theme measurement: the bar sits inside .card
+   (--color-surface), not directly on the page background, so it needs to
+   stay legible against whichever surface color the current theme picks —
+   --color-chart-bar (tokens.css) does that; see themes.css for why arcade
+   needs its own literal value. Same story for --color-label-accent below,
+   which replaces the old direct --color-accent-700 reference on
+   .gv-day-high. */
 .gv-days { display: grid; gap: var(--space-4); align-items: end; height: 200px; border-bottom: 2px solid var(--color-divider); }
 .gv-day-col { display: flex; flex-direction: column; justify-content: flex-end; height: 100%; gap: var(--space-2); }
-.gv-day-bar { background: var(--color-accent); min-height: 2px; }
+.gv-day-bar { background: var(--color-chart-bar); min-height: 2px; }
 .gv-day-count { font-family: var(--font-heading); font-weight: var(--font-heading-weight); font-size: 12px; font-variant-numeric: tabular-nums; }
 .gv-day-labels { display: grid; gap: var(--space-4); padding-top: var(--space-3); }
 .gv-day-date { font-family: var(--font-heading); font-weight: var(--font-heading-weight); font-size: 13px; }
-.gv-day-high { font-size: 11px; color: var(--color-accent-700); }
+.gv-day-high { font-size: 11px; color: var(--color-label-accent); }
+
+/* arcade 的次要文字用 opacity 淡化白字，压在饱和红底/深红卡片上普遍不过
+   WCAG AA（同根因见 access-tree.css 的 .at-bar-hint 等）。task 8 三主题实测
+   （真实编译 CSS + Chrome）：.gv-head p 2.95:1、.gv-audit-time 2.58:1、
+   .gv-audit-target 2.34:1、.gv-finding-summary 3.53:1、.gv-finding-ref
+   2.13:1，全部只在 arcade 下取消淡化，beige/dark 的规则与观感不变。 */
+[data-theme="arcade"] .gv-head p,
+[data-theme="arcade"] .gv-audit-time,
+[data-theme="arcade"] .gv-audit-target,
+[data-theme="arcade"] .gv-finding-summary,
+[data-theme="arcade"] .gv-finding-ref {
+  opacity: 1;
+}
