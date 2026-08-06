@@ -1,0 +1,18 @@
+/* Management 访问树：汇总条、面包屑条、三层的行。 */
+.at-summary { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 2px solid var(--color-divider); border-bottom: 2px solid var(--color-divider); }
+
+.at-bar { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--color-divider); }
+.at-bar-hint { margin-left: auto; font-size: 11px; opacity: 0.5; }
+
+.at-row { display: grid; gap: var(--space-3); align-items: center; width: 100%; text-align: left; background: transparent; border: 0; border-bottom: 1px solid var(--color-divider); padding: var(--space-3) var(--space-4); cursor: pointer; font-family: var(--font-body); color: inherit; }
+.at-row:hover { background: color-mix(in srgb, var(--color-text) 5%, transparent); }
+.at-row-name { font-family: var(--font-heading); font-weight: var(--font-heading-weight); font-size: 16px; }
+.at-row-go { opacity: 0.35; text-align: right; }
+
+.at-people { grid-template-columns: minmax(220px, 1fr) minmax(200px, 1fr) 110px 110px 24px; }
+.at-machines { grid-template-columns: minmax(220px, 1fr) 120px 110px minmax(140px, 1fr) auto 24px; }
+.at-agents { grid-template-columns: minmax(240px, 1fr) 120px 120px minmax(140px, 1fr) 24px; }
+
+.at-head { display: grid; grid-template-columns: 1fr auto; gap: var(--space-4); align-items: center; padding: var(--space-3) var(--space-4); border-bottom: 2px solid var(--color-divider); background: color-mix(in srgb, var(--color-text) 5%, transparent); }
+
+.at-group-note { padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--color-divider); font-size: 12px; opacity: 0.65; }
