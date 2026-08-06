@@ -1,5 +1,23 @@
 /* Governance 四屏。 */
 
+/* M7 (final-fix wave): a handful of spots across the four screens mark up
+   spec-mandated content — not optional secondary text — with the shared
+   `.faint` utility (color-mix 40%): AuditRow.tsx's resolved-name-then-
+   raw-ID parenthetical (design §2.1: "原始标识符...不允许只显示名字") and
+   AdminExplorerPage.tsx's note_id·rev·state line + audience/expiry row
+   (§3.2's note-head identity fields). Corrected three-theme measurement
+   (the verification page's original alpha-compositing had a bug — see the
+   final-fix report's M7 section) puts `.faint` at 2.38:1 beige / 3.32:1
+   dark / 1.94:1 arcade at these spots, none passing AA; `.muted`
+   (color-mix 55%) isn't much better (3.65:1 beige). Rather than touch
+   `.faint`/`.muted` themselves (shared, used all over the app for
+   genuinely optional text — out of scope here) or invent a new fade
+   percentage, this drops the fade entirely for just these spots: all three
+   sit inside a `.card`, where full-strength text already measures well
+   into AA on every theme, and font-size (`.small`) still carries the
+   visual de-emphasis the fade used to. */
+.gv-id-ref { color: var(--color-text); }
+
 .gv-head { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--space-6); padding: var(--space-6) var(--space-4) var(--space-4); }
 .gv-head p { font-size: 14px; opacity: 0.7; max-width: 74ch; margin: var(--space-2) 0 0; }
 
