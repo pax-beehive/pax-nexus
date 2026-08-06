@@ -19,6 +19,7 @@ import type {
   TeamSummary,
 } from "./types";
 import type { AgentScope } from "./actions";
+import { deriveCredentialStatus } from "../lib/credentials";
 
 export interface ListParams {
   cursor?: string;
@@ -89,6 +90,58 @@ export async function listCredentials(
     `${agentBase(scope, agentId)}/credentials${query({ status: params.status, limit: params.limit, cursor: params.cursor })}`,
   );
   return { items: res.credentials, nextCursor: res.next_cursor };
+}
+
+/**
+ * 取全部 pending Enrollment。翻页守卫与 listAllMembers 同构：
+ * 服务端返回重复游标时抛错，绝不无限翻页。
+ */
+export async function listAllEnrollments(
+  scope: AgentScope,
+  agentId: string,
+  status: string,
+): Promise<EnrollmentMetadata[]> {
+  const items: EnrollmentMetadata[] = [];
+  const seenCursors = new Set<string>();
+  let cursor: string | undefined;
+  do {
+    const page = await listEnrollments(scope, agentId, { status, cursor });
+    items.push(...page.items);
+    cursor = page.nextCursor;
+    if (cursor && seenCursors.has(cursor)) {
+      throw new Error("Enrollment pagination returned a repeated cursor");
+    }
+    if (cursor) seenCursors.add(cursor);
+  } while (cursor);
+  return items;
+}
+
+/**
+ * 取全部活跃 Credential。credential 没有服务端 status 字段
+ * （见 lib/credentials.ts），status=active 是服务端过滤；这里再用
+ * deriveCredentialStatus 过一遍，因为返回值会作为销毁确认框里的计数，
+ * 宁可少算不可多算。
+ */
+export async function listAllCredentials(
+  scope: AgentScope,
+  agentId: string,
+  status: string,
+): Promise<CredentialMetadata[]> {
+  const items: CredentialMetadata[] = [];
+  const seenCursors = new Set<string>();
+  let cursor: string | undefined;
+  do {
+    const page = await listCredentials(scope, agentId, { status, cursor });
+    items.push(...page.items);
+    cursor = page.nextCursor;
+    if (cursor && seenCursors.has(cursor)) {
+      throw new Error("Credential pagination returned a repeated cursor");
+    }
+    if (cursor) seenCursors.add(cursor);
+  } while (cursor);
+  return status === "active"
+    ? items.filter((c) => deriveCredentialStatus(c) === "active")
+    : items;
 }
 
 // ---- Admin: members / invitations / agents / audit ----
