@@ -23,8 +23,11 @@ setupDomTest();
 describe("Pipeline metrics: six cells read from the correct fields", () => {
   it("六格各自取自正确的字段", async () => {
     // Six mutually distinct numbers -- a swapped field mapping must fail at
-    // least one of these assertions.
+    // least one of these assertions. `errors` is a seventh, also distinct,
+    // number: it doesn't get its own cell, but it must show up in "失败"'s
+    // subtitle (see the assertion below).
     const summary = makeSummary({
+      errors: 8,
       extraction: {
         runs: 20,
         completed: 15,
@@ -65,6 +68,12 @@ describe("Pipeline metrics: six cells read from the correct fields", () => {
     // is 601s, which floors to 10 minutes -- swapping the time source for
     // Date.now() would make this assertion fail (or flake).
     expect(pipelineMetric("排队中").sub).toBe("最老的未抽取事件：10 分钟前");
+    // summary.errors (a broader, cross-operation error count than the
+    // headline extraction.failed number) has no cell of its own -- it must
+    // still show up in "失败"'s subtitle, not silently vanish. Not pinning
+    // the exact wording (it may be edited later), just that the field's
+    // value actually reaches the DOM.
+    expect(pipelineMetric("失败").sub).toContain("8");
   });
 });
 
