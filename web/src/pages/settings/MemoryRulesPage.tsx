@@ -59,9 +59,13 @@ export function MemoryRulesPage({ me }: { me: HumanMe }) {
   const [settingsBusy, setSettingsBusy] = useState(false);
   const [settingsMessage, setSettingsMessage] = useState("");
 
-  // Legacy deep links: /wiki?page=<slug> used to render the wiki inline
-  // here, and the /wiki legacy route still lands on /settings/memory.
-  // Forward the whole query string so revision links keep working.
+  // Stray deep link, not the /wiki legacy chain: resolveLegacy() already
+  // rewrites /wiki(/browse)?page=<slug> to /apps/wiki/<slug> at the router
+  // layer (legacyRoutes.ts), so this component never mounts for that case.
+  // What this guards is someone landing on /settings/memory?page=<slug>
+  // directly — a bookmark or shared link built against this URL rather than
+  // the old /wiki one. Forward the whole query string so revision links
+  // keep working.
   const legacyPage = new URLSearchParams(location.search).get("page");
   useEffect(() => {
     if (legacyPage) {
