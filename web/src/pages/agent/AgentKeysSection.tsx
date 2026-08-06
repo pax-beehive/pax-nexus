@@ -3,7 +3,8 @@
 //
 // `keys` 由调用方通过 useAgentKeys(scope, agentId) 取得并作为 prop 传入——
 // 本组件自己不发起初始取数请求，只在三处主动发请求：吊销 / 取消（走
-// access.actScope）、历史翻页（走 access.readScope，懒加载）、发放接入令牌
+// access.actScope）、历史翻页（懒加载，同样走 access.actScope——见下方
+// EnrollmentHistory/CredentialHistory 调用点的注释）、发放接入令牌
 // （IssueAccessModal 内部固定走 me scope，因为发放端点没有 admin 对应物）。
 //
 // 权限判断全部来自 access（agentScope.ts 的单一真源），组件内不出现
@@ -85,7 +86,9 @@ function EnrollmentHistory({ scope, agentId }: { scope: AgentScope; agentId: str
 
   if (list.loading) return <p className="small muted">加载中…</p>;
   if (list.error) return <RegionError error={list.error} onRetry={list.reload} />;
-  if (list.items.length === 0) return <p className="small muted">还没有历史记录。</p>;
+  if (list.items.length === 0) {
+    return <EmptyState title="还没有历史记录" body="取消过的令牌和已认领的记录会出现在这里。" />;
+  }
 
   return (
     <div>
@@ -196,7 +199,12 @@ function EnrollmentCard({
           {showHistory ? "隐藏令牌历史" : "显示令牌历史"}
         </Button>
       </div>
-      {showHistory && <EnrollmentHistory scope={access.readScope} agentId={agent.agent_id} />}
+      {/* enrollments/credentials 整域按「这个 Agent 是不是你的」定 scope，
+          不是按查看者的全局权限——历史区必须和实时区（keys.enrollments，
+          调用方用 access.actScope 取的）同源，否则同一张卡的两个区域会
+          悄悄走两条不同的鉴权路径。不要为了「历史是读操作」的直觉改回
+          access.readScope。 */}
+      {showHistory && <EnrollmentHistory scope={access.actScope} agentId={agent.agent_id} />}
 
       {cancelling && (
         <ConfirmDialog
@@ -266,7 +274,9 @@ function CredentialHistory({ scope, agentId }: { scope: AgentScope; agentId: str
 
   if (list.loading) return <p className="small muted">加载中…</p>;
   if (list.error) return <RegionError error={list.error} onRetry={list.reload} />;
-  if (list.items.length === 0) return <p className="small muted">还没有历史记录。</p>;
+  if (list.items.length === 0) {
+    return <EmptyState title="还没有历史记录" body="吊销过的密钥会出现在这里。" />;
+  }
 
   return (
     <div>
@@ -363,7 +373,9 @@ function CredentialCard({
           {showHistory ? "隐藏密钥历史" : "显示密钥历史"}
         </Button>
       </div>
-      {showHistory && <CredentialHistory scope={access.readScope} agentId={agent.agent_id} />}
+      {/* 同上（见 EnrollmentHistory 调用点注释）：历史区跟实时区
+          （keys.credentials）同源，用 access.actScope，不用 access.readScope。 */}
+      {showHistory && <CredentialHistory scope={access.actScope} agentId={agent.agent_id} />}
 
       {revoking && (
         <ConfirmDialog
