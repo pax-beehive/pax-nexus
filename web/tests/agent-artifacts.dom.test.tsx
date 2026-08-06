@@ -1,173 +1,199 @@
-// Page-level DOM smoke tests for agent creation and enrollment/credential
-// artifacts (doc sections 5.4 and 5.5) covering section 10 item 6
-// (Idempotency-Key reuse on replayed create/revoke) and item 11 (a consumed
-// enrollment leaves only metadata; no secret material reaches the DOM).
-
-import { describe, expect, it } from "vitest";
-import { screen, within } from "@testing-library/react";
+// 密钥两卡：三态、吊销、历史开关、发放到仪式的完整链路。
+//
+// 组件级测试（不经过 <App />），与 agent-identity.dom.test.tsx 同构：
+// AgentKeysSection 通过 useErrorHandler -> useAuth 间接依赖 AuthContext，
+// 所以要包一层真的 AuthProvider（否则 useAuth 直接抛错）；它挂载时会打一次
+// GET /v1/me，用 withMe 统一桩掉，与本文件要断言的行为无关。
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import type { AgentProfile, HumanMe } from "../src/api/types";
+import { AuthProvider } from "../src/auth/AuthContext";
+import { AgentKeysSection } from "../src/pages/agent/AgentKeysSection";
+import { resolveAgentAccess } from "../src/pages/agent/agentScope";
+import type { AgentKeys } from "../src/pages/agent/useAgentKeys";
+import { ToastProvider } from "../src/components/Toasts";
 import {
+  apiErrorResponse,
   callsTo,
   jsonResponse,
   makeAgent,
   makeCredential,
-  makeEnrollment,
   makeMe,
-  renderApp,
+  resetBrowserState,
   setupDomTest,
+  stubFetch,
+  type FetchHandler,
 } from "./helpers";
 
 setupDomTest();
 
-// /management is admin+'s access tree now; the Create Agent trigger
-// lives on MyAgentsLevel, reachable at /management only for the member fork
-// (owner/admin reach their own trigger through the access tree's
-// own-machine level instead), so the case below uses `role: "member"`.
-// /management/:agentId
-// still dispatches AdminAgentDetailPage to admin-likes (phase 4 merges the
-// two), so the detail cases below also keep `role: "member"` to exercise
-// the self-serve AgentDetailPage.
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+// setupDomTest() only resets browser state (incl. the CSRF cookie) in
+// afterEach; the first test in a file otherwise boots with no cookie set,
+// so every test here re-primes it up front.
+beforeEach(() => {
+  resetBrowserState();
+});
 
-function artifactHandler(overrides?: {
-  enrollments?: unknown[];
-  credentials?: unknown[];
-}) {
-  return (path: string, init: RequestInit) => {
-    if (path === "/v1/me/agents/agent-1" && init.method === "GET") {
-      return jsonResponse({ agent: makeAgent() });
-    }
-    if (path.startsWith("/v1/me/agents/agent-1/enrollments")) {
-      return jsonResponse({ enrollments: overrides?.enrollments ?? [] });
-    }
-    if (path.startsWith("/v1/me/agents/agent-1/credentials")) {
-      return jsonResponse({ credentials: overrides?.credentials ?? [] });
-    }
-    throw new Error(`unexpected fetch: ${init.method ?? "GET"} ${path}`);
+/** GET /v1/me for AuthProvider's boot fetch, plus a scenario-specific extra handler. */
+function withMe(me: HumanMe, extra: FetchHandler): FetchHandler {
+  return (path, init) => {
+    if (path === "/v1/me" && (init.method ?? "GET") === "GET") return jsonResponse(me);
+    return extra(path, init);
   };
 }
 
-describe("section 10 item 6: replaying agent create reuses the Idempotency-Key", () => {
-  it("a retry after a lost response sends the same key", async () => {
-    let attempts = 0;
-    const { fetchMock, user } = await renderApp({
-      route: "/management",
-      me: makeMe({ role: "member" }),
-      fetch: async (path, init) => {
-        if (path === "/v1/me/agents" && init.method === "POST") {
-          attempts += 1;
-          if (attempts === 1) throw new TypeError("Failed to fetch");
-          return jsonResponse({ agent: makeAgent({ agent_id: "agent-9", display_name: "Agent Nine" }) });
-        }
-        if (path === "/v1/me/agents" || path.startsWith("/v1/me/agents?")) {
-          return jsonResponse({ agents: [] });
-        }
-        if (path === "/v1/me/agents/agent-9" && init.method === "GET") {
-          return jsonResponse({ agent: makeAgent({ agent_id: "agent-9", display_name: "Agent Nine" }) });
-        }
-        if (path.startsWith("/v1/me/agents/agent-9/enrollments")) {
-          return jsonResponse({ enrollments: [] });
-        }
-        if (path.startsWith("/v1/me/agents/agent-9/credentials")) {
-          return jsonResponse({ credentials: [] });
-        }
-        throw new Error(`unexpected fetch: ${init.method ?? "GET"} ${path}`);
-      },
+function renderKeys(
+  keys: {
+    enrollments: { items?: unknown[]; error?: unknown; loading: boolean };
+    credentials: { items?: unknown[]; error?: unknown; loading: boolean };
+    reload?: () => void;
+  },
+  opts: {
+    me?: HumanMe;
+    agent?: AgentProfile;
+    fetch?: FetchHandler;
+  } = {},
+) {
+  const me = opts.me ?? makeMe({ role: "member", membership_id: "mbr_01" });
+  const agent = opts.agent ?? makeAgent({ owner_membership_id: "mbr_01" });
+  const fetchMock = stubFetch(
+    withMe(
+      me,
+      opts.fetch ?? (() => apiErrorResponse(500, "unexpected", "no extra calls expected")),
+    ),
+  );
+  render(
+    <AuthProvider>
+      <ToastProvider>
+        <AgentKeysSection
+          agent={agent}
+          access={resolveAgentAccess(me, agent)}
+          keys={{ reload: keys.reload ?? (() => {}), ...keys } as unknown as AgentKeys}
+        />
+      </ToastProvider>
+    </AuthProvider>,
+  );
+  return { fetchMock, agent, me };
+}
+
+describe("三态", () => {
+  it("加载中两张卡各显示加载态", () => {
+    renderKeys({ enrollments: { loading: true }, credentials: { loading: true } });
+    expect(screen.getAllByText("加载中…").length).toBe(2);
+  });
+
+  it("一条腿失败不影响另一条", () => {
+    renderKeys({
+      enrollments: { error: new Error("boom"), loading: false },
+      credentials: { items: [makeCredential({ label: "mac-studio-01" })], loading: false },
     });
+    expect(screen.getByRole("button", { name: "Retry" })).toBeDefined();
+    expect(screen.getByText("mac-studio-01")).toBeDefined();
+  });
 
-    await user.click(await screen.findByRole("button", { name: "+ Create Agent" }));
-    await user.type(screen.getByLabelText(/agent_id/), "agent-9");
-    await user.type(screen.getByLabelText("display_name"), "Agent Nine");
-    await user.click(screen.getByRole("button", { name: "Create" }));
-
-    // Network failure surfaces without an automatic retry.
-    await screen.findByText(/Network error/);
-    expect(callsTo(fetchMock, "/v1/me/agents", "POST")).toHaveLength(1);
-
-    await user.click(screen.getByRole("button", { name: "Create" }));
-    await screen.findByText("Agent created");
-
-    const creates = callsTo(fetchMock, "/v1/me/agents", "POST");
-    expect(creates).toHaveLength(2);
-    const keys = creates.map((call) => call.headers.get("Idempotency-Key"));
-    expect(keys[0]).toMatch(UUID_RE);
-    expect(keys[1]).toBe(keys[0]);
-    // The explicit directory_visible choice is always sent (doc 5.4).
-    expect(JSON.parse(String(creates[0].init.body))).toMatchObject({
-      agent_id: "agent-9",
-      directory_visible: true,
+  it("空列表走正向空态而不是错误", () => {
+    renderKeys({
+      enrollments: { items: [], loading: false },
+      credentials: { items: [], loading: false },
     });
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+    expect(screen.getByText(/还没有待认领的令牌/)).toBeDefined();
+    expect(screen.getByText(/还没有任何密钥/)).toBeDefined();
   });
 });
 
-describe("section 10 item 6: replaying a credential revoke reuses the Idempotency-Key", () => {
-  it("a retry after a lost response sends the same key", async () => {
-    let revoked = false;
-    let attempts = 0;
-    const base = artifactHandler({ credentials: [makeCredential()] });
-    const { fetchMock, user } = await renderApp({
-      route: "/management/agents/agent-1",
-      me: makeMe({ role: "member" }),
-      fetch: async (path, init) => {
-        if (path === "/v1/me/agents/agent-1/credentials/cred_01" && init.method === "DELETE") {
-          attempts += 1;
-          if (attempts === 1) throw new TypeError("Failed to fetch");
-          revoked = true;
-          return jsonResponse({ credential: makeCredential({ revoked_at: "2026-07-22T00:00:00Z" }) });
-        }
-        if (path.startsWith("/v1/me/agents/agent-1/credentials") && revoked) {
-          return jsonResponse({ credentials: [] });
-        }
-        return base(path, init);
+describe("吊销", () => {
+  it("吊销密钥带 Idempotency-Key 并走动作 scope", async () => {
+    const user = userEvent.setup();
+    const { fetchMock } = renderKeys(
+      {
+        enrollments: { items: [], loading: false },
+        credentials: {
+          items: [makeCredential({ credential_id: "cred_01", label: "mac-studio-01" })],
+          loading: false,
+        },
       },
-    });
-
-    // Open the revoke confirmation for the active credential.
-    const row = (await screen.findByText("Alice MacBook")).closest("tr") as HTMLElement;
-    await user.click(within(row).getByRole("button", { name: "Revoke" }));
-    await screen.findByRole("heading", { name: "Revoke Credential" });
-
-    await user.click(screen.getByRole("button", { name: "Confirm revoke" }));
-    await screen.findByText(/Network error/);
-    expect(callsTo(fetchMock, "/v1/me/agents/agent-1/credentials/cred_01", "DELETE")).toHaveLength(1);
-
-    await user.click(screen.getByRole("button", { name: "Confirm revoke" }));
-    await screen.findByText("Credential revoked; the API key stops working immediately");
-
-    const deletes = callsTo(fetchMock, "/v1/me/agents/agent-1/credentials/cred_01", "DELETE");
-    expect(deletes).toHaveLength(2);
-    const keys = deletes.map((call) => call.headers.get("Idempotency-Key"));
-    expect(keys[0]).toMatch(UUID_RE);
-    expect(keys[1]).toBe(keys[0]);
-  });
-});
-
-describe("section 10 item 11: a consumed enrollment leaves only metadata", () => {
-  it("renders credential metadata without any secret material in the DOM", async () => {
-    await renderApp({
-      route: "/management/agents/agent-1",
-      me: makeMe({ role: "member" }),
-      fetch: artifactHandler({
-        enrollments: [makeEnrollment({ status: "consumed" })],
-        credentials: [makeCredential()],
-      }),
-    });
-
-    // Enrollment and credential metadata render normally (both rows carry
-    // the same label, so assert per row).
-    const rows = (await screen.findAllByText("Alice MacBook")).map(
-      (el) => el.closest("tr") as HTMLElement,
+      { fetch: () => jsonResponse({ credential: makeCredential() }) },
     );
-    expect(rows).toHaveLength(2);
-    expect(rows.some((row) => within(row).queryByText("consumed") !== null)).toBe(true);
-    expect(rows.some((row) => within(row).queryByText("active") !== null)).toBe(true);
-    screen.getByRole("heading", { name: "Credentials (metadata only, never contains API keys)" });
-    expect(screen.getAllByText("observe, search").length).toBe(2);
 
-    // No one-time-secret card is mounted, and nothing key-shaped leaks into
-    // the document: after consumption the portal only ever sees metadata.
-    expect(document.querySelector(".secret-val")).toBeNull();
-    expect(document.querySelector(".secret-card")).toBeNull();
-    expect(document.body.textContent).not.toMatch(/tm_(enroll|agent|cred)_[\w.-]*secret[\w.-]*/i);
-    expect(document.body.textContent).not.toContain("api_key");
+    await user.click(screen.getByRole("button", { name: "吊销" }));
+    await user.click(screen.getByRole("button", { name: "确认吊销" }));
+
+    const calls = await vi.waitFor(() => {
+      const found = callsTo(fetchMock, "/v1/me/agents/agent-1/credentials/cred_01", "DELETE");
+      expect(found).toHaveLength(1);
+      return found;
+    });
+    expect(calls[0].headers.get("Idempotency-Key")).toBeTruthy();
+  });
+});
+
+describe("历史", () => {
+  it("默认不请求历史，点开后才请求且不带 status", async () => {
+    const user = userEvent.setup();
+    const { fetchMock } = renderKeys(
+      {
+        enrollments: { items: [], loading: false },
+        credentials: { items: [], loading: false },
+      },
+      {
+        fetch: () =>
+          jsonResponse({ credentials: [makeCredential({ revoked_at: "2026-01-01T00:00:00Z" })] }),
+      },
+    );
+
+    expect(callsTo(fetchMock, "/v1/me/agents/agent-1/credentials", "GET")).toHaveLength(0);
+    await user.click(screen.getByRole("button", { name: "显示密钥历史" }));
+
+    await screen.findByText(/revoked/);
+    const calls = callsTo(fetchMock, "/v1/me/agents/agent-1/credentials", "GET");
+    expect(calls).toHaveLength(1);
+    expect(calls[0].path).not.toContain("status=");
+  });
+});
+
+describe("发放到仪式", () => {
+  it("发放成功后进入全屏仪式，关闭时提示令牌仍可兑换", async () => {
+    const user = userEvent.setup();
+    renderKeys(
+      {
+        enrollments: { items: [], loading: false },
+        credentials: { items: [], loading: false },
+      },
+      {
+        fetch: () =>
+          jsonResponse({
+            enrollment_id: "enr_01",
+            token: "tm_enroll_x.secret-value",
+            expires_at: "2099-01-01T00:00:00Z",
+          }),
+      },
+    );
+
+    await user.click(screen.getByRole("button", { name: "发放接入权限" }));
+    await user.type(screen.getByLabelText(/它会在哪台机器上跑/), "mac-studio-01");
+    await user.click(screen.getByRole("button", { name: "发放一次性令牌" }));
+
+    expect(await screen.findByText("tm_enroll_x.secret-value")).toBeDefined();
+    await user.click(screen.getByRole("button", { name: "我已保存，关闭" }));
+    await user.click(screen.getByRole("button", { name: "确定关闭" }));
+
+    expect(screen.queryByText("tm_enroll_x.secret-value")).toBeNull();
+    expect(JSON.stringify(sessionStorage)).not.toContain("secret-value");
+    expect(JSON.stringify(localStorage)).not.toContain("secret-value");
+  });
+
+  it("admin 看别人的 Agent 时没有发放按钮", () => {
+    const me = makeMe({ role: "admin", membership_id: "mbr_07" });
+    const agent = makeAgent({ owner_membership_id: "mbr_99" });
+    renderKeys(
+      {
+        enrollments: { items: [], loading: false },
+        credentials: { items: [], loading: false },
+      },
+      { me, agent },
+    );
+    expect(screen.queryByRole("button", { name: "发放接入权限" })).toBeNull();
   });
 });

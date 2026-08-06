@@ -34,3 +34,8 @@
 .ag-action-name { font-family: var(--font-heading); font-weight: var(--font-heading-weight); font-size: 14px; }
 .ag-action-why { font-size: 12px; opacity: 0.65; }
 .ag-actions { display: grid; gap: var(--space-2); }
+
+/* 密钥两卡：待认领令牌行 + 密钥历史/正卡通用小字。 */
+.ag-keys-note { margin-left: auto; font-size: 11px; opacity: 0.5; }
+.ag-enrollment { display: grid; grid-template-columns: 1fr auto auto; gap: var(--space-4); align-items: center; border-top: 1px solid var(--color-divider); padding: var(--space-3) 0; }
+.ag-enrollment-id { font-family: var(--font-mono); font-size: 11px; opacity: 0.45; }
