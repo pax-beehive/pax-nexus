@@ -18,6 +18,7 @@ import { Tag } from "../components/Tag";
 import { formatTime } from "../lib/format";
 import { useErrorHandler } from "../lib/useErrorHandler";
 import { NoteList } from "./governance/NoteList";
+import { noteKindLabel } from "./governance/noteKind";
 import { NoteProvenance } from "./governance/NoteProvenance";
 import { NoteRecalls } from "./governance/NoteRecalls";
 
@@ -26,27 +27,75 @@ type DetailState =
   | { status: "ready"; detail: TeamNoteDetail }
   | { status: "error" };
 
+// spec §3.2 第 1 条：笔记头必须能看到 subject、写它的 Agent、受众、有效期、
+// note_id · rev N · state。后四项都是「这条事实的权限边界与身份」，缺一项
+// 都会让人凭直觉猜错——例如受众缺失时容易误以为是全团队广播。
 function NoteHead({ detail }: { detail: TeamNoteDetail }) {
   const summary = detail.note.summary;
+  const audience =
+    summary.audience_agent_ids.length === 0
+      ? "不限（全团队可见）"
+      : summary.audience_agent_ids.join("、");
   return (
     <section className="card">
       <div className="row wrap">
-        <Tag tone="outline">{summary.kind}</Tag>
+        <Tag tone="outline">{noteKindLabel(summary.kind)}</Tag>
         <Badge status={summary.state} />
-        <code className="small faint">{summary.note_id}</code>
       </div>
       <h2>{summary.subject}</h2>
+      <code className="small faint">
+        {summary.note_id} · rev {summary.revision} · {summary.state}
+      </code>
       <p className="gv-note-head-body">{detail.note.body}</p>
       <div className="row wrap small faint">
         <span>
           来自 <code>{summary.origin_agent_id}</code> · session{" "}
           <code>{detail.note.origin_session_id}</code>
         </span>
+        <span>受众 {audience}</span>
         <span>创建于 {formatTime(summary.created_at)}</span>
         <span>更新于 {formatTime(summary.updated_at)}</span>
         <span>软过期 {formatTime(summary.soft_expires_at)}</span>
         <span>硬过期 {formatTime(summary.hard_expires_at)}</span>
       </div>
+    </section>
+  );
+}
+
+// 笔记之间唯一的横向跳转手段：related_notes 链到另一条 Explorer 详情，
+// related_subjects 是主题 chips。两者都是「顺着链条走」这一屏的题中之义，
+// 旧详情页的 Relations 块被静默弄丢过一次，这里补回来。
+function NoteRelations({ detail }: { detail: TeamNoteDetail }) {
+  const subjects = detail.note.related_subjects;
+  const notes = detail.related_notes;
+  const hasAny = subjects.length > 0 || notes.length > 0;
+  return (
+    <section className="card">
+      <h2>相关的事实</h2>
+      {!hasAny ? (
+        <p className="muted small">没有关联的主题或笔记。</p>
+      ) : (
+        <>
+          {subjects.length > 0 && (
+            <div className="chips">
+              {subjects.map((subject) => (
+                <code key={subject}>{subject}</code>
+              ))}
+            </div>
+          )}
+          {notes.length > 0 && (
+            <ul className="gv-related-list">
+              {notes.map((related) => (
+                <li key={related.note_id}>
+                  <Link to={`/governance/memory/${encodeURIComponent(related.note_id)}`}>
+                    {related.subject}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
     </section>
   );
 }
@@ -78,6 +127,7 @@ function NoteDetail({ noteId }: { noteId: string }) {
   return (
     <>
       <NoteHead detail={state.detail} />
+      <NoteRelations detail={state.detail} />
       <NoteProvenance detail={state.detail} />
       <NoteRecalls recalls={state.detail.recall_observations} />
     </>

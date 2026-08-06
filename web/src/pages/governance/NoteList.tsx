@@ -5,14 +5,19 @@
 // `agent` 这个 query 参数是从 AgentHeader.tsx（「查看它的记忆」链接）带过来的
 // 深链，不能丢：web/tests/agent-deeplink.dom.test.tsx 钉住了它必须进筛选框、
 // 也必须进首次请求。
+//
+// Kind 是有界枚举（5 个值，见 noteKind.ts），用 <select> 而不是第二个 <Seg>
+// ——6 档 Seg 在 340px 的窄栏里塞不下；State 只有 4 档，Seg 塞得下。
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { listTeamNotes } from "../../api/queries";
 import { Badge } from "../../components/Badge";
 import { Button } from "../../components/Button";
 import { Seg } from "../../components/Seg";
+import { Tag } from "../../components/Tag";
 import { useErrorHandler } from "../../lib/useErrorHandler";
 import { usePagedList } from "../../lib/usePagedList";
+import { NOTE_KIND_OPTIONS, noteKindLabel, type NoteKindFilter } from "./noteKind";
 
 type StateFilter = "" | "active" | "resolved" | "expired";
 
@@ -29,18 +34,20 @@ export function NoteList({ activeNoteId }: { activeNoteId?: string }) {
   const [queryInput, setQueryInput] = useState("");
   const [query, setQuery] = useState("");
   const [agentId, setAgentId] = useState(searchParams.get("agent") ?? "");
+  const [kind, setKind] = useState<NoteKindFilter>("");
   const [state, setState] = useState<StateFilter>("");
 
   const notes = usePagedList(
     (cursor) =>
       listTeamNotes({
         q: query || undefined,
+        kind: kind || undefined,
         state: state || undefined,
         agent_id: agentId || undefined,
         limit: 50,
         cursor,
       }),
-    [query, state, agentId],
+    [query, kind, state, agentId],
   );
 
   useEffect(() => {
@@ -66,6 +73,17 @@ export function NoteList({ activeNoteId }: { activeNoteId?: string }) {
           value={agentId}
           onChange={(event) => setAgentId(event.target.value.trim())}
         />
+        <select
+          aria-label="按类型筛选"
+          value={kind}
+          onChange={(event) => setKind(event.target.value as NoteKindFilter)}
+        >
+          {NOTE_KIND_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
         <Seg label="按状态筛选" options={STATE_OPTIONS} value={state} onChange={setState} />
       </div>
       {notes.loading ? (
@@ -91,7 +109,10 @@ export function NoteList({ activeNoteId }: { activeNoteId?: string }) {
               <div className="small mono faint">
                 {note.note_id} · revision {note.revision}
               </div>
-              <Badge status={note.state} />
+              <div className="row wrap">
+                <Tag tone="outline">{noteKindLabel(note.kind)}</Tag>
+                <Badge status={note.state} />
+              </div>
             </Link>
           ))}
           {notes.error ? (
@@ -105,7 +126,7 @@ export function NoteList({ activeNoteId }: { activeNoteId?: string }) {
         </>
       )}
       {notes.nextCursor && !(notes.error && notes.items.length > 0) ? (
-        <div className="gv-note-status" style={{ textAlign: "center" }}>
+        <div className="gv-note-status gv-note-loadmore">
           <Button size="sm" disabled={notes.loadingMore} onClick={() => void notes.loadMore()}>
             {notes.loadingMore ? "Loading…" : "加载更多"}
           </Button>

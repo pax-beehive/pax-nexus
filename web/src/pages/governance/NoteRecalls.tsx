@@ -5,21 +5,6 @@ import { EmptyState } from "../../components/EmptyState";
 import { formatTime } from "../../lib/format";
 import { describeRecall } from "./provenance";
 
-// describeRecall (provenance.ts) spreads the three reason arrays without a
-// null guard, and the backend's `omitempty` on a nil []string can round-trip
-// as JSON `null` rather than `[]` (the previous Explorer detail page had the
-// same edge case — see the now-superseded "backend omits empty reason
-// arrays" coverage). Normalize here rather than touching provenance.ts,
-// which is Task 1's already-landed contract.
-function normalizeReasons(use: ExplorerRecallUse): ExplorerRecallUse {
-  return {
-    ...use,
-    rejection_reasons: use.rejection_reasons ?? [],
-    budget_drop_reasons: use.budget_drop_reasons ?? [],
-    hard_gate_failures: use.hard_gate_failures ?? [],
-  };
-}
-
 export function NoteRecalls({ recalls }: { recalls: ExplorerRecallUse[] }) {
   return (
     <section className="card">
@@ -49,7 +34,7 @@ export function NoteRecalls({ recalls }: { recalls: ExplorerRecallUse[] }) {
                     {recall.recipient_agent_id}/{recall.recipient_session_id}
                   </code>
                 </td>
-                <td className="small">{describeRecall(normalizeReasons(recall))}</td>
+                <td className="small">{describeRecall(recall)}</td>
               </tr>
             ))}
           </tbody>

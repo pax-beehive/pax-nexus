@@ -9,13 +9,8 @@
 .gv-note-list { border-right: 2px solid var(--color-divider); }
 .gv-note-item {
   display: block;
-  width: 100%;
-  text-align: left;
-  background: transparent;
-  border: 0;
   border-bottom: 1px solid var(--color-divider);
   padding: var(--space-3) var(--space-4);
-  cursor: pointer;
   font-family: var(--font-body);
   color: inherit;
   text-decoration: none;
@@ -31,6 +26,7 @@
   border-bottom: 1px solid var(--color-divider);
 }
 .gv-note-status { padding: var(--space-3) var(--space-4); }
+.gv-note-loadmore { text-align: center; }
 .gv-note-detail {
   padding: var(--space-4);
   display: flex;
@@ -59,3 +55,5 @@
 .gv-prov-body { font-size: 13px; opacity: 0.72; margin-top: var(--space-1); max-width: 74ch; }
 .gv-prov-ref { font-family: var(--font-mono); font-size: 11px; opacity: 0.45; margin-top: var(--space-1); }
 .gv-prov-missing { opacity: 0.5; }
+
+.gv-related-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
