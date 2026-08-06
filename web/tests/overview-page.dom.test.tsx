@@ -3,8 +3,9 @@
 // isolation (a failing aggregate never unmounts the writers block), the
 // positive empty state for an empty note mix, capability gating, the
 // attention queue (rendering + CTA navigation + its own empty state), and
-// the held-events feed (scroll-hold mechanics ported from AdminPulsePage's
-// useFeedRegion, and its own region isolation from the rest of the page).
+// the held-events feed (scroll-hold mechanics ported from the old Team
+// Pulse page's useFeedRegion, and its own region isolation from the rest of
+// the page).
 
 import { describe, expect, it } from "vitest";
 import { fireEvent, screen, waitFor } from "@testing-library/react";

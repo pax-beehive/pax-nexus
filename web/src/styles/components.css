@@ -182,7 +182,7 @@ textarea { min-height: 90px; resize: vertical; }
    调用点把类名手写在 <a>/<span> 上，不经过组件：
      .btn.ghost   AgentDetailView（每个 Agent 详情页的返回链接）、
                   AdminDeviceDetailPage
-     .btn.sm      pulse/AgentGrid
+     .btn.sm      （无调用点；原调用方 pulse/AgentGrid 已在阶段 2b 删除）
      .danger-text Countdown（一次性口令倒计时的 Expired 态）、
                   AdminSessionAuditPage
    阶段 1 不改这些页面，所以别名放在这里；页面迁到 <Button>/<Tag> 后删除。

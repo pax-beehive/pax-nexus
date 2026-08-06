@@ -1,6 +1,7 @@
-// "What just happened" block: the held-events feed, ported from
-// pulse/LiveEventsFeed.tsx (portal-modernist phase 2b task 7 -- the original
-// and AdminPulsePage.tsx are deleted in task 8). Mechanics are unchanged
+// "What just happened" block: the held-events feed, ported from the old
+// Team Pulse page's live event feed component (portal-modernist phase 2b
+// task 7; the old page and that component were removed in task 8). Mechanics
+// are unchanged
 // (scrolledRef / pending buffer / freshIds, all owned by
 // overview/hooks.ts's useFeedRegion); only the chrome changed: banner copy,
 // the "Show" button, the #overview-feed container id, no more .pulse-feed*

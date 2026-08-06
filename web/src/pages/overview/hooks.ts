@@ -1,7 +1,7 @@
 // Region hooks for the Overview landing page (portal-modernist phase 2b):
 // the aggregate (metrics + throughput series + note mix), the writers list,
 // and the held-events feed all poll independently every 10s, mirroring the
-// Operations console / Team Pulse region pattern (usePolledRegion /
+// Operations console's region pattern (usePolledRegion /
 // usePolling) so a failure in one never clears another.
 
 import { useCallback, useRef, useState } from "react";
@@ -35,10 +35,10 @@ export function useWritersRegion(window: TimeWindowPreset, onAuthError: (err: un
 }
 
 // ---------------------------------------------------------------------------
-// Held-events feed (ported from AdminPulsePage.tsx's useFeedRegion — same
-// scrolledRef / pending-buffer / freshIds mechanics, only the poll interval
-// constant is shared with the rest of this page. AdminPulsePage.tsx and
-// pulse/LiveEventsFeed.tsx are deleted in Task 8 once this is the only copy.
+// Held-events feed (ported from the old Team Pulse page's useFeedRegion —
+// same scrolledRef / pending-buffer / freshIds mechanics, only the poll
+// interval constant is shared with the rest of this page. That old page and
+// its live-events component were removed in Task 8; this is now the only copy.
 // ---------------------------------------------------------------------------
 
 /** Events per page (doc: Overview event feed). */

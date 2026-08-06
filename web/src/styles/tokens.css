@@ -104,9 +104,10 @@
 }
 
 /* — 兼容别名（临时）—
-   styles/features/ 下的六个特性样式表（wiki / pulse / operations / session-audit /
+   styles/features/ 下的五个特性样式表（wiki / operations / session-audit /
    teams / apps）在阶段 1 不重写，它们仍引用改造前的 token 名。这里把旧名映射到
-   Modernist 值，让那些页面在过渡期保持可读。
+   Modernist 值，让那些页面在过渡期保持可读。（overview-chart.css 是阶段 2b 新写的,
+   已直接用 Modernist token,不在此列。）
    两色制下 ok/info 归中性、warn/bad 归 accent —— 绿色和琥珀色不再存在。
    每重写一个特性样式表就删掉它用到的别名；阶段 6 结束时本块整体移除。
    **禁止在新代码里引用这些名字。** */

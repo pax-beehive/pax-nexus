@@ -224,9 +224,9 @@ export function eventsPage(
 }
 
 /**
- * Per-agent aggregate for the Team Pulse page. last_active_at defaults to a
- * fresh timestamp so the status dot renders "active"; tests pass an explicit
- * value (or "") to pin the freshness class.
+ * Per-agent aggregate for the Overview writers block. last_active_at
+ * defaults to a fresh timestamp; tests pass an explicit value when they care
+ * about it.
  */
 export function makeAgentStats(
   overrides: Partial<OperationsAgentStats> = {},
@@ -273,7 +273,7 @@ export interface OperationsEndpoints {
   /** Receives the raw observation id segment from the URL. */
   recall?: (observationId: string) => Response;
   agents?: () => Response;
-  /** Per-agent activity aggregate for the Team Pulse page. */
+  /** Per-agent activity aggregate, fed to the Overview writers block. */
   agentStats?: () => Response;
   /** Overview landing page aggregate. */
   overview?: (url: URL) => unknown;
@@ -345,20 +345,6 @@ export async function renderOperationsPage(endpoints: OperationsEndpoints = {}) 
 /** The Recent activity table (the only table with an Operation header). */
 export function eventsTable(): HTMLElement {
   return screen.getByText("Operation").closest("table") as HTMLElement;
-}
-
-/**
- * Mount the portal at /overview with the Operations capability and wait
- * for the first agent-stats cycle to settle.
- */
-export async function renderPulsePage(endpoints: OperationsEndpoints = {}) {
-  const app = await renderApp({
-    route: "/overview",
-    me: opsMe(),
-    fetch: operationsFetch(endpoints),
-  });
-  await screen.findByRole("heading", { name: "Team Pulse" });
-  return app;
 }
 
 /**
