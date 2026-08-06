@@ -2,12 +2,19 @@
 //
 // 最关键的一条：销毁类确认框里列出的密钥，就是页面上那两张卡渲染的同一个
 // 数组——不是重新数的。这条由「同一个 props 数组」保证，测试用变异验证。
-import { describe, expect, it } from "vitest";
+//
+// AgentLifecycleCard 通过 useErrorHandler -> useAuth 间接依赖 AuthContext，
+// 所以要包一层真的 AuthProvider（不然 useAuth 直接抛错）；它挂载时会打一次
+// GET /v1/me，这里统一用 withMe() 桩掉，与本测试要断言的行为无关。做法与
+// web/tests/agent-identity.dom.test.tsx 一致（同一阶段 Task 6 已经解决过
+// 这个问题）。
+import { beforeEach, describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { AgentLifecycleCard } from "../src/pages/agent/AgentLifecycleCard";
 import { resolveAgentAccess } from "../src/pages/agent/agentScope";
+import { AuthProvider } from "../src/auth/AuthContext";
 import { ToastProvider } from "../src/components/Toasts";
 import {
   callsTo,
@@ -17,34 +24,61 @@ import {
   makeEnrollment,
   makeMe,
   makeMember,
+  resetBrowserState,
   setupDomTest,
   stubFetch,
+  type FetchHandler,
 } from "./helpers";
 
 setupDomTest();
+
+// setupDomTest() only resets browser state (incl. the CSRF cookie) in
+// afterEach; the first test in a file otherwise boots with no cookie set,
+// so every test here re-primes it up front.
+beforeEach(() => {
+  resetBrowserState();
+});
+
+/** GET /v1/me for AuthProvider's boot fetch, plus a scenario-specific extra handler. */
+function withMe(me: ReturnType<typeof makeMe>, extra: FetchHandler): FetchHandler {
+  return (path, init) => {
+    if (path === "/v1/me" && (init.method ?? "GET") === "GET") return jsonResponse(me);
+    return extra(path, init);
+  };
+}
+
+const unexpectedFetch: FetchHandler = (path, init) => {
+  throw new Error(`unexpected fetch: ${init.method ?? "GET"} ${path}`);
+};
 
 function renderCard(options: {
   me?: ReturnType<typeof makeMe>;
   agent?: ReturnType<typeof makeAgent>;
   credentials?: ReturnType<typeof makeCredential>[];
   enrollments?: ReturnType<typeof makeEnrollment>[];
+  /** Non-/v1/me fetch calls; defaults to failing the test on any such call. */
+  fetch?: FetchHandler;
 }) {
   const me = options.me ?? makeMe({ role: "member", membership_id: "mbr_01" });
   const agent = options.agent ?? makeAgent({ owner_membership_id: "mbr_01" });
+  const fetchMock = stubFetch(withMe(me, options.fetch ?? unexpectedFetch));
   render(
-    <MemoryRouter>
-      <ToastProvider>
-        <AgentLifecycleCard
-          agent={agent}
-          access={resolveAgentAccess(me, agent)}
-          pendingEnrollments={options.enrollments ?? []}
-          activeCredentials={options.credentials ?? []}
-          onChanged={() => {}}
-          refetch={() => Promise.resolve(agent)}
-        />
-      </ToastProvider>
-    </MemoryRouter>,
+    <AuthProvider>
+      <MemoryRouter>
+        <ToastProvider>
+          <AgentLifecycleCard
+            agent={agent}
+            access={resolveAgentAccess(me, agent)}
+            pendingEnrollments={options.enrollments ?? []}
+            activeCredentials={options.credentials ?? []}
+            onChanged={() => {}}
+            refetch={() => Promise.resolve(agent)}
+          />
+        </ToastProvider>
+      </MemoryRouter>
+    </AuthProvider>,
   );
+  return fetchMock;
 }
 
 describe("卡的可见性", () => {
@@ -116,19 +150,22 @@ describe("销毁类确认框的后果清单", () => {
     const user = userEvent.setup();
     const me = makeMe({ role: "member", membership_id: "mbr_01" });
     const agent = makeAgent({ owner_membership_id: "mbr_01" });
+    stubFetch(withMe(me, unexpectedFetch));
     render(
-      <MemoryRouter>
-        <ToastProvider>
-          <AgentLifecycleCard
-            agent={agent}
-            access={resolveAgentAccess(me, agent)}
-            pendingEnrollments={undefined}
-            activeCredentials={undefined}
-            onChanged={() => {}}
-            refetch={() => Promise.resolve(agent)}
-          />
-        </ToastProvider>
-      </MemoryRouter>,
+      <AuthProvider>
+        <MemoryRouter>
+          <ToastProvider>
+            <AgentLifecycleCard
+              agent={agent}
+              access={resolveAgentAccess(me, agent)}
+              pendingEnrollments={undefined}
+              activeCredentials={undefined}
+              onChanged={() => {}}
+              refetch={() => Promise.resolve(agent)}
+            />
+          </ToastProvider>
+        </MemoryRouter>
+      </AuthProvider>,
     );
 
     await user.click(screen.getByRole("button", { name: "暂停" }));
@@ -141,10 +178,9 @@ describe("销毁类确认框的后果清单", () => {
 describe("动作请求", () => {
   it("暂停走 PATCH status=suspended，带 If-Match", async () => {
     const user = userEvent.setup();
-    const fetchMock = stubFetch(() =>
-      jsonResponse({ agent: makeAgent({ owner_membership_id: "mbr_01", status: "suspended" }) }),
-    );
-    renderCard({});
+    const fetchMock = renderCard({
+      fetch: () => jsonResponse({ agent: makeAgent({ owner_membership_id: "mbr_01", status: "suspended" }) }),
+    });
 
     await user.click(screen.getByRole("button", { name: "暂停" }));
     await user.click(screen.getByRole("button", { name: "暂停并销毁密钥" }));
@@ -160,10 +196,9 @@ describe("动作请求", () => {
 
   it("退役走 DELETE 且带 Idempotency-Key", async () => {
     const user = userEvent.setup();
-    const fetchMock = stubFetch(() =>
-      jsonResponse({ agent: makeAgent({ owner_membership_id: "mbr_01", status: "retired" }) }),
-    );
-    renderCard({});
+    const fetchMock = renderCard({
+      fetch: () => jsonResponse({ agent: makeAgent({ owner_membership_id: "mbr_01", status: "retired" }) }),
+    });
 
     await user.click(screen.getByRole("button", { name: "退役" }));
     await user.click(screen.getByRole("button", { name: "永久退役" }));
@@ -176,15 +211,15 @@ describe("动作请求", () => {
   it("移交恒走 admin 端点，即使动作 scope 是 me", async () => {
     // owner 移交自己的 Agent：页面其余动作走 /v1/me/*，移交没有 me 端点。
     const user = userEvent.setup();
-    const fetchMock = stubFetch((path) => {
-      if (path.startsWith("/v1/admin/members")) {
-        return jsonResponse({ members: [makeMember({ membership_id: "mbr_99", display_name: "Bob" })] });
-      }
-      return jsonResponse({ agent: makeAgent({ owner_membership_id: "mbr_99" }) });
-    });
-    renderCard({
+    const fetchMock = renderCard({
       me: makeMe({ role: "owner", membership_id: "mbr_01" }),
       agent: makeAgent({ owner_membership_id: "mbr_01" }),
+      fetch: (path) => {
+        if (path.startsWith("/v1/admin/members")) {
+          return jsonResponse({ members: [makeMember({ membership_id: "mbr_99", display_name: "Bob" })] });
+        }
+        return jsonResponse({ agent: makeAgent({ owner_membership_id: "mbr_99" }) });
+      },
     });
 
     await user.click(screen.getByRole("button", { name: "移交" }));

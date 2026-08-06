@@ -25,7 +25,7 @@ import { Button } from "../../components/Button";
 import { Card } from "../../components/Card";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { useToast } from "../../components/Toasts";
-import { noticeForError } from "../../lib/statusMessage";
+import { useErrorHandler } from "../../lib/useErrorHandler";
 import type { AgentAccess } from "./agentScope";
 
 type PendingKind = "suspend" | "resume" | "retire" | "transfer";
@@ -103,19 +103,11 @@ export function AgentLifecycleCard({
   refetch: () => Promise<AgentProfile>;
 }) {
   const toast = useToast();
+  const handleError = useErrorHandler();
   const [pending, setPending] = useState<PendingAction | undefined>();
   const [busy, setBusy] = useState(false);
   const [members, setMembers] = useState<Member[] | undefined>();
   const [targetMembershipId, setTargetMembershipId] = useState("");
-
-  // 这张卡不用 useErrorHandler：它经 useAuth 依赖 AuthContext，会把 401/403
-  // 特判成登出/重取 /v1/me。那两种恢复动作属于页面外壳的职责（已经在更外
-  // 层处理过一次），这里只管把非 409 错误映射成一条 toast，避免这张纯受控
-  // 组件额外要求调用方套一层 AuthProvider 才能渲染。
-  const reportError = (err: unknown) => {
-    const notice = noticeForError(err);
-    toast(notice.kind, notice.message);
-  };
 
   // 移交弹窗打开时才取成员列表；一个弹窗一次，选中项落本地 state。
   useEffect(() => {
@@ -126,7 +118,7 @@ export function AgentLifecycleCard({
       .then((list) => {
         setMembers(list.filter((m) => m.membership_id !== agent.owner_membership_id));
       })
-      .catch((err: unknown) => reportError(err));
+      .catch((err: unknown) => handleError(err));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pending?.kind, pending?.key]);
 
@@ -171,7 +163,7 @@ export function AgentLifecycleCard({
       if (apiError(err, 409, "resource_version_conflict")) {
         await onConflict();
       } else {
-        reportError(err);
+        handleError(err);
       }
     } finally {
       setBusy(false);
