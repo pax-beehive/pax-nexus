@@ -115,17 +115,25 @@ function AdminAccessTree({ me }: { me: HumanMe }) {
   );
 
   // 第 3 层：某机器的 Agent。放在第 2 层分支之前——machine 参数存在时，
-  // 这一层（或它的 stale 回落）才是该渲染的内容。
-  if (person && devices && agents && requestedMachine) {
+  // 这一层（或它的 stale 回落）才是该渲染的内容。第 3 层不依赖快照的
+  // agents 腿：它展示的 Agent 行来自 deviceDetail 自己的 getDevice 调用，
+  // 快照 agents 腿失败是「散装 Agent 分组」这个第 2 层专属特性缺失，不该
+  // 把正坐在 ?person=&machine= 的人一路弹回根层（设计：非脊柱腿失败只降级
+  // 受影响的格子，不降级整层）。只有 stale-machine 回落要渲染第 2 层的
+  // MachinesLevel，才需要 agents；agents 腿也失败时那条回落没有东西可画，
+  // 落到根层。
+  if (person && devices && requestedMachine) {
     const device = devicesOf(devices, person.membership_id).find(
       (candidate) => candidate.credential_id === requestedMachine,
     );
     if (!device) {
-      // 机器已删或不属于这个人：回落到这个人的机器层并说明。
-      return renderMachinesLevel(person, devices, agents, { staleMachine: true });
-    }
-    if (deviceDetail.status === "loading") return <p className="muted">Loading…</p>;
-    if (deviceDetail.status === "error" || !deviceDetail.detail) {
+      // 机器已删或不属于这个人：回落到这个人的机器层并说明。这条回落要
+      // 画 MachinesLevel（含散装 Agent 分组），才真的需要 agents；agents
+      // 腿也失败时这条回落没有东西可画，落到函数末尾的根层。
+      if (agents) return renderMachinesLevel(person, devices, agents, { staleMachine: true });
+    } else if (deviceDetail.status === "loading") {
+      return <p className="muted">Loading…</p>;
+    } else if (deviceDetail.status === "error" || !deviceDetail.detail) {
       return (
         <div className="note bad row between" role="alert">
           <span>Could not load this machine’s agents.</span>
@@ -134,41 +142,42 @@ function AdminAccessTree({ me }: { me: HumanMe }) {
           </Button>
         </div>
       );
-    }
-    const liveAgents = aliveProvisionedAgents(deviceDetail.detail.agents);
-    return (
-      <>
-        <div className="page-head">
-          <div>
-            <p className="card-kicker">MANAGEMENT · ACCESS TREE</p>
-            <h1>Access flows downward</h1>
+    } else {
+      const liveAgents = aliveProvisionedAgents(deviceDetail.detail.agents);
+      return (
+        <>
+          <div className="page-head">
+            <div>
+              <p className="card-kicker">MANAGEMENT · ACCESS TREE</p>
+              <h1>Access flows downward</h1>
+            </div>
           </div>
-        </div>
 
-        <AccessSummary snapshot={snapshot.snapshot} />
+          <AccessSummary snapshot={snapshot.snapshot} />
 
-        <div className="at-bar">
-          <Crumbs
-            items={[
-              { label: "Everyone", to: "/management" },
-              { label: person.display_name, to: `/management?person=${person.membership_id}` },
-              { label: device.device_name },
-            ]}
+          <div className="at-bar">
+            <Crumbs
+              items={[
+                { label: "Everyone", to: "/management" },
+                { label: person.display_name, to: `/management?person=${person.membership_id}` },
+                { label: device.device_name },
+              ]}
+            />
+            <span className="at-bar-hint">{liveAgents.length} agents</span>
+          </div>
+
+          <DeviceAgentsLevel
+            person={person}
+            device={device}
+            agents={liveAgents}
+            onRevoked={() => {
+              snapshot.retry();
+              setParams({ person: person.membership_id });
+            }}
           />
-          <span className="at-bar-hint">{liveAgents.length} agents</span>
-        </div>
-
-        <DeviceAgentsLevel
-          person={person}
-          device={device}
-          agents={liveAgents}
-          onRevoked={() => {
-            snapshot.retry();
-            setParams({ person: person.membership_id });
-          }}
-        />
-      </>
-    );
+        </>
+      );
+    }
   }
 
   // 第 2 层：某人的机器。devices/agents 缺腿时这一层没有意义，回落到根层。

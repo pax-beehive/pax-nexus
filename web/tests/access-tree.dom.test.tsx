@@ -223,8 +223,14 @@ describe("Access tree · agents level", () => {
     agents: [
       makeDeviceAgent({ agent_id: "alice-codex", credential_id: "cred_1" }),
       makeDeviceAgent({ agent_id: "alice-claude", credential_id: "cred_2" }),
-      // 已吊销的历史行：不该出现在展示里，也不该进级联预览。
-      makeDeviceAgent({ agent_id: "alice-codex", credential_id: "cred_0", revoked_at: "2026-07-01T00:00:00Z" }),
+      // 已吊销的历史行：用一个与其它两行都不同的 agent_id，这样它被剔除
+      // 是靠 revoked_at 过滤，而不是巧合被 dedupe-by-agent_id 吸收掉——
+      // 如果这行复用了别的行的 agent_id，去掉过滤器这个测试也会照样通过。
+      makeDeviceAgent({
+        agent_id: "alice-retired",
+        credential_id: "cred_0",
+        revoked_at: "2026-07-01T00:00:00Z",
+      }),
     ],
   };
 
@@ -233,8 +239,8 @@ describe("Access tree · agents level", () => {
     return treeFetch(path);
   };
 
-  it("lists the machine's live agents", async () => {
-    await renderApp({
+  it("lists the machine's live agents, excluding a revoked credential-history row", async () => {
+    const { user } = await renderApp({
       route: "/management?person=mbr_01&machine=dev_a",
       me: makeMe({ membership_id: "mbr_01" }),
       fetch: (path) => detailFetch(path),
@@ -242,8 +248,14 @@ describe("Access tree · agents level", () => {
 
     await screen.findByText("alice-codex");
     screen.getByText("alice-claude");
-    // 吊销的历史行不展示
-    expect(screen.queryByText("cred_0")).toBeNull();
+    // 吊销的历史行不展示——用一个独立 agent_id，所以这个查询不会被
+    // dedupe 巧合救活。
+    expect(screen.queryByText("alice-retired")).toBeNull();
+
+    // 级联预览也不该带上这行：2 行，不是 3 行。
+    await user.click(screen.getByRole("button", { name: /revoke this machine/i }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getAllByRole("row").length - 1).toBe(2); // 减表头
   });
 
   it("shows a cascade preview whose row count equals the displayed agent rows", async () => {
@@ -270,5 +282,23 @@ describe("Access tree · agents level", () => {
 
     await screen.findByText("alice-macbook");
     screen.getByText(/no longer exists/i);
+  });
+
+  it("still renders when the snapshot's agents leg fails — level 3 has its own getDevice call", async () => {
+    // agents 腿失败只影响散装 Agent 分组这个第 2 层专属功能；第 3 层展示
+    // 的 Agent 行来自 deviceDetail 自己的 getDevice，不该被这条腿拖下水，
+    // 更不该把正坐在 ?machine= 上的人一路弹回根层。
+    await renderApp({
+      route: "/management?person=mbr_01&machine=dev_a",
+      me: makeMe({ membership_id: "mbr_01" }),
+      fetch: (path) => {
+        if (path === "/v1/admin/devices/dev_a") return jsonResponse(deviceDetail);
+        if (path.startsWith("/v1/admin/agents")) throw new Error("agents leg down");
+        return treeFetch(path);
+      },
+    });
+
+    await screen.findByText("alice-codex");
+    screen.getByText("alice-claude");
   });
 });
