@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { apiErrorResponse, callsTo, jsonResponse, makeMe, renderApp, setupDomTest } from "./helpers";
 
@@ -40,6 +40,26 @@ async function goToTodos(user: { click: (el: Element) => Promise<void> }) {
 }
 
 describe("Todo app portal integration", () => {
+  it("redirects the legacy /todo route to /apps/todos", async () => {
+    await renderApp({
+      route: "/todo",
+      me: makeMe({ role: "member" }),
+      fetch: (path, init) => {
+        const method = init.method ?? "GET";
+        if (path === "/v1/todo/suggestions" && method === "GET") {
+          return jsonResponse({ suggestions: [] });
+        }
+        if (path === "/v1/todo/todos" && method === "GET") {
+          return jsonResponse({ todos: [] });
+        }
+        throw new Error(`unexpected fetch: ${path}`);
+      },
+    });
+
+    await waitFor(() => expect(window.location.pathname).toBe("/apps/todos"));
+    await screen.findByRole("heading", { level: 1, name: "Agent 替你发现的活儿" });
+  });
+
   it("renders pending suggestions and open/done todos from the stubbed lists", async () => {
     const { user } = await renderApp({
       route: "/management",

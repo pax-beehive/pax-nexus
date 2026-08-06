@@ -18,9 +18,19 @@
 // replaced below by a case proving the sidebar Wiki link still routes to
 // this status page.
 
-import { describe, expect, it } from "vitest";
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { callsTo, jsonResponse, makeMe, renderApp, setupDomTest } from "./helpers";
+import { describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import App from "../src/App";
+import {
+  apiErrorResponse,
+  callsTo,
+  jsonResponse,
+  makeMe,
+  renderApp,
+  resetBrowserState,
+  setupDomTest,
+  stubFetch,
+} from "./helpers";
 import { llmUsageFixture, wikiFetch } from "./wikiFixtures";
 
 setupDomTest();
@@ -76,8 +86,100 @@ describe("memory rules page", () => {
     expect(screen.getByRole("switch")).toBeTruthy();
   });
 
+  // The case above ("degrades to a progress-unavailable notice...") only
+  // exercises the response-shape branch (pending_sessions missing from an
+  // otherwise-successful response) — status stays undefined either way, so
+  // it can't tell that branch apart from the actual fetch-failure branch
+  // (statusError, set in the catch block of the polled ingestion-status
+  // fetch). Deleting `setStatusError(true)` from that catch left every test
+  // in this suite green. This case closes the gap for real: the first poll
+  // succeeds with a populated status (so `status` itself is defined and
+  // would render numbers), then a second poll's request fails — only
+  // `statusError` flipping to true can explain the card going blank from
+  // there, and the other two cards (loaded independently) must keep working
+  // through it.
+  it("degrades only the progress card when a later ingestion-status poll fails", async () => {
+    vi.useFakeTimers();
+    try {
+      resetBrowserState();
+      window.history.pushState({}, "", "/settings/memory");
+      let ingestionCalls = 0;
+      stubFetch((path) => {
+        if (path === "/v1/me") return jsonResponse(makeMe());
+        if (path === "/v1/wiki/ingestion") {
+          ingestionCalls += 1;
+          if (ingestionCalls === 1) {
+            return jsonResponse({
+              auto_inject: false,
+              pending_sessions: 5,
+              last_processed_at: "2026-07-29T08:00:00Z",
+            });
+          }
+          return apiErrorResponse(500, "internal", "boom");
+        }
+        return wikiFetch(path);
+      });
+      render(<App />);
+
+      // First poll succeeds: the progress card shows real numbers.
+      for (let i = 0; i < 200 && ingestionCalls < 1; i += 1) {
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(5);
+        });
+      }
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5);
+      });
+      expect(screen.getByText("5")).toBeTruthy();
+      expect(screen.queryByText("Progress is unavailable.")).toBeNull();
+
+      // Second poll (5s cadence) fails: only statusError can take the card
+      // from showing "5" to unavailable, since `status` itself isn't cleared.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_000);
+      });
+      expect(ingestionCalls).toBeGreaterThanOrEqual(2);
+      for (let i = 0; i < 200; i += 1) {
+        if (screen.queryByText("Progress is unavailable.")) break;
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(5);
+        });
+      }
+      expect(screen.getByText("Progress is unavailable.")).toBeTruthy();
+
+      // Ingestion controls and generation settings loaded independently and
+      // still work.
+      expect(screen.getByRole("switch")).toBeTruthy();
+      expect(screen.getByRole("region", { name: "Wiki generation settings" })).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("redirects the bare legacy /wiki route to this settings page", async () => {
+    await renderApp({ route: "/wiki", me: makeMe(), fetch: wikiFetch });
+
+    await waitFor(() => expect(window.location.pathname).toBe("/settings/memory"));
+    await screen.findByRole("region", { name: "Wiki ingestion controls" });
+  });
+
   it("redirects legacy /wiki?page= deep links to the browse route", async () => {
     await renderApp({ route: "/wiki?page=alpha", me: makeMe(), fetch: wikiFetch });
+
+    await waitFor(() => expect(window.location.pathname).toBe("/apps/wiki/alpha"));
+    expect(window.location.search).toBe("");
+    await waitFor(() => expect(screen.getByText("Alpha summary")).toBeTruthy());
+  });
+
+  // Landing directly on /settings/memory?page=<slug> never happens through
+  // the top-level /wiki legacy route (LegacyRedirect resolves that one hop
+  // straight to /apps/wiki/:slug — see legacy-routes.test.ts), so it isn't
+  // covered by the case above. It's still this page's own responsibility:
+  // this is the effect that forwards a stray ?page= query on the settings
+  // route itself, in case anything (an old saved link, a stale in-app
+  // navigation) lands here with one still attached.
+  it("forwards a stray ?page= query on /settings/memory itself to the browse route", async () => {
+    await renderApp({ route: "/settings/memory?page=alpha", me: makeMe(), fetch: wikiFetch });
 
     await waitFor(() => expect(window.location.pathname).toBe("/apps/wiki/alpha"));
     expect(window.location.search).toBe("");

@@ -65,4 +65,35 @@ describe("model usage page", () => {
     within(card).getByText("LLM usage is unavailable.");
     expect(screen.queryByText("extractor")).toBeNull();
   });
+
+  // Design brief §4: this screen is a single card, and a failed fetch must
+  // be retryable — not just recoverable by picking a different window
+  // (which happens to refetch as a side effect, but does nothing for a
+  // reader who wants the *same* window again).
+  it("recovers via the card's own Retry button, without touching the window", async () => {
+    let attempt = 0;
+    const { user, fetchMock } = await renderApp({
+      route: "/settings/usage",
+      me: makeMe(),
+      fetch: (path) => {
+        if (path.startsWith("/v1/llm-usage")) {
+          attempt += 1;
+          if (attempt === 1) return apiErrorResponse(500, "internal", "boom");
+          return wikiFetch(path);
+        }
+        throw new Error(`unexpected fetch: ${path}`);
+      },
+    });
+
+    const card = await screen.findByRole("region", { name: "LLM token usage" });
+    within(card).getByText("LLM usage is unavailable.");
+
+    await user.click(within(card).getByRole("button", { name: "Retry" }));
+
+    await waitFor(() => within(card).getByText("extractor"));
+    expect(within(card).queryByText("LLM usage is unavailable.")).toBeNull();
+    // Both requests asked for the window already selected (7d) — Retry
+    // re-issues the same query, it does not switch windows.
+    expect(callsTo(fetchMock, "/v1/llm-usage?days=7")).toHaveLength(2);
+  });
 });

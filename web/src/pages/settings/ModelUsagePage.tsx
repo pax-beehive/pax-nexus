@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { getLLMUsage, type LLMUsageRow } from "../../api/wiki";
 import { Kicker } from "../../components/Kicker";
 import { isAbortError } from "../../lib/usePolling";
@@ -10,10 +10,14 @@ import { WikiLLMUsageCard } from "../wiki-status/WikiLLMUsageCard";
  * this route never mounts alongside MemoryRulesPage.
  */
 export function ModelUsagePage() {
-  // LLM token usage card: reloaded whenever the window selector changes.
+  // LLM token usage card: reloaded whenever the window selector changes, or
+  // the card's own Retry button is pressed (design brief §4: this screen is
+  // one card, and a failed fetch must be retryable without touching the
+  // window selection).
   const [usageDays, setUsageDays] = useState(7);
   const [usage, setUsage] = useState<LLMUsageRow[]>([]);
   const [usageError, setUsageError] = useState(false);
+  const [usageRetryKey, setUsageRetryKey] = useState(0);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -27,7 +31,11 @@ export function ModelUsagePage() {
         setUsageError(true);
       });
     return () => controller.abort();
-  }, [usageDays]);
+  }, [usageDays, usageRetryKey]);
+
+  const retryUsage = useCallback(() => {
+    setUsageRetryKey((current) => current + 1);
+  }, []);
 
   return (
     <>
@@ -43,6 +51,7 @@ export function ModelUsagePage() {
         usage={usage}
         usageError={usageError}
         onUsageDaysChange={setUsageDays}
+        onRetry={retryUsage}
       />
     </>
   );
