@@ -51,6 +51,12 @@ describe("OverviewPage", () => {
     // Default window is 24h: the fixture's default 6-bucket series renders 6 ticks.
     expect(document.querySelectorAll(".ov-chart-tick")).toHaveLength(6);
 
+    // The 7d seg button carries the same retention hint as AdminOperationsPage's
+    // window selector (plan ruling #5).
+    expect(screen.getByRole("button", { name: "7d" }).getAttribute("title")).toBe(
+      "Windows beyond the deployment retention are rejected by the backend",
+    );
+
     await app.user.click(screen.getByRole("button", { name: "7d" }));
 
     await waitFor(() => {

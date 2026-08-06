@@ -61,7 +61,11 @@ export function OverviewPage() {
           <Tag tone="outline">Live</Tag>
           <Seg
             label="Time window"
-            options={TIME_WINDOW_PRESETS.map((p) => ({ value: p, label: p }))}
+            options={TIME_WINDOW_PRESETS.map((p) => ({
+              value: p,
+              label: p,
+              title: "Windows beyond the deployment retention are rejected by the backend",
+            }))}
             value={window}
             onChange={setWindow}
           />

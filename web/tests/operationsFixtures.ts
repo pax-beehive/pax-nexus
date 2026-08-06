@@ -73,10 +73,14 @@ export function makeSummary(overrides: Partial<OperationsSummary> = {}): Operati
 }
 
 /**
- * Overview landing page aggregate (doc section: Overview). Defaults to a 7d
- * window shape: 6 evenly-spaced series buckets, a 4-kind note mix whose
- * counts and percentages both sum consistently (50 notes, pcts sum to 100),
- * and 2 attention items whose count matches `metrics.attention_count`.
+ * Overview landing page aggregate (doc section: Overview). Defaults to 6
+ * series buckets spaced ~4h apart (~24h span, matching the page's default
+ * "24h" window in tests) -- not a real backend bucket count. The real
+ * backend buckets by window as 1h -> 6, 24h -> 8, 7d -> 7; tests that care
+ * about a specific window's bucket count override `series` explicitly. Also
+ * carries a 4-kind note mix whose counts and percentages both sum
+ * consistently (50 notes, pcts sum to 100), and 2 attention items whose
+ * count matches `metrics.attention_count`.
  */
 export function makeOverview(overrides: Partial<OverviewResponse> = {}): OverviewResponse {
   return {
