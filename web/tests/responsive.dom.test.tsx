@@ -31,12 +31,16 @@ function stubMatchMedia(matches: boolean): void {
 
 function shellFetch(path: string, init: RequestInit): Response {
   if (path.startsWith("/v1/me/agents")) return jsonResponse({ agents: [] });
-  if (path.startsWith("/v1/admin/agents")) return jsonResponse({ agents: [] });
   // role: "admin" lands on /management's access tree (AdminAccessTree),
-  // whose root level needs the members leg to reach "ready" — without it
-  // these tests were silently exercising the tree's error card instead of
-  // a real page, and passed anyway because they only assert on the top bar.
+  // whose snapshot pulls all three admin list legs at once. members is the
+  // spine — without it the page is the tree's full error card. devices and
+  // agents are not: a missing leg still renders the root level, but with
+  // "Could not be loaded" in its summary tiles. Stub all three so these
+  // tests exercise a real, fully loaded page; they assert only on the top
+  // bar, so a degraded page underneath would go unnoticed.
   if (path.startsWith("/v1/admin/members")) return jsonResponse({ members: [] });
+  if (path.startsWith("/v1/admin/devices")) return jsonResponse({ devices: [] });
+  if (path.startsWith("/v1/admin/agents")) return jsonResponse({ agents: [] });
   if (path.startsWith("/v1/teams")) return jsonResponse({ teams: [] });
   throw new Error(`unexpected fetch: ${init.method ?? "GET"} ${path}`);
 }

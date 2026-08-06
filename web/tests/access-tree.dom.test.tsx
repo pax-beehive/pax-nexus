@@ -66,6 +66,32 @@ describe("Access tree · people level", () => {
     screen.getByText("1 connected · 0 revoked · 1 person has no machine");
   });
 
+  // Final review, small fix: `params.get("person") ?? undefined` keeps the
+  // empty string a truncated link leaves behind, and "" matches no member —
+  // so the page claimed the person had left the team. `|| undefined` folds
+  // "" back into "no selection".
+  it("treats a truncated ?person= as no selection rather than a departed person", async () => {
+    await renderApp({ route: "/management?person=", me: makeMe(), fetch: (path) => treeFetch(path) });
+
+    await screen.findByText("Alice");
+    expect(screen.queryByText(/no longer on this team/i)).toBeNull();
+  });
+
+  it("fires no device-detail request for a truncated ?machine=", async () => {
+    // Same `?? undefined` bug on the machine leg. Level 3 never rendered
+    // (the "" is falsy at the branch), so it was invisible on screen — but
+    // useDeviceDetail still saw a defined credentialId and fired
+    // GET /v1/admin/devices/ for a machine that does not exist.
+    const { fetchMock } = await renderApp({
+      route: "/management?person=mbr_01&machine=",
+      me: makeMe({ membership_id: "mbr_01" }),
+      fetch: (path) => treeFetch(path),
+    });
+
+    await screen.findByText("alice-macbook");
+    expect(callsTo(fetchMock, "/v1/admin/devices/")).toHaveLength(0);
+  });
+
   it("falls back to the root and explains why when ?person= is stale", async () => {
     await renderApp({
       route: "/management?person=mbr_gone",
@@ -485,5 +511,205 @@ describe("Access tree · agents level", () => {
 
     await screen.findByText("alice-codex");
     screen.getByText("alice-claude");
+  });
+
+  /**
+   * Final whole-branch review, finding 1. useDeviceDetail(undefined) settles
+   * to {status:"ready", detail:undefined} while the user sits on level 2.
+   * Clicking a machine changes `?machine=` and re-renders *before* the
+   * passive effect flips the hook back to "loading", so that first commit
+   * fell past the loading branch into `!detail` and inserted the red
+   * role="alert" card — announced by assistive tech, and the one window in
+   * which device B's header could pair with device A's cascade array.
+   *
+   * An end-state assertion cannot see this: the card is replaced on the very
+   * next commit, so `queryByText(...)` afterwards is null either way. The
+   * probe therefore watches the *commit sequence* with a MutationObserver
+   * and fails if the error card was ever inserted at all.
+   */
+  it("never commits an error card at any point while drilling into a machine", async () => {
+    const { user } = await renderApp({
+      route: "/management?person=mbr_01",
+      me: makeMe({ membership_id: "mbr_01" }),
+      fetch: (path) => detailFetch(path),
+    });
+
+    await screen.findByText("alice-macbook");
+
+    const offending: string[] = [];
+    const inspect = (records: MutationRecord[]) => {
+      for (const mutation of records) {
+        for (const node of mutation.addedNodes) {
+          if (!(node instanceof HTMLElement)) continue;
+          const alerted =
+            node.matches('[role="alert"]') || node.querySelector('[role="alert"]') !== null;
+          const errorCopy = /could not load this machine/i.test(node.textContent ?? "");
+          if (alerted || errorCopy) offending.push(node.textContent ?? "");
+        }
+      }
+    };
+    const observer = new MutationObserver(inspect);
+    observer.observe(document.body, { childList: true, subtree: true });
+
+    await user.click(screen.getByText("alice-macbook"));
+    await screen.findByText("alice-codex"); // level 3 really arrived
+
+    inspect(observer.takeRecords());
+    observer.disconnect();
+
+    expect(offending).toEqual([]);
+  });
+
+  /**
+   * Final review, finding 3. Both level-3 non-success returns were bare —
+   * no page head, no summary strip, no breadcrumbs — so a user whose
+   * getDevice call fails saw a red box with no in-page way back to the
+   * person. Design §6: 第 3 层详情取数失败：该层报错可重试，面包屑与上层仍可用。
+   */
+  it("keeps the breadcrumbs while the machine's detail is still loading", async () => {
+    let release: ((response: Response) => void) | undefined;
+    const pending = new Promise<Response>((resolve) => {
+      release = resolve;
+    });
+
+    await renderApp({
+      route: "/management?person=mbr_01&machine=dev_a",
+      me: makeMe({ membership_id: "mbr_01" }),
+      fetch: (path) => (path === "/v1/admin/devices/dev_a" ? pending : treeFetch(path)),
+    });
+
+    const crumbs = await screen.findByRole("navigation", { name: "Breadcrumb" });
+    expect(within(crumbs).getByRole("link", { name: "Everyone" })).toBeTruthy();
+    expect(within(crumbs).getByRole("link", { name: "Alice" })).toBeTruthy();
+    expect(crumbs.textContent).toContain("alice-macbook");
+
+    release?.(jsonResponse(deviceDetail));
+    await screen.findByText("alice-codex");
+  });
+
+  it("keeps the breadcrumbs, and the way back up, when the machine's detail fails", async () => {
+    await renderApp({
+      route: "/management?person=mbr_01&machine=dev_a",
+      me: makeMe({ membership_id: "mbr_01" }),
+      fetch: (path) => {
+        if (path === "/v1/admin/devices/dev_a") throw new Error("detail down");
+        return treeFetch(path);
+      },
+    });
+
+    await screen.findByText(/could not load this machine/i);
+    screen.getByRole("button", { name: /retry/i });
+
+    const crumbs = screen.getByRole("navigation", { name: "Breadcrumb" });
+    expect(within(crumbs).getByRole("link", { name: "Everyone" })).toBeTruthy();
+    expect(within(crumbs).getByRole("link", { name: "Alice" })).toBeTruthy();
+    expect(crumbs.textContent).toContain("alice-macbook");
+  });
+
+  it("recovers into the real level 3 when the in-level retry succeeds", async () => {
+    // The retry button is only worth keeping if it re-runs getDevice; nothing
+    // exercised it before (Task 4 recorded that as deferred).
+    let attempt = 0;
+    const { user } = await renderApp({
+      route: "/management?person=mbr_01&machine=dev_a",
+      me: makeMe({ membership_id: "mbr_01" }),
+      fetch: (path) => {
+        if (path === "/v1/admin/devices/dev_a") {
+          attempt += 1;
+          if (attempt === 1) throw new Error("detail down");
+          return jsonResponse(deviceDetail);
+        }
+        return treeFetch(path);
+      },
+    });
+
+    await screen.findByText(/could not load this machine/i);
+    await user.click(screen.getByRole("button", { name: /retry/i }));
+
+    await screen.findByText("alice-codex");
+    expect(screen.queryByText(/could not load this machine/i)).toBeNull();
+  });
+});
+
+/**
+ * Final review, finding 2. Level 2 and level 3 both required the snapshot's
+ * `devices` leg; when it failed, execution fell through to the *root* render
+ * — which explained nothing, because `stalePerson` is false (the person was
+ * found). The URL said level 2, the page drew level 1, and clicking the same
+ * person again did nothing because setParams wrote an identical URL. Design
+ * §6 forbids exactly this: a non-spine leg failure reports in its own level
+ * with its own retry, and any fallback must explain itself.
+ */
+describe("Access tree · degraded legs inside a person's level", () => {
+  it("reports a failed devices leg inside the person's level instead of dropping to the root", async () => {
+    await renderApp({
+      route: "/management?person=mbr_01",
+      me: makeMe({ membership_id: "mbr_01" }),
+      fetch: (path) => {
+        if (path.startsWith("/v1/admin/devices")) throw new Error("devices down");
+        return treeFetch(path);
+      },
+    });
+
+    await screen.findByText(/could not load alice/i);
+    screen.getByRole("button", { name: /retry/i });
+
+    // Still on the person's level: the breadcrumb names her, and the root
+    // level's people rows (Bob only ever appears there) are not on screen.
+    const crumbs = screen.getByRole("navigation", { name: "Breadcrumb" });
+    expect(crumbs.textContent).toContain("Alice");
+    expect(within(crumbs).getByRole("link", { name: "Everyone" })).toBeTruthy();
+    expect(screen.queryByText("bob@example.com")).toBeNull();
+    expect(window.location.search).toContain("person=mbr_01");
+  });
+
+  it("reports a failed devices leg inside the level even with ?machine= set", async () => {
+    await renderApp({
+      route: "/management?person=mbr_01&machine=dev_a",
+      me: makeMe({ membership_id: "mbr_01" }),
+      fetch: (path) => {
+        if (path === "/v1/admin/devices/dev_a") throw new Error("detail down");
+        if (path.startsWith("/v1/admin/devices")) throw new Error("devices down");
+        return treeFetch(path);
+      },
+    });
+
+    await screen.findByText(/could not load alice/i);
+    expect(screen.queryByText("bob@example.com")).toBeNull();
+  });
+
+  it("keeps the machines level when only the agents leg fails, degrading that cell alone", async () => {
+    await renderApp({
+      route: "/management?person=mbr_01",
+      me: makeMe({ membership_id: "mbr_01" }),
+      fetch: (path) => {
+        if (path.startsWith("/v1/admin/agents")) throw new Error("agents down");
+        return treeFetch(path);
+      },
+    });
+
+    // Machine rows come from the devices leg and are unaffected; only the
+    // hand-registered grouping is missing, and it says so.
+    await screen.findByText("alice-macbook");
+    screen.getByText(/hand-registered agents/i);
+    screen.getByRole("button", { name: /retry/i });
+  });
+
+  it("still falls back to the owner's level for a stale ?machine= when the agents leg is down too", async () => {
+    // Recorded separately under Task 8: the stale-machine fallback needed
+    // `agents` for the hand-registered grouping, and without it the whole
+    // fallback — explanation included — vanished into the root level.
+    await renderApp({
+      route: "/management?person=mbr_01&machine=dev_gone",
+      me: makeMe({ membership_id: "mbr_01" }),
+      fetch: (path) => {
+        if (path.startsWith("/v1/admin/agents")) throw new Error("agents down");
+        return treeFetch(path);
+      },
+    });
+
+    await screen.findByText("alice-macbook");
+    screen.getByText(/no longer exists/i);
+    screen.getByText(/hand-registered agents/i);
   });
 });

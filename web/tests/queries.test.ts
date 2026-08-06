@@ -99,6 +99,25 @@ describe("listAllAgents", () => {
       "/v1/admin/agents?limit=100&cursor=page-2",
     ]);
   });
+
+  // Mirror of the listAllDevices guard: the loop-breaker is the whole reason
+  // the seenCursors set exists, and an infinite loop in a page-load path is
+  // exactly the thing worth pinning. mockImplementation, not
+  // mockResolvedValue — the same Response instance cannot be read twice
+  // ("Body has already been read"), so each turn needs a fresh one.
+  it("throws instead of looping forever when the server repeats a cursor", async () => {
+    vi.stubGlobal("document", { cookie: "" });
+    const fetchMock = vi.fn().mockImplementation(() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ agents: [{ agent_id: "a1" }], next_cursor: "same" }), {
+          status: 200,
+        }),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(listAllAgents({ limit: 100 })).rejects.toThrow(/repeated cursor/);
+  });
 });
 
 describe("getAuditEvent", () => {

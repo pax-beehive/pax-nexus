@@ -6,11 +6,10 @@ import { aliveProvisionedAgents } from "../lib/devices";
 import { copyTextToClipboard } from "../lib/clipboard";
 import { deviceConnectCommand, isSelfDescribingEnrollmentToken } from "../lib/enrollment";
 import { Button } from "../components/Button";
-import { Crumbs } from "../components/Crumbs";
 import { CreateDeviceEnrollmentModal } from "../components/CreateDeviceEnrollmentModal";
 import { SecretCard } from "../components/SecretCard";
 import { useToast } from "../components/Toasts";
-import { AccessSummary } from "./management/AccessSummary";
+import { AccessChrome } from "./management/AccessChrome";
 import { devicesOf, looseAgentsOf } from "./management/accessTree";
 import { CreateAgentModal } from "./management/CreateAgentModal";
 import { DeviceAgentsLevel } from "./management/DeviceAgentsLevel";
@@ -46,8 +45,11 @@ function AdminAccessTree({ me }: { me: HumanMe }) {
   // useDeviceDetail 内部直接落成 "ready"、不发请求。requestedPerson 也提到
   // 这里（快照 ready 判定之前）：下面的一次性密钥/弹窗状态要在任何 early
   // return 之前就能引用它，不能等到 snapshot.snapshot 解出来才算数。
-  const requestedPerson = params.get("person") ?? undefined;
-  const requestedMachine = params.get("machine") ?? undefined;
+  // `|| undefined` 而不是 `?? undefined`：被截断的 `?person=` 给出的是空串，
+  // `??` 留着它，于是它匹配不到任何 member，页面误报「这个人已经不在团队里」。
+  // 空串与「没有这个参数」是同一件事。`?machine=` 同理。
+  const requestedPerson = params.get("person") || undefined;
+  const requestedMachine = params.get("machine") || undefined;
   const deviceDetail = useDeviceDetail(requestedMachine);
   // 第 2 层「本人」头部的两个入口：就地开弹窗，而不是跳到平表页
   // （routes.tsx 的 /management/agents、/management/devices 仍在，但那两页是
@@ -128,7 +130,10 @@ function AdminAccessTree({ me }: { me: HumanMe }) {
     );
   }
 
-  const { members, devices, agents } = snapshot.snapshot;
+  // 提成局部 const：外壳组件与下面几个闭包都要引用它，而 `snapshot.snapshot`
+  // 的 narrowing 进不了闭包（原来靠 `snapshot.snapshot!` 的非空断言绕过）。
+  const snap = snapshot.snapshot;
+  const { members, devices, agents } = snap;
   const person = members.find((member) => member.membership_id === requestedPerson);
   // 链接指向的人已不在快照里：回退到根层并说明，不静默重置。
   const stalePerson = requestedPerson !== undefined && person === undefined;
@@ -137,175 +142,189 @@ function AdminAccessTree({ me }: { me: HumanMe }) {
     setParams({ person: membershipId });
   };
 
+  const personCrumb = (activePerson: Member) => ({
+    label: activePerson.display_name,
+    // 与所有同级链接一致地转义。id 是服务端给的不透明串，目前不含需要转义
+    // 的字符，所以这不是活 bug；不一致本身才是问题。
+    to: `/management?person=${encodeURIComponent(activePerson.membership_id)}`,
+  });
+
+  // 非脊柱腿失败时的层内报错：说明 + 单独重试，外壳（面包屑、上层链接）
+  // 保留（设计 §6）。
+  const legError = (message: string, retry: () => void) => (
+    <div className="note bad row between" role="alert">
+      <span>{message}</span>
+      <Button size="sm" onClick={retry}>
+        Retry
+      </Button>
+    </div>
+  );
+
   // 第 2 层（含第 3 层的回落目标）：某人的机器。抽成局部函数以便第 3 层的
   // stale-machine 回落复用同一段渲染，只多一条说明。
   const renderMachinesLevel = (
     activePerson: Member,
     personDevices: DeviceSummary[],
-    personAgents: AgentProfile[],
+    /** undefined = 快照 agents 腿失败：只降级「手工注册」那一格。 */
+    personAgents: AgentProfile[] | undefined,
     options: { staleMachine: boolean },
-  ) => (
-    <>
-      <div className="page-head">
-        <div>
-          <p className="card-kicker">MANAGEMENT · ACCESS TREE</p>
-          <h1>Access flows downward</h1>
-        </div>
-      </div>
+  ) => {
+    const machines = devicesOf(personDevices, activePerson.membership_id);
+    return (
+      <AccessChrome
+        snapshot={snap}
+        crumbs={[{ label: "Everyone", to: "/management" }, { label: activePerson.display_name }]}
+        hint={`${machines.length} machines`}
+      >
+        {options.staleMachine && (
+          <div className="note warn small" role="status">
+            That machine no longer exists, so we brought you back to {activePerson.display_name}’s
+            machines.
+          </div>
+        )}
 
-      <AccessSummary snapshot={snapshot.snapshot!} />
+        {/* agents 腿失败只让「手工注册」这一格缺席，不该把这一层整个撤掉：
+            机器行来自 devices 腿，照常可用。 */}
+        {personAgents === undefined &&
+          legError(
+            `Could not load ${activePerson.display_name}’s hand-registered agents.`,
+            snapshot.retry,
+          )}
 
-      <div className="at-bar">
-        <Crumbs
-          items={[
-            { label: "Everyone", to: "/management" },
-            { label: activePerson.display_name },
-          ]}
+        {secretCard}
+
+        <MachinesLevel
+          person={activePerson}
+          devices={machines}
+          looseAgents={
+            personAgents ? looseAgentsOf(personAgents, activePerson.membership_id) : []
+          }
+          isSelf={activePerson.membership_id === me.membership_id}
+          onDrill={(credentialId) =>
+            setParams({ person: activePerson.membership_id, machine: credentialId })
+          }
+          onCreateAgent={() => setCreateAgentOpen(true)}
+          onConnectMachine={() => setConnectMachineOpen(true)}
         />
-        <span className="at-bar-hint">
-          {devicesOf(personDevices, activePerson.membership_id).length} machines
-        </span>
-      </div>
 
-      {options.staleMachine && (
-        <div className="note warn small" role="status">
-          That machine no longer exists, so we brought you back to {activePerson.display_name}’s
-          machines.
-        </div>
-      )}
+        {createAgentOpen && (
+          <CreateAgentModal
+            onClose={() => setCreateAgentOpen(false)}
+            onCreated={() => {
+              setCreateAgentOpen(false);
+              snapshot.retry();
+            }}
+          />
+        )}
 
-      {secretCard}
+        {connectMachineOpen && (
+          <CreateDeviceEnrollmentModal
+            onClose={() => setConnectMachineOpen(false)}
+            onCreated={(secret) => {
+              setConnectMachineOpen(false);
+              setEnrollmentSecret(secret);
+              snapshot.retry();
+            }}
+            onMaybeCreated={() => {
+              setConnectMachineOpen(false);
+              snapshot.retry();
+            }}
+          />
+        )}
+      </AccessChrome>
+    );
+  };
 
-      <MachinesLevel
-        person={activePerson}
-        devices={devicesOf(personDevices, activePerson.membership_id)}
-        looseAgents={looseAgentsOf(personAgents, activePerson.membership_id)}
-        isSelf={activePerson.membership_id === me.membership_id}
-        onDrill={(credentialId) =>
-          setParams({ person: activePerson.membership_id, machine: credentialId })
-        }
-        onCreateAgent={() => setCreateAgentOpen(true)}
-        onConnectMachine={() => setConnectMachineOpen(true)}
-      />
-
-      {createAgentOpen && (
-        <CreateAgentModal
-          onClose={() => setCreateAgentOpen(false)}
-          onCreated={() => {
-            setCreateAgentOpen(false);
-            snapshot.retry();
-          }}
-        />
-      )}
-
-      {connectMachineOpen && (
-        <CreateDeviceEnrollmentModal
-          onClose={() => setConnectMachineOpen(false)}
-          onCreated={(secret) => {
-            setConnectMachineOpen(false);
-            setEnrollmentSecret(secret);
-            snapshot.retry();
-          }}
-          onMaybeCreated={() => {
-            setConnectMachineOpen(false);
-            snapshot.retry();
-          }}
-        />
-      )}
-    </>
-  );
+  // 第 2、3 层都由 devices 腿撑着。这条腿失败时**不能**落到函数末尾的根层：
+  // 那样 URL 说第 2/3 层、页面画第 1 层、页内一个字的解释都没有（stalePerson
+  // 是 false，人确实在快照里），而且再点一次那个人只会写出等价的 URL，
+  // 什么也不会发生——用户被无声地钉死在根层。设计 §6：非脊柱腿失败在对应层
+  // 就地报错并可单独重试，回落必须自己说明自己。
+  if (person && !devices) {
+    return (
+      <AccessChrome
+        snapshot={snap}
+        crumbs={[{ label: "Everyone", to: "/management" }, { label: person.display_name }]}
+        hint="— machines"
+      >
+        {legError(`Could not load ${person.display_name}’s machines.`, snapshot.retry)}
+        {secretCard}
+      </AccessChrome>
+    );
+  }
 
   // 第 3 层：某机器的 Agent。放在第 2 层分支之前——machine 参数存在时，
   // 这一层（或它的 stale 回落）才是该渲染的内容。第 3 层不依赖快照的
   // agents 腿：它展示的 Agent 行来自 deviceDetail 自己的 getDevice 调用，
   // 快照 agents 腿失败是「散装 Agent 分组」这个第 2 层专属特性缺失，不该
   // 把正坐在 ?person=&machine= 的人一路弹回根层（设计：非脊柱腿失败只降级
-  // 受影响的格子，不降级整层）。只有 stale-machine 回落要渲染第 2 层的
-  // MachinesLevel，才需要 agents；agents 腿也失败时那条回落没有东西可画，
-  // 落到根层。
+  // 受影响的格子，不降级整层）。
   if (person && devices && requestedMachine) {
     const device = devicesOf(devices, person.membership_id).find(
       (candidate) => candidate.credential_id === requestedMachine,
     );
-    if (!device) {
-      // 机器已删或不属于这个人：回落到这个人的机器层并说明。这条回落要
-      // 画 MachinesLevel（含散装 Agent 分组），才真的需要 agents；agents
-      // 腿也失败时这条回落没有东西可画，落到函数末尾的根层。
-      if (agents) return renderMachinesLevel(person, devices, agents, { staleMachine: true });
-    } else if (deviceDetail.status === "loading") {
-      return <p className="muted">Loading…</p>;
-    } else if (deviceDetail.status === "error" || !deviceDetail.detail) {
+    // 机器已删或不属于这个人：回落到这个人的机器层并说明。agents 腿同时
+    // 失败也照回落不误，只是「手工注册」那一格换成层内报错——不再连同
+    // 这条说明一起消失在根层。
+    if (!device) return renderMachinesLevel(person, devices, agents, { staleMachine: true });
+
+    // 第 3 层的 loading / error 同样带外壳：面包屑与上层链接是用户在这两个
+    // 状态下唯一的页内退路（设计 §6 末条）。
+    const machineCrumbs = [
+      { label: "Everyone", to: "/management" },
+      personCrumb(person),
+      { label: device.device_name },
+    ];
+    if (deviceDetail.status === "loading") {
       return (
-        <div className="note bad row between" role="alert">
-          <span>Could not load this machine’s agents.</span>
-          <Button size="sm" onClick={deviceDetail.retry}>
-            Retry
-          </Button>
-        </div>
-      );
-    } else {
-      const liveAgents = aliveProvisionedAgents(deviceDetail.detail.agents);
-      return (
-        <>
-          <div className="page-head">
-            <div>
-              <p className="card-kicker">MANAGEMENT · ACCESS TREE</p>
-              <h1>Access flows downward</h1>
-            </div>
-          </div>
-
-          <AccessSummary snapshot={snapshot.snapshot} />
-
-          <div className="at-bar">
-            <Crumbs
-              items={[
-                { label: "Everyone", to: "/management" },
-                { label: person.display_name, to: `/management?person=${person.membership_id}` },
-                { label: device.device_name },
-              ]}
-            />
-            <span className="at-bar-hint">{liveAgents.length} agents</span>
-          </div>
-
-          <DeviceAgentsLevel
-            person={person}
-            device={device}
-            agents={liveAgents}
-            onRevoked={() => {
-              snapshot.retry();
-              setParams({ person: person.membership_id });
-            }}
-          />
-        </>
+        <AccessChrome snapshot={snap} crumbs={machineCrumbs} hint="— agents">
+          {/* 文案不能是光秃秃的 "Loading…"：那是启动占位符的文案，测试
+              helper 的 renderApp 等的就是它消失。 */}
+          <p className="muted">Loading this machine’s agents…</p>
+        </AccessChrome>
       );
     }
+    if (deviceDetail.status === "error" || !deviceDetail.detail) {
+      return (
+        <AccessChrome snapshot={snap} crumbs={machineCrumbs} hint="— agents">
+          {legError("Could not load this machine’s agents.", deviceDetail.retry)}
+        </AccessChrome>
+      );
+    }
+
+    const liveAgents = aliveProvisionedAgents(deviceDetail.detail.agents);
+    return (
+      <AccessChrome snapshot={snap} crumbs={machineCrumbs} hint={`${liveAgents.length} agents`}>
+        <DeviceAgentsLevel
+          person={person}
+          device={device}
+          agents={liveAgents}
+          onRevoked={() => {
+            snapshot.retry();
+            setParams({ person: person.membership_id });
+          }}
+        />
+      </AccessChrome>
+    );
   }
 
-  // 第 2 层：某人的机器。devices/agents 缺腿时这一层没有意义，回落到根层。
-  if (person && devices && agents) {
+  // 第 2 层：某人的机器。
+  if (person && devices) {
     return renderMachinesLevel(person, devices, agents, { staleMachine: false });
   }
 
   return (
-    <>
-      <div className="page-head">
-        <div>
-          <p className="card-kicker">MANAGEMENT · ACCESS TREE</p>
-          <h1>Access flows downward</h1>
-          <p className="muted flush">
-            A person joins the team. That person connects a machine. The machine registers the
-            agents that run on it — and every key those agents hold traces back up this chain.
-          </p>
-        </div>
-      </div>
-
-      <AccessSummary snapshot={snapshot.snapshot} />
-
-      <div className="at-bar">
-        <Crumbs items={[{ label: "Everyone" }]} />
-        <span className="at-bar-hint">{members.length} people</span>
-      </div>
-
+    <AccessChrome
+      snapshot={snap}
+      crumbs={[{ label: "Everyone" }]}
+      hint={`${members.length} people`}
+      lede={
+        <p className="muted flush">
+          A person joins the team. That person connects a machine. The machine registers the agents
+          that run on it — and every key those agents hold traces back up this chain.
+        </p>
+      }
+    >
       {stalePerson && (
         <div className="note warn small" role="status">
           That person is no longer on this team, so we brought you back to everyone.
@@ -313,6 +332,6 @@ function AdminAccessTree({ me }: { me: HumanMe }) {
       )}
 
       <PeopleLevel members={members} devices={devices} agents={agents} onDrill={drill} />
-    </>
+    </AccessChrome>
   );
 }

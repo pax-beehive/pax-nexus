@@ -76,7 +76,11 @@ export function AdminDeviceDetailPage() {
               Revoke Device
             </Button>
           )}
-          <Link to="/admin/devices" className="btn ghost">
+          {/* Modernist 的 ghost 类名（Button.tsx 的 ghost variant 发的就是
+              这一对）。旧的点式 `.btn.ghost` 是阶段 1 留下的兼容别名，新代码
+              禁用；这里是 <Link>，所以手写类名而不是套 <Button>——保住
+              中键新开、复制链接这些链接语义。 */}
+          <Link to="/admin/devices" className="btn btn-ghost">
             ← Back
           </Link>
         </div>
