@@ -41,6 +41,11 @@
   --color-accent-2-900: #fff2ef;
 
   --backdrop: color-mix(in srgb, #000 62%, transparent);
+
+  /* 仪式是「打破玻璃」的时刻，dark 与 beige 应该长得一样：深红底 + 白字。 */
+  --ceremony-bg: #dd2b0f;
+  --ceremony-fg: #ffffff;
+  --ceremony-line: color-mix(in srgb, var(--ceremony-fg) 45%, transparent);
 }
 
 /* Arcade：朱红铺底，白字。背景用 accent-600 (#dd2b0f) 而不是设计稿原本的
@@ -86,4 +91,11 @@
   --color-accent-2-900: #fff6f4;
 
   --backdrop: color-mix(in srgb, #201e1d 60%, transparent);
+
+  /* 页面本身已经是红的，仪式再用红就不像覆盖层了——改用墨色底 + 白字
+     （16.6:1，余量很大）。此处 --color-accent 恰好就是同一个墨色，但按本
+     文件的惯例仍写字面量，不跨角色互相引用。 */
+  --ceremony-bg: #201e1d;
+  --ceremony-fg: #ffffff;
+  --ceremony-line: color-mix(in srgb, var(--ceremony-fg) 45%, transparent);
 }

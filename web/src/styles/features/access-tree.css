@@ -16,3 +16,13 @@
 .at-head { display: grid; grid-template-columns: 1fr auto; gap: var(--space-4); align-items: center; padding: var(--space-3) var(--space-4); border-bottom: 2px solid var(--color-divider); background: color-mix(in srgb, var(--color-text) 5%, transparent); }
 
 .at-group-note { padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--color-divider); font-size: 12px; opacity: 0.65; }
+
+/* arcade 的次要文字用 opacity 淡化白字，压在饱和红底（--color-bg: #dd2b0f）
+   上普遍不过 WCAG AA（实测 .at-group-note 2.71:1、.at-bar-hint 2.10:1、
+   .at-row-go 更淡还没实测就已经更差）。beige/dark 是中性底色，同样的
+   opacity 没问题，所以只在 arcade 下取消淡化，层级差异靠字号表达。 */
+[data-theme="arcade"] .at-group-note,
+[data-theme="arcade"] .at-bar-hint,
+[data-theme="arcade"] .at-row-go {
+  opacity: 1;
+}

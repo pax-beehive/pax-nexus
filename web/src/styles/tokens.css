@@ -101,6 +101,14 @@
   --shadow-lg: 0 12px 32px color-mix(in srgb, var(--color-neutral-900) 22%, transparent);
 
   --backdrop: color-mix(in srgb, var(--color-neutral-900) 50%, transparent);
+
+  /* 一次性密钥仪式（SecretCeremony）专属 token，不随 --color-accent 的主题内
+     角色互换而漂移——三个主题各自在这里/themes.css 里给出稳定值。默认值就是
+     beige 的取值：深红铺底 + 白字（4.74:1，取值方式见 themes.css 里 arcade
+     铺底色的先例注释）。 */
+  --ceremony-bg: #dd2b0f;
+  --ceremony-fg: #ffffff;
+  --ceremony-line: color-mix(in srgb, var(--ceremony-fg) 45%, transparent);
 }
 
 /* — 兼容别名（临时）—
