@@ -1,1 +1,48 @@
-/* Todos 屏（阶段 6）。占位文件——内容留给负责该屏的 agent。 */
+/* Todos 屏（阶段 6）。建议列表 + 个人清单两栏，各自独立降级（见
+   TodoPage.tsx 的 suggestionsError / todosError）。全屏逃逸模式已删——
+   本屏和门户其余页面一样嵌在标准 .page 容器里，不再单独占满视口。 */
+
+.todo-columns {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr;
+  gap: var(--space-6);
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .todo-columns { grid-template-columns: 1fr; }
+}
+
+/* 建议行：kind 标签 + 标题 + 正文在左，两个纵向堆叠的按钮在右。 */
+.todo-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-4);
+  padding: var(--space-3) 0;
+}
+.todo-row + .todo-row { border-top: 1px solid var(--color-divider); }
+
+.todo-row-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  flex: none;
+}
+
+/* 未完成待办行：标题 + 「完成」按钮。 */
+.todo-item-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+}
+.todo-item-row + .todo-item-row { border-top: 1px solid var(--color-divider); }
+
+/* 已完成分组：粗分隔线与上方未完成列表隔开，条目划线。 */
+.todo-done-group {
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: 2px solid var(--color-divider);
+}
+.todo-done-item { text-decoration: line-through; }

@@ -9,10 +9,3 @@
 .app-logo { display: grid; place-items: center; width: 44px; height: 44px; flex: none; border-radius: 12px; font: 700 20px var(--serif); }
 .app-logo.wiki { border: 1px solid var(--accent-border); background: var(--accent-soft); color: var(--accent); }
 .app-logo.todo { border: 1px solid var(--border); background: var(--info-bg); color: var(--info); }
-
-/* Full-viewport app container (outside the portal shell), mirroring the wiki
-   browse route: flat on the page background, content in a centered column. */
-.app-fullscreen { min-height: 100vh; padding: 20px clamp(16px, 3vw, 44px) 32px; }
-.app-fullscreen-inner { max-width: 720px; margin: 0 auto; }
-.app-back { display: inline-block; margin-bottom: 6px; color: var(--muted); font-size: 12.5px; text-decoration: none; }
-.app-back:hover { color: var(--text); text-decoration: underline; }

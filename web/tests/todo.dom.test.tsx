@@ -1,6 +1,6 @@
 import { screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { callsTo, jsonResponse, makeMe, renderApp, setupDomTest } from "./helpers";
+import { apiErrorResponse, callsTo, jsonResponse, makeMe, renderApp, setupDomTest } from "./helpers";
 
 setupDomTest();
 
@@ -32,11 +32,11 @@ const doneTodo = {
   status: "done" as const,
 };
 
-/** Navigate to /todo the way a user would: sidebar Apps link, then the Todos card. */
+/** Navigate to /apps/todos the way a user would: sidebar Apps link, then the Todos card. */
 async function goToTodos(user: { click: (el: Element) => Promise<void> }) {
   await user.click(screen.getByRole("link", { name: "Apps" }));
   await user.click(await screen.findByRole("link", { name: /Todos/ }));
-  await screen.findByRole("heading", { level: 1, name: "Todos" });
+  await screen.findByRole("heading", { level: 1, name: "Agent 替你发现的活儿" });
 }
 
 describe("Todo app portal integration", () => {
@@ -66,7 +66,7 @@ describe("Todo app portal integration", () => {
     // attribute rather than visibility.
     const doneFold = document.querySelector("details");
     expect(doneFold?.hasAttribute("open")).toBe(false);
-    within(screen.getByLabelText("Todos")).getByText("Done (1)");
+    within(screen.getByLabelText("Todos")).getByText("已完成（1）");
     within(screen.getByLabelText("Todos")).getByText("Write the runbook");
   });
 
@@ -87,8 +87,8 @@ describe("Todo app portal integration", () => {
     });
 
     await goToTodos(user);
-    within(screen.getByLabelText("Suggestions")).getByText("No suggestions right now.");
-    within(screen.getByLabelText("Todos")).getByText("No open todos.");
+    within(screen.getByLabelText("Suggestions")).getByText("现在没有新的建议。");
+    within(screen.getByLabelText("Todos")).getByText("没有未完成的待办。");
   });
 
   it("accepting a suggestion posts accept then refetches both lists", async () => {
@@ -115,10 +115,10 @@ describe("Todo app portal integration", () => {
     await goToTodos(user);
     await screen.findByText("Runtime migration is stuck");
 
-    await user.click(screen.getByRole("button", { name: "Accept" }));
+    await user.click(screen.getByRole("button", { name: "接下来我做" }));
 
     expect(callsTo(fetchMock, "/v1/todo/suggestions/s1/accept", "POST")).toHaveLength(1);
-    await screen.findByText("No suggestions right now.");
+    await screen.findByText("现在没有新的建议。");
     within(screen.getByLabelText("Todos")).getByText("Cut the WAL migration ticket");
     expect(callsTo(fetchMock, "/v1/todo/suggestions", "GET")).toHaveLength(2);
     expect(callsTo(fetchMock, "/v1/todo/todos", "GET")).toHaveLength(2);
@@ -148,10 +148,57 @@ describe("Todo app portal integration", () => {
     await goToTodos(user);
     await screen.findByText("Cut the WAL migration ticket");
 
-    await user.click(screen.getByRole("button", { name: "Complete" }));
+    await user.click(screen.getByRole("button", { name: "完成" }));
 
     expect(callsTo(fetchMock, "/v1/todo/todos/t1/complete", "POST")).toHaveLength(1);
-    await screen.findByText("No open todos.");
+    await screen.findByText("没有未完成的待办。");
     expect(callsTo(fetchMock, "/v1/todo/todos", "GET")).toHaveLength(2);
+  });
+
+  // Suggestions and the personal list come from two independent endpoints
+  // (/v1/todo/suggestions vs /v1/todo/todos) and must degrade independently:
+  // one failing must not blank out the other side.
+  it("still renders the personal list when the suggestions endpoint fails", async () => {
+    const { user } = await renderApp({
+      route: "/management",
+      me: makeMe({ role: "member" }),
+      fetch: (path, init) => {
+        const method = init.method ?? "GET";
+        if (path === "/v1/todo/suggestions" && method === "GET") {
+          return apiErrorResponse(500, "internal", "boom");
+        }
+        if (path === "/v1/todo/todos" && method === "GET") {
+          return jsonResponse({ todos: [openTodo] });
+        }
+        throw new Error(`unexpected fetch: ${path}`);
+      },
+    });
+
+    await goToTodos(user);
+
+    within(screen.getByLabelText("Suggestions")).getByText("建议暂时不可用，请稍后重试。");
+    within(screen.getByLabelText("Todos")).getByText("Cut the WAL migration ticket");
+  });
+
+  it("still renders suggestions when the personal list endpoint fails", async () => {
+    const { user } = await renderApp({
+      route: "/management",
+      me: makeMe({ role: "member" }),
+      fetch: (path, init) => {
+        const method = init.method ?? "GET";
+        if (path === "/v1/todo/suggestions" && method === "GET") {
+          return jsonResponse({ suggestions: [suggestion] });
+        }
+        if (path === "/v1/todo/todos" && method === "GET") {
+          return apiErrorResponse(500, "internal", "boom");
+        }
+        throw new Error(`unexpected fetch: ${path}`);
+      },
+    });
+
+    await goToTodos(user);
+
+    within(screen.getByLabelText("Suggestions")).getByText("Runtime migration is stuck");
+    within(screen.getByLabelText("Todos")).getByText("清单暂时不可用，请稍后重试。");
   });
 });
