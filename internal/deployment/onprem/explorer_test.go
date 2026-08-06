@@ -53,6 +53,25 @@ func (s *explorerServiceSuite) TestOwnerReadsNoteMix() {
 	s.True(at.Equal(s.repository.mixAt))
 }
 
+// NoteMix is an aggregate count, so it follows the Overview page's own gate
+// (view.operations, Owner+Admin) rather than the Owner-only note-content
+// capability. Note CONTENT reads (ListTeamNotes etc.) stay Owner-only.
+func (s *explorerServiceSuite) TestNoteMixAllowsAdminAndRejectsMember() {
+	at := time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC)
+	s.repository.mix = []explorer.NoteKindCount{{Kind: "decision", Count: 2}}
+
+	admin := activeOwner()
+	admin.Role = onprem.RoleAdmin
+	mix, err := s.service.NoteMix(context.Background(), admin, at)
+	s.Require().NoError(err)
+	s.Equal(s.repository.mix, mix)
+
+	member := activeOwner()
+	member.Role = onprem.RoleMember
+	_, err = s.service.NoteMix(context.Background(), member, at)
+	s.Require().ErrorIs(err, onprem.ErrForbidden)
+}
+
 func activeOwner() onprem.HumanPrincipal {
 	return onprem.HumanPrincipal{
 		UserID: "owner", MembershipID: "membership", Role: onprem.RoleOwner,

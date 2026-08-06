@@ -91,15 +91,16 @@ func (s *ExplorerService) GetExtractionDiagnostic(
 	return result, nil
 }
 
-// NoteMix answers the Overview's "what the team remembers" breakdown. Same
-// authorization as every other explorer read: the caller must hold the
-// team-memory capability.
+// NoteMix answers the Overview's live-note breakdown. As an aggregate count
+// it follows the Overview page's own gate (view.operations, Owner+Admin) —
+// note CONTENT reads on this service stay behind the stricter Owner-only
+// CapabilityViewTeamMemory.
 func (s *ExplorerService) NoteMix(
 	ctx context.Context,
 	principal HumanPrincipal,
 	at time.Time,
 ) ([]explorer.NoteKindCount, error) {
-	if err := authorizeHumanCapability(principal, CapabilityViewTeamMemory); err != nil {
+	if err := authorizeHumanCapability(principal, CapabilityViewOperations); err != nil {
 		return nil, err
 	}
 	mix, err := s.repository.NoteMix(ctx, at)

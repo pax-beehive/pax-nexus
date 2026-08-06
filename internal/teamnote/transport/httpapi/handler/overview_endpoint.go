@@ -44,10 +44,10 @@ const (
 )
 
 // logOverviewDegraded logs one degraded overview source. onprem.ErrForbidden
-// means the caller's role simply doesn't reach that source's own (possibly
-// stricter) capability — expected, not an outage — so it logs at Debug and
-// stays silent by default. Every other error is a genuine failure and logs
-// at Warn as before.
+// means the caller's role simply doesn't reach that source's own capability
+// gate (expected when the source's gate is stricter than this endpoint's) —
+// so it logs at Debug and stays silent by default. Every other error is a
+// genuine failure and logs at Warn as before.
 func (h *Handler) logOverviewDegraded(msg string, err error, args ...any) {
 	args = append(args, "error", err)
 	if errors.Is(err, onprem.ErrForbidden) {
@@ -73,13 +73,9 @@ func (h *Handler) logOverviewDegraded(msg string, err error, args ...any) {
 // metrics body the page is built around, so its failure fails the request.
 //
 // A degradable source can also fail with onprem.ErrForbidden rather than a
-// genuine error — e.g. NoteMix requires CapabilityViewTeamMemory (Owner
-// only), stricter than this endpoint's own CapabilityViewOperations gate
-// (Owner+Admin), so every Admin request degrades that section. That is an
-// expected authorization outcome, not a source failure: it is logged at
-// Debug (see logOverviewDegraded) instead of Warn, so real outages are not
-// drowned out by routine role gaps. This changes no authorization — Admins
-// still do not see the note mix.
+// genuine error when its own capability gate is stricter than this
+// endpoint's. That is an expected authorization outcome, not a source
+// failure: it is logged at Debug (see logOverviewDegraded) instead of Warn.
 func (h *Handler) GetOverview(ctx context.Context, c *app.RequestContext) {
 	principal, ok := h.authorizeOperations(ctx, c)
 	if !ok {
