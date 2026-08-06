@@ -205,6 +205,16 @@ type RegistryStore interface {
 	CreateOwnedEnrollment(context.Context, string, EnrollmentRecord) error
 	CreateDeviceEnrollment(context.Context, string, EnrollmentRecord) error
 	ListOwnedEnrollments(context.Context, string, string, AgentArtifactFilter, time.Time) ([]AgentEnrollmentMetadata, error)
+	// ListExpiringEnrollments returns pending enrollments across the whole
+	// team whose token expires before the cutoff. `now` is the status
+	// baseline (matching ListOwnedEnrollments' convention: the CASE compares
+	// expires_at against `now`, never against the selection cutoff
+	// `before`), so a still-pending row inside the lookahead window is
+	// reported 'pending', not 'expired'. On-prem installs are single-tenant
+	// (HumanPrincipal.ScopeID always resolves to LocalScopeID on this path),
+	// so this store method takes no scope parameter; the SaaS equivalent
+	// lives on saas.TeamCredentialStore, scoped by team ID.
+	ListExpiringEnrollments(context.Context, time.Time, time.Time, int) ([]AgentEnrollmentMetadata, error)
 	RevokeOwnedEnrollment(context.Context, string, HumanPrincipal, string, string, string, time.Time) (AgentEnrollmentMetadata, error)
 	ListOwnedCredentials(context.Context, string, string, AgentArtifactFilter, time.Time) ([]AgentCredentialMetadata, error)
 	RevokeOwnedCredential(context.Context, string, HumanPrincipal, string, string, string, time.Time) (AgentCredentialMetadata, error)
@@ -500,6 +510,31 @@ func (s *RegistryService) ListEnrollments(
 	return s.store.ListOwnedEnrollments(
 		ctx, principal.MembershipID, strings.TrimSpace(agentID), filter, s.clock().UTC(),
 	)
+}
+
+// ListExpiringEnrollments returns pending enrollments across the whole team
+// whose one-time token expires before `before`, soonest first.
+//
+// Unlike ListEnrollments this is not owner-scoped, so it is a new read surface
+// over an otherwise owner-private artifact — authorization matches the device
+// listing (owner/admin only), not the per-agent enrollment listing.
+func (s *RegistryService) ListExpiringEnrollments(
+	ctx context.Context,
+	principal HumanPrincipal,
+	before time.Time,
+	limit int,
+) ([]AgentEnrollmentMetadata, error) {
+	if err := authorizeHumanAdmin(principal); err != nil {
+		return nil, err
+	}
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	result, err := s.store.ListExpiringEnrollments(ctx, before, s.clock().UTC(), limit)
+	if err != nil {
+		return nil, fmt.Errorf("list expiring enrollments: %w", err)
+	}
+	return result, nil
 }
 
 func (s *RegistryService) RevokeEnrollment(

@@ -119,6 +119,27 @@ type explorerLifecycle struct {
 	now    time.Time
 	filter explorer.TeamNoteFilter
 	err    error
+
+	// noteMix* back NoteMix, the Overview endpoint's live-note breakdown.
+	// calls counts invocations so tests can assert the source was never
+	// reached (e.g. the Overview 403 path).
+	noteMixCalls  int
+	noteMixAt     time.Time
+	noteMixResult []explorer.NoteKindCount
+	noteMixErr    error
+}
+
+func (s *explorerLifecycle) NoteMix(
+	_ context.Context,
+	_ onprem.HumanPrincipal,
+	at time.Time,
+) ([]explorer.NoteKindCount, error) {
+	s.noteMixCalls++
+	s.noteMixAt = at
+	if s.noteMixErr != nil {
+		return nil, s.noteMixErr
+	}
+	return s.noteMixResult, nil
 }
 
 func (s *explorerLifecycle) ListTeamNotes(

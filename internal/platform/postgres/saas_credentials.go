@@ -363,6 +363,59 @@ func (s *SaaSCredentialStore) ListOwnedEnrollments(
 	return result, nil
 }
 
+// ListExpiringEnrollments returns unclaimed, unrevoked enrollments in one
+// team whose token expiry falls before the cutoff, soonest first — the
+// multi-tenant counterpart of RegistryStore.ListExpiringEnrollments, scoped
+// by team_id since team_agent_enrollments (unlike agent_enrollments) is
+// shared across teams.
+func (s *SaaSCredentialStore) ListExpiringEnrollments(
+	ctx context.Context,
+	teamID string,
+	before time.Time,
+	now time.Time,
+	limit int,
+) ([]onprem.AgentEnrollmentMetadata, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT enrollment_id, agent_id, credential_label, permissions, status,
+		       created_at, expires_at, credential_expires_at
+		FROM (
+			SELECT enrollments.*,
+			       CASE
+			           WHEN consumed_at IS NOT NULL THEN 'consumed'
+			           WHEN revoked_at IS NOT NULL THEN 'revoked'
+			           WHEN expires_at <= $3 THEN 'expired'
+			           ELSE 'pending'
+			       END AS status
+			FROM team_agent_enrollments enrollments
+			WHERE team_id = $1
+		) team_enrollments
+		WHERE consumed_at IS NULL AND revoked_at IS NULL AND expires_at < $2
+		ORDER BY expires_at ASC, enrollment_id ASC
+		LIMIT $4
+	`, teamID, before, now, limit)
+	if err != nil {
+		return nil, fmt.Errorf("query postgres team expiring enrollments: %w", err)
+	}
+	defer rows.Close()
+	result := make([]onprem.AgentEnrollmentMetadata, 0)
+	for rows.Next() {
+		var metadata onprem.AgentEnrollmentMetadata
+		var permissions []string
+		if err := rows.Scan(
+			&metadata.EnrollmentID, &metadata.AgentID, &metadata.CredentialLabel, &permissions,
+			&metadata.Status, &metadata.CreatedAt, &metadata.ExpiresAt, &metadata.CredentialExpiresAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan postgres team expiring enrollment: %w", err)
+		}
+		metadata.Permissions = permissionsFromStrings(permissions)
+		result = append(result, metadata)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate postgres team expiring enrollments: %w", err)
+	}
+	return result, nil
+}
+
 func (s *SaaSCredentialStore) RevokeOwnedEnrollment(
 	ctx context.Context,
 	teamID string,

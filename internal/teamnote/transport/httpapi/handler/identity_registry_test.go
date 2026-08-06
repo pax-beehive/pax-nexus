@@ -625,6 +625,12 @@ type humanIdentityService struct {
 	// lastUpdateMemberRequest records the domain request UpdateMember
 	// received, so tests can assert resource-version resolution.
 	lastUpdateMemberRequest onprem.UpdateMemberRequest
+
+	// listInvitations* let Overview tests override ListInvitations' fixed
+	// default and count invocations (e.g. the Overview 403 path).
+	listInvitationsCalls  int
+	listInvitationsResult []onprem.Invitation
+	listInvitationsErr    error
 }
 
 func (s *humanIdentityService) Login(
@@ -684,6 +690,13 @@ func (s *humanIdentityService) ListInvitations(
 	onprem.HumanPrincipal,
 	onprem.InvitationFilter,
 ) ([]onprem.Invitation, error) {
+	s.listInvitationsCalls++
+	if s.listInvitationsErr != nil {
+		return nil, s.listInvitationsErr
+	}
+	if s.listInvitationsResult != nil {
+		return s.listInvitationsResult, nil
+	}
 	now := time.Now()
 	return []onprem.Invitation{{
 		InvitationID: "invitation", TargetEmail: "invitee@example.com", Role: onprem.RoleMember,
@@ -791,6 +804,34 @@ type agentRegistryService struct {
 	getDeviceErr                error
 	lastDeviceEnrollmentRequest onprem.DeviceEnrollmentRequest
 	createDeviceEnrollmentErr   error
+
+	// expiringEnrollments* back ListExpiringEnrollments, the Overview
+	// endpoint's team-wide read of expiring enrollment tokens. calls counts
+	// invocations so tests can assert a source was never reached (e.g. the
+	// Overview 403 path).
+	expiringEnrollmentsCalls  int
+	expiringEnrollmentsBefore time.Time
+	expiringEnrollmentsLimit  int
+	expiringEnrollmentsResult []onprem.AgentEnrollmentMetadata
+	expiringEnrollmentsErr    error
+}
+
+func (s *agentRegistryService) ListExpiringEnrollments(
+	_ context.Context,
+	principal onprem.HumanPrincipal,
+	before time.Time,
+	limit int,
+) ([]onprem.AgentEnrollmentMetadata, error) {
+	s.expiringEnrollmentsCalls++
+	s.expiringEnrollmentsBefore = before
+	s.expiringEnrollmentsLimit = limit
+	if principal.Role != onprem.RoleOwner && principal.Role != onprem.RoleAdmin {
+		return nil, onprem.ErrForbidden
+	}
+	if s.expiringEnrollmentsErr != nil {
+		return nil, s.expiringEnrollmentsErr
+	}
+	return s.expiringEnrollmentsResult, nil
 }
 
 func testAgent(status onprem.AgentStatus, displayName string, version int64) onprem.AgentProfile {

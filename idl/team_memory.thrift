@@ -931,6 +931,53 @@ struct OperationsSummaryResponse {
   8: required i64 errors
 }
 
+struct OverviewRequest {
+  1: optional string window (api.query="window")
+}
+
+struct OverviewMetrics {
+  1: required i64 evidence_captured
+  2: required i64 live_notes
+  3: required i64 notes_expiring_today
+  4: required i64 recalls_served
+  5: required double recall_accept_rate
+  6: optional i64 p50_ms
+  7: optional i64 p95_ms
+  8: required i64 attention_count
+}
+
+struct OverviewSeriesPoint {
+  1: required string bucket_at
+  2: required i64 evidence
+  3: required i64 facts
+  4: required i64 recalls
+}
+
+struct OverviewNoteMixEntry {
+  1: required string kind
+  2: required i64 count
+  3: required double pct
+}
+
+struct OverviewAttentionItem {
+  1: required string kind
+  2: required string severity
+  3: required string title
+  4: required string body
+  5: required string ref
+  6: required string target
+}
+
+struct OverviewResponse {
+  1: required string from_time
+  2: required string to_time
+  3: required string generated_at
+  4: required OverviewMetrics metrics
+  5: required list<OverviewSeriesPoint> series
+  6: required list<OverviewNoteMixEntry> note_mix
+  7: required list<OverviewAttentionItem> attention
+}
+
 struct ListOperationEventsRequest {
   1: optional string operation_kind (api.query="operation_kind")
   2: optional string outcome (api.query="outcome")
@@ -1334,6 +1381,7 @@ service TeamMemoryService {
   ListSessionAuditFindingsResponse ListSessionAuditFindings(1: ListSessionAuditFindingsRequest request) (api.get="/v1/admin/session-audit/findings")
   ListSessionAuditActivityResponse ListSessionAuditActivity(1: ListSessionAuditActivityRequest request) (api.get="/v1/admin/session-audit/activity")
   OperationsSummaryResponse GetOperationsSummary(1: OperationsSummaryRequest request) (api.get="/v1/admin/operations/summary")
+  OverviewResponse GetOverview(1: OverviewRequest request) (api.get="/v1/admin/overview")
   ListOperationEventsResponse ListOperationEvents(1: ListOperationEventsRequest request) (api.get="/v1/admin/operations/events")
   RecallDiagnosticResponse GetRecallDiagnostic(1: RecallDiagnosticByIDRequest request) (api.get="/v1/admin/operations/recalls/:observation_id")
   OperationsStorageResponse GetOperationsStorage(1: OperationsStorageRequest request) (api.get="/v1/admin/operations/storage")

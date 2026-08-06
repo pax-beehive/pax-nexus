@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/pax-beehive/pax-nexus/internal/explorer"
 )
@@ -88,6 +89,24 @@ func (s *ExplorerService) GetExtractionDiagnostic(
 		return explorer.ExtractionDiagnostic{}, fmt.Errorf("get extraction diagnostic: %w", err)
 	}
 	return result, nil
+}
+
+// NoteMix answers the Overview's "what the team remembers" breakdown. Same
+// authorization as every other explorer read: the caller must hold the
+// team-memory capability.
+func (s *ExplorerService) NoteMix(
+	ctx context.Context,
+	principal HumanPrincipal,
+	at time.Time,
+) ([]explorer.NoteKindCount, error) {
+	if err := authorizeHumanCapability(principal, CapabilityViewTeamMemory); err != nil {
+		return nil, err
+	}
+	mix, err := s.repository.NoteMix(ctx, at)
+	if err != nil {
+		return nil, fmt.Errorf("get explorer note mix: %w", err)
+	}
+	return mix, nil
 }
 
 func (s *ExplorerService) GetChannelDiagnostic(

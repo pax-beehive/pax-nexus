@@ -184,6 +184,7 @@ type Repository interface {
 	GetTeamNote(context.Context, string) (TeamNoteDetail, error)
 	GetExtractionDiagnostic(context.Context, string) (ExtractionDiagnostic, error)
 	GetChannelDiagnostic(context.Context, string) (ChannelDiagnostic, error)
+	NoteMixReader
 }
 
 type teamNoteCursor struct {

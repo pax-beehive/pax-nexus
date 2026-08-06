@@ -38,6 +38,7 @@ func Register(r *server.Hertz) {
 			_admin.GET("/invitations", append(_listmembershipinvitationsMw(), handler.ListMembershipInvitations)...)
 			_admin.POST("/invitations", append(_createmembershipinvitationMw(), handler.CreateMembershipInvitation)...)
 			_admin.GET("/members", append(_listmembersMw(), handler.ListMembers)...)
+			_admin.GET("/overview", append(_getoverviewMw(), handler.GetOverview)...)
 			_admin.GET("/team-notes", append(_listteamnotesMw(), handler.ListTeamNotes)...)
 			{
 				_agent_credentials := _admin.Group("/agent-credentials", _agent_credentialsMw()...)

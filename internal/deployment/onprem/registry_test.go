@@ -430,6 +430,24 @@ func (s *registrySuite) TestCreateDeviceEnrollmentRequiresOwnerOrAdmin() {
 	s.Require().ErrorIs(err, onprem.ErrForbidden)
 }
 
+// Enrollments are owner-private artifacts; a team-wide listing is a new read
+// surface, so it is restricted to owner/admin exactly like the device listing.
+func (s *registrySuite) TestListExpiringEnrollmentsRequiresOwnerOrAdmin() {
+	member := activeMember()
+	member.Role = onprem.RoleMember
+	_, err := s.service.ListExpiringEnrollments(
+		context.Background(), member, time.Now().Add(24*time.Hour), 20,
+	)
+	s.Require().ErrorIs(err, onprem.ErrForbidden)
+
+	admin := activeMember()
+	admin.Role = onprem.RoleAdmin
+	_, err = s.service.ListExpiringEnrollments(
+		context.Background(), admin, time.Now().Add(24*time.Hour), 20,
+	)
+	s.Require().NoError(err)
+}
+
 func (s *registrySuite) TestCreateDeviceEnrollmentRejectsEmptyDeviceName() {
 	owner := activeMember()
 	owner.Role = onprem.RoleOwner
@@ -728,6 +746,16 @@ func (s *registryStore) ListOwnedEnrollments(
 		}
 	}
 	return result, nil
+}
+
+// ListExpiringEnrollments is a stub: no test in this suite exercises its
+// content, only that an owner/admin call succeeds. The real behavior (field
+// order, status derivation, scope isolation) is covered against Postgres in
+// internal/platform/postgres/identity_registry_test.go.
+func (s *registryStore) ListExpiringEnrollments(
+	_ context.Context, _ time.Time, _ time.Time, _ int,
+) ([]onprem.AgentEnrollmentMetadata, error) {
+	return nil, nil
 }
 
 func (s *registryStore) RevokeOwnedEnrollment(

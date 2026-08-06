@@ -513,6 +513,31 @@ func (s *Registry) GetDevice(
 	return detail, nil
 }
 
+// ListExpiringEnrollments returns pending enrollments across the whole
+// principal's team whose one-time token expires before `before`, soonest
+// first. Unlike ListEnrollments this is not owner-scoped, so it is a new
+// read surface over an otherwise owner-private artifact — authorization
+// matches the device listing (owner/admin only), not the per-agent
+// enrollment listing. Only an Owner or Admin may call it.
+func (s *Registry) ListExpiringEnrollments(
+	ctx context.Context,
+	principal onprem.HumanPrincipal,
+	before time.Time,
+	limit int,
+) ([]onprem.AgentEnrollmentMetadata, error) {
+	if err := authorizeTeamAdmin(principal); err != nil {
+		return nil, err
+	}
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	result, err := s.credentials.ListExpiringEnrollments(ctx, principal.ScopeID, before, s.clock().UTC(), limit)
+	if err != nil {
+		return nil, fmt.Errorf("list team expiring enrollments: %w", err)
+	}
+	return result, nil
+}
+
 // validateAgentIdentity mirrors the on-prem agent ID/display-name rules.
 func validateAgentIdentity(agentID, displayName string) error {
 	if agentID == "" || displayName == "" {

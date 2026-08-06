@@ -480,3 +480,26 @@ func (s *registrySuite) TestDeviceAdministration() {
 		s.Require().ErrorIs(err, onprem.ErrCredentialNotFound)
 	})
 }
+
+// TestListExpiringEnrollmentsRequiresOwnerOrAdmin mirrors the on-prem
+// counterpart in internal/deployment/onprem/registry_test.go: enrollments
+// are owner-private artifacts, so a team-wide listing is a new read surface
+// restricted to owner/admin exactly like the device listing.
+func (s *registrySuite) TestListExpiringEnrollmentsRequiresOwnerOrAdmin() {
+	s.Run("member is forbidden", func() {
+		member := ownerPrincipal()
+		member.Role = onprem.RoleMember
+		_, err := s.service.ListExpiringEnrollments(context.Background(), member, s.now.Add(24*time.Hour), 20)
+		s.Require().ErrorIs(err, onprem.ErrForbidden)
+	})
+
+	s.Run("owner is allowed and the call is team-scoped", func() {
+		before := s.now.Add(24 * time.Hour)
+		s.credentials.EXPECT().ListExpiringEnrollments(gomock.Any(), "team_alpha", before, s.now, 20).
+			Return([]onprem.AgentEnrollmentMetadata{{EnrollmentID: "enrollment-1"}}, nil)
+		result, err := s.service.ListExpiringEnrollments(context.Background(), ownerPrincipal(), before, 20)
+		s.Require().NoError(err)
+		s.Require().Len(result, 1)
+		s.Equal("enrollment-1", result[0].EnrollmentID)
+	})
+}

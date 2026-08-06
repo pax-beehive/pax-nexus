@@ -927,6 +927,7 @@ func TestGeneratedBridgesRequireAHandlerInstance(t *testing.T) {
 		{name: "recall diagnostic", bridge: handler.GetRecallDiagnostic},
 		{name: "operations storage", bridge: handler.GetOperationsStorage},
 		{name: "operations storage history", bridge: handler.ListOperationsStorageHistory},
+		{name: "overview", bridge: handler.GetOverview},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()

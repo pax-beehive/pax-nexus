@@ -315,6 +315,9 @@ type Repository interface {
 	ListStorage(context.Context, StorageFilter) ([]StorageSnapshot, error)
 	AgentStats(context.Context, TimeFilter) ([]AgentStats, error)
 	DeleteBefore(context.Context, time.Time, time.Time) (int64, int64, error)
+	// Series is the Overview endpoint's bucketed throughput read; see
+	// SeriesBucket in series.go for the shape.
+	Series(context.Context, TimeFilter, time.Duration) ([]SeriesBucket, error)
 }
 
 type Recorder interface {

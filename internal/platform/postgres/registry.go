@@ -545,6 +545,69 @@ func (s *RegistryStore) ListOwnedEnrollments(
 	return result, nil
 }
 
+// ListExpiringEnrollments returns unclaimed, unrevoked enrollments across the
+// whole team whose token expiry falls before the cutoff, soonest first.
+//
+// `now` is the status baseline, matching ListOwnedEnrollments' convention:
+// the CASE compares expires_at against `now`, never against the selection
+// cutoff `before`. A row that hasn't expired yet (expires_at > now) but
+// falls inside the lookahead window (expires_at < before) is reported
+// 'pending', not 'expired' — reusing `before` for both would mislabel every
+// still-pending row in the window as already expired.
+//
+// On-prem installs are single-tenant: onprem.HumanPrincipal.ScopeID always
+// resolves to onprem.LocalScopeID on this path, and agent_enrollments has no
+// scope_id column to filter on — so, unlike every other listing in this
+// file, this query carries no scope/team filter deliberately, not by
+// omission. The multi-tenant SaaS equivalent
+// (SaaSCredentialStore.ListExpiringEnrollments) filters team_agent_enrollments
+// by team_id instead.
+func (s *RegistryStore) ListExpiringEnrollments(
+	ctx context.Context,
+	before time.Time,
+	now time.Time,
+	limit int,
+) ([]onprem.AgentEnrollmentMetadata, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT enrollment_id, agent_id, credential_label, permissions, status,
+		       created_at, expires_at, credential_expires_at
+		FROM (
+			SELECT enrollments.*,
+			       CASE
+			           WHEN consumed_at IS NOT NULL THEN 'consumed'
+			           WHEN revoked_at IS NOT NULL THEN 'revoked'
+			           WHEN expires_at <= $2 THEN 'expired'
+			           ELSE 'pending'
+			       END AS status
+			FROM agent_enrollments enrollments
+		) all_enrollments
+		WHERE consumed_at IS NULL AND revoked_at IS NULL AND expires_at < $1
+		ORDER BY expires_at ASC, enrollment_id ASC
+		LIMIT $3
+	`, before, now, limit)
+	if err != nil {
+		return nil, fmt.Errorf("query postgres expiring enrollments: %w", err)
+	}
+	defer rows.Close()
+	result := make([]onprem.AgentEnrollmentMetadata, 0)
+	for rows.Next() {
+		var metadata onprem.AgentEnrollmentMetadata
+		var permissions []string
+		if err := rows.Scan(
+			&metadata.EnrollmentID, &metadata.AgentID, &metadata.CredentialLabel, &permissions,
+			&metadata.Status, &metadata.CreatedAt, &metadata.ExpiresAt, &metadata.CredentialExpiresAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan postgres expiring enrollment: %w", err)
+		}
+		metadata.Permissions = permissionsFromStrings(permissions)
+		result = append(result, metadata)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate postgres expiring enrollments: %w", err)
+	}
+	return result, nil
+}
+
 func (s *RegistryStore) RevokeOwnedEnrollment(
 	ctx context.Context,
 	membershipID string,

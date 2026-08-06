@@ -65,6 +65,13 @@ func (s *operationsServiceSuite) TestOwnerAndAdminCanReadNormalizedOperations() 
 
 			_, err = s.service.GetRecallDiagnostic(context.Background(), principal, 1)
 			s.Require().NoError(err)
+
+			_, err = s.service.Series(context.Background(), principal, operations.TimeFilter{}, 10*time.Minute)
+			s.Require().NoError(err)
+			s.Equal(s.now.Add(-24*time.Hour), s.repository.seriesFilter.From)
+			s.Equal(s.now, s.repository.seriesFilter.To)
+			s.Equal(10*time.Minute, s.repository.seriesBucket)
+
 			expectedCapabilities := []onprem.HumanCapability{onprem.CapabilityViewOperations}
 			if role == onprem.RoleOwner {
 				expectedCapabilities = append(expectedCapabilities, onprem.CapabilityViewTeamMemory)
@@ -90,6 +97,8 @@ func (s *operationsServiceSuite) TestMemberAndInactiveMembershipAreForbidden() {
 			s.Require().ErrorIs(err, onprem.ErrForbidden)
 			_, err = s.service.AgentStats(context.Background(), test.principal, operations.TimeFilter{})
 			s.Require().ErrorIs(err, onprem.ErrForbidden)
+			_, err = s.service.Series(context.Background(), test.principal, operations.TimeFilter{}, 10*time.Minute)
+			s.Require().ErrorIs(err, onprem.ErrForbidden)
 			s.Empty(test.principal.Capabilities())
 		})
 	}
@@ -114,6 +123,10 @@ func (s *operationsServiceSuite) TestRepositoryErrorsKeepCauseAndOperationContex
 		}},
 		{name: "diagnostic", context: "get recall diagnostic", call: func() error {
 			_, err := s.service.GetRecallDiagnostic(context.Background(), principal, 1)
+			return err
+		}},
+		{name: "series", context: "get operations series", call: func() error {
+			_, err := s.service.Series(context.Background(), principal, operations.TimeFilter{}, 10*time.Minute)
 			return err
 		}},
 		{name: "latest storage", context: "get latest operations storage", call: func() error {
@@ -193,6 +206,8 @@ type operationsRepository struct {
 	eventFilter   operations.EventFilter
 	storageFilter operations.StorageFilter
 	agentFilter   operations.TimeFilter
+	seriesFilter  operations.TimeFilter
+	seriesBucket  time.Duration
 	err           error
 }
 
@@ -217,6 +232,19 @@ func (r *operationsRepository) ListEvents(
 	filter operations.EventFilter,
 ) ([]operations.Event, error) {
 	r.eventFilter = filter
+	if r.err != nil {
+		return nil, r.err
+	}
+	return nil, nil
+}
+
+func (r *operationsRepository) Series(
+	_ context.Context,
+	filter operations.TimeFilter,
+	bucket time.Duration,
+) ([]operations.SeriesBucket, error) {
+	r.seriesFilter = filter
+	r.seriesBucket = bucket
 	if r.err != nil {
 		return nil, r.err
 	}
