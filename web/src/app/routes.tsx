@@ -10,7 +10,6 @@ import { landingPath } from "./navModel";
 import { AccessTreePage } from "../pages/AccessTreePage";
 import { AgentDetailPage } from "../pages/AgentDetailPage";
 import { AdminAgentsPage } from "../pages/AdminAgentsPage";
-import { AdminAgentDetailPage } from "../pages/AdminAgentDetailPage";
 import { AdminMembersPage } from "../pages/AdminMembersPage";
 import { AdminInvitationsPage } from "../pages/AdminInvitationsPage";
 import { AdminDevicesPage } from "../pages/AdminDevicesPage";
@@ -75,8 +74,6 @@ function DefaultRedirect({ me }: { me: HumanMe }) {
 }
 
 export function PortalRoutes({ me }: { me: HumanMe }) {
-  const adminLike = can(me.role, "view.members");
-
   return (
     <Routes>
       {/* 旧路由：整表挂重定向，逐条由 tests/legacy-routes.test.ts 覆盖。 */}
@@ -125,11 +122,9 @@ export function PortalRoutes({ me }: { me: HumanMe }) {
           </RequireRole>
         }
       />
-      {/* 阶段 4 合并成一个 scope 自适应页面；现在按角色分派。 */}
-      <Route
-        path="/management/agents/:agentId"
-        element={adminLike ? <AdminAgentDetailPage me={me} /> : <AgentDetailPage />}
-      />
+      {/* 阶段 4：单一 scope 自适应页面，内部按「这个 Agent 是不是你的」分派
+          读取范围与动作范围（agentScope.ts）。 */}
+      <Route path="/management/agents/:agentId" element={<AgentDetailPage me={me} />} />
       <Route
         path="/management/devices"
         element={

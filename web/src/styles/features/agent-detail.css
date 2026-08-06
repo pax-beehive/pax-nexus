@@ -44,3 +44,10 @@
 .ag-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-6); padding: var(--space-6) var(--space-4) var(--space-4); }
 .ag-head-facts { display: flex; flex-wrap: wrap; gap: var(--space-4); margin-top: var(--space-2); font-size: 12px; align-items: center; }
 .ag-metrics { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--color-divider); }
+
+/* 详情页主体两列：左 Identity + Lifecycle，右 Keys（+ Recent behaviour）。 */
+.ag-columns { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-6); align-items: start; }
+
+@media (max-width: 860px) {
+  .ag-columns { grid-template-columns: 1fr; }
+}

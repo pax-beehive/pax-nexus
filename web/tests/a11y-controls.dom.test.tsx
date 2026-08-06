@@ -109,17 +109,20 @@ describe("My Agents / Invitations: tab groups follow the same pattern", () => {
   });
 });
 
-describe("Agent artifacts: enrollment and credential filter groups", () => {
-  it("both tab groups on the agent detail page are labeled and pressed-aware", async () => {
-    // /management/agents/:agentId dispatches AdminAgentDetailPage to
-    // admin-likes and AgentDetailPage (the self-serve page under test) to
-    // everyone else (brief-mandated stand-in until phase 4).
-    await renderApp({
+describe("Agent detail: issue-access modal preset groups", () => {
+  it("claim-window and key-lifetime presets are labeled groups with pressed state", async () => {
+    // 阶段 4：AgentArtifacts 的旧状态过滤 Tabs 组（enrollment status /
+    // credential status）随旧文件一起删除；AgentKeysSection 不再对
+    // 待认领令牌 / 活跃密钥做状态过滤。同一条 a11y 规则（同屏两组
+    // role="group"，各自有 aria-label，选中态走 aria-pressed）现在落在
+    // 「发放接入权限」弹窗（IssueAccessModal）的两组 Seg 预设上：认领窗口
+    // 与密钥有效期。
+    const { user } = await renderApp({
       route: "/management/agents/agent-1",
-      me: makeMe({ role: "member" }),
+      me: makeMe({ role: "member", membership_id: "mbr_01" }),
       fetch: (path, init) => {
-        if (path === "/v1/me/agents/agent-1" && init.method === "GET") {
-          return jsonResponse({ agent: makeAgent() });
+        if (path === "/v1/me/agents/agent-1" && (init.method ?? "GET") === "GET") {
+          return jsonResponse({ agent: makeAgent({ owner_membership_id: "mbr_01" }) });
         }
         if (path.startsWith("/v1/me/agents/agent-1/enrollments")) {
           return jsonResponse({ enrollments: [] });
@@ -130,15 +133,19 @@ describe("Agent artifacts: enrollment and credential filter groups", () => {
         throw new Error(`unexpected fetch: ${init.method ?? "GET"} ${path}`);
       },
     });
-    await screen.findByRole("heading", { name: "Enrollments" });
 
-    const enrollmentGroup = screen.getByRole("group", { name: "enrollment status" });
-    const credentialGroup = screen.getByRole("group", { name: "credential status" });
-    expect(within(enrollmentGroup).getByRole("button", { name: "all" })).not.toBe(
-      within(credentialGroup).getByRole("button", { name: "all" }),
-    );
-    expectPressed(within(enrollmentGroup).getByRole("button", { name: "all" }), true);
-    expectPressed(within(credentialGroup).getByRole("button", { name: "all" }), true);
+    await user.click(await screen.findByRole("button", { name: "发放接入权限" }));
+
+    const windowGroup = screen.getByRole("group", { name: "认领窗口" });
+    const lifetimeGroup = screen.getByRole("group", { name: "密钥有效期" });
+    expectPressed(within(windowGroup).getByRole("button", { name: "15 分钟" }), true);
+    expectPressed(within(lifetimeGroup).getByRole("button", { name: "90 天" }), true);
+
+    await user.click(within(windowGroup).getByRole("button", { name: "5 分钟" }));
+    expectPressed(within(windowGroup).getByRole("button", { name: "5 分钟" }), true);
+    expectPressed(within(windowGroup).getByRole("button", { name: "15 分钟" }), false);
+    // Switching one preset group leaves the other untouched.
+    expectPressed(within(lifetimeGroup).getByRole("button", { name: "90 天" }), true);
   });
 });
 
