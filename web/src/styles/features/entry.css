@@ -1,0 +1,49 @@
+/* 入场屏（阶段 7 任务 1）：WelcomePage 与任务 2 重画的 Login/Join/Bootstrap/
+   Suspended/NotConfigured 五屏共用同一套「屏幕居中窄栏」版式。这些页面挂在
+   PortalShell 之外，全屏铺底在 --color-bg 上，不嵌在 .card 里——不要假设任何
+   祖先节点提供了 --color-surface 底色。
+
+   次要文字一律用显式的 --color-text，不用 opacity / color-mix 淡化：arcade
+   下正文/底色对比度本身只有 ~4.74:1（见 tokens.css 顶部注释与
+   governance-pipeline.css 的先例），任何淡化都会把它压到 AA 线以下。 */
+
+.entry-screen {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: var(--space-6);
+  background: var(--color-bg);
+}
+
+.entry-col {
+  width: min(480px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.entry-brand {
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  font-size: 15px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--color-accent);
+}
+
+.entry-lede {
+  font-size: 16px;
+  color: var(--color-text);
+  margin: 0 0 var(--space-2);
+}
+
+.entry-actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+
+.entry-foot {
+  color: var(--color-text);
+  margin: 0;
+}

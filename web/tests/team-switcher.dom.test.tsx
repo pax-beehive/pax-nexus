@@ -90,7 +90,13 @@ describe("team switcher", () => {
     expect(callsTo(fetchMock, "/v1/me").length).toBeGreaterThanOrEqual(2);
   });
 
-  it("navigates to onboarding from the popover footer rows", async () => {
+  it("the popover footer rows' /onboarding link no longer reaches a create/join page", async () => {
+    // Modernist Portal phase 7 task 1 merged the dedicated onboarding page
+    // into /welcome, which only makes sense for a no-membership session.
+    // /onboarding now redirects to /welcome (app/routes.tsx), but an active
+    // session has no route at /welcome either, so it bounces on to its
+    // normal landing page. These footer rows are a known gap left by that
+    // change (see task-1-report.md) — they no longer do anything.
     const { user } = await renderApp({
       route: "/management",
       me: makeSaasMe({ role: "member" }),
@@ -105,9 +111,9 @@ describe("team switcher", () => {
       }),
     );
 
-    // /onboarding?mode=join renders the join pane of the onboarding page.
-    await screen.findByLabelText("Invitation token");
-    expect(window.location.pathname).toBe("/onboarding");
-    expect(window.location.search).toBe("?mode=join");
+    // Bounced straight back to the member landing page, not a join form.
+    await screen.findByRole("heading", { name: "My Agents" });
+    expect(window.location.pathname).toBe("/management");
+    expect(screen.queryByLabelText("Invitation token")).toBeNull();
   });
 });

@@ -1,15 +1,14 @@
 import { useEffect, useRef } from "react";
-import { BrowserRouter, Route, Routes, useNavigate } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./auth/AuthContext";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ToastProvider } from "./components/Toasts";
-import { peekPendingInvitation, takeReturnUrl } from "./lib/continuations";
+import { peekPendingInvitation, peekReturnUrl, takeReturnUrl } from "./lib/continuations";
 import { LoginPage } from "./pages/LoginPage";
 import { NotConfiguredPage } from "./pages/NotConfiguredPage";
 import { BootstrapPage } from "./pages/BootstrapPage";
 import { JoinPage } from "./pages/JoinPage";
-import { EntryPage } from "./pages/EntryPage";
-import { OnboardingPage } from "./pages/OnboardingPage";
+import { WelcomePage } from "./pages/WelcomePage";
 import { SuspendedPage } from "./pages/SuspendedPage";
 import { AppShell } from "./app/AppShell";
 import { PortalRoutes } from "./app/routes";
@@ -42,6 +41,23 @@ function ContinuationRedirect() {
   return null;
 }
 
+/**
+ * Catch-all fallback for a no-membership session on any unmatched path
+ * (mirrors app/routes.tsx's DefaultRedirect for the active-state shell, and
+ * exists for the same reason: ContinuationRedirect above also mounts this
+ * render and fires its own navigate() in the same commit, so redirecting
+ * here unconditionally would sometimes win that race and strand a pending
+ * invitation / return_url restore behind the plain /welcome landing page.
+ */
+function NoMembershipRedirect() {
+  const location = useLocation();
+  if (peekPendingInvitation()) return null;
+  const here = location.pathname + location.search;
+  const target = peekReturnUrl();
+  if (target && target !== here) return null;
+  return <Navigate to="/welcome" replace />;
+}
+
 function AppRoutes() {
   const { state } = useAuth();
 
@@ -62,14 +78,16 @@ function AppRoutes() {
           has no membership yet; the page branches on auth state itself. */}
       <Route path="/join" element={<JoinPage />} />
       {state.kind === "unauthenticated" && <Route path="*" element={<LoginPage />} />}
-      {state.kind === "no-membership" && state.profile === "onprem" && (
+      {state.kind === "no-membership" && (
         <>
-          <Route path="/bootstrap" element={<BootstrapPage />} />
-          <Route path="*" element={<EntryPage />} />
+          {/* Bootstrap is a one-time, high-risk claim: it stays a directly
+              reachable, linkable URL of its own instead of folding into
+              /welcome (doc section 5.1). Onprem only — saas has no bootstrap
+              concept. */}
+          {state.profile === "onprem" && <Route path="/bootstrap" element={<BootstrapPage />} />}
+          <Route path="/welcome" element={<WelcomePage />} />
+          <Route path="*" element={<NoMembershipRedirect />} />
         </>
-      )}
-      {state.kind === "no-membership" && state.profile === "saas" && (
-        <Route path="*" element={<OnboardingPage />} />
       )}
       {state.kind === "suspended" && <Route path="*" element={<SuspendedPage />} />}
       {state.kind === "active" && (

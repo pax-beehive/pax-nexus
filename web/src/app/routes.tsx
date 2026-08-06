@@ -25,7 +25,6 @@ import { TeamSettingsPage } from "../pages/TeamSettingsPage";
 import { AppearancePage } from "../pages/settings/AppearancePage";
 import { MemoryRulesPage } from "../pages/settings/MemoryRulesPage";
 import { ModelUsagePage } from "../pages/settings/ModelUsagePage";
-import { OnboardingPage } from "../pages/OnboardingPage";
 
 /** 角色矩阵门控；无权限一律回落地页，页面不挂载 = 不发请求。 */
 function RequireRole({
@@ -81,7 +80,17 @@ export function PortalRoutes({ me }: { me: HumanMe }) {
         <Route key={route.from} path={route.from} element={<LegacyRedirect />} />
       ))}
 
-      <Route path="/onboarding" element={<OnboardingPage />} />
+      {/* The dedicated onboarding page is gone (phase 7 task 1 merged it into
+          /welcome). This route stays only so a stale bookmark or external link to
+          /onboarding does not 404 — the entry-unification page for a
+          no-membership session lives at /welcome, not inside the shell.
+          An already-active session that lands here (e.g. the team switcher's
+          "Create a team" / "Join with invitation" footer rows, which still
+          navigate to /onboarding) has no matching route at /welcome either,
+          so DefaultRedirect below bounces it on to landingPath(me) — see
+          team-switcher.dom.test.tsx and task-1-report.md for the known gap
+          this leaves (no self-serve create/join-another-team UI today). */}
+      <Route path="/onboarding" element={<Navigate to="/welcome" replace />} />
 
       <Route
         path="/overview"
