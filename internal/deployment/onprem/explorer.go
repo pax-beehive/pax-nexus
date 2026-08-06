@@ -110,6 +110,20 @@ func (s *ExplorerService) NoteMix(
 	return mix, nil
 }
 
+// CountExpiringNotes feeds the Overview's expiring-soon tile. Same gate as
+// NoteMix: an aggregate count, so view.operations (Owner+Admin).
+func (s *ExplorerService) CountExpiringNotes(
+	ctx context.Context,
+	principal HumanPrincipal,
+	at time.Time,
+	within time.Duration,
+) (int64, error) {
+	if err := authorizeHumanCapability(principal, CapabilityViewOperations); err != nil {
+		return 0, err
+	}
+	return s.repository.CountExpiringNotes(ctx, at, within)
+}
+
 func (s *ExplorerService) GetChannelDiagnostic(
 	ctx context.Context,
 	principal HumanPrincipal,

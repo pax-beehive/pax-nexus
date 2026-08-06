@@ -127,6 +127,15 @@ type explorerLifecycle struct {
 	noteMixAt     time.Time
 	noteMixResult []explorer.NoteKindCount
 	noteMixErr    error
+
+	// countExpiring* back CountExpiringNotes, the Overview endpoint's
+	// expiring-soon tile. calls counts invocations so tests can assert the
+	// source was never reached (e.g. the Overview 403 path).
+	countExpiringCalls  int
+	countExpiringAt     time.Time
+	countExpiringWithin time.Duration
+	countExpiringResult int64
+	countExpiringErr    error
 }
 
 func (s *explorerLifecycle) NoteMix(
@@ -140,6 +149,21 @@ func (s *explorerLifecycle) NoteMix(
 		return nil, s.noteMixErr
 	}
 	return s.noteMixResult, nil
+}
+
+func (s *explorerLifecycle) CountExpiringNotes(
+	_ context.Context,
+	_ onprem.HumanPrincipal,
+	at time.Time,
+	within time.Duration,
+) (int64, error) {
+	s.countExpiringCalls++
+	s.countExpiringAt = at
+	s.countExpiringWithin = within
+	if s.countExpiringErr != nil {
+		return 0, s.countExpiringErr
+	}
+	return s.countExpiringResult, nil
 }
 
 func (s *explorerLifecycle) ListTeamNotes(

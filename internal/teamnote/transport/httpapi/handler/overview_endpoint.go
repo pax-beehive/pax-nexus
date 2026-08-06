@@ -108,6 +108,7 @@ func (h *Handler) GetOverview(ctx context.Context, c *app.RequestContext) {
 
 		series                         []operations.SeriesBucket
 		noteMix                        []explorer.NoteKindCount
+		notesExpiring                  int64
 		highFindings, criticalFindings []audit.Finding
 		invitations                    []onprem.Invitation
 		enrollments                    []onprem.AgentEnrollmentMetadata
@@ -132,12 +133,7 @@ func (h *Handler) GetOverview(ctx context.Context, c *app.RequestContext) {
 		if h.explorer == nil {
 			return
 		}
-		result, err := h.explorer.NoteMix(ctx, principal, now)
-		if err != nil {
-			h.logOverviewDegraded("overview note mix degraded", err)
-			return
-		}
-		noteMix = result
+		noteMix, notesExpiring = h.overviewNoteMixAndExpiring(ctx, principal, now)
 	}()
 	go func() {
 		defer wg.Done()
@@ -207,7 +203,27 @@ func (h *Handler) GetOverview(ctx context.Context, c *app.RequestContext) {
 		attention = attention[:overviewAttentionLimit]
 	}
 
-	c.JSON(consts.StatusOK, overviewResponseToAPI(summary, series, noteMix, attention, attentionTotal))
+	c.JSON(consts.StatusOK, overviewResponseToAPI(summary, series, noteMix, notesExpiring, attention, attentionTotal))
+}
+
+// overviewNoteMixAndExpiring fetches the note mix and, only if that
+// succeeds, the expiring-soon count — both share the same "at" instant, so
+// they degrade as one unit: a failed note mix leaves the expiring count at
+// its zero value too, rather than firing a second, inconsistent read.
+func (h *Handler) overviewNoteMixAndExpiring(
+	ctx context.Context, principal onprem.HumanPrincipal, now time.Time,
+) ([]explorer.NoteKindCount, int64) {
+	mix, mixErr := h.explorer.NoteMix(ctx, principal, now)
+	if mixErr != nil {
+		h.logOverviewDegraded("overview note mix degraded", mixErr)
+		return nil, 0
+	}
+	expiring, expErr := h.explorer.CountExpiringNotes(ctx, principal, now, overviewExpiringWithin)
+	if expErr != nil {
+		h.logOverviewDegraded("overview expiring-notes count degraded", expErr)
+		return mix, 0
+	}
+	return mix, expiring
 }
 
 // overviewAttentionEntry is the handler's internal shape for one attention
@@ -332,6 +348,7 @@ func overviewResponseToAPI(
 	summary operations.Summary,
 	series []operations.SeriesBucket,
 	noteMix []explorer.NoteKindCount,
+	notesExpiring int64,
 	attention []overviewAttentionEntry,
 	attentionTotal int,
 ) *api.OverviewResponse {
@@ -350,11 +367,7 @@ func overviewResponseToAPI(
 		GeneratedAt: summary.GeneratedAt.Format(time.RFC3339Nano),
 		Metrics: &api.OverviewMetrics{
 			EvidenceCaptured: summary.Observations.EventsWritten, LiveNotes: liveNotes,
-			// notes_expiring_today has no owning source among the six
-			// downstream reads this endpoint assembles (NoteMix reports live
-			// counts by kind at an instant, not a same-day expiry cohort).
-			// Left at zero until a dedicated source exists.
-			NotesExpiringToday: 0,
+			NotesExpiringToday: notesExpiring,
 			RecallsServed:      summary.Recalls.Succeeded, RecallAcceptRate: acceptRate,
 			P50Ms: summary.Latency.P50MS, P95Ms: summary.Latency.P95MS,
 			AttentionCount: int64(attentionTotal),

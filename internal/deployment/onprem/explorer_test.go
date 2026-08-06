@@ -72,6 +72,37 @@ func (s *explorerServiceSuite) TestNoteMixAllowsAdminAndRejectsMember() {
 	s.Require().ErrorIs(err, onprem.ErrForbidden)
 }
 
+func (s *explorerServiceSuite) TestOwnerReadsCountExpiringNotes() {
+	at := time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC)
+	s.repository.expiringCount = 4
+
+	count, err := s.service.CountExpiringNotes(context.Background(), activeOwner(), at, 24*time.Hour)
+
+	s.Require().NoError(err)
+	s.Equal(int64(4), count)
+	s.True(at.Equal(s.repository.expiringAt))
+	s.Equal(24*time.Hour, s.repository.expiringWithin)
+}
+
+// CountExpiringNotes is an aggregate count, so it follows the same gate as
+// NoteMix (view.operations, Owner+Admin) rather than the Owner-only
+// note-content capability.
+func (s *explorerServiceSuite) TestCountExpiringNotesAllowsAdminAndRejectsMember() {
+	at := time.Date(2026, 8, 5, 12, 0, 0, 0, time.UTC)
+	s.repository.expiringCount = 2
+
+	admin := activeOwner()
+	admin.Role = onprem.RoleAdmin
+	count, err := s.service.CountExpiringNotes(context.Background(), admin, at, 24*time.Hour)
+	s.Require().NoError(err)
+	s.Equal(int64(2), count)
+
+	member := activeOwner()
+	member.Role = onprem.RoleMember
+	_, err = s.service.CountExpiringNotes(context.Background(), member, at, 24*time.Hour)
+	s.Require().ErrorIs(err, onprem.ErrForbidden)
+}
+
 func activeOwner() onprem.HumanPrincipal {
 	return onprem.HumanPrincipal{
 		UserID: "owner", MembershipID: "membership", Role: onprem.RoleOwner,
@@ -84,6 +115,10 @@ type explorerRepository struct {
 	filter explorer.TeamNoteFilter
 	mix    []explorer.NoteKindCount
 	mixAt  time.Time
+
+	expiringCount  int64
+	expiringAt     time.Time
+	expiringWithin time.Duration
 }
 
 func (r *explorerRepository) ListTeamNotes(
@@ -118,4 +153,14 @@ func (r *explorerRepository) NoteMix(
 ) ([]explorer.NoteKindCount, error) {
 	r.mixAt = at
 	return r.mix, nil
+}
+
+func (r *explorerRepository) CountExpiringNotes(
+	_ context.Context,
+	at time.Time,
+	within time.Duration,
+) (int64, error) {
+	r.expiringAt = at
+	r.expiringWithin = within
+	return r.expiringCount, nil
 }

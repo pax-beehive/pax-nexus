@@ -160,6 +160,9 @@ type ExplorerLifecycle interface {
 	GetChannelDiagnostic(context.Context, onprem.HumanPrincipal, string) (explorer.ChannelDiagnostic, error)
 	// NoteMix is the Overview endpoint's live-note breakdown by kind.
 	NoteMix(context.Context, onprem.HumanPrincipal, time.Time) ([]explorer.NoteKindCount, error)
+	// CountExpiringNotes is the Overview endpoint's expiring-soon tile: notes
+	// live at `at` whose hard expiry falls within the given window.
+	CountExpiringNotes(ctx context.Context, principal onprem.HumanPrincipal, at time.Time, within time.Duration) (int64, error)
 }
 
 type WikiControl interface {

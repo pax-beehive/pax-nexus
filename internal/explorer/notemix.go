@@ -16,4 +16,9 @@ type NoteKindCount struct {
 // NoteMixReader answers the Overview's "what the team remembers" breakdown.
 type NoteMixReader interface {
 	NoteMix(ctx context.Context, at time.Time) ([]NoteKindCount, error)
+
+	// CountExpiringNotes counts notes that are ACTIVE at `at` (same
+	// effective-state definition as NoteMix) and whose hard expiry falls
+	// within (at, at+within]. It feeds the Overview's expiring-soon tile.
+	CountExpiringNotes(ctx context.Context, at time.Time, within time.Duration) (int64, error)
 }

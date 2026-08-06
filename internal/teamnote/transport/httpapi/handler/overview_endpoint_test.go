@@ -122,6 +122,7 @@ func (s *overviewHandlerSuite) TestWindowDeterminesBucketCount() {
 // section (series, note mix) is unaffected.
 func (s *overviewHandlerSuite) TestSingleSourceFailureDegradesOnlyThatSection() {
 	s.explorer.noteMixResult = []explorer.NoteKindCount{{Kind: "decision", Count: 3}}
+	s.explorer.countExpiringResult = 7
 	s.sessionAudit.err = errors.New("audit projection unavailable")
 
 	response := s.perform("/v1/admin/overview?window=1h")
@@ -131,6 +132,8 @@ func (s *overviewHandlerSuite) TestSingleSourceFailureDegradesOnlyThatSection() 
 	s.Len(body.Series, 6, "the series section must stay intact when findings fail")
 	s.Require().Len(body.NoteMix, 1, "the note mix section must stay intact when findings fail")
 	s.Equal(int64(3), body.NoteMix[0].Count)
+	s.Equal(int64(7), body.Metrics.NotesExpiringToday, "the expiring-notes count must reflect the source's fixture value")
+	s.Equal(24*time.Hour, s.explorer.countExpiringWithin, "the expiring window must be 24h, matching the attention threshold")
 	for _, item := range body.Attention {
 		s.NotEqual("finding", item.Kind, "a failed findings source must not surface any finding attention item")
 	}
@@ -221,6 +224,7 @@ func (s *overviewHandlerSuite) TestForbiddenWithoutOperationsCapabilityMakesNoDo
 	s.Zero(s.operations.summaryCalls)
 	s.Zero(s.operations.seriesCalls)
 	s.Zero(s.explorer.noteMixCalls)
+	s.Zero(s.explorer.countExpiringCalls)
 	s.Zero(s.sessionAudit.calls)
 	s.Zero(s.identity.listInvitationsCalls)
 	s.Zero(s.registry.expiringEnrollmentsCalls)
