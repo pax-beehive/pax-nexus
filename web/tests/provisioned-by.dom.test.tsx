@@ -10,9 +10,9 @@ setupDomTest();
 
 describe("provisioned_by badge", () => {
   it("distinguishes device-provisioned from human-registered agents in My Agents", async () => {
-    // /management is admin+'s access tree now; MyAgentsPage is reachable
-    // there only for the member fork (Task 9 covers owner/admin's own
-    // agents via the access tree's machine level).
+    // /management is admin+'s access tree now; MyAgentsLevel is reachable
+    // there only for the member fork (owner/admin see their own agents via
+    // the access tree's own-machine level instead).
     await renderApp({
       route: "/management",
       me: makeMe({ role: "member" }),

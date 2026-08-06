@@ -2,7 +2,7 @@
 // 可见性的穷举在 tests/navModel.test.ts，这里只验证渲染与交互。
 import { screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { jsonResponse, makeMe, renderApp, setupDomTest } from "./helpers";
+import { jsonResponse, makeMe, makeMember, renderApp, setupDomTest } from "./helpers";
 
 setupDomTest();
 
@@ -20,16 +20,14 @@ function topbar(): HTMLElement {
 
 // Regression guard for the branch's worst defect: /management used to
 // dispatch AdminAgentsPage for admin-likes, and the "+ Create Agent" modal
-// lives only in MyAgentsPage — so an owner had no way anywhere in the portal
-// to register a personal agent. Phase 3 replaces the Management root with a
-// real access tree for admin+ (member still gets MyAgentsPage directly).
-// Right now that means owner/admin have temporarily lost their own
-// create-agent entry point: "+ Create Agent" exists at exactly one place in
-// the portal (MyAgentsPage), and only the member fork reaches it. That gap
-// is authorized and bounded — the tree's own-machine level (a later task of
-// this plan) is where owner/admin's own-row CTA restores it (design doc
-// section 2.1) — but the test names below must say what they actually
-// prove, not what the invariant used to guarantee for every role.
+// lived only on the member fork's agent list — so an owner had no way
+// anywhere in the portal to register a personal agent. Phase 3 replaces the
+// Management root with a
+// real access tree for admin+ (member gets MyAgentsLevel directly), and
+// gives owner/admin their own create-agent entry back through the tree:
+// people level → click yourself → your own machine level. "+ Create Agent"
+// now exists at exactly those two places in the portal, and the cases below
+// prove both are reachable.
 describe("Management root", () => {
   it("gives a member the create-agent trigger at /management", async () => {
     await renderApp({
@@ -43,7 +41,7 @@ describe("Management root", () => {
   });
 
   it.each(["owner", "admin"] as const)(
-    "lands a %s on the access tree at /management (no create-agent trigger there yet)",
+    "lands a %s on the access tree at /management",
     async (role) => {
       await renderApp({
         route: "/management",
@@ -51,15 +49,41 @@ describe("Management root", () => {
         fetch: shellFetch,
       });
 
-      // admin+ now land on the access tree; its own-machine level (a later
-      // task) is where their create-agent trigger moves to.
+      // admin+ land on the access tree; its own-machine level is where
+      // their create-agent trigger lives (see the case below).
       await screen.findByRole("heading", { name: "Access flows downward" });
     },
   );
 
-  it.todo(
-    "gives an owner/admin the create-agent trigger somewhere at /management " +
-      "(Task 9 restores this via the access tree's own-machine level, design doc §2.1)",
+  it.each(["owner", "admin"] as const)(
+    "gives a %s the create-agent trigger on their own-machine level (people level → click yourself)",
+    async (role) => {
+      const { user } = await renderApp({
+        route: "/management",
+        me: makeMe({ role, membership_id: "mbr_01" }),
+        fetch: (path, init) => {
+          if (path.startsWith("/v1/admin/members")) {
+            return jsonResponse({
+              members: [
+                makeMember({
+                  membership_id: "mbr_01",
+                  display_name: "Alice",
+                  email: "alice@example.com",
+                  role,
+                }),
+              ],
+            });
+          }
+          if (path.startsWith("/v1/admin/devices")) return jsonResponse({ devices: [] });
+          return shellFetch(path, init);
+        },
+      });
+
+      await screen.findByRole("heading", { name: "Access flows downward" });
+      await user.click(await screen.findByText("Alice"));
+
+      await screen.findByRole("button", { name: "+ Create Agent" });
+    },
   );
 
   it("keeps the team-wide agent list at /management/agents for an owner", async () => {

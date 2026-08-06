@@ -73,9 +73,9 @@ describe("All Agents: owner select and status group", () => {
 
 describe("My Agents / Invitations: tab groups follow the same pattern", () => {
   it("My Agents status tabs are labeled and pressed-aware", async () => {
-    // /management is admin+'s access tree now; MyAgentsPage is reachable
-    // there only for the member fork (Task 9 covers owner/admin's own
-    // agents via the access tree's machine level).
+    // /management is admin+'s access tree now; MyAgentsLevel is reachable
+    // there only for the member fork (owner/admin reach their own agents
+    // via the access tree's own-machine level instead).
     const { user } = await renderApp({
       route: "/management",
       me: makeMe({ role: "member" }),

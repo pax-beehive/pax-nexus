@@ -1,14 +1,21 @@
-import { useNavigate, useSearchParams } from "react-router-dom";
-import type { AgentProfile, DeviceSummary, HumanMe, Member } from "../api/types";
+import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
+import type { AgentProfile, DeviceEnrollmentSecret, DeviceSummary, HumanMe, Member } from "../api/types";
 import { can } from "../lib/capabilities";
 import { aliveProvisionedAgents } from "../lib/devices";
+import { copyTextToClipboard } from "../lib/clipboard";
+import { deviceConnectCommand, isSelfDescribingEnrollmentToken } from "../lib/enrollment";
 import { Button } from "../components/Button";
 import { Crumbs } from "../components/Crumbs";
-import { MyAgentsPage } from "./MyAgentsPage";
+import { CreateDeviceEnrollmentModal } from "../components/CreateDeviceEnrollmentModal";
+import { SecretCard } from "../components/SecretCard";
+import { useToast } from "../components/Toasts";
 import { AccessSummary } from "./management/AccessSummary";
 import { devicesOf, looseAgentsOf } from "./management/accessTree";
+import { CreateAgentModal } from "./management/CreateAgentModal";
 import { DeviceAgentsLevel } from "./management/DeviceAgentsLevel";
 import { MachinesLevel } from "./management/MachinesLevel";
+import { MyAgentsLevel } from "./management/MyAgentsLevel";
 import { PeopleLevel } from "./management/PeopleLevel";
 import { useAccessSnapshot } from "./management/useAccessSnapshot";
 import { useDeviceDetail } from "./management/useDeviceDetail";
@@ -20,8 +27,7 @@ import { useDeviceDetail } from "./management/useDeviceDetail";
  * useAccessSnapshot 的组件，而不是「调用了但拿到 403」。
  */
 export function AccessTreePage({ me }: { me: HumanMe }) {
-  // member 分叉在 Task 9 换成 MyAgentsLevel；这里先维持现状。
-  if (!can(me.role, "view.members")) return <MyAgentsPage />;
+  if (!can(me.role, "view.members")) return <MyAgentsLevel />;
   return <AdminAccessTree me={me} />;
 }
 
@@ -33,13 +39,19 @@ export function AccessTreePage({ me }: { me: HumanMe }) {
  */
 function AdminAccessTree({ me }: { me: HumanMe }) {
   const [params, setParams] = useSearchParams();
-  const navigate = useNavigate();
+  const toast = useToast();
   const snapshot = useAccessSnapshot();
   // 无条件调用，与 useAccessSnapshot 并列：不能塞进下面任何 if 分支，
   // 否则 hook 调用顺序在渲染间不一致。credentialId 为 undefined 时
   // useDeviceDetail 内部直接落成 "ready"、不发请求。
   const requestedMachine = params.get("machine") ?? undefined;
   const deviceDetail = useDeviceDetail(requestedMachine);
+  // 第 2 层「本人」头部的两个入口：就地开弹窗，而不是跳到平表页
+  // （routes.tsx 的 /management/agents、/management/devices 仍在，但那两页是
+  // 团队全览，不是「为自己注册」的入口——注册端点永远只认调用者本人）。
+  const [createAgentOpen, setCreateAgentOpen] = useState(false);
+  const [connectMachineOpen, setConnectMachineOpen] = useState(false);
+  const [enrollmentSecret, setEnrollmentSecret] = useState<DeviceEnrollmentSecret | undefined>();
 
   if (snapshot.status === "loading") return <p className="muted">Loading…</p>;
   if (snapshot.status === "error" || !snapshot.snapshot) {
@@ -100,6 +112,39 @@ function AdminAccessTree({ me }: { me: HumanMe }) {
         </div>
       )}
 
+      {enrollmentSecret && (
+        <SecretCard
+          title="One-time Device Enrollment token (shown only once)"
+          value={enrollmentSecret.token}
+          valueLabel=" token"
+          expiresAt={enrollmentSecret.expires_at}
+          note={
+            isSelfDescribingEnrollmentToken(enrollmentSecret.token)
+              ? "The token is never written to durable storage, logs, or analytics. If it is lost, you can only revoke the Device and create a new enrollment; the token embeds the connect address — run paxl device connect on the target machine to finish onboarding."
+              : "The token is never written to durable storage, logs, or analytics. If it is lost, you can only revoke the Device and create a new enrollment; run paxl device connect on the target machine to finish onboarding."
+          }
+          extraActions={
+            <Button
+              size="sm"
+              onClick={() => {
+                const command = deviceConnectCommand(
+                  enrollmentSecret.token,
+                  window.location.origin,
+                  enrollmentSecret.device_name,
+                );
+                void copyTextToClipboard(command).then((ok) => {
+                  if (ok) toast("ok", "Connect command copied");
+                  else window.prompt("Copy manually:", command);
+                });
+              }}
+            >
+              Copy client command
+            </Button>
+          }
+          onClose={() => setEnrollmentSecret(undefined)}
+        />
+      )}
+
       <MachinesLevel
         person={activePerson}
         devices={devicesOf(personDevices, activePerson.membership_id)}
@@ -108,9 +153,34 @@ function AdminAccessTree({ me }: { me: HumanMe }) {
         onDrill={(credentialId) =>
           setParams({ person: activePerson.membership_id, machine: credentialId })
         }
-        onCreateAgent={() => navigate("/management/agents")}
-        onConnectMachine={() => navigate("/management/devices")}
+        onCreateAgent={() => setCreateAgentOpen(true)}
+        onConnectMachine={() => setConnectMachineOpen(true)}
       />
+
+      {createAgentOpen && (
+        <CreateAgentModal
+          onClose={() => setCreateAgentOpen(false)}
+          onCreated={() => {
+            setCreateAgentOpen(false);
+            snapshot.retry();
+          }}
+        />
+      )}
+
+      {connectMachineOpen && (
+        <CreateDeviceEnrollmentModal
+          onClose={() => setConnectMachineOpen(false)}
+          onCreated={(secret) => {
+            setConnectMachineOpen(false);
+            setEnrollmentSecret(secret);
+            snapshot.retry();
+          }}
+          onMaybeCreated={() => {
+            setConnectMachineOpen(false);
+            snapshot.retry();
+          }}
+        />
+      )}
     </>
   );
 

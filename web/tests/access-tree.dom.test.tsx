@@ -124,6 +124,22 @@ describe("Access tree · people level", () => {
 });
 
 describe("Access tree · member fork", () => {
+  it("renders the member's own agents with a create entry", async () => {
+    await renderApp({
+      route: "/management",
+      me: makeMe({ role: "member", membership_id: "mbr_02" }),
+      fetch: (path) => {
+        if (path.startsWith("/v1/me/agents")) {
+          return jsonResponse({ agents: [makeAgent({ agent_id: "bob-by-hand" })] });
+        }
+        throw new Error(`unexpected fetch: ${path}`);
+      },
+    });
+
+    await screen.findByText("bob-by-hand");
+    screen.getByRole("button", { name: /create agent/i });
+  });
+
   it("fires no admin request at all on the member fork", async () => {
     // member 没有读 /v1/admin/* 的权限：这个分叉必须完全不碰 useAccessSnapshot，
     // 而不是「调用了但拿到 403，被 Promise.allSettled 吞掉」。fetch 桩对任何
@@ -141,6 +157,22 @@ describe("Access tree · member fork", () => {
 
     await screen.findByRole("heading", { name: "My Agents" });
     expect(callsTo(fetchMock, "/v1/admin/")).toHaveLength(0);
+  });
+});
+
+describe("Access tree · owner-machine self-registration", () => {
+  it("keeps a self-registration entry reachable for an owner", async () => {
+    // app-shell.dom.test.tsx 的护栏在树上的对应路径：
+    // owner 从人员层点自己 → 本人机器层有 + Create Agent。
+    const { user } = await renderApp({
+      route: "/management",
+      me: makeMe({ membership_id: "mbr_01" }),
+      fetch: (path) => treeFetch(path),
+    });
+
+    await user.click(await screen.findByText("Alice"));
+
+    await screen.findByRole("button", { name: /create agent/i });
   });
 });
 

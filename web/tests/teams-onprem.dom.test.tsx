@@ -38,8 +38,8 @@ describe("on-prem profile regression", () => {
   });
 
   it("an active on-prem principal renders no team switcher or team nav entry", async () => {
-    // /management is the member-rooted "my access" view for every role;
-    // this case checks MyAgentsPage's team-scope subtitle for a member.
+    // /management renders MyAgentsLevel for the member fork; this case
+    // checks its team-scope subtitle.
     await renderApp({
       route: "/management",
       me: makeMe({ role: "member" }),

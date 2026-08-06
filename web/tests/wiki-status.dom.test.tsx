@@ -80,6 +80,12 @@ describe("wiki status page", () => {
         }
         if (path.startsWith("/v1/me/agents")) return jsonResponse({ agents: [] });
         if (path.startsWith("/v1/llm-usage")) return jsonResponse(llmUsageFixture);
+        // Default makeMe() is owner, so /management renders admin+'s access
+        // tree (AdminAccessTree); its root level needs the members leg to
+        // reach "ready". Without this stub the test was silently starting
+        // from the tree's error card instead of a real page, and passed
+        // anyway because the assertions below only look at the top bar.
+        if (path.startsWith("/v1/admin/members")) return jsonResponse({ members: [] });
         throw new Error(`unexpected fetch: ${path}`);
       },
     });

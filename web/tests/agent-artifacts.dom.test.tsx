@@ -18,10 +18,11 @@ import {
 
 setupDomTest();
 
-// /management is admin+'s access tree now; the Create Agent trigger still
-// lives on MyAgentsPage, reachable at /management only for the member fork
-// (Task 9 moves owner/admin's own trigger to the access tree's machine
-// level), so the case below uses `role: "member"`. /management/:agentId
+// /management is admin+'s access tree now; the Create Agent trigger
+// lives on MyAgentsLevel, reachable at /management only for the member fork
+// (owner/admin reach their own trigger through the access tree's
+// own-machine level instead), so the case below uses `role: "member"`.
+// /management/:agentId
 // still dispatches AdminAgentDetailPage to admin-likes (phase 4 merges the
 // two), so the detail cases below also keep `role: "member"` to exercise
 // the self-serve AgentDetailPage.
