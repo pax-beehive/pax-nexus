@@ -276,12 +276,12 @@ export function WikiBrowsePage() {
             id="wiki-search"
             type="search"
             aria-label="Search the wiki"
-            placeholder="Search decisions, systems, evidence…"
+            placeholder="搜索决策、系统、证据…"
             value={searchInput}
             onChange={(event) => setSearchInput(event.target.value)}
           />
           <Button variant="primary" type="submit" disabled={searching}>
-            {searching ? "Searching…" : "Search"}
+            {searching ? "搜索中…" : "搜索"}
           </Button>
         </form>
       </div>
@@ -290,15 +290,15 @@ export function WikiBrowsePage() {
         <section className="card wiki-search-results" role="region" aria-label="Search results">
           <div className="row between">
             <div>
-              <span className="kicker">Current revisions</span>
-              <h2>Search results</h2>
+              <span className="kicker">当前版本</span>
+              <h2>搜索结果</h2>
             </div>
             <Button variant="ghost" size="sm" type="button" onClick={() => setSearchOpen(false)}>
-              Close
+              关闭
             </Button>
           </div>
           {!searching && searchResults.length === 0 ? (
-            <p className="muted small">No current revision matches.</p>
+            <p className="muted small">没有匹配的当前版本。</p>
           ) : (
             <ol className="wiki-search-list">
               {searchResults.map((result) => (
@@ -307,7 +307,7 @@ export function WikiBrowsePage() {
                     <strong>{result.page.title}</strong>
                     <span>{result.passage}</span>
                     <small>
-                      {result.section_key} · score {result.score.toFixed(2)}
+                      {result.section_key} · 得分 {result.score.toFixed(2)}
                     </small>
                   </button>
                 </li>
@@ -324,15 +324,15 @@ export function WikiBrowsePage() {
       ) : !navigationLoading && pages.length === 0 ? (
         <EmptyState
           mark="W"
-          title="Your wiki is ready for its first page"
-          body="Pages will appear here after a Page Wiki source is processed."
+          title="你的百科还没有第一页"
+          body="Page Wiki 来源处理完成后，页面会出现在这里。"
         />
       ) : (
         <div className="wiki-layout">
           <details className="wiki-rail" open>
             <summary className="wiki-rail-summary">
-              <span>Topics</span>
-              <span className="faint small">{pages.length} pages</span>
+              <span>主题</span>
+              <span className="faint small">{pages.length} 页</span>
             </summary>
             <nav aria-label="Wiki topics" className="wiki-rail-nav">
               <TopicTreePanel
@@ -343,7 +343,7 @@ export function WikiBrowsePage() {
                 selectedSlug={selectedSlug}
                 onSelect={selectPage}
               />
-              {navigationLoading && <p className="muted small">Loading topics…</p>}
+              {navigationLoading && <p className="muted small">加载主题中…</p>}
             </nav>
           </details>
 
@@ -355,12 +355,12 @@ export function WikiBrowsePage() {
               // screen down with it.
               <RegionError error={pageError} onRetry={retryPage} />
             ) : !revision || !page ? (
-              <p className="muted">{pageLoading ? "Loading page…" : "Select a page."}</p>
+              <p className="muted">{pageLoading ? "加载页面中…" : "请选择一个页面。"}</p>
             ) : (
               <>
                 {page.status === "retired" && (
                   <div className="note warn wiki-retired-notice" role="status">
-                    <span>This page has been archived.</span>
+                    <span>这个页面已被归档。</span>
                     {page.successor_slug && (
                       <a
                         href={`/apps/wiki/${encodeURIComponent(page.successor_slug)}`}
@@ -369,21 +369,23 @@ export function WikiBrowsePage() {
                           selectPage(page.successor_slug!);
                         }}
                       >
-                        See successor page
+                        查看继任页面
                       </a>
                     )}
                   </div>
                 )}
                 <div className="row between wrap">
-                  <span className="kicker">Wiki page</span>
+                  <span className="kicker">百科页面</span>
                   <Tag tone={historical ? "attention" : "neutral"}>
-                    {historical ? "Historical" : "Current"}
+                    {historical ? "历史版本" : "当前版本"}
                   </Tag>
                 </div>
                 <div className="row wiki-title-row">
                   <h1>{revision.title}</h1>
                   {page.entity_type && page.entity_type !== "concept" && (
-                    <span className="tag tag-outline wiki-type-badge">{page.entity_type}</span>
+                    <Tag tone="outline" className="wiki-type-badge">
+                      {page.entity_type}
+                    </Tag>
                   )}
                 </div>
                 <p className="wiki-summary">{revision.summary}</p>
@@ -400,8 +402,8 @@ export function WikiBrowsePage() {
 
                 <section className="wiki-article-section">
                   <div className="wiki-row-head">
-                    <h2>Revision history</h2>
-                    <span className="faint small">{revisions.length} revisions</span>
+                    <h2>版本历史</h2>
+                    <span className="faint small">{revisions.length} 个版本</span>
                   </div>
                   <ol className="wiki-revisions">
                     {revisions.map((item, index) => (
@@ -423,14 +425,14 @@ export function WikiBrowsePage() {
           </article>
 
           <details className="wiki-relations" open>
-            <summary className="wiki-relations-summary">Relations</summary>
+            <summary className="wiki-relations-summary">关系</summary>
             <div className="wiki-relation-groups">
               <div>
-                <h3>Outgoing</h3>
+                <h3>链出</h3>
                 <RelationList relations={links.outgoing} direction="outgoing" onSelect={selectPage} />
               </div>
               <div>
-                <h3>Incoming</h3>
+                <h3>链入</h3>
                 <RelationList relations={links.incoming} direction="incoming" onSelect={selectPage} />
               </div>
             </div>
