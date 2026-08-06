@@ -43,29 +43,6 @@ const (
 	overviewEnrollmentStatusExpired = "expired"
 )
 
-// GetOverview assembles the Overview landing page's aggregate: operations
-// metrics and throughput series, the live team-note mix, and an attention
-// queue that surfaces work across four owning contexts (session audit,
-// extraction, invitations, agent enrollment). It is read-only and touches no
-// write path.
-//
-// Authorization is the operations capability (view.operations) — identical
-// to GetOperationsSummary — and is checked in full before any downstream
-// call, so a caller without it never reaches the six concurrent reads below.
-//
-// Five of those six reads degrade independently: a failing source leaves its
-// section empty and logs a warning, so one broken subsystem never blanks the
-// whole page. h.operations.Summary is the exception — it supplies the
-// metrics body the page is built around, so its failure fails the request.
-//
-// A degradable source can also fail with onprem.ErrForbidden rather than a
-// genuine error — e.g. NoteMix requires CapabilityViewTeamMemory (Owner
-// only), stricter than this endpoint's own CapabilityViewOperations gate
-// (Owner+Admin), so every Admin request degrades that section. That is an
-// expected authorization outcome, not a source failure: it is logged at
-// Debug (see logOverviewDegraded) instead of Warn, so real outages are not
-// drowned out by routine role gaps. This changes no authorization — Admins
-// still do not see the note mix.
 // logOverviewDegraded logs one degraded overview source. onprem.ErrForbidden
 // means the caller's role simply doesn't reach that source's own (possibly
 // stricter) capability — expected, not an outage — so it logs at Debug and
@@ -80,6 +57,29 @@ func (h *Handler) logOverviewDegraded(msg string, err error, args ...any) {
 	h.logger.Warn(msg, args...)
 }
 
+// GetOverview assembles the Overview landing page's aggregate: operations
+// metrics and throughput series, the live team-note mix, and an attention
+// queue that surfaces work across four owning contexts (session audit,
+// extraction, invitations, agent enrollment). It is read-only and touches no
+// write path.
+//
+// Authorization is the operations capability (view.operations) — identical
+// to GetOperationsSummary — and is checked in full before any downstream
+// call, so a caller without it never reaches the six concurrent reads below.
+//
+// Five of those six reads degrade independently: a failing source leaves its
+// section empty and logs it, so one broken subsystem never blanks the
+// whole page. h.operations.Summary is the exception — it supplies the
+// metrics body the page is built around, so its failure fails the request.
+//
+// A degradable source can also fail with onprem.ErrForbidden rather than a
+// genuine error — e.g. NoteMix requires CapabilityViewTeamMemory (Owner
+// only), stricter than this endpoint's own CapabilityViewOperations gate
+// (Owner+Admin), so every Admin request degrades that section. That is an
+// expected authorization outcome, not a source failure: it is logged at
+// Debug (see logOverviewDegraded) instead of Warn, so real outages are not
+// drowned out by routine role gaps. This changes no authorization — Admins
+// still do not see the note mix.
 func (h *Handler) GetOverview(ctx context.Context, c *app.RequestContext) {
 	principal, ok := h.authorizeOperations(ctx, c)
 	if !ok {
