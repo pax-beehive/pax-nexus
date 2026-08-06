@@ -12,7 +12,7 @@ import {
   listSessionAuditFindings,
   listSessionAuditToolCalls,
 } from "../api/queries";
-import type { SessionAuditActivityDay, SessionAuditToolCall } from "../api/types";
+import type { SessionAuditToolCall } from "../api/types";
 import { useErrorHandler } from "../lib/useErrorHandler";
 import { formatTime } from "../lib/format";
 import { Button } from "../components/Button";
@@ -20,6 +20,7 @@ import { Kicker } from "../components/Kicker";
 import { RegionError } from "../components/RegionError";
 import { Seg } from "../components/Seg";
 import { findingKindLabel, SessionFindingsList } from "./governance/SessionFindings";
+import { SessionDaysChart } from "./governance/SessionDays";
 
 // Fixed vocabularies from the backend session audit schema.
 const RISK_LEVELS = ["low", "medium", "high", "critical"] as const;
@@ -367,25 +368,6 @@ function ToolCallsView() {
   );
 }
 
-const TOP_TOOLS_SHOWN = 3;
-
-function ToolBreakdown({ breakdown }: { breakdown: Record<string, number> }) {
-  const entries = Object.entries(breakdown).sort((a, b) => b[1] - a[1]);
-  if (entries.length === 0) return <span className="faint">—</span>;
-  const shown = entries.slice(0, TOP_TOOLS_SHOWN);
-  const hidden = entries.length - shown.length;
-  return (
-    <span className="chips">
-      {shown.map(([name, count]) => (
-        <code key={name}>
-          {name} × {count}
-        </code>
-      ))}
-      {hidden > 0 && <span className="faint small">+{hidden} more</span>}
-    </span>
-  );
-}
-
 function ActivityView() {
   const handleError = useErrorHandler();
   const [searchParams] = useSearchParams();
@@ -457,35 +439,17 @@ function ActivityView() {
           Apply filters
         </Button>
       </div>
-      <ListCard
-        state={state}
-        columns={["Day", "User", "Agent", "Events", "Tool calls", "High risk", "Sessions", "Tools"]}
-        emptyText="No recorded activity."
-        renderRow={(a: SessionAuditActivityDay) => (
-          <tr key={`${a.user_id}:${a.agent_id}:${a.day}`}>
-            <td className="small">{a.day}</td>
-            <td>
-              <TruncatedId value={a.user_id} />
-            </td>
-            <td>
-              <TruncatedId value={a.agent_id} />
-            </td>
-            <td className="small">{a.event_count}</td>
-            <td className="small">{a.tool_call_count}</td>
-            <td className="small">
-              {a.high_risk_count > 0 ? (
-                <span className="danger-text">{a.high_risk_count}</span>
-              ) : (
-                a.high_risk_count
-              )}
-            </td>
-            <td className="small">{a.session_count}</td>
-            <td>
-              <ToolBreakdown breakdown={a.tool_breakdown} />
-            </td>
-          </tr>
-        )}
-      />
+      {state.loading ? (
+        <div className="card">
+          <p className="muted small">Loading…</p>
+        </div>
+      ) : state.error ? (
+        <div className="card">
+          <RegionError error={state.error} onRetry={state.reload} />
+        </div>
+      ) : (
+        <SessionDaysChart days={state.items} />
+      )}
     </>
   );
 }

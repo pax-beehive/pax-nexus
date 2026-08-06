@@ -177,3 +177,65 @@ describe("Session Audit page", () => {
     ).toBe("sess-1");
   });
 });
+
+describe("Session Audit page — 按天柱状图", () => {
+  function daysFetch(days: unknown[]) {
+    return (path: string, init: RequestInit): Response => {
+      if (path.startsWith("/v1/admin/session-audit/findings")) return jsonResponse({ findings: [] });
+      if (path.startsWith("/v1/admin/session-audit/tool-calls")) return jsonResponse({ tool_calls: [] });
+      if (path.startsWith("/v1/admin/session-audit/activity")) return jsonResponse({ activity: days });
+      throw new Error(`unexpected fetch: ${init.method ?? "GET"} ${path}`);
+    };
+  }
+
+  it("柱高与当天事件数成比例", async () => {
+    await renderApp({
+      route: "/governance/sessions?view=activity",
+      me: makeMe(),
+      fetch: daysFetch([
+        { user_id: "u1", agent_id: "a1", day: "2026-08-01", event_count: 10, tool_call_count: 4, high_risk_count: 1, session_count: 2, tool_breakdown: {} },
+        { user_id: "u1", agent_id: "a1", day: "2026-08-02", event_count: 5, tool_call_count: 2, high_risk_count: 0, session_count: 1, tool_breakdown: {} },
+        { user_id: "u1", agent_id: "a1", day: "2026-08-03", event_count: 0, tool_call_count: 0, high_risk_count: 0, session_count: 0, tool_breakdown: {} },
+      ]),
+    });
+
+    await screen.findByText("2026-08-01");
+    const bars = document.querySelectorAll(".gv-day-bar");
+    expect(bars).toHaveLength(3);
+    const heights = Array.from(bars).map((b) => (b as HTMLElement).style.height);
+    expect(heights).toEqual(["100%", "50%", "0%"]);
+  });
+
+  it("每列下方给出会话数、调用数与高危数", async () => {
+    await renderApp({
+      route: "/governance/sessions?view=activity",
+      me: makeMe(),
+      fetch: daysFetch([
+        { user_id: "u1", agent_id: "a1", day: "2026-08-01", event_count: 10, tool_call_count: 4, high_risk_count: 3, session_count: 2, tool_breakdown: {} },
+      ]),
+    });
+
+    await screen.findByText("2026-08-01");
+    await screen.findByText("2 会话 · 4 调用");
+    await screen.findByText("3 高危");
+  });
+
+  it("全部为 0 时不产生 NaN 或除零", async () => {
+    await renderApp({
+      route: "/governance/sessions?view=activity",
+      me: makeMe(),
+      fetch: daysFetch([
+        { user_id: "u1", agent_id: "a1", day: "2026-08-01", event_count: 0, tool_call_count: 0, high_risk_count: 0, session_count: 0, tool_breakdown: {} },
+        { user_id: "u1", agent_id: "a1", day: "2026-08-02", event_count: 0, tool_call_count: 0, high_risk_count: 0, session_count: 0, tool_breakdown: {} },
+        { user_id: "u1", agent_id: "a1", day: "2026-08-03", event_count: 0, tool_call_count: 0, high_risk_count: 0, session_count: 0, tool_breakdown: {} },
+      ]),
+    });
+
+    await screen.findByText("2026-08-01");
+    const bars = document.querySelectorAll(".gv-day-bar");
+    expect(bars).toHaveLength(3);
+    const heights = Array.from(bars).map((b) => (b as HTMLElement).style.height);
+    expect(heights).toEqual(["0%", "0%", "0%"]);
+    expect(document.body.textContent).not.toContain("NaN");
+  });
+});
