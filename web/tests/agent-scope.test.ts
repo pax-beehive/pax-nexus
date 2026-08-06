@@ -120,4 +120,34 @@ describe("resolveAgentAccess", () => {
     expect(byStatus.retired).toBe(true);
     expect(byTimestamp.retired).toBe(true);
   });
+
+  it("owner 看自己名下、未退役的 Agent：canTransfer 仍为 true", () => {
+    // canTransfer 不应依赖于 isSelf；只要 govern 且 live 就应为 true。
+    const access = resolveAgentAccess(
+      makeMe({ role: "owner", membership_id: "mbr_01" }),
+      makeAgent({ owner_membership_id: "mbr_01" }),
+    );
+    expect(access.isSelf).toBe(true);
+    expect(access.retired).toBe(false);
+    expect(access.canTransfer).toBe(true);
+  });
+
+  it("status 为 suspended 时 retired 为 false，写动作按 isSelf/govern 正常判定", () => {
+    // 暂停和退役是两种不同的终态；暂停的 Agent 应该可以被恢复和编辑。
+    const memberSuspended = resolveAgentAccess(
+      makeMe({ role: "member", membership_id: "mbr_01" }),
+      makeAgent({ owner_membership_id: "mbr_01", status: "suspended" }),
+    );
+    expect(memberSuspended.retired).toBe(false);
+    expect(memberSuspended.canResume).toBe(true);
+    expect(memberSuspended.canEdit).toBe(true);
+
+    const adminOtherSuspended = resolveAgentAccess(
+      makeMe({ role: "admin", membership_id: "mbr_07" }),
+      makeAgent({ owner_membership_id: "mbr_99", status: "suspended" }),
+    );
+    expect(adminOtherSuspended.retired).toBe(false);
+    expect(adminOtherSuspended.canResume).toBe(false);
+    expect(adminOtherSuspended.canEdit).toBe(false);
+  });
 });
