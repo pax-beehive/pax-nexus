@@ -297,6 +297,11 @@ describe("Access tree · own-machine enrollment secret lifecycle", () => {
     await createEnrollmentOnOwnMachineLevel();
 
     screen.getByText("一次性设备注册令牌 · 只展示一次，不存任何地方");
+    // Pin the rendered command to the *device* connect command specifically
+    // — deviceConnectCommand vs enrollmentConnectCommand (the Agent one)
+    // produce different text, and a button-label-only assertion would never
+    // catch the two being swapped.
+    screen.getByText(/paxl device connect onprem --device-name todd-macbook-air/);
   });
 
   it("clears the secret when navigating to a different person", async () => {

@@ -69,3 +69,32 @@ describe("section 10 item 4: lost invitation create response", () => {
     await screen.findByText("No matching records.");
   });
 });
+
+describe("invitation created: one-time ceremony", () => {
+  it("shows the ceremony without a connect-command button — invitees open the link in a browser, not a CLI", async () => {
+    const { user } = await renderApp({
+      route: "/management/invitations",
+      me: makeMe(),
+      fetch: async (path, init) => {
+        if (path === "/v1/admin/invitations" && init.method === "POST") {
+          return jsonResponse(makeInvitation({ token: "inv_tok_01.secret" }), 201);
+        }
+        if (path.startsWith("/v1/admin/invitations")) {
+          return jsonResponse({ invitations: [] });
+        }
+        throw new Error(`unexpected fetch: ${path}`);
+      },
+    });
+
+    await user.click(await screen.findByRole("button", { name: "+ Create invitation" }));
+    await user.type(screen.getByLabelText("target_email"), "bob@example.com");
+    await user.click(screen.getByRole("button", { name: "Create" }));
+
+    // The ceremony appears with the join URL...
+    await screen.findByText("一次性邀请链接 · 只展示一次，不存任何地方");
+    screen.getByText("现在就把链接发出去。我们没法再给你看一次。");
+    // ...but carries no connect-command action: invitees follow the link in
+    // a browser and log in, they never run a CLI command against it.
+    expect(screen.queryByRole("button", { name: "复制接入命令" })).toBeNull();
+  });
+});
