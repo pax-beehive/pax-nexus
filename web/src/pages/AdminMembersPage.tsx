@@ -131,6 +131,7 @@ export function AdminMembersPage({ me }: { me: HumanMe }) {
     <>
       <div className="page-head">
         <div>
+          <p className="card-kicker">MANAGEMENT · MEMBERS</p>
           <h1>Members</h1>
           <p className="muted flush">
             Owners can manage all roles; Admins can only manage Members
@@ -178,7 +179,7 @@ export function AdminMembersPage({ me }: { me: HumanMe }) {
           return (
             <tr key={m.membership_id}>
               <td>
-                {m.email ?? m.user_id}
+                <span className="at-row-name">{m.email ?? m.user_id}</span>
                 {m.membership_id === me.membership_id && <span className="faint small">(you)</span>}
               </td>
               <td>

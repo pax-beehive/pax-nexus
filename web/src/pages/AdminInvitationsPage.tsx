@@ -145,6 +145,7 @@ export function AdminInvitationsPage({ me }: { me: HumanMe }) {
     <>
       <div className="page-head">
         <div>
+          <p className="card-kicker">MANAGEMENT · INVITATIONS</p>
           <h1>Invitations</h1>
           <p className="muted flush">
             Owners can invite admins/members; Admins can only invite members
@@ -184,7 +185,9 @@ export function AdminInvitationsPage({ me }: { me: HumanMe }) {
         emptyText="No matching records."
         renderRow={(i) => (
           <tr key={i.invitation_id}>
-            <td>{i.target_email}</td>
+            <td>
+              <span className="at-row-name">{i.target_email}</span>
+            </td>
             <td>
               <RoleBadge role={i.role} />
             </td>

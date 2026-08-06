@@ -61,6 +61,7 @@ export function AdminDevicesPage() {
     <>
       <div className="page-head">
         <div>
+          <p className="card-kicker">MANAGEMENT · DEVICES</p>
           <h1>Devices</h1>
           <p className="muted flush">
             Machine-level onboarding: one Device Enrollment provisions an entire machine, and the
@@ -120,13 +121,13 @@ export function AdminDevicesPage() {
 
       <PagedListCard
         list={list}
-        columns={["Device", "Creator", "Agents", "Last activity", "Status"]}
+        columns={["Device", "Creator", "Agents", "Last activity", "Status", ""]}
         emptyText={filter === "all" ? "No devices yet" : "No matching records."}
         renderRow={(d) => (
           <tr key={d.credential_id}>
             <td>
               <Link to={`/admin/devices/${encodeURIComponent(d.credential_id)}`}>
-                {d.device_name}
+                <span className="at-row-name">{d.device_name}</span>
               </Link>
               <div className="small mono faint">{d.credential_id}</div>
             </td>
@@ -137,6 +138,9 @@ export function AdminDevicesPage() {
             <td className="small">{formatTime(d.last_used_at)}</td>
             <td>
               <Badge status={d.status} />
+            </td>
+            <td className="at-row-go" aria-hidden="true">
+              →
             </td>
           </tr>
         )}

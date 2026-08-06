@@ -174,6 +174,7 @@ export function AdminAgentsPage({ me }: { me: HumanMe }) {
     <>
       <div className="page-head">
         <div>
+          <p className="card-kicker">MANAGEMENT · AGENTS</p>
           <h1>All Agents</h1>
           <p className="muted flush">
             Admins can only suspend; edit, resume, retire, and transfer are Owner-only
@@ -220,7 +221,7 @@ export function AdminAgentsPage({ me }: { me: HumanMe }) {
       </div>
       <PagedListCard
         list={list}
-        columns={["Agent", "Owner", "Status", "Governance"]}
+        columns={["Agent", "Owner", "Status", "Governance", ""]}
         emptyText={
           status === "all" && q === "" && ownerFilter === ""
             ? "No agents yet"
@@ -231,7 +232,9 @@ export function AdminAgentsPage({ me }: { me: HumanMe }) {
           return (
             <tr key={a.agent_id}>
               <td>
-                <Link to={`/admin/agents/${encodeURIComponent(a.agent_id)}`}>{a.display_name}</Link>
+                <Link to={`/admin/agents/${encodeURIComponent(a.agent_id)}`}>
+                  <span className="at-row-name">{a.display_name}</span>
+                </Link>
                 <div className="small mono faint">{a.agent_id}</div>
               </td>
               <td className="small">{memberLabel(a.owner_membership_id)}</td>
@@ -267,6 +270,9 @@ export function AdminAgentsPage({ me }: { me: HumanMe }) {
                     )}
                   </span>
                 )}
+              </td>
+              <td className="at-row-go" aria-hidden="true">
+                →
               </td>
             </tr>
           );
