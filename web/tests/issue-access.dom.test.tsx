@@ -68,6 +68,42 @@ describe("IssueAccessModal", () => {
     expect(body.permissions).toEqual(["observe", "search", "channel_send"]);
   });
 
+  it("取消勾选「记录它的会话」后，permissions 不含 observe、仍含 search", async () => {
+    // 钉死标签→原始名的映射方向：observe/search 是默认勾选项，从未被“点
+    // 击”过，之前的用例测不出标签文字写反（评审发现：把两个标签对调后
+    // 8 个用例仍然全绿）。这里显式取消其中一个默认项，逼着断言依赖点击
+    // 的是哪个 checkbox，而不是初始 state 的字面量。
+    const user = userEvent.setup();
+    const fetchMock = stubFetch(() =>
+      jsonResponse({ enrollment_id: "enr_01", token: "t", expires_at: "2099-01-01T00:00:00Z" }),
+    );
+    renderModal();
+
+    await user.type(screen.getByLabelText(/它会在哪台机器上跑/), "mac-studio-01");
+    await user.click(screen.getByLabelText(/记录它的会话/));
+    await user.click(screen.getByRole("button", { name: "发放一次性令牌" }));
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1].body));
+    expect(body.permissions).not.toContain("observe");
+    expect(body.permissions).toContain("search");
+  });
+
+  it("取消勾选「检索团队记忆」后，permissions 不含 search、仍含 observe", async () => {
+    const user = userEvent.setup();
+    const fetchMock = stubFetch(() =>
+      jsonResponse({ enrollment_id: "enr_01", token: "t", expires_at: "2099-01-01T00:00:00Z" }),
+    );
+    renderModal();
+
+    await user.type(screen.getByLabelText(/它会在哪台机器上跑/), "mac-studio-01");
+    await user.click(screen.getByLabelText(/检索团队记忆/));
+    await user.click(screen.getByRole("button", { name: "发放一次性令牌" }));
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0][1].body));
+    expect(body.permissions).not.toContain("search");
+    expect(body.permissions).toContain("observe");
+  });
+
   it("「不过期」不发送 credential_expires_at", async () => {
     const user = userEvent.setup();
     const fetchMock = stubFetch(() =>
