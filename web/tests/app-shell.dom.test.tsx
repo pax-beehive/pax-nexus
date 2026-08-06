@@ -22,14 +22,28 @@ function topbar(): HTMLElement {
 // dispatch AdminAgentsPage for admin-likes, and the "+ Create Agent" modal
 // lives only in MyAgentsPage — so an owner had no way anywhere in the portal
 // to register a personal agent. Phase 3 replaces the Management root with a
-// real access tree for admin+ (member still gets MyAgentsPage directly); the
-// tree's own-machine level is due in a later task of this plan and will
-// carry the create-agent trigger for owner/admin at that point (design doc
-// section 2.1). Until then this guard only pins the member fork — losing
-// that would be the same regression this test was written to catch.
+// real access tree for admin+ (member still gets MyAgentsPage directly).
+// Right now that means owner/admin have temporarily lost their own
+// create-agent entry point: "+ Create Agent" exists at exactly one place in
+// the portal (MyAgentsPage), and only the member fork reaches it. That gap
+// is authorized and bounded — the tree's own-machine level (a later task of
+// this plan) is where owner/admin's own-row CTA restores it (design doc
+// section 2.1) — but the test names below must say what they actually
+// prove, not what the invariant used to guarantee for every role.
 describe("Management root", () => {
-  it.each(["owner", "admin", "member"] as const)(
-    "gives a %s the create-agent trigger at /management",
+  it("gives a member the create-agent trigger at /management", async () => {
+    await renderApp({
+      route: "/management",
+      me: makeMe({ role: "member" }),
+      fetch: shellFetch,
+    });
+
+    await screen.findByRole("heading", { name: "My Agents" });
+    expect(screen.getByRole("button", { name: "+ Create Agent" })).toBeTruthy();
+  });
+
+  it.each(["owner", "admin"] as const)(
+    "lands a %s on the access tree at /management (no create-agent trigger there yet)",
     async (role) => {
       await renderApp({
         route: "/management",
@@ -37,15 +51,15 @@ describe("Management root", () => {
         fetch: shellFetch,
       });
 
-      if (role === "member") {
-        await screen.findByRole("heading", { name: "My Agents" });
-        expect(screen.getByRole("button", { name: "+ Create Agent" })).toBeTruthy();
-      } else {
-        // admin+ now land on the access tree; its own-machine level (a
-        // later task) is where their create-agent trigger moves to.
-        await screen.findByRole("heading", { name: "Access flows downward" });
-      }
+      // admin+ now land on the access tree; its own-machine level (a later
+      // task) is where their create-agent trigger moves to.
+      await screen.findByRole("heading", { name: "Access flows downward" });
     },
+  );
+
+  it.todo(
+    "gives an owner/admin the create-agent trigger somewhere at /management " +
+      "(Task 9 restores this via the access tree's own-machine level, design doc §2.1)",
   );
 
   it("keeps the team-wide agent list at /management/agents for an owner", async () => {

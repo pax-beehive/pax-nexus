@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { screen } from "@testing-library/react";
 import {
+  callsTo,
   jsonResponse,
   makeAgent,
   makeDevice,
@@ -113,5 +114,26 @@ describe("Access tree · people level", () => {
     const alice = (await screen.findByText("Alice")).closest(".at-row") as HTMLElement;
     expect(alice.textContent).toContain("—");
     expect(screen.getAllByText("Could not be loaded").length).toBeGreaterThan(0);
+  });
+});
+
+describe("Access tree · member fork", () => {
+  it("fires no admin request at all on the member fork", async () => {
+    // member 没有读 /v1/admin/* 的权限：这个分叉必须完全不碰 useAccessSnapshot，
+    // 而不是「调用了但拿到 403，被 Promise.allSettled 吞掉」。fetch 桩对任何
+    // /v1/admin/ 路径直接抛错——如果分叉在数据 hook 之后才发生，页面会崩溃
+    // 或者静默丢三个失败请求，这个测试要能抓到两种情况。
+    const { fetchMock } = await renderApp({
+      route: "/management",
+      me: makeMe({ role: "member" }),
+      fetch: (path) => {
+        if (path.startsWith("/v1/admin/")) throw new Error(`unexpected admin request: ${path}`);
+        if (path.startsWith("/v1/me/agents")) return jsonResponse({ agents: [] });
+        throw new Error(`unexpected fetch: ${path}`);
+      },
+    });
+
+    await screen.findByRole("heading", { name: "My Agents" });
+    expect(callsTo(fetchMock, "/v1/admin/")).toHaveLength(0);
   });
 });
