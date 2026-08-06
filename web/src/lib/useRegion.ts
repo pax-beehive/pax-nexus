@@ -1,5 +1,5 @@
-// Shared region skeleton for the polling pages (Operations console, Team
-// Pulse): each region owns its loading/ready/error state, retries by bumping
+// Shared region skeleton for the polling pages (Operations console,
+// Overview): each region owns its loading/ready/error state, retries by bumping
 // an epoch, and a failed refresh keeps the last good data marked possibly
 // stale instead of clearing the region (operations doc section 11).
 

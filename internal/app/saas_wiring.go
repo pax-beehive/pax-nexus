@@ -361,3 +361,13 @@ func (s *scopedExplorerService) NoteMix(
 	}
 	return service.NoteMix(ctx, principal, at)
 }
+
+func (s *scopedExplorerService) CountExpiringNotes(
+	ctx context.Context, principal onprem.HumanPrincipal, at time.Time, within time.Duration,
+) (int64, error) {
+	service, err := s.forPrincipal(principal)
+	if err != nil {
+		return 0, err
+	}
+	return service.CountExpiringNotes(ctx, principal, at, within)
+}

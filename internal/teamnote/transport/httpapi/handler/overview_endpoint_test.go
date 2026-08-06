@@ -122,6 +122,7 @@ func (s *overviewHandlerSuite) TestWindowDeterminesBucketCount() {
 // section (series, note mix) is unaffected.
 func (s *overviewHandlerSuite) TestSingleSourceFailureDegradesOnlyThatSection() {
 	s.explorer.noteMixResult = []explorer.NoteKindCount{{Kind: "decision", Count: 3}}
+	s.explorer.countExpiringResult = 7
 	s.sessionAudit.err = errors.New("audit projection unavailable")
 
 	response := s.perform("/v1/admin/overview?window=1h")
@@ -131,6 +132,8 @@ func (s *overviewHandlerSuite) TestSingleSourceFailureDegradesOnlyThatSection() 
 	s.Len(body.Series, 6, "the series section must stay intact when findings fail")
 	s.Require().Len(body.NoteMix, 1, "the note mix section must stay intact when findings fail")
 	s.Equal(int64(3), body.NoteMix[0].Count)
+	s.Equal(int64(7), body.Metrics.NotesExpiringToday, "the expiring-notes count must reflect the source's fixture value")
+	s.Equal(24*time.Hour, s.explorer.countExpiringWithin, "the expiring window must be 24h, matching the attention threshold")
 	for _, item := range body.Attention {
 		s.NotEqual("finding", item.Kind, "a failed findings source must not surface any finding attention item")
 	}
@@ -221,6 +224,7 @@ func (s *overviewHandlerSuite) TestForbiddenWithoutOperationsCapabilityMakesNoDo
 	s.Zero(s.operations.summaryCalls)
 	s.Zero(s.operations.seriesCalls)
 	s.Zero(s.explorer.noteMixCalls)
+	s.Zero(s.explorer.countExpiringCalls)
 	s.Zero(s.sessionAudit.calls)
 	s.Zero(s.identity.listInvitationsCalls)
 	s.Zero(s.registry.expiringEnrollmentsCalls)
@@ -275,6 +279,68 @@ func (s *overviewHandlerSuite) TestNoteMixGenuineFailureStillWarns() {
 	s.Empty(body.NoteMix, "a failed note mix source must still degrade to an empty section")
 	s.Contains(s.logs.String(), "level=WARN", "a genuine note mix failure must log at Warn")
 	s.Contains(s.logs.String(), "overview note mix degraded")
+}
+
+// TestNoteMixFailureSkipsExpiringCountEntirely pins the "one degradation
+// unit" invariant from the other direction of TestNoteMixGenuineFailureStillWarns:
+// note mix and the expiring-soon count share one "at" instant and degrade
+// together, so when NoteMix itself fails, CountExpiringNotes must never even
+// be attempted (not just discarded) and the tile must read zero, not some
+// stale or partial value.
+func (s *overviewHandlerSuite) TestNoteMixFailureSkipsExpiringCountEntirely() {
+	s.explorer.noteMixErr = errors.New("note mix store unavailable")
+
+	response := s.perform("/v1/admin/overview")
+
+	s.Equal(consts.StatusOK, response.Code)
+	body := s.decode(response)
+	s.Empty(body.NoteMix, "a failed note mix source must still degrade to an empty section")
+	s.Zero(s.explorer.countExpiringCalls, "the expiring count must never be attempted when note mix itself fails")
+	s.Equal(int64(0), body.Metrics.NotesExpiringToday, "the expiring tile must read zero when its sibling read never ran")
+}
+
+// TestExpiringCountFailureDegradesQuietlyWhileNoteMixStays is the other half
+// of the degradation unit: when NoteMix succeeds but CountExpiringNotes
+// alone fails, the note mix section must stay populated (it already
+// succeeded) while only the expiring-soon tile degrades to zero, and the
+// failure is observable via the dedicated degraded-log message.
+func (s *overviewHandlerSuite) TestExpiringCountFailureDegradesQuietlyWhileNoteMixStays() {
+	s.explorer.noteMixResult = []explorer.NoteKindCount{{Kind: "decision", Count: 2}}
+	s.explorer.countExpiringErr = errors.New("expiring count store unavailable")
+
+	response := s.perform("/v1/admin/overview")
+
+	s.Equal(consts.StatusOK, response.Code)
+	body := s.decode(response)
+	s.Require().Len(body.NoteMix, 1, "the note mix section must stay intact when only the expiring count fails")
+	s.Equal(int64(2), body.NoteMix[0].Count)
+	s.Equal(int64(0), body.Metrics.NotesExpiringToday, "the expiring tile must degrade to zero on its own failure")
+	s.Contains(
+		s.logs.String(), "overview expiring-notes count degraded",
+		"the expiring-count failure must be observable via its own degraded-log message",
+	)
+}
+
+// TestHungSourceDegradesAfterTimeout pins the per-source timeout bound: a
+// downstream read that hangs past overviewSourceTimeout must degrade only
+// its own section (here note mix, and by the "one degradation unit"
+// invariant, the expiring-count tile that rides along with it) instead of
+// stalling the whole request. overviewSourceTimeout is shrunk to 50ms for
+// the duration of this test via the package-var test hook, and restored
+// afterward so no other test observes the shrunk value.
+func (s *overviewHandlerSuite) TestHungSourceDegradesAfterTimeout() {
+	restore := *handler.OverviewSourceTimeoutForTest
+	*handler.OverviewSourceTimeoutForTest = 50 * time.Millisecond
+	defer func() { *handler.OverviewSourceTimeoutForTest = restore }()
+
+	s.explorer.noteMixBlock = true
+
+	response := s.perform("/v1/admin/overview?window=24h")
+
+	s.Equal(consts.StatusOK, response.Code)
+	body := s.decode(response)
+	s.Empty(body.NoteMix, "a timed-out note mix source must degrade to an empty section")
+	s.NotEmpty(body.Series, "other sections must stay intact when note mix times out")
 }
 
 // overviewSessionAudit is a minimal SessionAuditQuery fake for the Overview

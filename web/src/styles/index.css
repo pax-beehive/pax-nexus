@@ -8,6 +8,6 @@
 @import "./features/apps.css";
 @import "./features/operations.css";
 @import "./features/wiki.css";
-@import "./features/pulse.css";
 @import "./features/session-audit.css";
 @import "./features/teams.css";
+@import "./features/overview-chart.css";

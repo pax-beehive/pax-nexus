@@ -15,6 +15,7 @@ import type {
   OperationsAgentStats,
   OperationsStorageSnapshot,
   OperationsSummary,
+  OverviewResponse,
   RecallDiagnostic,
   StorageComponent,
 } from "../src/api/types";
@@ -67,6 +68,67 @@ export function makeSummary(overrides: Partial<OperationsSummary> = {}): Operati
     },
     latency: { sample_count: 30, p50_ms: 24, p95_ms: 91 },
     errors: 2,
+    ...overrides,
+  };
+}
+
+/**
+ * Overview landing page aggregate (doc section: Overview). Defaults to 6
+ * series buckets spaced ~4h apart (~24h span, matching the page's default
+ * "24h" window in tests) -- not a real backend bucket count. The real
+ * backend buckets by window as 1h -> 6, 24h -> 8, 7d -> 7; tests that care
+ * about a specific window's bucket count override `series` explicitly. Also
+ * carries a 4-kind note mix whose counts and percentages both sum
+ * consistently (50 notes, pcts sum to 100), and 2 attention items whose
+ * count matches `metrics.attention_count`.
+ */
+export function makeOverview(overrides: Partial<OverviewResponse> = {}): OverviewResponse {
+  return {
+    from_time: FROM_TIME,
+    to_time: TO_TIME,
+    generated_at: GEN_AT,
+    metrics: {
+      evidence_captured: 452,
+      live_notes: 50,
+      notes_expiring_today: 3,
+      recalls_served: 118,
+      recall_accept_rate: 0.82,
+      p50_ms: 24,
+      p95_ms: 91,
+      attention_count: 2,
+    },
+    series: [
+      { bucket_at: "2026-07-21T12:00:00Z", evidence: 60, facts: 22, recalls: 15 },
+      { bucket_at: "2026-07-21T16:00:00Z", evidence: 72, facts: 26, recalls: 18 },
+      { bucket_at: "2026-07-21T20:00:00Z", evidence: 55, facts: 19, recalls: 14 },
+      { bucket_at: "2026-07-22T00:00:00Z", evidence: 80, facts: 30, recalls: 21 },
+      { bucket_at: "2026-07-22T04:00:00Z", evidence: 90, facts: 33, recalls: 24 },
+      { bucket_at: "2026-07-22T08:00:00Z", evidence: 95, facts: 35, recalls: 26 },
+    ],
+    note_mix: [
+      { kind: "decision", count: 25, pct: 50 },
+      { kind: "fact", count: 15, pct: 30 },
+      { kind: "hint", count: 7, pct: 14 },
+      { kind: "reference", count: 3, pct: 6 },
+    ],
+    attention: [
+      {
+        kind: "finding",
+        severity: "high",
+        title: "High-risk tool call without approval",
+        body: "A high-risk tool call executed without an approval record",
+        ref: "finding:41",
+        target: "/governance/sessions",
+      },
+      {
+        kind: "quarantine",
+        severity: "high",
+        title: "Quarantined extractions need review",
+        body: "1 extraction candidate(s) are quarantined and waiting for review",
+        ref: "quarantine",
+        target: "/governance/pipeline",
+      },
+    ],
     ...overrides,
   };
 }
@@ -166,9 +228,9 @@ export function eventsPage(
 }
 
 /**
- * Per-agent aggregate for the Team Pulse page. last_active_at defaults to a
- * fresh timestamp so the status dot renders "active"; tests pass an explicit
- * value (or "") to pin the freshness class.
+ * Per-agent aggregate for the Overview writers block. last_active_at
+ * defaults to a fresh timestamp; tests pass an explicit value when they care
+ * about it.
  */
 export function makeAgentStats(
   overrides: Partial<OperationsAgentStats> = {},
@@ -215,8 +277,10 @@ export interface OperationsEndpoints {
   /** Receives the raw observation id segment from the URL. */
   recall?: (observationId: string) => Response;
   agents?: () => Response;
-  /** Per-agent activity aggregate for the Team Pulse page. */
+  /** Per-agent activity aggregate, fed to the Overview writers block. */
   agentStats?: () => Response;
+  /** Overview landing page aggregate. */
+  overview?: (url: URL) => unknown;
 }
 
 /**
@@ -247,6 +311,14 @@ export function operationsFetch(endpoints: OperationsEndpoints = {}): FetchHandl
     }
     if (path.startsWith("/v1/admin/agents")) {
       return endpoints.agents?.() ?? jsonResponse({ agents: [] });
+    }
+    if (path.startsWith("/v1/admin/overview")) {
+      const url = new URL(path, "http://localhost");
+      const result = endpoints.overview?.(url) ?? makeOverview();
+      // Callers may hand back either a plain body (wrapped as 200 JSON, the
+      // common case) or a full Response of their own -- e.g. an error
+      // fixture built with apiErrorResponse -- which passes through as-is.
+      return result instanceof Response ? result : jsonResponse(result);
     }
     throw new Error(`unexpected fetch: ${init.method ?? "GET"} ${path}`);
   };
@@ -280,15 +352,16 @@ export function eventsTable(): HTMLElement {
 }
 
 /**
- * Mount the portal at /overview with the Operations capability and wait
- * for the first agent-stats cycle to settle.
+ * Mount the portal at /overview with the Operations capability and wait for
+ * the Overview page's own heading to settle. `opsMe()` has no teams, so the
+ * page renders its "Overview" heading rather than a team name.
  */
-export async function renderPulsePage(endpoints: OperationsEndpoints = {}) {
+export async function renderOverviewPage(endpoints: OperationsEndpoints = {}) {
   const app = await renderApp({
     route: "/overview",
     me: opsMe(),
     fetch: operationsFetch(endpoints),
   });
-  await screen.findByRole("heading", { name: "Team Pulse" });
+  await screen.findByRole("heading", { name: "Overview" });
   return app;
 }

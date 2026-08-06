@@ -1,23 +1,27 @@
-// Live events region: the polled operation-event feed with slide-in
-// highlights for fresh rows, a held-back "new events" notice while the user
-// is scrolled down, and a manual refresh.
+// "What just happened" block: the held-events feed, ported from the old
+// Team Pulse page's live event feed component (portal-modernist phase 2b
+// task 7; the old page and that component were removed in task 8). Mechanics
+// are unchanged
+// (scrolledRef / pending buffer / freshIds, all owned by
+// overview/hooks.ts's useFeedRegion); only the chrome changed: banner copy,
+// the "Show" button, the #overview-feed container id, no more .pulse-feed*
+// classes (replaced by .note / utility classes + the new .ov-feed-item rules
+// in overview-chart.css), and the bottom links now point at the governance
+// pages instead of nothing.
 
+import { Link } from "react-router-dom";
 import type { OperationEvent } from "../../api/types";
 import { Button } from "../../components/Button";
 import { RegionError } from "../../components/RegionError";
 import { formatTime } from "../../lib/format";
-import {
-  operationKindLabel,
-  operationOutcomeTone,
-  TONE_BADGE,
-} from "../../lib/operations";
+import { operationKindLabel, operationOutcomeTone, TONE_BADGE } from "../../lib/operations";
 
 interface PendingFeedUpdate {
   items: OperationEvent[];
   freshIds: Set<string>;
 }
 
-interface LiveEventsFeedProps {
+interface EventsFeedProps {
   status: "loading" | "ready" | "error";
   error?: unknown;
   onRetry: () => void;
@@ -29,7 +33,7 @@ interface LiveEventsFeedProps {
   scrolledRef: { current: boolean };
 }
 
-export function LiveEventsFeed({
+export function EventsFeed({
   status,
   error,
   onRetry,
@@ -39,28 +43,28 @@ export function LiveEventsFeed({
   onApplyPending,
   agentNames,
   scrolledRef,
-}: LiveEventsFeedProps) {
+}: EventsFeedProps) {
   return (
     <>
       <div className="row between section">
-        <h2 className="flush">Live events</h2>
+        <h2 className="flush">What just happened</h2>
         <Button size="sm" aria-label="Refresh event feed" onClick={onRetry}>
           Refresh
         </Button>
       </div>
       {pending && (
         <div className="note row">
-          {pending.freshIds.size > 0
-            ? `${pending.freshIds.size} new events arrived.`
-            : "New events arrived."}
+          {`${pending.freshIds.size} new events held while you read`}
           <Button
             size="sm"
             onClick={() => {
               onApplyPending();
-              document.getElementById("pulse-feed")?.scrollTo({ top: 0 });
+              const list = document.getElementById("overview-feed");
+              // jsdom (unit tests) doesn't implement scrollTo; real browsers do.
+              if (list && typeof list.scrollTo === "function") list.scrollTo({ top: 0 });
             }}
           >
-            View latest
+            Show
           </Button>
         </div>
       )}
@@ -76,8 +80,8 @@ export function LiveEventsFeed({
               <p className="muted small">No events yet.</p>
             ) : (
               <ul
-                id="pulse-feed"
-                className="pulse-feed"
+                id="overview-feed"
+                className="ov-feed"
                 onScroll={(e) => {
                   scrolledRef.current = e.currentTarget.scrollTop > 24;
                 }}
@@ -85,9 +89,7 @@ export function LiveEventsFeed({
                 {items.map((event) => (
                   <li
                     key={event.attempt_id}
-                    className={`pulse-feed-item${
-                      freshIds.has(event.attempt_id) ? " new" : ""
-                    }`}
+                    className={`ov-feed-item${freshIds.has(event.attempt_id) ? " new" : ""}`}
                   >
                     <span className="faint small" title={event.started_at}>
                       {formatTime(event.started_at)}
@@ -111,6 +113,10 @@ export function LiveEventsFeed({
             )}
           </>
         )}
+      </div>
+      <div className="row between" style={{ marginTop: 10 }}>
+        <Link to="/governance/audit">Full activity stream →</Link>
+        <Link to="/governance/pipeline">Pipeline health →</Link>
       </div>
     </>
   );

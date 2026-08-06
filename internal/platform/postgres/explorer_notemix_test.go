@@ -100,6 +100,27 @@ func (s *explorerNoteMixSuite) TestNoteMixIsScopeIsolated() {
 	s.Empty(mix)
 }
 
+// Only ACTIVE notes whose hard expiry falls inside the lookahead window
+// count: already-expired, resolved, beyond-window, and other-scope notes
+// must all be excluded — otherwise the Overview tile inflates.
+func (s *explorerNoteMixSuite) TestCountExpiringNotesCountsOnlyActiveInWindowSameScope() {
+	ctx := context.Background()
+	at := time.Date(2026, 8, 6, 9, 0, 0, 0, time.UTC)
+
+	s.insertNote(ctx, "x1", "decision", "active", at.Add(2*time.Hour)) // counted
+	s.insertNote(ctx, "x2", "blocker", "active", at.Add(23*time.Hour)) // counted
+	s.insertNote(ctx, "x3", "handoff", "active", at.Add(-time.Hour))   // already hard-expired
+	s.insertNote(ctx, "x4", "decision", "resolved", at.Add(2*time.Hour))
+	s.insertNote(ctx, "x5", "decision", "active", at.Add(48*time.Hour)) // beyond window
+	s.insertNoteInScope(ctx, "other-scope", "x6", "decision", "active", at.Add(2*time.Hour))
+	s.insertNote(ctx, "x7", "decision", "active", at.Add(24*time.Hour)) // == at+within: counted (inclusive upper bound)
+	s.insertNote(ctx, "x8", "decision", "active", at)                   // == at: excluded (lower bound is exclusive)
+
+	count, err := s.explorer.CountExpiringNotes(ctx, at, 24*time.Hour)
+	s.Require().NoError(err)
+	s.Equal(int64(3), count)
+}
+
 func (s *explorerNoteMixSuite) insertNote(
 	ctx context.Context,
 	noteID string,

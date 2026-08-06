@@ -32,6 +32,10 @@ var overviewWindowSpecs = map[string]overviewWindowSpec{
 	"7d":  {span: 7 * 24 * time.Hour, bucket: 24 * time.Hour},
 }
 
+// overviewSourceTimeout bounds each downstream read; a hung source degrades
+// (or, for Summary, fails the request) instead of stalling the aggregate.
+var overviewSourceTimeout = 5 * time.Second
+
 const (
 	overviewDefaultWindow   = "24h"
 	overviewExpiringWithin  = 24 * time.Hour
@@ -44,10 +48,10 @@ const (
 )
 
 // logOverviewDegraded logs one degraded overview source. onprem.ErrForbidden
-// means the caller's role simply doesn't reach that source's own (possibly
-// stricter) capability — expected, not an outage — so it logs at Debug and
-// stays silent by default. Every other error is a genuine failure and logs
-// at Warn as before.
+// means the caller's role simply doesn't reach that source's own capability
+// gate (expected when the source's gate is stricter than this endpoint's) —
+// so it logs at Debug and stays silent by default. Every other error is a
+// genuine failure and logs at Warn as before.
 func (h *Handler) logOverviewDegraded(msg string, err error, args ...any) {
 	args = append(args, "error", err)
 	if errors.Is(err, onprem.ErrForbidden) {
@@ -73,13 +77,9 @@ func (h *Handler) logOverviewDegraded(msg string, err error, args ...any) {
 // metrics body the page is built around, so its failure fails the request.
 //
 // A degradable source can also fail with onprem.ErrForbidden rather than a
-// genuine error — e.g. NoteMix requires CapabilityViewTeamMemory (Owner
-// only), stricter than this endpoint's own CapabilityViewOperations gate
-// (Owner+Admin), so every Admin request degrades that section. That is an
-// expected authorization outcome, not a source failure: it is logged at
-// Debug (see logOverviewDegraded) instead of Warn, so real outages are not
-// drowned out by routine role gaps. This changes no authorization — Admins
-// still do not see the note mix.
+// genuine error when its own capability gate is stricter than this
+// endpoint's. That is an expected authorization outcome, not a source
+// failure: it is logged at Debug (see logOverviewDegraded) instead of Warn.
 func (h *Handler) GetOverview(ctx context.Context, c *app.RequestContext) {
 	principal, ok := h.authorizeOperations(ctx, c)
 	if !ok {
@@ -112,6 +112,7 @@ func (h *Handler) GetOverview(ctx context.Context, c *app.RequestContext) {
 
 		series                         []operations.SeriesBucket
 		noteMix                        []explorer.NoteKindCount
+		notesExpiring                  int64
 		highFindings, criticalFindings []audit.Finding
 		invitations                    []onprem.Invitation
 		enrollments                    []onprem.AgentEnrollmentMetadata
@@ -120,11 +121,15 @@ func (h *Handler) GetOverview(ctx context.Context, c *app.RequestContext) {
 	wg.Add(6)
 	go func() {
 		defer wg.Done()
-		summary, summaryErr = h.operations.Summary(ctx, principal, filter)
+		sctx, cancel := context.WithTimeout(ctx, overviewSourceTimeout)
+		defer cancel()
+		summary, summaryErr = h.operations.Summary(sctx, principal, filter)
 	}()
 	go func() {
 		defer wg.Done()
-		result, err := h.operations.Series(ctx, principal, filter, spec.bucket)
+		sctx, cancel := context.WithTimeout(ctx, overviewSourceTimeout)
+		defer cancel()
+		result, err := h.operations.Series(sctx, principal, filter, spec.bucket)
 		if err != nil {
 			h.logOverviewDegraded("overview series degraded", err)
 			return
@@ -136,26 +141,25 @@ func (h *Handler) GetOverview(ctx context.Context, c *app.RequestContext) {
 		if h.explorer == nil {
 			return
 		}
-		result, err := h.explorer.NoteMix(ctx, principal, now)
-		if err != nil {
-			h.logOverviewDegraded("overview note mix degraded", err)
-			return
-		}
-		noteMix = result
+		sctx, cancel := context.WithTimeout(ctx, overviewSourceTimeout)
+		defer cancel()
+		noteMix, notesExpiring = h.overviewNoteMixAndExpiring(sctx, principal, now)
 	}()
 	go func() {
 		defer wg.Done()
 		if h.sessionAudit == nil {
 			return
 		}
-		high, err := h.sessionAudit.ListFindings(ctx, audit.FindingFilter{
+		sctx, cancel := context.WithTimeout(ctx, overviewSourceTimeout)
+		defer cancel()
+		high, err := h.sessionAudit.ListFindings(sctx, audit.FindingFilter{
 			ScopeID: principal.ScopeID, Severity: string(audit.LevelHigh), Limit: overviewFindingsLimit,
 		})
 		if err != nil {
 			h.logOverviewDegraded("overview findings degraded", err, "severity", "high")
 			return
 		}
-		critical, err := h.sessionAudit.ListFindings(ctx, audit.FindingFilter{
+		critical, err := h.sessionAudit.ListFindings(sctx, audit.FindingFilter{
 			ScopeID: principal.ScopeID, Severity: string(audit.LevelCritical), Limit: overviewFindingsLimit,
 		})
 		if err != nil {
@@ -169,7 +173,9 @@ func (h *Handler) GetOverview(ctx context.Context, c *app.RequestContext) {
 		if h.identity == nil {
 			return
 		}
-		result, err := h.identity.ListInvitations(ctx, principal, onprem.InvitationFilter{
+		sctx, cancel := context.WithTimeout(ctx, overviewSourceTimeout)
+		defer cancel()
+		result, err := h.identity.ListInvitations(sctx, principal, onprem.InvitationFilter{
 			Status: onprem.InvitationStatusPending, Limit: overviewInvitationLimit,
 		})
 		if err != nil {
@@ -183,7 +189,9 @@ func (h *Handler) GetOverview(ctx context.Context, c *app.RequestContext) {
 		if h.registry == nil {
 			return
 		}
-		result, err := h.registry.ListExpiringEnrollments(ctx, principal, expiringBefore, overviewEnrollmentLimit)
+		sctx, cancel := context.WithTimeout(ctx, overviewSourceTimeout)
+		defer cancel()
+		result, err := h.registry.ListExpiringEnrollments(sctx, principal, expiringBefore, overviewEnrollmentLimit)
 		if err != nil {
 			h.logOverviewDegraded("overview enrollments degraded", err)
 			return
@@ -211,7 +219,27 @@ func (h *Handler) GetOverview(ctx context.Context, c *app.RequestContext) {
 		attention = attention[:overviewAttentionLimit]
 	}
 
-	c.JSON(consts.StatusOK, overviewResponseToAPI(summary, series, noteMix, attention, attentionTotal))
+	c.JSON(consts.StatusOK, overviewResponseToAPI(summary, series, noteMix, notesExpiring, attention, attentionTotal))
+}
+
+// overviewNoteMixAndExpiring fetches the note mix and, only if that
+// succeeds, the expiring-soon count — both share the same "at" instant, so
+// they degrade as one unit: a failed note mix leaves the expiring count at
+// its zero value too, rather than firing a second, inconsistent read.
+func (h *Handler) overviewNoteMixAndExpiring(
+	ctx context.Context, principal onprem.HumanPrincipal, now time.Time,
+) ([]explorer.NoteKindCount, int64) {
+	mix, mixErr := h.explorer.NoteMix(ctx, principal, now)
+	if mixErr != nil {
+		h.logOverviewDegraded("overview note mix degraded", mixErr)
+		return nil, 0
+	}
+	expiring, expErr := h.explorer.CountExpiringNotes(ctx, principal, now, overviewExpiringWithin)
+	if expErr != nil {
+		h.logOverviewDegraded("overview expiring-notes count degraded", expErr)
+		return mix, 0
+	}
+	return mix, expiring
 }
 
 // overviewAttentionEntry is the handler's internal shape for one attention
@@ -336,6 +364,7 @@ func overviewResponseToAPI(
 	summary operations.Summary,
 	series []operations.SeriesBucket,
 	noteMix []explorer.NoteKindCount,
+	notesExpiring int64,
 	attention []overviewAttentionEntry,
 	attentionTotal int,
 ) *api.OverviewResponse {
@@ -354,11 +383,7 @@ func overviewResponseToAPI(
 		GeneratedAt: summary.GeneratedAt.Format(time.RFC3339Nano),
 		Metrics: &api.OverviewMetrics{
 			EvidenceCaptured: summary.Observations.EventsWritten, LiveNotes: liveNotes,
-			// notes_expiring_today has no owning source among the six
-			// downstream reads this endpoint assembles (NoteMix reports live
-			// counts by kind at an instant, not a same-day expiry cohort).
-			// Left at zero until a dedicated source exists.
-			NotesExpiringToday: 0,
+			NotesExpiringToday: notesExpiring,
 			RecallsServed:      summary.Recalls.Succeeded, RecallAcceptRate: acceptRate,
 			P50Ms: summary.Latency.P50MS, P95Ms: summary.Latency.P95MS,
 			AttentionCount: int64(attentionTotal),

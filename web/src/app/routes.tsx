@@ -18,7 +18,7 @@ import { AdminDeviceDetailPage } from "../pages/AdminDeviceDetailPage";
 import { AdminAuditPage } from "../pages/AdminAuditPage";
 import { AdminSessionAuditPage } from "../pages/AdminSessionAuditPage";
 import { AdminOperationsPage } from "../pages/AdminOperationsPage";
-import { AdminPulsePage } from "../pages/AdminPulsePage";
+import { OverviewPage } from "../pages/OverviewPage";
 import { AdminExplorerPage } from "../pages/AdminExplorerPage";
 import { AdminTeamNoteDetailPage } from "../pages/AdminTeamNoteDetailPage";
 import { WikiBrowsePage } from "../pages/WikiBrowsePage";
@@ -86,12 +86,11 @@ export function PortalRoutes({ me }: { me: HumanMe }) {
 
       <Route path="/onboarding" element={<OnboardingPage />} />
 
-      {/* 阶段 2 用真正的 Overview 替换。 */}
       <Route
         path="/overview"
         element={
           <RequireCapability me={me} capability="view.operations">
-            <AdminPulsePage />
+            <OverviewPage />
           </RequireCapability>
         }
       />

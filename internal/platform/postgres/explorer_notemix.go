@@ -52,3 +52,26 @@ ORDER BY count(*) DESC, kind ASC`, at, s.scopeID)
 	}
 	return mix, nil
 }
+
+// CountExpiringNotes counts live notes in this store's scope whose hard
+// expiry falls inside the lookahead window. "Live" is byte-for-byte the same
+// effective-state expression NoteMix uses above — the tile and the mix must
+// agree on what counts as a live note.
+func (s *ExplorerStore) CountExpiringNotes(
+	ctx context.Context,
+	at time.Time,
+	within time.Duration,
+) (int64, error) {
+	var count int64
+	err := s.pool.QueryRow(ctx, `
+SELECT count(*)
+FROM team_notes
+WHERE scope_id = $3
+  AND NOT (state = 'expired' OR hard_expires_at <= $1)
+  AND NOT (state = 'resolved' OR (invalid_at IS NOT NULL AND invalid_at <= $1))
+  AND hard_expires_at <= $2`, at, at.Add(within), s.scopeID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count postgres expiring notes: %w", err)
+	}
+	return count, nil
+}

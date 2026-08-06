@@ -286,12 +286,14 @@ import type {
   OperationsAgentStats,
   OperationsStorageSnapshot,
   OperationsSummary,
+  OverviewResponse,
   RecallDiagnostic,
   ChannelDiagnostic,
   ExtractionDiagnostic,
   TeamNoteDetail,
   TeamNoteSummary,
 } from "./types";
+import type { TimeWindowPreset } from "../lib/operations";
 
 export interface OperationsTimeFilter {
   from?: string;
@@ -318,6 +320,13 @@ export async function getOperationsSummary(
     })}`,
     { signal },
   );
+}
+
+export async function getOverview(
+  window: TimeWindowPreset,
+  signal?: AbortSignal,
+): Promise<OverviewResponse> {
+  return humanFetch<OverviewResponse>(`/v1/admin/overview${query({ window })}`, { signal });
 }
 
 export async function listOperationEvents(

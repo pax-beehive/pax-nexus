@@ -6,7 +6,7 @@ export function Seg<T extends string>({
   onChange,
 }: {
   label: string;
-  options: { value: T; label: string }[];
+  options: { value: T; label: string; title?: string }[];
   value: T;
   onChange: (value: T) => void;
 }) {
@@ -19,6 +19,7 @@ export function Seg<T extends string>({
           className={option.value === value ? "on" : ""}
           aria-pressed={option.value === value}
           onClick={() => onChange(option.value)}
+          title={option.title}
         >
           {option.label}
         </button>

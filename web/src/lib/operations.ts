@@ -132,41 +132,6 @@ export function recallObservationId(event: {
 
 export const KNOWN_STORAGE_SCHEMA_VERSION = 1;
 
-// ---- Team Pulse helpers (per-agent activity freshness) ----
-
-export type AgentActivity = "active" | "recent" | "idle";
-
-const ACTIVE_MS = 60 * 1000;
-const RECENT_MS = 10 * 60 * 1000;
-
-/**
- * Freshness of an agent's last activity for the pulse status dot: active
- * within the last minute, recent within ten minutes, idle otherwise. An empty
- * or unparseable timestamp is idle.
- */
-export function agentActivity(lastActiveAt: string, now: number = Date.now()): AgentActivity {
-  const at = new Date(lastActiveAt).getTime();
-  if (Number.isNaN(at)) return "idle";
-  const age = now - at;
-  if (age < ACTIVE_MS) return "active";
-  if (age < RECENT_MS) return "recent";
-  return "idle";
-}
-
-/** Short relative age ("just now", "3 minutes ago") for the ticking label. */
-export function relativeAge(iso: string, now: number = Date.now()): string {
-  const at = new Date(iso).getTime();
-  if (Number.isNaN(at)) return "—";
-  const seconds = Math.max(0, Math.floor((now - at) / 1000));
-  if (seconds < 60) return "just now";
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return minutes === 1 ? "1 minute ago" : `${minutes} minutes ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return hours === 1 ? "1 hour ago" : `${hours} hours ago`;
-  const days = Math.floor(hours / 24);
-  return days === 1 ? "1 day ago" : `${days} days ago`;
-}
-
 // Known storage components (operations doc section 10); unknown components
 // fall back to the raw code.
 const COMPONENT_LABELS: Record<string, string> = {
