@@ -133,7 +133,6 @@
   --info-bg: var(--color-neutral-100);
   --input-bg: var(--color-surface);
   --on-accent: var(--color-bg);
-  --secret-bg: var(--color-accent-100);
   --danger-border: var(--color-accent);
   --warn-border: var(--color-accent);
   --bad-border: var(--color-accent);

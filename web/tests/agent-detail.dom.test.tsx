@@ -5,15 +5,18 @@
 // Component-level coverage for Identity, Lifecycle, Keys, and Behaviour
 // themselves lives in agent-identity/agent-governance/agent-artifacts/
 // agent-behaviour.dom.test.tsx — this file only pins the page-level
-// assembly and access.ts routing.
+// assembly and agentScope.ts routing.
 
 import { describe, expect, it } from "vitest";
-import { screen } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import {
   apiErrorResponse,
   callsTo,
   jsonResponse,
   makeAgent,
+  makeCredential,
+  makeEnrollment,
   makeMe,
   renderApp,
   setupDomTest,
@@ -112,6 +115,53 @@ describe("三态与降级", () => {
 
     expect(await screen.findByLabelText("显示名")).toBeDefined();
     expect(screen.getByRole("button", { name: "暂停" })).toBeDefined();
+  });
+
+  // 设计文档 §11 的同源计数要求：把喂给弹窗的数组截断一条，测试必须变红。
+  // agent-governance.dom.test.tsx 只单独渲染 AgentLifecycleCard、自己传数组
+  // （验证的是「弹窗渲染它收到的数组」，恒真），此前的页面级用例又把两条腿全
+  // stub 成空数组——从没有同一批非空数据同时流过 Active keys 卡和暂停确认
+  // 弹窗。这条用例补上那唯一能分叉的地方：断言必须来自同一次渲染的同一批
+  // fetch 数据，这样 AgentDetailPage.tsx 把数组喂给 AgentLifecycleCard 时
+  // 一旦被截断（例如误写成 `.items?.slice(1)`），卡片与弹窗就会同时失配。
+  it("Active keys 卡与暂停确认弹窗对同一批密钥同源", async () => {
+    const user = userEvent.setup();
+    await renderApp({
+      route: "/management/agents/agent-1",
+      me: makeMe({ role: "member", membership_id: "mbr_01" }),
+      fetch: (path: string, init: RequestInit) => {
+        if (path === "/v1/me/agents/agent-1" && (init.method ?? "GET") === "GET") {
+          return jsonResponse({ agent: makeAgent({ owner_membership_id: "mbr_01" }) });
+        }
+        if (path.startsWith("/v1/me/agents/agent-1/enrollments")) {
+          return jsonResponse({
+            enrollments: [
+              makeEnrollment({ enrollment_id: "enr_pending", credential_label: "raspberry-pi" }),
+            ],
+          });
+        }
+        if (path.startsWith("/v1/me/agents/agent-1/credentials")) {
+          return jsonResponse({
+            credentials: [
+              makeCredential({ credential_id: "cred_a", label: "mac-studio-01" }),
+              makeCredential({ credential_id: "cred_b", label: "linux-box" }),
+            ],
+          });
+        }
+        throw new Error(`unexpected fetch: ${init.method ?? "GET"} ${path}`);
+      },
+    });
+
+    // Active keys 卡：两把密钥的 label 都在。
+    await screen.findByText("mac-studio-01");
+    expect(screen.getByText("linux-box")).toBeDefined();
+
+    // 暂停确认弹窗：同一批数据必须在这里再出现一次，计数文案对得上。
+    await user.click(screen.getByRole("button", { name: "暂停" }));
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText(/2 把活跃密钥/)).toBeDefined();
+    expect(within(dialog).getByText("mac-studio-01")).toBeDefined();
+    expect(within(dialog).getByText("linux-box")).toBeDefined();
   });
 
   it("member 不挂 Recent behaviour（零 session-audit 请求）", async () => {

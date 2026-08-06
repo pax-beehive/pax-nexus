@@ -140,7 +140,6 @@ textarea { min-height: 90px; resize: vertical; }
 .toast.bad, .toast.warn { border-left-color: var(--color-accent); }
 
 /* — one-time secrets — */
-.secret-card { border: 2px solid var(--color-accent); background: var(--color-accent-100); padding: var(--space-3); }
 .secret-val {
   font-family: var(--font-mono); font-size: 13px; word-break: break-all;
   background: var(--color-bg); border: 1px solid var(--color-divider); padding: var(--space-2);
@@ -178,30 +177,13 @@ textarea { min-height: 90px; resize: vertical; }
 }
 .b-role { border: 1px solid var(--color-accent); background: transparent; color: var(--color-accent); }
 
-/* 旧的「点式修饰符」写法。Button.tsx 现在发的是 btn-ghost / btn-sm，但这几处
-   调用点把类名手写在 <a>/<span> 上，不经过组件：
-     .btn.ghost   components/AgentDetailView.tsx（每个 Agent 详情页的返回
-                  链接）——阶段 3 起这是唯一剩下的调用点，
-                  AdminDeviceDetailPage 已在本阶段迁到 <Button>
-     .btn.sm      （无调用点；原调用方 pulse/AgentGrid 已在阶段 2b 删除）
+/* 旧的「点式修饰符」写法。Button.tsx 现在发的是 btn-ghost / btn-sm，但这一处
+   调用点把类名手写在 <span> 上，不经过组件：
      .danger-text Countdown（一次性口令倒计时的 Expired 态）、
                   AdminSessionAuditPage
    阶段 1 不改这些页面，所以别名放在这里；页面迁到 <Button>/<Tag> 后删除。
-   **禁止在新代码里使用这三个名字。** */
-.btn.ghost { color: var(--color-accent); padding-inline: var(--space-1); }
-.btn.ghost:hover:not(:disabled) { background: color-mix(in srgb, var(--color-accent) 10%, transparent); }
-.btn.ghost:active:not(:disabled) { background: color-mix(in srgb, var(--color-accent) 18%, transparent); }
-.btn.sm { font-size: 12px; padding: 4px var(--space-2); }
+   **禁止在新代码里使用这个名字。** */
 .danger-text { color: var(--color-accent); }
-
-/* .tabs 与 .seg 的差别在语义（多视图 vs 同一数据的取值），过渡期外观一致。 */
-.tabs { display: inline-flex; border-bottom: 2px solid var(--color-divider); }
-.tabs button {
-  padding: 8px 14px; font-size: 13px; cursor: pointer;
-  background: transparent; border: 0; color: inherit; font-family: inherit;
-  border-bottom: 2px solid transparent; margin-bottom: -2px;
-}
-.tabs button.on { border-bottom-color: var(--color-accent); color: var(--color-accent); }
 
 /* — 新增组件 — */
 .metric-tile { display: flex; flex-direction: column; gap: 4px; padding: var(--space-3); border-right: 1px solid var(--color-divider); }

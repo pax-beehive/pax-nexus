@@ -439,8 +439,8 @@ export function AgentKeysSection({
 
       {secret && (
         <SecretCeremony
-          title="待认领令牌"
-          headline="发出去了——现在让它认领"
+          title="一次性接入令牌 · 只展示一次，不存任何地方"
+          headline="现在就复制。我们没法再给你看一次。"
           body="把接入命令交给要跑这个 Agent 的机器；令牌只在这一屏出现一次。"
           value={secret.token}
           valueLabel="令牌"

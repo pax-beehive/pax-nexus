@@ -19,6 +19,7 @@ import {
   jsonResponse,
   makeAgent,
   makeCredential,
+  makeEnrollment,
   makeMe,
   resetBrowserState,
   setupDomTest,
@@ -103,6 +104,36 @@ describe("三态", () => {
   });
 });
 
+// 此前每一次 renderKeys 都传 enrollments: { items: [] } 或 { error }——从没
+// 有一条用例渲染过一条真实的待认领令牌，所以「取消」按钮、EnrollmentRows
+// 的渲染路径都是零覆盖的死角。
+describe("待认领令牌", () => {
+  it("非空渲染 + 取消带 Idempotency-Key 并走动作 scope", async () => {
+    const user = userEvent.setup();
+    const { fetchMock } = renderKeys(
+      {
+        enrollments: {
+          items: [makeEnrollment({ enrollment_id: "enr_01", credential_label: "raspberry-pi" })],
+          loading: false,
+        },
+        credentials: { items: [], loading: false },
+      },
+      { fetch: () => jsonResponse({ enrollment: makeEnrollment({ enrollment_id: "enr_01" }) }) },
+    );
+
+    expect(screen.getByText("raspberry-pi")).toBeDefined();
+    await user.click(screen.getByRole("button", { name: "取消" }));
+    await user.click(screen.getByRole("button", { name: "确认取消" }));
+
+    const calls = await vi.waitFor(() => {
+      const found = callsTo(fetchMock, "/v1/me/agents/agent-1/enrollments/enr_01", "DELETE");
+      expect(found).toHaveLength(1);
+      return found;
+    });
+    expect(calls[0].headers.get("Idempotency-Key")).toBeTruthy();
+  });
+});
+
 describe("吊销", () => {
   it("吊销密钥带 Idempotency-Key 并走动作 scope", async () => {
     const user = userEvent.setup();
@@ -180,6 +211,33 @@ describe("历史", () => {
     expect(callsTo(fetchMock, "/v1/me/agents/agent-1/credentials", "GET")).toHaveLength(1);
     expect(callsTo(fetchMock, "/v1/admin/agents/agent-1/credentials", "GET")).toHaveLength(0);
   });
+
+  // 同上一条的镜像，但打在 EnrollmentHistory 上：任务 8 那轮修复只有
+  // CredentialHistory 落了测试（e4bd241），EnrollmentHistory 里同样的
+  // access.actScope 选择（:207）此前一直裸奔——把它改回 access.readScope，
+  // 这条用例必须变红。
+  it("owner 查看自己名下的 Agent：令牌历史走 me scope，不是 admin scope", async () => {
+    const user = userEvent.setup();
+    const me = makeMe({ role: "owner", membership_id: "mbr_01" });
+    const agent = makeAgent({ owner_membership_id: "mbr_01" });
+    const { fetchMock } = renderKeys(
+      {
+        enrollments: { items: [], loading: false },
+        credentials: { items: [], loading: false },
+      },
+      {
+        me,
+        agent,
+        fetch: () => jsonResponse({ enrollments: [makeEnrollment()] }),
+      },
+    );
+
+    await user.click(screen.getByRole("button", { name: "显示令牌历史" }));
+    await screen.findByText("Alice MacBook");
+
+    expect(callsTo(fetchMock, "/v1/me/agents/agent-1/enrollments", "GET")).toHaveLength(1);
+    expect(callsTo(fetchMock, "/v1/admin/agents/agent-1/enrollments", "GET")).toHaveLength(0);
+  });
 });
 
 describe("发放到仪式", () => {
@@ -205,6 +263,13 @@ describe("发放到仪式", () => {
     await user.click(screen.getByRole("button", { name: "发放一次性令牌" }));
 
     expect(await screen.findByText("tm_enroll_x.secret-value")).toBeDefined();
+    // 仪式文案必须对齐设备/邀请两处调用点的模板（同一份「只展示一次」的
+    // 警告 + 紧迫感 headline），不是一处脱节的自造文案。
+    expect(screen.getByText("一次性接入令牌 · 只展示一次，不存任何地方")).toBeDefined();
+    // 命令块必须真的渲染出 Agent 侧的接入命令（enrollmentConnectCommand），
+    // 不是设备侧的 deviceConnectCommand——只断言按钮名（"复制接入命令"）
+    // 抓不住两条命令被对调，见 devices.dom.test.tsx:80-87 的同型注释。
+    expect(screen.getByText(/paxl channel connect onprem/)).toBeDefined();
     await user.click(screen.getByRole("button", { name: "我已保存，关闭" }));
     await user.click(screen.getByRole("button", { name: "确定关闭" }));
 
