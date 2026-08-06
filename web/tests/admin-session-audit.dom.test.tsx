@@ -6,7 +6,7 @@
 
 import { describe, expect, it } from "vitest";
 import { screen } from "@testing-library/react";
-import { callsTo, jsonResponse, makeMe, renderApp, setupDomTest } from "./helpers";
+import { apiErrorResponse, callsTo, jsonResponse, makeMe, renderApp, setupDomTest } from "./helpers";
 
 setupDomTest();
 
@@ -237,5 +237,65 @@ describe("Session Audit page — 按天柱状图", () => {
     const heights = Array.from(bars).map((b) => (b as HTMLElement).style.height);
     expect(heights).toEqual(["0%", "0%", "0%"]);
     expect(document.body.textContent).not.toContain("NaN");
+  });
+});
+
+// C1: block-level error isolation is the whole page's contract (design §4 —
+// "any one view failing must not take the others down"), but only the
+// Findings view (SessionFindingsList, a separate file) had coverage before
+// this. These two pin the other two RegionError sites: ListCard (used by
+// ToolCallsView) and the ActivityView-local branch.
+describe("Session Audit page: a failing view only collapses that view, Seg still switches", () => {
+  it("工具调用视图失败时（ListCard 的 RegionError）其余视图仍可切换", async () => {
+    const fetch = (path: string, init: RequestInit): Response => {
+      if (path.startsWith("/v1/admin/session-audit/tool-calls")) {
+        return apiErrorResponse(500, "internal_error", "boom");
+      }
+      if (path.startsWith("/v1/admin/session-audit/findings")) return jsonResponse({ findings: [] });
+      if (path.startsWith("/v1/admin/session-audit/activity")) return jsonResponse({ activity: [] });
+      throw new Error(`unexpected fetch: ${init.method ?? "GET"} ${path}`);
+    };
+
+    const { user } = await renderApp({
+      route: "/governance/sessions?view=tool-calls",
+      me: makeMe(),
+      fetch,
+    });
+
+    // Retry only exists on the RegionError branch -- the toast fires from a
+    // separate effect regardless of what ListCard renders, so asserting on
+    // the toast text alone wouldn't catch ListCard silently falling through
+    // to its "empty" branch instead (state.items is [] on this error too).
+    await screen.findByRole("button", { name: "Retry" });
+    expect(screen.queryByText("No matching tool calls.")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Findings" }));
+    await screen.findByText("No matching findings.");
+  });
+
+  it("按天视图失败时（ActivityView 的 RegionError）其余视图仍可切换", async () => {
+    const fetch = (path: string, init: RequestInit): Response => {
+      if (path.startsWith("/v1/admin/session-audit/activity")) {
+        return apiErrorResponse(500, "internal_error", "boom");
+      }
+      if (path.startsWith("/v1/admin/session-audit/findings")) return jsonResponse({ findings: [] });
+      if (path.startsWith("/v1/admin/session-audit/tool-calls")) return jsonResponse({ tool_calls: [] });
+      throw new Error(`unexpected fetch: ${init.method ?? "GET"} ${path}`);
+    };
+
+    const { user } = await renderApp({
+      route: "/governance/sessions?view=activity",
+      me: makeMe(),
+      fetch,
+    });
+
+    // Same reasoning as the tool-calls case above: assert on the Retry
+    // affordance and the absence of the chart's own empty state, not just
+    // the toast (which fires independently of what ActivityView renders).
+    await screen.findByRole("button", { name: "Retry" });
+    expect(screen.queryByText("No recorded activity.")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Findings" }));
+    await screen.findByText("No matching findings.");
   });
 });

@@ -195,3 +195,68 @@ describe("AdminAuditPage: free-text filters", () => {
     expect(last?.path).toContain("target_id=agent-9");
   });
 });
+
+// C1: a variant of this page's list-load failure was previously covered by
+// zero tests -- deleting AdminAuditPage.tsx:142-148 entirely left the full
+// suite green. Pins the retryable error and that Retry re-issues the list
+// request.
+describe("AdminAuditPage: list failure renders a retryable error", () => {
+  it("failed list load shows Retry; clicking it re-issues the list request", async () => {
+    let calls = 0;
+    const fetch: FetchHandler = (path, init) => {
+      if (path.startsWith("/v1/admin/members")) return jsonResponse({ members: [SELF] });
+      if (path.startsWith("/v1/admin/agents")) return jsonResponse({ agents: [] });
+      if (path.startsWith("/v1/admin/audit-events")) {
+        calls += 1;
+        if (calls === 1) return apiErrorResponse(500, "internal_error", "boom");
+        return jsonResponse({ audit_events: [makeAuditEvent({ action: "agent.create" })] });
+      }
+      throw new Error(`unexpected fetch: ${init.method ?? "GET"} ${path}`);
+    };
+
+    const { fetchMock, user } = await renderApp({ route: "/governance/audit", me: makeMe(), fetch });
+
+    await screen.findByText("Failed to load the list.");
+    expect(listCalls(fetchMock)).toHaveLength(1);
+
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    await screen.findByText("agent.create");
+    expect(listCalls(fetchMock)).toHaveLength(2);
+  });
+});
+
+// C1: AuditRow's per-row detail fetch failure had zero coverage too. A
+// failure surfaces via the shared error toast (useErrorHandler), and
+// AuditRow.tsx:90-95 resets `fetchedRef` so collapsing and re-expanding the
+// row retries the GET rather than being stuck fetched-but-empty forever.
+describe("AdminAuditPage: row detail failure resets fetchedRef, letting re-expand retry", () => {
+  it("failed getAuditEvent surfaces an error; collapse + reopen re-fetches", async () => {
+    const event = makeAuditEvent({ audit_event_id: 9, action: "agent.suspend" });
+    let detailGets = 0;
+    const fetch: FetchHandler = (path, init) => {
+      if (path.startsWith("/v1/admin/members")) return jsonResponse({ members: [SELF] });
+      if (path.startsWith("/v1/admin/agents")) return jsonResponse({ agents: [] });
+      if (/\/v1\/admin\/audit-events\/\d+/.test(path)) {
+        detailGets += 1;
+        if (detailGets === 1) return apiErrorResponse(500, "internal_error", "boom");
+        return jsonResponse({ audit_event: event });
+      }
+      if (path.startsWith("/v1/admin/audit-events")) {
+        return jsonResponse({ audit_events: [event] });
+      }
+      throw new Error(`unexpected fetch: ${init.method ?? "GET"} ${path}`);
+    };
+
+    const { user } = await renderApp({ route: "/governance/audit", me: makeMe(), fetch });
+
+    const row = await screen.findByRole("button", { name: /agent\.suspend/ });
+    await user.click(row); // open -- GET fails
+    await screen.findByText("Server error; try again later");
+    expect(detailGets).toBe(1);
+
+    await user.click(row); // collapse
+    await user.click(row); // reopen -- fetchedRef must have been reset
+    await screen.findByText("audit_event_id:");
+    expect(detailGets).toBe(2);
+  });
+});

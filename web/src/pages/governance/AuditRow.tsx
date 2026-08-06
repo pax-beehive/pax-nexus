@@ -22,7 +22,10 @@ function Label({ id, directory }: { id: string; directory: LabelDirectory }) {
   if (member) {
     return (
       <span>
-        {member.email ?? member.display_name} <span className="faint small">({id})</span>
+        {/* M7: this parenthetical is the spec-mandated raw ID (§2.1), not
+            optional secondary text -- `.gv-id-ref` (governance.css) instead
+            of `.faint`, which measured below AA on all three themes here. */}
+        {member.email ?? member.display_name} <span className="gv-id-ref small">({id})</span>
       </span>
     );
   }
@@ -30,7 +33,7 @@ function Label({ id, directory }: { id: string; directory: LabelDirectory }) {
   if (agent) {
     return (
       <span>
-        {agent.display_name} <span className="faint small">({id})</span>
+        {agent.display_name} <span className="gv-id-ref small">({id})</span>
       </span>
     );
   }

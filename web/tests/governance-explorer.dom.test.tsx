@@ -248,6 +248,31 @@ describe("Governance · Memory explorer — 左栏骨架", () => {
       ).toBe(true);
     });
   });
+
+  // I5: Enter-only submission left mouse/touch users with no way to search at
+  // all -- restores the Search button the old page had.
+  it("点击搜索按钮（不按 Enter）也会带上 q= 发请求", async () => {
+    const { user, fetchMock } = await renderApp({
+      route: "/governance/memory",
+      me: ME,
+      fetch: (path) => {
+        if (path.startsWith("/v1/admin/team-notes")) {
+          return jsonResponse({ notes: [noteSummary()] });
+        }
+        throw new Error(`unexpected fetch: ${path}`);
+      },
+    });
+
+    await screen.findByRole("link", { name: /用 Postgres 存 evidence/ });
+    await user.type(screen.getByPlaceholderText("搜索主题或正文"), "postgres");
+    await user.click(screen.getByRole("button", { name: "搜索" }));
+
+    await waitFor(() => {
+      expect(
+        callsTo(fetchMock, "/v1/admin/team-notes").some((call) => call.path.includes("q=postgres")),
+      ).toBe(true);
+    });
+  });
 });
 
 describe("Governance · Memory explorer — 右栏溯源链", () => {
@@ -444,12 +469,14 @@ describe("Governance · Memory explorer — 右栏溯源链", () => {
     expect(reasons.textContent).toContain("audience_mismatch");
   });
 
-  it("右栏取数失败时左栏仍可用", async () => {
+  it("右栏取数失败时左栏仍可用，且右栏确实显示了可重试的错误态", async () => {
+    let noteGets = 0;
     const { user } = await renderApp({
       route: "/governance/memory/note_01",
       me: ME,
       fetch: (path) => {
         if (path === "/v1/admin/team-notes/note_01") {
+          noteGets += 1;
           return jsonResponse({ code: "internal", message: "boom" }, 500);
         }
         // 只匹配带 query string 的列表端点，不能用 startsWith 兜底——那会连
@@ -462,10 +489,55 @@ describe("Governance · Memory explorer — 右栏溯源链", () => {
       },
     });
 
+    // I1: 右栏之前是不可重试的死路 <div>，现在复用 RegionError（含 Retry）。
+    // 同样的文案还会作为全局 toast 出现一次，所以按容器限定查询范围。
+    const retry = await screen.findByRole("button", { name: "Retry" });
+    within(retry.closest(".gv-note-detail") as HTMLElement).getByText(
+      "Server error; try again later",
+    );
+    expect(noteGets).toBe(1);
+
+    // Retry 确实重新发出了 getTeamNote（不是死按钮）——在导航到别的笔记之前
+    // 验证，避免下一步的导航把这个按钮换成另一条笔记的 Retry。
+    await user.click(retry);
+    await waitFor(() => expect(noteGets).toBe(2));
+
     const link = await screen.findByRole("link", { name: /另一条事实/ });
     expect(link.getAttribute("href")).toBe("/governance/memory/note_02");
     await user.click(link);
     // 左栏（NoteList）在整个交互过程中始终可用：链接一直在，点击不抛异常。
     await screen.findByRole("link", { name: /另一条事实/ });
+  });
+
+  // C1 item 4: only the reverse direction (右栏失败时左栏仍可用) had
+  // coverage. This pins the direction the page's whole point rests on: a
+  // broken left-column list must not take down the six-stage chain someone
+  // followed a direct link to.
+  it("左栏取数失败但右栏仍渲染完整链条", async () => {
+    await renderApp({
+      route: "/governance/memory/note_01",
+      me: ME,
+      fetch: (path) => {
+        if (path === "/v1/admin/team-notes/note_01") {
+          return jsonResponse(noteDetail([revision()]));
+        }
+        if (path.startsWith("/v1/admin/team-notes?")) {
+          return jsonResponse({ code: "internal", message: "boom" }, 500);
+        }
+        throw new Error(`unexpected fetch: ${path}`);
+      },
+    });
+
+    // 左栏塌成可重试错误。
+    await screen.findByText("加载失败。");
+    screen.getByRole("button", { name: "重试" });
+
+    // 右栏仍然渲染完整链条：笔记头 + 六段的阶段名。
+    const heading = await screen.findByRole("heading", { name: "用 Postgres 存 evidence" });
+    const detail = heading.closest(".gv-note-detail") as HTMLElement;
+    for (const stage of ["源事件", "抽取", "候选", "版本", "投递"]) {
+      within(detail).getByText(stage);
+    }
+    within(detail).getByText("每一次被端到 Agent 面前");
   });
 });

@@ -7,13 +7,14 @@
 // 第六段「召回决策」挂在笔记本身，由 NoteRecalls 直接渲染）。绝不额外调用
 // getExtractionDiagnostic / getChannelDiagnostic / getRecallDiagnostic——那三个
 // 诊断端点已被设计裁定退出主链，只作为 /governance/pipeline 的可选下钻。
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { getTeamNote } from "../api/queries";
 import type { TeamNoteDetail } from "../api/types";
 import { Badge } from "../components/Badge";
 import { EmptyState } from "../components/EmptyState";
 import { Kicker } from "../components/Kicker";
+import { RegionError } from "../components/RegionError";
 import { Tag } from "../components/Tag";
 import { formatTime } from "../lib/format";
 import { useErrorHandler } from "../lib/useErrorHandler";
@@ -25,7 +26,7 @@ import { NoteRecalls } from "./governance/NoteRecalls";
 type DetailState =
   | { status: "loading" }
   | { status: "ready"; detail: TeamNoteDetail }
-  | { status: "error" };
+  | { status: "error"; error: unknown };
 
 // spec §3.2 第 1 条：笔记头必须能看到 subject、写它的 Agent、受众、有效期、
 // note_id · rev N · state。后四项都是「这条事实的权限边界与身份」，缺一项
@@ -43,11 +44,16 @@ function NoteHead({ detail }: { detail: TeamNoteDetail }) {
         <Badge status={summary.state} />
       </div>
       <h2>{summary.subject}</h2>
-      <code className="small faint">
+      {/* M7: both this identity line and the meta row below are the
+          spec-mandated §3.2 note-head fields (raw note_id/rev/state, origin
+          Agent, audience, expiry), not optional secondary text -- `.gv-id-ref`
+          (governance.css) instead of `.faint`, which measured below AA on
+          all three themes here. */}
+      <code className="small gv-id-ref">
         {summary.note_id} · rev {summary.revision} · {summary.state}
       </code>
       <p className="gv-note-head-body">{detail.note.body}</p>
-      <div className="row wrap small faint">
+      <div className="row wrap small gv-id-ref">
         <span>
           来自 <code>{summary.origin_agent_id}</code> · session{" "}
           <code>{detail.note.origin_session_id}</code>
@@ -103,6 +109,10 @@ function NoteRelations({ detail }: { detail: TeamNoteDetail }) {
 function NoteDetail({ noteId }: { noteId: string }) {
   const handleError = useErrorHandler();
   const [state, setState] = useState<DetailState>({ status: "loading" });
+  // Bumped by the RegionError retry button below; the effect depends on it
+  // so a retry re-issues getTeamNote without touching noteId itself.
+  const [retryKey, setRetryKey] = useState(0);
+  const retry = useCallback(() => setRetryKey((k) => k + 1), []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -112,16 +122,17 @@ function NoteDetail({ noteId }: { noteId: string }) {
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
         handleError(error);
-        setState({ status: "error" });
+        setState({ status: "error", error });
       });
     return () => controller.abort();
-  }, [noteId, handleError]);
+  }, [noteId, handleError, retryKey]);
 
   if (state.status === "loading") return <p className="muted small">Loading…</p>;
   if (state.status === "error") {
-    return (
-      <div className="note warn">这条 Team Note 加载失败，它可能已经过期或被留存策略清理。</div>
-    );
+    // I1: the right column used to dead-end in an unretryable <div>; it now
+    // reuses the same `RegionError` primitive as the rest of Governance
+    // (note bad + Retry), satisfying design §4's "右栏塌成可重试错误".
+    return <RegionError error={state.error} onRetry={retry} />;
   }
 
   return (
