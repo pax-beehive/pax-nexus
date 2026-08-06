@@ -2,13 +2,14 @@
 // 可见性的穷举在 tests/navModel.test.ts，这里只验证渲染与交互。
 import { screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { jsonResponse, makeMe, renderApp, setupDomTest } from "./helpers";
+import { jsonResponse, makeMe, makeMember, renderApp, setupDomTest } from "./helpers";
 
 setupDomTest();
 
 function shellFetch(path: string, init: RequestInit): Response {
   if (path.startsWith("/v1/me/agents")) return jsonResponse({ agents: [] });
   if (path.startsWith("/v1/admin/agents")) return jsonResponse({ agents: [] });
+  if (path.startsWith("/v1/admin/members")) return jsonResponse({ members: [] });
   if (path.startsWith("/v1/teams")) return jsonResponse({ teams: [] });
   throw new Error(`unexpected fetch: ${init.method ?? "GET"} ${path}`);
 }
@@ -19,13 +20,28 @@ function topbar(): HTMLElement {
 
 // Regression guard for the branch's worst defect: /management used to
 // dispatch AdminAgentsPage for admin-likes, and the "+ Create Agent" modal
-// lives only in MyAgentsPage — so an owner had no way anywhere in the portal
-// to register a personal agent. The Management root must stay the
-// member-rooted "my access" view for EVERY role; the team-wide list lives at
-// /management/agents, reachable from the sub-navigation.
+// lived only on the member fork's agent list — so an owner had no way
+// anywhere in the portal to register a personal agent. Phase 3 replaces the
+// Management root with a
+// real access tree for admin+ (member gets MyAgentsLevel directly), and
+// gives owner/admin their own create-agent entry back through the tree:
+// people level → click yourself → your own machine level. "+ Create Agent"
+// now exists at exactly those two places in the portal, and the cases below
+// prove both are reachable.
 describe("Management root", () => {
-  it.each(["owner", "admin", "member"] as const)(
-    "gives a %s the create-agent trigger at /management",
+  it("gives a member the create-agent trigger at /management", async () => {
+    await renderApp({
+      route: "/management",
+      me: makeMe({ role: "member" }),
+      fetch: shellFetch,
+    });
+
+    await screen.findByRole("heading", { name: "My Agents" });
+    expect(screen.getByRole("button", { name: "+ Create Agent" })).toBeTruthy();
+  });
+
+  it.each(["owner", "admin"] as const)(
+    "lands a %s on the access tree at /management",
     async (role) => {
       await renderApp({
         route: "/management",
@@ -33,8 +49,40 @@ describe("Management root", () => {
         fetch: shellFetch,
       });
 
-      await screen.findByRole("heading", { name: "My Agents" });
-      expect(screen.getByRole("button", { name: "+ Create Agent" })).toBeTruthy();
+      // admin+ land on the access tree; its own-machine level is where
+      // their create-agent trigger lives (see the case below).
+      await screen.findByRole("heading", { name: "Access flows downward" });
+    },
+  );
+
+  it.each(["owner", "admin"] as const)(
+    "gives a %s the create-agent trigger on their own-machine level (people level → click yourself)",
+    async (role) => {
+      const { user } = await renderApp({
+        route: "/management",
+        me: makeMe({ role, membership_id: "mbr_01" }),
+        fetch: (path, init) => {
+          if (path.startsWith("/v1/admin/members")) {
+            return jsonResponse({
+              members: [
+                makeMember({
+                  membership_id: "mbr_01",
+                  display_name: "Alice",
+                  email: "alice@example.com",
+                  role,
+                }),
+              ],
+            });
+          }
+          if (path.startsWith("/v1/admin/devices")) return jsonResponse({ devices: [] });
+          return shellFetch(path, init);
+        },
+      });
+
+      await screen.findByRole("heading", { name: "Access flows downward" });
+      await user.click(await screen.findByText("Alice"));
+
+      await screen.findByRole("button", { name: "+ Create Agent" });
     },
   );
 

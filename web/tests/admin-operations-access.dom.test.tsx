@@ -87,8 +87,7 @@ describe("section 12 item 1: Operations nav follows the server capability", () =
 describe("section 12 item 2: route guard denies without firing Operations requests", () => {
   it("redirects a capable-looking admin without the capability back to /management", async () => {
     // Default makeMe() is owner, so landingPath(me) resolves to /management,
-    // which renders the member-rooted MyAgentsPage for every role (the
-    // stand-in until phase 3's AccessTree).
+    // which renders admin+'s access tree.
     const { fetchMock } = await renderApp({
       route: "/governance/pipeline",
       me: makeMe({ capabilities: ["view.audit-future"] }),
@@ -99,7 +98,7 @@ describe("section 12 item 2: route guard denies without firing Operations reques
       },
     });
 
-    await screen.findByRole("heading", { name: "My Agents" });
+    await screen.findByRole("heading", { name: "Access flows downward" });
     expect(window.location.pathname).toBe("/management");
     expect(callsTo(fetchMock, "/v1/admin/operations")).toHaveLength(0);
     expect(pipelineHealthLink()).toBeNull();
@@ -120,8 +119,7 @@ describe("section 12 item 2: route guard denies without firing Operations reques
     // First boot publishes the capability; after the backend starts
     // answering 403 the refreshed identity no longer carries it (doc 11),
     // so the guard redirects. Default makeMe() (post-revoke) is owner, so
-    // landingPath is /management, which renders the member-rooted
-    // MyAgentsPage for every role (the stand-in until phase 3).
+    // landingPath is /management, which renders admin+'s access tree.
     let privileged = true;
     const me = () => (privileged ? opsMe() : makeMe());
     const forbidden = () => apiErrorResponse(403, "forbidden", "capability revoked");
@@ -140,7 +138,7 @@ describe("section 12 item 2: route guard denies without firing Operations reques
       },
     });
 
-    await screen.findByRole("heading", { name: "My Agents" });
+    await screen.findByRole("heading", { name: "Access flows downward" });
     expect(window.location.pathname).toBe("/management");
     expect(pipelineHealthLink()).toBeNull();
     // /v1/me was refetched at least once in response to the 403 (doc 11).

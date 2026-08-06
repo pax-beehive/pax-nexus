@@ -180,8 +180,9 @@ textarea { min-height: 90px; resize: vertical; }
 
 /* 旧的「点式修饰符」写法。Button.tsx 现在发的是 btn-ghost / btn-sm，但这几处
    调用点把类名手写在 <a>/<span> 上，不经过组件：
-     .btn.ghost   AgentDetailView（每个 Agent 详情页的返回链接）、
-                  AdminDeviceDetailPage
+     .btn.ghost   components/AgentDetailView.tsx（每个 Agent 详情页的返回
+                  链接）——阶段 3 起这是唯一剩下的调用点，
+                  AdminDeviceDetailPage 已在本阶段迁到 <Button>
      .btn.sm      （无调用点；原调用方 pulse/AgentGrid 已在阶段 2b 删除）
      .danger-text Countdown（一次性口令倒计时的 Expired 态）、
                   AdminSessionAuditPage

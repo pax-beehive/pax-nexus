@@ -151,6 +151,25 @@ export async function listAdminAgents(
   return { items: res.agents, nextCursor: res.next_cursor };
 }
 
+/** 全量团队 Agent 列表。理由同 listAllDevices。 */
+export async function listAllAgents(
+  params: Omit<ListParams, "cursor"> & { status?: string; q?: string } = {},
+): Promise<AgentProfile[]> {
+  const agents: AgentProfile[] = [];
+  const seenCursors = new Set<string>();
+  let cursor: string | undefined;
+  do {
+    const page = await listAdminAgents({ ...params, cursor });
+    agents.push(...page.items);
+    cursor = page.nextCursor;
+    if (cursor && seenCursors.has(cursor)) {
+      throw new Error("Agent pagination returned a repeated cursor");
+    }
+    if (cursor) seenCursors.add(cursor);
+  } while (cursor);
+  return agents;
+}
+
 export async function getAdminAgent(agentId: string): Promise<AgentProfile> {
   const res = await humanFetch<{ agent: AgentProfile }>(agentBase("admin", agentId));
   return res.agent;
@@ -165,6 +184,28 @@ export async function listDevices(
     `/v1/admin/devices${query({ status: params.status, limit: params.limit, cursor: params.cursor })}`,
   );
   return { items: res.devices, nextCursor: res.next_cursor };
+}
+
+/**
+ * 全量机器列表：后端每页硬顶 100，访问树的计数必须翻完所有页才准确。
+ * 形状与 listAllMembers 一致，包括重复游标保护。
+ */
+export async function listAllDevices(
+  params: Omit<ListParams, "cursor"> = {},
+): Promise<DeviceSummary[]> {
+  const devices: DeviceSummary[] = [];
+  const seenCursors = new Set<string>();
+  let cursor: string | undefined;
+  do {
+    const page = await listDevices({ ...params, cursor });
+    devices.push(...page.items);
+    cursor = page.nextCursor;
+    if (cursor && seenCursors.has(cursor)) {
+      throw new Error("Device pagination returned a repeated cursor");
+    }
+    if (cursor) seenCursors.add(cursor);
+  } while (cursor);
+  return devices;
 }
 
 export function getDevice(credentialId: string): Promise<DeviceDetail> {

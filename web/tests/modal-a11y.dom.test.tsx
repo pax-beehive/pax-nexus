@@ -16,11 +16,13 @@ function agentsFetch(path: string, init: RequestInit): Response {
 }
 
 async function openCreateAgentModal() {
-  // /management is the member-rooted "my access" view for every role, so the
-  // Create Agent trigger is reachable there regardless of the principal.
+  // /management is admin+'s access tree now; the Create Agent trigger
+  // lives on MyAgentsLevel, reachable at /management for the member fork
+  // (owner/admin reach their own trigger through the access tree's
+  // own-machine level instead).
   const app = await renderApp({
     route: "/management",
-    me: makeMe(),
+    me: makeMe({ role: "member" }),
     fetch: agentsFetch,
   });
   const trigger = await screen.findByRole("button", { name: "+ Create Agent" });

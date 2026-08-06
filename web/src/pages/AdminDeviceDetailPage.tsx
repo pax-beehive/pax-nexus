@@ -2,102 +2,17 @@
 // (doc section 5.10). The detail response's `agents` array is the cascade
 // preview — the revoke dialog reuses it directly, no extra request.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { apiError } from "../api/client";
-import { beginAction, revokeDevice } from "../api/actions";
 import { getDevice } from "../api/queries";
-import type { DeviceDetail, DeviceProvisionedAgent, DeviceSummary } from "../api/types";
+import type { DeviceDetail } from "../api/types";
 import { aliveProvisionedAgents } from "../lib/devices";
 import { useErrorHandler } from "../lib/useErrorHandler";
 import { formatTime } from "../lib/format";
 import { Badge } from "../components/Badge";
 import { Button } from "../components/Button";
-import { Modal } from "../components/Modal";
-import { useToast } from "../components/Toasts";
-
-function RevokeDeviceModal({
-  device,
-  cascade,
-  onClose,
-  onDone,
-}: {
-  device: DeviceSummary;
-  /** Live provisioned agents whose credentials will be revoked with the Device. */
-  cascade: DeviceProvisionedAgent[];
-  onClose: () => void;
-  onDone: (device: DeviceSummary) => void;
-}) {
-  const toast = useToast();
-  const handleError = useErrorHandler();
-  const [busy, setBusy] = useState(false);
-  // One Idempotency-Key per dialog instance; Device revocation has no
-  // resource_version / If-Match (doc section 5.10).
-  const actionKeyRef = useRef(beginAction());
-
-  const submit = async () => {
-    if (busy) return;
-    setBusy(true);
-    try {
-      const updated = await revokeDevice(device.credential_id, actionKeyRef.current);
-      toast("ok", "Device revoked; the Agent Credentials it provisioned have been cascade-revoked");
-      onDone(updated);
-    } catch (err) {
-      handleError(err);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <Modal title={`Revoke Device ${device.device_name}`} onClose={onClose}>
-      <div className="note bad">
-        Revocation cascade-revokes every active Agent Credential provisioned by this Device in the
-        same transaction; the corresponding Agents&apos; existing keys stop working immediately
-        (401). This action cannot be undone.
-      </div>
-      {cascade.length === 0 ? (
-        <div className="note small">This Device currently has no active Agent Credentials.</div>
-      ) : (
-        <>
-          <div className="note warn small" style={{ marginBottom: 4 }}>
-            Cascade preview: the following {cascade.length} Agent Credentials will be revoked
-            together with the Device
-          </div>
-          <table>
-            <thead>
-              <tr>
-                <th>Agent</th>
-                <th>Credential</th>
-                <th>Last used</th>
-              </tr>
-            </thead>
-            <tbody>
-              {cascade.map((a) => (
-                <tr key={a.credential_id}>
-                  <td>
-                    {a.display_name}
-                    <div className="small mono faint">{a.agent_id}</div>
-                  </td>
-                  <td className="small mono">{a.credential_id}</td>
-                  <td className="small">{formatTime(a.last_used_at)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </>
-      )}
-      <div className="row" style={{ justifyContent: "flex-end" }}>
-        <Button variant="ghost" onClick={onClose} disabled={busy}>
-          Cancel
-        </Button>
-        <Button variant="danger" disabled={busy} onClick={() => void submit()}>
-          {busy ? "Revoking…" : "Confirm revocation"}
-        </Button>
-      </div>
-    </Modal>
-  );
-}
+import { RevokeDeviceModal } from "../components/RevokeDeviceModal";
 
 export function AdminDeviceDetailPage() {
   const { credentialId = "" } = useParams();
@@ -161,7 +76,11 @@ export function AdminDeviceDetailPage() {
               Revoke Device
             </Button>
           )}
-          <Link to="/admin/devices" className="btn ghost">
+          {/* Modernist 的 ghost 类名（Button.tsx 的 ghost variant 发的就是
+              这一对）。旧的点式 `.btn.ghost` 是阶段 1 留下的兼容别名，新代码
+              禁用；这里是 <Link>，所以手写类名而不是套 <Button>——保住
+              中键新开、复制链接这些链接语义。 */}
+          <Link to="/admin/devices" className="btn btn-ghost">
             ← Back
           </Link>
         </div>

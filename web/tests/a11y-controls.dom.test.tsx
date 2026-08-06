@@ -73,12 +73,12 @@ describe("All Agents: owner select and status group", () => {
 
 describe("My Agents / Invitations: tab groups follow the same pattern", () => {
   it("My Agents status tabs are labeled and pressed-aware", async () => {
-    // /management is the member-rooted "my access" view for every role
-    // (stand-in for phase 3's AccessTree), so the default owner principal
-    // lands on MyAgentsPage just like a member does.
+    // /management is admin+'s access tree now; MyAgentsLevel is reachable
+    // there only for the member fork (owner/admin reach their own agents
+    // via the access tree's own-machine level instead).
     const { user } = await renderApp({
       route: "/management",
-      me: makeMe(),
+      me: makeMe({ role: "member" }),
       fetch: (path, init) => {
         if (path.startsWith("/v1/me/agents")) return jsonResponse({ agents: [] });
         throw new Error(`unexpected fetch: ${init.method ?? "GET"} ${path}`);

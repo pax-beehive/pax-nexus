@@ -7,7 +7,7 @@ import { LegacyRedirect } from "./LegacyRedirect";
 import { LEGACY_ROUTES } from "./legacyRoutes";
 import { landingPath } from "./navModel";
 
-import { MyAgentsPage } from "../pages/MyAgentsPage";
+import { AccessTreePage } from "../pages/AccessTreePage";
 import { AgentDetailPage } from "../pages/AgentDetailPage";
 import { AdminAgentsPage } from "../pages/AdminAgentsPage";
 import { AdminAgentDetailPage } from "../pages/AdminAgentDetailPage";
@@ -96,14 +96,11 @@ export function PortalRoutes({ me }: { me: HumanMe }) {
       />
 
       {/*
-        Management 根节点对所有角色都是「我的访问」视图（spec §"阶段 3 ·
-        Management"：根节点是本人）。阶段 3 用真正的 AccessTree 替换它。
-        这里**不能**按角色顶替成 AdminAgentsPage —— 注册个人 Agent 的入口
-        （+ Create Agent）只存在于 MyAgentsPage，一旦按 adminLike 分派，
-        owner/admin 在整个门户里就没有任何地方能注册自己的 Agent。
-        团队全量列表留在 /management/agents，由二级导航进入。
+        Management 根节点：admin+ 是三层访问树，member 是本人 Agent 列表
+        （AccessTreePage 内部按角色分叉）。下钻位置在 query 参数里，所以
+        这里只有一条路由，与 /management/members 等平表路由不冲突。
       */}
-      <Route path="/management" element={<MyAgentsPage />} />
+      <Route path="/management" element={<AccessTreePage me={me} />} />
       <Route
         path="/management/members"
         element={

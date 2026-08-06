@@ -33,7 +33,7 @@ img { display: block; max-width: 100%; }
 figure { margin: 0; }
 
 /* 全局表单标签。阶段 1 的页面还没迁到 <Field>，约 24 处标签是页面直接手写的
-   <label>（MyAgentsPage / AdminInvitationsPage / AdminDevicesPage /
+   <label>（MyAgentsLevel / AdminInvitationsPage / AdminDevicesPage /
    AdminMembersPage / IssueEnrollmentModal / AgentGovernanceCard /
    OnboardingPage / BootstrapPage / EntryPage —— 首次运行与设备接入的表单都在
    里面）。没有这条规则它们会退化成紧贴输入框的行内文本。

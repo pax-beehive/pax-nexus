@@ -80,6 +80,17 @@ describe("wiki status page", () => {
         }
         if (path.startsWith("/v1/me/agents")) return jsonResponse({ agents: [] });
         if (path.startsWith("/v1/llm-usage")) return jsonResponse(llmUsageFixture);
+        // Default makeMe() is owner, so /management renders admin+'s access
+        // tree (AdminAccessTree), whose snapshot pulls all three admin list
+        // legs at once. members is the spine — without it the page is the
+        // tree's full error card. devices and agents are not: a missing leg
+        // still renders the root level, but with "Could not be loaded" in
+        // its summary tiles. All three are stubbed so this test starts from
+        // a real, fully loaded page; its assertions look only at the top
+        // bar, so a degraded page underneath would go unnoticed.
+        if (path.startsWith("/v1/admin/members")) return jsonResponse({ members: [] });
+        if (path.startsWith("/v1/admin/devices")) return jsonResponse({ devices: [] });
+        if (path.startsWith("/v1/admin/agents")) return jsonResponse({ agents: [] });
         throw new Error(`unexpected fetch: ${path}`);
       },
     });
