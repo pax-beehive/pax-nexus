@@ -1,0 +1,11 @@
+/* Governance 四屏。 */
+
+.gv-head { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--space-6); padding: var(--space-6) var(--space-4) var(--space-4); }
+.gv-head p { font-size: 14px; opacity: 0.7; max-width: 74ch; margin: var(--space-2) 0 0; }
+
+.gv-audit-row { display: grid; grid-template-columns: 82px 96px minmax(220px, 1fr) minmax(200px, 1fr) 150px; gap: var(--space-4); align-items: center; width: 100%; text-align: left; background: transparent; border: 0; border-bottom: 1px solid var(--color-divider); padding: var(--space-3) var(--space-4); cursor: pointer; font-family: var(--font-body); color: inherit; }
+.gv-audit-row:hover { background: color-mix(in srgb, var(--color-text) 5%, transparent); }
+.gv-audit-time { font-family: var(--font-mono); font-size: 12px; opacity: 0.55; }
+.gv-audit-action { font-family: var(--font-heading); font-weight: var(--font-heading-weight); font-size: 13px; }
+.gv-audit-target { font-family: var(--font-mono); font-size: 11px; opacity: 0.5; }
+.gv-audit-open { border-bottom: 1px solid var(--color-divider); background: color-mix(in srgb, var(--color-text) 5%, transparent); padding: var(--space-3) var(--space-4) var(--space-3) 110px; font-family: var(--font-mono); font-size: 12px; line-height: 1.7; }

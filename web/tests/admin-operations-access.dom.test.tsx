@@ -37,13 +37,13 @@ describe("section 12 item 1: Operations nav follows the server capability", () =
     // (view.audit); once there, the subnav lists every visible Governance
     // item, so "Pipeline health" shows purely from the server capability.
     await renderApp({ route: "/governance/audit", me: opsMe(), fetch: agentsOnlyFetch });
-    await screen.findByRole("heading", { name: "Audit Events" });
+    await screen.findByRole("heading", { name: "发生过的一切，未经编辑" });
     expect(pipelineHealthLink()).not.toBeNull();
   });
 
   it("hides the nav item when the capability list is empty", async () => {
     await renderApp({ route: "/governance/audit", me: makeMe(), fetch: agentsOnlyFetch });
-    await screen.findByRole("heading", { name: "Audit Events" });
+    await screen.findByRole("heading", { name: "发生过的一切，未经编辑" });
     expect(pipelineHealthLink()).toBeNull();
   });
 
@@ -53,7 +53,7 @@ describe("section 12 item 1: Operations nav follows the server capability", () =
       me: makeMe({ capabilities: ["view.future-feature"] }),
       fetch: agentsOnlyFetch,
     });
-    await screen.findByRole("heading", { name: "Audit Events" });
+    await screen.findByRole("heading", { name: "发生过的一切，未经编辑" });
     expect(pipelineHealthLink()).toBeNull();
   });
 
@@ -63,7 +63,7 @@ describe("section 12 item 1: Operations nav follows the server capability", () =
     const me = makeMe();
     delete (me as Partial<HumanMe>).capabilities;
     await renderApp({ route: "/governance/audit", me, fetch: agentsOnlyFetch });
-    await screen.findByRole("heading", { name: "Audit Events" });
+    await screen.findByRole("heading", { name: "发生过的一切，未经编辑" });
     expect(pipelineHealthLink()).toBeNull();
   });
 
