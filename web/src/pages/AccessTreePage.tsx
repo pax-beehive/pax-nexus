@@ -50,7 +50,14 @@ function AdminAccessTree({ me }: { me: HumanMe }) {
   // 空串与「没有这个参数」是同一件事。`?machine=` 同理。
   const requestedPerson = params.get("person") || undefined;
   const requestedMachine = params.get("machine") || undefined;
-  const deviceDetail = useDeviceDetail(requestedMachine);
+  // 一台机器永远挂在某个人下面：没有 ?person= 就没有能画出第 3 层的坐标，
+  // 这条链接只会落到根层。那就别去问 useDeviceDetail —— 否则页面画的是第 1
+  // 层，却在后台发一个 GET /v1/admin/devices/<id> 把结果直接丢掉。
+  // 只看 URL、不等 person 在快照里解出来：requestedPerson 从第一帧就是已知
+  // 的，这样第 3 层深链的 getDevice 仍与快照三条腿并发，不会被串成两跳。
+  // 代价是 ?person=<已离队>&machine=<id> 仍会发一次白费的详情请求——那条
+  // 路径本来就要回落到根层并说明（stalePerson），多一个请求不改变结果。
+  const deviceDetail = useDeviceDetail(requestedPerson ? requestedMachine : undefined);
   // 第 2 层「本人」头部的两个入口：就地开弹窗，而不是跳到平表页
   // （routes.tsx 的 /management/agents、/management/devices 仍在，但那两页是
   // 团队全览，不是「为自己注册」的入口——注册端点永远只认调用者本人）。
@@ -108,25 +115,38 @@ function AdminAccessTree({ me }: { me: HumanMe }) {
     />
   );
 
+  // 非脊柱腿失败时的层内报错：说明 + 单独重试，外壳（面包屑、上层链接）
+  // 保留（设计 §6）。定义在快照 early return 之前，因为快照自己的错误卡片
+  // 用的是同一块 markup——两处报错长得不一样本身就是 bug。
+  const legError = (message: string, retry: () => void) => (
+    <div className="note bad row between" role="alert">
+      <span>{message}</span>
+      <Button size="sm" onClick={retry}>
+        Retry
+      </Button>
+    </div>
+  );
+
+  // 快照本身的 loading / error 也带外壳，理由与第 3 层那两个态相同（设计
+  // §6 末条）：level 2 的「机器腿失败」卡片按 Retry 会把快照打回 loading，
+  // 外壳写在成功分支里的话，页头、汇总条、面包屑会在重取期间整块消失再长
+  // 回来。此时没有快照可派生，所以汇总条三格是 —，面包屑只剩根这一层
+  // （名字来自快照，深层的 crumb 这时一个也说不出口）。
+  const barePlaceCrumbs = [{ label: "Everyone" }];
   if (snapshot.status === "loading") {
     return (
-      <>
+      <AccessChrome crumbs={barePlaceCrumbs} hint="—" unavailableNote="Loading…">
         {secretCard}
         <p className="muted">Loading…</p>
-      </>
+      </AccessChrome>
     );
   }
   if (snapshot.status === "error" || !snapshot.snapshot) {
     return (
-      <>
+      <AccessChrome crumbs={barePlaceCrumbs} hint="—">
         {secretCard}
-        <div className="note bad row between" role="alert">
-          <span>Could not load the team’s people.</span>
-          <Button size="sm" onClick={snapshot.retry}>
-            Retry
-          </Button>
-        </div>
-      </>
+        {legError("Could not load the team’s people.", snapshot.retry)}
+      </AccessChrome>
     );
   }
 
@@ -137,6 +157,11 @@ function AdminAccessTree({ me }: { me: HumanMe }) {
   const person = members.find((member) => member.membership_id === requestedPerson);
   // 链接指向的人已不在快照里：回退到根层并说明，不静默重置。
   const stalePerson = requestedPerson !== undefined && person === undefined;
+  // 只有 ?machine= 没有 ?person=：机器永远挂在某个人下面，缺了人这条链接
+  // 画不出第 3 层，只能落到根层。页面自己从不写这种 URL（两处下钻都同时写
+  // 两个参数），所以它来自手改或被截断的链接——回落同样要自己说明自己，
+  // 而不是静默把人扔在根层（stalePerson 在这里是 false：没有人被要求过）。
+  const orphanMachine = requestedMachine !== undefined && requestedPerson === undefined;
 
   const drill = (membershipId: string) => {
     setParams({ person: membershipId });
@@ -148,17 +173,6 @@ function AdminAccessTree({ me }: { me: HumanMe }) {
     // 的字符，所以这不是活 bug；不一致本身才是问题。
     to: `/management?person=${encodeURIComponent(activePerson.membership_id)}`,
   });
-
-  // 非脊柱腿失败时的层内报错：说明 + 单独重试，外壳（面包屑、上层链接）
-  // 保留（设计 §6）。
-  const legError = (message: string, retry: () => void) => (
-    <div className="note bad row between" role="alert">
-      <span>{message}</span>
-      <Button size="sm" onClick={retry}>
-        Retry
-      </Button>
-    </div>
-  );
 
   // 第 2 层（含第 3 层的回落目标）：某人的机器。抽成局部函数以便第 3 层的
   // stale-machine 回落复用同一段渲染，只多一条说明。
@@ -328,6 +342,13 @@ function AdminAccessTree({ me }: { me: HumanMe }) {
       {stalePerson && (
         <div className="note warn small" role="status">
           That person is no longer on this team, so we brought you back to everyone.
+        </div>
+      )}
+
+      {orphanMachine && (
+        <div className="note warn small" role="status">
+          That link names a machine but not the person it belongs to, so we brought you back to
+          everyone.
         </div>
       )}
 

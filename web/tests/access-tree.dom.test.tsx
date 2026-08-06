@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { screen, within } from "@testing-library/react";
 import {
+  apiErrorResponse,
   callsTo,
   jsonResponse,
   makeAgent,
@@ -14,6 +15,15 @@ import {
 
 setupDomTest();
 
+/** 第 3 层 GET /v1/admin/devices/dev_a 的详情体（alice-macbook）。 */
+const ALICE_DEVICE_DETAIL = {
+  device: makeDevice({ credential_id: "dev_a", device_name: "alice-macbook", created_by_membership_id: "mbr_01", provisioned_agent_count: 2 }),
+  agents: [
+    makeDeviceAgent({ agent_id: "alice-codex", credential_id: "cred_1" }),
+    makeDeviceAgent({ agent_id: "alice-claude", credential_id: "cred_2" }),
+  ],
+};
+
 /** 两个人：alice（自己，1 台机器 2 个 Agent）、bob（无机器 1 个散装 Agent）。 */
 function treeFetch(path: string) {
   if (path.startsWith("/v1/admin/members")) {
@@ -23,6 +33,16 @@ function treeFetch(path: string) {
         makeMember({ membership_id: "mbr_02", display_name: "Bob", role: "member", email: "bob@example.com" }),
       ],
     });
+  }
+  // 详情分支必须排在列表分支**前面**：`/v1/admin/devices` 是
+  // `/v1/admin/devices/<id>` 的前缀，反过来排的话第 3 层的 getDevice 会拿到
+  // 列表体，detail.device 变成 undefined —— 桩坏了，却让生产代码看起来需要
+  // 对 `device` 做可选链防御（复审：那层防御除了这份坏桩什么也没在挡）。
+  if (path.startsWith("/v1/admin/devices/")) {
+    const credentialId = path.slice("/v1/admin/devices/".length);
+    if (credentialId === "dev_a") return jsonResponse(ALICE_DEVICE_DETAIL);
+    // 只有 dev_a 存在；其余 id（dev_gone 等）与服务端一样答 404。
+    return apiErrorResponse(404, "not_found", `no such device: ${credentialId}`);
   }
   if (path.startsWith("/v1/admin/devices")) {
     return jsonResponse({
@@ -89,6 +109,27 @@ describe("Access tree · people level", () => {
     });
 
     await screen.findByText("alice-macbook");
+    expect(callsTo(fetchMock, "/v1/admin/devices/")).toHaveLength(0);
+  });
+
+  /**
+   * Re-review of the fix wave, finding 2. `?machine=` without `?person=`
+   * cannot draw level 3 — a machine always hangs off a person — so it lands
+   * on the root. It did so silently (`stalePerson` is false: nobody was
+   * asked for), *and* still fired a GET /v1/admin/devices/<id> whose answer
+   * was thrown away. The app never writes such a URL itself; it only comes
+   * from a hand-edited or truncated link.
+   */
+  it("explains the fall to the root when ?machine= has no ?person=", async () => {
+    const { fetchMock } = await renderApp({
+      route: "/management?machine=dev_a",
+      me: makeMe({ membership_id: "mbr_01" }),
+      fetch: (path) => treeFetch(path),
+    });
+
+    await screen.findByText("Alice");
+    screen.getByText(/names a machine but not the person/i);
+    // …and no admin request was spent on a machine we can never render.
     expect(callsTo(fetchMock, "/v1/admin/devices/")).toHaveLength(0);
   });
 
@@ -223,22 +264,12 @@ const ENROLLMENT_SECRET = {
   grantable_permissions: ["observe", "search", "get", "channel_send", "channel_receive"],
 };
 
-/** Level 3 detail for alice-macbook (dev_a), for the drill-in-and-back case.
-    Must be matched by exact path — `/v1/admin/devices` (the list leg
-    treeFetch already answers) is a startsWith-prefix of this URL too. */
-const ALICE_DEVICE_DETAIL = {
-  device: makeDevice({ credential_id: "dev_a", device_name: "alice-macbook", created_by_membership_id: "mbr_01", provisioned_agent_count: 2 }),
-  agents: [
-    makeDeviceAgent({ agent_id: "alice-codex", credential_id: "cred_1" }),
-    makeDeviceAgent({ agent_id: "alice-claude", credential_id: "cred_2" }),
-  ],
-};
-
 function enrollmentFetch(path: string, init: RequestInit) {
   if (path === "/v1/me/device-enrollments" && init.method === "POST") {
     return jsonResponse(ENROLLMENT_SECRET, 201);
   }
-  if (path === "/v1/admin/devices/dev_a") return jsonResponse(ALICE_DEVICE_DETAIL);
+  // 第 3 层的 GET /v1/admin/devices/dev_a（drill-in-and-back 用例要走进去）
+  // 由 treeFetch 的详情分支答，不再在这里重复一份。
   return treeFetch(path);
 }
 
@@ -606,6 +637,59 @@ describe("Access tree · agents level", () => {
     expect(crumbs.textContent).toContain("alice-macbook");
   });
 
+  /**
+   * Re-review of the fix wave, finding 1. useDeviceDetail folded two very
+   * different things into "loading": a frame that is genuinely one render
+   * behind (self-heals on the next commit) and a response whose body is not
+   * the machine we asked for (never heals). The second one settled as
+   * `ready` internally but was reported as `loading` forever — level 3's
+   * loading branch has no error and no retry, so an API-contract break
+   * presented as a permanent spinner that no test could see.
+   *
+   * These two cases pin the split: a mismatched or malformed detail body is
+   * an `error`, which level 3 already renders as a retryable card.
+   */
+  it("surfaces a retryable error when the detail body names a different machine", async () => {
+    const otherMachineDetail = {
+      device: makeDevice({
+        credential_id: "dev_b",
+        device_name: "bob-thinkpad",
+        created_by_membership_id: "mbr_02",
+      }),
+      agents: [makeDeviceAgent({ agent_id: "bob-codex", credential_id: "cred_9" })],
+    };
+
+    await renderApp({
+      route: "/management?person=mbr_01&machine=dev_a",
+      me: makeMe({ membership_id: "mbr_01" }),
+      fetch: (path) =>
+        path === "/v1/admin/devices/dev_a" ? jsonResponse(otherMachineDetail) : treeFetch(path),
+    });
+
+    await screen.findByText(/could not load this machine/i);
+    screen.getByRole("button", { name: /retry/i });
+    // Not a spinner, and above all not the other machine's agent rows —
+    // the header would have been dev_a's while the list was dev_b's.
+    expect(screen.queryByText(/loading this machine/i)).toBeNull();
+    expect(screen.queryByText("bob-codex")).toBeNull();
+  });
+
+  it("surfaces a retryable error when the detail body has no device at all", async () => {
+    // Same contract break, degenerate shape: `device` is required by the
+    // type, so a body without it can only come from a server that broke the
+    // contract. It must not crash the page and must not spin forever.
+    await renderApp({
+      route: "/management?person=mbr_01&machine=dev_a",
+      me: makeMe({ membership_id: "mbr_01" }),
+      fetch: (path) =>
+        path === "/v1/admin/devices/dev_a" ? jsonResponse({ agents: [] }) : treeFetch(path),
+    });
+
+    await screen.findByText(/could not load this machine/i);
+    screen.getByRole("button", { name: /retry/i });
+    expect(screen.queryByText(/loading this machine/i)).toBeNull();
+  });
+
   it("recovers into the real level 3 when the in-level retry succeeds", async () => {
     // The retry button is only worth keeping if it re-runs getDevice; nothing
     // exercised it before (Task 4 recorded that as deferred).
@@ -628,6 +712,69 @@ describe("Access tree · agents level", () => {
 
     await screen.findByText("alice-codex");
     expect(screen.queryByText(/could not load this machine/i)).toBeNull();
+  });
+});
+
+/**
+ * Re-review of the fix wave, finding 3. The fix wave gave every *level*
+ * state its chrome via AccessChrome, but the two snapshot-level returns
+ * (loading / members-leg error) predate that and stayed bare. So pressing
+ * Retry inside the devices-failure level blanked the page head, the summary
+ * strip and the breadcrumbs for the whole duration of the refetch, and a
+ * members-leg failure left a red box floating on an otherwise empty page.
+ */
+describe("Access tree · chrome around the snapshot's own states", () => {
+  it("keeps the page chrome while the snapshot is being refetched", async () => {
+    let membersAttempt = 0;
+    let release: ((response: Response) => void) | undefined;
+    const pending = new Promise<Response>((resolve) => {
+      release = resolve;
+    });
+
+    const { user } = await renderApp({
+      route: "/management?person=mbr_01",
+      me: makeMe({ membership_id: "mbr_01" }),
+      fetch: (path) => {
+        if (path.startsWith("/v1/admin/members")) {
+          membersAttempt += 1;
+          // First load succeeds; the Retry-triggered refetch hangs, which
+          // parks the page in the snapshot's own loading state.
+          return membersAttempt === 1 ? treeFetch(path) : pending;
+        }
+        if (path.startsWith("/v1/admin/devices")) throw new Error("devices down");
+        return treeFetch(path);
+      },
+    });
+
+    await screen.findByText(/could not load alice/i);
+    await user.click(screen.getByRole("button", { name: /retry/i }));
+
+    // Mid-refetch: still a page, not a blank one.
+    const crumbs = await screen.findByRole("navigation", { name: "Breadcrumb" });
+    expect(crumbs.textContent).toContain("Everyone");
+    expect(screen.getByRole("heading", { name: "Access flows downward" })).toBeTruthy();
+    // The summary tiles degrade to — rather than to 0 or to nothing.
+    expect(screen.getAllByText("—").length).toBeGreaterThan(0);
+
+    release?.(treeFetch("/v1/admin/members"));
+    await screen.findByText(/could not load alice/i);
+  });
+
+  it("keeps the page chrome when the members leg itself fails", async () => {
+    await renderApp({
+      route: "/management",
+      me: makeMe(),
+      fetch: (path) => {
+        if (path.startsWith("/v1/admin/members")) throw new Error("members down");
+        return treeFetch(path);
+      },
+    });
+
+    await screen.findByText(/could not load the team/i);
+    screen.getByRole("button", { name: /retry/i });
+    const crumbs = screen.getByRole("navigation", { name: "Breadcrumb" });
+    expect(crumbs.textContent).toContain("Everyone");
+    expect(screen.getByRole("heading", { name: "Access flows downward" })).toBeTruthy();
   });
 });
 

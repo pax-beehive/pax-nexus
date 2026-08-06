@@ -33,7 +33,18 @@ export function useDeviceDetail(credentialId?: string): DeviceDetailState {
     setState({ status: "loading", requested: credentialId });
     getDevice(credentialId)
       .then((detail) => {
-        if (!cancelled) setState({ status: "ready", detail, requested: credentialId });
+        if (cancelled) return;
+        // 服务端答非所问：响应体里的机器不是我们问的那台。这是契约破了，
+        // 不是「还在取」——判成 error，第 3 层会画出可重试的报错卡片。判成
+        // loading 的话，页面是一个永远转不完、且没有任何退路的圈。
+        // `detail.device` 整个缺席时这一行抛 TypeError，落进下面的 catch，
+        // 归到同一个 error 态：所以这里不需要 `?.`（缺字段的响应体一样是
+        // 契约破了，不该被静默当成「另一台机器的结果」）。
+        if (detail.device.credential_id !== credentialId) {
+          setState({ status: "error", requested: credentialId });
+          return;
+        }
+        setState({ status: "ready", detail, requested: credentialId });
       })
       .catch(() => {
         if (!cancelled) setState({ status: "error", requested: credentialId });
@@ -52,16 +63,14 @@ export function useDeviceDetail(credentialId?: string): DeviceDetailState {
   //   · 机器 A → 机器 B 时上一份 state 是 A 的 detail 或 A 的 error，于是 B
   //     的头部会配上 A 的 agents（级联预览与展示行同源这条不变式在这一帧
   //     里是破的）。
-  // 所以：结果不是替当前 credentialId 取的，就一律报 loading。ready 还额外
-  // 核对 detail 里的 device.credential_id——服务端答非所问时同样不算数。
-  const settledForCurrent = state.requested === credentialId;
-  // `device` 在类型上是必填，`?.` 是给运行时的：答非所问的响应体（或缺字段
-  // 的响应体）应该被判成「不是这台机器的结果」，而不是把整页崩掉。
-  const detailMatches =
-    credentialId === undefined
-      ? state.detail === undefined
-      : state.detail?.device?.credential_id === credentialId;
-  if (!settledForCurrent || (state.status === "ready" && !detailMatches)) {
+  // 所以：结果不是替当前 credentialId 取的，就一律报 loading。
+  //
+  // 这里只管「落后一帧」这一件事。「服务端答非所问」在上面的 then 里就已经
+  // 被判成 error 了——两者必须分开：前者下一帧就自愈（真的还在取），后者
+  // 永远不会自愈（判成 loading 就是一个不可恢复的永久转圈）。因为 detail 与
+  // requested 是同一次 setState 写进去的，走到这里时「detail 属于
+  // state.requested 这台机器」已经是结构性不变式，不需要再核一遍。
+  if (state.requested !== credentialId) {
     return { status: "loading", retry };
   }
 
