@@ -15,6 +15,7 @@ import type {
   OperationsAgentStats,
   OperationsStorageSnapshot,
   OperationsSummary,
+  OverviewResponse,
   RecallDiagnostic,
   StorageComponent,
 } from "../src/api/types";
@@ -67,6 +68,63 @@ export function makeSummary(overrides: Partial<OperationsSummary> = {}): Operati
     },
     latency: { sample_count: 30, p50_ms: 24, p95_ms: 91 },
     errors: 2,
+    ...overrides,
+  };
+}
+
+/**
+ * Overview landing page aggregate (doc section: Overview). Defaults to a 7d
+ * window shape: 6 evenly-spaced series buckets, a 4-kind note mix whose
+ * counts and percentages both sum consistently (50 notes, pcts sum to 100),
+ * and 2 attention items whose count matches `metrics.attention_count`.
+ */
+export function makeOverview(overrides: Partial<OverviewResponse> = {}): OverviewResponse {
+  return {
+    from_time: FROM_TIME,
+    to_time: TO_TIME,
+    generated_at: GEN_AT,
+    metrics: {
+      evidence_captured: 452,
+      live_notes: 50,
+      notes_expiring_today: 3,
+      recalls_served: 118,
+      recall_accept_rate: 0.82,
+      p50_ms: 24,
+      p95_ms: 91,
+      attention_count: 2,
+    },
+    series: [
+      { bucket_at: "2026-07-21T12:00:00Z", evidence: 60, facts: 22, recalls: 15 },
+      { bucket_at: "2026-07-21T16:00:00Z", evidence: 72, facts: 26, recalls: 18 },
+      { bucket_at: "2026-07-21T20:00:00Z", evidence: 55, facts: 19, recalls: 14 },
+      { bucket_at: "2026-07-22T00:00:00Z", evidence: 80, facts: 30, recalls: 21 },
+      { bucket_at: "2026-07-22T04:00:00Z", evidence: 90, facts: 33, recalls: 24 },
+      { bucket_at: "2026-07-22T08:00:00Z", evidence: 95, facts: 35, recalls: 26 },
+    ],
+    note_mix: [
+      { kind: "decision", count: 25, pct: 50 },
+      { kind: "fact", count: 15, pct: 30 },
+      { kind: "hint", count: 7, pct: 14 },
+      { kind: "reference", count: 3, pct: 6 },
+    ],
+    attention: [
+      {
+        kind: "finding",
+        severity: "high",
+        title: "High-risk tool call without approval",
+        body: "A high-risk tool call executed without an approval record",
+        ref: "finding:41",
+        target: "/governance/sessions",
+      },
+      {
+        kind: "quarantine",
+        severity: "high",
+        title: "Quarantined extractions need review",
+        body: "1 extraction candidate(s) are quarantined and waiting for review",
+        ref: "quarantine",
+        target: "/governance/pipeline",
+      },
+    ],
     ...overrides,
   };
 }
@@ -217,6 +275,8 @@ export interface OperationsEndpoints {
   agents?: () => Response;
   /** Per-agent activity aggregate for the Team Pulse page. */
   agentStats?: () => Response;
+  /** Overview landing page aggregate. */
+  overview?: (url: URL) => unknown;
 }
 
 /**
@@ -247,6 +307,10 @@ export function operationsFetch(endpoints: OperationsEndpoints = {}): FetchHandl
     }
     if (path.startsWith("/v1/admin/agents")) {
       return endpoints.agents?.() ?? jsonResponse({ agents: [] });
+    }
+    if (path.startsWith("/v1/admin/overview")) {
+      const url = new URL(path, "http://localhost");
+      return jsonResponse(endpoints.overview?.(url) ?? makeOverview());
     }
     throw new Error(`unexpected fetch: ${init.method ?? "GET"} ${path}`);
   };
@@ -290,5 +354,20 @@ export async function renderPulsePage(endpoints: OperationsEndpoints = {}) {
     fetch: operationsFetch(endpoints),
   });
   await screen.findByRole("heading", { name: "Team Pulse" });
+  return app;
+}
+
+/**
+ * Mount the portal at /overview with the Operations capability and wait for
+ * the Overview page's own heading to settle. `opsMe()` has no teams, so the
+ * page renders its "Overview" heading rather than a team name.
+ */
+export async function renderOverviewPage(endpoints: OperationsEndpoints = {}) {
+  const app = await renderApp({
+    route: "/overview",
+    me: opsMe(),
+    fetch: operationsFetch(endpoints),
+  });
+  await screen.findByRole("heading", { name: "Overview" });
   return app;
 }

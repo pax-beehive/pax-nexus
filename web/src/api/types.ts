@@ -550,6 +550,52 @@ export interface SessionAuditActivityDay {
   tool_breakdown: Record<string, number>;
 }
 
+// ---- Overview landing page DTO (mirrors api.OverviewResponse verbatim) ----
+
+/** GET /v1/admin/overview — mirrors api.OverviewResponse verbatim. */
+export interface OverviewMetrics {
+  evidence_captured: number;
+  live_notes: number;
+  notes_expiring_today: number;
+  recalls_served: number;
+  recall_accept_rate: number;
+  p50_ms?: number;
+  p95_ms?: number;
+  attention_count: number;
+}
+
+export interface OverviewSeriesPoint {
+  bucket_at: string;
+  evidence: number;
+  facts: number;
+  recalls: number;
+}
+
+export interface OverviewNoteMixEntry {
+  kind: string;
+  count: number;
+  pct: number;
+}
+
+export interface OverviewAttentionItem {
+  kind: string;
+  severity: string;
+  title: string;
+  body: string;
+  ref: string;
+  target: string;
+}
+
+export interface OverviewResponse {
+  from_time: string;
+  to_time: string;
+  generated_at: string;
+  metrics: OverviewMetrics;
+  series: OverviewSeriesPoint[];
+  note_mix: OverviewNoteMixEntry[];
+  attention: OverviewAttentionItem[];
+}
+
 export interface ChannelDiagnostic {
   envelope_id: string;
   from_agent_id: string;
