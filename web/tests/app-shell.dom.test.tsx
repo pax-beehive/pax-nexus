@@ -90,13 +90,32 @@ describe("AppShell top bar", () => {
   });
 
   it("hides the sub-navigation for a section with no sub-pages", async () => {
-    // /overview 在阶段 1 由 AdminPulsePage 顶替，它会请求 operations 的
-    // agents 与 events；两个响应都要带上各自的时间字段，否则页面在渲染
-    // "generated at" 时抛错，被 ErrorBoundary 接住，断言就测不到本意。
+    // /overview renders OverviewPage (阶段 2b): it polls the overview
+    // aggregate and the operations agents endpoint (writers block); both
+    // need minimal successful shapes or the region renders an error instead
+    // of settling, and the assertion below wouldn't test its own point.
     await renderApp({
       route: "/overview",
       me: makeMe({ capabilities: ["view.operations"] }),
       fetch: (path, init) => {
+        if (path.startsWith("/v1/admin/overview")) {
+          return jsonResponse({
+            from_time: "2026-08-04T00:00:00Z",
+            to_time: "2026-08-04T01:00:00Z",
+            generated_at: "2026-08-04T01:00:00Z",
+            metrics: {
+              evidence_captured: 0,
+              live_notes: 0,
+              notes_expiring_today: 0,
+              recalls_served: 0,
+              recall_accept_rate: 0,
+              attention_count: 0,
+            },
+            series: [],
+            note_mix: [],
+            attention: [],
+          });
+        }
         if (path.startsWith("/v1/admin/operations/agents")) {
           return jsonResponse({
             agents: [],
@@ -112,7 +131,7 @@ describe("AppShell top bar", () => {
       },
     });
 
-    await screen.findByRole("heading", { name: "Team Pulse" });
+    await screen.findByRole("heading", { name: "Overview" });
     expect(screen.queryByRole("navigation", { name: "Section pages" })).toBeNull();
   });
 

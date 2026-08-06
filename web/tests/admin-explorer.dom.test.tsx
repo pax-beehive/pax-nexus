@@ -111,13 +111,31 @@ describe("Team Memory Explorer access and chain", () => {
   it("gates navigation and data fetch on view.team-memory", async () => {
     // No view.team-memory capability: RequireCapability bounces to
     // landingPath(me), which is /overview because view.operations is
-    // present (navModel.ts). Operations' own endpoints are stubbed only so
+    // present (navModel.ts). Overview's own endpoints are stubbed only so
     // that landing page can settle cleanly; the point of this case is what
     // it must NOT fetch.
     const denied = await renderApp({
       route: "/governance/memory",
       me: makeMe({ role: "admin", capabilities: ["view.operations"] }),
       fetch: (path) => {
+        if (path.startsWith("/v1/admin/overview")) {
+          return jsonResponse({
+            from_time: NOW,
+            to_time: NOW,
+            generated_at: NOW,
+            metrics: {
+              evidence_captured: 0,
+              live_notes: 0,
+              notes_expiring_today: 0,
+              recalls_served: 0,
+              recall_accept_rate: 0,
+              attention_count: 0,
+            },
+            series: [],
+            note_mix: [],
+            attention: [],
+          });
+        }
         if (path.startsWith("/v1/admin/operations/agents")) {
           return jsonResponse({
             agents: [],
@@ -132,7 +150,7 @@ describe("Team Memory Explorer access and chain", () => {
         throw new Error(`unexpected fetch: ${path}`);
       },
     });
-    await screen.findByRole("heading", { name: "Team Pulse" });
+    await screen.findByRole("heading", { name: "Overview" });
     expect(document.querySelector('nav a[href="/governance/memory"]')).toBeNull();
     expect(callsTo(denied.fetchMock, "/v1/admin/team-notes")).toHaveLength(0);
     denied.unmount();

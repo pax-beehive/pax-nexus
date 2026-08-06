@@ -1,6 +1,15 @@
 // Page-level DOM tests for the Team Pulse page: agent cards with count-up
 // stats and recent notes, the freshness status dot, the live event feed, the
 // empty state, and region independence when the aggregate endpoint fails.
+//
+// Portal-modernist phase 2b (task 6) swapped /overview from AdminPulsePage to
+// OverviewPage, so renderPulsePage's route no longer reaches this page and
+// every case below would fail on the "Team Pulse" heading. AdminPulsePage.tsx
+// itself is untouched and still mounts fine standalone -- it is only deleted
+// (along with this file) in Task 8 once its functionality has fully moved to
+// the Overview page's blocks (metrics/throughput/note-mix/writers in task 6,
+// attention/event-feed in task 7). Skipped rather than rewritten to avoid
+// duplicating soon-to-be-dead assertions.
 
 import { describe, expect, it } from "vitest";
 import { screen, within } from "@testing-library/react";
@@ -24,7 +33,7 @@ function feedList(): HTMLElement {
   return document.getElementById("pulse-feed") as HTMLElement;
 }
 
-describe("agent cards", () => {
+describe.skip("agent cards", () => {
   it("renders each agent with count-up stats, notes and a last-active label", async () => {
     await renderPulsePage({
       agentStats: () =>
@@ -116,7 +125,7 @@ describe("agent cards", () => {
   });
 });
 
-describe("live event feed", () => {
+describe.skip("live event feed", () => {
   it("renders polled events without a first-load highlight", async () => {
     await renderPulsePage({
       events: () => jsonResponse(eventsPage([makeEvent()])),

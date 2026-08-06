@@ -310,7 +310,11 @@ export function operationsFetch(endpoints: OperationsEndpoints = {}): FetchHandl
     }
     if (path.startsWith("/v1/admin/overview")) {
       const url = new URL(path, "http://localhost");
-      return jsonResponse(endpoints.overview?.(url) ?? makeOverview());
+      const result = endpoints.overview?.(url) ?? makeOverview();
+      // Callers may hand back either a plain body (wrapped as 200 JSON, the
+      // common case) or a full Response of their own -- e.g. an error
+      // fixture built with apiErrorResponse -- which passes through as-is.
+      return result instanceof Response ? result : jsonResponse(result);
     }
     throw new Error(`unexpected fetch: ${init.method ?? "GET"} ${path}`);
   };
