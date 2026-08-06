@@ -116,6 +116,8 @@
 .toolbar input, .toolbar select { width: auto; }
 .section { margin-top: var(--space-6); }
 .flush { margin: 0; }
+/* 分页列表下方的「Load more」按钮位：居中，与列表隔开一点空隙。 */
+.load-more { margin-top: var(--space-3); text-align: center; }
 
 /* — 响应式 —
    1280 以上是设计基准；以下逐级收窄。宽内容（表格、图表）由各自的容器

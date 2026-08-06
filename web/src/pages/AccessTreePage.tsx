@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import type { AgentProfile, DeviceEnrollmentSecret, DeviceSummary, HumanMe, Member } from "../api/types";
 import { can } from "../lib/capabilities";
@@ -43,7 +43,10 @@ function AdminAccessTree({ me }: { me: HumanMe }) {
   const snapshot = useAccessSnapshot();
   // 无条件调用，与 useAccessSnapshot 并列：不能塞进下面任何 if 分支，
   // 否则 hook 调用顺序在渲染间不一致。credentialId 为 undefined 时
-  // useDeviceDetail 内部直接落成 "ready"、不发请求。
+  // useDeviceDetail 内部直接落成 "ready"、不发请求。requestedPerson 也提到
+  // 这里（快照 ready 判定之前）：下面的一次性密钥/弹窗状态要在任何 early
+  // return 之前就能引用它，不能等到 snapshot.snapshot 解出来才算数。
+  const requestedPerson = params.get("person") ?? undefined;
   const requestedMachine = params.get("machine") ?? undefined;
   const deviceDetail = useDeviceDetail(requestedMachine);
   // 第 2 层「本人」头部的两个入口：就地开弹窗，而不是跳到平表页
@@ -53,20 +56,79 @@ function AdminAccessTree({ me }: { me: HumanMe }) {
   const [connectMachineOpen, setConnectMachineOpen] = useState(false);
   const [enrollmentSecret, setEnrollmentSecret] = useState<DeviceEnrollmentSecret | undefined>();
 
-  if (snapshot.status === "loading") return <p className="muted">Loading…</p>;
+  // AdminAccessTree 在整段树内导航期间不会重新挂载——下钻/回退只改写
+  // ?person=/?machine=，组件实例和它的 state 都留着。这两个弹窗开关与
+  // 一次性密钥因此必须绑定在「产生它们的那组树坐标」上，而不是绑在这个
+  // 组件的生命周期上：坐标一变（换人、进/出某台机器），上一坐标开着的
+  // 弹窗、留着的密钥就都失效，不能带着走到下一张脸上（复审 C1 / I2）。
+  useEffect(() => {
+    setCreateAgentOpen(false);
+    setConnectMachineOpen(false);
+    setEnrollmentSecret(undefined);
+  }, [requestedPerson, requestedMachine]);
+
+  // 只能出现在产生它的那个面上：本人（isSelf）的第 2 层，且没有 ?machine=
+  // ——这与 Connect a machine 按钮本身的可见条件一致，因为唯一能把
+  // enrollmentSecret 置为有值的路径就是那个按钮。故意提到任何 snapshot
+  // early return 之前算：失败/进行中的 retry() 不该把已经拿到手的一次性
+  // 密钥带走（复审 I1）——服务端此时已经创建了这条 enrollment，密钥从
+  // state 里消失后唯一的补救是吊销重建。
+  const secretCard = enrollmentSecret && !requestedMachine && requestedPerson === me.membership_id && (
+    <SecretCard
+      title="One-time Device Enrollment token (shown only once)"
+      value={enrollmentSecret.token}
+      valueLabel=" token"
+      expiresAt={enrollmentSecret.expires_at}
+      note={
+        isSelfDescribingEnrollmentToken(enrollmentSecret.token)
+          ? "The token is never written to durable storage, logs, or analytics. If it is lost, you can only revoke the Device and create a new enrollment; the token embeds the connect address — run paxl device connect on the target machine to finish onboarding."
+          : "The token is never written to durable storage, logs, or analytics. If it is lost, you can only revoke the Device and create a new enrollment; run paxl device connect on the target machine to finish onboarding."
+      }
+      extraActions={
+        <Button
+          size="sm"
+          onClick={() => {
+            const command = deviceConnectCommand(
+              enrollmentSecret.token,
+              window.location.origin,
+              enrollmentSecret.device_name,
+            );
+            void copyTextToClipboard(command).then((ok) => {
+              if (ok) toast("ok", "Connect command copied");
+              else window.prompt("Copy manually:", command);
+            });
+          }}
+        >
+          Copy client command
+        </Button>
+      }
+      onClose={() => setEnrollmentSecret(undefined)}
+    />
+  );
+
+  if (snapshot.status === "loading") {
+    return (
+      <>
+        {secretCard}
+        <p className="muted">Loading…</p>
+      </>
+    );
+  }
   if (snapshot.status === "error" || !snapshot.snapshot) {
     return (
-      <div className="note bad row between" role="alert">
-        <span>Could not load the team’s people.</span>
-        <Button size="sm" onClick={snapshot.retry}>
-          Retry
-        </Button>
-      </div>
+      <>
+        {secretCard}
+        <div className="note bad row between" role="alert">
+          <span>Could not load the team’s people.</span>
+          <Button size="sm" onClick={snapshot.retry}>
+            Retry
+          </Button>
+        </div>
+      </>
     );
   }
 
   const { members, devices, agents } = snapshot.snapshot;
-  const requestedPerson = params.get("person") ?? undefined;
   const person = members.find((member) => member.membership_id === requestedPerson);
   // 链接指向的人已不在快照里：回退到根层并说明，不静默重置。
   const stalePerson = requestedPerson !== undefined && person === undefined;
@@ -112,38 +174,7 @@ function AdminAccessTree({ me }: { me: HumanMe }) {
         </div>
       )}
 
-      {enrollmentSecret && (
-        <SecretCard
-          title="One-time Device Enrollment token (shown only once)"
-          value={enrollmentSecret.token}
-          valueLabel=" token"
-          expiresAt={enrollmentSecret.expires_at}
-          note={
-            isSelfDescribingEnrollmentToken(enrollmentSecret.token)
-              ? "The token is never written to durable storage, logs, or analytics. If it is lost, you can only revoke the Device and create a new enrollment; the token embeds the connect address — run paxl device connect on the target machine to finish onboarding."
-              : "The token is never written to durable storage, logs, or analytics. If it is lost, you can only revoke the Device and create a new enrollment; run paxl device connect on the target machine to finish onboarding."
-          }
-          extraActions={
-            <Button
-              size="sm"
-              onClick={() => {
-                const command = deviceConnectCommand(
-                  enrollmentSecret.token,
-                  window.location.origin,
-                  enrollmentSecret.device_name,
-                );
-                void copyTextToClipboard(command).then((ok) => {
-                  if (ok) toast("ok", "Connect command copied");
-                  else window.prompt("Copy manually:", command);
-                });
-              }}
-            >
-              Copy client command
-            </Button>
-          }
-          onClose={() => setEnrollmentSecret(undefined)}
-        />
-      )}
+      {secretCard}
 
       <MachinesLevel
         person={activePerson}

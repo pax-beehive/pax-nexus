@@ -176,6 +176,159 @@ describe("Access tree · owner-machine self-registration", () => {
   });
 });
 
+/**
+ * Fix round 1 (review of Task 9): the one-time enrollment secret and the
+ * two own-machine modal flags all lived in AdminAccessTree, which stays
+ * mounted across every in-tree navigation (only `?person=`/`?machine=`
+ * change — the route component never remounts). Nothing bound that state
+ * to the tree coordinates that produced it, so the secret could render
+ * over a *different* person's machines, or reappear after drilling into a
+ * machine and back. These cases pin the fix: the secret only shows on the
+ * surface that created it, disappears the moment the coordinates change,
+ * and survives a failed post-create snapshot refetch (the server-side
+ * enrollment already exists at that point; losing the token from state
+ * leaves revoke-and-recreate as the only way to see it again).
+ */
+const ENROLLMENT_SECRET = {
+  enrollment_id: "denr_01",
+  token: "tm_enroll_denr_01.secret",
+  expires_at: "2026-07-24T18:15:00Z",
+  device_name: "todd-macbook-air",
+  grantable_permissions: ["observe", "search", "get", "channel_send", "channel_receive"],
+};
+
+/** Level 3 detail for alice-macbook (dev_a), for the drill-in-and-back case.
+    Must be matched by exact path — `/v1/admin/devices` (the list leg
+    treeFetch already answers) is a startsWith-prefix of this URL too. */
+const ALICE_DEVICE_DETAIL = {
+  device: makeDevice({ credential_id: "dev_a", device_name: "alice-macbook", created_by_membership_id: "mbr_01", provisioned_agent_count: 2 }),
+  agents: [
+    makeDeviceAgent({ agent_id: "alice-codex", credential_id: "cred_1" }),
+    makeDeviceAgent({ agent_id: "alice-claude", credential_id: "cred_2" }),
+  ],
+};
+
+function enrollmentFetch(path: string, init: RequestInit) {
+  if (path === "/v1/me/device-enrollments" && init.method === "POST") {
+    return jsonResponse(ENROLLMENT_SECRET, 201);
+  }
+  if (path === "/v1/admin/devices/dev_a") return jsonResponse(ALICE_DEVICE_DETAIL);
+  return treeFetch(path);
+}
+
+/** Own machine level (mbr_01 = Alice = the caller) → open, fill, submit
+    Connect a machine, and wait for the one-time secret to render. */
+async function createEnrollmentOnOwnMachineLevel(fetch = enrollmentFetch) {
+  const rendered = await renderApp({
+    route: "/management?person=mbr_01",
+    me: makeMe({ membership_id: "mbr_01" }),
+    fetch,
+  });
+  const { user } = rendered;
+
+  await user.click(await screen.findByRole("button", { name: /connect a machine/i }));
+  const dialog = screen.getByRole("dialog");
+  await user.type(within(dialog).getByLabelText(/device_name/), "todd-macbook-air");
+  await user.click(within(dialog).getByRole("button", { name: "Create" }));
+
+  await screen.findByText(ENROLLMENT_SECRET.token);
+  return rendered;
+}
+
+describe("Access tree · own-machine enrollment secret lifecycle", () => {
+  it("shows the one-time secret after creating an enrollment on your own machine level", async () => {
+    await createEnrollmentOnOwnMachineLevel();
+
+    screen.getByText("One-time Device Enrollment token (shown only once)");
+  });
+
+  it("clears the secret when navigating to a different person", async () => {
+    const { user } = await createEnrollmentOnOwnMachineLevel();
+
+    await user.click(screen.getByRole("link", { name: "Everyone" }));
+    await user.click(await screen.findByText("Bob"));
+
+    // Bob's header rendered (email is a unique anchor for it — "Bob" itself
+    // also appears in the breadcrumb).
+    await screen.findByText(/bob@example\.com/);
+    expect(screen.queryByText(ENROLLMENT_SECRET.token)).toBeNull();
+  });
+
+  it("does not resurface the secret after drilling into a machine and back", async () => {
+    const { user } = await createEnrollmentOnOwnMachineLevel();
+
+    await user.click(await screen.findByText("alice-macbook"));
+    await screen.findByText("alice-codex"); // level 3 rendered
+    expect(screen.queryByText(ENROLLMENT_SECRET.token)).toBeNull();
+
+    await user.click(screen.getByRole("link", { name: "Alice" }));
+    await screen.findByText("alice-macbook"); // back on level 2
+    expect(screen.queryByText(ENROLLMENT_SECRET.token)).toBeNull();
+  });
+
+  it("keeps the secret visible even when the post-create snapshot refetch fails", async () => {
+    // Deliberately not using createEnrollmentOnOwnMachineLevel here: that
+    // helper's own success check (findByText the token right after create)
+    // would otherwise become the failure point, one step before the thing
+    // this case actually pins down — that the token survives the *next*
+    // (failing) snapshot refetch, not just the moment it's minted.
+    let enrolled = false;
+    const { user } = await renderApp({
+      route: "/management?person=mbr_01",
+      me: makeMe({ membership_id: "mbr_01" }),
+      fetch: (path, init) => {
+        if (path === "/v1/me/device-enrollments" && init.method === "POST") {
+          enrolled = true;
+          return jsonResponse(ENROLLMENT_SECRET, 201);
+        }
+        // The retry triggered by a successful create re-fetches all three
+        // legs; make the spine leg fail so the page would normally flip to
+        // the full error card.
+        if (enrolled && path.startsWith("/v1/admin/members")) {
+          throw new Error("members down after enrollment");
+        }
+        return treeFetch(path);
+      },
+    });
+
+    await user.click(await screen.findByRole("button", { name: /connect a machine/i }));
+    const dialog = screen.getByRole("dialog");
+    await user.type(within(dialog).getByLabelText(/device_name/), "todd-macbook-air");
+    await user.click(within(dialog).getByRole("button", { name: "Create" }));
+
+    // The refetch failed (spine leg down): the page shows the retryable
+    // error card, but the secret — already in state before the refetch
+    // ever started — must still be on screen above it.
+    await screen.findByRole("button", { name: /retry/i });
+    expect(screen.getByText(ENROLLMENT_SECRET.token)).toBeTruthy();
+  });
+
+  // Finding I2: createAgentOpen (and connectMachineOpen) had the same
+  // unscoped lifetime as the secret — a tree-coordinate change while a
+  // modal was open didn't close it, so it re-materialised over whatever
+  // level came next. Covers the modal-open flags with the same probe shape
+  // used for the secret above (navigate away, assert it's gone).
+  it("closes an open Create Agent modal when the tree coordinates change under it", async () => {
+    const { user } = await renderApp({
+      route: "/management?person=mbr_01",
+      me: makeMe({ membership_id: "mbr_01" }),
+      fetch: (path) => treeFetch(path),
+    });
+
+    await user.click(await screen.findByRole("button", { name: /create agent/i }));
+    screen.getByRole("dialog", { name: "Create Agent" });
+
+    // The dialog has no backdrop-blocking semantics in jsdom, so this
+    // stands in for "Back navigates while the modal is still open" (the
+    // reviewer's probe) without needing to drive real browser history.
+    await user.click(screen.getByRole("link", { name: "Everyone" }));
+    await user.click(await screen.findByText("Bob"));
+
+    await screen.findByText(/bob@example\.com/);
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+});
+
 describe("Access tree · machines level", () => {
   it("shows the person's machines with live agent counts", async () => {
     await renderApp({

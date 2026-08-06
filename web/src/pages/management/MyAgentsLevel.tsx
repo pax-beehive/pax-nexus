@@ -82,7 +82,7 @@ export function MyAgentsLevel() {
         ))
       )}
       {list.nextCursor && (
-        <div style={{ marginTop: 10, textAlign: "center" }}>
+        <div className="load-more">
           <Button size="sm" disabled={list.loadingMore} onClick={() => void list.loadMore()}>
             {list.loadingMore ? "Loading…" : "Load more"}
           </Button>
