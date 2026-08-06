@@ -151,6 +151,35 @@ describe("历史", () => {
     expect(calls).toHaveLength(1);
     expect(calls[0].path).not.toContain("status=");
   });
+
+  // owner/admin 查看自己名下的 Agent 是唯一一种 readScope 与 actScope 分叉
+  // 的组合（readScope 因为 view.all-agents 能力解析成 "admin"，actScope
+  // 因为 isSelf 解析成 "me"）；用 member 自查自己的 Agent 测不出这个区别,
+  // 因为那种组合下两个 scope 都是 "me"。这条用例把「历史区必须跟实时区
+  // 同源、走 actScope」的选择钉住——把 AgentKeysSection.tsx 里两处历史调用
+  // 点改回 access.readScope，这条用例必须变红。
+  it("owner 查看自己名下的 Agent：历史走 me scope，不是 admin scope", async () => {
+    const user = userEvent.setup();
+    const me = makeMe({ role: "owner", membership_id: "mbr_01" });
+    const agent = makeAgent({ owner_membership_id: "mbr_01" });
+    const { fetchMock } = renderKeys(
+      {
+        enrollments: { items: [], loading: false },
+        credentials: { items: [], loading: false },
+      },
+      {
+        me,
+        agent,
+        fetch: () => jsonResponse({ credentials: [makeCredential()] }),
+      },
+    );
+
+    await user.click(screen.getByRole("button", { name: "显示密钥历史" }));
+    await screen.findByText("Alice MacBook");
+
+    expect(callsTo(fetchMock, "/v1/me/agents/agent-1/credentials", "GET")).toHaveLength(1);
+    expect(callsTo(fetchMock, "/v1/admin/agents/agent-1/credentials", "GET")).toHaveLength(0);
+  });
 });
 
 describe("发放到仪式", () => {
