@@ -1,130 +1,47 @@
-import { useEffect, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
-import { listTeamNotes } from "../api/queries";
-import { Badge } from "../components/Badge";
-import { Button } from "../components/Button";
-import { PagedListCard } from "../components/PagedListCard";
-import { formatTime } from "../lib/format";
-import { useErrorHandler } from "../lib/useErrorHandler";
-import { usePagedList } from "../lib/usePagedList";
-
-const STATES = ["all", "active", "resolved", "expired"] as const;
+// Governance · Memory explorer：双栏容器。左 340px 是 NoteList（自己取数、
+// 自己扛取数失败），右侧按 useParams().noteId 决定渲染详情还是空态。两栏各自
+// 独立取数——右栏挂了不拖累左栏，这是设计裁定（task-7 brief 的验收点之一）。
+//
+// Task 6 先把骨架和左栏落好，右栏在 :noteId 存在时只是占位；Task 7 会把占位
+// 换成真正的溯源链渲染（NoteProvenance / NoteRecalls）。
+import { Link, useParams } from "react-router-dom";
+import { EmptyState } from "../components/EmptyState";
+import { Kicker } from "../components/Kicker";
+import { NoteList } from "./governance/NoteList";
 
 export function AdminExplorerPage() {
-  const handleError = useErrorHandler();
-  const [searchParams] = useSearchParams();
-  const [queryInput, setQueryInput] = useState("");
-  const [query, setQuery] = useState("");
-  const [kind, setKind] = useState("");
-  const [state, setState] = useState("all");
-  const [agentId, setAgentId] = useState(searchParams.get("agent") ?? "");
-
-  const notes = usePagedList(
-    (cursor) =>
-      listTeamNotes({
-        q: query || undefined,
-        kind: kind || undefined,
-        state: state === "all" ? undefined : state,
-        agent_id: agentId || undefined,
-        limit: 50,
-        cursor,
-      }),
-    [query, kind, state, agentId],
-  );
-
-  useEffect(() => {
-    if (notes.error) handleError(notes.error);
-  }, [notes.error, handleError]);
+  const { noteId } = useParams();
 
   return (
     <>
-      <div className="page-head">
+      <div className="gv-head">
         <div>
-          <h1>Team Memory Explorer</h1>
-          <p className="muted flush">
-            Inspect a Team Note from source event through extraction, revision, delivery, and recall
+          <Kicker>Governance · 追一条事实</Kicker>
+          <h1>这是从哪来的？</h1>
+          <p>
+            挑一条团队正在流传的事实，顺着它回到产生它的那次会话——再往前看它被交给过哪些
+            Agent。
           </p>
         </div>
       </div>
-
-      <div className="card">
-        <div className="row wrap explorer-filters">
-          <input
-            type="search"
-            aria-label="Search Team Notes"
-            placeholder="Search subject or body"
-            value={queryInput}
-            onChange={(event) => setQueryInput(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") setQuery(queryInput.trim());
-            }}
-          />
-          <Button size="sm" onClick={() => setQuery(queryInput.trim())}>
-            Search
-          </Button>
-          <input
-            aria-label="Filter by kind"
-            placeholder="Kind"
-            value={kind}
-            onChange={(event) => setKind(event.target.value.trim())}
-          />
-          <input
-            aria-label="Filter by Agent ID"
-            placeholder="Agent ID"
-            value={agentId}
-            onChange={(event) => setAgentId(event.target.value.trim())}
-          />
-        </div>
-        <div className="seg" role="group" aria-label="Team Note state">
-          {STATES.map((value) => (
-            <button
-              key={value}
-              className={state === value ? "on" : ""}
-              aria-pressed={state === value}
-              onClick={() => setState(value)}
-            >
-              {value}
-            </button>
-          ))}
+      <div className="gv-explorer" data-active={noteId ? "detail" : "list"}>
+        <NoteList activeNoteId={noteId} />
+        <div className="gv-note-detail">
+          {noteId ? (
+            <>
+              <Link className="small gv-back-link" to="/governance/memory">
+                ← 返回列表
+              </Link>
+              <p className="muted small">占位：详情视图由 Task 7 补齐（note {noteId}）。</p>
+            </>
+          ) : (
+            <EmptyState
+              title="挑一条 Team Note"
+              body="从左边选一条正在流传的事实，看看它是怎么来的。"
+            />
+          )}
         </div>
       </div>
-
-      <PagedListCard
-        list={notes}
-        columns={["Team Note", "Kind", "Agent", "State", "Updated"]}
-        emptyText="No matching Team Notes."
-        renderRow={(note) => (
-          <tr key={note.note_id}>
-            <td>
-              <Link to={`/admin/explorer/notes/${encodeURIComponent(note.note_id)}`}>
-                {note.subject}
-              </Link>
-              <div className="small mono faint">
-                {note.note_id} · revision {note.revision}
-              </div>
-              {(note.task_ref || note.thread_ref) && (
-                <div className="small faint">
-                  {note.task_ref && `task ${note.task_ref}`}
-                  {note.task_ref && note.thread_ref && " · "}
-                  {note.thread_ref && `thread ${note.thread_ref}`}
-                </div>
-              )}
-            </td>
-            <td>
-              <span className="badge b-role">{note.kind}</span>
-            </td>
-            <td>
-              <code>{note.origin_agent_id}</code>
-            </td>
-            <td>
-              <Badge status={note.state} />
-            </td>
-            <td className="small" title={note.updated_at}>
-              {formatTime(note.updated_at)}
-            </td>
-          </tr>
-        )}
-      />
     </>
   );
 }

@@ -19,7 +19,6 @@ import { AdminSessionAuditPage } from "../pages/AdminSessionAuditPage";
 import { AdminOperationsPage } from "../pages/AdminOperationsPage";
 import { OverviewPage } from "../pages/OverviewPage";
 import { AdminExplorerPage } from "../pages/AdminExplorerPage";
-import { AdminTeamNoteDetailPage } from "../pages/AdminTeamNoteDetailPage";
 import { WikiBrowsePage } from "../pages/WikiBrowsePage";
 import { TodoPage } from "../pages/TodoPage";
 import { WikiStatusPage } from "../pages/WikiStatusPage";
@@ -180,7 +179,7 @@ export function PortalRoutes({ me }: { me: HumanMe }) {
         path="/governance/memory/:noteId"
         element={
           <RequireCapability me={me} capability="view.team-memory">
-            <AdminTeamNoteDetailPage />
+            <AdminExplorerPage />
           </RequireCapability>
         }
       />

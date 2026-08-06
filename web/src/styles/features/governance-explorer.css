@@ -1,1 +1,49 @@
 /* Governance · Explorer. 内容留给 Task 6/7。 */
+
+/* Task 6: 双栏骨架 + 左栏。 */
+.gv-explorer {
+  display: grid;
+  grid-template-columns: 340px 1fr;
+  border-top: 2px solid var(--color-divider);
+}
+.gv-note-list { border-right: 2px solid var(--color-divider); }
+.gv-note-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--color-divider);
+  padding: var(--space-3) var(--space-4);
+  cursor: pointer;
+  font-family: var(--font-body);
+  color: inherit;
+  text-decoration: none;
+}
+.gv-note-item:hover, .gv-note-item.on {
+  background: color-mix(in srgb, var(--color-text) 5%, transparent);
+}
+.gv-note-filters {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--color-divider);
+}
+.gv-note-status { padding: var(--space-3) var(--space-4); }
+.gv-note-detail {
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.gv-back-link { display: inline-block; }
+
+@media (max-width: 900px) {
+  .gv-explorer { grid-template-columns: 1fr; }
+  .gv-note-list { border-right: 0; }
+  /* 有 :noteId 只显示详情，无 :noteId 只显示列表——两栏在 DOM 里都在，
+     用 AdminExplorerPage.tsx 打在容器上的 data-active 做纯 CSS 折叠。 */
+  .gv-explorer[data-active="detail"] .gv-note-list { display: none; }
+  .gv-explorer[data-active="list"] .gv-note-detail { display: none; }
+}
