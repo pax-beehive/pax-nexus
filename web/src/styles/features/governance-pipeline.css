@@ -8,5 +8,14 @@
 .gv-metric-sub { font-size: 11px; opacity: 0.6; margin-top: var(--space-1); }
 @media (max-width: 900px) { .gv-metrics { grid-template-columns: repeat(3, 1fr); } }
 
+/* arcade 的次要文字用 opacity 淡化白字，压在饱和红底（--color-bg: #dd2b0f）
+   上普遍不过 WCAG AA（同根因见 access-tree.css 的 .at-bar-hint 等，11px /
+   opacity .5 实测 2.10:1）。.gv-metric-label 比 .at-bar-hint 还小，同样取消
+   淡化，层级差异靠字号表达。 */
+[data-theme="arcade"] .gv-metric-label,
+[data-theme="arcade"] .gv-metric-sub {
+  opacity: 1;
+}
+
 .gv-pipeline-columns { display: grid; grid-template-columns: 1fr 1.2fr; gap: var(--space-6); align-items: start; }
 @media (max-width: 900px) { .gv-pipeline-columns { grid-template-columns: 1fr; } }

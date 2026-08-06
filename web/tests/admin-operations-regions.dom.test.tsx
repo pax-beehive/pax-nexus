@@ -160,10 +160,43 @@ describe("section 12 item 5: missing latency percentiles show insufficient sampl
 // events-written/duplicates fields and the Latency & Errors card's errors
 // count. Design phase 5 (docs/superpowers/specs/2026-08-06-portal-modernist-
 // phase5-governance-design.md §2.3/§8) replaces both cards with the six-cell
-// PipelineMetrics bar, which surfaces neither duplicate_events nor errors --
-// that invariant has no remaining UI surface on this page. The idempotent-
-// replay behavior itself is a backend/data-shape concern, not a rendering
-// one; there is nothing page-level left to assert here after the redesign.
+// PipelineMetrics bar, which surfaces neither duplicate_events nor errors as
+// their own cell -- the old full assertion has no remaining UI surface. The
+// numbered item still needs a page-level anchor for traceability, so a
+// reduced form survives: a replay (events_written=0, duplicates>0, no real
+// failures) must not push either "失败" or "扣下待查" up, and must not flip
+// any region into an error/empty-data note.
+describe("section 12 item 6: idempotent Observation replay never reads as a failure", () => {
+  it("a replayed batch leaves 失败 and 扣下待查 at 0 with no error note", async () => {
+    await renderOperationsPage({
+      summary: () =>
+        jsonResponse(
+          makeSummary({
+            observations: {
+              requests: 18,
+              succeeded: 18,
+              input_events: 52,
+              events_written: 0,
+              duplicate_events: 4,
+            },
+            extraction: {
+              runs: 12,
+              completed: 10,
+              quarantined: 0,
+              failed: 0,
+              admitted_revisions: 8,
+              unextracted_events: 0,
+            },
+            errors: 0,
+          }),
+        ),
+    });
+
+    expect(pipelineMetric("失败").value).toBe("0");
+    expect(pipelineMetric("扣下待查").value).toBe("0");
+    expect(document.querySelector(".note.bad")).toBeNull();
+  });
+});
 
 describe("section 12 item 8: quarantined extractions are not failures", () => {
   it("quarantined renders separately from failed", async () => {

@@ -1,5 +1,5 @@
 // Pipeline health top bar: six numbers distilled from `OperationsSummary`
-// (design spec §2.3). Two subtitles are deliberate departures from the
+// (design spec §2.3). Three subtitles are deliberate departures from the
 // mockup's literal copy, recorded in the design doc's §8 accounting:
 //
 //   - "空手而归" (格6) uses `recalls.empty` — the closest honest count to
@@ -10,6 +10,14 @@
 //     labeled "最老的未抽取事件" — that timestamp is the oldest event not
 //     yet extracted, not the oldest item held for review (格1); the mockup
 //     conflated the two.
+//   - "失败" (格2) is `extraction.failed` (extraction runs only) with
+//     `summary.errors` folded into the subtitle. `errors` is "failed /
+//     timed_out / cancelled, excluding rejected" across *every* operation
+//     kind (recall, observation, extraction) -- a different, broader count
+//     than the headline number. Dropping the old SummaryCards/
+//     PipelineHealthCard cards left it with no home anywhere on this page;
+//     this reuses the subtitle slot that used to be a bare "—" rather than
+//     adding a seventh cell (which would break the 6-column grid).
 //
 // This component only reads `summary`; it never touches the region hooks
 // in pages/operations/hooks.ts.
@@ -34,11 +42,15 @@ function queuedSub(extraction: OperationsSummary["extraction"], generatedAt: str
 }
 
 export function PipelineMetrics({ summary }: { summary: OperationsSummary }) {
-  const { extraction, latency, recalls, generated_at } = summary;
+  const { extraction, latency, recalls, errors, generated_at } = summary;
 
   const cells: MetricCell[] = [
     { label: "扣下待查", value: String(extraction.quarantined), sub: "—" },
-    { label: "失败", value: String(extraction.failed), sub: "—" },
+    {
+      label: "失败",
+      value: String(extraction.failed),
+      sub: `抽取失败；全部操作出错 ${errors} 次`,
+    },
     {
       label: "排队中",
       value: String(extraction.unextracted_events),

@@ -59,6 +59,12 @@ describe("Pipeline metrics: six cells read from the correct fields", () => {
     expect(pipelineMetric("典型延迟").value).toBe("50 ms");
     expect(pipelineMetric("最坏情况").value).toBe("90 ms");
     expect(pipelineMetric("空手而归").value).toBe("6");
+    // 排队中's subtitle is the relative time from oldest_unextracted_at as of
+    // generated_at (GEN_AT = "2026-07-22T12:00:01Z" from operationsFixtures),
+    // not from oldest_unextracted_at to wall-clock now. 11:50:00 to 12:00:01
+    // is 601s, which floors to 10 minutes -- swapping the time source for
+    // Date.now() would make this assertion fail (or flake).
+    expect(pipelineMetric("排队中").sub).toBe("最老的未抽取事件：10 分钟前");
   });
 });
 

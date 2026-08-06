@@ -25,7 +25,12 @@ export function formatBytes(bytes: number | undefined): string {
  * Relative time from `iso` as of `referenceIso` (not wall-clock `Date.now()`),
  * so it stays deterministic against a fixed report timestamp (e.g. a
  * summary's `generated_at`) instead of drifting with real time. Returns
- * "—" when either timestamp is missing or unparseable.
+ * "—" when either timestamp is missing or unparseable. `iso` after
+ * `referenceIso` (a future timestamp) clamps to "刚刚" rather than going
+ * negative. Uses `Math.floor`, not `Math.round`, on every bucket boundary:
+ * this page is about being honest about staleness, and rounding up would
+ * report an item as older than it actually is (90 minutes would round to
+ * "2 小时前" instead of the true "1 小时前").
  */
 export function formatRelativeFrom(iso: string | undefined, referenceIso: string): string {
   if (!iso) return "—";
@@ -33,11 +38,11 @@ export function formatRelativeFrom(iso: string | undefined, referenceIso: string
   const reference = new Date(referenceIso).getTime();
   if (Number.isNaN(from) || Number.isNaN(reference)) return "—";
   const diffMs = Math.max(0, reference - from);
-  const minutes = Math.round(diffMs / 60_000);
+  const minutes = Math.floor(diffMs / 60_000);
   if (minutes < 1) return "刚刚";
   if (minutes < 60) return `${minutes} 分钟前`;
-  const hours = Math.round(minutes / 60);
+  const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours} 小时前`;
-  const days = Math.round(hours / 24);
+  const days = Math.floor(hours / 24);
   return `${days} 天前`;
 }
