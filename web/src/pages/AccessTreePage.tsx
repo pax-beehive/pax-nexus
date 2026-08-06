@@ -1,10 +1,12 @@
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import type { HumanMe } from "../api/types";
 import { can } from "../lib/capabilities";
 import { Button } from "../components/Button";
 import { Crumbs } from "../components/Crumbs";
 import { MyAgentsPage } from "./MyAgentsPage";
 import { AccessSummary } from "./management/AccessSummary";
+import { devicesOf, looseAgentsOf } from "./management/accessTree";
+import { MachinesLevel } from "./management/MachinesLevel";
 import { PeopleLevel } from "./management/PeopleLevel";
 import { useAccessSnapshot } from "./management/useAccessSnapshot";
 
@@ -17,17 +19,18 @@ import { useAccessSnapshot } from "./management/useAccessSnapshot";
 export function AccessTreePage({ me }: { me: HumanMe }) {
   // member 分叉在 Task 9 换成 MyAgentsLevel；这里先维持现状。
   if (!can(me.role, "view.members")) return <MyAgentsPage />;
-  return <AdminAccessTree />;
+  return <AdminAccessTree me={me} />;
 }
 
 /**
  * admin+ 的访问树本体。下钻位置存在 URL 里（?person=&machine=）而不是组件
  * state，所以深链可分享、刷新保位、后退键逐层往上走而不是直接离开页面。
- * `me` 尚未在这一层用到（Task 7/8 的「自己那一行」CTA 会需要它）——需要时
- * 再从 AccessTreePage 往下传，不要为了对齐调用方签名而预先接一个用不上的参数。
+ * `me` 用来判断第 2 层「自己那一行」的 CTA（Connect a machine / + Create
+ * Agent）——设备注册端点永远为调用者本人注册，别人的头部不能画这两个按钮。
  */
-function AdminAccessTree() {
+function AdminAccessTree({ me }: { me: HumanMe }) {
   const [params, setParams] = useSearchParams();
+  const navigate = useNavigate();
   const snapshot = useAccessSnapshot();
 
   if (snapshot.status === "loading") return <p className="muted">Loading…</p>;
@@ -51,6 +54,44 @@ function AdminAccessTree() {
   const drill = (membershipId: string) => {
     setParams({ person: membershipId });
   };
+
+  // 第 2 层：某人的机器。devices/agents 缺腿时这一层没有意义，回落到根层。
+  if (person && devices && agents) {
+    return (
+      <>
+        <div className="page-head">
+          <div>
+            <p className="card-kicker">MANAGEMENT · ACCESS TREE</p>
+            <h1>Access flows downward</h1>
+          </div>
+        </div>
+
+        <AccessSummary snapshot={snapshot.snapshot} />
+
+        <div className="at-bar">
+          <Crumbs
+            items={[
+              { label: "Everyone", to: "/management" },
+              { label: person.display_name },
+            ]}
+          />
+          <span className="at-bar-hint">
+            {devicesOf(devices, person.membership_id).length} machines
+          </span>
+        </div>
+
+        <MachinesLevel
+          person={person}
+          devices={devicesOf(devices, person.membership_id)}
+          looseAgents={looseAgentsOf(agents, person.membership_id)}
+          isSelf={person.membership_id === me.membership_id}
+          onDrill={(credentialId) => setParams({ person: person.membership_id, machine: credentialId })}
+          onCreateAgent={() => navigate("/management/agents")}
+          onConnectMachine={() => navigate("/management/devices")}
+        />
+      </>
+    );
+  }
 
   return (
     <>

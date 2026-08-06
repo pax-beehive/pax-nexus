@@ -47,13 +47,15 @@ describe("Access tree · people level", () => {
     await renderApp({ route: "/management", me: makeMe(), fetch: (path) => treeFetch(path) });
 
     const alice = (await screen.findByText("Alice")).closest(".at-row") as HTMLElement;
-    expect(alice.textContent).toContain("alice@example.com");
-    // alice: 1 台机器、2 个 Agent
-    expect(alice.textContent).toContain("1");
-    expect(alice.textContent).toContain("2");
+    // 按列位置断言，而不是整行 textContent 子串匹配：子串匹配在机器数/
+    // Agent 数两列被调换时依然会通过。列顺序见 PeopleLevel：
+    // [0]=姓名+角色 [1]=email [2]=机器数 [3]=Agent 数 [4]=箭头。
+    expect(alice.children[1].textContent).toBe("alice@example.com");
+    expect(alice.children[2].textContent).toBe("1"); // alice: 1 台机器
+    expect(alice.children[3].textContent).toBe("2"); // alice: 2 个 Agent
 
     const bob = (await screen.findByText("Bob")).closest(".at-row") as HTMLElement;
-    expect(bob.textContent).toContain("bob@example.com");
+    expect(bob.children[1].textContent).toBe("bob@example.com");
   });
 
   it("renders the summary strip from the same snapshot", async () => {
@@ -85,6 +87,9 @@ describe("Access tree · people level", () => {
     await user.click(await screen.findByText("Alice"));
 
     expect(window.location.search).toContain("person=mbr_01");
+    // 不只断言 URL 写对了参数：level 2 真的渲染出来了（她的机器），
+    // 否则这个测试分不清「下钻生效」和「点击写了参数但什么也没画」。
+    await screen.findByText("alice-macbook");
   });
 
   it("shows a retryable error when the members leg fails", async () => {
@@ -135,5 +140,73 @@ describe("Access tree · member fork", () => {
 
     await screen.findByRole("heading", { name: "My Agents" });
     expect(callsTo(fetchMock, "/v1/admin/")).toHaveLength(0);
+  });
+});
+
+describe("Access tree · machines level", () => {
+  it("shows the person's machines with live agent counts", async () => {
+    await renderApp({
+      route: "/management?person=mbr_01",
+      me: makeMe({ membership_id: "mbr_01" }),
+      fetch: (path) => treeFetch(path),
+    });
+
+    const row = (await screen.findByText("alice-macbook")).closest(".at-row") as HTMLElement;
+    // 按列位置断言，不对整行 textContent 做子串匹配：[0]=名称+credential id
+    // [1]=状态标签 [2]=provisioned_agent_count [3]=last_used [4]=箭头。
+    // 子串匹配在机器数/Agent 数列被调换、或 "2" 恰好出现在别处（id、日期）
+    // 时依然会通过。
+    expect(row.children[0].textContent).toContain("dev_a");
+    // provisioned_agent_count = 2，与级联吊销同口径
+    expect(row.children[2].textContent).toBe("2");
+  });
+
+  it("groups hand-registered agents under their own heading", async () => {
+    await renderApp({
+      route: "/management?person=mbr_02",
+      me: makeMe({ membership_id: "mbr_01" }),
+      fetch: (path) => treeFetch(path),
+    });
+
+    await screen.findByText(/registered by hand/i);
+    screen.getByText("bob-by-hand");
+  });
+
+  it("offers Connect a machine and Create Agent only on your own header", async () => {
+    await renderApp({
+      route: "/management?person=mbr_01",
+      me: makeMe({ membership_id: "mbr_01" }),
+      fetch: (path) => treeFetch(path),
+    });
+
+    await screen.findByRole("button", { name: /connect a machine/i });
+    screen.getByRole("button", { name: /create agent/i });
+  });
+
+  it("hides both on someone else's header because the endpoint is /v1/me", async () => {
+    await renderApp({
+      route: "/management?person=mbr_02",
+      me: makeMe({ membership_id: "mbr_01" }),
+      fetch: (path) => treeFetch(path),
+    });
+
+    // "Bob" 本身在面包屑与头部都会出现（同名同文本），用 email 定位头部
+    // 已经渲染，避免 findByText 因命中多个元素而报错。
+    await screen.findByText(/bob@example\.com/);
+    expect(screen.queryByRole("button", { name: /connect a machine/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /create agent/i })).toBeNull();
+    screen.getByRole("link", { name: /change access/i });
+  });
+
+  it("walks back up through the breadcrumb", async () => {
+    const { user } = await renderApp({
+      route: "/management?person=mbr_01",
+      me: makeMe({ membership_id: "mbr_01" }),
+      fetch: (path) => treeFetch(path),
+    });
+
+    await user.click(await screen.findByRole("link", { name: "Everyone" }));
+
+    expect(window.location.search).not.toContain("person=");
   });
 });
