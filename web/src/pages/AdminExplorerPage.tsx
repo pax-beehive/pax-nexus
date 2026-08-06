@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { listTeamNotes } from "../api/queries";
 import { Badge } from "../components/Badge";
 import { Button } from "../components/Button";
@@ -12,11 +12,12 @@ const STATES = ["all", "active", "resolved", "expired"] as const;
 
 export function AdminExplorerPage() {
   const handleError = useErrorHandler();
+  const [searchParams] = useSearchParams();
   const [queryInput, setQueryInput] = useState("");
   const [query, setQuery] = useState("");
   const [kind, setKind] = useState("");
   const [state, setState] = useState("all");
-  const [agentId, setAgentId] = useState("");
+  const [agentId, setAgentId] = useState(searchParams.get("agent") ?? "");
 
   const notes = usePagedList(
     (cursor) =>

@@ -142,10 +142,11 @@ function ListCard<T>({
 
 function FindingsView() {
   const handleError = useErrorHandler();
+  const [searchParams] = useSearchParams();
   const [userInput, setUserInput] = useState("");
-  const [agentInput, setAgentInput] = useState("");
+  const [agentInput, setAgentInput] = useState(searchParams.get("agent") ?? "");
   const [userId, setUserId] = useState("");
-  const [agentId, setAgentId] = useState("");
+  const [agentId, setAgentId] = useState(searchParams.get("agent") ?? "");
   const [kind, setKind] = useState("");
   const [severity, setSeverity] = useState("");
   const [expandedId, setExpandedId] = useState<number | null>(null);
@@ -277,11 +278,12 @@ function FindingsView() {
 
 function ToolCallsView() {
   const handleError = useErrorHandler();
+  const [searchParams] = useSearchParams();
   const [userInput, setUserInput] = useState("");
-  const [agentInput, setAgentInput] = useState("");
+  const [agentInput, setAgentInput] = useState(searchParams.get("agent") ?? "");
   const [sessionInput, setSessionInput] = useState("");
   const [userId, setUserId] = useState("");
-  const [agentId, setAgentId] = useState("");
+  const [agentId, setAgentId] = useState(searchParams.get("agent") ?? "");
   const [sessionId, setSessionId] = useState("");
   const [riskLevel, setRiskLevel] = useState("");
   const [approvalState, setApprovalState] = useState("");
@@ -446,12 +448,13 @@ function ToolBreakdown({ breakdown }: { breakdown: Record<string, number> }) {
 
 function ActivityView() {
   const handleError = useErrorHandler();
+  const [searchParams] = useSearchParams();
   const [userInput, setUserInput] = useState("");
-  const [agentInput, setAgentInput] = useState("");
+  const [agentInput, setAgentInput] = useState(searchParams.get("agent") ?? "");
   const [fromInput, setFromInput] = useState("");
   const [toInput, setToInput] = useState("");
   const [userId, setUserId] = useState("");
-  const [agentId, setAgentId] = useState("");
+  const [agentId, setAgentId] = useState(searchParams.get("agent") ?? "");
   const [fromDay, setFromDay] = useState("");
   const [toDay, setToDay] = useState("");
 
