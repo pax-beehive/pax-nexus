@@ -1,0 +1,27 @@
+/* Overview 吞吐图:三行 small multiples,行内各自归一化。 */
+.ov-chart { display: grid; gap: 10px; }
+.ov-chart-note { font-size: 11px; opacity: 0.5; }
+.ov-chart-rowhead { display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 3px; }
+.ov-chart-series { display: flex; align-items: center; gap: 6px; }
+.ov-chart-swatch { width: 9px; height: 9px; display: inline-block; }
+.ov-chart-peak { opacity: 0.55; }
+.ov-chart-track { display: flex; align-items: flex-end; gap: 10px; height: 46px; border-bottom: 1px solid var(--color-divider); }
+.ov-chart-cell { flex: 1; height: 100%; display: flex; align-items: flex-end; justify-content: center; }
+.ov-chart-bar { width: 100%; min-height: 1px; }
+.ov-chart-ticks { display: flex; gap: 10px; }
+.ov-chart-tick { flex: 1; text-align: center; font-size: 10px; opacity: 0.55; }
+
+/* Overview 区块网格(Task 6/7 使用)。 */
+.ov-metrics { display: grid; grid-template-columns: repeat(5, 1fr); border-top: 2px solid var(--color-divider); border-bottom: 2px solid var(--color-divider); }
+.ov-mid { display: grid; grid-template-columns: 1.5fr 1fr 1fr; border-bottom: 2px solid var(--color-divider); }
+.ov-bottom { display: grid; grid-template-columns: 1.55fr 1fr; }
+.ov-block { padding: 18px 24px 20px; border-right: 1px solid var(--color-divider); }
+.ov-block:last-child { border-right: 0; }
+.ov-donut { width: 96px; height: 96px; border-radius: 50%; flex: none; }
+.ov-writer-track { background: var(--color-neutral-200); height: 6px; }
+.ov-writer-bar { height: 100%; background: var(--color-accent); }
+@media (max-width: 900px) {
+  .ov-metrics { grid-template-columns: repeat(2, 1fr); }
+  .ov-mid, .ov-bottom { grid-template-columns: 1fr; }
+  .ov-block { border-right: 0; border-bottom: 1px solid var(--color-divider); }
+}
