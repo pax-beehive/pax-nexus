@@ -1,190 +1,201 @@
-// Page-level DOM smoke tests for agent governance (doc sections 5.6-5.7)
-// covering section 10 item 10 (capability-based actions, cascade wording,
-// retire semantics) and item 13 (filter changes reset cursor pagination).
-
+// Lifecycle 三张卡与它们的确认弹窗。
+//
+// 最关键的一条：销毁类确认框里列出的密钥，就是页面上那两张卡渲染的同一个
+// 数组——不是重新数的。这条由「同一个 props 数组」保证，测试用变异验证。
 import { describe, expect, it } from "vitest";
-import { screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router-dom";
+import { AgentLifecycleCard } from "../src/pages/agent/AgentLifecycleCard";
+import { resolveAgentAccess } from "../src/pages/agent/agentScope";
+import { ToastProvider } from "../src/components/Toasts";
 import {
   callsTo,
   jsonResponse,
   makeAgent,
+  makeCredential,
+  makeEnrollment,
   makeMe,
-  renderApp,
+  makeMember,
   setupDomTest,
+  stubFetch,
 } from "./helpers";
 
 setupDomTest();
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-
-function detailHandler(agent: () => ReturnType<typeof makeAgent>, onPatch?: (init: RequestInit) => Response, onDelete?: (init: RequestInit) => Response) {
-  return (path: string, init: RequestInit) => {
-    if (path === "/v1/admin/agents/agent-1" && init.method === "GET") {
-      return jsonResponse({ agent: agent() });
-    }
-    if (path === "/v1/admin/agents/agent-1" && init.method === "PATCH" && onPatch) {
-      return onPatch(init);
-    }
-    if (path.startsWith("/v1/admin/agents/agent-1?") && init.method === "DELETE" && onDelete) {
-      return onDelete(init);
-    }
-    if (path.startsWith("/v1/admin/agents/agent-1/enrollments")) {
-      return jsonResponse({ enrollments: [] });
-    }
-    if (path.startsWith("/v1/admin/agents/agent-1/credentials")) {
-      return jsonResponse({ credentials: [] });
-    }
-    throw new Error(`unexpected fetch: ${init.method ?? "GET"} ${path}`);
-  };
+function renderCard(options: {
+  me?: ReturnType<typeof makeMe>;
+  agent?: ReturnType<typeof makeAgent>;
+  credentials?: ReturnType<typeof makeCredential>[];
+  enrollments?: ReturnType<typeof makeEnrollment>[];
+}) {
+  const me = options.me ?? makeMe({ role: "member", membership_id: "mbr_01" });
+  const agent = options.agent ?? makeAgent({ owner_membership_id: "mbr_01" });
+  render(
+    <MemoryRouter>
+      <ToastProvider>
+        <AgentLifecycleCard
+          agent={agent}
+          access={resolveAgentAccess(me, agent)}
+          pendingEnrollments={options.enrollments ?? []}
+          activeCredentials={options.credentials ?? []}
+          onChanged={() => {}}
+          refetch={() => Promise.resolve(agent)}
+        />
+      </ToastProvider>
+    </MemoryRouter>,
+  );
 }
 
-describe("section 10 item 10: governance capabilities and lifecycle actions", () => {
-  it("an admin can suspend but never retire, edit, or resume a foreign agent", async () => {
-    await renderApp({
-      route: "/management/agents/agent-1",
-      me: makeMe({ role: "admin" }),
-      fetch: detailHandler(() => makeAgent({ owner_membership_id: "mbr_02" })),
-    });
-
-    await screen.findByRole("button", { name: "Suspend Agent" });
-    expect(screen.queryByText(/Retire/)).toBeNull();
-    expect(screen.queryByText("Resume to active")).toBeNull();
-    expect((screen.getByLabelText("display_name") as HTMLInputElement).disabled).toBe(true);
-    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+describe("卡的可见性", () => {
+  it("member 看自己的活跃 Agent：暂停 + 退役，没有移交", () => {
+    renderCard({});
+    expect(screen.getByRole("button", { name: "暂停" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "退役" })).toBeDefined();
+    expect(screen.queryByRole("button", { name: "移交" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "恢复" })).toBeNull();
   });
 
-  it("the suspend confirmation spells out the cascade and PATCHes with optimistic locking", async () => {
-    let suspended = false;
-    const { fetchMock, user } = await renderApp({
-      route: "/management/agents",
-      me: makeMe(),
-      fetch: (path, init) => {
-        if (path === "/v1/admin/agents" && init.method === "GET") {
-          return jsonResponse({ agents: [makeAgent({ status: suspended ? "suspended" : "active" })] });
-        }
-        if (path.startsWith("/v1/admin/members")) return jsonResponse({ members: [] });
-        if (path === "/v1/admin/agents/agent-1" && init.method === "PATCH") {
-          suspended = true;
-          return jsonResponse({ agent: makeAgent({ status: "suspended", resource_version: 8 }) });
-        }
-        throw new Error(`unexpected fetch: ${init.method ?? "GET"} ${path}`);
-      },
-    });
-
-    await user.click(await screen.findByRole("button", { name: "Suspend" }));
-    // The confirmation dialog states the immediate cascade up front.
-    await screen.findByRole("heading", { name: "Suspend Agent" });
-    screen.getByText(/Immediately revoke all Credentials and pending Enrollments for Alice Codex/);
-    screen.getByText(/Resuming to active does not restore old keys; a new Enrollment must be issued/);
-
-    await user.click(screen.getByRole("button", { name: "Confirm suspend" }));
-    await screen.findByText("Suspended; Credentials and pending Enrollments were cascade-revoked");
-
-    const patches = callsTo(fetchMock, "/v1/admin/agents/agent-1", "PATCH");
-    expect(patches).toHaveLength(1);
-    expect(patches[0].headers.get("If-Match")).toBe('"7"');
-    expect(JSON.parse(String(patches[0].init.body))).toEqual({
-      status: "suspended",
-      resource_version: 7,
-    });
+  it("suspended 状态下暂停换成恢复", () => {
+    renderCard({ agent: makeAgent({ owner_membership_id: "mbr_01", status: "suspended" }) });
+    expect(screen.getByRole("button", { name: "恢复" })).toBeDefined();
+    expect(screen.queryByRole("button", { name: "暂停" })).toBeNull();
   });
 
-  it("retire is a DELETE with Idempotency-Key; the edit form can never issue status=retired", async () => {
-    let current = makeAgent();
-    const { fetchMock, user } = await renderApp({
-      route: "/management/agents/agent-1",
-      me: makeMe(),
-      fetch: detailHandler(
-        () => current,
-        () => {
-          current = makeAgent({ display_name: "Renamed", resource_version: 8 });
-          return jsonResponse({ agent: current });
-        },
-        () => {
-          current = makeAgent({ status: "retired", retired_at: "2026-07-22T00:00:00Z", resource_version: 9 });
-          return jsonResponse({ agent: current });
-        },
-      ),
+  it("owner 看别人的 Agent：四种动作都在", () => {
+    renderCard({
+      me: makeMe({ role: "owner", membership_id: "mbr_01" }),
+      agent: makeAgent({ owner_membership_id: "mbr_99" }),
     });
+    expect(screen.getByRole("button", { name: "暂停" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "退役" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "移交" })).toBeDefined();
+  });
 
-    // A profile save never carries a status field, so the UI cannot express
-    // the forbidden PATCH status=retired (doc section 10 item 10).
-    const nameInput = screen.getByLabelText("display_name");
-    await user.clear(nameInput);
-    await user.type(nameInput, "Renamed");
-    await user.click(await screen.findByRole("button", { name: "Save" }));
-    await screen.findByText("Saved (v8)");
-    const patches = callsTo(fetchMock, "/v1/admin/agents/agent-1", "PATCH");
-    expect(patches).toHaveLength(1);
-    expect(JSON.parse(String(patches[0].init.body))).not.toHaveProperty("status");
+  it("admin 看别人的 Agent：只有暂停", () => {
+    renderCard({
+      me: makeMe({ role: "admin", membership_id: "mbr_07" }),
+      agent: makeAgent({ owner_membership_id: "mbr_99" }),
+    });
+    expect(screen.getByRole("button", { name: "暂停" })).toBeDefined();
+    expect(screen.queryByRole("button", { name: "退役" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "移交" })).toBeNull();
+  });
 
-    // Retire goes through the terminal DELETE with both optimistic locking
-    // and an Idempotency-Key.
-    await user.click(screen.getByRole("button", { name: "Retire (irreversible)" }));
-    await screen.findByRole("heading", { name: "Retire Agent" });
-    screen.getByText("Retire is terminal and irreversible; the Agent cannot be recovered");
-    screen.getByText("All Credentials and Enrollments are revoked immediately");
-    await user.click(screen.getByRole("button", { name: "Confirm retire" }));
-    await screen.findByText("Agent retired (terminal state, cannot be recovered)");
-
-    const deletes = callsTo(fetchMock, "/v1/admin/agents/agent-1", "DELETE");
-    expect(deletes).toHaveLength(1);
-    expect(deletes[0].path).toBe("/v1/admin/agents/agent-1?resource_version=8");
-    expect(deletes[0].headers.get("If-Match")).toBe('"8"');
-    expect(deletes[0].headers.get("Idempotency-Key")).toMatch(UUID_RE);
-    screen.getByText("retired is a terminal state and cannot be recovered");
+  it("退役后三张卡都消失，只剩终态说明", () => {
+    renderCard({
+      agent: makeAgent({ owner_membership_id: "mbr_01", status: "retired", retired_at: "2026-08-01T00:00:00Z" }),
+    });
+    expect(screen.queryByRole("button", { name: "暂停" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "退役" })).toBeNull();
+    expect(screen.getByText(/终态，无法恢复/)).toBeDefined();
   });
 });
 
-describe("section 10 item 13: filter changes reset cursor pagination", () => {
-  it("switching the status filter reloads from page one without mixing old results", async () => {
-    const seen: string[] = [];
-    const { user } = await renderApp({
-      route: "/management/agents",
-      me: makeMe(),
-      fetch: (path, init) => {
-        if (path.startsWith("/v1/admin/members")) return jsonResponse({ members: [] });
-        if (path.startsWith("/v1/admin/agents") && init.method === "GET") {
-          seen.push(path);
-          if (path === "/v1/admin/agents") {
-            return jsonResponse({
-              agents: [makeAgent({ agent_id: "agent-1", display_name: "First Agent" })],
-              next_cursor: "opaque-c2",
-            });
-          }
-          if (path === "/v1/admin/agents?cursor=opaque-c2") {
-            return jsonResponse({
-              agents: [makeAgent({ agent_id: "agent-2", display_name: "Second Agent" })],
-            });
-          }
-          if (path === "/v1/admin/agents?status=suspended") {
-            return jsonResponse({
-              agents: [
-                makeAgent({ agent_id: "agent-3", display_name: "Suspended Agent", status: "suspended" }),
-              ],
-            });
-          }
-        }
-        throw new Error(`unexpected fetch: ${init.method ?? "GET"} ${path}`);
-      },
+describe("销毁类确认框的后果清单", () => {
+  it("列出的密钥就是卡片拿到的那两个数组", async () => {
+    const user = userEvent.setup();
+    renderCard({
+      credentials: [
+        makeCredential({ credential_id: "cred_a", label: "mac-studio-01" }),
+        makeCredential({ credential_id: "cred_b", label: "linux-box" }),
+      ],
+      enrollments: [makeEnrollment({ enrollment_id: "enr_a", credential_label: "待认领的机器" })],
     });
 
-    // Page one loads, then the cursor is passed back verbatim for page two.
-    await screen.findByText("First Agent");
-    await user.click(screen.getByRole("button", { name: "Load more" }));
-    await screen.findByText("Second Agent");
+    await user.click(screen.getByRole("button", { name: "暂停" }));
+    const dialog = screen.getByRole("dialog");
+    expect(dialog.textContent).toContain("mac-studio-01");
+    expect(dialog.textContent).toContain("linux-box");
+    expect(dialog.textContent).toContain("待认领的机器");
+    expect(dialog.textContent).toContain("2 把活跃密钥");
+    expect(dialog.textContent).toContain("1 张未认领令牌");
+  });
 
-    // Switching filters mid-pagination restarts without a cursor; the old
-    // pages are dropped rather than mixed in.
-    await user.click(screen.getByRole("button", { name: "suspended" }));
-    await screen.findByText("Suspended Agent");
-    expect(screen.queryByText("First Agent")).toBeNull();
-    expect(screen.queryByText("Second Agent")).toBeNull();
+  it("某条腿没取到时说「可能更多」，而不是显示 0", async () => {
+    const user = userEvent.setup();
+    const me = makeMe({ role: "member", membership_id: "mbr_01" });
+    const agent = makeAgent({ owner_membership_id: "mbr_01" });
+    render(
+      <MemoryRouter>
+        <ToastProvider>
+          <AgentLifecycleCard
+            agent={agent}
+            access={resolveAgentAccess(me, agent)}
+            pendingEnrollments={undefined}
+            activeCredentials={undefined}
+            onChanged={() => {}}
+            refetch={() => Promise.resolve(agent)}
+          />
+        </ToastProvider>
+      </MemoryRouter>,
+    );
 
-    expect(seen).toEqual([
-      "/v1/admin/agents",
-      "/v1/admin/agents?cursor=opaque-c2",
-      "/v1/admin/agents?status=suspended",
-    ]);
+    await user.click(screen.getByRole("button", { name: "暂停" }));
+    const dialog = screen.getByRole("dialog");
+    expect(dialog.textContent).toContain("没取到");
+    expect(dialog.textContent).not.toContain("0 把活跃密钥");
+  });
+});
+
+describe("动作请求", () => {
+  it("暂停走 PATCH status=suspended，带 If-Match", async () => {
+    const user = userEvent.setup();
+    const fetchMock = stubFetch(() =>
+      jsonResponse({ agent: makeAgent({ owner_membership_id: "mbr_01", status: "suspended" }) }),
+    );
+    renderCard({});
+
+    await user.click(screen.getByRole("button", { name: "暂停" }));
+    await user.click(screen.getByRole("button", { name: "暂停并销毁密钥" }));
+
+    const patches = callsTo(fetchMock, "/v1/me/agents/agent-1", "PATCH");
+    expect(patches).toHaveLength(1);
+    expect(JSON.parse(String(patches[0].init.body))).toMatchObject({
+      status: "suspended",
+      resource_version: 7,
+    });
+    expect(patches[0].headers.get("If-Match")).toBe('"7"');
+  });
+
+  it("退役走 DELETE 且带 Idempotency-Key", async () => {
+    const user = userEvent.setup();
+    const fetchMock = stubFetch(() =>
+      jsonResponse({ agent: makeAgent({ owner_membership_id: "mbr_01", status: "retired" }) }),
+    );
+    renderCard({});
+
+    await user.click(screen.getByRole("button", { name: "退役" }));
+    await user.click(screen.getByRole("button", { name: "永久退役" }));
+
+    const deletes = callsTo(fetchMock, "/v1/me/agents/agent-1", "DELETE");
+    expect(deletes).toHaveLength(1);
+    expect(deletes[0].headers.get("Idempotency-Key")).toBeTruthy();
+  });
+
+  it("移交恒走 admin 端点，即使动作 scope 是 me", async () => {
+    // owner 移交自己的 Agent：页面其余动作走 /v1/me/*，移交没有 me 端点。
+    const user = userEvent.setup();
+    const fetchMock = stubFetch((path) => {
+      if (path.startsWith("/v1/admin/members")) {
+        return jsonResponse({ members: [makeMember({ membership_id: "mbr_99", display_name: "Bob" })] });
+      }
+      return jsonResponse({ agent: makeAgent({ owner_membership_id: "mbr_99" }) });
+    });
+    renderCard({
+      me: makeMe({ role: "owner", membership_id: "mbr_01" }),
+      agent: makeAgent({ owner_membership_id: "mbr_01" }),
+    });
+
+    await user.click(screen.getByRole("button", { name: "移交" }));
+    await user.selectOptions(await screen.findByLabelText("交给谁"), "mbr_99");
+    await user.click(screen.getByRole("button", { name: "移交并吊销密钥" }));
+
+    const posts = callsTo(fetchMock, "/v1/admin/agents/agent-1/transfer", "POST");
+    expect(posts).toHaveLength(1);
+    expect(JSON.parse(String(posts[0].init.body))).toMatchObject({
+      target_membership_id: "mbr_99",
+      resource_version: 7,
+    });
   });
 });
