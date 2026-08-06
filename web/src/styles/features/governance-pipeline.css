@@ -1,20 +1,50 @@
-/* Governance · Pipeline health. 内容留给 Task 5。 */
+/* Governance · Pipeline health. */
 
+/* I2 (final-fix wave): the six cells used to be a hand-rolled parallel of
+   the shared `MetricTile` primitive (label + big number + note, see
+   components.css and MetricTile.tsx) -- `.gv-metric-label` was 10px/uppercase/
+   `opacity: 0.55` on the body text color, which measured 3.65:1 in beige
+   (below AA). `MetricTile` composes `.card-kicker` (solid `--color-accent`)
+   for the label and `.small.muted` (color-mix 55%) for the note.
+   PipelineMetrics.tsx now renders `<MetricTile>` directly; the grid/border
+   wrapper stays here.
+
+   That reuse is NOT a drop-in win, though -- every other MetricTile call
+   site (AgentBehaviourCard, AccessSummary) nests it inside a `.card`.
+   `.gv-metrics` sits directly on the page background instead (unchanged
+   from before this refactor, and brighter than `.card` in arcade: page bg
+   #dd2b0f vs card surface #c8240c), and re-measuring with a corrected
+   verification script (fixed a prior alpha-compositing bug in the
+   verification page itself -- see M7 in the final-fix report) turned up two
+   real regressions in that new context, both re-fixed below:
+
+   1. `.card-kicker`'s raw `--color-accent` is remapped to dark ink under
+      arcade (themes.css) -- legible against a `.card` surface, but on
+      arcade's brighter page background it measured 3.50:1, undoing Task 5's
+      dedicated arcade fix for the old custom label (4.74:1). Tried
+      `--color-label-accent` first (the same remedy `.gv-prov-stage` uses)
+      but it's tuned for the *card* surface and only reaches 4.16:1 against
+      the brighter page bg -- still short of AA. Dropping to plain
+      `--color-text` (matching `.gv-metric-number`/`.gv-note-item strong`,
+      which measure 4.74:1 in exactly this page-bg-in-arcade context) is
+      what actually clears the bar; the label loses its accent tint in
+      arcade only, same "let something else carry the hierarchy" tradeoff
+      this file already makes elsewhere.
+   2. `.small.muted`'s color-mix(55%) fade is weaker than the sub text's old
+      `opacity: 0.6`, and measured worse on every theme than the number it
+      replaced: beige 4.24 (AA大) -> 3.65, arcade 4.74 (Task 5's fix) -> 2.29
+      (catastrophic). Strengthening the mix to 65% (scoped to this feature,
+      not touching the shared `.muted` utility) gets beige/dark to >=4.5,
+      but arcade's page bg is still too bright for any partial fade to work
+      (65% measured 2.71:1) -- same "drop the fade in arcade" fix as the
+      label. */
 .gv-metrics { display: grid; grid-template-columns: repeat(6, 1fr); border-top: 2px solid var(--color-divider); border-bottom: 2px solid var(--color-divider); }
-.gv-metric { padding: var(--space-3) var(--space-4); border-right: 1px solid var(--color-divider); }
-.gv-metric:last-child { border-right: 0; }
-.gv-metric-label { font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; opacity: 0.55; }
-.gv-metric-value { font-family: var(--font-heading); font-weight: var(--font-heading-weight); font-size: 28px; font-variant-numeric: tabular-nums; }
-.gv-metric-sub { font-size: 11px; opacity: 0.6; margin-top: var(--space-1); }
 @media (max-width: 900px) { .gv-metrics { grid-template-columns: repeat(3, 1fr); } }
 
-/* arcade 的次要文字用 opacity 淡化白字，压在饱和红底（--color-bg: #dd2b0f）
-   上普遍不过 WCAG AA（同根因见 access-tree.css 的 .at-bar-hint 等，11px /
-   opacity .5 实测 2.10:1）。.gv-metric-label 比 .at-bar-hint 还小，同样取消
-   淡化，层级差异靠字号表达。 */
-[data-theme="arcade"] .gv-metric-label,
-[data-theme="arcade"] .gv-metric-sub {
-  opacity: 1;
+.gv-metrics .small.muted { color: color-mix(in srgb, var(--color-text) 65%, transparent); }
+[data-theme="arcade"] .gv-metrics .card-kicker,
+[data-theme="arcade"] .gv-metrics .small.muted {
+  color: var(--color-text);
 }
 
 .gv-pipeline-columns { display: grid; grid-template-columns: 1fr 1.2fr; gap: var(--space-6); align-items: start; }

@@ -21,8 +21,20 @@
 //
 // This component only reads `summary`; it never touches the region hooks
 // in pages/operations/hooks.ts.
+//
+// I2 (final-fix wave): this used to hand-roll `.gv-metric-label` /
+// `.gv-metric-value` / `.gv-metric-sub` in parallel with the shared
+// `MetricTile` primitive (label + big number + note) that AgentBehaviourCard
+// and AccessSummary already use. The hand-rolled label reintroduced the exact
+// contrast anti-pattern task 8 had just fixed elsewhere: `.card-kicker`
+// (components.css) is 10px/uppercase/`color: var(--color-accent)` and does
+// NOT fade; `.gv-metric-label` was 10px/uppercase/`opacity: 0.55` on top of
+// the *body* text color, which measured 3.65:1 in beige -- below AA. Reusing
+// MetricTile fixes that for free instead of adding another one-off arcade
+// override.
 
 import type { OperationsSummary } from "../../api/types";
+import { MetricTile } from "../../components/MetricTile";
 import { formatRelativeFrom } from "../../lib/format";
 
 interface MetricCell {
@@ -64,11 +76,7 @@ export function PipelineMetrics({ summary }: { summary: OperationsSummary }) {
   return (
     <div className="gv-metrics">
       {cells.map((cell) => (
-        <div className="gv-metric" key={cell.label}>
-          <div className="gv-metric-label">{cell.label}</div>
-          <div className="gv-metric-value">{cell.value}</div>
-          <div className="gv-metric-sub">{cell.sub}</div>
-        </div>
+        <MetricTile key={cell.label} label={cell.label} value={cell.value} note={cell.sub} />
       ))}
     </div>
   );
