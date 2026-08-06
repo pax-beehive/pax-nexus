@@ -16,6 +16,10 @@ import {
   type WikiPage,
 } from "../api/wiki";
 import { Button } from "../components/Button";
+import { EmptyState } from "../components/EmptyState";
+import { Kicker } from "../components/Kicker";
+import { RegionError } from "../components/RegionError";
+import { Tag } from "../components/Tag";
 import { RelationList } from "../components/wiki/RelationList";
 import { collectPages, TopicTreePanel } from "../components/wiki/TopicTree";
 import { WikiMarkdown } from "../components/wiki/WikiMarkdown";
@@ -50,13 +54,28 @@ export function WikiBrowsePage() {
   const [rootPages, setRootPages] = useState<WikiNavigationPage[]>([]);
   const [topicPath, setTopicPath] = useState<string[]>([]);
   const [navigationLoading, setNavigationLoading] = useState(true);
+  // Distinct from the "no pages yet" empty state: this is the request
+  // itself failing, and it must not be silently read as an empty wiki
+  // (design brief for this screen — the retired review round that deleted
+  // every failure branch across the redesign passed 626 green tests
+  // precisely because no task named its failure states; this screen's are
+  // named and tested below).
+  const [navigationError, setNavigationError] = useState<unknown>(undefined);
   const [selectedSlug, setSelectedSlug] = useState(() => routeSlug);
   const [page, setPage] = useState<WikiPage>();
   const [revision, setRevision] = useState<WikiRevision>();
   const [revisions, setRevisions] = useState<WikiRevision[]>([]);
   const [links, setLinks] = useState<WikiLinks>(EMPTY_LINKS);
   const [pageLoading, setPageLoading] = useState(false);
-  const [pageError, setPageError] = useState(false);
+  // The page-content fetch's error, or undefined. Kept as the error value
+  // itself (not a boolean) so the retryable region can show a precise
+  // message via RegionError/noticeForError instead of one generic line.
+  const [pageError, setPageError] = useState<unknown>(undefined);
+  // Bumped by the article's Retry button; included in the page-fetch
+  // effect's deps below so retrying re-issues the same three requests
+  // without touching selectedSlug (same pattern as AdminExplorerPage's
+  // NoteDetail retryKey).
+  const [pageRetryKey, setPageRetryKey] = useState(0);
   const [searchInput, setSearchInput] = useState("");
   const [searchResults, setSearchResults] = useState<WikiSearchResult[]>([]);
   const [searching, setSearching] = useState(false);
@@ -115,6 +134,7 @@ export function WikiBrowsePage() {
   useEffect(() => {
     const controller = new AbortController();
     setNavigationLoading(true);
+    setNavigationError(undefined);
     getWikiNavigation(controller.signal)
       .then((navigation) => {
         const roots = navigation.roots ?? [];
@@ -131,13 +151,19 @@ export function WikiBrowsePage() {
         }
       })
       .catch((error: unknown) => {
-        if (!isAbortError(error)) handleError(error);
+        if (isAbortError(error)) return;
+        setNavigationError(error);
+        handleError(error);
       })
       .finally(() => {
         if (!controller.signal.aborted) setNavigationLoading(false);
       });
     return () => controller.abort();
   }, [handleError, navigationRevision, updateLocation]);
+
+  const retryNavigation = useCallback(() => {
+    setNavigationRevision((current) => current + 1);
+  }, []);
 
   useEffect(() => {
     if (!selectedSlug) {
@@ -148,7 +174,7 @@ export function WikiBrowsePage() {
     const controller = new AbortController();
     const requestedRevision = new URLSearchParams(window.location.search).get("revision");
     setPageLoading(true);
-    setPageError(false);
+    setPageError(undefined);
     Promise.all([
       getWikiPage(selectedSlug, controller.signal),
       getWikiRevisions(selectedSlug, controller.signal),
@@ -174,14 +200,18 @@ export function WikiBrowsePage() {
       })
       .catch((error: unknown) => {
         if (isAbortError(error)) return;
-        setPageError(true);
+        setPageError(error);
         handleError(error);
       })
       .finally(() => {
         if (!controller.signal.aborted) setPageLoading(false);
       });
     return () => controller.abort();
-  }, [handleError, selectedSlug]);
+  }, [handleError, selectedSlug, pageRetryKey]);
+
+  const retryPage = useCallback(() => {
+    setPageRetryKey((current) => current + 1);
+  }, []);
 
   const selectRevision = async (revisionID: string) => {
     if (!page || revisionID === revision?.id) return;
@@ -219,14 +249,17 @@ export function WikiBrowsePage() {
   const inlineRelations = historical ? [] : links.outgoing;
 
   return (
-    <div className="wiki wiki-browse">
-      <header className="wiki-header">
+    <>
+      <div className="wiki-head">
         <div>
           {/* 没有「← All apps」返回链接：启动页已经不存在，/apps 会重定向回
               /apps/wiki，点一下等于自我跳转并把阅读器重挂载、静默回到第一页。
               分区间的导航现在由顶栏 + 二级导航提供。 */}
-          <h1>Wiki</h1>
-          <p className="muted">Durable pages, revision history, and evidence in one place.</p>
+          <Kicker>Apps · wiki</Kicker>
+          <h1>团队百科</h1>
+          <p className="muted flush">
+            {pages.length} 页 · 由会话写成，不是手写 · 新页面自己出现
+          </p>
         </div>
         <form
           className="wiki-search"
@@ -251,13 +284,13 @@ export function WikiBrowsePage() {
             {searching ? "Searching…" : "Search"}
           </Button>
         </form>
-      </header>
+      </div>
 
       {searchOpen && (
         <section className="card wiki-search-results" role="region" aria-label="Search results">
           <div className="row between">
             <div>
-              <span className="wiki-eyebrow">Current revisions</span>
+              <span className="kicker">Current revisions</span>
               <h2>Search results</h2>
             </div>
             <Button variant="ghost" size="sm" type="button" onClick={() => setSearchOpen(false)}>
@@ -267,7 +300,7 @@ export function WikiBrowsePage() {
           {!searching && searchResults.length === 0 ? (
             <p className="muted small">No current revision matches.</p>
           ) : (
-            <ol>
+            <ol className="wiki-search-list">
               {searchResults.map((result) => (
                 <li key={`${result.page.id}-${result.section_key}`}>
                   <button type="button" onClick={() => selectPage(result.page.slug)}>
@@ -284,47 +317,53 @@ export function WikiBrowsePage() {
         </section>
       )}
 
-      {!navigationLoading && pages.length === 0 ? (
-        <section className="wiki-empty">
-          <span className="wiki-empty-mark" aria-hidden="true">W</span>
-          <h2>Your wiki is ready for its first page</h2>
-          <p className="muted">Pages will appear here after a Page Wiki source is processed.</p>
-        </section>
+      {navigationError !== undefined ? (
+        <div className="wiki-region-error">
+          <RegionError error={navigationError} onRetry={retryNavigation} />
+        </div>
+      ) : !navigationLoading && pages.length === 0 ? (
+        <EmptyState
+          mark="W"
+          title="Your wiki is ready for its first page"
+          body="Pages will appear here after a Page Wiki source is processed."
+        />
       ) : (
         <div className="wiki-layout">
-          <nav className="wiki-topic-rail" aria-label="Wiki topics">
-            <div className="wiki-rail-heading">
+          <details className="wiki-rail" open>
+            <summary className="wiki-rail-summary">
               <span>Topics</span>
               <span className="faint small">{pages.length} pages</span>
-            </div>
-            <TopicTreePanel
-              topics={topics}
-              rootPages={rootPages}
-              topicPath={topicPath}
-              onNavigate={setTopicPath}
-              selectedSlug={selectedSlug}
-              onSelect={selectPage}
-            />
-            {navigationLoading && <p className="muted small">Loading topics…</p>}
-          </nav>
+            </summary>
+            <nav aria-label="Wiki topics" className="wiki-rail-nav">
+              <TopicTreePanel
+                topics={topics}
+                rootPages={rootPages}
+                topicPath={topicPath}
+                onNavigate={setTopicPath}
+                selectedSlug={selectedSlug}
+                onSelect={selectPage}
+              />
+              {navigationLoading && <p className="muted small">Loading topics…</p>}
+            </nav>
+          </details>
 
           <article className="wiki-article" aria-busy={pageLoading}>
-            {pageError ? (
-              <div className="wiki-empty compact">
-                <h2>This wiki page could not be loaded</h2>
-                <p className="muted">Choose another page from the topic list or try again.</p>
-              </div>
+            {pageError !== undefined ? (
+              // Only the article collapses — the rail above and the
+              // relations rail below stay mounted on whatever they already
+              // have, so a broken single page never takes the rest of the
+              // screen down with it.
+              <RegionError error={pageError} onRetry={retryPage} />
             ) : !revision || !page ? (
               <p className="muted">{pageLoading ? "Loading page…" : "Select a page."}</p>
             ) : (
               <>
                 {page.status === "retired" && (
-                  <div className="wiki-retired-banner" role="status">
+                  <div className="note warn wiki-retired-notice" role="status">
                     <span>This page has been archived.</span>
                     {page.successor_slug && (
                       <a
                         href={`/apps/wiki/${encodeURIComponent(page.successor_slug)}`}
-                        className="wiki-inline-link"
                         onClick={(event) => {
                           event.preventDefault();
                           selectPage(page.successor_slug!);
@@ -336,15 +375,15 @@ export function WikiBrowsePage() {
                   </div>
                 )}
                 <div className="row between wrap">
-                  <span className="wiki-eyebrow">Wiki page</span>
-                  <span className={historical ? "badge b-suspended" : "badge b-active"}>
+                  <span className="kicker">Wiki page</span>
+                  <Tag tone={historical ? "attention" : "neutral"}>
                     {historical ? "Historical" : "Current"}
-                  </span>
+                  </Tag>
                 </div>
                 <div className="row wiki-title-row">
                   <h1>{revision.title}</h1>
                   {page.entity_type && page.entity_type !== "concept" && (
-                    <span className="wiki-type-badge">{page.entity_type}</span>
+                    <span className="tag tag-outline wiki-type-badge">{page.entity_type}</span>
                   )}
                 </div>
                 <p className="wiki-summary">{revision.summary}</p>
@@ -360,7 +399,7 @@ export function WikiBrowsePage() {
                 />
 
                 <section className="wiki-article-section">
-                  <div className="wiki-rail-heading">
+                  <div className="wiki-row-head">
                     <h2>Revision history</h2>
                     <span className="faint small">{revisions.length} revisions</span>
                   </div>
@@ -379,33 +418,25 @@ export function WikiBrowsePage() {
                     ))}
                   </ol>
                 </section>
-
-                <section className="wiki-article-section">
-                  <h2>Xanadu links</h2>
-                  <div className="wiki-relation-grid">
-                    <div>
-                      <h3>Outgoing</h3>
-                      <RelationList
-                        relations={links.outgoing}
-                        direction="outgoing"
-                        onSelect={selectPage}
-                      />
-                    </div>
-                    <div>
-                      <h3>Incoming</h3>
-                      <RelationList
-                        relations={links.incoming}
-                        direction="incoming"
-                        onSelect={selectPage}
-                      />
-                    </div>
-                  </div>
-                </section>
               </>
             )}
           </article>
+
+          <details className="wiki-relations" open>
+            <summary className="wiki-relations-summary">Relations</summary>
+            <div className="wiki-relation-groups">
+              <div>
+                <h3>Outgoing</h3>
+                <RelationList relations={links.outgoing} direction="outgoing" onSelect={selectPage} />
+              </div>
+              <div>
+                <h3>Incoming</h3>
+                <RelationList relations={links.incoming} direction="incoming" onSelect={selectPage} />
+              </div>
+            </div>
+          </details>
         </div>
       )}
-    </div>
+    </>
   );
 }

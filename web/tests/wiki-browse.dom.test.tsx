@@ -12,6 +12,7 @@ import { act, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "../src/App";
 import {
+  apiErrorResponse,
   callsTo,
   jsonResponse,
   makeMe,
@@ -607,5 +608,91 @@ describe("wiki browse route navigation fetch cadence", () => {
 
     await screen.findByRole("heading", { name: "Beta" });
     expect(screen.queryByRole("heading", { name: "Alpha" })).toBeNull();
+  });
+});
+
+// -- task 3 redesign: this screen's own two failure states (design brief
+// §"本屏的失败态验收"). Nothing exercised either of these before the
+// redesign: a failed navigation fetch silently fell through to the "no
+// pages yet" empty state (wrong message, no retry), and a failed page fetch
+// tore down the whole middle column with no way to recover without also
+// losing the tree/relations rails. --
+
+describe("wiki browse route failure states", () => {
+  it("shows a retryable full-page error when the page list fails to load, and recovers on retry", async () => {
+    let attempt = 0;
+    const { user } = await renderApp({
+      route: "/apps/wiki",
+      me: makeMe(),
+      fetch: (path) => {
+        if (path === "/v1/wiki/ingestion") return jsonResponse({ auto_inject: false });
+        if (path === "/v1/wiki/navigation") {
+          attempt += 1;
+          if (attempt === 1) return apiErrorResponse(500, "internal", "boom");
+          return jsonResponse(ENGINEERING_NAVIGATION);
+        }
+        return sqliteFetch(path);
+      },
+    });
+
+    // Both the region error and the accompanying toast say "Server error…",
+    // so scope the message assertion to the retryable region itself instead
+    // of a page-wide text query.
+    await screen.findByRole("button", { name: /retry/i });
+    expect(document.querySelector(".wiki-region-error")?.textContent).toContain(
+      "Server error",
+    );
+    // Nothing to fall back to when the page list itself is unknown — no
+    // "wiki is empty" empty state, and no topic rail with stale/absent data.
+    expect(
+      screen.queryByText("Your wiki is ready for its first page"),
+    ).toBeNull();
+    expect(screen.queryByRole("navigation", { name: "Wiki topics" })).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: /retry/i }));
+
+    await screen.findByRole("heading", { name: "SQLite" });
+    expect(document.querySelector(".wiki-region-error")).toBeNull();
+  });
+
+  it("collapses only the article to a retryable error when a page's content fails, leaving the topic tree and relations usable", async () => {
+    let attempt = 0;
+    const { user } = await renderApp({
+      route: "/apps/wiki/sqlite",
+      me: makeMe(),
+      fetch: (path) => {
+        if (path === "/v1/wiki/pages/sqlite") {
+          attempt += 1;
+          if (attempt === 1) return apiErrorResponse(500, "internal", "boom");
+          return jsonResponse(sqlitePage);
+        }
+        return sqliteFetch(path);
+      },
+    });
+
+    await screen.findByRole("button", { name: /retry/i });
+    expect(document.querySelector(".wiki-article")?.textContent).toContain(
+      "Server error",
+    );
+
+    // Tree: navigation loaded independently of the page fetch, so it is
+    // still rendered and still lists this page's topic — not swallowed by
+    // the article's error.
+    const rail = screen.getByRole("navigation", { name: "Wiki topics" });
+    within(rail).getByRole("button", { name: /^Engineering/ });
+
+    // Relations: still rendered, not replaced by an error — there is
+    // nothing to show yet (this page never finished loading once), but the
+    // panel itself is present and usable, matching RelationList's normal
+    // empty-state text.
+    screen.getByText("No references from this page.");
+    screen.getByText("No pages point here yet.");
+
+    // Retry re-issues only the failed page fetch.
+    await user.click(screen.getByRole("button", { name: /retry/i }));
+    await screen.findByRole("heading", { name: "SQLite" });
+    expect(document.querySelector(".wiki-article")?.textContent).not.toContain(
+      "Server error",
+    );
   });
 });

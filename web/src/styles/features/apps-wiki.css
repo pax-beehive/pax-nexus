@@ -1,1 +1,179 @@
-/* Wiki 浏览屏（阶段 6）。占位文件——内容留给负责该屏的 agent。 */
+/* Wiki 浏览屏（阶段 6 · task 3）：/apps/wiki[/:slug]。
+   页头 + 三栏（主题树 / 正文 / 关系），窄屏折叠为单栏，树与关系收进
+   <details> 段落（TopicTree.tsx / RelationList.tsx / WikiMarkdown.tsx 的
+   markup 不属于本任务，这里只重画 WikiBrowsePage.tsx 自己的外壳，外加覆盖
+   那三个组件已固定发出的 class 名——apps-wiki.css 在 index.css 里排在旧
+   features/wiki.css 之后，同特指度的规则以此表为准）。 */
+
+/* — 页头 — */
+.wiki-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-6);
+  padding: var(--space-6) var(--space-4) var(--space-4);
+}
+.wiki-head p { max-width: 62ch; margin-top: var(--space-1); }
+.wiki-search { display: flex; align-items: center; gap: var(--space-2); width: min(440px, 46%); }
+.wiki-search input[type="search"] { min-width: 0; flex: 1; }
+
+/* — 搜索结果 — */
+.wiki-search-results { margin: 0 var(--space-4) var(--space-4); padding: var(--space-4); }
+.wiki-search-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--space-2);
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  list-style: none;
+}
+.wiki-search-list li button {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  height: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-divider);
+  background: var(--color-neutral-100);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.wiki-search-list li button:hover { border-color: var(--color-accent); }
+.wiki-search-list li span, .wiki-search-list li small { color: color-mix(in srgb, var(--color-text) 55%, transparent); }
+
+/* — 整页失败态（页面列表取数失败） — */
+.wiki-region-error { margin: 0 var(--space-4) var(--space-4); }
+
+/* — 三栏骨架 — */
+.wiki-layout {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr) 260px;
+  gap: 0;
+  border-top: 2px solid var(--color-divider);
+}
+
+/* — 左栏：主题树 — */
+.wiki-rail {
+  border-right: 1px solid var(--color-divider);
+  padding: var(--space-4);
+}
+.wiki-rail-summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-3);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--color-divider);
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.wiki-rail-nav { display: flex; flex-direction: column; gap: var(--space-2); }
+
+/* TopicTree.tsx 自带的 class 名——覆盖旧 wiki.css 的观感，这里是唯一使用方。 */
+.wiki-breadcrumb { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; margin-bottom: var(--space-2); font-size: 12px; }
+.wiki-breadcrumb-item { border: 0; padding: 2px 4px; background: transparent; color: color-mix(in srgb, var(--color-text) 60%, transparent); font: inherit; cursor: pointer; }
+.wiki-breadcrumb-item:hover { color: var(--color-text); }
+.wiki-breadcrumb-item[aria-current="location"] { color: var(--color-text); font-weight: 650; cursor: default; }
+.wiki-breadcrumb-item:not(:last-child)::after { content: "›"; margin-left: 4px; color: color-mix(in srgb, var(--color-text) 35%, transparent); }
+.wiki-topic { margin: 0 0 var(--space-3); display: flex; flex-direction: column; gap: 2px; }
+.wiki-topic-item {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-2);
+  width: 100%; border: 0; padding: 6px var(--space-2);
+  background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.wiki-topic-item:hover { background: color-mix(in srgb, var(--color-text) 6%, transparent); }
+.wiki-page-link {
+  display: block; width: 100%; border: 0; padding: 6px var(--space-2);
+  background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.wiki-page-link:hover { background: color-mix(in srgb, var(--color-text) 6%, transparent); }
+.wiki-page-link.active { background: var(--color-accent); color: var(--color-bg); font-weight: 650; }
+
+/* — 中栏：正文 — */
+.wiki-article { padding: var(--space-4) var(--space-6); min-width: 0; }
+.wiki-title-row { flex-wrap: wrap; gap: var(--space-3); margin-top: var(--space-1); }
+.wiki-title-row h1 { margin: 0; }
+.wiki-type-badge { text-transform: capitalize; }
+.wiki-summary { max-width: 74ch; margin: var(--space-2) 0 var(--space-3); font-size: 16px; opacity: 0.8; }
+.wiki-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); margin-bottom: var(--space-4); }
+.wiki-retired-notice { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--space-2); margin: 0 0 var(--space-4); }
+
+/* WikiMarkdown.tsx 自带的 class 名——同理只在这一屏出现。 */
+.wiki-markdown { max-width: 74ch; font-size: 15px; line-height: 1.68; }
+.wiki-markdown h2 { margin-top: var(--space-6); padding-bottom: var(--space-1); border-bottom: 1px solid var(--color-divider); }
+.wiki-markdown h3 { margin-top: var(--space-4); }
+.wiki-markdown p { margin: var(--space-2) 0; }
+.wiki-markdown ul, .wiki-markdown ol { margin: var(--space-2) 0; padding-left: 22px; }
+.wiki-markdown li { margin: 4px 0; }
+.wiki-markdown blockquote { margin: var(--space-3) 0; padding: 2px var(--space-3); border-left: 2px solid var(--color-accent); opacity: 0.85; }
+.wiki-markdown pre { margin: var(--space-3) 0; padding: var(--space-3); background: var(--color-neutral-100); border: 1px solid var(--color-divider); overflow-x: auto; }
+.wiki-markdown pre code { background: none; border: none; padding: 0; }
+.wiki-markdown table { width: auto; max-width: 100%; margin: var(--space-3) 0; font-size: 13.5px; }
+.wiki-markdown hr { border: none; border-top: 1px solid var(--color-divider); margin: var(--space-6) 0; }
+.wiki-markdown img { max-width: 100%; }
+.wiki-evidence-fold { margin-top: var(--space-6); padding-top: var(--space-2); border-top: 1px solid var(--color-divider); }
+.wiki-evidence-fold > summary {
+  color: color-mix(in srgb, var(--color-text) 60%, transparent);
+  font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer;
+}
+.wiki-evidence-fold[open] > summary { margin-bottom: var(--space-2); }
+.wiki-inline-link { padding: 0 1px; border-bottom: 1px solid currentColor; font-weight: 600; }
+
+.wiki-article-section { padding-top: var(--space-4); margin-top: var(--space-6); border-top: 1px solid var(--color-divider); }
+.wiki-row-head { display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-3); margin-bottom: var(--space-2); }
+.wiki-revisions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
+.wiki-revisions button {
+  border: 1px solid var(--color-divider); padding: 4px var(--space-2);
+  background: var(--color-neutral-100); color: color-mix(in srgb, var(--color-text) 65%, transparent);
+  font-family: var(--font-mono); font-size: 11px; cursor: pointer;
+}
+.wiki-revisions button.active { border-color: var(--color-accent); background: var(--color-accent-100); color: var(--color-accent-800); }
+
+/* — 右栏：关系 — */
+.wiki-relations { border-left: 1px solid var(--color-divider); padding: var(--space-4); }
+.wiki-relations-summary {
+  margin: 0 0 var(--space-3);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--color-divider);
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.wiki-relation-groups { display: flex; flex-direction: column; gap: var(--space-4); }
+.wiki-relation-groups h3 { margin: 0 0 var(--space-2); font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; opacity: 0.6; }
+
+/* RelationList.tsx 自带的 class 名——同理只在这一屏出现。 */
+.wiki-relation-list { display: flex; flex-direction: column; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
+.wiki-relation-list a {
+  display: flex; flex-direction: column; gap: 1px;
+  padding: var(--space-2); border: 1px solid var(--color-divider);
+  background: var(--color-neutral-100); color: inherit; text-decoration: none;
+}
+.wiki-relation-list a:hover { border-color: var(--color-accent); }
+.wiki-relation-list span { color: color-mix(in srgb, var(--color-text) 55%, transparent); font-size: 11.5px; }
+
+/* — 响应式：窄屏折叠为单栏，树与关系仍是 <details>，只是不再并排；
+   defaultOpen（WikiBrowsePage.tsx 恒定传 `open`）意味着展开状态与视口无关，
+   折叠语义本身（可点 summary 收起）才是随宽度启用的行为——jsdom 测不了这条
+   media query，但 `details.wiki-rail` / `details.wiki-relations` 这两个
+   选择器本身可断言（参照 wiki-evidence-fold 的先例）。 */
+@media (max-width: 900px) {
+  .wiki-layout { grid-template-columns: 1fr; }
+  .wiki-rail, .wiki-relations { border: 0; border-top: 1px solid var(--color-divider); }
+  .wiki-article { padding: var(--space-4); }
+}
+@media (max-width: 640px) {
+  .wiki-head { flex-direction: column; align-items: stretch; gap: var(--space-3); }
+  .wiki-search { width: 100%; }
+}
