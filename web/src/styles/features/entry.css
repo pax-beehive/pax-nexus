@@ -28,7 +28,13 @@
   font-size: 15px;
   letter-spacing: 0.02em;
   text-transform: uppercase;
-  color: var(--color-accent);
+  /* var(--color-accent) on var(--color-bg) fails AA (beige 3.76:1, arcade
+     3.50:1) because entry screens sit directly on --color-bg with no card
+     surface underneath, and in arcade --color-bg is itself the accent hue —
+     no accent-derived shade clears 4.5 there, only --color-text does (the
+     documented ~4.74:1 arcade ceiling). Use --color-text so the wordmark
+     passes AA in all three themes; distinguished by case/tracking, not hue. */
+  color: var(--color-text);
 }
 
 .entry-lede {
