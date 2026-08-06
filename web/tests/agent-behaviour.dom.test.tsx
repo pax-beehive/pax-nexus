@@ -9,8 +9,21 @@ import { jsonResponse, makeAgent, makeDevice, makeMe, setupDomTest, stubFetch } 
 setupDomTest();
 
 describe("activityWindow", () => {
-  it("是含两端的 7 天窗口，按本地日期算", () => {
-    expect(activityWindow(new Date(2026, 7, 6))).toEqual({
+  // 单用 `new Date(2026, 7, 6)`（本地零点）测不出 UTC 回退 bug：负偏移时区
+  // （比如美区）下本地零点换算成 UTC 只会往同一天的白天跳，日期不变，
+  // `toISOString().slice(0, 10)` 侥幸得出相同结果。要在任何非零偏移时区下
+  // 都拦住 UTC 写法，得用两个贴近本地午夜、方向相反的时刻分别测：
+  // 00:30（正偏移时区下 UTC 会退到前一天）和 23:30（负偏移时区下 UTC 会
+  // 进到后一天）。CI 环境时区未知，两条都要有才能保证至少一条会红。
+  it("是含两端的 7 天窗口，按本地日期算（本地 00:30，拦住正偏移时区下的 UTC 回退）", () => {
+    expect(activityWindow(new Date(2026, 7, 6, 0, 30))).toEqual({
+      from_day: "2026-07-31",
+      to_day: "2026-08-06",
+    });
+  });
+
+  it("是含两端的 7 天窗口，按本地日期算（本地 23:30，拦住负偏移时区下的 UTC 前跳）", () => {
+    expect(activityWindow(new Date(2026, 7, 6, 23, 30))).toEqual({
       from_day: "2026-07-31",
       to_day: "2026-08-06",
     });
