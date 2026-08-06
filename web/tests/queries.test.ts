@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getAuditEvent, listAllMembers } from "../src/api/queries";
+import { getAuditEvent, listAllAgents, listAllDevices, listAllMembers } from "../src/api/queries";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -32,6 +32,71 @@ describe("listAllMembers", () => {
     expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
       "/v1/admin/members?limit=100",
       "/v1/admin/members?limit=100&cursor=opaque-page-2",
+    ]);
+  });
+});
+
+describe("listAllDevices", () => {
+  it("follows every opaque cursor so machine counts are not truncated", async () => {
+    vi.stubGlobal("document", { cookie: "" });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ devices: [{ credential_id: "dev_1" }], next_cursor: "page-2" }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ devices: [{ credential_id: "dev_2" }] }), { status: 200 }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const devices = await listAllDevices({ limit: 100 });
+
+    expect(devices.map((d) => d.credential_id)).toEqual(["dev_1", "dev_2"]);
+    expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
+      "/v1/admin/devices?limit=100",
+      "/v1/admin/devices?limit=100&cursor=page-2",
+    ]);
+  });
+
+  it("throws instead of looping forever when the server repeats a cursor", async () => {
+    vi.stubGlobal("document", { cookie: "" });
+    const fetchMock = vi.fn().mockImplementation(() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ devices: [{ credential_id: "dev_1" }], next_cursor: "same" }), {
+          status: 200,
+        }),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(listAllDevices({ limit: 100 })).rejects.toThrow(/repeated cursor/);
+  });
+});
+
+describe("listAllAgents", () => {
+  it("follows every opaque cursor so agent counts are not truncated", async () => {
+    vi.stubGlobal("document", { cookie: "" });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ agents: [{ agent_id: "a1" }], next_cursor: "page-2" }), {
+          status: 200,
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ agents: [{ agent_id: "a2" }] }), { status: 200 }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const agents = await listAllAgents({ limit: 100 });
+
+    expect(agents.map((a) => a.agent_id)).toEqual(["a1", "a2"]);
+    expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
+      "/v1/admin/agents?limit=100",
+      "/v1/admin/agents?limit=100&cursor=page-2",
     ]);
   });
 });
