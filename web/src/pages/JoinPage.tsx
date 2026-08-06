@@ -4,6 +4,8 @@ import { apiError } from "../api/client";
 import { acceptInvitation, beginAction } from "../api/actions";
 import { useAuth } from "../auth/AuthContext";
 import { Button } from "../components/Button";
+import { Card } from "../components/Card";
+import { Kicker } from "../components/Kicker";
 import { useToast } from "../components/Toasts";
 import {
   clearPendingInvitation,
@@ -50,7 +52,7 @@ export function JoinPage() {
     try {
       await acceptInvitation(token, actionKeyRef.current);
       clearPendingInvitation();
-      toast("ok", "Joined the team");
+      toast("ok", "已加入团队");
       await refresh();
       navigate("/agents", { replace: true });
     } catch (err) {
@@ -62,7 +64,7 @@ export function JoinPage() {
         setInvalid(true);
         await refresh();
       } else if (apiError(err, undefined, "membership_conflict")) {
-        toast("warn", "This account already has a Membership; the invitation cannot override your existing role");
+        toast("warn", "此账号已经有 Membership，邀请无法覆盖你现有的角色");
         await refresh();
       } else if (apiError(err, 401)) {
         handleUnauthorized();
@@ -90,39 +92,42 @@ export function JoinPage() {
   if (!token) {
     body = (
       <>
-        <h1>Accept invitation</h1>
-        <div className="note warn">No invitation token is available. Open this page with the full invitation link sent by your administrator.</div>
-        <Button variant="ghost" onClick={() => navigate("/")}>
-          Back to home
-        </Button>
+        <p className="entry-lede">邀请链接似乎不完整。</p>
+        <div className="note warn">
+          没有可用的邀请令牌。请使用管理员发给你的完整邀请链接打开这个页面。
+        </div>
+        <div className="entry-actions">
+          <Button variant="ghost" onClick={() => navigate("/")}>
+            返回首页
+          </Button>
+        </div>
       </>
     );
   } else if (invalid) {
     body = (
       <>
-        <h1>Accept invitation</h1>
         <div className="note bad">
-          This invitation is invalid (expired / revoked / already used / email mismatch). All failures show this same
-          state to avoid leaking invitation details. Contact your administrator for a new invitation.
+          这条邀请已失效（过期 / 已撤销 / 已使用 / 邮箱不匹配）。为避免泄露邀请详情，所有失败情形都显示同一个状态。如需新的邀请，请联系你的管理员。
         </div>
-        <Button variant="ghost" onClick={() => navigate("/")}>
-          Back to home
-        </Button>
+        <div className="entry-actions">
+          <Button variant="ghost" onClick={() => navigate("/")}>
+            返回首页
+          </Button>
+        </div>
       </>
     );
   } else if (state.kind === "loading") {
-    body = <p className="muted">Loading…</p>;
+    body = <p className="entry-lede">加载中…</p>;
   } else if (state.kind === "unauthenticated") {
     body = (
       <>
-        <h1>Accept invitation</h1>
-        <p className="muted">Sign in to accept the invitation. The invitation continuation is preserved in this tab.</p>
-        <Button variant="primary" onClick={startOidcLogin}>
-          Sign in and continue →
-        </Button>
-        <div style={{ marginTop: 10 }}>
+        <p className="entry-lede">登录以接受邀请。邀请状态已经保存在这个标签页里。</p>
+        <div className="entry-actions">
+          <Button variant="primary" onClick={startOidcLogin}>
+            登录并继续 →
+          </Button>
           <Button variant="ghost" onClick={cancel}>
-            Cancel and clear the local token
+            取消并清除本地令牌
           </Button>
         </div>
       </>
@@ -136,11 +141,12 @@ export function JoinPage() {
     // state falls through to the accept form below.
     body = (
       <>
-        <h1>Accept invitation</h1>
-        <div className="note warn">This account already has a Membership; the invitation cannot override your existing role.</div>
-        <Button variant="primary" onClick={() => navigate("/agents")}>
-          Enter the Portal
-        </Button>
+        <div className="note warn">此账号已经有 Membership，邀请无法覆盖你现有的角色。</div>
+        <div className="entry-actions">
+          <Button variant="primary" onClick={() => navigate("/agents")}>
+            进入 Portal
+          </Button>
+        </div>
       </>
     );
   } else {
@@ -148,17 +154,18 @@ export function JoinPage() {
       state.kind === "no-membership" || state.kind === "active" ? state.me.email : undefined;
     body = (
       <>
-        <h1>Accept invitation</h1>
-        <p className="muted">
-          Join the team as <code>{email ?? "the current account"}</code>.
+        <p className="entry-lede">
+          以 <code>{email ?? "当前账号"}</code> 的身份加入团队。
         </p>
-        <div className="secret-val">{token}</div>
-        <Button variant="primary" disabled={busy} onClick={() => void accept()}>
-          {busy ? "Accepting…" : "Accept invitation"}
-        </Button>
-        <div style={{ marginTop: 10 }}>
+        <Card title="确认邀请令牌">
+          <div className="secret-val">{token}</div>
+        </Card>
+        <div className="entry-actions">
+          <Button variant="primary" disabled={busy} onClick={() => void accept()}>
+            {busy ? "接受中…" : "接受邀请"}
+          </Button>
           <Button variant="ghost" onClick={cancel}>
-            Cancel and clear the local token
+            取消并清除本地令牌
           </Button>
         </div>
       </>
@@ -166,8 +173,15 @@ export function JoinPage() {
   }
 
   return (
-    <div className="center-page">
-      <div className="center-box card">{body}</div>
-    </div>
+    <main className="entry-screen" aria-label="Join">
+      <div className="entry-col">
+        <div className="entry-brand" aria-hidden="true">
+          PAX Nexus
+        </div>
+        <Kicker>Entry · Join</Kicker>
+        <h1>接受邀请</h1>
+        {body}
+      </div>
+    </main>
   );
 }

@@ -1,6 +1,7 @@
 import { isInternalPath, peekPendingInvitation, saveReturnUrl } from "../lib/continuations";
 import { useAuth } from "../auth/AuthContext";
 import { Button } from "../components/Button";
+import { Kicker } from "../components/Kicker";
 
 /**
  * Login is a top-level navigation to /v1/auth/login (302 to the OIDC
@@ -20,27 +21,33 @@ export function LoginPage() {
   };
 
   return (
-    <div className="center-page">
-      <div className="center-box card" style={{ textAlign: "center" }}>
-        <h1>Team Memory Portal</h1>
-        <p className="muted">Sign in with your organization OIDC account</p>
+    <main className="entry-screen" aria-label="Login">
+      <div className="entry-col">
+        <div className="entry-brand" aria-hidden="true">
+          PAX Nexus
+        </div>
+        <Kicker>Entry · Login</Kicker>
+        <h1>登录以继续</h1>
+        <p className="entry-lede">使用你所在组织的 OIDC 账号登录。</p>
         {hasInvitation && (
-          <div className="note">Your invitation continuation is preserved (sessionStorage); after signing in you will return to the invitation acceptance flow.</div>
+          <div className="note">
+            你的邀请令牌已经保存在这个标签页里；登录后会自动回到接受邀请的流程。
+          </div>
         )}
-        <Button
-          variant="primary"
-          style={{ width: "100%", justifyContent: "center", padding: 10 }}
-          onClick={startOidcLogin}
-        >
-          Continue with OIDC →
-        </Button>
-        <p className="small faint" style={{ marginTop: 14 }}>
-          Top-level navigation <code>GET /v1/auth/login</code> (302 → OIDC Provider), not a fetch call
+        <div className="entry-actions">
+          <Button variant="primary" onClick={startOidcLogin}>
+            使用 OIDC 登录 →
+          </Button>
+        </div>
+        <p className="small entry-foot">
+          顶层跳转到 <code>GET /v1/auth/login</code>（302 → OIDC Provider），不是一次 fetch 请求
         </p>
-        <Button variant="ghost" size="sm" onClick={() => void refresh()}>
-          Already signed in? Click to retry
-        </Button>
+        <div className="entry-actions">
+          <Button variant="ghost" size="sm" onClick={() => void refresh()}>
+            已经登录过？点击重试
+          </Button>
+        </div>
       </div>
-    </div>
+    </main>
   );
 }

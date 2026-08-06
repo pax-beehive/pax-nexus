@@ -111,7 +111,7 @@ describe("section 12 item 2: route guard denies without firing Operations reques
       fetch: agentsOnlyFetch,
     });
 
-    await screen.findByRole("button", { name: /Continue with OIDC/ });
+    await screen.findByRole("button", { name: /使用 OIDC 登录/ });
     expect(callsTo(fetchMock, "/v1/admin/operations")).toHaveLength(0);
   });
 
@@ -155,7 +155,7 @@ describe("section 12 item 2: route guard denies without firing Operations reques
       }),
     });
 
-    await screen.findByRole("button", { name: /Continue with OIDC/ });
+    await screen.findByRole("button", { name: /使用 OIDC 登录/ });
     expect(screen.queryByRole("heading", { name: "记忆跟得上吗？" })).toBeNull();
     expect(callsTo(fetchMock, "/v1/admin/operations/summary")).toHaveLength(1);
   });

@@ -49,7 +49,7 @@ describe("section 10 item 2: invitation token hygiene across the OIDC round trip
     }
 
     // Leaving for OIDC keeps the continuation in this tab.
-    await user.click(await screen.findByRole("button", { name: "Sign in and continue →" }));
+    await user.click(await screen.findByRole("button", { name: "登录并继续 →" }));
     expect(sessionStorage.getItem("pending_invitation")).toBe(TOKEN);
   });
 
@@ -74,7 +74,7 @@ describe("section 10 item 2: invitation token hygiene across the OIDC round trip
     });
 
     // The continuation redirect lands on /join with the token intact.
-    const acceptButton = await screen.findByRole("button", { name: "Accept invitation" });
+    const acceptButton = await screen.findByRole("button", { name: "接受邀请" });
     expect(window.location.pathname).toBe("/join");
     expect(document.body.textContent).toContain(TOKEN);
 
@@ -107,9 +107,9 @@ describe("section 10 item 5: every token failure renders one uniform invalid sta
       },
     });
 
-    await user.click(await screen.findByRole("button", { name: "Accept invitation" }));
+    await user.click(await screen.findByRole("button", { name: "接受邀请" }));
 
-    await screen.findByText(/This invitation is invalid \(expired \/ revoked \/ already used \/ email mismatch\)/);
+    await screen.findByText(/这条邀请已失效（过期 \/ 已撤销 \/ 已使用 \/ 邮箱不匹配）/);
     expect(document.body.textContent).not.toContain(diagnostic);
     expect(sessionStorage.getItem("pending_invitation")).toBeNull();
   });
@@ -134,12 +134,12 @@ describe("section 10 item 6: replaying invitation accept reuses the Idempotency-
       },
     });
 
-    await user.click(await screen.findByRole("button", { name: "Accept invitation" }));
+    await user.click(await screen.findByRole("button", { name: "接受邀请" }));
     // The network failure is surfaced without an automatic retry.
     await screen.findByText(/Network error/);
     expect(callsTo(fetchMock, "/v1/invitations/accept", "POST")).toHaveLength(1);
 
-    await user.click(await screen.findByRole("button", { name: "Accept invitation" }));
+    await user.click(await screen.findByRole("button", { name: "接受邀请" }));
     await screen.findByRole("heading", { name: "My Agents" });
 
     const accepts = callsTo(fetchMock, "/v1/invitations/accept", "POST");
