@@ -121,6 +121,20 @@ describe("buildProvenance", () => {
   it("revisions 为空时返回空数组（调用方渲染正向空态）", () => {
     expect(buildProvenance(detail([]))).toEqual([]);
   });
+
+  it("resolve 操作允许空正文，不判定为 missing", () => {
+    const resolved = revision({ operation: "resolve", body: "" });
+    const [rev] = buildProvenance(detail([resolved]));
+    expect(rev.steps[3].missing).toBe(false);
+    expect(rev.steps[3].body).not.toContain("没有");
+  });
+
+  it("非 resolve 操作正文为空仍判定为 missing", () => {
+    const noBody = revision({ operation: "update", body: "" });
+    const [rev] = buildProvenance(detail([noBody]));
+    expect(rev.steps[3].missing).toBe(true);
+    expect(rev.steps[3].body).toContain("没有");
+  });
 });
 
 describe("describeRecall", () => {

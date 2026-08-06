@@ -78,6 +78,22 @@ function buildExtractionStep(run: ExplorerExtractionRun): ProvenanceStep {
   };
 }
 
+// admission_status 是后端枚举原文（见 migrations/001_init.sql 里的
+// note_candidates.admission_status：pending / admitted / rejected），中文名在前、
+// 原文括号跟随，和 Audit 页「名字在前、原始 ID 括号跟随」的处理保持一致。
+function describeAdmissionStatus(status: string): string {
+  switch (status) {
+    case "admitted":
+      return "已采纳";
+    case "rejected":
+      return "已拒绝";
+    case "pending":
+      return "待定";
+    default:
+      return status;
+  }
+}
+
 function buildCandidateStep(candidate: ExplorerCandidate): ProvenanceStep {
   if (!candidate || !candidate.candidate_id || candidate.admission_status === "") {
     return {
@@ -90,8 +106,8 @@ function buildCandidateStep(candidate: ExplorerCandidate): ProvenanceStep {
   }
   const statusText =
     candidate.admission_status === "rejected"
-      ? `被拒绝：${candidate.rejection_reason ?? "未说明原因"}`
-      : candidate.admission_status;
+      ? `${describeAdmissionStatus(candidate.admission_status)}（${candidate.admission_status}）：${candidate.rejection_reason ?? "未说明原因"}`
+      : `${describeAdmissionStatus(candidate.admission_status)}（${candidate.admission_status}）`;
   return {
     stage: "candidate",
     label: "候选",
@@ -103,7 +119,21 @@ function buildCandidateStep(candidate: ExplorerCandidate): ProvenanceStep {
 }
 
 function buildRevisionStep(revision: ExplorerRevision): ProvenanceStep {
-  if (!revision.body || revision.body.trim() === "") {
+  const hasBody = !!revision.body && revision.body.trim() !== "";
+  if (!hasBody) {
+    if (revision.operation === "resolve") {
+      // resolve 操作允许空正文：这是领域模型里合法且预期的形态（见
+      // internal/teamnote/ledger.go validateCandidate 对 ActionResolve 的豁免），
+      // 不能标成 missing，否则会让一条正常的 resolve 版本显示成「记录缺失」。
+      return {
+        stage: "revision",
+        label: "版本",
+        title: `版本 ${revision.revision} · resolve`,
+        body: "这是一次 resolve 操作，按规则不带正文，不代表记录缺失。",
+        ref: revision.candidate_id,
+        missing: false,
+      };
+    }
     return {
       stage: "revision",
       label: "版本",
