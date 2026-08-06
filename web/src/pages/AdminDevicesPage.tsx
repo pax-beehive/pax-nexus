@@ -7,22 +7,18 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { listAllMembers, listDevices } from "../api/queries";
 import type { DeviceEnrollmentSecret, Member } from "../api/types";
-import { deviceConnectCommand, isSelfDescribingEnrollmentToken } from "../lib/enrollment";
-import { copyTextToClipboard } from "../lib/clipboard";
 import { usePagedList } from "../lib/usePagedList";
 import { useErrorHandler } from "../lib/useErrorHandler";
 import { formatTime } from "../lib/format";
 import { Badge } from "../components/Badge";
 import { Button } from "../components/Button";
 import { CreateDeviceEnrollmentModal } from "../components/CreateDeviceEnrollmentModal";
+import { DeviceEnrollmentCeremony } from "../components/DeviceEnrollmentCeremony";
 import { PagedListCard } from "../components/PagedListCard";
-import { SecretCard } from "../components/SecretCard";
-import { useToast } from "../components/Toasts";
 
 const STATUS_FILTERS = ["all", "active", "revoked"] as const;
 
 export function AdminDevicesPage() {
-  const toast = useToast();
   const handleError = useErrorHandler();
   const [filter, setFilter] = useState<string>("all");
   const [createOpen, setCreateOpen] = useState(false);
@@ -73,38 +69,7 @@ export function AdminDevicesPage() {
         </Button>
       </div>
 
-      {secret && (
-        <SecretCard
-          title="One-time Device Enrollment token (shown only once)"
-          value={secret.token}
-          valueLabel=" token"
-          expiresAt={secret.expires_at}
-          note={
-            isSelfDescribingEnrollmentToken(secret.token)
-              ? "The token is never written to durable storage, logs, or analytics. If it is lost, you can only revoke the Device and create a new enrollment; the token embeds the connect address — run paxl device connect on the target machine to finish onboarding."
-              : "The token is never written to durable storage, logs, or analytics. If it is lost, you can only revoke the Device and create a new enrollment; run paxl device connect on the target machine to finish onboarding."
-          }
-          extraActions={
-            <Button
-              size="sm"
-              onClick={() => {
-                const command = deviceConnectCommand(
-                  secret.token,
-                  window.location.origin,
-                  secret.device_name,
-                );
-                void copyTextToClipboard(command).then((ok) => {
-                  if (ok) toast("ok", "Connect command copied");
-                  else window.prompt("Copy manually:", command);
-                });
-              }}
-            >
-              Copy client command
-            </Button>
-          }
-          onClose={() => setSecret(undefined)}
-        />
-      )}
+      {secret && <DeviceEnrollmentCeremony secret={secret} onClose={() => setSecret(undefined)} />}
 
       <div className="seg" role="group" aria-label="device status">
         {STATUS_FILTERS.map((s) => (

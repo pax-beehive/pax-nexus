@@ -296,7 +296,7 @@ describe("Access tree · own-machine enrollment secret lifecycle", () => {
   it("shows the one-time secret after creating an enrollment on your own machine level", async () => {
     await createEnrollmentOnOwnMachineLevel();
 
-    screen.getByText("One-time Device Enrollment token (shown only once)");
+    screen.getByText("一次性设备注册令牌 · 只展示一次，不存任何地方");
   });
 
   it("clears the secret when navigating to a different person", async () => {
@@ -307,6 +307,21 @@ describe("Access tree · own-machine enrollment secret lifecycle", () => {
 
     // Bob's header rendered (email is a unique anchor for it — "Bob" itself
     // also appears in the breadcrumb).
+    await screen.findByText(/bob@example\.com/);
+    expect(screen.queryByText(ENROLLMENT_SECRET.token)).toBeNull();
+  });
+
+  it("产生令牌后钻到别人那里，仪式关闭而不是错绑过去", async () => {
+    // 阶段 3 的密钥卡是内联的，靠「坐标比较渲染门控」避免错绑到别人的机器
+    // 上；阶段 4 换成全屏仪式后，由「坐标变更即关闭」这一条 effect 保证。
+    // 这条用例是那条 effect 的唯一守卫——去掉它，仪式会跟着用户钻遍整棵树。
+    const { user } = await createEnrollmentOnOwnMachineLevel();
+
+    screen.getByText(ENROLLMENT_SECRET.token);
+
+    await user.click(screen.getByRole("link", { name: "Everyone" }));
+    await user.click(await screen.findByText("Bob"));
+
     await screen.findByText(/bob@example\.com/);
     expect(screen.queryByText(ENROLLMENT_SECRET.token)).toBeNull();
   });

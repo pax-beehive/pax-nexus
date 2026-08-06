@@ -13,7 +13,7 @@ import { Button } from "../components/Button";
 import { Countdown } from "../components/Countdown";
 import { Modal } from "../components/Modal";
 import { PagedListCard } from "../components/PagedListCard";
-import { SecretCard } from "../components/SecretCard";
+import { SecretCeremony } from "../components/SecretCeremony";
 import { useToast } from "../components/Toasts";
 
 const STATUS_FILTERS = ["all", "pending", "accepted", "revoked", "expired"] as const;
@@ -157,11 +157,18 @@ export function AdminInvitationsPage({ me }: { me: HumanMe }) {
       </div>
 
       {secretUrl && (
-        <SecretCard
-          title="Invitation created — the token is shown only once"
+        <SecretCeremony
+          title="一次性邀请链接 · 只展示一次，不存任何地方"
+          headline="现在就把链接发出去。我们没法再给你看一次。"
+          body="令牌藏在 URL 的片段（#invite=）里，不会进入服务端访问日志，也不会出现在 Referer 头。"
           value={secretUrl}
-          valueLabel=" Join URL"
-          note="The token lives in the URL fragment (#invite=) and never reaches server access logs or the Referer header. If the token is lost, revoke the invitation and create a new one."
+          valueLabel="邀请链接"
+          steps={[
+            "把链接发给对方（IM、邮件都行）。",
+            "对方打开链接、登录，即完成加入。",
+            "这个人出现在「团队成员」里。",
+          ]}
+          recovery="什么都不会坏。吊销这条邀请、重新创建一条即可。"
           onClose={() => setSecretUrl(undefined)}
         />
       )}

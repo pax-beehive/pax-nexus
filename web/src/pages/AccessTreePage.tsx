@@ -3,12 +3,9 @@ import { useSearchParams } from "react-router-dom";
 import type { AgentProfile, DeviceEnrollmentSecret, DeviceSummary, HumanMe, Member } from "../api/types";
 import { can } from "../lib/capabilities";
 import { aliveProvisionedAgents } from "../lib/devices";
-import { copyTextToClipboard } from "../lib/clipboard";
-import { deviceConnectCommand, isSelfDescribingEnrollmentToken } from "../lib/enrollment";
 import { Button } from "../components/Button";
 import { CreateDeviceEnrollmentModal } from "../components/CreateDeviceEnrollmentModal";
-import { SecretCard } from "../components/SecretCard";
-import { useToast } from "../components/Toasts";
+import { DeviceEnrollmentCeremony } from "../components/DeviceEnrollmentCeremony";
 import { AccessChrome } from "./management/AccessChrome";
 import { devicesOf, looseAgentsOf } from "./management/accessTree";
 import { CreateAgentModal } from "./management/CreateAgentModal";
@@ -38,7 +35,6 @@ export function AccessTreePage({ me }: { me: HumanMe }) {
  */
 function AdminAccessTree({ me }: { me: HumanMe }) {
   const [params, setParams] = useSearchParams();
-  const toast = useToast();
   const snapshot = useAccessSnapshot();
   // 无条件调用，与 useAccessSnapshot 并列：不能塞进下面任何 if 分支，
   // 否则 hook 调用顺序在渲染间不一致。credentialId 为 undefined 时
@@ -76,41 +72,14 @@ function AdminAccessTree({ me }: { me: HumanMe }) {
     setEnrollmentSecret(undefined);
   }, [requestedPerson, requestedMachine]);
 
-  // 只能出现在产生它的那个面上：本人（isSelf）的第 2 层，且没有 ?machine=
-  // ——这与 Connect a machine 按钮本身的可见条件一致，因为唯一能把
-  // enrollmentSecret 置为有值的路径就是那个按钮。故意提到任何 snapshot
-  // early return 之前算：失败/进行中的 retry() 不该把已经拿到手的一次性
-  // 密钥带走（复审 I1）——服务端此时已经创建了这条 enrollment，密钥从
-  // state 里消失后唯一的补救是吊销重建。
-  const secretCard = enrollmentSecret && !requestedMachine && requestedPerson === me.membership_id && (
-    <SecretCard
-      title="One-time Device Enrollment token (shown only once)"
-      value={enrollmentSecret.token}
-      valueLabel=" token"
-      expiresAt={enrollmentSecret.expires_at}
-      note={
-        isSelfDescribingEnrollmentToken(enrollmentSecret.token)
-          ? "The token is never written to durable storage, logs, or analytics. If it is lost, you can only revoke the Device and create a new enrollment; the token embeds the connect address — run paxl device connect on the target machine to finish onboarding."
-          : "The token is never written to durable storage, logs, or analytics. If it is lost, you can only revoke the Device and create a new enrollment; run paxl device connect on the target machine to finish onboarding."
-      }
-      extraActions={
-        <Button
-          size="sm"
-          onClick={() => {
-            const command = deviceConnectCommand(
-              enrollmentSecret.token,
-              window.location.origin,
-              enrollmentSecret.device_name,
-            );
-            void copyTextToClipboard(command).then((ok) => {
-              if (ok) toast("ok", "Connect command copied");
-              else window.prompt("Copy manually:", command);
-            });
-          }}
-        >
-          Copy client command
-        </Button>
-      }
+  // 阶段 4：仪式是全屏覆盖层，出现时它是页面上唯一可交互的东西，不存在
+  // 「挂在哪个节点下」的语义——阶段 3 那道「坐标比较渲染门控」随之取消。
+  // 下方的坐标变更 effect 保留：树内导航时关闭仪式。
+  // 仍然故意提到任何 snapshot early return 之前算：失败/进行中的 retry()
+  // 不该把已经拿到手的一次性密钥带走。
+  const secretCard = enrollmentSecret && (
+    <DeviceEnrollmentCeremony
+      secret={enrollmentSecret}
       onClose={() => setEnrollmentSecret(undefined)}
     />
   );

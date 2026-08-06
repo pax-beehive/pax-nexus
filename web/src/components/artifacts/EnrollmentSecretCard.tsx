@@ -1,12 +1,15 @@
-// One-time enrollment token display: shown once right after issuance, with a
-// "copy client connect command" extra action.
+// One-time enrollment token display: shown once right after issuance.
+//
+// Phase 4 stopgap: `SecretCard` was deleted (portal-modernist-phase4 task 4)
+// once its other three call sites moved to the full-screen `SecretCeremony`.
+// This call site belongs to task 10 (agent identity/artifact ceremony), which
+// is expected to redesign it properly; until then this keeps the build green
+// with a minimal port to `SecretCeremony` that preserves the external
+// `{ secret, onClose }` contract `AgentArtifacts.tsx` calls.
 
 import type { EnrollmentSecret } from "../../api/types";
-import { copyTextToClipboard } from "../../lib/clipboard";
 import { enrollmentConnectCommand, isSelfDescribingEnrollmentToken } from "../../lib/enrollment";
-import { Button } from "../Button";
-import { SecretCard } from "../SecretCard";
-import { useToast } from "../Toasts";
+import { SecretCeremony } from "../SecretCeremony";
 
 export function EnrollmentSecretCard({
   secret,
@@ -15,32 +18,25 @@ export function EnrollmentSecretCard({
   secret: EnrollmentSecret;
   onClose: () => void;
 }) {
-  const toast = useToast();
   return (
-    <SecretCard
-      title="One-time Enrollment token (shown only once)"
+    <SecretCeremony
+      title="One-time Enrollment token — shown only once"
+      headline="Copy it now. We can't show it to you again."
+      body="This token is never written to durable storage, logs, or analytics."
       value={secret.token}
       valueLabel=" token"
       expiresAt={secret.expires_at}
-      note={
+      steps={[
+        "Run the connect command on the target client.",
+        "The token is exchanged for a long-lived credential and self-destructs.",
+        "The Portal never sees the resulting API key.",
+      ]}
+      recovery={
         isSelfDescribingEnrollmentToken(secret.token)
-          ? "The token is never written to durable storage, logs, or analytics. If lost, revoke it and issue a new one; the token embeds the connect address so clients can parse it directly; the client performs the exchange, and the Portal never sees the API key."
-          : "The token is never written to durable storage, logs, or analytics. If lost, revoke it and issue a new one; the client performs the exchange, and the Portal never sees the API key."
+          ? "If lost, revoke it and issue a new one; the token embeds the connect address so clients can parse it directly."
+          : "If lost, revoke it and issue a new one."
       }
-      extraActions={
-        <Button
-          size="sm"
-          onClick={() => {
-            const command = enrollmentConnectCommand(secret.token, window.location.origin);
-            void copyTextToClipboard(command).then((ok) => {
-              if (ok) toast("ok", "Connect command copied");
-              else window.prompt("Copy manually:", command);
-            });
-          }}
-        >
-          Copy client command
-        </Button>
-      }
+      command={enrollmentConnectCommand(secret.token, window.location.origin)}
       onClose={onClose}
     />
   );
