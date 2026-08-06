@@ -281,6 +281,46 @@ func (s *overviewHandlerSuite) TestNoteMixGenuineFailureStillWarns() {
 	s.Contains(s.logs.String(), "overview note mix degraded")
 }
 
+// TestNoteMixFailureSkipsExpiringCountEntirely pins the "one degradation
+// unit" invariant from the other direction of TestNoteMixGenuineFailureStillWarns:
+// note mix and the expiring-soon count share one "at" instant and degrade
+// together, so when NoteMix itself fails, CountExpiringNotes must never even
+// be attempted (not just discarded) and the tile must read zero, not some
+// stale or partial value.
+func (s *overviewHandlerSuite) TestNoteMixFailureSkipsExpiringCountEntirely() {
+	s.explorer.noteMixErr = errors.New("note mix store unavailable")
+
+	response := s.perform("/v1/admin/overview")
+
+	s.Equal(consts.StatusOK, response.Code)
+	body := s.decode(response)
+	s.Empty(body.NoteMix, "a failed note mix source must still degrade to an empty section")
+	s.Zero(s.explorer.countExpiringCalls, "the expiring count must never be attempted when note mix itself fails")
+	s.Equal(int64(0), body.Metrics.NotesExpiringToday, "the expiring tile must read zero when its sibling read never ran")
+}
+
+// TestExpiringCountFailureDegradesQuietlyWhileNoteMixStays is the other half
+// of the degradation unit: when NoteMix succeeds but CountExpiringNotes
+// alone fails, the note mix section must stay populated (it already
+// succeeded) while only the expiring-soon tile degrades to zero, and the
+// failure is observable via the dedicated degraded-log message.
+func (s *overviewHandlerSuite) TestExpiringCountFailureDegradesQuietlyWhileNoteMixStays() {
+	s.explorer.noteMixResult = []explorer.NoteKindCount{{Kind: "decision", Count: 2}}
+	s.explorer.countExpiringErr = errors.New("expiring count store unavailable")
+
+	response := s.perform("/v1/admin/overview")
+
+	s.Equal(consts.StatusOK, response.Code)
+	body := s.decode(response)
+	s.Require().Len(body.NoteMix, 1, "the note mix section must stay intact when only the expiring count fails")
+	s.Equal(int64(2), body.NoteMix[0].Count)
+	s.Equal(int64(0), body.Metrics.NotesExpiringToday, "the expiring tile must degrade to zero on its own failure")
+	s.Contains(
+		s.logs.String(), "overview expiring-notes count degraded",
+		"the expiring-count failure must be observable via its own degraded-log message",
+	)
+}
+
 // overviewSessionAudit is a minimal SessionAuditQuery fake for the Overview
 // suite: only ListFindings matters to the endpoint, byLevel lets tests supply
 // distinct results per severity filter, and calls counts invocations so the

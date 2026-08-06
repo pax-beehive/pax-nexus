@@ -113,10 +113,12 @@ func (s *explorerNoteMixSuite) TestCountExpiringNotesCountsOnlyActiveInWindowSam
 	s.insertNote(ctx, "x4", "decision", "resolved", at.Add(2*time.Hour))
 	s.insertNote(ctx, "x5", "decision", "active", at.Add(48*time.Hour)) // beyond window
 	s.insertNoteInScope(ctx, "other-scope", "x6", "decision", "active", at.Add(2*time.Hour))
+	s.insertNote(ctx, "x7", "decision", "active", at.Add(24*time.Hour)) // == at+within: counted (inclusive upper bound)
+	s.insertNote(ctx, "x8", "decision", "active", at)                   // == at: excluded (lower bound is exclusive)
 
 	count, err := s.explorer.CountExpiringNotes(ctx, at, 24*time.Hour)
 	s.Require().NoError(err)
-	s.Equal(int64(2), count)
+	s.Equal(int64(3), count)
 }
 
 func (s *explorerNoteMixSuite) insertNote(
