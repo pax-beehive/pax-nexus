@@ -21,6 +21,7 @@ import {
   makeEvent,
   makeSnapshot,
   makeSummary,
+  pipelineMetric,
   renderOperationsPage,
   statValue,
 } from "./operationsFixtures";
@@ -64,10 +65,6 @@ function zeroSummary(): OperationsSummary {
   });
 }
 
-function card(heading: string): HTMLElement {
-  return screen.getByRole("heading", { name: heading }).closest(".card") as HTMLElement;
-}
-
 function storageCard(): HTMLElement {
   return screen.getByText("database physical").closest(".card") as HTMLElement;
 }
@@ -80,7 +77,7 @@ describe("section 12 item 3: regions survive an unavailable storage backend", ()
       });
 
     // Summary and events are fully rendered.
-    expect(statValue(card("Latency & Errors"), "p50")).toBe("24 ms");
+    expect(pipelineMetric("典型延迟").value).toBe("24 ms");
     expect(within(eventsTable())
       .getByText("Memory Search")).toBeTruthy();
     // Storage shows its dedicated state, not a generic region error.
@@ -95,7 +92,9 @@ describe("section 12 item 3: regions survive an unavailable storage backend", ()
       });
 
     screen.getByText("Server error; try again later");
-    expect(statValue(card("Observations"), "requests")).toBe("18");
+    // makeSummary()'s default extraction.failed is 1 -- proves the summary
+    // region rendered real data, not just an empty shell.
+    expect(pipelineMetric("失败").value).toBe("1");
     screen.getByText("database physical");
   });
 
@@ -106,7 +105,7 @@ describe("section 12 item 3: regions survive an unavailable storage backend", ()
       });
 
     screen.getByText("Server error; try again later");
-    expect(screen.queryByRole("heading", { name: "Observations" })).toBeNull();
+    expect(document.querySelector(".gv-metrics")).toBeNull();
     within(eventsTable()).getByText(
       "Memory Search",
     );
@@ -118,13 +117,16 @@ describe("section 12 item 4: legitimate zero values render as 0, not as an error
   it("an all-zero summary shows zeros and no empty-data error", async () => {
     await renderOperationsPage({ summary: () => jsonResponse(zeroSummary()) });
 
-    const observations = card("Observations");
-    expect(statValue(observations, "requests")).toBe("0");
-    expect(statValue(observations, "events written")).toBe("0");
-    expect(statValue(observations, "duplicates")).toBe("0");
-    expect(statValue(card("Latency & Errors"), "errors")).toBe("0");
-    // The duplicates explainer only appears when duplicates exist.
-    expect(screen.queryByText(/duplicates are legitimate idempotent replays/)).toBeNull();
+    expect(pipelineMetric("扣下待查").value).toBe("0");
+    expect(pipelineMetric("失败").value).toBe("0");
+    const queued = pipelineMetric("排队中");
+    expect(queued.value).toBe("0");
+    // A healthy empty backlog shows no oldest-event age (doc section 7).
+    expect(queued.sub).toBe("—");
+    expect(pipelineMetric("空手而归").value).toBe("0");
+    // sample_count 0 hides both percentiles rather than showing "0 ms".
+    expect(pipelineMetric("典型延迟").value).toBe("insufficient samples");
+    expect(pipelineMetric("最坏情况").value).toBe("insufficient samples");
     // No region flipped into an error/empty-data note.
     expect(document.querySelector(".note.bad")).toBeNull();
     expect(screen.queryByText("Server error; try again later")).toBeNull();
@@ -137,12 +139,10 @@ describe("section 12 item 5: missing latency percentiles show insufficient sampl
         summary: () => jsonResponse(makeSummary({ latency: { sample_count: 1 } })),
       });
 
-    const latency = card("Latency & Errors");
-    expect(statValue(latency, "samples")).toBe("1");
-    expect(statValue(latency, "p50")).toBe("insufficient samples");
-    expect(statValue(latency, "p95")).toBe("insufficient samples");
-    expect(within(latency).queryByText("0 ms")).toBeNull();
-    expect(latency.textContent).not.toContain("NaN");
+    expect(pipelineMetric("典型延迟").value).toBe("insufficient samples");
+    expect(pipelineMetric("最坏情况").value).toBe("insufficient samples");
+    expect(screen.queryByText("0 ms")).toBeNull();
+    expect(document.querySelector(".gv-metrics")?.textContent).not.toContain("NaN");
   });
 
   it("sample_count between 2 and 19 shows p50 but hides p95", async () => {
@@ -150,41 +150,23 @@ describe("section 12 item 5: missing latency percentiles show insufficient sampl
         summary: () => jsonResponse(makeSummary({ latency: { sample_count: 10, p50_ms: 24 } })),
       });
 
-    const latency = card("Latency & Errors");
-    expect(statValue(latency, "p50")).toBe("24 ms");
-    expect(statValue(latency, "p95")).toBe("insufficient samples");
+    expect(pipelineMetric("典型延迟").value).toBe("24 ms");
+    expect(pipelineMetric("最坏情况").value).toBe("insufficient samples");
   });
 });
 
-describe("section 12 item 6: idempotent Observation replay is still a success", () => {
-  it("events_written=0 with duplicates renders the replay explainer and zero errors", async () => {
-    await renderOperationsPage({
-        summary: () =>
-          jsonResponse(
-            makeSummary({
-              observations: {
-                requests: 18,
-                succeeded: 18,
-                input_events: 52,
-                events_written: 0,
-                duplicate_events: 4,
-              },
-              errors: 0,
-            }),
-          ),
-      });
-
-    const observations = card("Observations");
-    expect(statValue(observations, "succeeded")).toBe("18");
-    expect(statValue(observations, "events written")).toBe("0");
-    expect(statValue(observations, "duplicates")).toBe("4");
-    screen.getByText(/duplicates are legitimate idempotent replays/);
-    expect(statValue(card("Latency & Errors"), "errors")).toBe("0");
-  });
-});
+// section 12 item 6 (idempotent Observation replay renders as success, not a
+// failure) previously asserted against the Observations card's
+// events-written/duplicates fields and the Latency & Errors card's errors
+// count. Design phase 5 (docs/superpowers/specs/2026-08-06-portal-modernist-
+// phase5-governance-design.md §2.3/§8) replaces both cards with the six-cell
+// PipelineMetrics bar, which surfaces neither duplicate_events nor errors --
+// that invariant has no remaining UI surface on this page. The idempotent-
+// replay behavior itself is a backend/data-shape concern, not a rendering
+// one; there is nothing page-level left to assert here after the redesign.
 
 describe("section 12 item 8: quarantined extractions are not failures", () => {
-  it("quarantined renders separately from failed and errors", async () => {
+  it("quarantined renders separately from failed", async () => {
     await renderOperationsPage({
         summary: () =>
           jsonResponse(
@@ -202,17 +184,13 @@ describe("section 12 item 8: quarantined extractions are not failures", () => {
           ),
       });
 
-    const pipeline = screen
-      .getByRole("heading", { name: "Pipeline health" })
-      .nextElementSibling as HTMLElement;
-    expect(statValue(pipeline, "quarantined")).toBe("2");
-    expect(statValue(pipeline, "failed")).toBe("0");
-    expect(statValue(card("Latency & Errors"), "errors")).toBe("0");
-    // Healthy empty backlog: no oldest pending age is shown (doc section 7).
-    expect(statValue(pipeline, "oldest pending")).toBe("—");
+    expect(pipelineMetric("扣下待查").value).toBe("2");
+    expect(pipelineMetric("失败").value).toBe("0");
+    // Healthy empty backlog: no oldest-unextracted-event age is shown.
+    expect(pipelineMetric("排队中").sub).toBe("—");
   });
 
-  it("a non-zero backlog without a timestamp shows age unavailable, never a guess", async () => {
+  it("a non-zero backlog without a timestamp names the field it's missing, never a guess", async () => {
     const extraction = {
       runs: 12,
       completed: 10,
@@ -227,11 +205,9 @@ describe("section 12 item 8: quarantined extractions are not failures", () => {
         summary: () => jsonResponse({ ...summary, extraction }),
       });
 
-    const pipeline = screen
-      .getByRole("heading", { name: "Pipeline health" })
-      .nextElementSibling as HTMLElement;
-    expect(statValue(pipeline, "unextracted backlog")).toBe("3");
-    expect(statValue(pipeline, "oldest pending")).toBe("age unavailable");
+    const queued = pipelineMetric("排队中");
+    expect(queued.value).toBe("3");
+    expect(queued.sub).toBe("最老的未抽取事件：时间未知");
   });
 });
 

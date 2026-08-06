@@ -333,6 +333,18 @@ export function statValue(scope: ParentNode, label: string): string | null {
 }
 
 /**
+ * Read a cell's value/sub from the Pipeline metrics six-cell bar
+ * (`PipelineMetrics.tsx`, `.gv-metrics` / `.gv-metric`) by its label text.
+ */
+export function pipelineMetric(label: string): { value: string; sub: string } {
+  const cell = screen.getByText(label).closest(".gv-metric") as HTMLElement;
+  return {
+    value: cell.querySelector(".gv-metric-value")?.textContent ?? "",
+    sub: cell.querySelector(".gv-metric-sub")?.textContent ?? "",
+  };
+}
+
+/**
  * Mount the portal at /governance/pipeline with the Operations capability and
  * wait for the first summary/events/storage cycle to settle.
  */
@@ -342,7 +354,7 @@ export async function renderOperationsPage(endpoints: OperationsEndpoints = {}) 
     me: opsMe(),
     fetch: operationsFetch(endpoints),
   });
-  await screen.findByRole("heading", { name: "Operations" });
+  await screen.findByRole("heading", { name: "记忆跟得上吗？" });
   return app;
 }
 

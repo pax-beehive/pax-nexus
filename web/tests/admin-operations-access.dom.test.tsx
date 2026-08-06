@@ -77,7 +77,7 @@ describe("section 12 item 1: Operations nav follows the server capability", () =
       me: makeMe({ role: "member", capabilities: ["view.operations"] }),
       fetch: operationsFetch(),
     });
-    await screen.findByRole("heading", { name: "Operations" });
+    await screen.findByRole("heading", { name: "记忆跟得上吗？" });
     expect(pipelineHealthLink()).not.toBeNull();
     const subnav = screen.getByRole("navigation", { name: "Section pages" });
     expect(within(subnav).queryByRole("link", { name: "Audit trail" })).toBeNull();
@@ -156,7 +156,7 @@ describe("section 12 item 2: route guard denies without firing Operations reques
     });
 
     await screen.findByRole("button", { name: /Continue with OIDC/ });
-    expect(screen.queryByRole("heading", { name: "Operations" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "记忆跟得上吗？" })).toBeNull();
     expect(callsTo(fetchMock, "/v1/admin/operations/summary")).toHaveLength(1);
   });
 });

@@ -25,6 +25,7 @@ import {
 } from "../lib/operations";
 import { useErrorHandler } from "../lib/useErrorHandler";
 import { Button } from "../components/Button";
+import { Kicker } from "../components/Kicker";
 import { RegionError } from "../components/RegionError";
 import { ExplorerDiagnosticDrawer } from "./operations/ExplorerDiagnosticDrawer";
 import { explorerTargetFromLocation, type ExplorerDrawerTarget } from "./operations/explorerTarget";
@@ -34,11 +35,10 @@ import {
   useStorageRegion,
   useSummaryRegion,
 } from "./operations/hooks";
-import { PipelineHealthCard } from "./operations/PipelineHealthCard";
+import { PipelineMetrics } from "./governance/PipelineMetrics";
 import { RecallDrawer } from "./operations/RecallDrawer";
 import { StorageHistoryReady } from "./operations/StorageHistoryView";
 import { StorageSnapshotView } from "./operations/StorageSnapshotView";
-import { SummaryCards } from "./operations/SummaryCards";
 
 export function AdminOperationsPage({ canInspectTeamMemory = false }: { canInspectTeamMemory?: boolean }) {
   const handleError = useErrorHandler();
@@ -94,13 +94,13 @@ export function AdminOperationsPage({ canInspectTeamMemory = false }: { canInspe
 
   return (
     <>
-      <div className="page-head">
+      <div className="gv-head">
         <div>
-          <h1>Operations</h1>
-          <p className="muted flush">
-            {canInspectTeamMemory
-              ? "Read-only view; raw queries, credentials, idempotency keys and raw errors are never shown. Owner diagnostics may include Team Memory content."
-              : "Read-only operational view; queries, content, hit text and raw error details are never shown"}
+          <Kicker>Governance · 管道健康</Kicker>
+          <h1>记忆跟得上吗？</h1>
+          <p>
+            每块自己加载。一块失败时其余照常——你会看到哪块过期了，而不是一整页空白。
+            这里从不显示任何查询、内容或密钥。
           </p>
         </div>
       </div>
@@ -133,86 +133,73 @@ export function AdminOperationsPage({ canInspectTeamMemory = false }: { canInspe
         </Button>
       </div>
 
-      <h2>Activity summary</h2>
-      {summary.status === "loading" && (
-        <div className="card">
-          <p className="muted small">Loading…</p>
-        </div>
-      )}
+      {summary.status === "loading" && <p className="muted small">Loading…</p>}
       {summary.status === "error" && (
-        <div className="card">
-          <RegionError error={summary.error} onRetry={summary.retry} />
-        </div>
+        <RegionError error={summary.error} onRetry={summary.retry} />
       )}
       {summary.status === "ready" && summary.data && (
         <>
           {summary.error && (
             <div className="note warn">Auto-refresh failed; the displayed data may be stale.</div>
           )}
-          <p className="faint small">
-            Window{" "}
-            <span title={summary.data.from_time}>{formatTime(summary.data.from_time)}</span> —{" "}
-            <span title={summary.data.to_time}>{formatTime(summary.data.to_time)}</span> · generated at{" "}
-            <span title={summary.data.generated_at}>
-              {formatTime(summary.data.generated_at)}
-            </span>
-          </p>
-          <SummaryCards summary={summary.data} />
-          <h2>Pipeline health</h2>
-          <PipelineHealthCard summary={summary.data} />
+          <PipelineMetrics summary={summary.data} />
         </>
       )}
 
-      <div className="row between section">
-        <h2 className="flush">Storage</h2>
-        <div className="row">
-          <Button variant="ghost" size="sm" onClick={toggleHistory}>
-            {historyOpen ? "Hide history trend" : "History trend"}
-          </Button>
-          <Button size="sm" aria-label="Refresh storage" onClick={storage.refresh}>
-            Refresh
-          </Button>
-        </div>
-      </div>
-      <div className="card">
-        {storage.region.status === "loading" && <p className="muted small">Loading…</p>}
-        {storage.region.status === "unavailable" && (
-          <p className="muted small flush">
-            Storage statistics are temporarily unavailable (storage_not_available); the summary and events regions are unaffected.
-          </p>
-        )}
-        {storage.region.status === "error" && (
-          <RegionError error={storage.region.error} onRetry={storage.refresh} />
-        )}
-        {storage.region.status === "ready" && (
-          <>
-            {storage.region.refreshError && (
-              <div className="note warn">Refresh failed; the displayed snapshot may be stale.</div>
+      <div className="gv-pipeline-columns section">
+        <div>
+          <div className="row between">
+            <h2 className="flush">Storage</h2>
+            <div className="row">
+              <Button variant="ghost" size="sm" onClick={toggleHistory}>
+                {historyOpen ? "Hide history trend" : "History trend"}
+              </Button>
+              <Button size="sm" aria-label="Refresh storage" onClick={storage.refresh}>
+                Refresh
+              </Button>
+            </div>
+          </div>
+          <div className="card">
+            {storage.region.status === "loading" && <p className="muted small">Loading…</p>}
+            {storage.region.status === "unavailable" && (
+              <p className="muted small flush">
+                Storage statistics are temporarily unavailable (storage_not_available); the summary and events regions are unaffected.
+              </p>
             )}
-            <StorageSnapshotView snapshot={storage.region.snapshot} />
-          </>
-        )}
-      </div>
-      {historyOpen && (
-        <div className="card">
-          <h3 style={{ marginTop: 0 }}>Storage history</h3>
-          <p className="faint small">
-            history is for trends only, not a backup; see the deployment doc
-            deployment-instruction.md for backup/restore operations.
-          </p>
-          {history.region.status === "loading" && <p className="muted small">Loading…</p>}
-          {history.region.status === "error" && (
-            <RegionError error={history.region.error} onRetry={() => void history.load()} />
-          )}
-          {history.region.status === "ready" && (
-            <StorageHistoryReady region={history.region} onLoadMore={(cursor) => void history.load(cursor)} />
+            {storage.region.status === "error" && (
+              <RegionError error={storage.region.error} onRetry={storage.refresh} />
+            )}
+            {storage.region.status === "ready" && (
+              <>
+                {storage.region.refreshError && (
+                  <div className="note warn">Refresh failed; the displayed snapshot may be stale.</div>
+                )}
+                <StorageSnapshotView snapshot={storage.region.snapshot} />
+              </>
+            )}
+          </div>
+          {historyOpen && (
+            <div className="card">
+              <h3 style={{ marginTop: 0 }}>Storage history</h3>
+              <p className="faint small">
+                history is for trends only, not a backup; see the deployment doc
+                deployment-instruction.md for backup/restore operations.
+              </p>
+              {history.region.status === "loading" && <p className="muted small">Loading…</p>}
+              {history.region.status === "error" && (
+                <RegionError error={history.region.error} onRetry={() => void history.load()} />
+              )}
+              {history.region.status === "ready" && (
+                <StorageHistoryReady region={history.region} onLoadMore={(cursor) => void history.load(cursor)} />
+              )}
+            </div>
           )}
         </div>
-      )}
 
-      <div className="row between section">
-        <h2 className="flush">Recent activity</h2>
-        <div className="toolbar">
+        <div>
+          <div className="row between">
+            <h2 className="flush">最近的活儿</h2>
+            <div className="toolbar">
           <select
             aria-label="Filter by operation"
             value={kind}
@@ -384,6 +371,8 @@ export function AdminOperationsPage({ canInspectTeamMemory = false }: { canInspe
           </Button>
         </div>
       )}
+      </div>
+      </div>
 
       {drawerId !== null && (
         <RecallDrawer

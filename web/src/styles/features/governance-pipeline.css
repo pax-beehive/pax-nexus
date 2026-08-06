@@ -1,1 +1,12 @@
 /* Governance · Pipeline health. 内容留给 Task 5。 */
+
+.gv-metrics { display: grid; grid-template-columns: repeat(6, 1fr); border-top: 2px solid var(--color-divider); border-bottom: 2px solid var(--color-divider); }
+.gv-metric { padding: var(--space-3) var(--space-4); border-right: 1px solid var(--color-divider); }
+.gv-metric:last-child { border-right: 0; }
+.gv-metric-label { font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; opacity: 0.55; }
+.gv-metric-value { font-family: var(--font-heading); font-weight: var(--font-heading-weight); font-size: 28px; font-variant-numeric: tabular-nums; }
+.gv-metric-sub { font-size: 11px; opacity: 0.6; margin-top: var(--space-1); }
+@media (max-width: 900px) { .gv-metrics { grid-template-columns: repeat(3, 1fr); } }
+
+.gv-pipeline-columns { display: grid; grid-template-columns: 1fr 1.2fr; gap: var(--space-6); align-items: start; }
+@media (max-width: 900px) { .gv-pipeline-columns { grid-template-columns: 1fr; } }
