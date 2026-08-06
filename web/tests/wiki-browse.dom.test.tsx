@@ -6,7 +6,7 @@
 // (see d874ac5~1), adapted to the /wiki/browse route: that file covered
 // WikiPage's inline behavior directly; the browsing half of that behavior now
 // lives in WikiBrowsePage while the ingestion-control half moved to
-// WikiStatusPage (see wiki-status.dom.test.tsx).
+// MemoryRulesPage (see memory-rules.dom.test.tsx).
 
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -384,7 +384,7 @@ describe("wiki browse route entity ontology", () => {
 // Fake-timer coverage for the 3s navigation refresh (ported from the retired
 // wiki.dom.test.tsx's "Page Wiki navigation refresh while auto inject is on"
 // describe block). WikiBrowsePage no longer owns an ingestion toggle switch
-// (that moved to WikiStatusPage), so unlike the retired test this drives the
+// (that moved to MemoryRulesPage), so unlike the retired test this drives the
 // gate through the ingestion GET's auto_inject value directly rather than a
 // mid-test UI click; usePolling's own visibility gating is already proven at
 // a page level in admin-operations-polling.dom.test.tsx, so it is not

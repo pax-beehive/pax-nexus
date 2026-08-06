@@ -21,9 +21,10 @@ import { OverviewPage } from "../pages/OverviewPage";
 import { AdminExplorerPage } from "../pages/AdminExplorerPage";
 import { WikiBrowsePage } from "../pages/WikiBrowsePage";
 import { TodoPage } from "../pages/TodoPage";
-import { WikiStatusPage } from "../pages/WikiStatusPage";
 import { TeamSettingsPage } from "../pages/TeamSettingsPage";
 import { AppearancePage } from "../pages/settings/AppearancePage";
+import { MemoryRulesPage } from "../pages/settings/MemoryRulesPage";
+import { ModelUsagePage } from "../pages/settings/ModelUsagePage";
 import { OnboardingPage } from "../pages/OnboardingPage";
 
 /** 角色矩阵门控；无权限一律回落地页，页面不挂载 = 不发请求。 */
@@ -189,9 +190,8 @@ export function PortalRoutes({ me }: { me: HumanMe }) {
       <Route path="/apps/todos" element={<TodoPage />} />
 
       {hasTeams(me) && <Route path="/settings/team" element={<TeamSettingsPage me={me} />} />}
-      <Route path="/settings/memory" element={<WikiStatusPage me={me} />} />
-      {/* 阶段 6 把 LLM 用量从 WikiStatusPage 拆出来独立成页。 */}
-      <Route path="/settings/usage" element={<WikiStatusPage me={me} />} />
+      <Route path="/settings/memory" element={<MemoryRulesPage me={me} />} />
+      <Route path="/settings/usage" element={<ModelUsagePage />} />
       <Route path="/settings/appearance" element={<AppearancePage />} />
 
       <Route path="*" element={<DefaultRedirect me={me} />} />

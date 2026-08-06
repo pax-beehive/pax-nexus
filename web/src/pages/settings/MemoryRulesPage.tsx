@@ -1,36 +1,39 @@
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import type { HumanMe } from "../api/types";
+import type { HumanMe } from "../../api/types";
 import {
-  getLLMUsage,
   getWikiIngestionStatus,
   getWikiSettings,
-  type LLMUsageRow,
   type WikiGenerationSettings,
   type WikiIngestionStatus,
-} from "../api/wiki";
+} from "../../api/wiki";
 import {
   beginAction,
   injectWikiSession,
   rebuildWiki,
   setWikiAutoInject,
   updateWikiSettings,
-} from "../api/actions";
-import { Button } from "../components/Button";
-import { isAbortError, usePolling } from "../lib/usePolling";
-import { useErrorHandler } from "../lib/useErrorHandler";
-import { WikiProgressCard } from "./wiki-status/WikiProgressCard";
-import { WikiIngestionCard } from "./wiki-status/WikiIngestionCard";
-import { CUSTOM_LANGUAGE, WikiGenerationCard } from "./wiki-status/WikiGenerationCard";
-import { WikiLLMUsageCard } from "./wiki-status/WikiLLMUsageCard";
-import { WikiRebuildDialog } from "./wiki-status/WikiRebuildDialog";
+} from "../../api/actions";
+import { Button } from "../../components/Button";
+import { Kicker } from "../../components/Kicker";
+import { isAbortError, usePolling } from "../../lib/usePolling";
+import { useErrorHandler } from "../../lib/useErrorHandler";
+import { WikiProgressCard } from "../wiki-status/WikiProgressCard";
+import { WikiIngestionCard } from "../wiki-status/WikiIngestionCard";
+import { CUSTOM_LANGUAGE, WikiGenerationCard } from "../wiki-status/WikiGenerationCard";
+import { WikiRebuildDialog } from "../wiki-status/WikiRebuildDialog";
 
 // Presets shown in the language select; "" is "Follow source evidence".
 // Loading a language outside this list (i.e. previously set to a free-form
 // value) falls back to the "Custom…" option with the value in a text input.
 const LANGUAGE_PRESETS = ["", "简体中文", "English"];
 
-export function WikiStatusPage({ me }: { me: HumanMe }) {
+/**
+ * /settings/memory — how memory gets written: ingestion status, extraction
+ * progress, and generation settings. Split from the former WikiStatusPage
+ * (phase 6 task 1); LLM token usage moved out to ModelUsagePage.
+ */
+export function MemoryRulesPage({ me }: { me: HumanMe }) {
   const navigate = useNavigate();
   const location = useLocation();
   const handleError = useErrorHandler();
@@ -56,13 +59,9 @@ export function WikiStatusPage({ me }: { me: HumanMe }) {
   const [settingsBusy, setSettingsBusy] = useState(false);
   const [settingsMessage, setSettingsMessage] = useState("");
 
-  // LLM token usage card: reloaded whenever the window selector changes.
-  const [usageDays, setUsageDays] = useState(7);
-  const [usage, setUsage] = useState<LLMUsageRow[]>([]);
-  const [usageError, setUsageError] = useState(false);
-
   // Legacy deep links: /wiki?page=<slug> used to render the wiki inline
-  // here. Forward the whole query string so revision links keep working.
+  // here, and the /wiki legacy route still lands on /settings/memory.
+  // Forward the whole query string so revision links keep working.
   const legacyPage = new URLSearchParams(location.search).get("page");
   useEffect(() => {
     if (legacyPage) {
@@ -108,20 +107,6 @@ export function WikiStatusPage({ me }: { me: HumanMe }) {
       });
     return () => controller.abort();
   }, [handleError]);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    getLLMUsage(usageDays, controller.signal)
-      .then((result) => {
-        setUsage(result.rows);
-        setUsageError(false);
-      })
-      .catch((error: unknown) => {
-        if (isAbortError(error)) return;
-        setUsageError(true);
-      });
-    return () => controller.abort();
-  }, [usageDays]);
 
   const saveSettings = async () => {
     setSettingsBusy(true);
@@ -204,17 +189,19 @@ export function WikiStatusPage({ me }: { me: HumanMe }) {
   };
 
   return (
-    <div className="wiki">
-      <header className="wiki-header">
+    <>
+      <div className="page-head">
         <div>
-          <span className="wiki-eyebrow">Grounded team knowledge</span>
-          <h1>Wiki</h1>
-          <p className="muted">Ingestion status and extraction progress for the team wiki.</p>
+          <Kicker>Settings · memory rules</Kicker>
+          <h1>记忆是怎么写出来的</h1>
+          <p className="muted flush memory-rules-copy">
+            这些规则只对以后的运行生效。要让它们作用于已有内容，就重建——它会重读证据、重写每一页。
+          </p>
         </div>
         <Button variant="primary" type="button" onClick={() => navigate("/wiki/browse")}>
           Open Wiki
         </Button>
-      </header>
+      </div>
 
       <WikiProgressCard status={status} statusError={statusError} />
 
@@ -245,13 +232,6 @@ export function WikiStatusPage({ me }: { me: HumanMe }) {
         onSave={saveSettings}
       />
 
-      <WikiLLMUsageCard
-        usageDays={usageDays}
-        usage={usage}
-        usageError={usageError}
-        onUsageDaysChange={setUsageDays}
-      />
-
       {rebuildOpen && (
         <WikiRebuildDialog
           busy={busy}
@@ -261,6 +241,6 @@ export function WikiStatusPage({ me }: { me: HumanMe }) {
           onClose={closeRebuild}
         />
       )}
-    </div>
+    </>
   );
 }

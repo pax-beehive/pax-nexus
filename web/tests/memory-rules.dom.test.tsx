@@ -1,11 +1,17 @@
-// The in-shell /wiki route is an observability page: ingestion controls,
-// extraction progress, an Open Wiki entry, and a legacy deep-link redirect
-// (spec 2026-07-29-wiki-standalone-page sections 1-3).
+// /settings/memory is the memory-rules settings page: ingestion controls,
+// extraction progress, generation settings, an Open Wiki entry, and a
+// legacy deep-link redirect (spec 2026-07-29-wiki-standalone-page sections
+// 1-3). LLM token usage used to render here too but was split out to its
+// own route at /settings/usage (ModelUsagePage, phase 6 task 1) — see
+// model-usage.dom.test.tsx for that card's coverage. The two "not render"
+// assertions below are the ones that actually prove the split: without
+// them, rendering the same component at both routes would pass everything
+// else here too.
 //
 // The ingestion-control cases below were ported from the retired
 // web/tests/wiki.dom.test.tsx (see d874ac5~1), adapted to the /wiki route:
 // that file exercised WikiPage's inline ingestion controls directly; those
-// controls now live on WikiStatusPage while browsing moved to
+// controls now live on MemoryRulesPage while browsing moved to
 // WikiBrowsePage (see wiki-browse.dom.test.tsx). The retired file's
 // "adds a dedicated Knowledge sidebar and renders grounded wiki context"
 // case asserted the old inline wiki at /wiki and no longer applies; it is
@@ -14,12 +20,21 @@
 
 import { describe, expect, it } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { apiErrorResponse, callsTo, jsonResponse, makeMe, renderApp, setupDomTest } from "./helpers";
+import { callsTo, jsonResponse, makeMe, renderApp, setupDomTest } from "./helpers";
 import { llmUsageFixture, wikiFetch } from "./wikiFixtures";
 
 setupDomTest();
 
-describe("wiki status page", () => {
+describe("memory rules page", () => {
+  it("renders the progress, ingestion, and generation cards but not the LLM usage card", async () => {
+    await renderApp({ route: "/settings/memory", me: makeMe(), fetch: wikiFetch });
+
+    await screen.findByRole("region", { name: "Extraction progress" });
+    await screen.findByRole("region", { name: "Wiki ingestion controls" });
+    await screen.findByRole("region", { name: "Wiki generation settings" });
+    expect(screen.queryByRole("region", { name: "LLM token usage" })).toBeNull();
+  });
+
   it("shows ingestion controls, progress, and opens the full-screen wiki", async () => {
     const { user } = await renderApp({
       route: "/settings/memory",
@@ -107,7 +122,7 @@ describe("wiki status page", () => {
 // -- ingestion controls: toggle, fixed-session injection, and owner-only
 // reset & rebuild (ported from the retired wiki.dom.test.tsx's "Page Wiki
 // portal integration" describe block) --
-describe("wiki status page ingestion controls", () => {
+describe("memory rules page ingestion controls", () => {
   it("toggles auto injection and manually injects a fixed session", async () => {
     const { user, fetchMock } = await renderApp({
       route: "/settings/memory",
@@ -345,7 +360,7 @@ describe("wiki status page ingestion controls", () => {
 });
 
 // -- generation settings card (spec 2026-07-30-wiki-generation-settings) --
-describe("wiki status page generation settings", () => {
+describe("memory rules page generation settings", () => {
   it("renders defaults when no language or instructions are configured", async () => {
     await renderApp({
       route: "/settings/memory",
@@ -427,48 +442,5 @@ describe("wiki status page generation settings", () => {
     await waitFor(() => expect(languageSelect.value).toBe("custom"));
     const customInput = (await screen.findByLabelText("Custom language")) as HTMLInputElement;
     expect(customInput.value).toBe("日本語");
-  });
-});
-
-// -- LLM usage card (2026-07-31-llm-token-metering task 4) --
-describe("wiki status page LLM usage", () => {
-  it("renders a table with a row per component plus a totals row", async () => {
-    await renderApp({ route: "/settings/memory", me: makeMe(), fetch: wikiFetch });
-
-    const card = await screen.findByRole("region", { name: "LLM token usage" });
-    within(card).getByText("extractor");
-    within(card).getByText("wiki-editor");
-    within(card).getByText("120,000");
-    within(card).getByText("400,000");
-    // Totals row: calls 12+30=42, input 120000+400000=520,000.
-    within(card).getByText("42");
-    within(card).getByText("520,000");
-  });
-
-  it("refetches with the selected window when the select changes", async () => {
-    const { user, fetchMock } = await renderApp({ route: "/settings/memory", me: makeMe(), fetch: wikiFetch });
-
-    const card = await screen.findByRole("region", { name: "LLM token usage" });
-    expect(callsTo(fetchMock, "/v1/llm-usage?days=7")).toHaveLength(1);
-
-    await user.selectOptions(within(card).getByLabelText("Window"), "30");
-
-    await waitFor(() => expect(callsTo(fetchMock, "/v1/llm-usage?days=30")).toHaveLength(1));
-  });
-
-  it("shows an unavailable note when the usage endpoint fails, page otherwise intact", async () => {
-    await renderApp({
-      route: "/settings/memory",
-      me: makeMe(),
-      fetch: (path) => {
-        if (path.startsWith("/v1/llm-usage")) return apiErrorResponse(500, "internal", "boom");
-        return wikiFetch(path);
-      },
-    });
-
-    await screen.findByRole("switch");
-    const card = await screen.findByRole("region", { name: "LLM token usage" });
-    within(card).getByText("LLM usage is unavailable.");
-    expect(screen.queryByText("extractor")).toBeNull();
   });
 });
