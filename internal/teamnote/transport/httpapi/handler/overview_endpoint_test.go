@@ -1,6 +1,7 @@
 package handler_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -31,6 +32,7 @@ type overviewHandlerSuite struct {
 	explorer     *explorerLifecycle
 	registry     *agentRegistryService
 	sessionAudit *overviewSessionAudit
+	logs         *bytes.Buffer
 	handler      *handler.Handler
 }
 
@@ -48,13 +50,18 @@ func (s *overviewHandlerSuite) SetupTest() {
 	s.explorer = &explorerLifecycle{now: s.operations.now}
 	s.registry = &agentRegistryService{}
 	s.sessionAudit = &overviewSessionAudit{}
+	// logs captures every record at Debug and above (instead of discarding
+	// them) so tests can assert on log level/content — in particular that a
+	// role-forbidden degraded source stays at Debug while a genuine failure
+	// on the same source still reaches Warn.
+	s.logs = &bytes.Buffer{}
 	s.handler = s.newHandler()
 }
 
 func (s *overviewHandlerSuite) newHandler() *handler.Handler {
 	configured, err := handler.NewOnPrem(
 		mocks.NewMockRuntime(s.controller), &credentialService{}, &memoryService{}, &channelService{},
-		slog.New(slog.DiscardHandler),
+		slog.New(slog.NewTextHandler(s.logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
 		handler.WithAgentRegistry(s.registry),
 		handler.WithHumanIdentity(s.identity, &oidcService{}, "/portal", false),
 		handler.WithOperations(s.operations, &operationsRecorder{}),
@@ -229,6 +236,45 @@ func (s *overviewHandlerSuite) TestSummaryFailureFailsTheWholeRequest() {
 	response := s.perform("/v1/admin/overview")
 
 	s.Equal(consts.StatusInternalServerError, response.Code)
+}
+
+// TestNoteMixForbiddenForRoleDegradesQuietly pins the fix for the
+// per-Admin-request Warn noise: NoteMix requires CapabilityViewTeamMemory
+// (Owner only), stricter than GetOverview's own view.operations gate
+// (Owner+Admin), so an Admin principal predictably degrades that section on
+// every request. That is an expected authorization outcome, not a source
+// failure — the response must still be 200 with an empty note_mix, but the
+// degradation must not log at Warn (that would drown real outages in
+// routine per-Admin-request noise). It may still log at Debug.
+func (s *overviewHandlerSuite) TestNoteMixForbiddenForRoleDegradesQuietly() {
+	s.explorer.noteMixErr = onprem.ErrForbidden
+
+	response := s.perform("/v1/admin/overview")
+
+	s.Equal(consts.StatusOK, response.Code)
+	body := s.decode(response)
+	s.Empty(body.NoteMix, "a role-forbidden note mix must degrade to an empty section, not fail the request")
+	s.NotContains(s.logs.String(), "level=WARN", "a role-forbidden source must never log at Warn")
+	s.Contains(
+		s.logs.String(), "overview note mix degraded",
+		"the degradation should still be observable, just at Debug rather than Warn",
+	)
+}
+
+// TestNoteMixGenuineFailureStillWarns is the other half of the assertion
+// above: a real source failure (not onprem.ErrForbidden) on the very same
+// NoteMix call must still log at Warn, so operators are not blinded to
+// actual outages by the ErrForbidden quieting.
+func (s *overviewHandlerSuite) TestNoteMixGenuineFailureStillWarns() {
+	s.explorer.noteMixErr = errors.New("note mix store unavailable")
+
+	response := s.perform("/v1/admin/overview")
+
+	s.Equal(consts.StatusOK, response.Code)
+	body := s.decode(response)
+	s.Empty(body.NoteMix, "a failed note mix source must still degrade to an empty section")
+	s.Contains(s.logs.String(), "level=WARN", "a genuine note mix failure must log at Warn")
+	s.Contains(s.logs.String(), "overview note mix degraded")
 }
 
 // overviewSessionAudit is a minimal SessionAuditQuery fake for the Overview

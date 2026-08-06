@@ -530,7 +530,11 @@ func (s *RegistryService) ListExpiringEnrollments(
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
-	return s.store.ListExpiringEnrollments(ctx, before, s.clock().UTC(), limit)
+	result, err := s.store.ListExpiringEnrollments(ctx, before, s.clock().UTC(), limit)
+	if err != nil {
+		return nil, fmt.Errorf("list expiring enrollments: %w", err)
+	}
+	return result, nil
 }
 
 func (s *RegistryService) RevokeEnrollment(

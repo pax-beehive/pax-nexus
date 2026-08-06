@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -56,6 +57,29 @@ const (
 // section empty and logs a warning, so one broken subsystem never blanks the
 // whole page. h.operations.Summary is the exception — it supplies the
 // metrics body the page is built around, so its failure fails the request.
+//
+// A degradable source can also fail with onprem.ErrForbidden rather than a
+// genuine error — e.g. NoteMix requires CapabilityViewTeamMemory (Owner
+// only), stricter than this endpoint's own CapabilityViewOperations gate
+// (Owner+Admin), so every Admin request degrades that section. That is an
+// expected authorization outcome, not a source failure: it is logged at
+// Debug (see logOverviewDegraded) instead of Warn, so real outages are not
+// drowned out by routine role gaps. This changes no authorization — Admins
+// still do not see the note mix.
+// logOverviewDegraded logs one degraded overview source. onprem.ErrForbidden
+// means the caller's role simply doesn't reach that source's own (possibly
+// stricter) capability — expected, not an outage — so it logs at Debug and
+// stays silent by default. Every other error is a genuine failure and logs
+// at Warn as before.
+func (h *Handler) logOverviewDegraded(msg string, err error, args ...any) {
+	args = append(args, "error", err)
+	if errors.Is(err, onprem.ErrForbidden) {
+		h.logger.Debug(msg, args...)
+		return
+	}
+	h.logger.Warn(msg, args...)
+}
+
 func (h *Handler) GetOverview(ctx context.Context, c *app.RequestContext) {
 	principal, ok := h.authorizeOperations(ctx, c)
 	if !ok {
@@ -102,7 +126,7 @@ func (h *Handler) GetOverview(ctx context.Context, c *app.RequestContext) {
 		defer wg.Done()
 		result, err := h.operations.Series(ctx, principal, filter, spec.bucket)
 		if err != nil {
-			h.logger.Warn("overview series degraded", "error", err)
+			h.logOverviewDegraded("overview series degraded", err)
 			return
 		}
 		series = result
@@ -114,7 +138,7 @@ func (h *Handler) GetOverview(ctx context.Context, c *app.RequestContext) {
 		}
 		result, err := h.explorer.NoteMix(ctx, principal, now)
 		if err != nil {
-			h.logger.Warn("overview note mix degraded", "error", err)
+			h.logOverviewDegraded("overview note mix degraded", err)
 			return
 		}
 		noteMix = result
@@ -128,14 +152,14 @@ func (h *Handler) GetOverview(ctx context.Context, c *app.RequestContext) {
 			ScopeID: principal.ScopeID, Severity: string(audit.LevelHigh), Limit: overviewFindingsLimit,
 		})
 		if err != nil {
-			h.logger.Warn("overview findings degraded", "severity", "high", "error", err)
+			h.logOverviewDegraded("overview findings degraded", err, "severity", "high")
 			return
 		}
 		critical, err := h.sessionAudit.ListFindings(ctx, audit.FindingFilter{
 			ScopeID: principal.ScopeID, Severity: string(audit.LevelCritical), Limit: overviewFindingsLimit,
 		})
 		if err != nil {
-			h.logger.Warn("overview findings degraded", "severity", "critical", "error", err)
+			h.logOverviewDegraded("overview findings degraded", err, "severity", "critical")
 			return
 		}
 		highFindings, criticalFindings = high, critical
@@ -149,7 +173,7 @@ func (h *Handler) GetOverview(ctx context.Context, c *app.RequestContext) {
 			Status: onprem.InvitationStatusPending, Limit: overviewInvitationLimit,
 		})
 		if err != nil {
-			h.logger.Warn("overview invitations degraded", "error", err)
+			h.logOverviewDegraded("overview invitations degraded", err)
 			return
 		}
 		invitations = result
@@ -161,7 +185,7 @@ func (h *Handler) GetOverview(ctx context.Context, c *app.RequestContext) {
 		}
 		result, err := h.registry.ListExpiringEnrollments(ctx, principal, expiringBefore, overviewEnrollmentLimit)
 		if err != nil {
-			h.logger.Warn("overview enrollments degraded", "error", err)
+			h.logOverviewDegraded("overview enrollments degraded", err)
 			return
 		}
 		enrollments = result
@@ -173,9 +197,16 @@ func (h *Handler) GetOverview(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
-	attention, attentionTotal := overviewAttention(
+	attention := overviewAttention(
 		now, expiringBefore, summary, highFindings, criticalFindings, invitations, enrollments,
 	)
+	// attentionTotal is taken before the overviewAttentionLimit truncation
+	// below, but each source feeding overviewAttention was itself already
+	// capped upstream (overviewFindingsLimit/overviewInvitationLimit/
+	// overviewEnrollmentLimit, ~100 each) — so metrics.attention_count is a
+	// floor on the true count, not an exact census, whenever any source is
+	// at its cap.
+	attentionTotal := len(attention)
 	if len(attention) > overviewAttentionLimit {
 		attention = attention[:overviewAttentionLimit]
 	}
@@ -205,7 +236,7 @@ var overviewSeverityRank = map[string]int{
 // overviewAttention builds the merged attention queue from the four owning
 // sources and sorts it by severity (descending), then by At (ascending —
 // the most imminent/most recent item within a severity band leads). It
-// returns the full sorted list and its length; the caller truncates to
+// returns the full sorted list; the caller truncates to
 // overviewAttentionLimit and uses the pre-truncation length for
 // metrics.attention_count.
 func overviewAttention(
@@ -214,7 +245,7 @@ func overviewAttention(
 	highFindings, criticalFindings []audit.Finding,
 	invitations []onprem.Invitation,
 	enrollments []onprem.AgentEnrollmentMetadata,
-) ([]overviewAttentionEntry, int) {
+) []overviewAttentionEntry {
 	var entries []overviewAttentionEntry
 
 	for _, finding := range highFindings {
@@ -257,7 +288,7 @@ func overviewAttention(
 		return entries[i].At.Before(entries[j].At)
 	})
 
-	return entries, len(entries)
+	return entries
 }
 
 func findingAttentionEntry(finding audit.Finding) overviewAttentionEntry {
