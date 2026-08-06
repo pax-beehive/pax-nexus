@@ -134,6 +134,10 @@ type AgentRegistryLifecycle interface {
 	RevokeDevice(context.Context, onprem.HumanPrincipal, string, string) (onprem.DeviceSummary, error)
 	ListDevices(context.Context, onprem.HumanPrincipal, onprem.DeviceFilter) ([]onprem.DeviceSummary, error)
 	GetDevice(context.Context, onprem.HumanPrincipal, string) (onprem.DeviceDetail, error)
+	// ListExpiringEnrollments is the Overview endpoint's team-wide read of
+	// pending/expired one-time enrollment tokens; owner/admin only, like the
+	// device listing above — not the per-agent enrollment listing.
+	ListExpiringEnrollments(context.Context, onprem.HumanPrincipal, time.Time, int) ([]onprem.AgentEnrollmentMetadata, error)
 }
 
 type OperationsLifecycle interface {
@@ -143,6 +147,10 @@ type OperationsLifecycle interface {
 	LatestStorage(context.Context, onprem.HumanPrincipal) (operations.StorageSnapshot, error)
 	ListStorage(context.Context, onprem.HumanPrincipal, operations.StorageFilter) ([]operations.StorageSnapshot, error)
 	AgentStats(context.Context, onprem.HumanPrincipal, operations.TimeFilter) (operations.AgentStatsReport, error)
+	// Series is the Overview endpoint's bucketed throughput read. The bucket
+	// duration is always server-derived from the requested window, never
+	// client-supplied.
+	Series(context.Context, onprem.HumanPrincipal, operations.TimeFilter, time.Duration) ([]operations.SeriesBucket, error)
 }
 
 type ExplorerLifecycle interface {
@@ -150,6 +158,8 @@ type ExplorerLifecycle interface {
 	GetTeamNote(context.Context, onprem.HumanPrincipal, string) (explorer.TeamNoteDetail, error)
 	GetExtractionDiagnostic(context.Context, onprem.HumanPrincipal, string) (explorer.ExtractionDiagnostic, error)
 	GetChannelDiagnostic(context.Context, onprem.HumanPrincipal, string) (explorer.ChannelDiagnostic, error)
+	// NoteMix is the Overview endpoint's live-note breakdown by kind.
+	NoteMix(context.Context, onprem.HumanPrincipal, time.Time) ([]explorer.NoteKindCount, error)
 }
 
 type WikiControl interface {

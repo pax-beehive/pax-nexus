@@ -284,6 +284,16 @@ func (s *scopedOperationsService) AgentStats(
 	return service.AgentStats(ctx, principal, filter)
 }
 
+func (s *scopedOperationsService) Series(
+	ctx context.Context, principal onprem.HumanPrincipal, filter operations.TimeFilter, bucket time.Duration,
+) ([]operations.SeriesBucket, error) {
+	service, err := s.forPrincipal(principal)
+	if err != nil {
+		return nil, err
+	}
+	return service.Series(ctx, principal, filter, bucket)
+}
+
 // scopedExplorerService implements handler.ExplorerLifecycle for the SaaS
 // profile with the same per-call scope delegation as
 // scopedOperationsService.
@@ -340,4 +350,14 @@ func (s *scopedExplorerService) GetChannelDiagnostic(
 		return explorer.ChannelDiagnostic{}, err
 	}
 	return service.GetChannelDiagnostic(ctx, principal, envelopeID)
+}
+
+func (s *scopedExplorerService) NoteMix(
+	ctx context.Context, principal onprem.HumanPrincipal, at time.Time,
+) ([]explorer.NoteKindCount, error) {
+	service, err := s.forPrincipal(principal)
+	if err != nil {
+		return nil, err
+	}
+	return service.NoteMix(ctx, principal, at)
 }

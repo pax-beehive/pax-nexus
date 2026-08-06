@@ -69,6 +69,32 @@ func (s *OperationsService) Summary(
 	return result, nil
 }
 
+// Series answers the Overview endpoint's bucketed throughput read. It shares
+// the summary window's authorization and normalization — the caller must
+// hold view.operations, and an unset/oversized window is filled in and
+// bounds-checked exactly like Summary — the bucket size, however, is the
+// caller's to fix (the HTTP handler derives it from the requested window
+// server-side; it is never client-supplied at this layer either).
+func (s *OperationsService) Series(
+	ctx context.Context,
+	principal HumanPrincipal,
+	filter operations.TimeFilter,
+	bucket time.Duration,
+) ([]operations.SeriesBucket, error) {
+	if err := authorizeHumanCapability(principal, CapabilityViewOperations); err != nil {
+		return nil, err
+	}
+	filter, err := s.normalizeTimeFilter(filter, s.config.EventRetention, defaultOperationsWindow)
+	if err != nil {
+		return nil, err
+	}
+	result, err := s.repository.Series(ctx, filter, bucket)
+	if err != nil {
+		return nil, fmt.Errorf("get operations series: %w", err)
+	}
+	return result, nil
+}
+
 func (s *OperationsService) ListEvents(
 	ctx context.Context,
 	principal HumanPrincipal,

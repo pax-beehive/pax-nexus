@@ -7,21 +7,15 @@ import (
 
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
-	api "github.com/pax-beehive/pax-nexus/internal/teamnote/transport/httpapi/model/teammemory/api"
 )
 
 // GetOverview .
 // @router /v1/admin/overview [GET]
 func GetOverview(ctx context.Context, c *app.RequestContext) {
-	var err error
-	var req api.OverviewRequest
-	err = c.BindAndValidate(&req)
-	if err != nil {
-		c.String(consts.StatusBadRequest, err.Error())
+	handler, ok := handlerFromRequest(c)
+	if !ok {
+		c.String(consts.StatusInternalServerError, "runtime is not configured")
 		return
 	}
-
-	resp := new(api.OverviewResponse)
-
-	c.JSON(consts.StatusOK, resp)
+	handler.GetOverview(ctx, c)
 }

@@ -154,6 +154,23 @@ type operationsLifecycle struct {
 	eventFilter   operations.EventFilter
 	agentFilter   operations.TimeFilter
 	recallErr     error
+
+	// summaryCalls/summaryErr/summaryQuarantined let Overview tests count
+	// invocations (e.g. the 403 no-downstream-calls path) and force the one
+	// source whose failure must fail the whole Overview request.
+	summaryCalls       int
+	summaryErr         error
+	summaryQuarantined int64
+
+	// series* back Series, the Overview endpoint's bucketed throughput read.
+	// calls counts invocations; result, when set, is returned verbatim,
+	// otherwise a bucket is synthesized per (To-From)/bucket so window→bucket
+	// count tests don't need to hand-build a series.
+	seriesCalls  int
+	seriesFilter operations.TimeFilter
+	seriesBucket time.Duration
+	seriesResult []operations.SeriesBucket
+	seriesErr    error
 }
 
 func (s *operationsLifecycle) Summary(
@@ -161,17 +178,46 @@ func (s *operationsLifecycle) Summary(
 	principal onprem.HumanPrincipal,
 	filter operations.TimeFilter,
 ) (operations.Summary, error) {
+	s.summaryCalls++
 	if !operationsRoleAllowed(principal) {
 		return operations.Summary{}, onprem.ErrForbidden
 	}
 	s.summaryFilter = filter
+	if s.summaryErr != nil {
+		return operations.Summary{}, s.summaryErr
+	}
 	return operations.Summary{
 		From: filter.From, To: filter.To, GeneratedAt: s.now,
 		Observations: operations.ObservationSummary{Requests: 4, Succeeded: 4, EventsWritten: 3, DuplicateEvents: 1},
-		Extraction:   operations.ExtractionSummary{Runs: 2, Completed: 1, UnextractedEvents: 2},
+		Extraction:   operations.ExtractionSummary{Runs: 2, Completed: 1, UnextractedEvents: 2, Quarantined: s.summaryQuarantined},
 		Recalls:      operations.RecallSummary{Requests: 5, Succeeded: 4, WithEvidence: 3, MemoryHits: 7},
 		Latency:      operations.LatencySummary{SampleCount: 9}, Errors: 1,
 	}, nil
+}
+
+func (s *operationsLifecycle) Series(
+	_ context.Context,
+	principal onprem.HumanPrincipal,
+	filter operations.TimeFilter,
+	bucket time.Duration,
+) ([]operations.SeriesBucket, error) {
+	s.seriesCalls++
+	if !operationsRoleAllowed(principal) {
+		return nil, onprem.ErrForbidden
+	}
+	s.seriesFilter, s.seriesBucket = filter, bucket
+	if s.seriesErr != nil {
+		return nil, s.seriesErr
+	}
+	if s.seriesResult != nil {
+		return s.seriesResult, nil
+	}
+	count := int(filter.To.Sub(filter.From) / bucket)
+	buckets := make([]operations.SeriesBucket, 0, count)
+	for i := 0; i < count; i++ {
+		buckets = append(buckets, operations.SeriesBucket{BucketAt: filter.From.Add(time.Duration(i) * bucket)})
+	}
+	return buckets, nil
 }
 
 func (s *operationsLifecycle) ListEvents(
