@@ -57,26 +57,29 @@ describe("devicesOf / agentsOf / looseAgentsOf", () => {
 describe("summarizePeople", () => {
   it("counts each role", () => {
     const counts = summarizePeople([
-      makeMember({ membership_id: "m1", role: "owner" }),
-      makeMember({ membership_id: "m2", role: "admin" }),
-      makeMember({ membership_id: "m3", role: "member" }),
-      makeMember({ membership_id: "m4", role: "member" }),
+      makeMember({ membership_id: "owner1", role: "owner" }),
+      makeMember({ membership_id: "admin1", role: "admin" }),
+      makeMember({ membership_id: "admin2", role: "admin" }),
+      makeMember({ membership_id: "member1", role: "member" }),
+      makeMember({ membership_id: "member2", role: "member" }),
+      makeMember({ membership_id: "member3", role: "member" }),
     ]);
-    expect(counts).toEqual({ total: 4, owners: 1, admins: 1, members: 2 });
+    expect(counts).toEqual({ total: 6, owners: 1, admins: 2, members: 3 });
   });
 });
 
 describe("summarizeMachines", () => {
   it("counts machine states and people with no machine at all", () => {
-    const members = [makeMember({ membership_id: "m1" }), makeMember({ membership_id: "m2" })];
+    const members = [makeMember({ membership_id: "user1" }), makeMember({ membership_id: "user2" }), makeMember({ membership_id: "user3" })];
     const devices = [
-      makeDevice({ credential_id: "d1", created_by_membership_id: "m1", status: "active" }),
-      makeDevice({ credential_id: "d2", created_by_membership_id: "m1", status: "revoked" }),
+      makeDevice({ credential_id: "dev_active1", created_by_membership_id: "user1", status: "active" }),
+      makeDevice({ credential_id: "dev_revoked1", created_by_membership_id: "user2", status: "revoked" }),
+      makeDevice({ credential_id: "dev_revoked2", created_by_membership_id: "user2", status: "revoked" }),
     ];
     expect(summarizeMachines(devices, members)).toEqual({
-      total: 2,
+      total: 3,
       connected: 1,
-      revoked: 1,
+      revoked: 2,
       peopleWithoutMachine: 1,
     });
   });
@@ -96,11 +99,13 @@ describe("summarizeAgents", () => {
   it("counts each agent status", () => {
     expect(
       summarizeAgents([
-        makeAgent({ agent_id: "a", status: "active" }),
-        makeAgent({ agent_id: "b", status: "suspended" }),
-        makeAgent({ agent_id: "c", status: "retired" }),
-        makeAgent({ agent_id: "d", status: "active" }),
+        makeAgent({ agent_id: "active1", status: "active" }),
+        makeAgent({ agent_id: "active2", status: "active" }),
+        makeAgent({ agent_id: "suspended1", status: "suspended" }),
+        makeAgent({ agent_id: "retired1", status: "retired" }),
+        makeAgent({ agent_id: "retired2", status: "retired" }),
+        makeAgent({ agent_id: "retired3", status: "retired" }),
       ]),
-    ).toEqual({ total: 4, active: 2, suspended: 1, retired: 1 });
+    ).toEqual({ total: 6, active: 2, suspended: 1, retired: 3 });
   });
 });
