@@ -39,3 +39,8 @@
 .ag-keys-note { margin-left: auto; font-size: 11px; opacity: 0.5; }
 .ag-enrollment { display: grid; grid-template-columns: 1fr auto auto; gap: var(--space-4); align-items: center; border-top: 1px solid var(--color-divider); padding: var(--space-3) 0; }
 .ag-enrollment-id { font-family: var(--font-mono); font-size: 11px; opacity: 0.45; }
+
+/* Header：面包屑下方的标题行 + 归属事实行；Recent behaviour 的三格。 */
+.ag-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-6); padding: var(--space-6) var(--space-4) var(--space-4); }
+.ag-head-facts { display: flex; flex-wrap: wrap; gap: var(--space-4); margin-top: var(--space-2); font-size: 12px; align-items: center; }
+.ag-metrics { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--color-divider); }
