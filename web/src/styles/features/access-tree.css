@@ -10,7 +10,7 @@
 .at-row-go { opacity: 0.35; text-align: right; }
 
 .at-people { grid-template-columns: minmax(220px, 1fr) minmax(200px, 1fr) 110px 110px 24px; }
-.at-machines { grid-template-columns: minmax(220px, 1fr) 120px 110px minmax(140px, 1fr) auto 24px; }
+.at-machines { grid-template-columns: minmax(220px, 1fr) 120px 110px minmax(140px, 1fr) 24px; }
 .at-agents { grid-template-columns: minmax(240px, 1fr) 120px 120px minmax(140px, 1fr) 24px; }
 
 .at-head { display: grid; grid-template-columns: 1fr auto; gap: var(--space-4); align-items: center; padding: var(--space-3) var(--space-4); border-bottom: 2px solid var(--color-divider); background: color-mix(in srgb, var(--color-text) 5%, transparent); }

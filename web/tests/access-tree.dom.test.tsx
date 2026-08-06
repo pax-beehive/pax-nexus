@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { screen } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import {
   callsTo,
   jsonResponse,
   makeAgent,
   makeDevice,
+  makeDeviceAgent,
   makeMe,
   makeMember,
   renderApp,
@@ -208,5 +209,66 @@ describe("Access tree · machines level", () => {
     await user.click(await screen.findByRole("link", { name: "Everyone" }));
 
     expect(window.location.search).not.toContain("person=");
+  });
+});
+
+describe("Access tree · agents level", () => {
+  const deviceDetail = {
+    device: makeDevice({
+      credential_id: "dev_a",
+      device_name: "alice-macbook",
+      created_by_membership_id: "mbr_01",
+      provisioned_agent_count: 2,
+    }),
+    agents: [
+      makeDeviceAgent({ agent_id: "alice-codex", credential_id: "cred_1" }),
+      makeDeviceAgent({ agent_id: "alice-claude", credential_id: "cred_2" }),
+      // 已吊销的历史行：不该出现在展示里，也不该进级联预览。
+      makeDeviceAgent({ agent_id: "alice-codex", credential_id: "cred_0", revoked_at: "2026-07-01T00:00:00Z" }),
+    ],
+  };
+
+  const detailFetch = (path: string) => {
+    if (path === "/v1/admin/devices/dev_a") return jsonResponse(deviceDetail);
+    return treeFetch(path);
+  };
+
+  it("lists the machine's live agents", async () => {
+    await renderApp({
+      route: "/management?person=mbr_01&machine=dev_a",
+      me: makeMe({ membership_id: "mbr_01" }),
+      fetch: (path) => detailFetch(path),
+    });
+
+    await screen.findByText("alice-codex");
+    screen.getByText("alice-claude");
+    // 吊销的历史行不展示
+    expect(screen.queryByText("cred_0")).toBeNull();
+  });
+
+  it("shows a cascade preview whose row count equals the displayed agent rows", async () => {
+    const { user } = await renderApp({
+      route: "/management?person=mbr_01&machine=dev_a",
+      me: makeMe({ membership_id: "mbr_01" }),
+      fetch: (path) => detailFetch(path),
+    });
+
+    const displayed = (await screen.findAllByText(/alice-(codex|claude)/)).length;
+    await user.click(screen.getByRole("button", { name: /revoke this machine/i }));
+
+    const dialog = await screen.findByRole("dialog");
+    const previewRows = within(dialog).getAllByRole("row").length - 1; // 减表头
+    expect(previewRows).toBe(displayed);
+  });
+
+  it("falls back to the machine's owner level when ?machine= is stale", async () => {
+    await renderApp({
+      route: "/management?person=mbr_01&machine=dev_gone",
+      me: makeMe({ membership_id: "mbr_01" }),
+      fetch: (path) => detailFetch(path),
+    });
+
+    await screen.findByText("alice-macbook");
+    screen.getByText(/no longer exists/i);
   });
 });

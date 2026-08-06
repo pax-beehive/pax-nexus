@@ -1,14 +1,17 @@
 import { useNavigate, useSearchParams } from "react-router-dom";
-import type { HumanMe } from "../api/types";
+import type { AgentProfile, DeviceSummary, HumanMe, Member } from "../api/types";
 import { can } from "../lib/capabilities";
+import { aliveProvisionedAgents } from "../lib/devices";
 import { Button } from "../components/Button";
 import { Crumbs } from "../components/Crumbs";
 import { MyAgentsPage } from "./MyAgentsPage";
 import { AccessSummary } from "./management/AccessSummary";
 import { devicesOf, looseAgentsOf } from "./management/accessTree";
+import { DeviceAgentsLevel } from "./management/DeviceAgentsLevel";
 import { MachinesLevel } from "./management/MachinesLevel";
 import { PeopleLevel } from "./management/PeopleLevel";
 import { useAccessSnapshot } from "./management/useAccessSnapshot";
+import { useDeviceDetail } from "./management/useDeviceDetail";
 
 /**
  * Management 根节点的角色分叉。member 不能读 /v1/admin/*，所以这里不能调用
@@ -32,6 +35,11 @@ function AdminAccessTree({ me }: { me: HumanMe }) {
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
   const snapshot = useAccessSnapshot();
+  // 无条件调用，与 useAccessSnapshot 并列：不能塞进下面任何 if 分支，
+  // 否则 hook 调用顺序在渲染间不一致。credentialId 为 undefined 时
+  // useDeviceDetail 内部直接落成 "ready"、不发请求。
+  const requestedMachine = params.get("machine") ?? undefined;
+  const deviceDetail = useDeviceDetail(requestedMachine);
 
   if (snapshot.status === "loading") return <p className="muted">Loading…</p>;
   if (snapshot.status === "error" || !snapshot.snapshot) {
@@ -55,8 +63,79 @@ function AdminAccessTree({ me }: { me: HumanMe }) {
     setParams({ person: membershipId });
   };
 
-  // 第 2 层：某人的机器。devices/agents 缺腿时这一层没有意义，回落到根层。
-  if (person && devices && agents) {
+  // 第 2 层（含第 3 层的回落目标）：某人的机器。抽成局部函数以便第 3 层的
+  // stale-machine 回落复用同一段渲染，只多一条说明。
+  const renderMachinesLevel = (
+    activePerson: Member,
+    personDevices: DeviceSummary[],
+    personAgents: AgentProfile[],
+    options: { staleMachine: boolean },
+  ) => (
+    <>
+      <div className="page-head">
+        <div>
+          <p className="card-kicker">MANAGEMENT · ACCESS TREE</p>
+          <h1>Access flows downward</h1>
+        </div>
+      </div>
+
+      <AccessSummary snapshot={snapshot.snapshot!} />
+
+      <div className="at-bar">
+        <Crumbs
+          items={[
+            { label: "Everyone", to: "/management" },
+            { label: activePerson.display_name },
+          ]}
+        />
+        <span className="at-bar-hint">
+          {devicesOf(personDevices, activePerson.membership_id).length} machines
+        </span>
+      </div>
+
+      {options.staleMachine && (
+        <div className="note warn small" role="status">
+          That machine no longer exists, so we brought you back to {activePerson.display_name}’s
+          machines.
+        </div>
+      )}
+
+      <MachinesLevel
+        person={activePerson}
+        devices={devicesOf(personDevices, activePerson.membership_id)}
+        looseAgents={looseAgentsOf(personAgents, activePerson.membership_id)}
+        isSelf={activePerson.membership_id === me.membership_id}
+        onDrill={(credentialId) =>
+          setParams({ person: activePerson.membership_id, machine: credentialId })
+        }
+        onCreateAgent={() => navigate("/management/agents")}
+        onConnectMachine={() => navigate("/management/devices")}
+      />
+    </>
+  );
+
+  // 第 3 层：某机器的 Agent。放在第 2 层分支之前——machine 参数存在时，
+  // 这一层（或它的 stale 回落）才是该渲染的内容。
+  if (person && devices && agents && requestedMachine) {
+    const device = devicesOf(devices, person.membership_id).find(
+      (candidate) => candidate.credential_id === requestedMachine,
+    );
+    if (!device) {
+      // 机器已删或不属于这个人：回落到这个人的机器层并说明。
+      return renderMachinesLevel(person, devices, agents, { staleMachine: true });
+    }
+    if (deviceDetail.status === "loading") return <p className="muted">Loading…</p>;
+    if (deviceDetail.status === "error" || !deviceDetail.detail) {
+      return (
+        <div className="note bad row between" role="alert">
+          <span>Could not load this machine’s agents.</span>
+          <Button size="sm" onClick={deviceDetail.retry}>
+            Retry
+          </Button>
+        </div>
+      );
+    }
+    const liveAgents = aliveProvisionedAgents(deviceDetail.detail.agents);
     return (
       <>
         <div className="page-head">
@@ -72,25 +151,29 @@ function AdminAccessTree({ me }: { me: HumanMe }) {
           <Crumbs
             items={[
               { label: "Everyone", to: "/management" },
-              { label: person.display_name },
+              { label: person.display_name, to: `/management?person=${person.membership_id}` },
+              { label: device.device_name },
             ]}
           />
-          <span className="at-bar-hint">
-            {devicesOf(devices, person.membership_id).length} machines
-          </span>
+          <span className="at-bar-hint">{liveAgents.length} agents</span>
         </div>
 
-        <MachinesLevel
+        <DeviceAgentsLevel
           person={person}
-          devices={devicesOf(devices, person.membership_id)}
-          looseAgents={looseAgentsOf(agents, person.membership_id)}
-          isSelf={person.membership_id === me.membership_id}
-          onDrill={(credentialId) => setParams({ person: person.membership_id, machine: credentialId })}
-          onCreateAgent={() => navigate("/management/agents")}
-          onConnectMachine={() => navigate("/management/devices")}
+          device={device}
+          agents={liveAgents}
+          onRevoked={() => {
+            snapshot.retry();
+            setParams({ person: person.membership_id });
+          }}
         />
       </>
     );
+  }
+
+  // 第 2 层：某人的机器。devices/agents 缺腿时这一层没有意义，回落到根层。
+  if (person && devices && agents) {
+    return renderMachinesLevel(person, devices, agents, { staleMachine: false });
   }
 
   return (
