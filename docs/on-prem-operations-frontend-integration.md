@@ -31,8 +31,9 @@ web/src/api/types.ts                 Operations DTO 和 HumanMe.capabilities
 web/src/api/queries.ts               五个只读 query wrapper
 web/src/lib/capabilities.ts          view.operations 导航能力
 web/src/pages/AdminOperationsPage.tsx
-web/src/pages/PortalShell.tsx         导航和 /admin/operations route
-web/src/styles.css                    summary、table、drawer、storage layout
+web/src/app/navModel.ts              导航（Governance 分区 Pipeline health 项）
+web/src/app/routes.tsx               /governance/pipeline route
+web/src/styles/features/operations.css   summary、table、drawer、storage layout
 ```
 
 Operations 没有 mutation，不应放进 `web/src/api/actions.ts`。所有 GET 仍通过现有
@@ -82,16 +83,17 @@ matrix。若滚动升级期间响应没有 `capabilities`，保守行为是当�
 
 ### 2.2 Portal 路由
 
-在 Admin Console 中把 `Operations` 与 `Audit Events` 并列：
+在 Governance 分区中把 `Pipeline health` 与 `Audit trail` 并列：
 
 ```text
-/admin/operations
+/governance/pipeline
 ```
 
 没有 `view.operations` 时：
 
 - 不显示导航；
-- 直接访问该路由时回到安全的 `/agents` 或显示 403 页面；
+- 直接访问该路由时回到 `landingPath(me)`（有 `view.operations` 落 `/overview`，否则落
+  `/management`）或显示 403 页面；
 - 不发起 Operations API 请求；
 - 不能把前端隐藏当作授权，后端仍逐请求返回 `403 forbidden`。
 
@@ -112,7 +114,7 @@ Agent API key 无论 permissions 如何都不能访问这些接口。用 Bearer 
 
 ```mermaid
 flowchart TD
-    A["进入 /admin/operations"] --> B{"me.capabilities 包含 view.operations?"}
+    A["进入 /governance/pipeline"] --> B{"me.capabilities 包含 view.operations?"}
     B -->|"否"| C["离开管理页或显示 403"]
     B -->|"是"| D["并行请求 summary / events / storage"]
     D --> E["各区域独立显示 loading / data / error"]
@@ -707,7 +709,7 @@ total 和原始 component 名称，同时提示版本不匹配。
 前端 Vitest/DOM smoke 至少覆盖：
 
 1. `capabilities` 含 `view.operations` 时显示导航；Member、缺字段或未知 capability 不开放。
-2. 直接访问 `/admin/operations` 时 route guard 正确处理 401/403，且不发多余请求。
+2. 直接访问 `/governance/pipeline` 时 route guard 正确处理 401/403，且不发多余请求。
 3. 首屏 summary 成功、storage 503 时 summary/events 仍显示。
 4. summary 的所有合法零值显示为 `0`，不能进入“无数据”错误态。
 5. `p50_ms`/`p95_ms` 缺失时显示样本不足，不显示 0 ms 或 NaN。
@@ -730,7 +732,7 @@ total 和原始 component 名称，同时提示版本不匹配。
 ## 13. 前端交付检查单
 
 - `HumanMe` 增加 required `capabilities`，导航按 `view.operations` gating。
-- `PortalShell` 增加 `/admin/operations` route 和 `Operations` 导航。
+- `routes.tsx` 增加 `/governance/pipeline` route，`navModel.ts` 增加 `Pipeline health` 导航项。
 - Operations DTO 与 Thrift snake_case 字段逐项一致，optional 字段允许缺失。
 - 五个接口全部放在 read-side `queries.ts`，不进入 Action Layer。
 - summary、events、storage、detail 分区独立 loading/error；不使用全页失败。
@@ -743,10 +745,12 @@ total 和原始 component 名称，同时提示版本不匹配。
 - Operations response 不进入 localStorage、URL、埋点、console 或错误上报附件。
 - 前端测试覆盖权限、分页、轮询取消、样本不足、过期诊断和 partial storage。
 
-## 14. Per-agent activity 接口（Team Pulse）
+## 14. Per-agent activity 接口（Overview 页 Who is writing）
 
 `GET /v1/admin/operations/agents` 是只读聚合端点，按 agent 分组返回窗口内的活动统计，
-供 Team Pulse 页面一次拉取全部 agent 卡片数据，避免逐 agent 调用 summary。
+供 `/overview` 页面（原 Team Pulse 页，阶段 2b 已并入 Overview 落地页，见
+`web/src/pages/overview/WhoIsWriting.tsx`）一次拉取全部 agent 卡片数据，避免逐 agent
+调用 summary。
 
 ```http
 GET /v1/admin/operations/agents?from=2026-07-22T10:00:00Z&to=2026-07-22T12:00:00Z

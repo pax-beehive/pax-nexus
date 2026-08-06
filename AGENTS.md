@@ -112,9 +112,22 @@ on it. The API contract is `docs/on-prem-identity-frontend-integration.md`.
   (`.tabs button`, `.seg button`, `.wiki-*`) stay plain `<button>`.
 - 状态徽标一律通过 `components/Badge.tsx` 或 `components/Tag.tsx` 渲染。设计系统是
   两色制：accent 表示需要注意/主行动/危险，neutral 表示常态；不要引入新的色相。
+- `web/src/components/` 是共享组件库（`ls web/src/components/` 为准，新增组件更新此处）：
+  设计系统原件 `Badge`、`Button`、`Card`、`Tag`、`Seg`、`Kicker`、`MetricTile`、`Crumbs`、
+  `EmptyState`、`DataTable`、`CommandPalette`、`Field`；弹层/仪式类 `Modal`、
+  `ConfirmDialog`、`SecretCeremony`、`DeviceEnrollmentCeremony`、
+  `CreateDeviceEnrollmentModal`、`IssueAccessModal`、`RevokeDeviceModal`；其余
+  `Countdown`、`ErrorBoundary`、`RegionError`、`Toasts`、`TeamSwitcher`、
+  `PagedListCard`；`components/wiki/` 下另有 `TopicTree`、`RelationList`、
+  `WikiMarkdown`（wiki 专属，不复用到壳内其他页面）。
 - 全局样式在 `web/src/styles/`，按层组织：`tokens.css`（设计 token 单一真源）→
   `themes.css` → `base.css` → `components.css` → `layout.css` → `features/*.css`。
-  新的特性样式在 `features/` 下新建文件。Use the layout utilities
+  `features/` 下按屏幕/功能一一对应新建文件（`ls web/src/styles/features/` 为准），
+  目前包括 `access-tree.css`、`agent-detail.css`、`apps.css` /
+  `apps-settings.css` / `apps-todos.css` / `apps-wiki.css`、`governance.css` /
+  `governance-explorer.css` / `governance-pipeline.css`、`operations.css`、
+  `overview-chart.css`、`session-audit.css`、`settings-pages.css`、`teams.css`、
+  `wiki.css` 等。Use the layout utilities
   (`.toolbar`, `.stack`, `.section`, `.flush`, `.row`) instead of inline
   spacing styles; use `.seg` for single-choice preset toggles (not `.tabs`).
 - Themes (beige default, dark, arcade) are pure design-token overrides in
