@@ -69,7 +69,7 @@ describe("design tokens", () => {
       "--bg", "--surface", "--surface-2", "--border", "--border-strong",
       "--text", "--muted", "--faint", "--accent", "--accent-hover", "--accent-soft",
       "--ok", "--ok-bg", "--warn", "--warn-bg", "--bad", "--bad-bg", "--info", "--info-bg",
-      "--input-bg", "--on-accent", "--secret-bg", "--danger-border", "--warn-border",
+      "--input-bg", "--on-accent", "--danger-border", "--warn-border",
       "--bad-border", "--accent-border", "--shadow", "--mono", "--serif", "--sans",
     ];
     expect(legacy.filter((t) => !declared.has(t))).toEqual([]);

@@ -1,64 +1,26 @@
-import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
-import { getAuditEvent, listAdminAgents, listAuditEvents, listMembers } from "../api/queries";
-import type { AgentProfile, AuditEvent, Member } from "../api/types";
+import { useEffect, useMemo, useState } from "react";
+import { listAdminAgents, listAuditEvents, listMembers } from "../api/queries";
+import type { AgentProfile, Member } from "../api/types";
 import { usePagedList } from "../lib/usePagedList";
 import { useErrorHandler } from "../lib/useErrorHandler";
-import { formatTime } from "../lib/format";
 import { Button } from "../components/Button";
-import { PagedListCard } from "../components/PagedListCard";
+import { Kicker } from "../components/Kicker";
+import { Seg } from "../components/Seg";
+import { AuditRow, type LabelDirectory } from "./governance/AuditRow";
 
-// Fixed kind vocabularies from the backend audit schema (migration 017).
-const ACTOR_KINDS = ["bootstrap", "human", "agent", "system"] as const;
+// Fixed kind vocabulary from the backend audit schema (migration 017).
 const TARGET_KINDS = ["membership", "invitation", "agent", "enrollment", "credential"] as const;
 
-interface LabelDirectory {
-  members: Map<string, Member>;
-  agents: Map<string, AgentProfile>;
-}
-
-/**
- * Non-authoritative label enrichment (doc section 5.8): audit events carry
- * only IDs, so we resolve labels from already-loaded member/agent data and
- * always keep the raw ID visible as fallback for deleted objects.
- */
-function Label({ id, directory }: { id: string; directory: LabelDirectory }) {
-  const member = directory.members.get(id);
-  if (member) {
-    return (
-      <span>
-        {member.email ?? member.display_name} <span className="faint small">({id})</span>
-      </span>
-    );
-  }
-  const agent = directory.agents.get(id);
-  if (agent) {
-    return (
-      <span>
-        {agent.display_name} <span className="faint small">({id})</span>
-      </span>
-    );
-  }
-  return <code>{id}</code>;
-}
-
-function actorId(event: AuditEvent): string {
-  return (
-    event.actor_membership_id ??
-    event.actor_user_id ??
-    event.actor_agent_id ??
-    event.actor_credential_id ??
-    "—"
-  );
-}
-
-function DetailField({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div>
-      <span className="faint">{label}: </span>
-      {children}
-    </div>
-  );
-}
+// The backend's actor_kind carries four values — bootstrap / human / agent /
+// system — but bootstrap fires exactly once, at first install, so design
+// phase 5 §2.1 folds it into "系统" rather than giving it its own Seg slot.
+type ActorKindFilter = "" | "human" | "agent" | "system";
+const ACTOR_KIND_OPTIONS: { value: ActorKindFilter; label: string }[] = [
+  { value: "", label: "全部" },
+  { value: "human", label: "人" },
+  { value: "agent", label: "Agent" },
+  { value: "system", label: "系统" },
+];
 
 export function AdminAuditPage() {
   const handleError = useErrorHandler();
@@ -66,11 +28,9 @@ export function AdminAuditPage() {
   const [action, setAction] = useState("");
   const [targetInput, setTargetInput] = useState("");
   const [targetId, setTargetId] = useState("");
-  const [actorKind, setActorKind] = useState("");
+  const [actorKind, setActorKind] = useState<ActorKindFilter>("");
   const [targetKind, setTargetKind] = useState("");
   const [expandedId, setExpandedId] = useState<number | null>(null);
-  const [detail, setDetail] = useState<AuditEvent | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
   const [directory, setDirectory] = useState<LabelDirectory>({
     members: new Map(),
     agents: new Map(),
@@ -107,30 +67,6 @@ export function AdminAuditPage() {
     if (list.error) handleError(list.error);
   }, [list.error, handleError]);
 
-  // Detail endpoint (doc section 6.2): fetched on demand for the expanded row.
-  useEffect(() => {
-    if (expandedId === null) {
-      setDetail(null);
-      return;
-    }
-    let cancelled = false;
-    setDetail(null);
-    setDetailLoading(true);
-    getAuditEvent(expandedId)
-      .then((event) => {
-        if (!cancelled) setDetail(event);
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) handleError(err);
-      })
-      .finally(() => {
-        if (!cancelled) setDetailLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [expandedId, handleError]);
-
   const knownActions = useMemo(
     () => [...new Set(list.items.map((e) => e.action))].sort(),
     [list.items],
@@ -143,28 +79,23 @@ export function AdminAuditPage() {
 
   return (
     <>
-      <div className="page-head">
+      <div className="gv-head">
         <div>
-          <h1>Audit Events</h1>
-          <p className="muted flush">
-            Immutable audit; label enrichment is a non-authoritative frontend mapping, and
-            raw IDs stay visible after objects are deleted
+          <Kicker>Governance · 审计流水</Kicker>
+          <h1>发生过的一切，未经编辑</h1>
+          <p>
+            只追加。名字是我们替你查出来的方便——原始标识符留在行上，
+            所以人、Agent 或机器消失之后，条目仍然读得通。
           </p>
         </div>
       </div>
-      <div className="toolbar" style={{ marginBottom: 14 }}>
-        <select
-          aria-label="Filter by actor_kind"
+      <div className="toolbar" style={{ marginBottom: 14, padding: "0 var(--space-4)" }}>
+        <Seg
+          label="Filter by actor_kind"
+          options={ACTOR_KIND_OPTIONS}
           value={actorKind}
-          onChange={(e) => setActorKind(e.target.value)}
-        >
-          <option value="">actor_kind: all</option>
-          {ACTOR_KINDS.map((k) => (
-            <option key={k} value={k}>
-              {k}
-            </option>
-          ))}
-        </select>
+          onChange={setActorKind}
+        />
         <select
           aria-label="Filter by target_kind"
           value={targetKind}
@@ -205,83 +136,49 @@ export function AdminAuditPage() {
           Apply filters
         </Button>
       </div>
-      <PagedListCard
-        list={list}
-        columns={["Time", "Actor", "Action", "Target", ""]}
-        emptyText="No matching audit events."
-        renderRow={(e) => (
-          <Fragment key={e.audit_event_id}>
-            <tr>
-              <td className="small">{formatTime(e.occurred_at)}</td>
-              <td>
-                <span className="faint small">{e.actor_kind}: </span>
-                <Label id={actorId(e)} directory={directory} />
-              </td>
-              <td className="mono small">{e.action}</td>
-              <td>
-                <span className="faint small">{e.target_kind}: </span>
-                <Label id={e.target_id} directory={directory} />
-              </td>
-              <td>
-                <Button
-                  size="sm"
-                  onClick={() =>
-                    setExpandedId(expandedId === e.audit_event_id ? null : e.audit_event_id)
-                  }
-                >
-                  {expandedId === e.audit_event_id ? "Collapse" : "Details"}
+      <div className="card">
+        {list.loading ? (
+          <p className="muted small">Loading…</p>
+        ) : list.error && list.items.length === 0 ? (
+          <div className="note bad row between" role="alert">
+            <span>Failed to load the list.</span>
+            <Button size="sm" onClick={list.reload}>
+              Retry
+            </Button>
+          </div>
+        ) : list.items.length === 0 ? (
+          <p className="muted small">No matching audit events.</p>
+        ) : (
+          <>
+            {list.items.map((e) => (
+              <AuditRow
+                key={e.audit_event_id}
+                event={e}
+                directory={directory}
+                expanded={expandedId === e.audit_event_id}
+                onToggle={() =>
+                  setExpandedId(expandedId === e.audit_event_id ? null : e.audit_event_id)
+                }
+              />
+            ))}
+            {list.error ? (
+              <div className="note bad row between" role="alert">
+                <span>Failed to load more.</span>
+                <Button size="sm" onClick={() => void list.loadMore()}>
+                  Retry
                 </Button>
-              </td>
-            </tr>
-            {expandedId === e.audit_event_id && (
-              <tr>
-                <td colSpan={5}>
-                  {detailLoading ? (
-                    <p className="muted small">Loading…</p>
-                  ) : detail ? (
-                    <div className="small" style={{ display: "grid", gap: 4, padding: "4px 0" }}>
-                      <DetailField label="audit_event_id">
-                        <code>{detail.audit_event_id}</code>
-                      </DetailField>
-                      <DetailField label="occurred_at">
-                        {formatTime(detail.occurred_at)}
-                      </DetailField>
-                      <DetailField label="action">
-                        <span className="mono">{detail.action}</span>
-                      </DetailField>
-                      <DetailField label="actor_kind">{detail.actor_kind}</DetailField>
-                      {detail.actor_user_id && (
-                        <DetailField label="actor_user_id">
-                          <Label id={detail.actor_user_id} directory={directory} />
-                        </DetailField>
-                      )}
-                      {detail.actor_membership_id && (
-                        <DetailField label="actor_membership_id">
-                          <Label id={detail.actor_membership_id} directory={directory} />
-                        </DetailField>
-                      )}
-                      {detail.actor_agent_id && (
-                        <DetailField label="actor_agent_id">
-                          <Label id={detail.actor_agent_id} directory={directory} />
-                        </DetailField>
-                      )}
-                      {detail.actor_credential_id && (
-                        <DetailField label="actor_credential_id">
-                          <Label id={detail.actor_credential_id} directory={directory} />
-                        </DetailField>
-                      )}
-                      <DetailField label="target_kind">{detail.target_kind}</DetailField>
-                      <DetailField label="target_id">
-                        <Label id={detail.target_id} directory={directory} />
-                      </DetailField>
-                    </div>
-                  ) : null}
-                </td>
-              </tr>
-            )}
-          </Fragment>
+              </div>
+            ) : null}
+          </>
         )}
-      />
+        {list.nextCursor && !(list.error && list.items.length > 0) ? (
+          <div className="load-more">
+            <Button size="sm" disabled={list.loadingMore} onClick={() => void list.loadMore()}>
+              {list.loadingMore ? "Loading…" : "Load more"}
+            </Button>
+          </div>
+        ) : null}
+      </div>
     </>
   );
 }

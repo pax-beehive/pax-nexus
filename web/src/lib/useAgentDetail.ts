@@ -1,6 +1,6 @@
-// Shared agent-detail loading for the owner view (/agents/:agentId) and the
-// admin governance view (/admin/agents/:agentId): one fetch per agentId with
-// a cancelled flag, 404 maps to a notFound state, and every other error goes
+// Agent-detail loading for the merged /management/agents/:agentId route
+// (AgentDetailPage, its only consumer): one fetch per agentId with a
+// cancelled flag, 404 maps to a notFound state, and every other error goes
 // through the shared page error handler.
 
 import { useCallback, useEffect, useState } from "react";

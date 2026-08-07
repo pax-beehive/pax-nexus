@@ -1,10 +1,12 @@
 import type { LLMUsageRow } from "../../api/wiki";
+import { Button } from "../../components/Button";
 
 export interface WikiLLMUsageCardProps {
   usageDays: number;
   usage: LLMUsageRow[];
   usageError: boolean;
   onUsageDaysChange: (days: number) => void;
+  onRetry: () => void;
 }
 
 export function WikiLLMUsageCard({
@@ -12,6 +14,7 @@ export function WikiLLMUsageCard({
   usage,
   usageError,
   onUsageDaysChange,
+  onRetry,
 }: WikiLLMUsageCardProps) {
   const usageTotals = usage.reduce(
     (totals, row) => ({
@@ -44,15 +47,25 @@ export function WikiLLMUsageCard({
         </div>
       </div>
       {usageError && usage.length === 0 ? (
-        <p className="muted small">LLM usage is unavailable.</p>
+        <div className="row">
+          <p className="muted small">LLM usage is unavailable.</p>
+          <Button size="sm" type="button" onClick={onRetry}>
+            Retry
+          </Button>
+        </div>
       ) : usage.length === 0 ? (
         <p className="muted small">No LLM calls recorded in this window.</p>
       ) : (
         <>
           {usageError && (
-            <p className="muted small">
-              LLM usage refresh failed; showing the last successful window.
-            </p>
+            <div className="row">
+              <p className="muted small">
+                LLM usage refresh failed; showing the last successful window.
+              </p>
+              <Button size="sm" type="button" onClick={onRetry}>
+                Retry
+              </Button>
+            </div>
           )}
           <table className="wiki-llm-usage-table">
             <thead>

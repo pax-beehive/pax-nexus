@@ -1,0 +1,7 @@
+/* Settings · memory rules / model usage (阶段 6 任务 1)。
+   两屏都用全局 .page-head + .card；五张卡片组件本身的样式仍在
+   features/wiki.css（原样复用，未改）。这里只放两屏页头自己的样式。 */
+
+/* Memory rules 的页头说明比其它 .page-head 段落更长（引用 spec 措辞），
+   限一下行宽，别在宽屏上拉成一整行。 */
+.page-head .memory-rules-copy { max-width: 62ch; }

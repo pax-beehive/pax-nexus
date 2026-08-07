@@ -1,8 +1,9 @@
 // On-prem regression tests (M3 P6): the portal is a single build serving
 // both profiles. With no membership and GET /v1/teams answering 501
-// not_configured, the no-membership state must keep rendering the existing
-// EntryPage (bootstrap claim); an active on-prem principal (no teams field)
-// must not render the team switcher or the Team settings nav entry.
+// not_configured, the no-membership state must land on /welcome with the
+// bootstrap-claim entry (Modernist Portal phase 7 task 1: WelcomePage); an
+// active on-prem principal (no teams field) must not render the team
+// switcher or the Team settings nav entry.
 
 import { describe, expect, it } from "vitest";
 import { screen, within } from "@testing-library/react";
@@ -18,7 +19,7 @@ import {
 setupDomTest();
 
 describe("on-prem profile regression", () => {
-  it("a 501 from /v1/teams keeps the bootstrap-claim EntryPage", async () => {
+  it("a 501 from /v1/teams keeps the bootstrap-claim entry on /welcome", async () => {
     await renderApp({
       route: "/",
       me: () => makeNoMembershipMe(),
@@ -30,9 +31,11 @@ describe("on-prem profile regression", () => {
       },
     });
 
-    // The on-prem entry page, not the saas onboarding page.
-    await screen.findByRole("button", { name: "Claim Bootstrap Owner" });
-    expect(screen.getByLabelText("Invitation token")).toBeTruthy();
+    // The on-prem bootstrap-claim branch of WelcomePage, not the saas
+    // waiting state.
+    await screen.findByRole("button", { name: "前往认领 Owner" });
+    expect(window.location.pathname).toBe("/welcome");
+    expect(screen.getByLabelText("邀请令牌或链接")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Create team" })).toBeNull();
     expect(screen.queryByRole("group", { name: "onboarding mode" })).toBeNull();
   });

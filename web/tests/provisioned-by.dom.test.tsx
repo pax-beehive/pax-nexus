@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from "vitest";
 import { screen } from "@testing-library/react";
-import { jsonResponse, makeAgent, makeMe, renderApp, setupDomTest } from "./helpers";
+import { apiErrorResponse, jsonResponse, makeAgent, makeMe, renderApp, setupDomTest } from "./helpers";
 
 setupDomTest();
 
@@ -40,6 +40,12 @@ describe("provisioned_by badge", () => {
   });
 
   it("shows the badge on the admin agent detail", async () => {
+    // 阶段 4：owner/admin 默认拥有 view.audit，AgentBehaviourCard 会挂载并
+    // 打 session-audit；owner_membership_id 特意设成查看者之外的人，
+    // 让密钥两条腿走 admin scope（管理员在看别人的 Agent，不是自己的）。
+    // provisioned_by 的机器名解析（getDevice）刻意不 stub 成功——它只是
+    // 锦上添花，取不到时静默退回 ProvisionedByBadge，这正是本测试要盯的
+    // 兜底路径。
     await renderApp({
       route: "/management/agents/personal-codex",
       me: makeMe(),
@@ -50,6 +56,7 @@ describe("provisioned_by badge", () => {
               agent_id: "personal-codex",
               display_name: "Dev Codex",
               provisioned_by: "dev_01",
+              owner_membership_id: "mbr_99",
             }),
           });
         }
@@ -58,6 +65,12 @@ describe("provisioned_by badge", () => {
         }
         if (path === "/v1/admin/agents/personal-codex/credentials") {
           return jsonResponse({ credentials: [] });
+        }
+        if (path === "/v1/admin/devices/dev_01") {
+          return apiErrorResponse(404, "not_found", "no such device");
+        }
+        if (path.startsWith("/v1/admin/session-audit/activity")) {
+          return jsonResponse({ activity: [] });
         }
         throw new Error(`unexpected fetch: ${path}`);
       },
@@ -72,12 +85,17 @@ describe("provisioned_by badge", () => {
       route: "/management/agents/agent-1",
       me: makeMe(),
       fetch: (path) => {
-        if (path === "/v1/admin/agents/agent-1") return jsonResponse({ agent: makeAgent() });
+        if (path === "/v1/admin/agents/agent-1") {
+          return jsonResponse({ agent: makeAgent({ owner_membership_id: "mbr_99" }) });
+        }
         if (path === "/v1/admin/agents/agent-1/enrollments") {
           return jsonResponse({ enrollments: [] });
         }
         if (path === "/v1/admin/agents/agent-1/credentials") {
           return jsonResponse({ credentials: [] });
+        }
+        if (path.startsWith("/v1/admin/session-audit/activity")) {
+          return jsonResponse({ activity: [] });
         }
         throw new Error(`unexpected fetch: ${path}`);
       },

@@ -6,12 +6,13 @@
 // (see d874ac5~1), adapted to the /wiki/browse route: that file covered
 // WikiPage's inline behavior directly; the browsing half of that behavior now
 // lives in WikiBrowsePage while the ingestion-control half moved to
-// WikiStatusPage (see wiki-status.dom.test.tsx).
+// MemoryRulesPage (see memory-rules.dom.test.tsx).
 
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "../src/App";
 import {
+  apiErrorResponse,
   callsTo,
   jsonResponse,
   makeMe,
@@ -212,15 +213,33 @@ describe("wiki browse route topics and search", () => {
 
     await screen.findByRole("heading", { name: "SQLite" });
     await user.type(screen.getByRole("searchbox", { name: "Search the wiki" }), "searchable");
-    await user.click(screen.getByRole("button", { name: "Search" }));
+    await user.click(screen.getByRole("button", { name: "搜索" }));
     const results = await screen.findByRole("region", { name: "Search results" });
     within(results).getByText("SQLite");
     within(results).getByText("SQLite is searchable.");
 
     await user.click(screen.getByRole("button", { name: /revision-old/ }));
     await screen.findByRole("heading", { name: "SQLite before WAL" });
-    screen.getByText("Historical");
+    screen.getByText("历史版本");
     await waitFor(() => expect(window.location.search).toContain("revision=revision-old"));
+  });
+
+  // Legacy deep link: /wiki/browse?page=<slug>&revision=<id> used to render
+  // this page inline at that route; the slug now lives in the path and
+  // revision stays in the query. See legacy-routes.test.ts for the pure
+  // resolveLegacy() coverage of this mapping — this renders the real route
+  // tree end to end and checks the historical revision actually loads.
+  it("redirects a legacy /wiki/browse?page=&revision= deep link to the reader", async () => {
+    await renderApp({
+      route: "/wiki/browse?page=sqlite&revision=revision-old",
+      me: makeMe(),
+      fetch: sqliteFetch,
+    });
+
+    await waitFor(() => expect(window.location.pathname).toBe("/apps/wiki/sqlite"));
+    expect(window.location.search).toBe("?revision=revision-old");
+    await screen.findByRole("heading", { name: "SQLite before WAL" });
+    screen.getByText("历史版本");
   });
 
   it("shows a useful empty state when the wiki has no pages", async () => {
@@ -234,8 +253,8 @@ describe("wiki browse route topics and search", () => {
       },
     });
 
-    await screen.findByRole("heading", { name: "Your wiki is ready for its first page" });
-    screen.getByText("Pages will appear here after a Page Wiki source is processed.");
+    await screen.findByRole("heading", { name: "你的百科还没有第一页" });
+    screen.getByText("Page Wiki 来源处理完成后，页面会出现在这里。");
   });
 
   it("collapses the Source evidence section by default", async () => {
@@ -304,8 +323,8 @@ describe("wiki browse route retired page banner", () => {
     });
 
     await screen.findByRole("heading", { name: "Retired Page" });
-    screen.getByText("This page has been archived.");
-    const link = screen.getByRole("link", { name: "See successor page" });
+    screen.getByText("这个页面已被归档。");
+    const link = screen.getByRole("link", { name: "查看继任页面" });
     expect(link.getAttribute("href")).toBe("/apps/wiki/sqlite");
   });
 
@@ -317,8 +336,8 @@ describe("wiki browse route retired page banner", () => {
     });
 
     await screen.findByRole("heading", { name: "Retired Page" });
-    screen.getByText("This page has been archived.");
-    expect(screen.queryByRole("link", { name: "See successor page" })).toBeNull();
+    screen.getByText("这个页面已被归档。");
+    expect(screen.queryByRole("link", { name: "查看继任页面" })).toBeNull();
   });
 });
 
@@ -384,7 +403,7 @@ describe("wiki browse route entity ontology", () => {
 // Fake-timer coverage for the 3s navigation refresh (ported from the retired
 // wiki.dom.test.tsx's "Page Wiki navigation refresh while auto inject is on"
 // describe block). WikiBrowsePage no longer owns an ingestion toggle switch
-// (that moved to WikiStatusPage), so unlike the retired test this drives the
+// (that moved to MemoryRulesPage), so unlike the retired test this drives the
 // gate through the ingestion GET's auto_inject value directly rather than a
 // mid-test UI click; usePolling's own visibility gating is already proven at
 // a page level in admin-operations-polling.dom.test.tsx, so it is not
@@ -574,7 +593,7 @@ describe("wiki browse route navigation fetch cadence", () => {
     await screen.findByRole("heading", { name: "Alpha" });
 
     await user.type(screen.getByRole("searchbox", { name: "Search the wiki" }), "hidden");
-    await user.click(screen.getByRole("button", { name: "Search" }));
+    await user.click(screen.getByRole("button", { name: "搜索" }));
     await user.click(await screen.findByRole("button", { name: /Hidden/ }));
 
     await screen.findByRole("heading", { name: "Hidden" });
@@ -607,5 +626,91 @@ describe("wiki browse route navigation fetch cadence", () => {
 
     await screen.findByRole("heading", { name: "Beta" });
     expect(screen.queryByRole("heading", { name: "Alpha" })).toBeNull();
+  });
+});
+
+// -- task 3 redesign: this screen's own two failure states (design brief
+// §"本屏的失败态验收"). Nothing exercised either of these before the
+// redesign: a failed navigation fetch silently fell through to the "no
+// pages yet" empty state (wrong message, no retry), and a failed page fetch
+// tore down the whole middle column with no way to recover without also
+// losing the tree/relations rails. --
+
+describe("wiki browse route failure states", () => {
+  it("shows a retryable full-page error when the page list fails to load, and recovers on retry", async () => {
+    let attempt = 0;
+    const { user } = await renderApp({
+      route: "/apps/wiki",
+      me: makeMe(),
+      fetch: (path) => {
+        if (path === "/v1/wiki/ingestion") return jsonResponse({ auto_inject: false });
+        if (path === "/v1/wiki/navigation") {
+          attempt += 1;
+          if (attempt === 1) return apiErrorResponse(500, "internal", "boom");
+          return jsonResponse(ENGINEERING_NAVIGATION);
+        }
+        return sqliteFetch(path);
+      },
+    });
+
+    // Both the region error and the accompanying toast say "Server error…",
+    // so scope the message assertion to the retryable region itself instead
+    // of a page-wide text query.
+    await screen.findByRole("button", { name: /retry/i });
+    expect(document.querySelector(".wiki-region-error")?.textContent).toContain(
+      "Server error",
+    );
+    // Nothing to fall back to when the page list itself is unknown — no
+    // "wiki is empty" empty state, and no topic rail with stale/absent data.
+    expect(
+      screen.queryByText("你的百科还没有第一页"),
+    ).toBeNull();
+    expect(screen.queryByRole("navigation", { name: "Wiki topics" })).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: /retry/i }));
+
+    await screen.findByRole("heading", { name: "SQLite" });
+    expect(document.querySelector(".wiki-region-error")).toBeNull();
+  });
+
+  it("collapses only the article to a retryable error when a page's content fails, leaving the topic tree and relations usable", async () => {
+    let attempt = 0;
+    const { user } = await renderApp({
+      route: "/apps/wiki/sqlite",
+      me: makeMe(),
+      fetch: (path) => {
+        if (path === "/v1/wiki/pages/sqlite") {
+          attempt += 1;
+          if (attempt === 1) return apiErrorResponse(500, "internal", "boom");
+          return jsonResponse(sqlitePage);
+        }
+        return sqliteFetch(path);
+      },
+    });
+
+    await screen.findByRole("button", { name: /retry/i });
+    expect(document.querySelector(".wiki-article")?.textContent).toContain(
+      "Server error",
+    );
+
+    // Tree: navigation loaded independently of the page fetch, so it is
+    // still rendered and still lists this page's topic — not swallowed by
+    // the article's error.
+    const rail = screen.getByRole("navigation", { name: "Wiki topics" });
+    within(rail).getByRole("button", { name: /^Engineering/ });
+
+    // Relations: still rendered, not replaced by an error — there is
+    // nothing to show yet (this page never finished loading once), but the
+    // panel itself is present and usable, matching RelationList's normal
+    // empty-state text.
+    screen.getByText("这个页面没有引用其他内容。");
+    screen.getByText("还没有页面引用这里。");
+
+    // Retry re-issues only the failed page fetch.
+    await user.click(screen.getByRole("button", { name: /retry/i }));
+    await screen.findByRole("heading", { name: "SQLite" });
+    expect(document.querySelector(".wiki-article")?.textContent).not.toContain(
+      "Server error",
+    );
   });
 });

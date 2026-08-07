@@ -1,5 +1,10 @@
 # Team Memory Portal — 前端重设计 Brief
 
+> **历史文档**：本文描述的是 Modernist Portal 重构（2026-08，spec 见
+> `docs/superpowers/specs/2026-08-*-portal-modernist-*`）**之前**的现状与痛点，是七个
+> 阶段重构的动机来源。七阶段完成后，路由表、样式文件、组件清单和下文列出的具体页面已
+> 不再反映当前代码状态。保留本文作为历史记录，不再维护更新。
+
 面向外部设计（Claude Design 等）的产品说明：**现有功能全集、用户动线、API 契约、以及现状 UI 的约束与痛点**。
 
 写作依据是当前代码（`web/src/`、`internal/teamnote/transport/httpapi/router/`、`idl/*.thrift`），不是规划文档 —— 下文描述的每个页面、按钮、端点都在 `main` + `feat/saas-team-devices-r2` 上真实存在。

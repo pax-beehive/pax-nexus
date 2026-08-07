@@ -14,7 +14,7 @@ function page(slug: string, title: string, rank = 1): WikiNavigationPage {
 
 // Topic "engineering" has one direct page and one child topic ("backend"),
 // which in turn has its own page. Titles are chosen not to collide with the
-// breadcrumb's "All" label so role queries stay unambiguous.
+// breadcrumb's "全部" label so role queries stay unambiguous.
 const topicBackend: WikiNavigationTopic = {
   id: "topic-backend",
   slug: "backend",
@@ -83,7 +83,7 @@ describe("TopicTreePanel", () => {
     );
 
     const crumb = screen.getByRole("navigation", { name: "Topic path" });
-    within(crumb).getByRole("button", { name: "All" });
+    within(crumb).getByRole("button", { name: "全部" });
     const current = within(crumb).getByRole("button", { name: "Engineering" });
     expect(current.getAttribute("aria-current")).toBe("location");
 
@@ -105,7 +105,7 @@ describe("TopicTreePanel", () => {
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: "All" }));
+    await user.click(screen.getByRole("button", { name: "全部" }));
 
     expect(onNavigate).toHaveBeenCalledWith([]);
   });

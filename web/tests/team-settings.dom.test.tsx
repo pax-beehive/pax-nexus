@@ -4,7 +4,7 @@
 // team-scoped Members / Invitations admin pages.
 
 import { describe, expect, it } from "vitest";
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import { jsonResponse, makeSaasMe, renderApp, setupDomTest } from "./helpers";
 
 setupDomTest();
@@ -15,10 +15,17 @@ function agentsFetch(path: string, init: RequestInit): Response {
 }
 
 describe("team settings page", () => {
+  it("redirects the legacy /team route to /settings/team", async () => {
+    await renderApp({ route: "/team", me: makeSaasMe(), fetch: agentsFetch });
+
+    await waitFor(() => expect(window.location.pathname).toBe("/settings/team"));
+    await screen.findByRole("heading", { name: "Acme ML" });
+  });
+
   it("renders the general panel with team info and a disabled rename", async () => {
     await renderApp({ route: "/settings/team", me: makeSaasMe(), fetch: agentsFetch });
 
-    await screen.findByRole("heading", { name: "Team settings" });
+    await screen.findByRole("heading", { name: "Acme ML" });
     expect(screen.getAllByText("Acme ML").length).toBeGreaterThan(0);
     expect(screen.getAllByText("acme-ml").length).toBeGreaterThan(0);
     expect(screen.getAllByText("owner").length).toBeGreaterThan(0);

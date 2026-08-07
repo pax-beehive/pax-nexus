@@ -90,7 +90,14 @@ describe("team switcher", () => {
     expect(callsTo(fetchMock, "/v1/me").length).toBeGreaterThanOrEqual(2);
   });
 
-  it("navigates to onboarding from the popover footer rows", async () => {
+  it("navigates to /welcome (join-another-team) from the popover footer rows", async () => {
+    // Modernist Portal phase 7 task 1 merged the dedicated onboarding page
+    // into /welcome; /onboarding now redirects there (app/routes.tsx). That
+    // route table also registers /welcome itself for an active session
+    // (App.tsx's own /welcome registration only mounts while no-membership,
+    // so the two never collide — see WelcomePage.tsx), so this footer row
+    // still reaches a real join-with-token screen instead of silently
+    // bouncing back to the landing page.
     const { user } = await renderApp({
       route: "/management",
       me: makeSaasMe({ role: "member" }),
@@ -105,9 +112,13 @@ describe("team switcher", () => {
       }),
     );
 
-    // /onboarding?mode=join renders the join pane of the onboarding page.
-    await screen.findByLabelText("Invitation token");
-    expect(window.location.pathname).toBe("/onboarding");
-    expect(window.location.search).toBe("?mode=join");
+    // /onboarding -> /welcome, rendered inside the shell for this active
+    // session, with the "join another team" copy (not the bare
+    // no-membership waiting state).
+    await screen.findByRole("heading", { name: "加入另一个团队" });
+    expect(window.location.pathname).toBe("/welcome");
+    expect(screen.getByLabelText("邀请令牌或链接")).toBeTruthy();
+    // Bootstrap claim never applies to an already-active session.
+    expect(screen.queryByRole("button", { name: "前往认领 Owner" })).toBeNull();
   });
 });

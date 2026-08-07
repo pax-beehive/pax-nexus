@@ -75,9 +75,16 @@ describe("Devices list + device enrollment creation", () => {
       expires_in_seconds: 900,
     });
 
-    // The one-time token renders in the SecretCard with a copy-command action.
+    // The one-time token renders in the 仪式 with a copy-command action.
     await screen.findByText("tm_enroll_denr_01.secret");
-    expect(screen.getByRole("button", { name: "Copy client command" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "复制接入命令" })).toBeDefined();
+    // The rendered command must actually be the *device* connect command
+    // (not the agent one — deviceConnectCommand vs enrollmentConnectCommand
+    // produce different text, and only a button-label assertion above would
+    // never catch the two being swapped).
+    expect(
+      screen.getByText(/paxl device connect onprem --device-name todd-macbook-air/),
+    ).toBeDefined();
   });
 
   it("rejects an empty device_name locally without issuing a request", async () => {

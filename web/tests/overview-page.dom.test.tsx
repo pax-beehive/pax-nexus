@@ -129,7 +129,7 @@ describe("OverviewPage", () => {
 
     await app.user.click(screen.getByRole("button", { name: "Review" }));
 
-    await screen.findByRole("heading", { name: "Session Audit" });
+    await screen.findByRole("heading", { name: "Agent 到底做了什么" });
   });
 
   // 7. attention 空 → 正向空态

@@ -41,6 +41,18 @@
   --color-accent-2-900: #fff2ef;
 
   --backdrop: color-mix(in srgb, #000 62%, transparent);
+
+  /* 仪式是「打破玻璃」的时刻，dark 与 beige 应该长得一样：深红底 + 白字。 */
+  --ceremony-bg: #dd2b0f;
+  --ceremony-fg: #ffffff;
+  --ceremony-line: color-mix(in srgb, var(--ceremony-fg) 45%, transparent);
+
+  /* dark 下沿用本主题自己的 accent 阶就已经过 AA（task 8 三主题实测：柱子
+     4.46:1，标签 9.28:1），这里显式写出（而不是漏掉不写）只是为了满足
+     下面「每个主题必须覆盖每一个颜色 token」的用例，值本身跟 tokens.css
+     的默认写法等价。 */
+  --color-chart-bar: var(--color-accent);
+  --color-label-accent: var(--color-accent-700);
 }
 
 /* Arcade：朱红铺底，白字。背景用 accent-600 (#dd2b0f) 而不是设计稿原本的
@@ -86,4 +98,23 @@
   --color-accent-2-900: #fff6f4;
 
   --backdrop: color-mix(in srgb, #201e1d 60%, transparent);
+
+  /* 页面本身已经是红的，仪式再用红就不像覆盖层了——改用墨色底 + 白字
+     （16.6:1，余量很大）。此处 --color-accent 恰好就是同一个墨色，但按本
+     文件的惯例仍写字面量，不跨角色互相引用。 */
+  --ceremony-bg: #201e1d;
+  --ceremony-fg: #ffffff;
+  --ceremony-line: color-mix(in srgb, var(--ceremony-fg) 45%, transparent);
+
+  /* Governance 阶段 5 task 8 三主题实测（真实编译 CSS + Chrome）查出：
+     .gv-day-bar / .gv-day-high / .gv-prov-stage 借用了 accent 与 accent 700
+     两档，本主题下这两档被整体重映射成墨色系（accent 变 #201e1d，700 档
+     变 #444141），压在同样偏暗的 surface 卡片底（#c8240c）上分别只有
+     2.94:1（图形柱，需要不低于 3:1）与 1.79:1（文字，需要不低于 4.5:1）。
+     beige/dark 下 tokens.css 默认借用当前主题 accent 阶已经是对的（柱子
+     3.47:1 / 4.46:1，标签 5.91:1 / 9.28:1），只在这里覆盖：柱子换纯白
+     （对卡片底 5.65:1），标签换本主题 accent 800 档的浅暖色调（对卡片底约
+     8:1，比纯白多保留一点「这是强调色」的视觉识别度）。 */
+  --color-chart-bar: #ffffff;
+  --color-label-accent: #ffece8;
 }

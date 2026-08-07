@@ -34,9 +34,8 @@ figure { margin: 0; }
 
 /* 全局表单标签。阶段 1 的页面还没迁到 <Field>，约 24 处标签是页面直接手写的
    <label>（MyAgentsLevel / AdminInvitationsPage / AdminDevicesPage /
-   AdminMembersPage / IssueEnrollmentModal / AgentGovernanceCard /
-   OnboardingPage / BootstrapPage / EntryPage —— 首次运行与设备接入的表单都在
-   里面）。没有这条规则它们会退化成紧贴输入框的行内文本。
+   AdminMembersPage / WelcomePage / BootstrapPage —— 首次运行与设备接入的表单
+   都在里面）。没有这条规则它们会退化成紧贴输入框的行内文本。
    components.css 的 `.field > label`（特指度更高）继续覆盖 <Field> 的观感。 */
 label {
   display: block;

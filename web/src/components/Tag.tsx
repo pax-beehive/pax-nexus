@@ -6,14 +6,19 @@ export type TagTone = "attention" | "neutral" | "outline";
 export function Tag({
   tone = "neutral",
   title,
+  className,
   children,
 }: {
   tone?: TagTone;
   title?: string;
+  /** Extra class(es) appended after the tone class, for callers that need
+      one more visual tweak (e.g. text-transform) without re-implementing
+      the tag chrome. */
+  className?: string;
   children: ReactNode;
 }) {
   return (
-    <span className={`tag tag-${tone}`} title={title}>
+    <span className={className ? `tag tag-${tone} ${className}` : `tag tag-${tone}`} title={title}>
       {children}
     </span>
   );

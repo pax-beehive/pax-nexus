@@ -1,0 +1,106 @@
+/* Team / Appearance 设置屏（阶段 6 task 4）。Modernist token 直连，不经过
+   tokens.css 第二个 :root 块里的兼容别名。 */
+
+/* Team：页头下方的三格事实条，取代旧 General 表格里的 Team name / Slug /
+   Your role 三行（Team name 已提到 h1，其余两行搬到这里）。视觉上呼应
+   access-tree.css 的 .at-summary（同款双线 + 竖分隔），但内容是文字事实
+   而不是数字指标，所以不复用 MetricTile 的 34px 大数字排版。 */
+.team-facts {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  border-top: 2px solid var(--color-divider);
+  border-bottom: 2px solid var(--color-divider);
+  margin-bottom: var(--space-6);
+}
+.team-fact {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-4);
+  border-right: 1px solid var(--color-divider);
+}
+.team-fact:last-child {
+  border-right: 0;
+}
+
+@media (max-width: 640px) {
+  .team-facts {
+    grid-template-columns: 1fr;
+  }
+  .team-fact {
+    border-right: 0;
+    border-bottom: 1px solid var(--color-divider);
+  }
+  .team-fact:last-child {
+    border-bottom: 0;
+  }
+}
+
+/* Appearance：三张主题卡，取代旧的 .seg 分段控件。每张卡自带一个按目标
+   主题的 data-theme 取值渲染的小预览块——级联在该子树里解析出那个主题真正
+   的 --color-bg / --color-surface / --color-accent，而不是在 JS/CSS 里
+   写死颜色字面量（写死的话 arcade 的 accent 被整体重映射成墨色这件事会被
+   悄悄忘掉）。 */
+.theme-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-4);
+  max-width: 640px;
+}
+@media (max-width: 640px) {
+  .theme-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.theme-option {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--color-divider);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.theme-option:hover {
+  border-color: var(--color-accent);
+}
+.theme-option.on {
+  border: 2px solid var(--color-accent);
+  padding: calc(var(--space-3) - 1px);
+}
+
+.theme-swatch {
+  position: relative;
+  display: block;
+  height: 64px;
+  border: 1px solid var(--color-divider);
+  overflow: hidden;
+  background: var(--color-bg);
+}
+.theme-swatch-accent {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-2);
+  width: 22px;
+  height: 22px;
+  background: var(--color-accent);
+}
+.theme-swatch-surface {
+  position: absolute;
+  right: var(--space-2);
+  bottom: var(--space-2);
+  left: var(--space-2);
+  height: 22px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-divider);
+}
+
+.theme-option-label {
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  font-size: 14px;
+}

@@ -1,0 +1,66 @@
+/* Governance 四屏。 */
+
+/* M7 (final-fix wave): a handful of spots across the four screens mark up
+   spec-mandated content — not optional secondary text — with the shared
+   `.faint` utility (color-mix 40%): AuditRow.tsx's resolved-name-then-
+   raw-ID parenthetical (design §2.1: "原始标识符...不允许只显示名字") and
+   AdminExplorerPage.tsx's note_id·rev·state line + audience/expiry row
+   (§3.2's note-head identity fields). Corrected three-theme measurement
+   (the verification page's original alpha-compositing had a bug — see the
+   final-fix report's M7 section) puts `.faint` at 2.38:1 beige / 3.32:1
+   dark / 1.94:1 arcade at these spots, none passing AA; `.muted`
+   (color-mix 55%) isn't much better (3.65:1 beige). Rather than touch
+   `.faint`/`.muted` themselves (shared, used all over the app for
+   genuinely optional text — out of scope here) or invent a new fade
+   percentage, this drops the fade entirely for just these spots: all three
+   sit inside a `.card`, where full-strength text already measures well
+   into AA on every theme, and font-size (`.small`) still carries the
+   visual de-emphasis the fade used to. */
+.gv-id-ref { color: var(--color-text); }
+
+.gv-head { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--space-6); padding: var(--space-6) var(--space-4) var(--space-4); }
+.gv-head p { font-size: 14px; opacity: 0.7; max-width: 74ch; margin: var(--space-2) 0 0; }
+
+.gv-audit-row { display: grid; grid-template-columns: 82px 96px minmax(220px, 1fr) minmax(200px, 1fr) 150px; gap: var(--space-4); align-items: center; width: 100%; text-align: left; background: transparent; border: 0; border-bottom: 1px solid var(--color-divider); padding: var(--space-3) var(--space-4); cursor: pointer; font-family: var(--font-body); color: inherit; }
+.gv-audit-row:hover { background: color-mix(in srgb, var(--color-text) 5%, transparent); }
+.gv-audit-time { font-family: var(--font-mono); font-size: 12px; opacity: 0.55; }
+.gv-audit-action { font-family: var(--font-heading); font-weight: var(--font-heading-weight); font-size: 13px; }
+.gv-audit-target { font-family: var(--font-mono); font-size: 11px; opacity: 0.5; }
+.gv-audit-open { border-bottom: 1px solid var(--color-divider); background: color-mix(in srgb, var(--color-text) 5%, transparent); padding: var(--space-3) var(--space-4) var(--space-3) 110px; font-family: var(--font-mono); font-size: 12px; line-height: 1.7; }
+
+/* Session audit: Findings row cards (task 3). */
+.gv-finding { display: grid; grid-template-columns: 120px minmax(280px, 1fr) 200px auto; gap: var(--space-4); align-items: start; padding: var(--space-4); border-bottom: 1px solid var(--color-divider); }
+.gv-finding-title { font-family: var(--font-heading); font-weight: var(--font-heading-weight); font-size: 15px; }
+.gv-finding-summary { font-size: 13px; opacity: 0.72; margin-top: var(--space-1); max-width: 68ch; }
+.gv-finding-ref { font-family: var(--font-mono); font-size: 11px; opacity: 0.45; margin-top: var(--space-2); }
+
+/* Session audit: per-day bar chart (task 4). Bar height is data-driven
+   (event_count / max) via inline style, not a spacing utility — see
+   SessionDays.tsx.
+   Task 8 three-theme measurement: the bar sits inside .card
+   (--color-surface), not directly on the page background, so it needs to
+   stay legible against whichever surface color the current theme picks —
+   --color-chart-bar (tokens.css) does that; see themes.css for why arcade
+   needs its own literal value. Same story for --color-label-accent below,
+   which replaces the old direct --color-accent-700 reference on
+   .gv-day-high. */
+.gv-days { display: grid; gap: var(--space-4); align-items: end; height: 200px; border-bottom: 2px solid var(--color-divider); }
+.gv-day-col { display: flex; flex-direction: column; justify-content: flex-end; height: 100%; gap: var(--space-2); }
+.gv-day-bar { background: var(--color-chart-bar); min-height: 2px; }
+.gv-day-count { font-family: var(--font-heading); font-weight: var(--font-heading-weight); font-size: 12px; font-variant-numeric: tabular-nums; }
+.gv-day-labels { display: grid; gap: var(--space-4); padding-top: var(--space-3); }
+.gv-day-date { font-family: var(--font-heading); font-weight: var(--font-heading-weight); font-size: 13px; }
+.gv-day-high { font-size: 11px; color: var(--color-label-accent); }
+
+/* arcade 的次要文字用 opacity 淡化白字，压在饱和红底/深红卡片上普遍不过
+   WCAG AA（同根因见 access-tree.css 的 .at-bar-hint 等）。task 8 三主题实测
+   （真实编译 CSS + Chrome）：.gv-head p 2.95:1、.gv-audit-time 2.58:1、
+   .gv-audit-target 2.34:1、.gv-finding-summary 3.53:1、.gv-finding-ref
+   2.13:1，全部只在 arcade 下取消淡化，beige/dark 的规则与观感不变。 */
+[data-theme="arcade"] .gv-head p,
+[data-theme="arcade"] .gv-audit-time,
+[data-theme="arcade"] .gv-audit-target,
+[data-theme="arcade"] .gv-finding-summary,
+[data-theme="arcade"] .gv-finding-ref {
+  opacity: 1;
+}

@@ -8,6 +8,8 @@ import {
 } from "../api/actions";
 import { listTodoSuggestions, listTodos, type TodoItem, type TodoSuggestion } from "../api/todo";
 import { Button } from "../components/Button";
+import { Kicker } from "../components/Kicker";
+import { Tag } from "../components/Tag";
 import { isAbortError } from "../lib/usePolling";
 import { useErrorHandler } from "../lib/useErrorHandler";
 
@@ -16,50 +18,55 @@ const NO_LIST_STYLE = { listStyle: "none", padding: 0, margin: 0 } as const;
 export function TodoPage() {
   const handleError = useErrorHandler();
   const [suggestions, setSuggestions] = useState<TodoSuggestion[]>([]);
+  const [suggestionsError, setSuggestionsError] = useState(false);
   const [todos, setTodos] = useState<TodoItem[]>([]);
+  const [todosError, setTodosError] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [busyId, setBusyId] = useState("");
   const [newTitle, setNewTitle] = useState("");
   const [adding, setAdding] = useState(false);
 
+  // 建议列表与个人清单是两个不同的取数源。用 allSettled 而不是 all：
+  // 一边失败只置那一边的 error 位，另一边该怎么渲染还怎么渲染，不能
+  // 因为一次失败就把两栏一起拖垮。
   const load = useCallback(async (signal?: AbortSignal) => {
-    const [loadedSuggestions, loadedTodos] = await Promise.all([
+    const [suggestionsResult, todosResult] = await Promise.allSettled([
       listTodoSuggestions(signal),
       listTodos("", signal),
     ]);
-    setSuggestions(loadedSuggestions);
-    setTodos(loadedTodos);
+
+    if (suggestionsResult.status === "fulfilled") {
+      setSuggestions(suggestionsResult.value);
+      setSuggestionsError(false);
+    } else if (!isAbortError(suggestionsResult.reason)) {
+      setSuggestionsError(true);
+    }
+
+    if (todosResult.status === "fulfilled") {
+      setTodos(todosResult.value);
+      setTodosError(false);
+    } else if (!isAbortError(todosResult.reason)) {
+      setTodosError(true);
+    }
   }, []);
 
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
-    load(controller.signal)
-      .catch((error: unknown) => {
-        if (!isAbortError(error)) handleError(error);
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setLoading(false);
-      });
+    load(controller.signal).finally(() => {
+      if (!controller.signal.aborted) setLoading(false);
+    });
     return () => controller.abort();
-  }, [handleError, load]);
+  }, [load]);
 
   // No optimistic updates for any mutation below: every action awaits the
   // request, then refetches both lists from the server.
-  const refetch = async () => {
-    try {
-      await load();
-    } catch (error) {
-      handleError(error);
-    }
-  };
-
   const checkTeamMemory = async () => {
     setRefreshing(true);
     try {
       await refreshTodoSuggestions();
-      await refetch();
+      await load();
     } catch (error) {
       handleError(error);
     } finally {
@@ -71,7 +78,7 @@ export function TodoPage() {
     setBusyId(suggestionId);
     try {
       await acceptTodoSuggestion(suggestionId);
-      await refetch();
+      await load();
     } catch (error) {
       handleError(error);
     } finally {
@@ -83,7 +90,7 @@ export function TodoPage() {
     setBusyId(suggestionId);
     try {
       await dismissTodoSuggestion(suggestionId);
-      await refetch();
+      await load();
     } catch (error) {
       handleError(error);
     } finally {
@@ -95,7 +102,7 @@ export function TodoPage() {
     setBusyId(todoId);
     try {
       await completeTodo(todoId);
-      await refetch();
+      await load();
     } catch (error) {
       handleError(error);
     } finally {
@@ -111,7 +118,7 @@ export function TodoPage() {
     try {
       await createTodo(title, "");
       setNewTitle("");
-      await refetch();
+      await load();
     } catch (error) {
       handleError(error);
     } finally {
@@ -123,15 +130,13 @@ export function TodoPage() {
   const doneTodos = todos.filter((todo) => todo.status === "done");
 
   return (
-    <div className="app-fullscreen">
-      <div className="app-fullscreen-inner">
-        {/* 「← All apps」已移除：启动页不存在了，/apps 只会重定向到 wiki。
-            分区间的导航由顶栏 + 二级导航提供。 */}
-        <div className="page-head">
+    <>
+      <div className="page-head">
         <div>
-          <h1>Todos</h1>
+          <Kicker>Apps · todos</Kicker>
+          <h1>Agent 替你发现的活儿</h1>
           <p className="muted flush">
-            Track your work, and act on suggestions team memory has spotted.
+            团队写下的阻塞与交接会被转成建议。接受一条它就归你；忽略它就不会再回来。
           </p>
         </div>
         <Button
@@ -140,117 +145,115 @@ export function TodoPage() {
           disabled={refreshing}
           onClick={() => void checkTeamMemory()}
         >
-          {refreshing ? "Checking…" : "Check team memory"}
+          {refreshing ? "扫描中…" : "扫描团队记忆"}
         </Button>
       </div>
 
-      <section className="card" aria-label="Suggestions">
-        <h2>Suggestions</h2>
-        {loading ? (
-          <p className="muted">Loading…</p>
-        ) : suggestions.length === 0 ? (
-          <p className="muted small">No suggestions right now.</p>
-        ) : (
-          <ul style={NO_LIST_STYLE}>
-            {suggestions.map((suggestion) => (
-              <li
-                key={suggestion.suggestion_id}
-                className="row between wrap"
-                style={{ padding: "10px 0", borderBottom: "1px solid var(--border)" }}
-              >
-                <div>
-                  <span
-                    className={suggestion.kind === "blocker" ? "badge b-suspended" : "badge b-pending"}
-                  >
-                    {suggestion.kind}
-                  </span>
+      <div className="todo-columns">
+        <section className="card" aria-label="Suggestions">
+          <h2 className="card-title flush">建议</h2>
+          {loading ? (
+            <p className="muted">加载中…</p>
+          ) : suggestionsError ? (
+            <p className="muted small">建议暂时不可用，请稍后重试。</p>
+          ) : suggestions.length === 0 ? (
+            <p className="muted small">现在没有新的建议。</p>
+          ) : (
+            <ul style={NO_LIST_STYLE}>
+              {suggestions.map((suggestion) => (
+                <li key={suggestion.suggestion_id} className="todo-row">
                   <div>
-                    <strong>{suggestion.title}</strong>
+                    <Tag tone={suggestion.kind === "blocker" ? "attention" : "neutral"}>
+                      {suggestion.kind}
+                    </Tag>
+                    <div>
+                      <strong>{suggestion.title}</strong>
+                    </div>
+                    <p className="muted small">{suggestion.body}</p>
                   </div>
-                  <p className="muted small">{suggestion.body}</p>
-                </div>
-                <div className="row">
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    type="button"
-                    disabled={busyId === suggestion.suggestion_id}
-                    onClick={() => void accept(suggestion.suggestion_id)}
-                  >
-                    Accept
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    type="button"
-                    disabled={busyId === suggestion.suggestion_id}
-                    onClick={() => void dismiss(suggestion.suggestion_id)}
-                  >
-                    Dismiss
-                  </Button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+                  <div className="todo-row-actions">
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      type="button"
+                      disabled={busyId === suggestion.suggestion_id}
+                      onClick={() => void accept(suggestion.suggestion_id)}
+                    >
+                      接下来我做
+                    </Button>
+                    <Button
+                      size="sm"
+                      type="button"
+                      disabled={busyId === suggestion.suggestion_id}
+                      onClick={() => void dismiss(suggestion.suggestion_id)}
+                    >
+                      忽略
+                    </Button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
 
-      <section className="card" aria-label="Todos">
-        <h2>Todos</h2>
-        <form className="row" onSubmit={(event) => void addTodo(event)}>
-          <label className="sr-only" htmlFor="todo-new-title">
-            Todo title
-          </label>
-          <input
-            id="todo-new-title"
-            type="text"
-            placeholder="Add a todo…"
-            value={newTitle}
-            onChange={(event) => setNewTitle(event.target.value)}
-          />
-          <Button variant="primary" type="submit" disabled={adding || newTitle.trim() === ""}>
-            {adding ? "Adding…" : "Add"}
-          </Button>
-        </form>
+        <section className="card" aria-label="Todos">
+          <h2 className="card-title flush">你的清单</h2>
+          <form className="row" onSubmit={(event) => void addTodo(event)}>
+            <label className="sr-only" htmlFor="todo-new-title">
+              待办标题
+            </label>
+            <input
+              id="todo-new-title"
+              type="text"
+              placeholder="添加一件事…"
+              value={newTitle}
+              onChange={(event) => setNewTitle(event.target.value)}
+            />
+            <Button variant="primary" type="submit" disabled={adding || newTitle.trim() === ""}>
+              {adding ? "添加中…" : "添加"}
+            </Button>
+          </form>
 
-        {loading ? (
-          <p className="muted">Loading…</p>
-        ) : openTodos.length === 0 ? (
-          <p className="muted small">No open todos.</p>
-        ) : (
-          <ul style={NO_LIST_STYLE}>
-            {openTodos.map((todo) => (
-              <li
-                key={todo.todo_id}
-                className="row between"
-                style={{ padding: "8px 0", borderBottom: "1px solid var(--border)" }}
-              >
-                <span>{todo.title}</span>
-                <Button
-                  size="sm"
-                  type="button"
-                  disabled={busyId === todo.todo_id}
-                  onClick={() => void complete(todo.todo_id)}
-                >
-                  Complete
-                </Button>
-              </li>
-            ))}
-          </ul>
-        )}
+          {loading ? (
+            <p className="muted">加载中…</p>
+          ) : todosError ? (
+            <p className="muted small">清单暂时不可用，请稍后重试。</p>
+          ) : (
+            <>
+              {openTodos.length === 0 ? (
+                <p className="muted small">没有未完成的待办。</p>
+              ) : (
+                <ul style={NO_LIST_STYLE}>
+                  {openTodos.map((todo) => (
+                    <li key={todo.todo_id} className="todo-item-row">
+                      <span>{todo.title}</span>
+                      <Button
+                        size="sm"
+                        type="button"
+                        disabled={busyId === todo.todo_id}
+                        onClick={() => void complete(todo.todo_id)}
+                      >
+                        完成
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              )}
 
-        <details style={{ marginTop: 14 }}>
-          <summary className="muted small">Done ({doneTodos.length})</summary>
-          <ul style={NO_LIST_STYLE}>
-            {doneTodos.map((todo) => (
-              <li key={todo.todo_id} className="muted small" style={{ padding: "4px 0" }}>
-                {todo.title}
-              </li>
-            ))}
-          </ul>
-        </details>
-      </section>
+              <details className="todo-done-group">
+                <summary className="muted small">已完成（{doneTodos.length}）</summary>
+                <ul style={NO_LIST_STYLE}>
+                  {doneTodos.map((todo) => (
+                    <li key={todo.todo_id} className="muted small todo-done-item">
+                      {todo.title}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            </>
+          )}
+        </section>
       </div>
-    </div>
+    </>
   );
 }

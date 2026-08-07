@@ -76,6 +76,15 @@
   --color-accent-2-800: #71261b;
   --color-accent-2-900: #471d16;
 
+  /* Governance 用到的两个「跨主题应保持可辨识」的角色，默认借当前主题的
+     accent 阶，beige/dark 下这样已经是对的（都通过 WCAG AA）。arcade 单独
+     覆盖——那里 --color-accent(-700) 被整体重映射成墨色系，压在
+     --color-surface 那样的深红卡片底上会不可读，见 themes.css 里的说明。
+     phase 5 task 8 三主题实测报告：
+     .superpowers/sdd/2026-08-06-portal-modernist-phase5-governance/theme-report.md */
+  --color-chart-bar: var(--color-accent);
+  --color-label-accent: var(--color-accent-700);
+
   --font-heading: "Archivo", system-ui, sans-serif;
   --font-heading-weight: 800;
   --font-body: "Archivo", system-ui, sans-serif;
@@ -101,6 +110,14 @@
   --shadow-lg: 0 12px 32px color-mix(in srgb, var(--color-neutral-900) 22%, transparent);
 
   --backdrop: color-mix(in srgb, var(--color-neutral-900) 50%, transparent);
+
+  /* 一次性密钥仪式（SecretCeremony）专属 token，不随 --color-accent 的主题内
+     角色互换而漂移——三个主题各自在这里/themes.css 里给出稳定值。默认值就是
+     beige 的取值：深红铺底 + 白字（4.74:1，取值方式见 themes.css 里 arcade
+     铺底色的先例注释）。 */
+  --ceremony-bg: #dd2b0f;
+  --ceremony-fg: #ffffff;
+  --ceremony-line: color-mix(in srgb, var(--ceremony-fg) 45%, transparent);
 }
 
 /* — 兼容别名（临时）—
@@ -133,7 +150,6 @@
   --info-bg: var(--color-neutral-100);
   --input-bg: var(--color-surface);
   --on-accent: var(--color-bg);
-  --secret-bg: var(--color-accent-100);
   --danger-border: var(--color-accent);
   --warn-border: var(--color-accent);
   --bad-border: var(--color-accent);

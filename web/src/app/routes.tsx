@@ -10,7 +10,6 @@ import { landingPath } from "./navModel";
 import { AccessTreePage } from "../pages/AccessTreePage";
 import { AgentDetailPage } from "../pages/AgentDetailPage";
 import { AdminAgentsPage } from "../pages/AdminAgentsPage";
-import { AdminAgentDetailPage } from "../pages/AdminAgentDetailPage";
 import { AdminMembersPage } from "../pages/AdminMembersPage";
 import { AdminInvitationsPage } from "../pages/AdminInvitationsPage";
 import { AdminDevicesPage } from "../pages/AdminDevicesPage";
@@ -20,13 +19,13 @@ import { AdminSessionAuditPage } from "../pages/AdminSessionAuditPage";
 import { AdminOperationsPage } from "../pages/AdminOperationsPage";
 import { OverviewPage } from "../pages/OverviewPage";
 import { AdminExplorerPage } from "../pages/AdminExplorerPage";
-import { AdminTeamNoteDetailPage } from "../pages/AdminTeamNoteDetailPage";
 import { WikiBrowsePage } from "../pages/WikiBrowsePage";
 import { TodoPage } from "../pages/TodoPage";
-import { WikiStatusPage } from "../pages/WikiStatusPage";
 import { TeamSettingsPage } from "../pages/TeamSettingsPage";
 import { AppearancePage } from "../pages/settings/AppearancePage";
-import { OnboardingPage } from "../pages/OnboardingPage";
+import { MemoryRulesPage } from "../pages/settings/MemoryRulesPage";
+import { ModelUsagePage } from "../pages/settings/ModelUsagePage";
+import { WelcomePage } from "../pages/WelcomePage";
 
 /** 角色矩阵门控；无权限一律回落地页，页面不挂载 = 不发请求。 */
 function RequireRole({
@@ -75,8 +74,6 @@ function DefaultRedirect({ me }: { me: HumanMe }) {
 }
 
 export function PortalRoutes({ me }: { me: HumanMe }) {
-  const adminLike = can(me.role, "view.members");
-
   return (
     <Routes>
       {/* 旧路由：整表挂重定向，逐条由 tests/legacy-routes.test.ts 覆盖。 */}
@@ -84,7 +81,22 @@ export function PortalRoutes({ me }: { me: HumanMe }) {
         <Route key={route.from} path={route.from} element={<LegacyRedirect />} />
       ))}
 
-      <Route path="/onboarding" element={<OnboardingPage />} />
+      {/* The dedicated onboarding page is gone (phase 7 task 1 merged it into
+          /welcome). This route stays only so a stale bookmark or external
+          link to /onboarding does not 404 — it redirects on to /welcome,
+          which is also registered in this route table (below) so the team
+          switcher's "Create a team" / "Join with invitation" footer rows
+          (TeamSwitcher.tsx, which still navigate to /onboarding) keep
+          working. */}
+      <Route path="/onboarding" element={<Navigate to="/welcome" replace />} />
+      {/* Reachable only from an active session (this route table only ever
+          renders for state.kind === "active" — see AppRoutes in App.tsx).
+          WelcomePage itself also has a /welcome route registered outside
+          PortalShell, in App.tsx, but only while state.kind ===
+          "no-membership"; the two states are mutually exclusive for a given
+          session, so exactly one of the two /welcome route registrations is
+          ever mounted at a time. */}
+      <Route path="/welcome" element={<WelcomePage />} />
 
       <Route
         path="/overview"
@@ -125,11 +137,9 @@ export function PortalRoutes({ me }: { me: HumanMe }) {
           </RequireRole>
         }
       />
-      {/* 阶段 4 合并成一个 scope 自适应页面；现在按角色分派。 */}
-      <Route
-        path="/management/agents/:agentId"
-        element={adminLike ? <AdminAgentDetailPage me={me} /> : <AgentDetailPage />}
-      />
+      {/* 阶段 4：单一 scope 自适应页面，内部按「这个 Agent 是不是你的」分派
+          读取范围与动作范围（agentScope.ts）。 */}
+      <Route path="/management/agents/:agentId" element={<AgentDetailPage me={me} />} />
       <Route
         path="/management/devices"
         element={
@@ -185,7 +195,7 @@ export function PortalRoutes({ me }: { me: HumanMe }) {
         path="/governance/memory/:noteId"
         element={
           <RequireCapability me={me} capability="view.team-memory">
-            <AdminTeamNoteDetailPage />
+            <AdminExplorerPage />
           </RequireCapability>
         }
       />
@@ -195,9 +205,8 @@ export function PortalRoutes({ me }: { me: HumanMe }) {
       <Route path="/apps/todos" element={<TodoPage />} />
 
       {hasTeams(me) && <Route path="/settings/team" element={<TeamSettingsPage me={me} />} />}
-      <Route path="/settings/memory" element={<WikiStatusPage me={me} />} />
-      {/* 阶段 6 把 LLM 用量从 WikiStatusPage 拆出来独立成页。 */}
-      <Route path="/settings/usage" element={<WikiStatusPage me={me} />} />
+      <Route path="/settings/memory" element={<MemoryRulesPage me={me} />} />
+      <Route path="/settings/usage" element={<ModelUsagePage />} />
       <Route path="/settings/appearance" element={<AppearancePage />} />
 
       <Route path="*" element={<DefaultRedirect me={me} />} />

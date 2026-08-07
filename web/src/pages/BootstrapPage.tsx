@@ -4,6 +4,8 @@ import { apiError } from "../api/client";
 import { claimBootstrap } from "../api/actions";
 import { useAuth } from "../auth/AuthContext";
 import { Button } from "../components/Button";
+import { Card } from "../components/Card";
+import { Kicker } from "../components/Kicker";
 import { useToast } from "../components/Toasts";
 
 /**
@@ -24,20 +26,20 @@ export function BootstrapPage() {
     setBusy(true);
     try {
       await claimBootstrap(secret);
-      toast("ok", "You are now the first Owner; bootstrap is closed");
+      toast("ok", "你现在是第一个 Owner，Bootstrap 已经关闭");
       await refresh();
       navigate("/agents", { replace: true });
     } catch (err) {
       if (apiError(err, 403)) {
-        toast("bad", "403: incorrect bootstrap secret, or this account already has a Membership");
+        toast("bad", "403：Bootstrap 密钥不正确，或者这个账号已经有 Membership");
       } else if (apiError(err, undefined, "bootstrap_closed")) {
-        toast("warn", "Bootstrap has already been claimed by someone else or is closed");
+        toast("warn", "Bootstrap 已经被别人认领，或者已经关闭");
         await refresh();
       } else if (apiError(err, 401)) {
-        toast("warn", "Your session has expired; sign in again and retry");
+        toast("warn", "你的会话已过期，请重新登录后再试");
         await refresh();
       } else {
-        toast("bad", "Request failed; it will not be retried automatically — verify and retry manually");
+        toast("bad", "请求失败，不会自动重试——请确认后手动重试");
       }
     } finally {
       // Clear the secret from component state immediately after the request.
@@ -47,32 +49,39 @@ export function BootstrapPage() {
   };
 
   return (
-    <div className="center-page">
-      <div className="center-box card">
-        <h1>Claim the first Owner</h1>
-        <p className="muted">Enter the bootstrap secret provided by your operator. The secret never appears in URLs, logs, or persistent storage.</p>
-        <label htmlFor="bs-secret">Bootstrap secret</label>
-        <input
-          id="bs-secret"
-          type="password"
-          placeholder="operator-provided secret"
-          value={secret}
-          onChange={(e) => setSecret(e.target.value)}
-          autoComplete="off"
-        />
-        <div style={{ marginTop: 14 }} className="row">
-          <Button variant="primary" disabled={!secret || busy} onClick={() => void claim()}>
-            {busy ? "Claiming…" : "Claim Owner"}
-          </Button>
-          <Button variant="ghost" onClick={() => navigate("/")}>
-            Back
-          </Button>
+    <main className="entry-screen" aria-label="Bootstrap">
+      <div className="entry-col">
+        <div className="entry-brand" aria-hidden="true">
+          PAX Nexus
         </div>
-        <p className="small faint" style={{ marginTop: 12 }}>
-          Once claimed, bootstrap is permanently closed and the legacy static Admin key stops working. If multiple
-          browsers race to claim, only one succeeds.
+        <Kicker>Entry · Bootstrap</Kicker>
+        <h1>认领第一个 Owner</h1>
+        <p className="entry-lede">
+          输入你的操作员提供的 Bootstrap 密钥。这个密钥不会出现在 URL、日志里，也不会被持久化保存。
+        </p>
+        <Card kicker="Onprem · Bootstrap" title="认领 Owner">
+          <label htmlFor="bs-secret">Bootstrap 密钥</label>
+          <input
+            id="bs-secret"
+            type="password"
+            placeholder="操作员提供的密钥"
+            value={secret}
+            onChange={(e) => setSecret(e.target.value)}
+            autoComplete="off"
+          />
+          <div className="entry-actions">
+            <Button variant="primary" disabled={!secret || busy} onClick={() => void claim()}>
+              {busy ? "认领中…" : "认领 Owner"}
+            </Button>
+            <Button variant="ghost" onClick={() => navigate("/")}>
+              返回
+            </Button>
+          </div>
+        </Card>
+        <p className="small entry-foot">
+          一旦认领成功，Bootstrap 将永久关闭，旧的静态 Admin key 也会随之失效。如果多个浏览器同时抢先认领，只有一个会成功。
         </p>
       </div>
-    </div>
+    </main>
   );
 }

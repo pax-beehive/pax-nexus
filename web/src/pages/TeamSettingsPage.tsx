@@ -4,16 +4,23 @@ import { can } from "../lib/capabilities";
 import { currentTeam } from "../lib/teams";
 import { RoleBadge } from "../components/Badge";
 import { Button } from "../components/Button";
+import { Kicker } from "../components/Kicker";
 
 /**
- * Team settings, General panel (design/m3-teams 03). Read-only team info
- * plus entry points to the existing team-scoped Members / Invitations admin
- * pages. There is no rename or delete endpoint on the backend yet, so Rename
- * renders disabled with a "coming soon" hint and the danger zone is skipped
- * entirely.
+ * Team settings, General panel (design/m3-teams 03), Modernist repaint
+ * (phase 6 task 4). Data comes straight from `me.teams`, already resolved
+ * at boot by AuthContext — this page makes no request of its own and has no
+ * failure mode (spec §4 corrected during review: was listed as "whole page,
+ * retryable error", actually "no data fetch"; see task-4-report.md).
  *
- * TeamSummary carries no created_at, so the info table omits the Created row
- * from the mockup.
+ * The design mockup's info bar shows four cells (address / deployment form
+ * / member count / created date). Only "deployment form" survives contact
+ * with the data this page can actually reach: TeamSummary carries no
+ * address and no created_at (confirmed server-side — even the full Team
+ * record has no address field), and member count would need the
+ * admin-only members list, which non-admins can't fetch. The two remaining
+ * cells (slug, your role) are real fields already on TeamSummary, promoted
+ * from the old General table into this bar instead of being invented.
  */
 export function TeamSettingsPage({ me }: { me: HumanMe }) {
   const team = currentTeam(me);
@@ -24,33 +31,31 @@ export function TeamSettingsPage({ me }: { me: HumanMe }) {
     <>
       <div className="page-head">
         <div>
-          <h1>Team settings</h1>
+          <Kicker>Settings · team</Kicker>
+          <h1>{team.name}</h1>
           <p className="muted flush">
-            {team.name} · <span className="mono small">{team.slug}</span>
+            Multi-tenant SaaS workspace — isolated from every other team on this control plane.
           </p>
+        </div>
+      </div>
+
+      <div className="team-facts">
+        <div className="team-fact">
+          <span className="card-kicker">Slug</span>
+          <span className="mono">{team.slug}</span>
+        </div>
+        <div className="team-fact">
+          <span className="card-kicker">Your role</span>
+          <RoleBadge role={team.role} />
+        </div>
+        <div className="team-fact">
+          <span className="card-kicker">Deployment</span>
+          <span>Multi-tenant SaaS</span>
         </div>
       </div>
 
       <div className="card">
         <h2 className="flush">General</h2>
-        <table>
-          <tbody>
-            <tr>
-              <th style={{ width: 140 }}>Team name</th>
-              <td>{team.name}</td>
-            </tr>
-            <tr>
-              <th>Slug</th>
-              <td className="mono small">{team.slug}</td>
-            </tr>
-            <tr>
-              <th>Your role</th>
-              <td>
-                <RoleBadge role={team.role} />
-              </td>
-            </tr>
-          </tbody>
-        </table>
         <div className="row" style={{ marginTop: 12 }}>
           {/* No rename endpoint exists on the backend yet; do not fake one. */}
           <Button disabled>Rename team</Button>

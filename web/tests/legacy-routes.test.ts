@@ -47,6 +47,7 @@ describe("legacy route table", () => {
     ["/apps", "", "/apps/wiki"],
     ["/todo", "", "/apps/todos"],
     ["/wiki", "", "/settings/memory"],
+    ["/team", "", "/settings/team"],
   ])("resolves %s%s to %s", (pathname, search, expected) => {
     expect(resolveLegacy(pathname, search)).toBe(expected);
   });

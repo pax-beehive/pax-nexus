@@ -12,15 +12,15 @@ import {
   listSessionAuditFindings,
   listSessionAuditToolCalls,
 } from "../api/queries";
-import type {
-  SessionAuditActivityDay,
-  SessionAuditFinding,
-  SessionAuditToolCall,
-} from "../api/types";
+import type { SessionAuditToolCall } from "../api/types";
 import { useErrorHandler } from "../lib/useErrorHandler";
 import { formatTime } from "../lib/format";
 import { Button } from "../components/Button";
+import { Kicker } from "../components/Kicker";
 import { RegionError } from "../components/RegionError";
+import { Seg } from "../components/Seg";
+import { findingKindLabel, SessionFindingsList } from "./governance/SessionFindings";
+import { SessionDaysChart } from "./governance/SessionDays";
 
 // Fixed vocabularies from the backend session audit schema.
 const RISK_LEVELS = ["low", "medium", "high", "critical"] as const;
@@ -31,17 +31,6 @@ const FINDING_KINDS = [
   "visibility_unknown",
   "attribution_missing",
 ] as const;
-
-const FINDING_KIND_LABELS: Record<string, string> = {
-  high_risk_unapproved: "High-risk unapproved",
-  denied_tool_executed: "Denied tool executed",
-  visibility_unknown: "Visibility unknown",
-  attribution_missing: "Attribution missing",
-};
-
-function findingKindLabel(kind: string): string {
-  return FINDING_KIND_LABELS[kind] ?? kind;
-}
 
 /** Severity and risk level share a vocabulary, so they share a badge. */
 function RiskBadge({ level }: { level: string }) {
@@ -140,15 +129,15 @@ function ListCard<T>({
   return <div className="card">{body}</div>;
 }
 
-function FindingsView() {
+function FindingsView({ onInspectSession }: { onInspectSession: (sessionId: string) => void }) {
   const handleError = useErrorHandler();
+  const [searchParams] = useSearchParams();
   const [userInput, setUserInput] = useState("");
-  const [agentInput, setAgentInput] = useState("");
+  const [agentInput, setAgentInput] = useState(searchParams.get("agent") ?? "");
   const [userId, setUserId] = useState("");
-  const [agentId, setAgentId] = useState("");
+  const [agentId, setAgentId] = useState(searchParams.get("agent") ?? "");
   const [kind, setKind] = useState("");
   const [severity, setSeverity] = useState("");
-  const [expandedId, setExpandedId] = useState<number | null>(null);
 
   const state = useSessionAuditList(
     () =>
@@ -219,70 +208,24 @@ function FindingsView() {
           Apply filters
         </Button>
       </div>
-      <ListCard
-        state={state}
-        columns={["Time", "Severity", "Kind", "User", "Agent", "Session", "Summary", ""]}
-        emptyText="No matching findings."
-        renderRow={(f: SessionAuditFinding) => (
-          <Fragment key={f.finding_id}>
-            <tr>
-              <td className="small">{formatTime(f.created_at)}</td>
-              <td>
-                <RiskBadge level={f.severity} />
-              </td>
-              <td className="small">{findingKindLabel(f.kind)}</td>
-              <td>
-                <TruncatedId value={f.user_id} />
-              </td>
-              <td>
-                <TruncatedId value={f.agent_id} />
-              </td>
-              <td>
-                <TruncatedId value={f.session_id} />
-              </td>
-              <td className="small">{f.summary}</td>
-              <td>
-                <Button
-                  size="sm"
-                  onClick={() => setExpandedId(expandedId === f.finding_id ? null : f.finding_id)}
-                >
-                  {expandedId === f.finding_id ? "Collapse" : "Details"}
-                </Button>
-              </td>
-            </tr>
-            {expandedId === f.finding_id && (
-              <tr>
-                <td colSpan={8}>
-                  <div className="small">
-                    <span className="faint">evidence_event_ids: </span>
-                    {f.evidence_event_ids.length === 0 ? (
-                      <span className="faint">—</span>
-                    ) : (
-                      <span className="chips">
-                        {f.evidence_event_ids.map((id) => (
-                          <code key={id}>{id}</code>
-                        ))}
-                      </span>
-                    )}
-                  </div>
-                </td>
-              </tr>
-            )}
-          </Fragment>
-        )}
-      />
+      <SessionFindingsList state={state} onInspectToolCalls={onInspectSession} />
     </>
   );
 }
 
 function ToolCallsView() {
   const handleError = useErrorHandler();
+  const [searchParams] = useSearchParams();
   const [userInput, setUserInput] = useState("");
-  const [agentInput, setAgentInput] = useState("");
-  const [sessionInput, setSessionInput] = useState("");
+  const [agentInput, setAgentInput] = useState(searchParams.get("agent") ?? "");
+  // Both the draft (bound to the filter box) and applied (fed into the
+  // request) states seed from ?session=, mirroring the ?agent= pattern below
+  // — this is how the Findings row card's "看这些调用" jump prefills the
+  // tool-calls view's session filter.
+  const [sessionInput, setSessionInput] = useState(searchParams.get("session") ?? "");
   const [userId, setUserId] = useState("");
-  const [agentId, setAgentId] = useState("");
-  const [sessionId, setSessionId] = useState("");
+  const [agentId, setAgentId] = useState(searchParams.get("agent") ?? "");
+  const [sessionId, setSessionId] = useState(searchParams.get("session") ?? "");
   const [riskLevel, setRiskLevel] = useState("");
   const [approvalState, setApprovalState] = useState("");
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -425,33 +368,15 @@ function ToolCallsView() {
   );
 }
 
-const TOP_TOOLS_SHOWN = 3;
-
-function ToolBreakdown({ breakdown }: { breakdown: Record<string, number> }) {
-  const entries = Object.entries(breakdown).sort((a, b) => b[1] - a[1]);
-  if (entries.length === 0) return <span className="faint">—</span>;
-  const shown = entries.slice(0, TOP_TOOLS_SHOWN);
-  const hidden = entries.length - shown.length;
-  return (
-    <span className="chips">
-      {shown.map(([name, count]) => (
-        <code key={name}>
-          {name} × {count}
-        </code>
-      ))}
-      {hidden > 0 && <span className="faint small">+{hidden} more</span>}
-    </span>
-  );
-}
-
 function ActivityView() {
   const handleError = useErrorHandler();
+  const [searchParams] = useSearchParams();
   const [userInput, setUserInput] = useState("");
-  const [agentInput, setAgentInput] = useState("");
+  const [agentInput, setAgentInput] = useState(searchParams.get("agent") ?? "");
   const [fromInput, setFromInput] = useState("");
   const [toInput, setToInput] = useState("");
   const [userId, setUserId] = useState("");
-  const [agentId, setAgentId] = useState("");
+  const [agentId, setAgentId] = useState(searchParams.get("agent") ?? "");
   const [fromDay, setFromDay] = useState("");
   const [toDay, setToDay] = useState("");
 
@@ -514,35 +439,17 @@ function ActivityView() {
           Apply filters
         </Button>
       </div>
-      <ListCard
-        state={state}
-        columns={["Day", "User", "Agent", "Events", "Tool calls", "High risk", "Sessions", "Tools"]}
-        emptyText="No recorded activity."
-        renderRow={(a: SessionAuditActivityDay) => (
-          <tr key={`${a.user_id}:${a.agent_id}:${a.day}`}>
-            <td className="small">{a.day}</td>
-            <td>
-              <TruncatedId value={a.user_id} />
-            </td>
-            <td>
-              <TruncatedId value={a.agent_id} />
-            </td>
-            <td className="small">{a.event_count}</td>
-            <td className="small">{a.tool_call_count}</td>
-            <td className="small">
-              {a.high_risk_count > 0 ? (
-                <span className="danger-text">{a.high_risk_count}</span>
-              ) : (
-                a.high_risk_count
-              )}
-            </td>
-            <td className="small">{a.session_count}</td>
-            <td>
-              <ToolBreakdown breakdown={a.tool_breakdown} />
-            </td>
-          </tr>
-        )}
-      />
+      {state.loading ? (
+        <div className="card">
+          <p className="muted small">Loading…</p>
+        </div>
+      ) : state.error ? (
+        <div className="card">
+          <RegionError error={state.error} onRetry={state.reload} />
+        </div>
+      ) : (
+        <SessionDaysChart days={state.items} />
+      )}
     </>
   );
 }
@@ -551,8 +458,8 @@ type AuditView = "findings" | "tool-calls" | "activity";
 
 const VIEWS: { id: AuditView; label: string }[] = [
   { id: "findings", label: "Findings" },
-  { id: "tool-calls", label: "Tool Calls" },
-  { id: "activity", label: "Activity" },
+  { id: "tool-calls", label: "工具调用" },
+  { id: "activity", label: "按天" },
 ];
 
 function viewFromParam(param: string | null): AuditView {
@@ -568,32 +475,34 @@ export function AdminSessionAuditPage() {
     setSearchParams(next === "findings" ? {} : { view: next });
   };
 
+  // Findings row card's "看这些调用" action: jump to the tool-calls view
+  // with that finding's session_id pre-filled (read back by ToolCallsView
+  // via ?session=, mirroring the ?agent= deep-link pattern).
+  const jumpToToolCalls = (sessionId: string) => {
+    setSearchParams({ view: "tool-calls", session: sessionId });
+  };
+
   return (
     <>
-      <div className="page-head">
+      <div className="gv-head">
         <div>
-          <h1>Session Audit</h1>
-          <p className="muted flush">
-            Read-only audit trail over the session lake; findings surface first, with raw tool
-            calls and per-day activity behind the toggle
+          <Kicker>Governance · 会话审计</Kicker>
+          <h1>Agent 到底做了什么</h1>
+          <p>
+            Finding 由证据推导，从不来自 prompt 或内容。每条都会点名它取材的事件，
+            你可以自己去读源头。
           </p>
         </div>
       </div>
-      <div className="toolbar" style={{ marginBottom: 14 }}>
-        <div className="seg" role="group" aria-label="session audit view">
-          {VIEWS.map((v) => (
-            <button
-              key={v.id}
-              className={view === v.id ? "on" : ""}
-              aria-pressed={view === v.id}
-              onClick={() => selectView(v.id)}
-            >
-              {v.label}
-            </button>
-          ))}
-        </div>
+      <div className="toolbar" style={{ marginBottom: 14, padding: "0 var(--space-4)" }}>
+        <Seg
+          label="session audit view"
+          options={VIEWS.map((v) => ({ value: v.id, label: v.label }))}
+          value={view}
+          onChange={selectView}
+        />
       </div>
-      {view === "findings" && <FindingsView />}
+      {view === "findings" && <FindingsView onInspectSession={jumpToToolCalls} />}
       {view === "tool-calls" && <ToolCallsView />}
       {view === "activity" && <ActivityView />}
     </>

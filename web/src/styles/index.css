@@ -12,3 +12,12 @@
 @import "./features/teams.css";
 @import "./features/overview-chart.css";
 @import "./features/access-tree.css";
+@import "./features/agent-detail.css";
+@import "./features/governance.css";
+@import "./features/governance-pipeline.css";
+@import "./features/governance-explorer.css";
+@import "./features/apps-settings.css";
+@import "./features/apps-todos.css";
+@import "./features/apps-wiki.css";
+@import "./features/settings-pages.css";
+@import "./features/entry.css";
