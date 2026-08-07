@@ -5,7 +5,7 @@
 // hatch left to regress into. This is a whole-tree grep guard rather than a
 // single component's DOM test on purpose: the pattern could resurface in
 // any app, not just Todos, and a per-component render test would miss that.
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -30,11 +30,7 @@ describe("full-screen escape pattern is gone", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("no longer declares the four app-fullscreen / app-back rules in apps.css", () => {
-    const css = readFileSync(path.join(srcDir, "styles/features/apps.css"), "utf8");
-    expect(css).not.toMatch(/\.app-fullscreen\b/);
-    expect(css).not.toMatch(/\.app-fullscreen-inner\b/);
-    expect(css).not.toMatch(/\.app-back\b/);
-    expect(css).not.toMatch(/\.app-back:hover\b/);
+  it("apps.css itself is gone (dead launcher styles, nothing referenced it)", () => {
+    expect(existsSync(path.join(srcDir, "styles/features/apps.css"))).toBe(false);
   });
 });

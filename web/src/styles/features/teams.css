@@ -1,6 +1,7 @@
-/* Teams (saas profile, M3): sidebar team switcher and its popover, per
-   design/m3-teams 02. Tokens only; all three themes work through the shared
-   design-token overrides. */
+/* Teams (saas profile, M3): 顶栏里的团队切换器与它的弹层。
+   设计稿（docs/w.html）顶栏团队单元是实心深色方块头像 + 团队名，无描边
+   药丸；弹层与 .menu-pop 同一习语（2px 分隔线边框 + --shadow-lg）。
+   侧边栏时代遗留的 collapsed / round 变体已随侧边栏一起删除。 */
 
 .team-switcher-wrap {
   position: relative;
@@ -10,19 +11,16 @@
   display: flex;
   align-items: center;
   gap: 9px;
-  width: 100%;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--surface);
-  color: var(--text);
+  border: 1px solid var(--color-divider);
+  background: var(--color-surface);
+  color: var(--color-text);
   padding: 8px 10px;
-  margin: 10px 0 4px;
   font: inherit;
   cursor: pointer;
   text-align: left;
 }
 .team-switcher:hover {
-  border-color: var(--accent);
+  border-color: var(--color-accent);
 }
 .team-switcher:disabled {
   opacity: 0.6;
@@ -38,49 +36,30 @@
   text-overflow: ellipsis;
 }
 .team-switcher .chevron {
-  color: var(--faint);
+  color: color-mix(in srgb, var(--color-text) 40%, transparent);
   font-size: 10px;
-}
-
-/* Collapsed 54px sidebar: the button reduces to the round avatar. */
-.team-switcher.collapsed {
-  justify-content: center;
-  border: 0;
-  background: transparent;
-  padding: 8px 0;
-}
-.team-switcher.collapsed:hover {
-  background: var(--surface-2);
 }
 
 .team-avatar {
   flex: none;
   width: 28px;
   height: 28px;
-  border-radius: 8px;
-  background: var(--accent-soft);
-  color: var(--accent-hover);
+  background: var(--color-text);
+  color: var(--color-bg);
   display: flex;
   align-items: center;
   justify-content: center;
   font-weight: 700;
   font-size: 13px;
-  font-family: var(--serif);
+  font-family: var(--font-heading);
 }
 /* Secondary tone for non-current teams in the popover. */
 .team-avatar.alt {
-  background: var(--surface-2);
-  color: var(--muted);
-}
-/* Round variant for the collapsed sidebar. */
-.team-avatar.round {
-  border-radius: 50%;
-  width: 32px;
-  height: 32px;
+  background: var(--color-neutral-200);
+  color: color-mix(in srgb, var(--color-text) 55%, transparent);
 }
 
-/* Popover: absolutely positioned under the button; in the collapsed sidebar
-   it overlays the main content to the right. */
+/* Popover: absolutely positioned under the button. */
 .team-pop {
   position: absolute;
   top: calc(100% + 2px);
@@ -88,10 +67,9 @@
   z-index: 40;
   width: 280px;
   max-width: 80vw;
-  border: 1px solid var(--border-strong);
-  border-radius: 10px;
-  background: var(--surface);
-  box-shadow: 0 10px 30px var(--shadow);
+  border: 2px solid var(--color-divider);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-lg);
   padding: 5px;
   margin: 2px 0 10px;
 }
@@ -105,16 +83,15 @@
   font: inherit;
   font-size: 13px;
   padding: 7px 9px;
-  border-radius: 7px;
   cursor: pointer;
   text-align: left;
-  color: var(--text);
+  color: var(--color-text);
 }
 .team-pop-row:hover {
-  background: var(--surface-2);
+  background: var(--color-neutral-200);
 }
 .team-pop-row.current {
-  background: var(--accent-soft);
+  background: var(--color-accent-100);
 }
 .team-pop-row .row-name {
   flex: 1;
@@ -124,16 +101,16 @@
   text-overflow: ellipsis;
 }
 .team-pop-row .check {
-  color: var(--accent-hover);
+  color: var(--color-accent-600);
   font-weight: 700;
 }
 .team-pop-row .plus {
-  color: var(--faint);
+  color: color-mix(in srgb, var(--color-text) 40%, transparent);
   width: 28px;
   text-align: center;
   flex: none;
 }
 .team-pop-divider {
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--color-divider);
   margin: 5px 4px;
 }

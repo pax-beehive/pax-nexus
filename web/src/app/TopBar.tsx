@@ -44,7 +44,7 @@ export function TopBar({
       <div className="topbar-brand">PAX Nexus</div>
       {hasTeams(me) && (
         <div className="topbar-cell">
-          <TeamSwitcher me={me} collapsed={false} />
+          <TeamSwitcher me={me} />
         </div>
       )}
       {narrow ? (
