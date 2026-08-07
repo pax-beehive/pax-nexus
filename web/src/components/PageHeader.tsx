@@ -20,6 +20,7 @@ import { Kicker } from "./Kicker";
 export function PageHeader({
   kicker,
   title,
+  titleAside,
   lede,
   variant = "shell",
   alignStart = false,
@@ -28,6 +29,12 @@ export function PageHeader({
   /** 省略时标题直接顶格（设备详情、My Agents 本来就没有导语）。 */
   kicker?: ReactNode;
   title: ReactNode;
+  /**
+   * 与标题同一行的补充物（Agent 详情的状态徽标与类型标签）。放在这里而不是
+   * 让调用方把整行塞进 `title`：那样会渲染出嵌套的 `<h1>`，标题结构就不再
+   * 可断言了。
+   */
+  titleAside?: ReactNode;
   lede?: ReactNode;
   variant?: "shell" | "bleed";
   /** 右侧内容比左侧高很多时顶端对齐（Agent 详情的归属事实行）。 */
@@ -46,7 +53,14 @@ export function PageHeader({
     <div className={className}>
       <div>
         {kicker !== undefined && <Kicker>{kicker}</Kicker>}
-        <h1>{title}</h1>
+        {titleAside === undefined ? (
+          <h1>{title}</h1>
+        ) : (
+          <div className="row">
+            <h1>{title}</h1>
+            {titleAside}
+          </div>
+        )}
         {typeof lede === "string" ? <p className="muted flush">{lede}</p> : lede}
       </div>
       {actions}

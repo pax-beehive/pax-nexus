@@ -49,11 +49,18 @@ export interface TimeWindowOption {
  * ceiling would hide windows that do work, which is worse than the status quo
  * of a request that fails. A window equal to retention is offered -- the
  * backend rejects strictly greater (issue #86).
+ *
+ * A non-positive or non-finite value is treated as unknown for the same
+ * reason. The backend floor is 24h so it should never arrive, but taking it
+ * literally would disable every window and label the reason "0s", leaving the
+ * page with no working option at all -- a strictly worse failure than the one
+ * this function exists to prevent.
  */
 export function timeWindowOptions(retentionSeconds?: number): TimeWindowOption[] {
+  const known =
+    retentionSeconds !== undefined && Number.isFinite(retentionSeconds) && retentionSeconds > 0;
   return TIME_WINDOW_PRESETS.map((preset) => {
-    const overRetention =
-      retentionSeconds !== undefined && PRESET_MS[preset] > retentionSeconds * 1000;
+    const overRetention = known && PRESET_MS[preset] > (retentionSeconds as number) * 1000;
     return {
       value: preset,
       label: preset,

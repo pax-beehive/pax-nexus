@@ -109,7 +109,8 @@
   display: flex; justify-content: space-between; align-items: flex-end;
   gap: var(--space-4); margin-bottom: var(--space-6);
 }
-/* 整幅页面（governance / wiki / agent 详情）：顶到容器边缘，不留外边距。 */
+/* governance / wiki / agent 详情这一档：自己用 padding 撑开，而不是靠
+   margin-bottom 与下方内容拉开距离。两者是真实存在的两种节奏。 */
 .page-head.bleed {
   gap: var(--space-6);
   padding: var(--space-6) var(--space-4) var(--space-4);
@@ -120,12 +121,16 @@
 /* 标题下那句说明的两种既有处理，各自原样保留：dim 是 governance 四屏的
    淡化长句，narrow 是 wiki 的窄栏短句。颜色故意不在这里定——低对比度文字
    类的统一是另一件还没做的设计系统工作（PR #91 follow-up 已记账），在这次
-   纯结构收敛里顺手改会在没实测过的屏上动对比度。 */
-.lede-dim { font-size: 14px; opacity: 0.7; max-width: 74ch; margin: var(--space-2) 0 0; }
-.lede-narrow { max-width: 62ch; margin: var(--space-1) 0 0; }
+   纯结构收敛里顺手改会在没实测过的屏上动对比度。
+
+   限定到 p 不是修饰：这两条都要给全套 margin，而工具类 .flush（margin: 0）
+   在本文件里排在它们后面、特指度又相同，谁给 lede 同时挂上 .flush 就会把
+   margin 静默吃掉。元素限定让结果不依赖规则的书写顺序。 */
+p.lede-dim { font-size: 14px; opacity: 0.7; max-width: 74ch; margin: var(--space-2) 0 0; }
+p.lede-narrow { max-width: 62ch; margin: var(--space-1) 0 0; }
 /* arcade 用饱和红作页面底色，正文/底色本身只有约 4.74:1，任何 opacity<1
    都会压到 AA 线以下（原 governance.css 实测 .gv-head p 为 2.95:1）。 */
-[data-theme="arcade"] .lede-dim { opacity: 1; }
+[data-theme="arcade"] p.lede-dim { opacity: 1; }
 
 /* 页面主体的两栏。Todos、Agent 详情、Pipeline 三处此前各写了一份逐字相同
    的规则，只有列宽比不同，于是比例做成修饰类、其余共用一份。折叠断点统一
@@ -171,7 +176,12 @@
 
 @media (max-width: 640px) {
   .page { padding: 16px 12px 64px; }
-  .page-head { flex-direction: column; align-items: flex-start; gap: var(--space-2); }
+  /* .bleed / .align-start 一并写出：媒体查询不提升特指度，只写 .page-head
+     的话 (0,1,0) 压不过 .page-head.bleed 的 (0,2,0)，窄屏会堆叠成功但间距
+     仍是宽档的 space-6。 */
+  .page-head, .page-head.bleed, .page-head.align-start {
+    flex-direction: column; align-items: flex-start; gap: var(--space-2);
+  }
   h1 { font-size: 30px; }
   h2 { font-size: 24px; }
   .field-row { grid-template-columns: 1fr; }

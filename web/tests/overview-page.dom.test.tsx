@@ -67,6 +67,8 @@ describe("OverviewPage", () => {
     const sevenDay = screen.getByRole("button", { name: "7d" }) as HTMLButtonElement;
     expect(sevenDay.disabled).toBe(false);
     expect(sevenDay.getAttribute("title")).toBeNull();
+    // Nothing is limited, so there is no retention note to show.
+    expect(screen.queryByText(/^保留 /)).toBeNull();
 
     await app.user.click(screen.getByRole("button", { name: "7d" }));
 
@@ -134,6 +136,10 @@ describe("OverviewPage", () => {
     const sevenDay = screen.getByRole("button", { name: "7d" }) as HTMLButtonElement;
     await waitFor(() => expect(sevenDay.disabled).toBe(true));
     expect(sevenDay.getAttribute("title")).toBe("This deployment keeps 24h of events");
+    // The reason is on screen, not only in a tooltip: a hover-only explanation
+    // is invisible on touch, which was the complaint against the phase 2b
+    // stopgap this replaces (issue #86).
+    screen.getByText("保留 24h");
 
     // Still offered, so the reason has somewhere to live -- and clicking it
     // fires no request rather than one the backend will reject.

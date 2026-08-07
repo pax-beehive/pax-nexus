@@ -3,6 +3,7 @@
 // "7d"] unconditionally, so any deployment configured below 7 days showed a
 // 7d button that always failed with a generic 400.
 
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { formatRetention, timeWindowOptions } from "../src/lib/operations";
 
@@ -40,11 +41,39 @@ describe("timeWindowOptions", () => {
     expect(timeWindowOptions(7 * DAY - 1).find((o) => o.value === "7d")?.disabled).toBe(true);
   });
 
+  // A malformed value must degrade to "unknown", not to "nothing works".
+  // Taking 0 literally disables every window and explains it as "0s", which
+  // is a worse outcome than the unactionable 400 this feature replaces.
+  it("treats a non-positive or non-finite retention as unknown", () => {
+    for (const bad of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      const options = timeWindowOptions(bad);
+      expect(options.every((o) => !o.disabled)).toBe(true);
+      expect(options.every((o) => o.title === undefined)).toBe(true);
+    }
+  });
+
   it("disables everything but 1h at the configured retention floor", () => {
     // 24h is the backend's minimum, so this is the narrowest real deployment.
     expect(timeWindowOptions(DAY).filter((o) => o.disabled).map((o) => o.value)).toEqual(["7d"]);
     // And a hypothetical sub-floor value still degrades sensibly.
     expect(timeWindowOptions(HOUR).filter((o) => !o.disabled).map((o) => o.value)).toEqual(["1h"]);
+  });
+});
+
+// A disabled control that looks identical to an enabled one is worse than no
+// disabling at all: the reader gets no signal and no explanation, just a
+// button that ignores clicks. `.seg button` carries no `.btn` class, so it
+// never picked up the global `.btn:disabled` treatment. jsdom applies no
+// stylesheet, so this is only observable in the source.
+describe("the seg control has a visible disabled state", () => {
+  const components = readFileSync("src/styles/components.css", "utf8");
+
+  it("dims disabled options and suppresses their hover", () => {
+    expect(components).toMatch(/\.seg button:disabled\s*\{[^}]*opacity/);
+    expect(components).toMatch(/\.seg button:disabled\s*\{[^}]*cursor:\s*not-allowed/);
+    // Hover must exclude disabled, or the control still lights up under the
+    // pointer and reads as clickable.
+    expect(components).toMatch(/\.seg button:not\(\.on\):not\(:disabled\):hover/);
   });
 });
 

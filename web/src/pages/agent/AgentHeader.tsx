@@ -12,6 +12,7 @@ import { getDevice } from "../../api/queries";
 import type { AgentProfile, HumanMe } from "../../api/types";
 import { Badge, ProvisionedByBadge } from "../../components/Badge";
 import { Crumbs } from "../../components/Crumbs";
+import { PageHeader } from "../../components/PageHeader";
 import { Tag } from "../../components/Tag";
 import { can, hasServerCapability } from "../../lib/capabilities";
 import type { AgentAccess } from "./agentScope";
@@ -52,13 +53,17 @@ export function AgentHeader({
   return (
     <>
       <Crumbs items={[{ label: "访问树", to: "/management" }, { label: agent.display_name }]} />
-      <div className="page-head bleed align-start">
-        <div>
-          <div className="row">
-            <h1>{agent.display_name}</h1>
+      <PageHeader
+        variant="bleed"
+        alignStart
+        title={agent.display_name}
+        titleAside={
+          <>
             <Badge status={agent.status} />
             <Tag tone="outline">{agent.agent_type}</Tag>
-          </div>
+          </>
+        }
+        lede={
           <div className="ag-head-facts">
             <code>{agent.agent_id}</code>
             <span>归 {agent.owner_membership_id ?? "—"} 所有</span>
@@ -68,20 +73,22 @@ export function AgentHeader({
               <ProvisionedByBadge agent={agent} />
             )}
           </div>
-        </div>
-        <div className="row">
-          {showSessions && (
-            <Link to={`/governance/sessions?agent=${agent.agent_id}`} className="btn btn-ghost">
-              查看它的会话
-            </Link>
-          )}
-          {showMemory && (
-            <Link to={`/governance/memory?agent=${agent.agent_id}`} className="btn btn-ghost">
-              查看它的记忆
-            </Link>
-          )}
-        </div>
-      </div>
+        }
+        actions={
+          <div className="row">
+            {showSessions && (
+              <Link to={`/governance/sessions?agent=${agent.agent_id}`} className="btn btn-ghost">
+                查看它的会话
+              </Link>
+            )}
+            {showMemory && (
+              <Link to={`/governance/memory?agent=${agent.agent_id}`} className="btn btn-ghost">
+                查看它的记忆
+              </Link>
+            )}
+          </div>
+        }
+      />
     </>
   );
 }

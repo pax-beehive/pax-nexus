@@ -13,9 +13,9 @@ import { apiError } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { RegionError } from "../components/RegionError";
 import { PageHeader } from "../components/PageHeader";
-import { Seg } from "../components/Seg";
+import { TimeWindowPicker } from "../components/TimeWindowPicker";
 import { Tag } from "../components/Tag";
-import { timeWindowOptions, type TimeWindowPreset } from "../lib/operations";
+import type { TimeWindowPreset } from "../lib/operations";
 import { currentTeam } from "../lib/teams";
 import { useErrorHandler } from "../lib/useErrorHandler";
 import { AttentionQueue } from "./overview/AttentionQueue";
@@ -59,11 +59,11 @@ export function OverviewPage() {
         actions={
           <div className="row">
             <Tag tone="outline">Live</Tag>
-            <Seg
+            <TimeWindowPicker
               label="Time window"
-              options={timeWindowOptions(overview.data?.event_retention_seconds)}
               value={window}
               onChange={setWindow}
+              retentionSeconds={overview.data?.event_retention_seconds}
             />
           </div>
         }

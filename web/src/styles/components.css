@@ -61,9 +61,17 @@ textarea { min-height: 90px; resize: vertical; }
 }
 .seg-opt + .seg-opt, .seg button + button { border-left: 1px solid var(--color-divider); }
 .seg-opt:has(input:checked), .seg button.on { background: var(--color-accent); color: var(--color-bg); }
-.seg-opt:not(:has(input:checked)):hover, .seg button:not(.on):hover {
+.seg-opt:not(:has(input:checked)):hover, .seg button:not(.on):not(:disabled):hover {
   background: color-mix(in srgb, var(--color-text) 7%, transparent);
 }
+/* 禁用项（超出部署保留期的时间窗口，见 lib/operations.ts 的
+   timeWindowOptions）。与 .btn:disabled 同一套观感——门户里只该有一种
+   「不可用」的样子，而 .seg button 不带 .btn，蹭不到那条规则。
+
+   这里用 opacity 是安全的：WCAG 1.4.3 明确把禁用控件排除在对比度要求之外，
+   和「用 opacity 淡化正文次要文字」不是同一个问题（后者在 arcade 下会掉到
+   AA 线以下，是另一件待办）。 */
+.seg button:disabled { opacity: 0.45; cursor: not-allowed; }
 
 /* — cards —
    1px 分隔线 + 下外边距：相邻的两张卡片都坐在 --color-surface 上，没有边框

@@ -20,7 +20,6 @@ import {
   operationKindLabel,
   operationOutcomeTone,
   recallObservationId,
-  timeWindowOptions,
   TONE_BADGE,
   type TimeWindowPreset,
 } from "../lib/operations";
@@ -28,7 +27,7 @@ import { useErrorHandler } from "../lib/useErrorHandler";
 import { Button } from "../components/Button";
 import { PageHeader } from "../components/PageHeader";
 import { RegionError } from "../components/RegionError";
-import { Seg } from "../components/Seg";
+import { TimeWindowPicker } from "../components/TimeWindowPicker";
 import { ExplorerDiagnosticDrawer } from "./operations/ExplorerDiagnosticDrawer";
 import { explorerTargetFromLocation, type ExplorerDrawerTarget } from "./operations/explorerTarget";
 import {
@@ -109,11 +108,11 @@ export function AdminOperationsPage({ canInspectTeamMemory = false }: { canInspe
       />
 
       <div className="toolbar" style={{ marginBottom: 14 }}>
-        <Seg
+        <TimeWindowPicker
           label="time window"
-          options={timeWindowOptions(summary.data?.event_retention_seconds)}
           value={preset}
           onChange={setPreset}
+          retentionSeconds={summary.data?.event_retention_seconds}
         />
         <input
           type="text"

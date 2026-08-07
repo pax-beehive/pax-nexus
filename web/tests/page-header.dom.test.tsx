@@ -77,6 +77,40 @@ describe("PageHeader", () => {
   });
 });
 
+// Two cascade properties the convergence depends on. jsdom does not apply the
+// stylesheet, so no DOM test can observe either one -- they would break
+// silently in a browser with every test still green. Asserted against the
+// source instead, which is the only place they are observable at all.
+describe("page-head cascade", () => {
+  const layout = readFileSync("src/styles/layout.css", "utf8");
+
+  it("narrows every header variant at the 640 breakpoint, not just the base", () => {
+    // A media query does not raise specificity: `.page-head` (0,1,0) inside
+    // @media loses to `.page-head.bleed` (0,2,0) outside it, so a bleed header
+    // would stack on a phone but keep the wide gap.
+    const mobile = layout.match(/@media \(max-width: 640px\) \{([\s\S]*?)\n\}/)?.[1] ?? "";
+    expect(mobile).toContain(".page-head.bleed");
+    expect(mobile).toContain(".page-head.align-start");
+  });
+
+  it("qualifies the lede rules by element so .flush cannot override them", () => {
+    // Both give the lede a full margin; `.flush { margin: 0 }` is declared
+    // later in this same file at equal specificity, so an unqualified
+    // `.lede-narrow` loses to it the moment a caller writes both.
+    expect(layout).toMatch(/^p\.lede-dim\s*\{/m);
+    expect(layout).toMatch(/^p\.lede-narrow\s*\{/m);
+    expect(layout).toMatch(/\[data-theme="arcade"\] p\.lede-dim/);
+    // And .flush really is the later, equal-specificity rule this guards against.
+    expect(layout.indexOf(".flush {")).toBeGreaterThan(layout.indexOf("p.lede-narrow"));
+  });
+
+  it("collapses every split ratio at its breakpoint, for the same reason", () => {
+    const wide = layout.match(/@media \(max-width: 900px\) \{([\s\S]*?)\n\}/)?.[1] ?? "";
+    expect(wide).toContain(".split.wide-left");
+    expect(wide).toContain(".split.wide-right");
+  });
+});
+
 // The point of the convergence is that the four old classes are gone. Nothing
 // at runtime notices if one comes back -- a page would simply render
 // unstyled-but-present markup and every DOM test would stay green -- so this

@@ -131,6 +131,7 @@ describe("Pipeline time window selector", () => {
       expect(button.disabled).toBe(false);
       expect(button.getAttribute("title")).toBeNull();
     }
+    expect(screen.queryByText(/^保留 /)).toBeNull();
   });
 
   it("disables 7d and names the ceiling on a 24h-retention deployment", async () => {
@@ -141,6 +142,8 @@ describe("Pipeline time window selector", () => {
     const sevenDay = screen.getByRole("button", { name: "7d" }) as HTMLButtonElement;
     expect(sevenDay.disabled).toBe(true);
     expect(sevenDay.getAttribute("title")).toBe("This deployment keeps 24h of events");
+    // Visible, not hover-only -- see the same assertion on the Overview page.
+    screen.getByText("保留 24h");
     expect((screen.getByRole("button", { name: "24h" }) as HTMLButtonElement).disabled).toBe(false);
   });
 });
