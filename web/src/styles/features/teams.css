@@ -11,16 +11,16 @@
   display: flex;
   align-items: center;
   gap: 9px;
-  border: 1px solid var(--color-divider);
-  background: var(--color-surface);
+  border: 0;
+  background: transparent;
   color: var(--color-text);
-  padding: 8px 10px;
+  padding: 4px 0;
   font: inherit;
   cursor: pointer;
   text-align: left;
 }
-.team-switcher:hover {
-  border-color: var(--color-accent);
+.team-switcher:hover .team-name {
+  color: var(--color-accent);
 }
 .team-switcher:disabled {
   opacity: 0.6;
