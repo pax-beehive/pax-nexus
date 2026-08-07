@@ -9,7 +9,17 @@
 
 import { describe, expect, it } from "vitest";
 import { fireEvent, screen, waitFor } from "@testing-library/react";
-import { apiErrorResponse, callsTo, jsonResponse, makeMe, renderApp, setupDomTest } from "./helpers";
+import {
+  apiErrorResponse,
+  callsTo,
+  jsonResponse,
+  makeAgent,
+  makeDevice,
+  makeMe,
+  makeMember,
+  renderApp,
+  setupDomTest,
+} from "./helpers";
 import {
   eventsPage,
   makeEvent,
@@ -67,6 +77,49 @@ describe("OverviewPage", () => {
     await waitFor(() => {
       expect(document.querySelectorAll(".ov-chart-tick")).toHaveLength(7);
     });
+  });
+
+  // Tick format follows the span of the response being drawn, not the window
+  // the user has selected. The two disagree for as long as a window switch is
+  // in flight; this test makes them disagree permanently, which is the same
+  // condition without needing to catch the transient (issue #84).
+  //
+  // Asserts the label *shape* rather than specific dates: bucket_at is UTC
+  // while the labels are built from local getters, so hard-coded values would
+  // pass or fail depending on the machine's timezone.
+  const DATE_FORM = /^\d{1,2}\/\d{1,2}$/;
+  const TIME_FORM = /^\d{2}:\d{2}$/;
+  const tickTexts = () =>
+    Array.from(document.querySelectorAll(".ov-chart-tick")).map((n) => n.textContent ?? "");
+
+  it("labels ticks from the response span, not the selected window", async () => {
+    // Selected window is the default 24h; the response covers a week.
+    await renderOverviewPage({
+      overview: () =>
+        makeOverview({
+          from_time: "2026-07-15T12:00:00Z",
+          to_time: "2026-07-22T12:00:00Z",
+          series: Array.from({ length: 7 }, (_, i) => ({
+            bucket_at: `2026-07-${15 + i}T12:00:00Z`,
+            evidence: 10 + i,
+            facts: 5 + i,
+            recalls: 2 + i,
+          })),
+        }),
+    });
+
+    const ticks = tickTexts();
+    expect(ticks).toHaveLength(7);
+    ticks.forEach((t) => expect(t).toMatch(DATE_FORM));
+  });
+
+  it("labels ticks by clock time for a sub-day response span", async () => {
+    // makeOverview()'s default span is 24h across 6 four-hourly buckets.
+    await renderOverviewPage({ overview: () => makeOverview() });
+
+    const ticks = tickTexts();
+    expect(ticks).toHaveLength(6);
+    ticks.forEach((t) => expect(t).toMatch(TIME_FORM));
   });
 
   it("keeps the writers block alive when the aggregate fails", async () => {
@@ -132,6 +185,59 @@ describe("OverviewPage", () => {
     await screen.findByRole("heading", { name: "Agent 到底做了什么" });
   });
 
+  // The Access strip's all-fulfilled path. Its failure mode is that the strip
+  // disappears, so without this test a broken request shape, a broken response
+  // shape, or a miscount is invisible -- nothing fails and the page still looks
+  // healthy (issue #83).
+  it("renders the Access strip counts when all three legs resolve", async () => {
+    await renderOverviewPage({
+      // Three different counts against three different response shapes: a flat
+      // Member[] (listAllMembers paginates and concatenates), and Page.items
+      // for devices and agents. Equal counts would let a swapped pair pass.
+      members: () =>
+        jsonResponse({
+          members: [
+            makeMember({ membership_id: "mbr_01" }),
+            makeMember({ membership_id: "mbr_02" }),
+            makeMember({ membership_id: "mbr_03" }),
+          ],
+        }),
+      devices: () =>
+        jsonResponse({
+          devices: [makeDevice({ credential_id: "dev_01" }), makeDevice({ credential_id: "dev_02" })],
+        }),
+      agents: () =>
+        jsonResponse({
+          agents: [
+            makeAgent({ agent_id: "agent-1" }),
+            makeAgent({ agent_id: "agent-2" }),
+            makeAgent({ agent_id: "agent-3" }),
+            makeAgent({ agent_id: "agent-4" }),
+          ],
+        }),
+    });
+
+    await screen.findByText("3 people · 2 machines · 4 agents");
+    expect(
+      screen.getByRole("link", { name: /Open Management/ }).getAttribute("href"),
+    ).toBe("/management");
+  });
+
+  // The other half of the same contract: one rejected leg drops the whole strip
+  // rather than rendering a partial or stale count, and does so without
+  // disturbing the rest of the page. Pinned here so it stays a decision rather
+  // than whatever the harness happens to produce (issue #83).
+  it("hides the Access strip entirely when one leg fails", async () => {
+    await renderOverviewPage({
+      devices: () => apiErrorResponse(500, "internal", "boom"),
+    });
+
+    // The attention queue itself -- the strip's own card -- is unaffected.
+    await screen.findByText("High-risk tool call without approval");
+    expect(screen.queryByText(/people · .* machines · .* agents/)).toBeNull();
+    expect(screen.queryByRole("link", { name: /Open Management/ })).toBeNull();
+  });
+
   // 7. attention 空 → 正向空态
   it("shows the positive empty state when nothing needs attention", async () => {
     await renderOverviewPage({
@@ -174,13 +280,39 @@ describe("OverviewPage", () => {
     // the list under the reader.
     await app.user.click(screen.getByRole("button", { name: "Refresh event feed" }));
 
-    await screen.findByText("1 new events held while you read");
+    await screen.findByText("1 new event held while you read");
     expect(screen.queryByText("Extraction")).toBeNull();
 
     await app.user.click(screen.getByRole("button", { name: "Show" }));
 
     await screen.findByText("Extraction");
-    expect(screen.queryByText("1 new events held while you read")).toBeNull();
+    expect(screen.queryByText("1 new event held while you read")).toBeNull();
+  });
+
+  // Both arms of the held-events count, because only the plural arm was ever
+  // written and "1 new events" shipped for a while (issue #85).
+  it("pluralizes the held-events banner on the count", async () => {
+    let pollCount = 0;
+    const app = await renderOverviewPage({
+      events: () =>
+        jsonResponse(
+          pollCount++ === 0
+            ? eventsPage([makeEvent()])
+            : eventsPage([
+                makeEvent({ attempt_id: "op_new1", operation_kind: "extraction.run" }),
+                makeEvent({ attempt_id: "op_new2", operation_kind: "extraction.run" }),
+                makeEvent(),
+              ]),
+        ),
+    });
+
+    await screen.findByText("Memory Search");
+    fireEvent.scroll(document.getElementById("overview-feed") as HTMLElement, {
+      target: { scrollTop: 100 },
+    });
+    await app.user.click(screen.getByRole("button", { name: "Refresh event feed" }));
+
+    await screen.findByText("2 new events held while you read");
   });
 
   it("isolates an events-feed failure", async () => {

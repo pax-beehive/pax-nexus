@@ -102,7 +102,11 @@ export function OverviewPage() {
               {overview.error && (
                 <div className="note warn">Auto-refresh failed; the throughput chart may be stale.</div>
               )}
-              <ThroughputChart series={overview.data.series} window={window} />
+              <ThroughputChart
+                series={overview.data.series}
+                fromTime={overview.data.from_time}
+                toTime={overview.data.to_time}
+              />
             </>
           )}
         </div>

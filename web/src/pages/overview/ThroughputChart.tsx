@@ -1,5 +1,4 @@
 import type { OverviewSeriesPoint } from "../../api/types";
-import type { TimeWindowPreset } from "../../lib/operations";
 
 const ROWS = [
   { key: "evidence", label: "Evidence in", token: "var(--color-neutral-400)" },
@@ -7,9 +6,26 @@ const ROWS = [
   { key: "recalls", label: "Recalls served", token: "var(--color-neutral-700)" },
 ] as const;
 
-function bucketLabel(iso: string, window: TimeWindowPreset): string {
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Buckets spanning more than a day are labelled by date, shorter spans by
+ * clock time.
+ *
+ * The span comes from the response that carried these points, never from the
+ * currently selected window: the two disagree for as long as a window switch
+ * is in flight, and during that gap the old bars would be drawn under the new
+ * window's format -- daily buckets all reading "00:00" (issue #84). Format
+ * follows the data being drawn.
+ */
+function labelsByDate(fromTime: string, toTime: string): boolean {
+  const span = new Date(toTime).getTime() - new Date(fromTime).getTime();
+  return Number.isFinite(span) && span > DAY_MS;
+}
+
+function bucketLabel(iso: string, byDate: boolean): string {
   const d = new Date(iso);
-  if (window === "7d") {
+  if (byDate) {
     return `${d.getMonth() + 1}/${d.getDate()}`;
   }
   const hh = String(d.getHours()).padStart(2, "0");
@@ -22,11 +38,15 @@ function bucketLabel(iso: string, window: TimeWindowPreset): string {
  * axis. Row swatch + name carry series identity; color is never the only cue. */
 export function ThroughputChart({
   series,
-  window,
+  fromTime,
+  toTime,
 }: {
   series: OverviewSeriesPoint[];
-  window: TimeWindowPreset;
+  /** Span of the response these points came from, not of the selected window. */
+  fromTime: string;
+  toTime: string;
 }) {
+  const byDate = labelsByDate(fromTime, toTime);
   return (
     <div className="ov-chart">
       <div className="ov-chart-note">
@@ -46,7 +66,7 @@ export function ThroughputChart({
             </div>
             <div className="ov-chart-track">
               {series.map((p) => (
-                <div key={p.bucket_at} className="ov-chart-cell" title={`${bucketLabel(p.bucket_at, window)} · ${p[row.key]}`}>
+                <div key={p.bucket_at} className="ov-chart-cell" title={`${bucketLabel(p.bucket_at, byDate)} · ${p[row.key]}`}>
                   <div
                     className="ov-chart-bar"
                     style={{ height: `${(p[row.key] / peak) * 100}%`, background: row.token }}
@@ -60,7 +80,7 @@ export function ThroughputChart({
       <div className="ov-chart-ticks">
         {series.map((p) => (
           <span key={p.bucket_at} className="ov-chart-tick">
-            {bucketLabel(p.bucket_at, window)}
+            {bucketLabel(p.bucket_at, byDate)}
           </span>
         ))}
       </div>

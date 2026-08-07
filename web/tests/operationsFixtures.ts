@@ -20,7 +20,14 @@ import type {
   StorageComponent,
 } from "../src/api/types";
 import { screen } from "@testing-library/react";
-import { jsonResponse, makeMe, renderApp, type FetchHandler } from "./helpers";
+import {
+  jsonResponse,
+  makeDevice,
+  makeMe,
+  makeMember,
+  renderApp,
+  type FetchHandler,
+} from "./helpers";
 
 export const GEN_AT = "2026-07-22T12:00:01Z";
 export const FROM_TIME = "2026-07-21T12:00:00Z";
@@ -281,12 +288,27 @@ export interface OperationsEndpoints {
   agentStats?: () => Response;
   /** Overview landing page aggregate. */
   overview?: (url: URL) => unknown;
+  /**
+   * Team roster. Only the Overview's Access strip fires this; it defaults to a
+   * two-member list so the strip's all-fulfilled path is the harness default
+   * rather than something a test has to opt into (issue #83).
+   */
+  members?: () => Response;
+  /** Team devices, the Access strip's second leg. Defaults to one device. */
+  devices?: () => Response;
 }
 
 /**
  * Answers every endpoint the Operations page can fire and throws on anything
  * else, so a test that misses an endpoint fails loudly. The page also loads
  * Admin Agent labels on mount; that endpoint is stubbed here too.
+ *
+ * The three Access-strip legs (`members` / `devices` / `agents`) all resolve by
+ * default. They deliberately return three *different* counts, because the strip
+ * reads three different response shapes -- a flat `Member[]` from the paginating
+ * `listAllMembers`, and `Page.items` from `listDevices` / `listAdminAgents` --
+ * so a test that mixes two of them up gets a wrong number rather than a
+ * coincidentally right one (issue #83).
  */
 export function operationsFetch(endpoints: OperationsEndpoints = {}): FetchHandler {
   return (path, init) => {
@@ -311,6 +333,20 @@ export function operationsFetch(endpoints: OperationsEndpoints = {}): FetchHandl
     }
     if (path.startsWith("/v1/admin/agents")) {
       return endpoints.agents?.() ?? jsonResponse({ agents: [] });
+    }
+    if (path.startsWith("/v1/admin/members")) {
+      return (
+        endpoints.members?.() ??
+        jsonResponse({
+          members: [
+            makeMember({ membership_id: "mbr_01", role: "owner" }),
+            makeMember({ membership_id: "mbr_02", role: "member" }),
+          ],
+        })
+      );
+    }
+    if (path.startsWith("/v1/admin/devices")) {
+      return endpoints.devices?.() ?? jsonResponse({ devices: [makeDevice()] });
     }
     if (path.startsWith("/v1/admin/overview")) {
       const url = new URL(path, "http://localhost");

@@ -13,7 +13,7 @@ import { Link } from "react-router-dom";
 import type { OperationEvent } from "../../api/types";
 import { Button } from "../../components/Button";
 import { RegionError } from "../../components/RegionError";
-import { formatTime } from "../../lib/format";
+import { formatTime, plural } from "../../lib/format";
 import { operationKindLabel, operationOutcomeTone, TONE_BADGE } from "../../lib/operations";
 
 interface PendingFeedUpdate {
@@ -54,7 +54,7 @@ export function EventsFeed({
       </div>
       {pending && (
         <div className="note row">
-          {`${pending.freshIds.size} new events held while you read`}
+          {`${plural(pending.freshIds.size, "new event", "new events")} held while you read`}
           <Button
             size="sm"
             onClick={() => {

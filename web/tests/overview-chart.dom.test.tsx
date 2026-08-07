@@ -7,9 +7,12 @@ import { setupDomTest } from "./helpers";
 setupDomTest();
 
 describe("ThroughputChart", () => {
+  const SPAN_24H = { fromTime: "2026-07-21T12:00:00Z", toTime: "2026-07-22T12:00:00Z" };
+  const SPAN_7D = { fromTime: "2026-07-15T12:00:00Z", toTime: "2026-07-22T12:00:00Z" };
+
   it("renders one normalized bar per bucket per row with per-row peaks", () => {
     const series = makeOverview().series; // 6 buckets, known values
-    render(<ThroughputChart series={series} window="1h" />);
+    render(<ThroughputChart series={series} {...SPAN_24H} />);
     expect(screen.getByText("Evidence in")).toBeTruthy();
     expect(screen.getByText("Facts kept")).toBeTruthy();
     expect(screen.getByText("Recalls served")).toBeTruthy();
@@ -25,26 +28,28 @@ describe("ThroughputChart", () => {
     expect(factsHeights).toContain("100%");
   });
 
-  it("labels buckets by window granularity", () => {
+  // This used to assert the opposite rule -- same series, two different
+  // `window` props, two different label formats -- which is the defect issue
+  // #84 describes, written down as a contract. The format now follows the span
+  // the points actually cover, so the same series relabels only when the span
+  // it is declared to cover changes.
+  it("labels buckets by the span the points cover", () => {
     const series = makeOverview().series;
     const firstBucketAt = series[0].bucket_at;
+    const d = new Date(firstBucketAt);
 
-    // Test 7d format: M/D
-    const { unmount: unmount7d } = render(<ThroughputChart series={series} window="7d" />);
-    const d7d = new Date(firstBucketAt);
-    const expectedLabel7d = `${d7d.getMonth() + 1}/${d7d.getDate()}`;
-    const ticksDiv7d = document.querySelector(".ov-chart-ticks");
-    expect(ticksDiv7d?.textContent).toContain(expectedLabel7d);
-    unmount7d();
+    // A week-long span: M/D.
+    const { unmount } = render(<ThroughputChart series={series} {...SPAN_7D} />);
+    expect(document.querySelector(".ov-chart-ticks")?.textContent).toContain(
+      `${d.getMonth() + 1}/${d.getDate()}`,
+    );
+    unmount();
 
-    // Test 1h format: HH:mm
-    render(<ThroughputChart series={series} window="1h" />);
-    const d1h = new Date(firstBucketAt);
-    const hh = String(d1h.getHours()).padStart(2, "0");
-    const mm = String(d1h.getMinutes()).padStart(2, "0");
-    const expectedLabel1h = `${hh}:${mm}`;
-    const ticksDiv1h = document.querySelector(".ov-chart-ticks");
-    expect(ticksDiv1h?.textContent).toContain(expectedLabel1h);
+    // The same points declared as a day: HH:mm.
+    render(<ThroughputChart series={series} {...SPAN_24H} />);
+    const hh = String(d.getHours()).padStart(2, "0");
+    const mm = String(d.getMinutes()).padStart(2, "0");
+    expect(document.querySelector(".ov-chart-ticks")?.textContent).toContain(`${hh}:${mm}`);
     expect(document.querySelectorAll(".ov-chart-tick")).toHaveLength(series.length);
   });
 });

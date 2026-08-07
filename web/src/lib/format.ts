@@ -5,6 +5,15 @@ export function formatTime(iso: string | undefined): string {
   return new Date(iso).toLocaleString("zh-CN", { hour12: false });
 }
 
+/**
+ * 单复数：计数文案里 1 台机器不该写成 "1 machines"。`one`/`many` 收的是整个
+ * 名词短语而不只是名词，所以 "person has" / "people have" 这类连动词一起变的
+ * 情况也能表达。
+ */
+export function plural(count: number, one: string, many: string): string {
+  return `${count} ${count === 1 ? one : many}`;
+}
+
 const IEC_UNITS = ["B", "KiB", "MiB", "GiB", "TiB", "PiB"] as const;
 
 /** IEC binary byte formatting (operations doc section 13); zero stays "0 B". */
