@@ -124,10 +124,10 @@ on it. The API contract is `docs/on-prem-identity-frontend-integration.md`.
   `themes.css` → `base.css` → `components.css` → `layout.css` → `features/*.css`。
   `features/` 下按屏幕/功能一一对应新建文件（`ls web/src/styles/features/` 为准），
   目前包括 `access-tree.css`、`agent-detail.css`、`apps.css` /
-  `apps-settings.css` / `apps-todos.css` / `apps-wiki.css`、`governance.css` /
-  `governance-explorer.css` / `governance-pipeline.css`、`operations.css`、
-  `overview-chart.css`、`session-audit.css`、`settings-pages.css`、`teams.css`、
-  `wiki.css` 等。Use the layout utilities
+  `apps-settings.css` / `apps-todos.css` / `apps-wiki.css`、`entry.css`、
+  `governance.css` / `governance-explorer.css` / `governance-pipeline.css`、
+  `operations.css`、`overview-chart.css`、`session-audit.css`、
+  `settings-pages.css`、`teams.css`、`wiki.css` 等。Use the layout utilities
   (`.toolbar`, `.stack`, `.section`, `.flush`, `.row`) instead of inline
   spacing styles; use `.seg` for single-choice preset toggles (not `.tabs`).
 - Themes (beige default, dark, arcade) are pure design-token overrides in
