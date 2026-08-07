@@ -88,7 +88,7 @@ export function TopicTreePanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [layer.truncated, truncatedKey]);
 
-  const breadcrumb: BreadcrumbCrumb[] = [{ title: "全部", path: [] }, ...layer.crumbs];
+  const breadcrumb: BreadcrumbCrumb[] = [{ title: "All", path: [] }, ...layer.crumbs];
 
   return (
     <>

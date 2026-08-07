@@ -42,8 +42,8 @@ describe("IssueAccessModal", () => {
     );
     renderModal();
 
-    await user.type(screen.getByLabelText(/它会在哪台机器上跑/), "mac-studio-01");
-    await user.click(screen.getByRole("button", { name: "发放一次性令牌" }));
+    await user.type(screen.getByLabelText(/Where will it run/), "mac-studio-01");
+    await user.click(screen.getByRole("button", { name: "Issue one-time token" }));
 
     const body = JSON.parse(String(fetchMock.mock.calls[0][1].body));
     expect(body.credential_label).toBe("mac-studio-01");
@@ -60,9 +60,9 @@ describe("IssueAccessModal", () => {
     );
     renderModal();
 
-    await user.type(screen.getByLabelText(/它会在哪台机器上跑/), "mac-studio-01");
-    await user.click(screen.getByLabelText(/发送给其他 Agent/));
-    await user.click(screen.getByRole("button", { name: "发放一次性令牌" }));
+    await user.type(screen.getByLabelText(/Where will it run/), "mac-studio-01");
+    await user.click(screen.getByLabelText(/Send to other agents/));
+    await user.click(screen.getByRole("button", { name: "Issue one-time token" }));
 
     const body = JSON.parse(String(fetchMock.mock.calls[0][1].body));
     expect(body.permissions).toEqual(["observe", "search", "channel_send"]);
@@ -79,9 +79,9 @@ describe("IssueAccessModal", () => {
     );
     renderModal();
 
-    await user.type(screen.getByLabelText(/它会在哪台机器上跑/), "mac-studio-01");
-    await user.click(screen.getByLabelText(/记录它的会话/));
-    await user.click(screen.getByRole("button", { name: "发放一次性令牌" }));
+    await user.type(screen.getByLabelText(/Where will it run/), "mac-studio-01");
+    await user.click(screen.getByLabelText(/Record its sessions/));
+    await user.click(screen.getByRole("button", { name: "Issue one-time token" }));
 
     const body = JSON.parse(String(fetchMock.mock.calls[0][1].body));
     expect(body.permissions).not.toContain("observe");
@@ -95,9 +95,9 @@ describe("IssueAccessModal", () => {
     );
     renderModal();
 
-    await user.type(screen.getByLabelText(/它会在哪台机器上跑/), "mac-studio-01");
-    await user.click(screen.getByLabelText(/检索团队记忆/));
-    await user.click(screen.getByRole("button", { name: "发放一次性令牌" }));
+    await user.type(screen.getByLabelText(/Where will it run/), "mac-studio-01");
+    await user.click(screen.getByLabelText(/Search team memory/));
+    await user.click(screen.getByRole("button", { name: "Issue one-time token" }));
 
     const body = JSON.parse(String(fetchMock.mock.calls[0][1].body));
     expect(body.permissions).not.toContain("search");
@@ -111,9 +111,9 @@ describe("IssueAccessModal", () => {
     );
     renderModal();
 
-    await user.type(screen.getByLabelText(/它会在哪台机器上跑/), "mac-studio-01");
-    await user.click(screen.getByRole("button", { name: "不过期" }));
-    await user.click(screen.getByRole("button", { name: "发放一次性令牌" }));
+    await user.type(screen.getByLabelText(/Where will it run/), "mac-studio-01");
+    await user.click(screen.getByRole("button", { name: "Never" }));
+    await user.click(screen.getByRole("button", { name: "Issue one-time token" }));
 
     const body = JSON.parse(String(fetchMock.mock.calls[0][1].body));
     expect("credential_expires_at" in body).toBe(false);
@@ -126,9 +126,9 @@ describe("IssueAccessModal", () => {
     );
     renderModal();
 
-    await user.type(screen.getByLabelText(/它会在哪台机器上跑/), "mac-studio-01");
-    await user.click(screen.getByRole("button", { name: "5 分钟" }));
-    await user.click(screen.getByRole("button", { name: "发放一次性令牌" }));
+    await user.type(screen.getByLabelText(/Where will it run/), "mac-studio-01");
+    await user.click(screen.getByRole("button", { name: "5m" }));
+    await user.click(screen.getByRole("button", { name: "Issue one-time token" }));
 
     expect(JSON.parse(String(fetchMock.mock.calls[0][1].body)).expires_in_seconds).toBe(300);
   });
@@ -140,14 +140,14 @@ describe("IssueAccessModal", () => {
     });
     renderModal();
 
-    await user.click(screen.getByRole("button", { name: "发放一次性令牌" }));
-    expect(screen.getByText(/得先说清楚它在哪台机器上跑/)).toBeDefined();
+    await user.click(screen.getByRole("button", { name: "Issue one-time token" }));
+    expect(screen.getByText(/Say which machine it will run on/)).toBeDefined();
 
-    await user.type(screen.getByLabelText(/它会在哪台机器上跑/), "mac-studio-01");
-    await user.click(screen.getByLabelText(/记录它的会话/));
-    await user.click(screen.getByLabelText(/检索团队记忆/));
-    await user.click(screen.getByRole("button", { name: "发放一次性令牌" }));
-    expect(screen.getByText(/至少要选一项/)).toBeDefined();
+    await user.type(screen.getByLabelText(/Where will it run/), "mac-studio-01");
+    await user.click(screen.getByLabelText(/Record its sessions/));
+    await user.click(screen.getByLabelText(/Search team memory/));
+    await user.click(screen.getByRole("button", { name: "Issue one-time token" }));
+    expect(screen.getByText(/Pick at least one/)).toBeDefined();
 
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -157,11 +157,11 @@ describe("IssueAccessModal", () => {
     stubFetch(() => apiErrorResponse(422, "invalid_argument", "bad label"));
     renderModal();
 
-    await user.type(screen.getByLabelText(/它会在哪台机器上跑/), "mac-studio-01");
-    await user.click(screen.getByRole("button", { name: "发放一次性令牌" }));
+    await user.type(screen.getByLabelText(/Where will it run/), "mac-studio-01");
+    await user.click(screen.getByRole("button", { name: "Issue one-time token" }));
 
-    expect(await screen.findByText(/被拒绝（HTTP 422）/)).toBeDefined();
-    expect(screen.getByLabelText(/它会在哪台机器上跑/)).toBeDefined();
+    expect(await screen.findByText(/rejected \(HTTP 422\)/)).toBeDefined();
+    expect(screen.getByLabelText(/Where will it run/)).toBeDefined();
   });
 
   it("5xx 不重试：只发一次请求，走 onMaybeCreated", async () => {
@@ -172,8 +172,8 @@ describe("IssueAccessModal", () => {
     const fetchMock = stubFetch(() => apiErrorResponse(503, "unavailable", "down"));
     renderModal({ onMaybeCreated });
 
-    await user.type(screen.getByLabelText(/它会在哪台机器上跑/), "mac-studio-01");
-    await user.click(screen.getByRole("button", { name: "发放一次性令牌" }));
+    await user.type(screen.getByLabelText(/Where will it run/), "mac-studio-01");
+    await user.click(screen.getByRole("button", { name: "Issue one-time token" }));
 
     await vi.waitFor(() => expect(onMaybeCreated).toHaveBeenCalledTimes(1));
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -186,8 +186,8 @@ describe("IssueAccessModal", () => {
     );
     renderModal();
 
-    await user.type(screen.getByLabelText(/它会在哪台机器上跑/), "mac-studio-01");
-    await user.click(screen.getByRole("button", { name: "发放一次性令牌" }));
+    await user.type(screen.getByLabelText(/Where will it run/), "mac-studio-01");
+    await user.click(screen.getByRole("button", { name: "Issue one-time token" }));
 
     const headers = new Headers(fetchMock.mock.calls[0][1].headers);
     expect(headers.get("Idempotency-Key")).toBeNull();

@@ -37,9 +37,9 @@ function drawer(): HTMLElement {
   return document.querySelector(".drawer") as HTMLElement;
 }
 
-/** The operation/outcome filter selects next to the 最近的活儿 heading. */
+/** The operation/outcome filter selects next to the Recent work heading. */
 function filterSelects(): [HTMLElement, HTMLElement] {
-  const header = screen.getByText("最近的活儿").closest(".row") as HTMLElement;
+  const header = screen.getByText("Recent work").closest(".row") as HTMLElement;
   const selects = within(header).getAllByRole("combobox");
   return [selects[0], selects[1]];
 }

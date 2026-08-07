@@ -64,7 +64,7 @@ describe("AgentBehaviourCard", () => {
   it("取数失败时只塌自己这一格", async () => {
     stubFetch(() => jsonResponse({ code: "unavailable", message: "down" }, 503));
     render(<AgentBehaviourCard agentId="agent-1" />);
-    expect(await screen.findByText(/近期行为没取到/)).toBeDefined();
+    expect(await screen.findByText(/Couldn't load recent behaviour/)).toBeDefined();
   });
 });
 
@@ -116,10 +116,10 @@ describe("AgentHeader", () => {
         <AgentHeader agent={agent} access={resolveAgentAccess(me, agent)} me={me} />
       </MemoryRouter>,
     );
-    expect(screen.getByRole("link", { name: "查看它的会话" }).getAttribute("href")).toBe(
+    expect(screen.getByRole("link", { name: "View its sessions" }).getAttribute("href")).toBe(
       "/governance/sessions?agent=agent-1",
     );
-    expect(screen.getByRole("link", { name: "查看它的记忆" }).getAttribute("href")).toBe(
+    expect(screen.getByRole("link", { name: "View its memory" }).getAttribute("href")).toBe(
       "/governance/memory?agent=agent-1",
     );
   });
@@ -132,7 +132,7 @@ describe("AgentHeader", () => {
         <AgentHeader agent={agent} access={resolveAgentAccess(me, agent)} me={me} />
       </MemoryRouter>,
     );
-    expect(screen.queryByRole("link", { name: "查看它的会话" })).toBeNull();
-    expect(screen.queryByRole("link", { name: "查看它的记忆" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "View its sessions" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "View its memory" })).toBeNull();
   });
 });

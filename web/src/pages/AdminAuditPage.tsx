@@ -16,10 +16,10 @@ const TARGET_KINDS = ["membership", "invitation", "agent", "enrollment", "creden
 // phase 5 §2.1 folds it into "系统" rather than giving it its own Seg slot.
 type ActorKindFilter = "" | "human" | "agent" | "system";
 const ACTOR_KIND_OPTIONS: { value: ActorKindFilter; label: string }[] = [
-  { value: "", label: "全部" },
-  { value: "human", label: "人" },
-  { value: "agent", label: "Agent" },
-  { value: "system", label: "系统" },
+  { value: "", label: "All" },
+  { value: "human", label: "People" },
+  { value: "agent", label: "Agents" },
+  { value: "system", label: "System" },
 ];
 
 export function AdminAuditPage() {
@@ -81,12 +81,13 @@ export function AdminAuditPage() {
     <>
       <PageHeader
         variant="bleed"
-        kicker="Governance · 审计流水"
-        title="发生过的一切，未经编辑"
+        kicker="Governance · audit trail"
+        title="Everything that happened, unedited"
         lede={
           <p className="lede-dim">
-            只追加。名字是我们替你查出来的方便——原始标识符留在行上，
-            所以人、Agent 或机器消失之后，条目仍然读得通。
+            Append-only. Names are a convenience we look up for you — the original identifiers
+            stay on the row, so entries still read correctly after the person, agent or machine
+            is gone.
           </p>
         }
       />

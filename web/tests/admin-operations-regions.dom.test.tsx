@@ -77,7 +77,7 @@ describe("section 12 item 3: regions survive an unavailable storage backend", ()
       });
 
     // Summary and events are fully rendered.
-    expect(pipelineMetric("典型延迟").value).toBe("24 ms");
+    expect(pipelineMetric("Typical delay").value).toBe("24 ms");
     expect(within(eventsTable())
       .getByText("Memory Search")).toBeTruthy();
     // Storage shows its dedicated state, not a generic region error.
@@ -94,7 +94,7 @@ describe("section 12 item 3: regions survive an unavailable storage backend", ()
     screen.getByText("Server error; try again later");
     // makeSummary()'s default extraction.failed is 1 -- proves the summary
     // region rendered real data, not just an empty shell.
-    expect(pipelineMetric("失败").value).toBe("1");
+    expect(pipelineMetric("Failed").value).toBe("1");
     screen.getByText("database physical");
   });
 
@@ -117,16 +117,16 @@ describe("section 12 item 4: legitimate zero values render as 0, not as an error
   it("an all-zero summary shows zeros and no empty-data error", async () => {
     await renderOperationsPage({ summary: () => jsonResponse(zeroSummary()) });
 
-    expect(pipelineMetric("扣下待查").value).toBe("0");
-    expect(pipelineMetric("失败").value).toBe("0");
-    const queued = pipelineMetric("排队中");
+    expect(pipelineMetric("Held for review").value).toBe("0");
+    expect(pipelineMetric("Failed").value).toBe("0");
+    const queued = pipelineMetric("Waiting");
     expect(queued.value).toBe("0");
     // A healthy empty backlog shows no oldest-event age (doc section 7).
     expect(queued.sub).toBe("—");
-    expect(pipelineMetric("空手而归").value).toBe("0");
+    expect(pipelineMetric("Recalls refused").value).toBe("0");
     // sample_count 0 hides both percentiles rather than showing "0 ms".
-    expect(pipelineMetric("典型延迟").value).toBe("insufficient samples");
-    expect(pipelineMetric("最坏情况").value).toBe("insufficient samples");
+    expect(pipelineMetric("Typical delay").value).toBe("insufficient samples");
+    expect(pipelineMetric("Worst case").value).toBe("insufficient samples");
     // No region flipped into an error/empty-data note.
     expect(document.querySelector(".note.bad")).toBeNull();
     expect(screen.queryByText("Server error; try again later")).toBeNull();
@@ -139,8 +139,8 @@ describe("section 12 item 5: missing latency percentiles show insufficient sampl
         summary: () => jsonResponse(makeSummary({ latency: { sample_count: 1 } })),
       });
 
-    expect(pipelineMetric("典型延迟").value).toBe("insufficient samples");
-    expect(pipelineMetric("最坏情况").value).toBe("insufficient samples");
+    expect(pipelineMetric("Typical delay").value).toBe("insufficient samples");
+    expect(pipelineMetric("Worst case").value).toBe("insufficient samples");
     expect(screen.queryByText("0 ms")).toBeNull();
     expect(document.querySelector(".gv-metrics")?.textContent).not.toContain("NaN");
   });
@@ -150,8 +150,8 @@ describe("section 12 item 5: missing latency percentiles show insufficient sampl
         summary: () => jsonResponse(makeSummary({ latency: { sample_count: 10, p50_ms: 24 } })),
       });
 
-    expect(pipelineMetric("典型延迟").value).toBe("24 ms");
-    expect(pipelineMetric("最坏情况").value).toBe("insufficient samples");
+    expect(pipelineMetric("Typical delay").value).toBe("24 ms");
+    expect(pipelineMetric("Worst case").value).toBe("insufficient samples");
   });
 });
 
@@ -192,8 +192,8 @@ describe("section 12 item 6: idempotent Observation replay never reads as a fail
         ),
     });
 
-    expect(pipelineMetric("失败").value).toBe("0");
-    expect(pipelineMetric("扣下待查").value).toBe("0");
+    expect(pipelineMetric("Failed").value).toBe("0");
+    expect(pipelineMetric("Held for review").value).toBe("0");
     expect(document.querySelector(".note.bad")).toBeNull();
   });
 });
@@ -217,10 +217,10 @@ describe("section 12 item 8: quarantined extractions are not failures", () => {
           ),
       });
 
-    expect(pipelineMetric("扣下待查").value).toBe("2");
-    expect(pipelineMetric("失败").value).toBe("0");
+    expect(pipelineMetric("Held for review").value).toBe("2");
+    expect(pipelineMetric("Failed").value).toBe("0");
     // Healthy empty backlog: no oldest-unextracted-event age is shown.
-    expect(pipelineMetric("排队中").sub).toBe("—");
+    expect(pipelineMetric("Waiting").sub).toBe("—");
   });
 
   it("a non-zero backlog without a timestamp names the field it's missing, never a guess", async () => {
@@ -238,9 +238,9 @@ describe("section 12 item 8: quarantined extractions are not failures", () => {
         summary: () => jsonResponse({ ...summary, extraction }),
       });
 
-    const queued = pipelineMetric("排队中");
+    const queued = pipelineMetric("Waiting");
     expect(queued.value).toBe("3");
-    expect(queued.sub).toBe("最老的未抽取事件：时间未知");
+    expect(queued.sub).toBe("Oldest unextracted event: time unknown");
   });
 });
 

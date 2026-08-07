@@ -398,7 +398,7 @@ export async function renderOperationsPage(endpoints: OperationsEndpoints = {}) 
     me: opsMe(),
     fetch: operationsFetch(endpoints),
   });
-  await screen.findByRole("heading", { name: "记忆跟得上吗？" });
+  await screen.findByRole("heading", { name: "Is memory keeping up?" });
   return app;
 }
 

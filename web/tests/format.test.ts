@@ -35,30 +35,30 @@ describe("formatBytes (operations doc section 13, IEC units)", () => {
 describe("formatRelativeFrom (Pipeline health 排队中 subtitle)", () => {
   const REF = "2026-07-22T12:00:00Z";
 
-  it("under a minute reads 刚刚", () => {
-    expect(formatRelativeFrom("2026-07-22T11:59:30Z", REF)).toBe("刚刚");
+  it("under a minute reads as seconds ago", () => {
+    expect(formatRelativeFrom("2026-07-22T11:59:30Z", REF)).toBe("30s ago");
   });
 
   it("minutes bucket", () => {
-    expect(formatRelativeFrom("2026-07-22T11:41:00Z", REF)).toBe("19 分钟前");
+    expect(formatRelativeFrom("2026-07-22T11:41:00Z", REF)).toBe("19m ago");
   });
 
-  it("90 minutes floors to 1 小时前, never rounds up to 2 小时前", () => {
-    expect(formatRelativeFrom("2026-07-22T10:30:00Z", REF)).toBe("1 小时前");
+  it("90 minutes floors to 1h ago, never rounds up to 2h ago", () => {
+    expect(formatRelativeFrom("2026-07-22T10:30:00Z", REF)).toBe("1h ago");
   });
 
   it("hours bucket floors instead of rounds", () => {
     // 36 hours back would round to "2 天前"; floor keeps it honest at "1 天前".
-    expect(formatRelativeFrom("2026-07-21T00:00:00Z", REF)).toBe("1 天前");
-    expect(formatRelativeFrom("2026-07-22T02:00:00Z", REF)).toBe("10 小时前");
+    expect(formatRelativeFrom("2026-07-21T00:00:00Z", REF)).toBe("1d ago");
+    expect(formatRelativeFrom("2026-07-22T02:00:00Z", REF)).toBe("10h ago");
   });
 
   it("days bucket", () => {
-    expect(formatRelativeFrom("2026-07-15T12:00:00Z", REF)).toBe("7 天前");
+    expect(formatRelativeFrom("2026-07-15T12:00:00Z", REF)).toBe("7d ago");
   });
 
-  it("a future timestamp clamps to 刚刚 instead of going negative", () => {
-    expect(formatRelativeFrom("2026-07-22T12:05:00Z", REF)).toBe("刚刚");
+  it("a future timestamp clamps to 0s ago instead of going negative", () => {
+    expect(formatRelativeFrom("2026-07-22T12:05:00Z", REF)).toBe("0s ago");
   });
 
   it("renders missing or invalid input as a dash", () => {

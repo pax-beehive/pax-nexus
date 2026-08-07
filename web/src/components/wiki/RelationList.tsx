@@ -16,7 +16,7 @@ export function RelationList({
   if (relations.length === 0) {
     return (
       <p className="muted small">
-        {direction === "outgoing" ? "这个页面没有引用其他内容。" : "还没有页面引用这里。"}
+        {direction === "outgoing" ? "This page links nowhere yet." : "No pages link here yet."}
       </p>
     );
   }

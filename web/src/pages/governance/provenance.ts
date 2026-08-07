@@ -34,25 +34,25 @@ export interface ProvenanceRevision {
 function formatRefList(ids: string[]): string | undefined {
   if (ids.length === 0) return undefined;
   if (ids.length === 1) return ids[0];
-  return `${ids[0]} 等 ${ids.length} 条`;
+  return `${ids[0]} +${ids.length - 1} more`;
 }
 
 function buildSourceStep(evidence: ExplorerSourceEvent[]): ProvenanceStep {
   if (evidence.length === 0) {
     return {
       stage: "source",
-      label: "源事件",
-      title: "源事件",
-      body: "没有记录源事件。",
+      label: "Evidence",
+      title: "Evidence",
+      body: "No source events recorded.",
       missing: true,
     };
   }
   const sessionId = evidence[0].session_id;
   return {
     stage: "source",
-    label: "源事件",
-    title: `共 ${evidence.length} 条源事件`,
-    body: `来自 session ${sessionId} 的 ${evidence.length} 条原始事件。`,
+    label: "Evidence",
+    title: `${evidence.length} source events`,
+    body: `${evidence.length} raw events from session ${sessionId}.`,
     ref: formatRefList(evidence.map((event) => event.event_id)),
     missing: false,
   };
@@ -62,17 +62,17 @@ function buildExtractionStep(run: ExplorerExtractionRun): ProvenanceStep {
   if (!run || !run.run_id || run.status === "") {
     return {
       stage: "extraction",
-      label: "抽取",
-      title: "抽取",
-      body: "没有记录抽取运行。",
+      label: "Extraction",
+      title: "Extraction",
+      body: "No extraction run recorded.",
       missing: true,
     };
   }
   return {
     stage: "extraction",
-    label: "抽取",
-    title: `模型 ${run.model} · prompt ${run.prompt_version}`,
-    body: `状态 ${run.status}，输入 ${run.input_tokens} / 输出 ${run.output_tokens} tokens。`,
+    label: "Extraction",
+    title: `Model ${run.model} · prompt ${run.prompt_version}`,
+    body: `Status ${run.status} · ${run.input_tokens} in / ${run.output_tokens} out tokens.`,
     ref: run.run_id,
     missing: false,
   };
@@ -84,11 +84,11 @@ function buildExtractionStep(run: ExplorerExtractionRun): ProvenanceStep {
 function describeAdmissionStatus(status: string): string {
   switch (status) {
     case "admitted":
-      return "已采纳";
+      return "Admitted";
     case "rejected":
-      return "已拒绝";
+      return "Rejected";
     case "pending":
-      return "待定";
+      return "Pending";
     default:
       return status;
   }
@@ -98,21 +98,21 @@ function buildCandidateStep(candidate: ExplorerCandidate): ProvenanceStep {
   if (!candidate || !candidate.candidate_id || candidate.admission_status === "") {
     return {
       stage: "candidate",
-      label: "候选",
-      title: "候选",
-      body: "没有记录候选。",
+      label: "Candidate",
+      title: "Candidate",
+      body: "No candidate recorded.",
       missing: true,
     };
   }
   const statusText =
     candidate.admission_status === "rejected"
-      ? `${describeAdmissionStatus(candidate.admission_status)}（${candidate.admission_status}）：${candidate.rejection_reason ?? "未说明原因"}`
-      : `${describeAdmissionStatus(candidate.admission_status)}（${candidate.admission_status}）`;
+      ? `${describeAdmissionStatus(candidate.admission_status)}: ${candidate.rejection_reason ?? "no reason given"}`
+      : describeAdmissionStatus(candidate.admission_status);
   return {
     stage: "candidate",
-    label: "候选",
-    title: `候选 ${candidate.candidate_id}（${candidate.action}）`,
-    body: `状态 ${statusText}。`,
+    label: "Candidate",
+    title: `Candidate ${candidate.candidate_id} (${candidate.action})`,
+    body: `Status: ${statusText}.`,
     ref: candidate.candidate_id,
     missing: false,
   };
@@ -127,25 +127,25 @@ function buildRevisionStep(revision: ExplorerRevision): ProvenanceStep {
       // 不能标成 missing，否则会让一条正常的 resolve 版本显示成「记录缺失」。
       return {
         stage: "revision",
-        label: "版本",
-        title: `版本 ${revision.revision} · resolve`,
-        body: "这是一次 resolve 操作，按规则不带正文，不代表记录缺失。",
+        label: "Revision",
+        title: `Revision ${revision.revision} · resolve`,
+        body: "This is a resolve operation, which carries no body by design — not a missing record.",
         ref: revision.candidate_id,
         missing: false,
       };
     }
     return {
       stage: "revision",
-      label: "版本",
-      title: `版本 ${revision.revision}`,
-      body: "没有记录版本正文。",
+      label: "Revision",
+      title: `Revision ${revision.revision}`,
+      body: "No revision body recorded.",
       missing: true,
     };
   }
   return {
     stage: "revision",
-    label: "版本",
-    title: `版本 ${revision.revision} · ${revision.operation}`,
+    label: "Revision",
+    title: `Revision ${revision.revision} · ${revision.operation}`,
     body: revision.body,
     ref: revision.candidate_id,
     missing: false,
@@ -156,18 +156,18 @@ function buildDeliveryStep(deliveries: ExplorerDelivery[]): ProvenanceStep {
   if (deliveries.length === 0) {
     return {
       stage: "delivery",
-      label: "投递",
-      title: "投递",
-      body: "没有投递记录。",
+      label: "Delivery",
+      title: "Delivery",
+      body: "No deliveries recorded.",
       missing: true,
     };
   }
   const totalTokens = deliveries.reduce((sum, delivery) => sum + delivery.context_tokens, 0);
   return {
     stage: "delivery",
-    label: "投递",
-    title: `投递给 ${deliveries.length} 个接收方`,
-    body: `共 ${deliveries.length} 次投递，消耗 ${totalTokens} context tokens。`,
+    label: "Delivery",
+    title: `Delivered to ${deliveries.length} recipients`,
+    body: `${deliveries.length} deliveries · ${totalTokens} context tokens.`,
     ref: formatRefList(deliveries.map((delivery) => delivery.recipient_agent_id)),
     missing: false,
   };
@@ -196,10 +196,10 @@ export function describeRecall(use: ExplorerRecallUse): string {
     ...use.hard_gate_failures,
   ];
   if (use.delivered && reasons.length === 0) {
-    return `命中并投递给 ${use.recipient_agent_id}（session ${use.recipient_session_id}）。`;
+    return `Delivered to ${use.recipient_agent_id} (session ${use.recipient_session_id}).`;
   }
   if (reasons.length > 0) {
-    return `未投递给 ${use.recipient_agent_id}，原因：${reasons.join("、")}。`;
+    return `Not delivered to ${use.recipient_agent_id}: ${reasons.join(", ")}.`;
   }
-  return `未投递给 ${use.recipient_agent_id}，没有记录拒绝原因。`;
+  return `Not delivered to ${use.recipient_agent_id}; no rejection reason recorded.`;
 }

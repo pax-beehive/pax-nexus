@@ -20,7 +20,7 @@ describe("Appearance", () => {
       fetch: appearanceFetch,
     });
 
-    await screen.findByRole("heading", { name: "它看起来什么样" });
+    await screen.findByRole("heading", { name: "Appearance" });
     expect(document.documentElement.dataset.theme).toBeUndefined();
   });
 
@@ -94,6 +94,6 @@ describe("Appearance", () => {
     await user.click(screen.getByRole("button", { name: /alice@example\.com/ }));
     await user.click(screen.getByRole("menuitem", { name: "Appearance" }));
 
-    await screen.findByRole("heading", { name: "它看起来什么样" });
+    await screen.findByRole("heading", { name: "Appearance" });
   });
 });

@@ -146,8 +146,8 @@ export function AdminInvitationsPage({ me }: { me: HumanMe }) {
     <>
       <PageHeader
         kicker="MANAGEMENT · INVITATIONS"
-        title="Invitations"
-        lede="Owners can invite admins/members; Admins can only invite members"
+        title="Outstanding invitations"
+        lede="Each invitation produces one link, shown once. Failures never say why — expired, revoked, already used and wrong address all read the same, so a link can't be used to probe the team."
         actions={
           <Button variant="primary" onClick={() => setCreateOpen(true)}>
             + Create invitation
@@ -157,17 +157,17 @@ export function AdminInvitationsPage({ me }: { me: HumanMe }) {
 
       {secretUrl && (
         <SecretCeremony
-          title="一次性邀请链接 · 只展示一次，不存任何地方"
-          headline="现在就把链接发出去。我们没法再给你看一次。"
-          body="令牌藏在 URL 的片段（#invite=）里，不会进入服务端访问日志，也不会出现在 Referer 头。"
+          title="One-time invitation link · shown once, stored nowhere"
+          headline="Send the link out now. We can't show it to you again."
+          body="The token lives in the URL fragment (#invite=), so it never reaches server access logs or Referer headers."
           value={secretUrl}
-          valueLabel="邀请链接"
+          valueLabel="Invitation link"
           steps={[
-            "把链接发给对方（IM、邮件都行）。",
-            "对方打开链接、登录，即完成加入。",
-            "这个人出现在「团队成员」里。",
+            "Send the link to them (IM or email both work).",
+            "They open the link, sign in, and the join is done.",
+            "The person then appears in the team's Members list.",
           ]}
-          recovery="什么都不会坏。吊销这条邀请、重新创建一条即可。"
+          recovery="Nothing breaks. Revoke this invitation and create a new one."
           onClose={() => setSecretUrl(undefined)}
         />
       )}

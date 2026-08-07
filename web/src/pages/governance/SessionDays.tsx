@@ -40,10 +40,10 @@ export function SessionDaysChart({ days }: { days: SessionAuditActivityDay[] }) 
           <div key={dayKey(d)}>
             <div className="gv-day-date">{d.day}</div>
             <div className="small">
-              {d.session_count} 会话 · {d.tool_call_count} 调用
+              {d.session_count} sessions · {d.tool_call_count} calls
             </div>
             {d.high_risk_count > 0 && (
-              <div className="gv-day-high">{d.high_risk_count} 高危</div>
+              <div className="gv-day-high">{d.high_risk_count} high risk</div>
             )}
           </div>
         ))}

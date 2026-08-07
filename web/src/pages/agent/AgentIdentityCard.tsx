@@ -64,14 +64,14 @@ export function AgentIdentityCard({
         agent.resource_version,
       );
       onChanged(updated);
-      toast("ok", `已保存（第 ${updated.resource_version} 版）`);
+      toast("ok", `Saved · version ${updated.resource_version}`);
     } catch (err) {
       if (apiError(err, 409, "resource_version_conflict")) {
         // 别人已经落库的改动绝不能被本地陈旧草稿静默盖掉：重取，让服务端
         // 数据覆盖草稿，而不是反过来。
         const fresh = await refetch();
         onChanged(fresh);
-        toast("warn", "有人在你之前改过它，已刷新到最新——你的改动没有提交。");
+        toast("warn", "Someone saved changes before you — refreshed to the latest; your edits were not saved.");
       } else {
         handleError(err);
       }
@@ -84,7 +84,7 @@ export function AgentIdentityCard({
     <Card title="Identity">
       <div className="field-row">
         <div>
-          <label htmlFor="ag-name">显示名</label>
+          <label htmlFor="ag-name">Display name</label>
           <input
             id="ag-name"
             type="text"
@@ -104,7 +104,7 @@ export function AgentIdentityCard({
           />
         </div>
       </div>
-      <label htmlFor="ag-desc">它做什么</label>
+      <label htmlFor="ag-desc">What it does</label>
       <textarea
         id="ag-desc"
         rows={2}
@@ -119,16 +119,16 @@ export function AgentIdentityCard({
           disabled={disabled}
           onChange={(e) => setVisible(e.target.checked)}
         />
-        列进团队目录
-        <span className="small muted"> —— 其他 Agent 能找到它并向它发送知识胶囊。</span>
+        List in the team directory
+        <span className="small muted"> — Other agents can find it and send it knowledge capsules.</span>
       </label>
       {access.canEdit && (
         <div className="row between">
           <span className="small muted">
-            第 <code>{agent.resource_version}</code> 版（提交时同时进 body 与 <code>If-Match</code>）
+            Version <code>{agent.resource_version}</code> (sent in the body and as <code>If-Match</code> on save)
           </span>
           <Button variant="primary" size="sm" disabled={busy} onClick={() => void save()}>
-            保存改动
+            Save changes
           </Button>
         </div>
       )}

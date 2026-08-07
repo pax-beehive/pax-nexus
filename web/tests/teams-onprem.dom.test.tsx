@@ -33,9 +33,9 @@ describe("on-prem profile regression", () => {
 
     // The on-prem bootstrap-claim branch of WelcomePage, not the saas
     // waiting state.
-    await screen.findByRole("button", { name: "前往认领 Owner" });
+    await screen.findByRole("button", { name: "Claim owner" });
     expect(window.location.pathname).toBe("/welcome");
-    expect(screen.getByLabelText("邀请令牌或链接")).toBeTruthy();
+    expect(screen.getByLabelText("Invitation token or link")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Create team" })).toBeNull();
     expect(screen.queryByRole("group", { name: "onboarding mode" })).toBeNull();
   });

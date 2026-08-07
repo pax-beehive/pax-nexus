@@ -53,12 +53,12 @@ export function SecretCeremony({
 
   const copy = async (text: string, what: string) => {
     if (await copyTextToClipboard(text)) {
-      toast("ok", `${what}已复制`);
+      toast("ok", `${what} copied`);
       return;
     }
     // 剪贴板不可用（权限或非安全上下文）：退回手动复制提示。
     // 密钥仍然不落任何存储。
-    window.prompt("请手动复制：", text);
+    window.prompt("Copy it manually:", text);
   };
 
   return (
@@ -75,7 +75,7 @@ export function SecretCeremony({
           <span className="ceremony-kicker">{title}</span>
           {expiresAt !== undefined && (
             <span className="ceremony-clock">
-              可认领 <Countdown to={expiresAt} />
+              Claimable for <Countdown to={expiresAt} />
             </span>
           )}
         </header>
@@ -87,24 +87,24 @@ export function SecretCeremony({
             <div className="ceremony-value">{value}</div>
             <div className="row wrap">
               <Button variant="primary" onClick={() => void copy(value, valueLabel)}>
-                复制{valueLabel}
+                Copy {valueLabel}
               </Button>
               {command !== undefined && (
-                <Button onClick={() => void copy(command, "接入命令")}>复制接入命令</Button>
+                <Button onClick={() => void copy(command, "Client command")}>Copy client command</Button>
               )}
             </div>
             {command !== undefined && <div className="ceremony-command">{command}</div>}
           </div>
 
           <aside className="ceremony-aside">
-            <span className="ceremony-kicker">接下来会发生什么</span>
+            <span className="ceremony-kicker">What happens next</span>
             <ol className="ceremony-steps">
               {steps.map((step) => (
                 <li key={step}>{step}</li>
               ))}
             </ol>
             <hr className="ceremony-rule" />
-            <span className="ceremony-kicker">丢了怎么办</span>
+            <span className="ceremony-kicker">If you lose it</span>
             <p className="ceremony-body">{recovery}</p>
             {meta !== undefined && <div className="ceremony-meta">{meta}</div>}
           </aside>
@@ -113,16 +113,16 @@ export function SecretCeremony({
         <footer className="ceremony-foot">
           <span className="ceremony-hint">
             {confirming
-              ? "关掉后这串令牌就再也看不到了。"
-              : "关掉不会作废它——令牌在有效期内仍可兑换，只是不再可见。"}
+              ? "Last chance — closing destroys the only copy of this token."
+              : "Closing doesn't void it — the token stays redeemable until it expires; it just won't be shown again."}
           </span>
           <div className="row">
-            {confirming && <Button onClick={() => setConfirming(false)}>先别关</Button>}
+            {confirming && <Button onClick={() => setConfirming(false)}>Keep it open</Button>}
             <Button
               variant="primary"
               onClick={() => (confirming ? onClose() : setConfirming(true))}
             >
-              {confirming ? "确定关闭" : "我已保存，关闭"}
+              {confirming ? "Yes, close it" : "I've stored it — close"}
             </Button>
           </div>
         </footer>

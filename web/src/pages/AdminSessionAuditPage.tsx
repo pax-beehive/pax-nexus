@@ -458,8 +458,8 @@ type AuditView = "findings" | "tool-calls" | "activity";
 
 const VIEWS: { id: AuditView; label: string }[] = [
   { id: "findings", label: "Findings" },
-  { id: "tool-calls", label: "工具调用" },
-  { id: "activity", label: "按天" },
+  { id: "tool-calls", label: "Tool calls" },
+  { id: "activity", label: "By day" },
 ];
 
 function viewFromParam(param: string | null): AuditView {
@@ -486,12 +486,12 @@ export function AdminSessionAuditPage() {
     <>
       <PageHeader
         variant="bleed"
-        kicker="Governance · 会话审计"
-        title="Agent 到底做了什么"
+        kicker="Governance · session audit"
+        title="What the agents actually did"
         lede={
           <p className="lede-dim">
-            Finding 由证据推导，从不来自 prompt 或内容。每条都会点名它取材的事件，
-            你可以自己去读源头。
+            Findings are derived from evidence, never from prompts or content. Each one names
+            the events it was drawn from so you can read the source yourself.
           </p>
         }
       />

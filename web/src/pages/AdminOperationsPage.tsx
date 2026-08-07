@@ -97,12 +97,12 @@ export function AdminOperationsPage({ canInspectTeamMemory = false }: { canInspe
     <>
       <PageHeader
         variant="bleed"
-        kicker="Governance · 管道健康"
-        title="记忆跟得上吗？"
+        kicker="Governance · Pipeline health"
+        title="Is memory keeping up?"
         lede={
           <p className="lede-dim">
-            每块自己加载。一块失败时其余照常——你会看到哪块过期了，而不是一整页空白。
-            这里从不显示任何查询、内容或密钥。
+            Each block loads on its own. When one fails the rest keep working — you'll see which
+            is stale instead of an empty page. No queries, content or keys are ever shown here.
           </p>
         }
       />
@@ -193,7 +193,7 @@ export function AdminOperationsPage({ canInspectTeamMemory = false }: { canInspe
 
         <div>
           <div className="row between">
-            <h2 className="flush">最近的活儿</h2>
+            <h2 className="flush">Recent work</h2>
             <div className="toolbar">
           <select
             aria-label="Filter by operation"

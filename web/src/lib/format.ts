@@ -2,7 +2,7 @@ export function formatTime(iso: string | undefined): string {
   if (!iso) return "—";
   const time = new Date(iso).getTime();
   if (Number.isNaN(time)) return iso;
-  return new Date(iso).toLocaleString("zh-CN", { hour12: false });
+  return new Date(iso).toLocaleString("en-US", { hour12: false });
 }
 
 /**
@@ -47,11 +47,12 @@ export function formatRelativeFrom(iso: string | undefined, referenceIso: string
   const reference = new Date(referenceIso).getTime();
   if (Number.isNaN(from) || Number.isNaN(reference)) return "—";
   const diffMs = Math.max(0, reference - from);
-  const minutes = Math.floor(diffMs / 60_000);
-  if (minutes < 1) return "刚刚";
-  if (minutes < 60) return `${minutes} 分钟前`;
+  const seconds = Math.floor(diffMs / 1_000);
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} 小时前`;
+  if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
-  return `${days} 天前`;
+  return `${days}d ago`;
 }

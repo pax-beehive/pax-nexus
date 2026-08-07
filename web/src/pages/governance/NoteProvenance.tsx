@@ -24,17 +24,17 @@ export function NoteProvenance({ detail }: { detail: TeamNoteDetail }) {
 
   return (
     <section className="card">
-      <h2>它是怎么来的</h2>
+      <h2>How it got here</h2>
       {chain.length === 0 ? (
         <EmptyState
-          title="还没有版本历史"
-          body="这条 Team Note 目前没有可展示的溯源记录——它可能还没经过完整的抽取/候选/落库流程。"
+          title="No revisions yet"
+          body="This Team Note has no provenance to show yet — it may not have completed the full extraction, candidacy, and admission flow."
         />
       ) : (
         chain.map((revision) => (
           <div key={revision.revision} className="gv-prov-revision">
             <div className="row between wrap">
-              <h3 className="flush">版本 {revision.revision}</h3>
+              <h3 className="flush">Revision {revision.revision}</h3>
               <span className="small faint" title={revision.createdAt}>
                 {formatTime(revision.createdAt)}
               </span>

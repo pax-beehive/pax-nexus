@@ -48,7 +48,7 @@ describe("scope 分派", () => {
       fetch: agentFetch("me", makeAgent({ owner_membership_id: "mbr_01" })),
     });
 
-    await screen.findByLabelText("显示名");
+    await screen.findByLabelText("Display name");
     const adminCalls = fetchMock.mock.calls.filter(([url]) => String(url).startsWith("/v1/admin/"));
     expect(adminCalls).toHaveLength(0);
   });
@@ -69,7 +69,7 @@ describe("scope 分派", () => {
       },
     });
 
-    expect(await screen.findByRole("button", { name: "发放接入权限" })).toBeDefined();
+    expect(await screen.findByRole("button", { name: "Issue access" })).toBeDefined();
     expect(callsTo(fetchMock, "/v1/me/agents/agent-1/credentials")).not.toHaveLength(0);
   });
 
@@ -80,8 +80,8 @@ describe("scope 分派", () => {
       fetch: agentFetch("admin", makeAgent({ owner_membership_id: "mbr_99" })),
     });
 
-    await screen.findByLabelText("显示名");
-    expect(screen.queryByRole("button", { name: "发放接入权限" })).toBeNull();
+    await screen.findByLabelText("Display name");
+    expect(screen.queryByRole("button", { name: "Issue access" })).toBeNull();
     expect(callsTo(fetchMock, "/v1/admin/agents/agent-1/credentials")).not.toHaveLength(0);
   });
 });
@@ -94,8 +94,8 @@ describe("三态与降级", () => {
       fetch: agentFetch("me", apiErrorResponse(404, "not_found", "no such agent")),
     });
 
-    await screen.findByText(/这个 Agent 不存在，或者你看不到它/);
-    expect(screen.getByRole("link", { name: "回到访问树" }).getAttribute("href")).toBe("/management");
+    await screen.findByText(/or you can't see it/);
+    expect(screen.getByRole("link", { name: "Back to the access tree" }).getAttribute("href")).toBe("/management");
   });
 
   it("密钥两条腿都失败，Identity 与 Lifecycle 照常渲染", async () => {
@@ -113,8 +113,8 @@ describe("三态与降级", () => {
       },
     });
 
-    expect(await screen.findByLabelText("显示名")).toBeDefined();
-    expect(screen.getByRole("button", { name: "暂停" })).toBeDefined();
+    expect(await screen.findByLabelText("Display name")).toBeDefined();
+    expect(screen.getByRole("button", { name: "Pause" })).toBeDefined();
   });
 
   // 设计文档 §11 的同源计数要求：把喂给弹窗的数组截断一条，测试必须变红。
@@ -157,9 +157,9 @@ describe("三态与降级", () => {
     expect(screen.getByText("linux-box")).toBeDefined();
 
     // 暂停确认弹窗：同一批数据必须在这里再出现一次，计数文案对得上。
-    await user.click(screen.getByRole("button", { name: "暂停" }));
+    await user.click(screen.getByRole("button", { name: "Pause" }));
     const dialog = screen.getByRole("dialog");
-    expect(within(dialog).getByText(/2 把活跃密钥/)).toBeDefined();
+    expect(within(dialog).getByText(/2 active keys/)).toBeDefined();
     expect(within(dialog).getByText("mac-studio-01")).toBeDefined();
     expect(within(dialog).getByText("linux-box")).toBeDefined();
   });
@@ -171,7 +171,7 @@ describe("三态与降级", () => {
       fetch: agentFetch("me", makeAgent({ owner_membership_id: "mbr_01" })),
     });
 
-    await screen.findByLabelText("显示名");
+    await screen.findByLabelText("Display name");
     expect(
       fetchMock.mock.calls.filter(([url]) => String(url).includes("session-audit")),
     ).toHaveLength(0);

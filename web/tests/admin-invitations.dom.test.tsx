@@ -91,10 +91,10 @@ describe("invitation created: one-time ceremony", () => {
     await user.click(screen.getByRole("button", { name: "Create" }));
 
     // The ceremony appears with the join URL...
-    await screen.findByText("一次性邀请链接 · 只展示一次，不存任何地方");
-    screen.getByText("现在就把链接发出去。我们没法再给你看一次。");
+    await screen.findByText("One-time invitation link · shown once, stored nowhere");
+    screen.getByText("Send the link out now. We can't show it to you again.");
     // ...but carries no connect-command action: invitees follow the link in
     // a browser and log in, they never run a CLI command against it.
-    expect(screen.queryByRole("button", { name: "复制接入命令" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Copy client command" })).toBeNull();
   });
 });

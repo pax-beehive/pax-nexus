@@ -213,14 +213,14 @@ describe("wiki browse route topics and search", () => {
 
     await screen.findByRole("heading", { name: "SQLite" });
     await user.type(screen.getByRole("searchbox", { name: "Search the wiki" }), "searchable");
-    await user.click(screen.getByRole("button", { name: "搜索" }));
+    await user.click(screen.getByRole("button", { name: "Search" }));
     const results = await screen.findByRole("region", { name: "Search results" });
     within(results).getByText("SQLite");
     within(results).getByText("SQLite is searchable.");
 
     await user.click(screen.getByRole("button", { name: /revision-old/ }));
     await screen.findByRole("heading", { name: "SQLite before WAL" });
-    screen.getByText("历史版本");
+    screen.getByText("Past revision");
     await waitFor(() => expect(window.location.search).toContain("revision=revision-old"));
   });
 
@@ -239,7 +239,7 @@ describe("wiki browse route topics and search", () => {
     await waitFor(() => expect(window.location.pathname).toBe("/apps/wiki/sqlite"));
     expect(window.location.search).toBe("?revision=revision-old");
     await screen.findByRole("heading", { name: "SQLite before WAL" });
-    screen.getByText("历史版本");
+    screen.getByText("Past revision");
   });
 
   it("shows a useful empty state when the wiki has no pages", async () => {
@@ -253,8 +253,8 @@ describe("wiki browse route topics and search", () => {
       },
     });
 
-    await screen.findByRole("heading", { name: "你的百科还没有第一页" });
-    screen.getByText("Page Wiki 来源处理完成后，页面会出现在这里。");
+    await screen.findByRole("heading", { name: "Your encyclopedia has no pages yet" });
+    screen.getByText("Pages appear here once Page Wiki source processing finishes.");
   });
 
   it("collapses the Source evidence section by default", async () => {
@@ -323,8 +323,8 @@ describe("wiki browse route retired page banner", () => {
     });
 
     await screen.findByRole("heading", { name: "Retired Page" });
-    screen.getByText("这个页面已被归档。");
-    const link = screen.getByRole("link", { name: "查看继任页面" });
+    screen.getByText("This page has been retired.");
+    const link = screen.getByRole("link", { name: "View the successor page" });
     expect(link.getAttribute("href")).toBe("/apps/wiki/sqlite");
   });
 
@@ -336,8 +336,8 @@ describe("wiki browse route retired page banner", () => {
     });
 
     await screen.findByRole("heading", { name: "Retired Page" });
-    screen.getByText("这个页面已被归档。");
-    expect(screen.queryByRole("link", { name: "查看继任页面" })).toBeNull();
+    screen.getByText("This page has been retired.");
+    expect(screen.queryByRole("link", { name: "View the successor page" })).toBeNull();
   });
 });
 
@@ -593,7 +593,7 @@ describe("wiki browse route navigation fetch cadence", () => {
     await screen.findByRole("heading", { name: "Alpha" });
 
     await user.type(screen.getByRole("searchbox", { name: "Search the wiki" }), "hidden");
-    await user.click(screen.getByRole("button", { name: "搜索" }));
+    await user.click(screen.getByRole("button", { name: "Search" }));
     await user.click(await screen.findByRole("button", { name: /Hidden/ }));
 
     await screen.findByRole("heading", { name: "Hidden" });
@@ -663,7 +663,7 @@ describe("wiki browse route failure states", () => {
     // Nothing to fall back to when the page list itself is unknown — no
     // "wiki is empty" empty state, and no topic rail with stale/absent data.
     expect(
-      screen.queryByText("你的百科还没有第一页"),
+      screen.queryByText("Your encyclopedia has no pages yet"),
     ).toBeNull();
     expect(screen.queryByRole("navigation", { name: "Wiki topics" })).toBeNull();
 
@@ -703,8 +703,8 @@ describe("wiki browse route failure states", () => {
     // nothing to show yet (this page never finished loading once), but the
     // panel itself is present and usable, matching RelationList's normal
     // empty-state text.
-    screen.getByText("这个页面没有引用其他内容。");
-    screen.getByText("还没有页面引用这里。");
+    screen.getByText("This page links nowhere yet.");
+    screen.getByText("No pages link here yet.");
 
     // Retry re-issues only the failed page fetch.
     await user.click(screen.getByRole("button", { name: /retry/i }));

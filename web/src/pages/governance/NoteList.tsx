@@ -22,10 +22,10 @@ import { NOTE_KIND_OPTIONS, noteKindLabel, type NoteKindFilter } from "./noteKin
 type StateFilter = "" | "active" | "resolved" | "expired";
 
 const STATE_OPTIONS: { value: StateFilter; label: string }[] = [
-  { value: "", label: "全部" },
-  { value: "active", label: "生效中" },
-  { value: "resolved", label: "已解决" },
-  { value: "expired", label: "已过期" },
+  { value: "", label: "All" },
+  { value: "active", label: "Active" },
+  { value: "resolved", label: "Resolved" },
+  { value: "expired", label: "Expired" },
 ];
 
 export function NoteList({ activeNoteId }: { activeNoteId?: string }) {
@@ -59,8 +59,8 @@ export function NoteList({ activeNoteId }: { activeNoteId?: string }) {
       <div className="gv-note-filters">
         <input
           type="search"
-          aria-label="搜索 Team Note"
-          placeholder="搜索主题或正文"
+          aria-label="Search Team Notes"
+          placeholder="Search subject or body"
           value={queryInput}
           onChange={(event) => setQueryInput(event.target.value)}
           onKeyDown={(event) => {
@@ -72,16 +72,16 @@ export function NoteList({ activeNoteId }: { activeNoteId?: string }) {
             it. Kind/Agent/State stay onChange-immediate; only the free-text
             query is deferred until submit. */}
         <Button size="sm" onClick={() => setQuery(queryInput.trim())}>
-          搜索
+          Search
         </Button>
         <input
-          aria-label="按 Agent 筛选"
+          aria-label="Filter by agent"
           placeholder="Agent ID"
           value={agentId}
           onChange={(event) => setAgentId(event.target.value.trim())}
         />
         <select
-          aria-label="按类型筛选"
+          aria-label="Filter by kind"
           value={kind}
           onChange={(event) => setKind(event.target.value as NoteKindFilter)}
         >
@@ -91,19 +91,19 @@ export function NoteList({ activeNoteId }: { activeNoteId?: string }) {
             </option>
           ))}
         </select>
-        <Seg label="按状态筛选" options={STATE_OPTIONS} value={state} onChange={setState} />
+        <Seg label="Filter by state" options={STATE_OPTIONS} value={state} onChange={setState} />
       </div>
       {notes.loading ? (
         <p className="muted small gv-note-status">Loading…</p>
       ) : notes.error && notes.items.length === 0 ? (
         <div className="note bad row between gv-note-status" role="alert">
-          <span>加载失败。</span>
+          <span>Failed to load.</span>
           <Button size="sm" onClick={notes.reload}>
-            重试
+            Retry
           </Button>
         </div>
       ) : notes.items.length === 0 ? (
-        <p className="muted small gv-note-status">没有匹配的 Team Note。</p>
+        <p className="muted small gv-note-status">No matching Team Notes.</p>
       ) : (
         <>
           {notes.items.map((note) => (
@@ -124,9 +124,9 @@ export function NoteList({ activeNoteId }: { activeNoteId?: string }) {
           ))}
           {notes.error ? (
             <div className="note bad row between gv-note-status" role="alert">
-              <span>加载更多失败。</span>
+              <span>Failed to load more.</span>
               <Button size="sm" onClick={() => void notes.loadMore()}>
-                重试
+                Retry
               </Button>
             </div>
           ) : null}
@@ -135,7 +135,7 @@ export function NoteList({ activeNoteId }: { activeNoteId?: string }) {
       {notes.nextCursor && !(notes.error && notes.items.length > 0) ? (
         <div className="gv-note-status gv-note-loadmore">
           <Button size="sm" disabled={notes.loadingMore} onClick={() => void notes.loadMore()}>
-            {notes.loadingMore ? "Loading…" : "加载更多"}
+            {notes.loadingMore ? "Loading…" : "Load more"}
           </Button>
         </div>
       ) : null}

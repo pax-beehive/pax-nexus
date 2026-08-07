@@ -134,8 +134,8 @@ export function TodoPage() {
     <>
       <PageHeader
         kicker="Apps · todos"
-        title="Agent 替你发现的活儿"
-        lede="团队写下的阻塞与交接会被转成建议。接受一条它就归你；忽略它就不会再回来。"
+        title="Work the agents surfaced"
+        lede="Blockers and handoffs the team wrote down get turned into suggestions. Accept one and it becomes yours; dismiss it and it won't come back."
         actions={
           <Button
             variant="primary"
@@ -143,22 +143,22 @@ export function TodoPage() {
             disabled={refreshing}
             onClick={() => void checkTeamMemory()}
           >
-            {refreshing ? "扫描中…" : "扫描团队记忆"}
+            {refreshing ? "Reading team memory…" : "Check team memory"}
           </Button>
         }
       />
 
       <div className="split wide-left">
         <section className="card" aria-label="Suggestions">
-          <h2 className="card-title flush">建议</h2>
+          <h2 className="card-title flush">Suggestions</h2>
           {loading ? (
-            <p className="muted">加载中…</p>
+            <p className="muted">Loading…</p>
           ) : suggestionsError ? (
             // 此前是一行没有出路的 muted 文本：读者被告知「稍后重试」，
             // 却没有任何可以按的东西，只能整页刷新（PR #91 follow-up）。
-            <RegionError message="建议暂时不可用。" onRetry={() => void load()} />
+            <RegionError message="Suggestions are unavailable." onRetry={() => void load()} />
           ) : suggestions.length === 0 ? (
-            <p className="muted small">现在没有新的建议。</p>
+            <p className="muted small">No new suggestions right now.</p>
           ) : (
             <ul style={NO_LIST_STYLE}>
               {suggestions.map((suggestion) => (
@@ -180,7 +180,7 @@ export function TodoPage() {
                       disabled={busyId === suggestion.suggestion_id}
                       onClick={() => void accept(suggestion.suggestion_id)}
                     >
-                      接下来我做
+                      Take it
                     </Button>
                     <Button
                       size="sm"
@@ -188,7 +188,7 @@ export function TodoPage() {
                       disabled={busyId === suggestion.suggestion_id}
                       onClick={() => void dismiss(suggestion.suggestion_id)}
                     >
-                      忽略
+                      Dismiss
                     </Button>
                   </div>
                 </li>
@@ -198,31 +198,31 @@ export function TodoPage() {
         </section>
 
         <section className="card" aria-label="Todos">
-          <h2 className="card-title flush">你的清单</h2>
+          <h2 className="card-title flush">Your list</h2>
           <form className="row" onSubmit={(event) => void addTodo(event)}>
             <label className="sr-only" htmlFor="todo-new-title">
-              待办标题
+              Todo title
             </label>
             <input
               id="todo-new-title"
               type="text"
-              placeholder="添加一件事…"
+              placeholder="Add something…"
               value={newTitle}
               onChange={(event) => setNewTitle(event.target.value)}
             />
             <Button variant="primary" type="submit" disabled={adding || newTitle.trim() === ""}>
-              {adding ? "添加中…" : "添加"}
+              {adding ? "Adding…" : "Add"}
             </Button>
           </form>
 
           {loading ? (
-            <p className="muted">加载中…</p>
+            <p className="muted">Loading…</p>
           ) : todosError ? (
-            <RegionError message="清单暂时不可用。" onRetry={() => void load()} />
+            <RegionError message="Your list is unavailable." onRetry={() => void load()} />
           ) : (
             <>
               {openTodos.length === 0 ? (
-                <p className="muted small">没有未完成的待办。</p>
+                <p className="muted small">No open todos.</p>
               ) : (
                 <ul style={NO_LIST_STYLE}>
                   {openTodos.map((todo) => (
@@ -234,7 +234,7 @@ export function TodoPage() {
                         disabled={busyId === todo.todo_id}
                         onClick={() => void complete(todo.todo_id)}
                       >
-                        完成
+                        Done
                       </Button>
                     </li>
                   ))}
@@ -242,7 +242,7 @@ export function TodoPage() {
               )}
 
               <details className="todo-done-group">
-                <summary className="muted small">已完成（{doneTodos.length}）</summary>
+                <summary className="muted small">Done ({doneTodos.length})</summary>
                 <ul style={NO_LIST_STYLE}>
                   {doneTodos.map((todo) => (
                     <li key={todo.todo_id} className="muted small todo-done-item">

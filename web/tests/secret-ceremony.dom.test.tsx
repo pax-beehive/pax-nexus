@@ -15,14 +15,14 @@ function renderCeremony(onClose = () => {}) {
   return render(
     <ToastProvider>
       <SecretCeremony
-        title="一次性接入令牌"
-        headline="现在就复制。我们没法再给你看一次。"
-        body="这串令牌让 Alice Codex 换取一把长期密钥。"
+        title="One-time enrollment token"
+        headline="Copy this now. We can't show it again."
+        body="This token lets Alice Codex claim a long-lived key."
         value={TOKEN}
-        valueLabel="令牌"
+        valueLabel="token"
         expiresAt="2099-01-01T00:00:00Z"
-        steps={["在目标机器上执行命令", "令牌兑换成密钥并自毁", "密钥出现在「活跃密钥」"]}
-        recovery="什么都不会坏。取消这条待认领记录、重新发一张即可。"
+        steps={["Run the command on the target machine", "The token is exchanged for a key and burns itself", "The key appears under “Active keys”"]}
+        recovery="Nothing is broken. Cancel the pending claim and issue a new one."
         command="paxl channel connect onprem --enrollment-token <token>"
         onClose={onClose}
       />
@@ -35,28 +35,28 @@ describe("SecretCeremony", () => {
     renderCeremony();
     expect(screen.getByText(TOKEN)).toBeDefined();
     expect(screen.getByRole("dialog").getAttribute("aria-modal")).toBe("true");
-    expect(screen.getByText("在目标机器上执行命令")).toBeDefined();
+    expect(screen.getByText("Run the command on the target machine")).toBeDefined();
     expect(screen.getByText(/paxl channel connect onprem/)).toBeDefined();
-    expect(screen.getByRole("button", { name: /复制令牌/ })).toBeDefined();
-    expect(screen.getByRole("button", { name: /复制接入命令/ })).toBeDefined();
+    expect(screen.getByRole("button", { name: /Copy token/ })).toBeDefined();
+    expect(screen.getByRole("button", { name: /Copy client command/ })).toBeDefined();
   });
 
   it("没有 command 时不渲染命令块与第二个复制按钮", () => {
     render(
       <ToastProvider>
         <SecretCeremony
-          title="一次性邀请令牌"
-          headline="现在就复制。"
-          body="邀请链接。"
+          title="One-time invitation token"
+          headline="Copy this now."
+          body="The invitation link."
           value={TOKEN}
-          valueLabel="邀请链接"
-          steps={["把链接发给对方"]}
-          recovery="吊销后重建即可。"
+          valueLabel="invitation link"
+          steps={["Send the link to the recipient"]}
+          recovery="Revoke it and create a new one."
           onClose={() => {}}
         />
       </ToastProvider>,
     );
-    expect(screen.queryByRole("button", { name: /复制接入命令/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Copy client command/ })).toBeNull();
   });
 
   it("第一次点关闭只进入确认态，第二次才真的关", async () => {
@@ -66,12 +66,12 @@ describe("SecretCeremony", () => {
       closed += 1;
     });
 
-    await user.click(screen.getByRole("button", { name: "我已保存，关闭" }));
+    await user.click(screen.getByRole("button", { name: "I've stored it — close" }));
     expect(closed).toBe(0);
-    expect(screen.getByRole("button", { name: "先别关" })).toBeDefined();
-    expect(screen.getByText(/再也看不到/)).toBeDefined();
+    expect(screen.getByRole("button", { name: "Keep it open" })).toBeDefined();
+    expect(screen.getByText(/only copy of this token/)).toBeDefined();
 
-    await user.click(screen.getByRole("button", { name: "确定关闭" }));
+    await user.click(screen.getByRole("button", { name: "Yes, close it" }));
     expect(closed).toBe(1);
   });
 
@@ -82,9 +82,9 @@ describe("SecretCeremony", () => {
       closed += 1;
     });
 
-    await user.click(screen.getByRole("button", { name: "我已保存，关闭" }));
-    await user.click(screen.getByRole("button", { name: "先别关" }));
-    expect(screen.getByRole("button", { name: "我已保存，关闭" })).toBeDefined();
+    await user.click(screen.getByRole("button", { name: "I've stored it — close" }));
+    await user.click(screen.getByRole("button", { name: "Keep it open" }));
+    expect(screen.getByRole("button", { name: "I've stored it — close" })).toBeDefined();
     expect(closed).toBe(0);
   });
 
@@ -109,8 +109,8 @@ describe("SecretCeremony", () => {
     const user = userEvent.setup();
     const { unmount } = renderCeremony();
 
-    await user.click(screen.getByRole("button", { name: "我已保存，关闭" }));
-    await user.click(screen.getByRole("button", { name: "确定关闭" }));
+    await user.click(screen.getByRole("button", { name: "I've stored it — close" }));
+    await user.click(screen.getByRole("button", { name: "Yes, close it" }));
     unmount();
 
     expect(JSON.stringify(localStorage)).not.toContain("secret-value");

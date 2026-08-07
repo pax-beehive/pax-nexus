@@ -24,7 +24,7 @@ describe("section 10 item 1: OIDC continuation for ordinary pages", () => {
 
     // The guard renders the login page; the target page never mounts, so no
     // admin API call is fired while unauthenticated.
-    const loginButton = await screen.findByRole("button", { name: /使用 OIDC 登录/ });
+    const loginButton = await screen.findByRole("button", { name: /Sign in with OIDC/ });
     expect(screen.queryByRole("heading", { name: "Members" })).toBeNull();
 
     // Starting OIDC is a top-level navigation; before leaving, the current
@@ -70,11 +70,11 @@ describe("section 10 item 14: cookie misconfiguration must not loop", () => {
       },
     });
 
-    await screen.findByRole("heading", { name: "尚未启用 Human Identity" });
+    await screen.findByRole("heading", { name: "Human Identity is not enabled" });
     // The operator hint names the Secure Cookie misconfiguration explicitly
     // instead of sending the user through another login attempt.
     expect(document.body.textContent).toContain("TEAM_MEMORY_HUMAN_COOKIE_SECURE=false");
-    expect(screen.queryByRole("button", { name: /使用 OIDC 登录/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Sign in with OIDC/ })).toBeNull();
   });
 
   it("keeps a persistent 401 on the manual login page instead of redirect-looping into OIDC", async () => {
@@ -85,13 +85,13 @@ describe("section 10 item 14: cookie misconfiguration must not loop", () => {
       me: null,
       fetch: noApiCalls,
     });
-    await screen.findByRole("button", { name: /使用 OIDC 登录/ });
+    await screen.findByRole("button", { name: /Sign in with OIDC/ });
     expect(window.location.pathname).toBe("/management/members");
 
     // After the OIDC callback, a Secure-cookie misconfiguration still yields
     // 401. The manual retry must not auto-redirect: the user stays put.
-    await user.click(screen.getByRole("button", { name: "已经登录过？点击重试" }));
-    await screen.findByRole("button", { name: /使用 OIDC 登录/ });
+    await user.click(screen.getByRole("button", { name: "Already signed in? Click to retry" }));
+    await screen.findByRole("button", { name: /Sign in with OIDC/ });
     await waitFor(() => expect(callsTo(fetchMock, "/v1/me")).toHaveLength(2));
     expect(window.location.pathname).toBe("/management/members");
   });

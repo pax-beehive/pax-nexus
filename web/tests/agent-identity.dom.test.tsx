@@ -80,11 +80,11 @@ describe("AgentIdentityCard", () => {
 
     render(<Harness me={me} initial={agent} refetch={neverRefetch} />);
 
-    const name = (await screen.findByLabelText("显示名")) as HTMLInputElement;
+    const name = (await screen.findByLabelText("Display name")) as HTMLInputElement;
     expect(name.value).toBe("Alice Codex");
     expect(name.disabled).toBe(false);
     expect((screen.getByLabelText("Runtime") as HTMLInputElement).value).toBe("codex");
-    expect(screen.getByRole("button", { name: "保存改动" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Save changes" })).toBeDefined();
   });
 
   it("保存时 resource_version 同时进 body 与 If-Match", async () => {
@@ -104,10 +104,10 @@ describe("AgentIdentityCard", () => {
 
     render(<Harness me={me} initial={agent} refetch={neverRefetch} />);
 
-    const name = await screen.findByLabelText("显示名");
+    const name = await screen.findByLabelText("Display name");
     await user.clear(name);
     await user.type(name, "Renamed");
-    await user.click(screen.getByRole("button", { name: "保存改动" }));
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
 
     const patches = await vi.waitFor(() => {
       const calls = callsTo(fetchMock, "/v1/me/agents/agent-1", "PATCH");
@@ -146,10 +146,10 @@ describe("AgentIdentityCard", () => {
 
     render(<Harness me={me} initial={agent} refetch={refetch} />);
 
-    const name = await screen.findByLabelText("显示名");
+    const name = await screen.findByLabelText("Display name");
     await user.clear(name);
     await user.type(name, "My Local Draft");
-    await user.click(screen.getByRole("button", { name: "保存改动" }));
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
 
     // 草稿被服务端数据替换——绝不静默覆盖别人的改动。
     expect(await screen.findByDisplayValue("Someone Else Renamed It")).toBeDefined();
@@ -163,7 +163,7 @@ describe("AgentIdentityCard", () => {
 
     render(<Harness me={me} initial={agent} refetch={neverRefetch} />);
 
-    expect(((await screen.findByLabelText("显示名")) as HTMLInputElement).disabled).toBe(true);
-    expect(screen.queryByRole("button", { name: "保存改动" })).toBeNull();
+    expect(((await screen.findByLabelText("Display name")) as HTMLInputElement).disabled).toBe(true);
+    expect(screen.queryByRole("button", { name: "Save changes" })).toBeNull();
   });
 });

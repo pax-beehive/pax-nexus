@@ -12,20 +12,20 @@ export type NoteKindFilter =
   | "source_span";
 
 const NOTE_KIND_LABELS: Record<string, string> = {
-  status: "状态",
-  blocker: "阻塞",
-  handoff: "交接",
-  artifact_reference: "产出引用",
-  source_span: "原文片段",
+  status: "Status",
+  blocker: "Blocker",
+  handoff: "Handoff",
+  artifact_reference: "Artifact reference",
+  source_span: "Source span",
 };
 
 export const NOTE_KIND_OPTIONS: { value: NoteKindFilter; label: string }[] = [
-  { value: "", label: "全部类型" },
-  { value: "status", label: "状态" },
-  { value: "blocker", label: "阻塞" },
-  { value: "handoff", label: "交接" },
-  { value: "artifact_reference", label: "产出引用" },
-  { value: "source_span", label: "原文片段" },
+  { value: "", label: "All kinds" },
+  { value: "status", label: "Status" },
+  { value: "blocker", label: "Blocker" },
+  { value: "handoff", label: "Handoff" },
+  { value: "artifact_reference", label: "Artifact reference" },
+  { value: "source_span", label: "Source span" },
 ];
 
 export function noteKindLabel(kind: string): string {

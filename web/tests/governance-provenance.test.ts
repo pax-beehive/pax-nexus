@@ -101,7 +101,7 @@ describe("buildProvenance", () => {
   it("投递为空时该段标记 missing，其余段不受影响", () => {
     const [rev] = buildProvenance(detail([revision({ deliveries: [] })]));
     expect(rev.steps[4].missing).toBe(true);
-    expect(rev.steps[4].body).toContain("没有");
+    expect(rev.steps[4].body).toContain("No deliveries");
     expect(rev.steps.slice(0, 4).every((s) => s.missing)).toBe(false);
   });
 
@@ -126,14 +126,14 @@ describe("buildProvenance", () => {
     const resolved = revision({ operation: "resolve", body: "" });
     const [rev] = buildProvenance(detail([resolved]));
     expect(rev.steps[3].missing).toBe(false);
-    expect(rev.steps[3].body).not.toContain("没有");
+    expect(rev.steps[3].body).not.toContain("No revision body");
   });
 
   it("非 resolve 操作正文为空仍判定为 missing", () => {
     const noBody = revision({ operation: "update", body: "" });
     const [rev] = buildProvenance(detail([noBody]));
     expect(rev.steps[3].missing).toBe(true);
-    expect(rev.steps[3].body).toContain("没有");
+    expect(rev.steps[3].body).toContain("No revision body");
   });
 });
 
@@ -145,7 +145,7 @@ describe("describeRecall", () => {
         occurred_at: "2026-08-03T00:00:00Z", delivered: true,
         rejection_reasons: [], budget_drop_reasons: [], hard_gate_failures: [],
       }),
-    ).toContain("命中并投递");
+    ).toContain("Delivered to");
   });
 
   it("把三类原因拼成一句话", () => {
@@ -166,7 +166,7 @@ describe("describeRecall", () => {
       occurred_at: "2026-08-03T00:00:00Z", delivered: false,
       rejection_reasons: [], budget_drop_reasons: [], hard_gate_failures: [],
     });
-    expect(text).not.toContain("命中并投递");
-    expect(text).toMatch(/没有记录|未说明/);
+    expect(text).not.toContain("Delivered to");
+    expect(text).toMatch(/no rejection reason recorded|no reason given/);
   });
 });

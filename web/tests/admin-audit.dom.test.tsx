@@ -76,10 +76,10 @@ describe("AdminAuditPage: header and row shape", () => {
       fetch: baseFetch([makeAuditEvent()]),
     });
 
-    await screen.findByRole("heading", { name: "发生过的一切，未经编辑" });
-    expect(screen.getByText("Governance · 审计流水")).not.toBeNull();
+    await screen.findByRole("heading", { name: "Everything that happened, unedited" });
+    expect(screen.getByText("Governance · audit trail")).not.toBeNull();
     expect(
-      screen.getByText(/只追加。名字是我们替你查出来的方便/),
+      screen.getByText(/Append-only. Names are a convenience we look up for you/),
     ).not.toBeNull();
   });
 
@@ -97,14 +97,14 @@ describe("AdminAuditPage: header and row shape", () => {
 });
 
 describe("AdminAuditPage: actor_kind Seg filter", () => {
-  it("全部 / 人 / Agent / 系统 each send the right actor_kind (or none)", async () => {
+  it("All / People / Agents / System each send the right actor_kind (or none)", async () => {
     const { fetchMock, user } = await renderApp({
       route: "/governance/audit",
       me: makeMe(),
       fetch: baseFetch([makeAuditEvent()]),
     });
 
-    await screen.findByRole("heading", { name: "发生过的一切，未经编辑" });
+    await screen.findByRole("heading", { name: "Everything that happened, unedited" });
     const group = screen.getByRole("group", { name: "Filter by actor_kind" });
 
     // Initial mount: 全部 selected, no actor_kind param at all.
@@ -112,16 +112,16 @@ describe("AdminAuditPage: actor_kind Seg filter", () => {
     expect(initialCalls.length).toBeGreaterThan(0);
     expect(initialCalls[initialCalls.length - 1].path).not.toContain("actor_kind");
 
-    await user.click(within(group).getByRole("button", { name: "人" }));
+    await user.click(within(group).getByRole("button", { name: "People" }));
     expect(listCalls(fetchMock).at(-1)?.path).toContain("actor_kind=human");
 
-    await user.click(within(group).getByRole("button", { name: "Agent" }));
+    await user.click(within(group).getByRole("button", { name: "Agents" }));
     expect(listCalls(fetchMock).at(-1)?.path).toContain("actor_kind=agent");
 
-    await user.click(within(group).getByRole("button", { name: "系统" }));
+    await user.click(within(group).getByRole("button", { name: "System" }));
     expect(listCalls(fetchMock).at(-1)?.path).toContain("actor_kind=system");
 
-    await user.click(within(group).getByRole("button", { name: "全部" }));
+    await user.click(within(group).getByRole("button", { name: "All" }));
     expect(listCalls(fetchMock).at(-1)?.path).not.toContain("actor_kind");
   });
 });
@@ -182,7 +182,7 @@ describe("AdminAuditPage: free-text filters", () => {
       fetch: baseFetch([makeAuditEvent()]),
     });
 
-    await screen.findByRole("heading", { name: "发生过的一切，未经编辑" });
+    await screen.findByRole("heading", { name: "Everything that happened, unedited" });
     await user.type(
       screen.getByPlaceholderText("action (e.g. agent.create)"),
       "agent.retire",

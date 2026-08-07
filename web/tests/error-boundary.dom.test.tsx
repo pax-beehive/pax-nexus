@@ -90,7 +90,7 @@ describe("route boundary: a failing route keeps the shell usable", () => {
     await user.click(within(subnav).getByRole("link", { name: "Invitations" }));
 
     // The failing region is left behind; the new route renders normally.
-    await screen.findByRole("heading", { name: "Invitations" });
+    await screen.findByRole("heading", { name: "Outstanding invitations" });
     expect(screen.queryByRole("alert")).toBeNull();
   });
 

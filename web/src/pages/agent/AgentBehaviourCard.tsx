@@ -66,14 +66,14 @@ export function AgentBehaviourCard({ agentId }: { agentId: string }) {
   return (
     <Card title="Recent behaviour">
       {failed ? (
-        <p className="small muted">近期行为没取到。页面其余部分不受影响。</p>
+        <p className="small muted">Couldn't load recent behaviour. The rest of the page is unaffected.</p>
       ) : totals === undefined ? (
-        <p className="small muted">加载中…</p>
+        <p className="small muted">Loading…</p>
       ) : (
         <div className="ag-metrics">
-          <MetricTile label="工具调用 · 7 天" value={String(totals.toolCalls)} />
-          <MetricTile label="高危 · 7 天" value={String(totals.highRisk)} />
-          <MetricTile label="会话 · 7 天" value={String(totals.sessions)} />
+          <MetricTile label="Tool calls · 7d" value={String(totals.toolCalls)} />
+          <MetricTile label="High risk · 7d" value={String(totals.highRisk)} />
+          <MetricTile label="Sessions · 7d" value={String(totals.sessions)} />
         </div>
       )}
     </Card>

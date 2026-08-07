@@ -13,19 +13,21 @@ export function NotConfiguredPage() {
           PAX Nexus
         </div>
         <Kicker>Entry · Not Configured</Kicker>
-        <h1>尚未启用 Human Identity</h1>
+        <h1>Human Identity is not enabled</h1>
         <p className="entry-lede">
-          服务器返回了 <code>501 Not Implemented</code>。这套部署目前只配置了旧版的{" "}
-          <code>TEAM_MEMORY_ADMIN_API_KEY</code>。
+          The server returned <code>501 Not Implemented</code>. This deployment is only
+          configured with the legacy <code>TEAM_MEMORY_ADMIN_API_KEY</code>.
         </p>
         <div className="note warn">
-          操作员提示：请配置 <code>TEAM_MEMORY_BOOTSTRAP_SECRET</code>、
-          <code>TEAM_MEMORY_OIDC_*</code>、<code>TEAM_MEMORY_SECRET_PEPPER</code> 以及{" "}
-          <code>TEAM_MEMORY_PORTAL_URL</code>。这是安装配置问题，不是用户权限问题。
+          Operator note: configure <code>TEAM_MEMORY_BOOTSTRAP_SECRET</code>,{" "}
+          <code>TEAM_MEMORY_OIDC_*</code>, <code>TEAM_MEMORY_SECRET_PEPPER</code> and{" "}
+          <code>TEAM_MEMORY_PORTAL_URL</code>. This is an installation configuration issue,
+          not a user permission problem.
         </div>
         <div className="note">
-          本地纯 HTTP 开发还需要显式设置 <code>TEAM_MEMORY_HUMAN_COOKIE_SECURE=false</code>；
-          否则浏览器不会带回 Secure cookie，会导致登录无限循环。
+          Local plain-HTTP development also needs{" "}
+          <code>TEAM_MEMORY_HUMAN_COOKIE_SECURE=false</code> set explicitly; otherwise the
+          browser won&apos;t send back the Secure cookie and sign-in loops forever.
         </div>
       </div>
     </main>

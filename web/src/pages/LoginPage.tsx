@@ -27,24 +27,26 @@ export function LoginPage() {
           PAX Nexus
         </div>
         <Kicker>Entry · Login</Kicker>
-        <h1>登录以继续</h1>
-        <p className="entry-lede">使用你所在组织的 OIDC 账号登录。</p>
+        <h1>Sign in to continue</h1>
+        <p className="entry-lede">Sign in with your organization&apos;s identity provider.</p>
         {hasInvitation && (
           <div className="note">
-            你的邀请令牌已经保存在这个标签页里；登录后会自动回到接受邀请的流程。
+            Your invitation token is saved in this tab; after signing in you&apos;ll be taken
+            straight back to accepting the invitation.
           </div>
         )}
         <div className="entry-actions">
           <Button variant="primary" onClick={startOidcLogin}>
-            使用 OIDC 登录 →
+            Sign in with OIDC
           </Button>
         </div>
         <p className="small entry-foot">
-          顶层跳转到 <code>GET /v1/auth/login</code>（302 → OIDC Provider），不是一次 fetch 请求
+          You&apos;ll be redirected to your identity provider and brought back here once
+          you&apos;re signed in.
         </p>
         <div className="entry-actions">
           <Button variant="ghost" size="sm" onClick={() => void refresh()}>
-            已经登录过？点击重试
+            Already signed in? Click to retry
           </Button>
         </div>
       </div>

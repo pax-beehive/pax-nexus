@@ -137,7 +137,7 @@ describe("section 10 item 9: membership suspended or removed mid-session", () =>
 
     // The route guard takes over: login page replaces the console, and the
     // member list (sensitive cached data) is gone from the document.
-    await screen.findByRole("button", { name: /使用 OIDC 登录/ });
+    await screen.findByRole("button", { name: /Sign in with OIDC/ });
     expect(screen.queryByText("bob@example.com")).toBeNull();
     expect(screen.queryByRole("heading", { name: "Members" })).toBeNull();
   });

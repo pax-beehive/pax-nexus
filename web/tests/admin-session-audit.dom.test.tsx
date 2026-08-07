@@ -75,13 +75,13 @@ describe("Session Audit page", () => {
       fetch: sessionAuditFetch,
     });
 
-    await screen.findByRole("heading", { name: "Agent 到底做了什么" });
+    await screen.findByRole("heading", { name: "What the agents actually did" });
     await screen.findByText("destructive command without approval");
 
     expect(screen.getByRole("button", { name: "Findings" }).getAttribute("aria-pressed")).toBe(
       "true",
     );
-    expect(screen.getByRole("button", { name: "工具调用" }).getAttribute("aria-pressed")).toBe(
+    expect(screen.getByRole("button", { name: "Tool calls" }).getAttribute("aria-pressed")).toBe(
       "false",
     );
     expect(callsTo(fetchMock, "/v1/admin/session-audit/findings")).toHaveLength(1);
@@ -100,12 +100,12 @@ describe("Session Audit page", () => {
     });
     await screen.findByText("destructive command without approval");
 
-    await user.click(screen.getByRole("button", { name: "工具调用" }));
+    await user.click(screen.getByRole("button", { name: "Tool calls" }));
     await screen.findByText("rm -rf /tmp/x");
     expect(window.location.search).toBe("?view=tool-calls");
     expect(callsTo(fetchMock, "/v1/admin/session-audit/tool-calls")).toHaveLength(1);
 
-    await user.click(screen.getByRole("button", { name: "按天" }));
+    await user.click(screen.getByRole("button", { name: "By day" }));
     await screen.findByText("2026-08-01");
     expect(window.location.search).toBe("?view=activity");
     expect(callsTo(fetchMock, "/v1/admin/session-audit/activity")).toHaveLength(1);
@@ -122,7 +122,7 @@ describe("Session Audit page", () => {
     });
 
     await screen.findByText("2026-08-01");
-    expect(screen.getByRole("button", { name: "按天" }).getAttribute("aria-pressed")).toBe(
+    expect(screen.getByRole("button", { name: "By day" }).getAttribute("aria-pressed")).toBe(
       "true",
     );
     expect(callsTo(fetchMock, "/v1/admin/session-audit/activity")).toHaveLength(1);
@@ -137,7 +137,7 @@ describe("Session Audit page", () => {
     });
     await screen.findByText("destructive command without approval");
 
-    await user.click(screen.getByRole("button", { name: "按天" }));
+    await user.click(screen.getByRole("button", { name: "By day" }));
     await screen.findByText("2026-08-01");
     expect(window.location.search).toBe("?view=activity");
     const search = window.location.search;
@@ -151,7 +151,7 @@ describe("Session Audit page", () => {
       fetch: sessionAuditFetch,
     });
     await screen.findByText("2026-08-01");
-    expect(screen.getByRole("button", { name: "按天" }).getAttribute("aria-pressed")).toBe(
+    expect(screen.getByRole("button", { name: "By day" }).getAttribute("aria-pressed")).toBe(
       "true",
     );
   });
@@ -164,7 +164,7 @@ describe("Session Audit page", () => {
     });
     await screen.findByText("destructive command without approval");
 
-    await user.click(screen.getByRole("button", { name: "看这些调用" }));
+    await user.click(screen.getByRole("button", { name: "See the calls" }));
     await screen.findByText("rm -rf /tmp/x");
 
     expect(window.location.search).toContain("view=tool-calls");
@@ -216,8 +216,8 @@ describe("Session Audit page — 按天柱状图", () => {
     });
 
     await screen.findByText("2026-08-01");
-    await screen.findByText("2 会话 · 4 调用");
-    await screen.findByText("3 高危");
+    await screen.findByText("2 sessions · 4 calls");
+    await screen.findByText("3 high risk");
   });
 
   it("全部为 0 时不产生 NaN 或除零", async () => {

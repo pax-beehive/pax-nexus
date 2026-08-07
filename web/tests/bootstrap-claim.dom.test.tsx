@@ -46,8 +46,8 @@ describe("section 10 item 3: concurrent bootstrap claim", () => {
       me: () => (claimed ? makeMe() : makeNoMembershipMe()),
     });
 
-    await user.type(screen.getByLabelText("Bootstrap 密钥"), "top-secret");
-    await user.click(screen.getByRole("button", { name: "认领 Owner" }));
+    await user.type(screen.getByLabelText("Bootstrap key"), "top-secret");
+    await user.click(screen.getByRole("button", { name: "Claim owner" }));
 
     // The winner is genuinely Owner, and /management is admin+'s access
     // tree.
@@ -59,11 +59,11 @@ describe("section 10 item 3: concurrent bootstrap claim", () => {
     const { fetchMock, user } = await renderBootstrap({
       claim: () => apiErrorResponse(409, "bootstrap_closed", "bootstrap already claimed"),
     });
-    const input = screen.getByLabelText("Bootstrap 密钥") as HTMLInputElement;
+    const input = screen.getByLabelText("Bootstrap key") as HTMLInputElement;
     await user.type(input, "top-secret");
-    await user.click(screen.getByRole("button", { name: "认领 Owner" }));
+    await user.click(screen.getByRole("button", { name: "Claim owner" }));
 
-    await screen.findByText("Bootstrap 已经被别人认领，或者已经关闭");
+    await screen.findByText("Bootstrap has already been claimed by someone else, or is closed");
 
     // Never auto-retried: exactly one claim request, secret in the header
     // only, no Idempotency-Key (one-time secret creation, doc section 3.3).
@@ -77,7 +77,7 @@ describe("section 10 item 3: concurrent bootstrap claim", () => {
     // claim page, not in the console.
     expect(callsTo(fetchMock, "/v1/me")).toHaveLength(2);
     expect(window.location.pathname).toBe("/bootstrap");
-    expect(screen.getByRole("heading", { name: "认领第一个 Owner" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Claim the first owner" })).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "Access flows downward" })).toBeNull();
   });
 });

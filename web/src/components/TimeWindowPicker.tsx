@@ -32,7 +32,7 @@ export function TimeWindowPicker({
       <Seg label={label} options={options} value={value} onChange={onChange} />
       {limited && retentionSeconds !== undefined && (
         <span className="small muted">
-          保留 {formatRetention(retentionSeconds)}
+          Retained for {formatRetention(retentionSeconds)}
         </span>
       )}
     </div>

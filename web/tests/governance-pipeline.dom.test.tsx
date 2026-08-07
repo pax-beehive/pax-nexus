@@ -56,24 +56,24 @@ describe("Pipeline metrics: six cells read from the correct fields", () => {
 
     await renderOperationsPage({ summary: () => jsonResponse(summary) });
 
-    expect(pipelineMetric("扣下待查").value).toBe("2");
-    expect(pipelineMetric("失败").value).toBe("3");
-    expect(pipelineMetric("排队中").value).toBe("4");
-    expect(pipelineMetric("典型延迟").value).toBe("50 ms");
-    expect(pipelineMetric("最坏情况").value).toBe("90 ms");
-    expect(pipelineMetric("空手而归").value).toBe("6");
+    expect(pipelineMetric("Held for review").value).toBe("2");
+    expect(pipelineMetric("Failed").value).toBe("3");
+    expect(pipelineMetric("Waiting").value).toBe("4");
+    expect(pipelineMetric("Typical delay").value).toBe("50 ms");
+    expect(pipelineMetric("Worst case").value).toBe("90 ms");
+    expect(pipelineMetric("Recalls refused").value).toBe("6");
     // 排队中's subtitle is the relative time from oldest_unextracted_at as of
     // generated_at (GEN_AT = "2026-07-22T12:00:01Z" from operationsFixtures),
     // not from oldest_unextracted_at to wall-clock now. 11:50:00 to 12:00:01
     // is 601s, which floors to 10 minutes -- swapping the time source for
     // Date.now() would make this assertion fail (or flake).
-    expect(pipelineMetric("排队中").sub).toBe("最老的未抽取事件：10 分钟前");
+    expect(pipelineMetric("Waiting").sub).toBe("Oldest unextracted event: 10m ago");
     // summary.errors (a broader, cross-operation error count than the
     // headline extraction.failed number) has no cell of its own -- it must
     // still show up in "失败"'s subtitle, not silently vanish. Not pinning
     // the exact wording (it may be edited later), just that the field's
     // value actually reaches the DOM.
-    expect(pipelineMetric("失败").sub).toContain("8");
+    expect(pipelineMetric("Failed").sub).toContain("8");
   });
 });
 
@@ -99,7 +99,7 @@ describe("Pipeline shell: block-level error isolation survives the redraw", () =
 
     // Summary and storage are unaffected; the events region shows its own
     // retryable error instead.
-    expect(pipelineMetric("扣下待查").value).toBe("1");
+    expect(pipelineMetric("Held for review").value).toBe("1");
     screen.getByText("database physical");
     screen.getByText("Server error; try again later");
   });
@@ -112,7 +112,7 @@ describe("Pipeline shell: block-level error isolation survives the redraw", () =
 
     // Summary and events are unaffected; storage shows its own retryable
     // error instead.
-    expect(pipelineMetric("扣下待查").value).toBe("1");
+    expect(pipelineMetric("Held for review").value).toBe("1");
     within(eventsTable()).getByText("Memory Search");
     screen.getByText("Server error; try again later");
   });
@@ -131,7 +131,7 @@ describe("Pipeline time window selector", () => {
       expect(button.disabled).toBe(false);
       expect(button.getAttribute("title")).toBeNull();
     }
-    expect(screen.queryByText(/^保留 /)).toBeNull();
+    expect(screen.queryByText(/^Retained for /)).toBeNull();
   });
 
   it("disables 7d and names the ceiling on a 24h-retention deployment", async () => {
@@ -143,7 +143,7 @@ describe("Pipeline time window selector", () => {
     expect(sevenDay.disabled).toBe(true);
     expect(sevenDay.getAttribute("title")).toBe("This deployment keeps 24h of events");
     // Visible, not hover-only -- see the same assertion on the Overview page.
-    screen.getByText("保留 24h");
+    screen.getByText("Retained for 24h");
     expect((screen.getByRole("button", { name: "24h" }) as HTMLButtonElement).disabled).toBe(false);
   });
 });

@@ -21,7 +21,7 @@ export function AppearancePage() {
     <>
       <PageHeader
         kicker="Settings · appearance"
-        title="它看起来什么样"
+        title="Appearance"
         lede="Applies to your account on this device only. Nobody else on the team sees your choice."
       />
 

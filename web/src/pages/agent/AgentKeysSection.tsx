@@ -68,7 +68,7 @@ function EnrollmentRows({
             <Countdown to={e.expires_at} />
             {access.canRevoke && (
               <Button size="sm" variant="ghost" onClick={() => onCancel(e)}>
-                取消
+                Cancel
               </Button>
             )}
           </div>
@@ -84,10 +84,10 @@ function EnrollmentHistory({ scope, agentId }: { scope: AgentScope; agentId: str
     [scope, agentId],
   );
 
-  if (list.loading) return <p className="small muted">加载中…</p>;
+  if (list.loading) return <p className="small muted">Loading…</p>;
   if (list.error) return <RegionError error={list.error} onRetry={list.reload} />;
   if (list.items.length === 0) {
-    return <EmptyState title="还没有历史记录" body="取消过的令牌和已认领的记录会出现在这里。" />;
+    return <EmptyState title="No history yet" body="Cancelled tokens and claimed records will show up here." />;
   }
 
   return (
@@ -95,11 +95,11 @@ function EnrollmentHistory({ scope, agentId }: { scope: AgentScope; agentId: str
       <table>
         <thead>
           <tr>
-            <th>标签</th>
-            <th>权限</th>
-            <th>状态</th>
-            <th>发放于</th>
-            <th>认领窗口到期</th>
+            <th>Label</th>
+            <th>Permissions</th>
+            <th>Status</th>
+            <th>Issued</th>
+            <th>Claim window ends</th>
           </tr>
         </thead>
         <tbody>
@@ -119,7 +119,7 @@ function EnrollmentHistory({ scope, agentId }: { scope: AgentScope; agentId: str
       {list.nextCursor && (
         <div className="row" style={{ marginTop: "var(--space-2)" }}>
           <Button size="sm" disabled={list.loadingMore} onClick={() => void list.loadMore()}>
-            {list.loadingMore ? "加载中…" : "加载更多"}
+            {list.loadingMore ? "Loading…" : "Load more"}
           </Button>
         </div>
       )}
@@ -156,7 +156,7 @@ function EnrollmentCard({
         cancelling.enrollment.enrollment_id,
         cancelling.key,
       );
-      toast("warn", "已取消这张待认领令牌。");
+      toast("warn", "Cancelled this pending token.");
       setCancelling(undefined);
       reload();
     } catch (err) {
@@ -171,20 +171,20 @@ function EnrollmentCard({
       <div className="row">
         {access.canIssue && (
           <Button size="sm" onClick={onIssue}>
-            发放接入权限
+            Issue access
           </Button>
         )}
-        <span className="ag-keys-note">一次性令牌 · 从不存储，也不会再次发送</span>
+        <span className="ag-keys-note">One-time tokens · never stored, never re-sent</span>
       </div>
 
       {leg.loading ? (
-        <p className="small muted">加载中…</p>
+        <p className="small muted">Loading…</p>
       ) : leg.error ? (
         <RegionError error={leg.error} onRetry={reload} />
       ) : (leg.items ?? []).length === 0 ? (
         <EmptyState
-          title="还没有待认领的令牌"
-          body="发放一张接入令牌，Agent 认领后这里会消失，Active keys 里会多一把。"
+          title="Nothing waiting to be claimed"
+          body="Issue an enrollment token — once the agent claims it, it leaves this list and a key appears under Active keys."
         />
       ) : (
         <EnrollmentRows
@@ -196,7 +196,7 @@ function EnrollmentCard({
 
       <div className="row" style={{ marginTop: "var(--space-3)" }}>
         <Button variant="ghost" size="sm" onClick={() => setShowHistory((v) => !v)}>
-          {showHistory ? "隐藏令牌历史" : "显示令牌历史"}
+          {showHistory ? "Hide token history" : "Show token history"}
         </Button>
       </div>
       {/* enrollments/credentials 整域按「这个 Agent 是不是你的」定 scope，
@@ -208,12 +208,12 @@ function EnrollmentCard({
 
       {cancelling && (
         <ConfirmDialog
-          title="取消这张待认领令牌"
+          title="Cancel this pending token"
           consequences={[
-            "这张一次性令牌立刻失效，正在进行的客户端接入会失败",
-            "无法撤销；需要的话重新发一张",
+            "This one-time token dies immediately — any client onboarding in progress will fail.",
+            "This can't be undone; issue a new token if needed.",
           ]}
-          confirmLabel="确认取消"
+          confirmLabel="Cancel token"
           busy={busy}
           onConfirm={() => void confirmCancel()}
           onClose={() => setCancelling(undefined)}
@@ -238,10 +238,10 @@ function CredentialRows({
     <table>
       <thead>
         <tr>
-          <th>在哪运行</th>
-          <th>能做什么</th>
-          <th>最近使用</th>
-          <th>到期</th>
+          <th>Where it runs</th>
+          <th>Can do</th>
+          <th>Last used</th>
+          <th>Expires</th>
           <th></th>
         </tr>
       </thead>
@@ -251,11 +251,11 @@ function CredentialRows({
             <td>{c.label}</td>
             <td className="small mono">{c.permissions.join(", ")}</td>
             <td className="small">{formatTime(c.last_used_at)}</td>
-            <td className="small">{c.expires_at ? formatTime(c.expires_at) : "不过期"}</td>
+            <td className="small">{c.expires_at ? formatTime(c.expires_at) : "Never"}</td>
             <td>
               {access.canRevoke && (
                 <Button variant="danger" size="sm" onClick={() => onRevoke(c)}>
-                  吊销
+                  Revoke
                 </Button>
               )}
             </td>
@@ -272,10 +272,10 @@ function CredentialHistory({ scope, agentId }: { scope: AgentScope; agentId: str
     [scope, agentId],
   );
 
-  if (list.loading) return <p className="small muted">加载中…</p>;
+  if (list.loading) return <p className="small muted">Loading…</p>;
   if (list.error) return <RegionError error={list.error} onRetry={list.reload} />;
   if (list.items.length === 0) {
-    return <EmptyState title="还没有历史记录" body="吊销过的密钥会出现在这里。" />;
+    return <EmptyState title="No history yet" body="Revoked keys will show up here." />;
   }
 
   return (
@@ -283,11 +283,11 @@ function CredentialHistory({ scope, agentId }: { scope: AgentScope; agentId: str
       <table>
         <thead>
           <tr>
-            <th>在哪运行</th>
-            <th>能做什么</th>
-            <th>状态</th>
-            <th>最近使用</th>
-            <th>到期</th>
+            <th>Where it runs</th>
+            <th>Can do</th>
+            <th>Status</th>
+            <th>Last used</th>
+            <th>Expires</th>
           </tr>
         </thead>
         <tbody>
@@ -299,7 +299,7 @@ function CredentialHistory({ scope, agentId }: { scope: AgentScope; agentId: str
                 <Badge status={deriveCredentialStatus(c)} />
               </td>
               <td className="small">{formatTime(c.last_used_at)}</td>
-              <td className="small">{c.expires_at ? formatTime(c.expires_at) : "不过期"}</td>
+              <td className="small">{c.expires_at ? formatTime(c.expires_at) : "Never"}</td>
             </tr>
           ))}
         </tbody>
@@ -307,7 +307,7 @@ function CredentialHistory({ scope, agentId }: { scope: AgentScope; agentId: str
       {list.nextCursor && (
         <div className="row" style={{ marginTop: "var(--space-2)" }}>
           <Button size="sm" disabled={list.loadingMore} onClick={() => void list.loadMore()}>
-            {list.loadingMore ? "加载中…" : "加载更多"}
+            {list.loadingMore ? "Loading…" : "Load more"}
           </Button>
         </div>
       )}
@@ -342,7 +342,7 @@ function CredentialCard({
         revoking.credential.credential_id,
         revoking.key,
       );
-      toast("warn", "已吊销这把密钥，持有它的客户端立即失去访问。");
+      toast("warn", "Key revoked — the client holding it lost access immediately.");
       setRevoking(undefined);
       reload();
     } catch (err) {
@@ -355,11 +355,11 @@ function CredentialCard({
   return (
     <Card title="Active keys">
       {leg.loading ? (
-        <p className="small muted">加载中…</p>
+        <p className="small muted">Loading…</p>
       ) : leg.error ? (
         <RegionError error={leg.error} onRetry={reload} />
       ) : (leg.items ?? []).length === 0 ? (
-        <EmptyState title="还没有任何密钥" body="认领令牌后，Agent 会长出第一把 API 密钥。" />
+        <EmptyState title="No keys yet" body="Once a token is claimed, the agent gets its first API key." />
       ) : (
         <CredentialRows
           items={leg.items ?? []}
@@ -370,7 +370,7 @@ function CredentialCard({
 
       <div className="row" style={{ marginTop: "var(--space-3)" }}>
         <Button variant="ghost" size="sm" onClick={() => setShowHistory((v) => !v)}>
-          {showHistory ? "隐藏密钥历史" : "显示密钥历史"}
+          {showHistory ? "Hide key history" : "Show key history"}
         </Button>
       </div>
       {/* 同上（见 EnrollmentHistory 调用点注释）：历史区跟实时区
@@ -379,12 +379,12 @@ function CredentialCard({
 
       {revoking && (
         <ConfirmDialog
-          title="吊销这把密钥"
+          title="Revoke this key"
           consequences={[
-            "这把 API 密钥立刻失效，持有它的客户端立即失去访问",
-            "无法撤销；需要的话重新发一次接入权限",
+            "This API key dies immediately — the client holding it loses access at once.",
+            "This can't be undone; issue access again if needed.",
           ]}
-          confirmLabel="确认吊销"
+          confirmLabel="Revoke key"
           busy={busy}
           onConfirm={() => void confirmRevoke()}
           onClose={() => setRevoking(undefined)}
@@ -439,24 +439,24 @@ export function AgentKeysSection({
 
       {secret && (
         <SecretCeremony
-          title="一次性接入令牌 · 只展示一次，不存任何地方"
-          headline="现在就复制。我们没法再给你看一次。"
-          body="把接入命令交给要跑这个 Agent 的机器；令牌只在这一屏出现一次。"
+          title="One-time enrollment token · shown once, stored nowhere"
+          headline="Copy this now. We can't show it again."
+          body="Hand the connect command to the machine that will run this agent — the token appears only on this screen."
           value={secret.token}
-          valueLabel="令牌"
+          valueLabel="Token"
           expiresAt={secret.expires_at}
           steps={[
-            "在目标机器上跑接入命令",
-            "客户端要在认领窗口关闭前完成认领",
-            "认领后令牌失效，Active keys 里会多出一把长期密钥",
+            "Run the connect command on the target machine",
+            "The client must finish claiming before the claim window closes",
+            "Once claimed, the token burns itself and a long-lived key appears under Active keys",
           ]}
-          recovery="没保存也不用慌——去「待认领」里取消这条记录，再发一次新的。"
+          recovery="Nothing is recoverable and nothing is broken — cancel the record under “Waiting to be claimed” and issue a new one."
           command={enrollmentConnectCommand(secret.token, window.location.origin)}
           onClose={() => {
             setSecret(undefined);
             toast(
               "ok",
-              "令牌不再可见。它仍在有效期内可被兑换——要作废就在「待认领」里取消它。",
+              "The token is no longer visible. It can still be redeemed until it expires — cancel it under “Waiting to be claimed” to void it.",
             );
           }}
         />

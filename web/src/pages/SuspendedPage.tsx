@@ -13,13 +13,13 @@ export function SuspendedPage() {
           PAX Nexus
         </div>
         <Kicker>Entry · Suspended</Kicker>
-        <h1>账号已被暂停</h1>
+        <h1>Account suspended</h1>
         <p className="entry-lede">
-          你的 Membership 处于 <code>suspended</code> 状态，所有 Human Session 都已被吊销。
+          Your membership is <code>suspended</code>, and all human sessions have been revoked.
         </p>
         <p className="small entry-foot">
-          重新启用账号不会恢复旧的 Agent Credential——你的 Agent 需要在重新启用后重新签发
-          Enrollment。如有疑问，请联系你的管理员。
+          Reactivating the account won&apos;t restore old agent credentials — your agents need
+          new enrollments issued after reactivation. Contact your admin if you have questions.
         </p>
       </div>
     </main>
