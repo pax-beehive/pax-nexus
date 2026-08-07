@@ -380,7 +380,8 @@ func overviewResponseToAPI(
 
 	return &api.OverviewResponse{
 		FromTime: summary.From.Format(time.RFC3339Nano), ToTime: summary.To.Format(time.RFC3339Nano),
-		GeneratedAt: summary.GeneratedAt.Format(time.RFC3339Nano),
+		GeneratedAt:           summary.GeneratedAt.Format(time.RFC3339Nano),
+		EventRetentionSeconds: int64(summary.EventRetention.Seconds()),
 		Metrics: &api.OverviewMetrics{
 			EvidenceCaptured: summary.Observations.EventsWritten, LiveNotes: liveNotes,
 			NotesExpiringToday: notesExpiring,

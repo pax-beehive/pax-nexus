@@ -215,7 +215,8 @@ func optionalOperationsTime(value string) (time.Time, error) {
 func operationsSummaryToAPI(summary operations.Summary) *api.OperationsSummaryResponse {
 	return &api.OperationsSummaryResponse{
 		FromTime: summary.From.Format(time.RFC3339Nano), ToTime: summary.To.Format(time.RFC3339Nano),
-		GeneratedAt: summary.GeneratedAt.Format(time.RFC3339Nano),
+		GeneratedAt:           summary.GeneratedAt.Format(time.RFC3339Nano),
+		EventRetentionSeconds: int64(summary.EventRetention.Seconds()),
 		Observations: &api.ObservationOperationsSummary{
 			Requests: summary.Observations.Requests, Succeeded: summary.Observations.Succeeded,
 			InputEvents: summary.Observations.InputEvents, EventsWritten: summary.Observations.EventsWritten,

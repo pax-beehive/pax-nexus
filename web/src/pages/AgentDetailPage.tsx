@@ -40,7 +40,7 @@ function LoadedAgent({
   return (
     <>
       <AgentHeader agent={agent} access={access} me={me} />
-      <div className="ag-columns">
+      <div className="split">
         <div className="stack">
           <AgentIdentityCard agent={agent} access={access} onChanged={onChanged} refetch={refetch} />
           <AgentLifecycleCard

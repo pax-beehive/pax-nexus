@@ -9,6 +9,7 @@ import { Badge, ProvisionedByBadge } from "../../components/Badge";
 import { Button } from "../../components/Button";
 import { Seg } from "../../components/Seg";
 import { CreateAgentModal } from "./CreateAgentModal";
+import { PageHeader } from "../../components/PageHeader";
 
 const STATUS_FILTERS = ["all", "active", "suspended", "retired"] as const;
 type StatusFilter = (typeof STATUS_FILTERS)[number];
@@ -38,19 +39,17 @@ export function MyAgentsLevel() {
 
   return (
     <>
-      <div className="page-head">
-        <div>
-          <h1>My Agents</h1>
-          <p className="muted flush">
-            {teamName
-              ? `${teamName} team scope`
-              : "Register and manage the Agent identities you own"}
-          </p>
-        </div>
-        <Button variant="primary" onClick={() => setCreateOpen(true)}>
-          + Create Agent
-        </Button>
-      </div>
+      <PageHeader
+        title="My Agents"
+        lede={
+          teamName ? `${teamName} team scope` : "Register and manage the Agent identities you own"
+        }
+        actions={
+          <Button variant="primary" onClick={() => setCreateOpen(true)}>
+            + Create Agent
+          </Button>
+        }
+      />
       <Seg
         label="agent status"
         options={STATUS_FILTERS.map((s) => ({ value: s, label: s }))}

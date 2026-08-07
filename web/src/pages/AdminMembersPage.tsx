@@ -11,6 +11,7 @@ import { Button } from "../components/Button";
 import { Modal } from "../components/Modal";
 import { PagedListCard } from "../components/PagedListCard";
 import { useToast } from "../components/Toasts";
+import { PageHeader } from "../components/PageHeader";
 
 const STATUS_FILTERS = ["all", "active", "suspended", "removed"] as const;
 const ROLE_FILTERS = ["all", "owner", "admin", "member"] as const;
@@ -129,15 +130,11 @@ export function AdminMembersPage({ me }: { me: HumanMe }) {
 
   return (
     <>
-      <div className="page-head">
-        <div>
-          <p className="card-kicker">MANAGEMENT · MEMBERS</p>
-          <h1>Members</h1>
-          <p className="muted flush">
-            Owners can manage all roles; Admins can only manage Members
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        kicker="MANAGEMENT · MEMBERS"
+        title="Members"
+        lede="Owners can manage all roles; Admins can only manage Members"
+      />
       <div className="toolbar" style={{ marginBottom: 14 }}>
         <label className="filter-label" htmlFor="member-status-filter">
           Status

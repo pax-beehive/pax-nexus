@@ -139,7 +139,13 @@ flowchart TD
 - storage history 默认在 Storage retention 内取最新 50 条；
 - `from` 必须早于 `to`，`to` 不能超过服务端当前时间约一分钟；
 - 请求窗口超过部署配置的 retention 会返回 `400 invalid_request`；
-- UI 可提供 `1h`、`24h`、`7d` preset，但不要假设每个部署都保留 7 天以上；
+- summary 与 overview 响应都带 `event_retention_seconds`（生效的 Operation Event
+  retention，秒）。由执行窗口校验的那个服务字段直接盖章下发，因此发布值与执行值
+  永远一致。UI 用它裁剪时间范围 preset：**不要假设每个部署都保留 7 天以上**，
+  超出 retention 的 preset 应禁用并写明实际保留期，而不是提交一个必失败的请求。
+  字段缺失（滚动升级中遇到旧后端）当作「未知」，此时照旧全部提供
+  —— 见 `docs/decisions/2026-08-06-event-retention-on-the-wire.md`；
+- 窗口恰好等于 retention 是**可以**的，后端只拒绝严格大于的；
 - 用户切换时间范围、Agent、operation 或 outcome 时必须清空旧 cursor 和旧追加结果。
 
 浏览器负责把 UTC timestamp 本地化，但 tooltip 应保留完整 timestamp。不要把

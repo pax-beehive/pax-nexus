@@ -221,6 +221,11 @@ type Summary struct {
 	Recalls      RecallSummary
 	Latency      LatencySummary
 	Errors       int64
+	// EventRetention is the window ceiling this summary was answered under.
+	// Repositories do not set it: it is a property of the service that
+	// enforces it, stamped on the way out so the published limit and the
+	// enforced limit are the same value and cannot drift apart.
+	EventRetention time.Duration
 }
 
 type RecallDiagnostic struct {

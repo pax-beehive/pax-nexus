@@ -15,7 +15,7 @@ import {
   updateWikiSettings,
 } from "../../api/actions";
 import { Button } from "../../components/Button";
-import { Kicker } from "../../components/Kicker";
+import { PageHeader } from "../../components/PageHeader";
 import { isAbortError, usePolling } from "../../lib/usePolling";
 import { useErrorHandler } from "../../lib/useErrorHandler";
 import { WikiProgressCard } from "../wiki-status/WikiProgressCard";
@@ -194,18 +194,20 @@ export function MemoryRulesPage({ me }: { me: HumanMe }) {
 
   return (
     <>
-      <div className="page-head">
-        <div>
-          <Kicker>Settings · memory rules</Kicker>
-          <h1>记忆是怎么写出来的</h1>
+      <PageHeader
+        kicker="Settings · memory rules"
+        title="记忆是怎么写出来的"
+        lede={
           <p className="muted flush memory-rules-copy">
             这些规则只对以后的运行生效。要让它们作用于已有内容，就重建——它会重读证据、重写每一页。
           </p>
-        </div>
-        <Button variant="primary" type="button" onClick={() => navigate("/wiki/browse")}>
-          Open Wiki
-        </Button>
-      </div>
+        }
+        actions={
+          <Button variant="primary" type="button" onClick={() => navigate("/wiki/browse")}>
+            Open Wiki
+          </Button>
+        }
+      />
 
       <WikiProgressCard status={status} statusError={statusError} />
 

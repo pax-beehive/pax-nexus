@@ -13,6 +13,7 @@ import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Modal } from "../components/Modal";
 import { PagedListCard } from "../components/PagedListCard";
 import { useToast } from "../components/Toasts";
+import { PageHeader } from "../components/PageHeader";
 
 const STATUS_FILTERS = ["all", "active", "suspended", "retired"] as const;
 
@@ -172,15 +173,11 @@ export function AdminAgentsPage({ me }: { me: HumanMe }) {
 
   return (
     <>
-      <div className="page-head">
-        <div>
-          <p className="card-kicker">MANAGEMENT · AGENTS</p>
-          <h1>All Agents</h1>
-          <p className="muted flush">
-            Admins can only suspend; edit, resume, retire, and transfer are Owner-only
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        kicker="MANAGEMENT · AGENTS"
+        title="All Agents"
+        lede="Admins can only suspend; edit, resume, retire, and transfer are Owner-only"
+      />
       <div className="toolbar" style={{ marginBottom: 14 }}>
         <input
           type="text"

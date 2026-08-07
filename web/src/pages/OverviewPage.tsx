@@ -12,9 +12,10 @@ import { useCallback, useRef, useState } from "react";
 import { apiError } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { RegionError } from "../components/RegionError";
-import { Seg } from "../components/Seg";
+import { PageHeader } from "../components/PageHeader";
+import { TimeWindowPicker } from "../components/TimeWindowPicker";
 import { Tag } from "../components/Tag";
-import { TIME_WINDOW_PRESETS, type TimeWindowPreset } from "../lib/operations";
+import type { TimeWindowPreset } from "../lib/operations";
 import { currentTeam } from "../lib/teams";
 import { useErrorHandler } from "../lib/useErrorHandler";
 import { AttentionQueue } from "./overview/AttentionQueue";
@@ -52,25 +53,21 @@ export function OverviewPage() {
 
   return (
     <>
-      <div className="page-head">
-        <div>
-          <p className="card-kicker">{`TODAY · ${today}`}</p>
-          <h1>{heading}</h1>
-        </div>
-        <div className="row">
-          <Tag tone="outline">Live</Tag>
-          <Seg
-            label="Time window"
-            options={TIME_WINDOW_PRESETS.map((p) => ({
-              value: p,
-              label: p,
-              title: "Windows beyond the deployment retention are rejected by the backend",
-            }))}
-            value={window}
-            onChange={setWindow}
-          />
-        </div>
-      </div>
+      <PageHeader
+        kicker={`TODAY · ${today}`}
+        title={heading}
+        actions={
+          <div className="row">
+            <Tag tone="outline">Live</Tag>
+            <TimeWindowPicker
+              label="Time window"
+              value={window}
+              onChange={setWindow}
+              retentionSeconds={overview.data?.event_retention_seconds}
+            />
+          </div>
+        }
+      />
 
       {overview.status === "loading" && (
         <div className="ov-metrics">
@@ -102,7 +99,11 @@ export function OverviewPage() {
               {overview.error && (
                 <div className="note warn">Auto-refresh failed; the throughput chart may be stale.</div>
               )}
-              <ThroughputChart series={overview.data.series} window={window} />
+              <ThroughputChart
+                series={overview.data.series}
+                fromTime={overview.data.from_time}
+                toTime={overview.data.to_time}
+              />
             </>
           )}
         </div>

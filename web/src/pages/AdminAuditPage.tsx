@@ -4,7 +4,7 @@ import type { AgentProfile, Member } from "../api/types";
 import { usePagedList } from "../lib/usePagedList";
 import { useErrorHandler } from "../lib/useErrorHandler";
 import { Button } from "../components/Button";
-import { Kicker } from "../components/Kicker";
+import { PageHeader } from "../components/PageHeader";
 import { Seg } from "../components/Seg";
 import { AuditRow, type LabelDirectory } from "./governance/AuditRow";
 
@@ -79,16 +79,17 @@ export function AdminAuditPage() {
 
   return (
     <>
-      <div className="gv-head">
-        <div>
-          <Kicker>Governance · 审计流水</Kicker>
-          <h1>发生过的一切，未经编辑</h1>
-          <p>
+      <PageHeader
+        variant="bleed"
+        kicker="Governance · 审计流水"
+        title="发生过的一切，未经编辑"
+        lede={
+          <p className="lede-dim">
             只追加。名字是我们替你查出来的方便——原始标识符留在行上，
             所以人、Agent 或机器消失之后，条目仍然读得通。
           </p>
-        </div>
-      </div>
+        }
+      />
       <div className="toolbar" style={{ marginBottom: 14, padding: "0 var(--space-4)" }}>
         <Seg
           label="Filter by actor_kind"

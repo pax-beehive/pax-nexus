@@ -1,7 +1,10 @@
 # Evidence Lake: generalizing Session Lake into a source-agnostic evidence store
 
 Date: 2026-07-28
-Status: draft for review
+Status: accepted — see `docs/decisions/2026-07-29-evidence-lake-generalization.md`.
+Progress: Plan 1 (contract, storage, generic endpoint, rename) implemented — PR #33.
+Plans 2 (stream-keyed extraction + eval acceptance), 3 (identity mapping),
+4 (media blob storage) pending.
 
 ## Goal
 

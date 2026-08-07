@@ -46,6 +46,3 @@
 [data-theme="arcade"] .gv-metrics .small.muted {
   color: var(--color-text);
 }
-
-.gv-pipeline-columns { display: grid; grid-template-columns: 1fr 1.2fr; gap: var(--space-6); align-items: start; }
-@media (max-width: 900px) { .gv-pipeline-columns { grid-template-columns: 1fr; } }

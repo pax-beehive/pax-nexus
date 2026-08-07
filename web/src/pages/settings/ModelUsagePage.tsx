@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { getLLMUsage, type LLMUsageRow } from "../../api/wiki";
-import { Kicker } from "../../components/Kicker";
 import { isAbortError } from "../../lib/usePolling";
 import { WikiLLMUsageCard } from "../wiki-status/WikiLLMUsageCard";
+import { PageHeader } from "../../components/PageHeader";
 
 /**
  * /settings/usage — LLM token spend behind memory generation. Split from
@@ -39,12 +39,7 @@ export function ModelUsagePage() {
 
   return (
     <>
-      <div className="page-head">
-        <div>
-          <Kicker>Settings · model usage</Kicker>
-          <h1>记忆跑起来要花多少</h1>
-        </div>
-      </div>
+      <PageHeader kicker="Settings · model usage" title="记忆跑起来要花多少" />
 
       <WikiLLMUsageCard
         usageDays={usageDays}

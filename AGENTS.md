@@ -113,7 +113,8 @@ on it. The API contract is `docs/on-prem-identity-frontend-integration.md`.
 - 状态徽标一律通过 `components/Badge.tsx` 或 `components/Tag.tsx` 渲染。设计系统是
   两色制：accent 表示需要注意/主行动/危险，neutral 表示常态；不要引入新的色相。
 - `web/src/components/` 是共享组件库（`ls web/src/components/` 为准，新增组件更新此处）：
-  设计系统原件 `Badge`、`Button`、`Card`、`Tag`、`Seg`、`Kicker`、`MetricTile`、`Crumbs`、
+  设计系统原件 `Badge`、`Button`、`Card`、`Tag`、`Seg`、`TimeWindowPicker`、
+  `Kicker`、`PageHeader`、`MetricTile`、`Crumbs`、
   `EmptyState`、`DataTable`、`CommandPalette`、`Field`；弹层/仪式类 `Modal`、
   `ConfirmDialog`、`SecretCeremony`、`DeviceEnrollmentCeremony`、
   `CreateDeviceEnrollmentModal`、`IssueAccessModal`、`RevokeDeviceModal`；其余

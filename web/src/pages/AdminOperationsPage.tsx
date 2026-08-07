@@ -25,8 +25,9 @@ import {
 } from "../lib/operations";
 import { useErrorHandler } from "../lib/useErrorHandler";
 import { Button } from "../components/Button";
-import { Kicker } from "../components/Kicker";
+import { PageHeader } from "../components/PageHeader";
 import { RegionError } from "../components/RegionError";
+import { TimeWindowPicker } from "../components/TimeWindowPicker";
 import { ExplorerDiagnosticDrawer } from "./operations/ExplorerDiagnosticDrawer";
 import { explorerTargetFromLocation, type ExplorerDrawerTarget } from "./operations/explorerTarget";
 import {
@@ -94,31 +95,25 @@ export function AdminOperationsPage({ canInspectTeamMemory = false }: { canInspe
 
   return (
     <>
-      <div className="gv-head">
-        <div>
-          <Kicker>Governance · 管道健康</Kicker>
-          <h1>记忆跟得上吗？</h1>
-          <p>
+      <PageHeader
+        variant="bleed"
+        kicker="Governance · 管道健康"
+        title="记忆跟得上吗？"
+        lede={
+          <p className="lede-dim">
             每块自己加载。一块失败时其余照常——你会看到哪块过期了，而不是一整页空白。
             这里从不显示任何查询、内容或密钥。
           </p>
-        </div>
-      </div>
+        }
+      />
 
       <div className="toolbar" style={{ marginBottom: 14 }}>
-        <div className="seg" role="group" aria-label="time window">
-          {(["1h", "24h", "7d"] as TimeWindowPreset[]).map((p) => (
-            <button
-              key={p}
-              className={preset === p ? "on" : ""}
-              aria-pressed={preset === p}
-              onClick={() => setPreset(p)}
-              title="Windows beyond the deployment retention are rejected by the backend"
-            >
-              {p}
-            </button>
-          ))}
-        </div>
+        <TimeWindowPicker
+          label="time window"
+          value={preset}
+          onChange={setPreset}
+          retentionSeconds={summary.data?.event_retention_seconds}
+        />
         <input
           type="text"
           placeholder="Filter by Agent ID"
@@ -146,7 +141,7 @@ export function AdminOperationsPage({ canInspectTeamMemory = false }: { canInspe
         </>
       )}
 
-      <div className="gv-pipeline-columns section">
+      <div className="split wide-right section">
         <div>
           <div className="row between">
             <h2 className="flush">Storage</h2>

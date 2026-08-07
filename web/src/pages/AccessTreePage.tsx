@@ -3,7 +3,7 @@ import { useSearchParams } from "react-router-dom";
 import type { AgentProfile, DeviceEnrollmentSecret, DeviceSummary, HumanMe, Member } from "../api/types";
 import { can } from "../lib/capabilities";
 import { aliveProvisionedAgents } from "../lib/devices";
-import { Button } from "../components/Button";
+import { RegionError } from "../components/RegionError";
 import { CreateDeviceEnrollmentModal } from "../components/CreateDeviceEnrollmentModal";
 import { DeviceEnrollmentCeremony } from "../components/DeviceEnrollmentCeremony";
 import { AccessChrome } from "./management/AccessChrome";
@@ -88,12 +88,7 @@ function AdminAccessTree({ me }: { me: HumanMe }) {
   // 保留（设计 §6）。定义在快照 early return 之前，因为快照自己的错误卡片
   // 用的是同一块 markup——两处报错长得不一样本身就是 bug。
   const legError = (message: string, retry: () => void) => (
-    <div className="note bad row between" role="alert">
-      <span>{message}</span>
-      <Button size="sm" onClick={retry}>
-        Retry
-      </Button>
-    </div>
+    <RegionError message={message} onRetry={retry} />
   );
 
   // 快照本身的 loading / error 也带外壳，理由与第 3 层那两个态相同（设计

@@ -1,11 +1,7 @@
 import { MetricTile } from "../../components/MetricTile";
+import { plural } from "../../lib/format";
 import { summarizeAgents, summarizeMachines, summarizePeople } from "./accessTree";
 import type { AccessSnapshot } from "./useAccessSnapshot";
-
-/** 单复数：计数文案里 1 台机器不该写成 "1 machines"。 */
-function plural(count: number, one: string, many: string): string {
-  return `${count} ${count === 1 ? one : many}`;
-}
 
 /**
  * 访问树的三格汇总条。取不到的那条腿显示 —，不是 0：0 会被读成

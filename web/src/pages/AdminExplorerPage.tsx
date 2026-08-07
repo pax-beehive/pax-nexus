@@ -13,7 +13,7 @@ import { getTeamNote } from "../api/queries";
 import type { TeamNoteDetail } from "../api/types";
 import { Badge } from "../components/Badge";
 import { EmptyState } from "../components/EmptyState";
-import { Kicker } from "../components/Kicker";
+import { PageHeader } from "../components/PageHeader";
 import { RegionError } from "../components/RegionError";
 import { Tag } from "../components/Tag";
 import { formatTime } from "../lib/format";
@@ -150,16 +150,17 @@ export function AdminExplorerPage() {
 
   return (
     <>
-      <div className="gv-head">
-        <div>
-          <Kicker>Governance · 追一条事实</Kicker>
-          <h1>这是从哪来的？</h1>
-          <p>
+      <PageHeader
+        variant="bleed"
+        kicker="Governance · 追一条事实"
+        title="这是从哪来的？"
+        lede={
+          <p className="lede-dim">
             挑一条团队正在流传的事实，顺着它回到产生它的那次会话——再往前看它被交给过哪些
             Agent。
           </p>
-        </div>
-      </div>
+        }
+      />
       <div className="gv-explorer" data-active={noteId ? "detail" : "list"}>
         <NoteList activeNoteId={noteId} />
         <div className="gv-note-detail">

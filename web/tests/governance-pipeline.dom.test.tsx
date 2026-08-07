@@ -117,3 +117,33 @@ describe("Pipeline shell: block-level error isolation survives the redraw", () =
     screen.getByText("Server error; try again later");
   });
 });
+
+// The Operations page's window selector had no coverage at all before this,
+// and it hand-rolled its own seg with a hardcoded ["1h","24h","7d"] instead of
+// sharing the presets. It now renders the shared Seg from the same
+// timeWindowOptions() the Overview page uses (issue #86).
+describe("Pipeline time window selector", () => {
+  it("offers every window when the deployment keeps a week", async () => {
+    await renderOperationsPage({ summary: () => jsonResponse(makeSummary()) });
+
+    for (const label of ["1h", "24h", "7d"]) {
+      const button = screen.getByRole("button", { name: label }) as HTMLButtonElement;
+      expect(button.disabled).toBe(false);
+      expect(button.getAttribute("title")).toBeNull();
+    }
+    expect(screen.queryByText(/^保留 /)).toBeNull();
+  });
+
+  it("disables 7d and names the ceiling on a 24h-retention deployment", async () => {
+    await renderOperationsPage({
+      summary: () => jsonResponse(makeSummary({ event_retention_seconds: 24 * 60 * 60 })),
+    });
+
+    const sevenDay = screen.getByRole("button", { name: "7d" }) as HTMLButtonElement;
+    expect(sevenDay.disabled).toBe(true);
+    expect(sevenDay.getAttribute("title")).toBe("This deployment keeps 24h of events");
+    // Visible, not hover-only -- see the same assertion on the Overview page.
+    screen.getByText("保留 24h");
+    expect((screen.getByRole("button", { name: "24h" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+});

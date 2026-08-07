@@ -195,6 +195,51 @@ func (s *operationsServiceSuite) TestRejectsInvalidRangesLimitsAndDiagnosticIDs(
 	}
 }
 
+// The published retention must be the same number the service enforces, for
+// any configured value -- that is the whole point of stamping it in the
+// service rather than reading configuration a second time somewhere else
+// (issue #86). Asserting the value alone would not catch a stamp wired to a
+// different field, so this also walks the boundary it claims to describe:
+// exactly-retention is accepted, a second past it is rejected.
+func (s *operationsServiceSuite) TestSummaryPublishesTheRetentionItEnforces() {
+	principal := operationsPrincipal(onprem.RoleOwner, onprem.MembershipStatusActive)
+	for _, retention := range []time.Duration{24 * time.Hour, 36 * time.Hour, 90 * 24 * time.Hour} {
+		s.Run(retention.String(), func() {
+			repository := &operationsRepository{}
+			service, err := onprem.NewOperationsService(repository, onprem.OperationsConfig{
+				EventRetention: retention, StorageRetention: 90 * 24 * time.Hour,
+			}, onprem.WithOperationsClock(func() time.Time { return s.now }))
+			s.Require().NoError(err)
+
+			summary, err := service.Summary(context.Background(), principal, operations.TimeFilter{})
+			s.Require().NoError(err)
+			s.Equal(retention, summary.EventRetention)
+
+			_, err = service.Summary(context.Background(), principal, operations.TimeFilter{
+				From: s.now.Add(-retention), To: s.now,
+			})
+			s.Require().NoError(err, "a window of exactly the published retention must be answerable")
+
+			_, err = service.Summary(context.Background(), principal, operations.TimeFilter{
+				From: s.now.Add(-retention - time.Second), To: s.now,
+			})
+			s.Require().ErrorIs(err, operations.ErrInvalidInput,
+				"a window past the published retention must be rejected")
+		})
+	}
+}
+
+// The repository has no business setting this: it is a service property. If a
+// repository ever returns one, the service's own value wins.
+func (s *operationsServiceSuite) TestSummaryRetentionIgnoresTheRepository() {
+	principal := operationsPrincipal(onprem.RoleOwner, onprem.MembershipStatusActive)
+	s.repository.summaryRetention = 999 * time.Hour
+
+	summary, err := s.service.Summary(context.Background(), principal, operations.TimeFilter{})
+	s.Require().NoError(err)
+	s.Equal(7*24*time.Hour, summary.EventRetention)
+}
+
 func operationsPrincipal(role onprem.Role, status onprem.MembershipStatus) onprem.HumanPrincipal {
 	return onprem.HumanPrincipal{
 		UserID: "user", MembershipID: "membership", Role: role, MembershipStatus: status,
@@ -208,7 +253,10 @@ type operationsRepository struct {
 	agentFilter   operations.TimeFilter
 	seriesFilter  operations.TimeFilter
 	seriesBucket  time.Duration
-	err           error
+	// Only set by the test that checks the service overrides whatever a
+	// repository claims the retention is.
+	summaryRetention time.Duration
+	err              error
 }
 
 func (r *operationsRepository) Record(_ context.Context, event operations.Event) (operations.Event, error) {
@@ -224,7 +272,10 @@ func (r *operationsRepository) Summary(
 	if r.err != nil {
 		return operations.Summary{}, r.err
 	}
-	return operations.Summary{From: filter.From, To: filter.To, GeneratedAt: generatedAt}, nil
+	return operations.Summary{
+		From: filter.From, To: filter.To, GeneratedAt: generatedAt,
+		EventRetention: r.summaryRetention,
+	}, nil
 }
 
 func (r *operationsRepository) ListEvents(
