@@ -22,6 +22,12 @@
 .gv-audit-row { display: grid; grid-template-columns: 82px 96px minmax(220px, 1fr) minmax(200px, 1fr) 150px; gap: var(--space-4); align-items: center; width: 100%; text-align: left; background: transparent; border: 0; border-bottom: 1px solid var(--color-divider); padding: var(--space-3) var(--space-4); cursor: pointer; font-family: var(--font-body); color: inherit; }
 .gv-audit-row:hover { background: color-mix(in srgb, var(--color-text) 5%, transparent); }
 .gv-audit-time { font-family: var(--font-mono); font-size: 12px; opacity: 0.55; }
+/* 网格项默认 min-width:auto，长 ID 会把内容顶出列、再顶出卡片右缘
+   （membership/credential ID 四五十个字符且无折行点）。取消自动最小宽度，
+   未解析的 <code> ID 允许在任意字符处折行——设计 §2.1 要求原始 ID 完整可读，
+   不能用省略号截断。 */
+.gv-audit-row > * { min-width: 0; }
+.gv-audit-row code, .gv-audit-open code { overflow-wrap: anywhere; }
 .gv-audit-action { font-family: var(--font-heading); font-weight: var(--font-heading-weight); font-size: 13px; }
 .gv-audit-target { font-family: var(--font-mono); font-size: 11px; opacity: 0.5; }
 .gv-audit-open { border-bottom: 1px solid var(--color-divider); background: color-mix(in srgb, var(--color-text) 5%, transparent); padding: var(--space-3) var(--space-4) var(--space-3) 110px; font-family: var(--font-mono); font-size: 12px; line-height: 1.7; }
