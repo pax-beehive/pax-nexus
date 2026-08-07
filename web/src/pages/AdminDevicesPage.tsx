@@ -15,6 +15,7 @@ import { Button } from "../components/Button";
 import { CreateDeviceEnrollmentModal } from "../components/CreateDeviceEnrollmentModal";
 import { DeviceEnrollmentCeremony } from "../components/DeviceEnrollmentCeremony";
 import { PagedListCard } from "../components/PagedListCard";
+import { PageHeader } from "../components/PageHeader";
 
 const STATUS_FILTERS = ["all", "active", "revoked"] as const;
 
@@ -55,19 +56,16 @@ export function AdminDevicesPage() {
 
   return (
     <>
-      <div className="page-head">
-        <div>
-          <p className="card-kicker">MANAGEMENT · DEVICES</p>
-          <h1>Devices</h1>
-          <p className="muted flush">
-            Machine-level onboarding: one Device Enrollment provisions an entire machine, and the
-            Agents on it self-mint Credentials
-          </p>
-        </div>
-        <Button variant="primary" onClick={() => setCreateOpen(true)}>
-          + Create Device Enrollment
-        </Button>
-      </div>
+      <PageHeader
+        kicker="MANAGEMENT · DEVICES"
+        title="Devices"
+        lede="Machine-level onboarding: one Device Enrollment provisions an entire machine, and the Agents on it self-mint Credentials"
+        actions={
+          <Button variant="primary" onClick={() => setCreateOpen(true)}>
+            + Create Device Enrollment
+          </Button>
+        }
+      />
 
       {secret && <DeviceEnrollmentCeremony secret={secret} onClose={() => setSecret(undefined)} />}
 

@@ -12,6 +12,7 @@ import { useCallback, useRef, useState } from "react";
 import { apiError } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { RegionError } from "../components/RegionError";
+import { PageHeader } from "../components/PageHeader";
 import { Seg } from "../components/Seg";
 import { Tag } from "../components/Tag";
 import { timeWindowOptions, type TimeWindowPreset } from "../lib/operations";
@@ -52,21 +53,21 @@ export function OverviewPage() {
 
   return (
     <>
-      <div className="page-head">
-        <div>
-          <p className="card-kicker">{`TODAY · ${today}`}</p>
-          <h1>{heading}</h1>
-        </div>
-        <div className="row">
-          <Tag tone="outline">Live</Tag>
-          <Seg
-            label="Time window"
-            options={timeWindowOptions(overview.data?.event_retention_seconds)}
-            value={window}
-            onChange={setWindow}
-          />
-        </div>
-      </div>
+      <PageHeader
+        kicker={`TODAY · ${today}`}
+        title={heading}
+        actions={
+          <div className="row">
+            <Tag tone="outline">Live</Tag>
+            <Seg
+              label="Time window"
+              options={timeWindowOptions(overview.data?.event_retention_seconds)}
+              value={window}
+              onChange={setWindow}
+            />
+          </div>
+        }
+      />
 
       {overview.status === "loading" && (
         <div className="ov-metrics">

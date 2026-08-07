@@ -1,5 +1,5 @@
-import { Kicker } from "../../components/Kicker";
 import { THEMES, THEME_LABELS, useTheme, type Theme } from "../../lib/theme";
+import { PageHeader } from "../../components/PageHeader";
 
 /**
  * Theme picker, Modernist repaint (phase 6 task 4). `lib/theme.ts` still owns
@@ -19,15 +19,11 @@ export function AppearancePage() {
 
   return (
     <>
-      <div className="page-head">
-        <div>
-          <Kicker>Settings · appearance</Kicker>
-          <h1>它看起来什么样</h1>
-          <p className="muted flush">
-            Applies to your account on this device only. Nobody else on the team sees your choice.
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        kicker="Settings · appearance"
+        title="它看起来什么样"
+        lede="Applies to your account on this device only. Nobody else on the team sees your choice."
+      />
 
       <div className="theme-grid" role="group" aria-label="Theme">
         {THEMES.map((value) => (

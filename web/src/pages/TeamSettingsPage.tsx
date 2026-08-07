@@ -4,7 +4,7 @@ import { can } from "../lib/capabilities";
 import { currentTeam } from "../lib/teams";
 import { RoleBadge } from "../components/Badge";
 import { Button } from "../components/Button";
-import { Kicker } from "../components/Kicker";
+import { PageHeader } from "../components/PageHeader";
 
 /**
  * Team settings, General panel (design/m3-teams 03), Modernist repaint
@@ -29,15 +29,11 @@ export function TeamSettingsPage({ me }: { me: HumanMe }) {
 
   return (
     <>
-      <div className="page-head">
-        <div>
-          <Kicker>Settings · team</Kicker>
-          <h1>{team.name}</h1>
-          <p className="muted flush">
-            Multi-tenant SaaS workspace — isolated from every other team on this control plane.
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        kicker="Settings · team"
+        title={team.name}
+        lede="Multi-tenant SaaS workspace — isolated from every other team on this control plane."
+      />
 
       <div className="team-facts">
         <div className="team-fact">

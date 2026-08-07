@@ -52,7 +52,7 @@ export function AgentHeader({
   return (
     <>
       <Crumbs items={[{ label: "访问树", to: "/management" }, { label: agent.display_name }]} />
-      <div className="ag-head">
+      <div className="page-head bleed align-start">
         <div>
           <div className="row">
             <h1>{agent.display_name}</h1>

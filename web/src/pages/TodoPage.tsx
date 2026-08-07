@@ -8,7 +8,8 @@ import {
 } from "../api/actions";
 import { listTodoSuggestions, listTodos, type TodoItem, type TodoSuggestion } from "../api/todo";
 import { Button } from "../components/Button";
-import { Kicker } from "../components/Kicker";
+import { PageHeader } from "../components/PageHeader";
+import { RegionError } from "../components/RegionError";
 import { Tag } from "../components/Tag";
 import { isAbortError } from "../lib/usePolling";
 import { useErrorHandler } from "../lib/useErrorHandler";
@@ -131,31 +132,31 @@ export function TodoPage() {
 
   return (
     <>
-      <div className="page-head">
-        <div>
-          <Kicker>Apps · todos</Kicker>
-          <h1>Agent 替你发现的活儿</h1>
-          <p className="muted flush">
-            团队写下的阻塞与交接会被转成建议。接受一条它就归你；忽略它就不会再回来。
-          </p>
-        </div>
-        <Button
-          variant="primary"
-          type="button"
-          disabled={refreshing}
-          onClick={() => void checkTeamMemory()}
-        >
-          {refreshing ? "扫描中…" : "扫描团队记忆"}
-        </Button>
-      </div>
+      <PageHeader
+        kicker="Apps · todos"
+        title="Agent 替你发现的活儿"
+        lede="团队写下的阻塞与交接会被转成建议。接受一条它就归你；忽略它就不会再回来。"
+        actions={
+          <Button
+            variant="primary"
+            type="button"
+            disabled={refreshing}
+            onClick={() => void checkTeamMemory()}
+          >
+            {refreshing ? "扫描中…" : "扫描团队记忆"}
+          </Button>
+        }
+      />
 
-      <div className="todo-columns">
+      <div className="split wide-left">
         <section className="card" aria-label="Suggestions">
           <h2 className="card-title flush">建议</h2>
           {loading ? (
             <p className="muted">加载中…</p>
           ) : suggestionsError ? (
-            <p className="muted small">建议暂时不可用，请稍后重试。</p>
+            // 此前是一行没有出路的 muted 文本：读者被告知「稍后重试」，
+            // 却没有任何可以按的东西，只能整页刷新（PR #91 follow-up）。
+            <RegionError message="建议暂时不可用。" onRetry={() => void load()} />
           ) : suggestions.length === 0 ? (
             <p className="muted small">现在没有新的建议。</p>
           ) : (
@@ -217,7 +218,7 @@ export function TodoPage() {
           {loading ? (
             <p className="muted">加载中…</p>
           ) : todosError ? (
-            <p className="muted small">清单暂时不可用，请稍后重试。</p>
+            <RegionError message="清单暂时不可用。" onRetry={() => void load()} />
           ) : (
             <>
               {openTodos.length === 0 ? (

@@ -26,7 +26,7 @@ import {
 } from "../lib/operations";
 import { useErrorHandler } from "../lib/useErrorHandler";
 import { Button } from "../components/Button";
-import { Kicker } from "../components/Kicker";
+import { PageHeader } from "../components/PageHeader";
 import { RegionError } from "../components/RegionError";
 import { Seg } from "../components/Seg";
 import { ExplorerDiagnosticDrawer } from "./operations/ExplorerDiagnosticDrawer";
@@ -96,16 +96,17 @@ export function AdminOperationsPage({ canInspectTeamMemory = false }: { canInspe
 
   return (
     <>
-      <div className="gv-head">
-        <div>
-          <Kicker>Governance · 管道健康</Kicker>
-          <h1>记忆跟得上吗？</h1>
-          <p>
+      <PageHeader
+        variant="bleed"
+        kicker="Governance · 管道健康"
+        title="记忆跟得上吗？"
+        lede={
+          <p className="lede-dim">
             每块自己加载。一块失败时其余照常——你会看到哪块过期了，而不是一整页空白。
             这里从不显示任何查询、内容或密钥。
           </p>
-        </div>
-      </div>
+        }
+      />
 
       <div className="toolbar" style={{ marginBottom: 14 }}>
         <Seg
@@ -141,7 +142,7 @@ export function AdminOperationsPage({ canInspectTeamMemory = false }: { canInspe
         </>
       )}
 
-      <div className="gv-pipeline-columns section">
+      <div className="split wide-right section">
         <div>
           <div className="row between">
             <h2 className="flush">Storage</h2>

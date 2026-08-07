@@ -12,6 +12,7 @@ import { useErrorHandler } from "../lib/useErrorHandler";
 import { formatTime } from "../lib/format";
 import { Badge } from "../components/Badge";
 import { Button } from "../components/Button";
+import { PageHeader } from "../components/PageHeader";
 import { RevokeDeviceModal } from "../components/RevokeDeviceModal";
 
 export function AdminDeviceDetailPage() {
@@ -61,30 +62,32 @@ export function AdminDeviceDetailPage() {
 
   return (
     <>
-      <div className="page-head">
-        <div>
-          <h1>{device.device_name}</h1>
+      <PageHeader
+        title={device.device_name}
+        lede={
           <div className="row small muted">
             <code>{device.credential_id}</code>
             <Badge status={device.status} />
             <span>creator: {device.created_by_user_id}</span>
           </div>
-        </div>
-        <div className="row">
-          {device.status === "active" && (
-            <Button variant="danger" onClick={() => setRevokeOpen(true)}>
-              Revoke Device
-            </Button>
-          )}
-          {/* Modernist 的 ghost 类名（Button.tsx 的 ghost variant 发的就是
-              这一对）。旧的点式 `.btn.ghost` 是阶段 1 留下的兼容别名，新代码
-              禁用；这里是 <Link>，所以手写类名而不是套 <Button>——保住
-              中键新开、复制链接这些链接语义。 */}
-          <Link to="/admin/devices" className="btn btn-ghost">
-            ← Back
-          </Link>
-        </div>
-      </div>
+        }
+        actions={
+          <div className="row">
+            {device.status === "active" && (
+              <Button variant="danger" onClick={() => setRevokeOpen(true)}>
+                Revoke Device
+              </Button>
+            )}
+            {/* Modernist 的 ghost 类名（Button.tsx 的 ghost variant 发的就是
+                这一对）。旧的点式 `.btn.ghost` 是阶段 1 留下的兼容别名，新代码
+                禁用；这里是 <Link>，所以手写类名而不是套 <Button>——保住
+                中键新开、复制链接这些链接语义。 */}
+            <Link to="/admin/devices" className="btn btn-ghost">
+              ← Back
+            </Link>
+          </div>
+        }
+      />
 
       <div className="card">
         <h2 style={{ margin: "0 0 8px" }}>Device</h2>

@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { Crumbs } from "../../components/Crumbs";
 import { AccessSummary } from "./AccessSummary";
 import type { AccessSnapshot } from "./useAccessSnapshot";
+import { PageHeader } from "../../components/PageHeader";
 
 /**
  * 访问树三层共用的外壳：页头 + 汇总条 + 面包屑栏，层内容作为 children。
@@ -36,13 +37,7 @@ export function AccessChrome({
 }) {
   return (
     <>
-      <div className="page-head">
-        <div>
-          <p className="card-kicker">MANAGEMENT · ACCESS TREE</p>
-          <h1>Access flows downward</h1>
-          {lede}
-        </div>
-      </div>
+      <PageHeader kicker="MANAGEMENT · ACCESS TREE" title="Access flows downward" lede={lede} />
 
       <AccessSummary snapshot={snapshot} unavailableNote={unavailableNote} />
 

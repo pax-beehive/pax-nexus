@@ -17,7 +17,7 @@ import {
 } from "../api/wiki";
 import { Button } from "../components/Button";
 import { EmptyState } from "../components/EmptyState";
-import { Kicker } from "../components/Kicker";
+import { PageHeader } from "../components/PageHeader";
 import { RegionError } from "../components/RegionError";
 import { Tag } from "../components/Tag";
 import { RelationList } from "../components/wiki/RelationList";
@@ -250,41 +250,46 @@ export function WikiBrowsePage() {
 
   return (
     <>
-      <div className="wiki-head">
-        <div>
-          {/* 没有「← All apps」返回链接：启动页已经不存在，/apps 会重定向回
-              /apps/wiki，点一下等于自我跳转并把阅读器重挂载、静默回到第一页。
-              分区间的导航现在由顶栏 + 二级导航提供。 */}
-          <Kicker>Apps · wiki</Kicker>
-          <h1>团队百科</h1>
-          <p className="muted flush">
+      {/* 没有「← All apps」返回链接：启动页已经不存在，/apps 会重定向回
+          /apps/wiki，点一下等于自我跳转并把阅读器重挂载、静默回到第一页。
+          分区间的导航现在由顶栏 + 二级导航提供。 */}
+      <PageHeader
+        variant="bleed"
+        kicker="Apps · wiki"
+        title="团队百科"
+        // 不带 .flush：.lede-narrow 自己给全套 margin，而 .flush 在样式表里
+        // 排在它后面、特指度相同，两个都挂上会让 margin: 0 赢。
+        lede={
+          <p className="muted lede-narrow">
             {pages.length} 页 · 由会话写成，不是手写 · 新页面自己出现
           </p>
-        </div>
-        <form
-          className="wiki-search"
-          role="search"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void submitSearch();
-          }}
-        >
-          <label className="sr-only" htmlFor="wiki-search">
-            Search the wiki
-          </label>
-          <input
-            id="wiki-search"
-            type="search"
-            aria-label="Search the wiki"
-            placeholder="搜索决策、系统、证据…"
-            value={searchInput}
-            onChange={(event) => setSearchInput(event.target.value)}
-          />
-          <Button variant="primary" type="submit" disabled={searching}>
-            {searching ? "搜索中…" : "搜索"}
-          </Button>
-        </form>
-      </div>
+        }
+        actions={
+          <form
+            className="wiki-search"
+            role="search"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void submitSearch();
+            }}
+          >
+            <label className="sr-only" htmlFor="wiki-search">
+              Search the wiki
+            </label>
+            <input
+              id="wiki-search"
+              type="search"
+              aria-label="Search the wiki"
+              placeholder="搜索决策、系统、证据…"
+              value={searchInput}
+              onChange={(event) => setSearchInput(event.target.value)}
+            />
+            <Button variant="primary" type="submit" disabled={searching}>
+              {searching ? "搜索中…" : "搜索"}
+            </Button>
+          </form>
+        }
+      />
 
       {searchOpen && (
         <section className="card wiki-search-results" role="region" aria-label="Search results">

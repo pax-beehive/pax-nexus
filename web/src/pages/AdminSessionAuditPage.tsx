@@ -16,7 +16,7 @@ import type { SessionAuditToolCall } from "../api/types";
 import { useErrorHandler } from "../lib/useErrorHandler";
 import { formatTime } from "../lib/format";
 import { Button } from "../components/Button";
-import { Kicker } from "../components/Kicker";
+import { PageHeader } from "../components/PageHeader";
 import { RegionError } from "../components/RegionError";
 import { Seg } from "../components/Seg";
 import { findingKindLabel, SessionFindingsList } from "./governance/SessionFindings";
@@ -484,16 +484,17 @@ export function AdminSessionAuditPage() {
 
   return (
     <>
-      <div className="gv-head">
-        <div>
-          <Kicker>Governance · 会话审计</Kicker>
-          <h1>Agent 到底做了什么</h1>
-          <p>
+      <PageHeader
+        variant="bleed"
+        kicker="Governance · 会话审计"
+        title="Agent 到底做了什么"
+        lede={
+          <p className="lede-dim">
             Finding 由证据推导，从不来自 prompt 或内容。每条都会点名它取材的事件，
             你可以自己去读源头。
           </p>
-        </div>
-      </div>
+        }
+      />
       <div className="toolbar" style={{ marginBottom: 14, padding: "0 var(--space-4)" }}>
         <Seg
           label="session audit view"

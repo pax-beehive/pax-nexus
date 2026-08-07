@@ -2,16 +2,6 @@
    TodoPage.tsx 的 suggestionsError / todosError）。全屏逃逸模式已删——
    本屏和门户其余页面一样嵌在标准 .page 容器里，不再单独占满视口。 */
 
-.todo-columns {
-  display: grid;
-  grid-template-columns: 1.1fr 1fr;
-  gap: var(--space-6);
-  align-items: start;
-}
-@media (max-width: 900px) {
-  .todo-columns { grid-template-columns: 1fr; }
-}
-
 /* 建议行：kind 标签 + 标题 + 正文在左，两个纵向堆叠的按钮在右。 */
 .todo-row {
   display: flex;

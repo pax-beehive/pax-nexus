@@ -15,6 +15,7 @@ import { Modal } from "../components/Modal";
 import { PagedListCard } from "../components/PagedListCard";
 import { SecretCeremony } from "../components/SecretCeremony";
 import { useToast } from "../components/Toasts";
+import { PageHeader } from "../components/PageHeader";
 
 const STATUS_FILTERS = ["all", "pending", "accepted", "revoked", "expired"] as const;
 const EXPIRY_OPTIONS = [
@@ -143,18 +144,16 @@ export function AdminInvitationsPage({ me }: { me: HumanMe }) {
 
   return (
     <>
-      <div className="page-head">
-        <div>
-          <p className="card-kicker">MANAGEMENT · INVITATIONS</p>
-          <h1>Invitations</h1>
-          <p className="muted flush">
-            Owners can invite admins/members; Admins can only invite members
-          </p>
-        </div>
-        <Button variant="primary" onClick={() => setCreateOpen(true)}>
-          + Create invitation
-        </Button>
-      </div>
+      <PageHeader
+        kicker="MANAGEMENT · INVITATIONS"
+        title="Invitations"
+        lede="Owners can invite admins/members; Admins can only invite members"
+        actions={
+          <Button variant="primary" onClick={() => setCreateOpen(true)}>
+            + Create invitation
+          </Button>
+        }
+      />
 
       {secretUrl && (
         <SecretCeremony

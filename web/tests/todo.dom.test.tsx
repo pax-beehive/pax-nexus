@@ -179,13 +179,19 @@ describe("Todo app portal integration", () => {
   // (/v1/todo/suggestions vs /v1/todo/todos) and must degrade independently:
   // one failing must not blank out the other side.
   it("still renders the personal list when the suggestions endpoint fails", async () => {
+    // The suggestions endpoint fails on the first call and succeeds after, so
+    // the Retry button has something to prove: before this the failed side was
+    // a dead "请稍后重试" line with nothing to press (PR #91 follow-up).
+    let suggestionCalls = 0;
     const { user } = await renderApp({
       route: "/management",
       me: makeMe({ role: "member" }),
       fetch: (path, init) => {
         const method = init.method ?? "GET";
         if (path === "/v1/todo/suggestions" && method === "GET") {
-          return apiErrorResponse(500, "internal", "boom");
+          return suggestionCalls++ === 0
+            ? apiErrorResponse(500, "internal", "boom")
+            : jsonResponse({ suggestions: [suggestion] });
         }
         if (path === "/v1/todo/todos" && method === "GET") {
           return jsonResponse({ todos: [openTodo] });
@@ -196,8 +202,15 @@ describe("Todo app portal integration", () => {
 
     await goToTodos(user);
 
-    within(screen.getByLabelText("Suggestions")).getByText("建议暂时不可用，请稍后重试。");
+    const suggestions = within(screen.getByLabelText("Suggestions"));
+    suggestions.getByText("建议暂时不可用。");
+    // The other column is untouched by its neighbour's failure.
     within(screen.getByLabelText("Todos")).getByText("Cut the WAL migration ticket");
+
+    await user.click(suggestions.getByRole("button", { name: "Retry" }));
+
+    await waitFor(() => expect(screen.queryByText("建议暂时不可用。")).toBeNull());
+    within(screen.getByLabelText("Suggestions")).getByText(suggestion.title);
   });
 
   it("still renders suggestions when the personal list endpoint fails", async () => {
@@ -219,6 +232,6 @@ describe("Todo app portal integration", () => {
     await goToTodos(user);
 
     within(screen.getByLabelText("Suggestions")).getByText("Runtime migration is stuck");
-    within(screen.getByLabelText("Todos")).getByText("清单暂时不可用，请稍后重试。");
+    within(screen.getByLabelText("Todos")).getByText("清单暂时不可用。");
   });
 });
