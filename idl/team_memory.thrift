@@ -929,6 +929,11 @@ struct OperationsSummaryResponse {
   6: required RecallOperationsSummary recalls
   7: required OperationsLatency latency
   8: required i64 errors
+  // Effective TEAM_MEMORY_OPERATIONS_EVENT_RETENTION, in seconds. Published by
+  // the same service field that rejects an over-long window, so the limit can
+  // never drift from its enforcement. Clients use it to stop offering time
+  // windows the deployment cannot answer.
+  9: required i64 event_retention_seconds
 }
 
 struct OverviewRequest {
@@ -976,6 +981,9 @@ struct OverviewResponse {
   5: required list<OverviewSeriesPoint> series
   6: required list<OverviewNoteMixEntry> note_mix
   7: required list<OverviewAttentionItem> attention
+  // Same value and same reason as OperationsSummaryResponse: both surfaces
+  // carry their own window selector, so both must be able to prune it.
+  8: required i64 event_retention_seconds
 }
 
 struct ListOperationEventsRequest {

@@ -14,7 +14,7 @@ import { useAuth } from "../auth/AuthContext";
 import { RegionError } from "../components/RegionError";
 import { Seg } from "../components/Seg";
 import { Tag } from "../components/Tag";
-import { TIME_WINDOW_PRESETS, type TimeWindowPreset } from "../lib/operations";
+import { timeWindowOptions, type TimeWindowPreset } from "../lib/operations";
 import { currentTeam } from "../lib/teams";
 import { useErrorHandler } from "../lib/useErrorHandler";
 import { AttentionQueue } from "./overview/AttentionQueue";
@@ -61,11 +61,7 @@ export function OverviewPage() {
           <Tag tone="outline">Live</Tag>
           <Seg
             label="Time window"
-            options={TIME_WINDOW_PRESETS.map((p) => ({
-              value: p,
-              label: p,
-              title: "Windows beyond the deployment retention are rejected by the backend",
-            }))}
+            options={timeWindowOptions(overview.data?.event_retention_seconds)}
             value={window}
             onChange={setWindow}
           />

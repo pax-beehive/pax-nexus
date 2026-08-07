@@ -19,6 +19,52 @@ const PRESET_MS: Record<TimeWindowPreset, number> = {
   "7d": 7 * 24 * 60 * 60 * 1000,
 };
 
+/**
+ * "7d" / "36h" / "90m" — whole units only, largest that divides evenly.
+ *
+ * Days only from two days up: a 24h retention is configured as `24h`, and the
+ * window preset the user is looking at is labelled `24h`, so rendering it as
+ * "1d" would answer in a vocabulary that appears nowhere else on the screen.
+ */
+export function formatRetention(seconds: number): string {
+  if (seconds % 86_400 === 0 && seconds >= 2 * 86_400) return `${seconds / 86_400}d`;
+  if (seconds % 3_600 === 0) return `${seconds / 3_600}h`;
+  if (seconds % 60 === 0) return `${seconds / 60}m`;
+  return `${seconds}s`;
+}
+
+export interface TimeWindowOption {
+  value: TimeWindowPreset;
+  label: string;
+  disabled: boolean;
+  title?: string;
+}
+
+/**
+ * The window presets, with any window longer than the deployment's event
+ * retention disabled and labelled with the actual ceiling.
+ *
+ * `retentionSeconds` is undefined when no response has landed yet, or when the
+ * backend predates the field. Unknown means "offer everything": guessing a
+ * ceiling would hide windows that do work, which is worse than the status quo
+ * of a request that fails. A window equal to retention is offered -- the
+ * backend rejects strictly greater (issue #86).
+ */
+export function timeWindowOptions(retentionSeconds?: number): TimeWindowOption[] {
+  return TIME_WINDOW_PRESETS.map((preset) => {
+    const overRetention =
+      retentionSeconds !== undefined && PRESET_MS[preset] > retentionSeconds * 1000;
+    return {
+      value: preset,
+      label: preset,
+      disabled: overRetention,
+      title: overRetention
+        ? `This deployment keeps ${formatRetention(retentionSeconds as number)} of events`
+        : undefined,
+    };
+  });
+}
+
 /** Sliding UTC window for a preset, emitted as RFC3339 (operations doc 4.1). */
 export function timeWindow(
   preset: TimeWindowPreset,

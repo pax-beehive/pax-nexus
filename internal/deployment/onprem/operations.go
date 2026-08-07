@@ -66,6 +66,10 @@ func (s *OperationsService) Summary(
 	if err != nil {
 		return operations.Summary{}, fmt.Errorf("get operations summary: %w", err)
 	}
+	// Stamped here, from the same field normalizeTimeFilter just rejected an
+	// over-long window with. Clients read it to stop offering windows this
+	// deployment cannot answer (issue #86).
+	result.EventRetention = s.config.EventRetention
 	return result, nil
 }
 

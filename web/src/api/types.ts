@@ -265,6 +265,8 @@ export interface OperationsSummary {
     p95_ms?: number;
   };
   errors: number;
+  /** Same field, same meaning, as OverviewResponse.event_retention_seconds. */
+  event_retention_seconds?: number;
 }
 
 export interface OperationEvent {
@@ -594,6 +596,13 @@ export interface OverviewResponse {
   series: OverviewSeriesPoint[];
   note_mix: OverviewNoteMixEntry[];
   attention: OverviewAttentionItem[];
+  /**
+   * Effective event retention in seconds, stamped by the service that rejects
+   * over-long windows. Optional on the client only because a portal build can
+   * meet an older backend during a rolling upgrade; treat absence as "unknown"
+   * and offer every window rather than guessing a ceiling.
+   */
+  event_retention_seconds?: number;
 }
 
 export interface ChannelDiagnostic {

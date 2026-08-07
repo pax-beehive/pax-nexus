@@ -41753,6 +41753,11 @@ type OperationsSummaryResponse struct {
 	Recalls      *RecallOperationsSummary      `thrift:"recalls,6,required" form:"recalls,required" json:"recalls,required" query:"recalls,required"`
 	Latency      *OperationsLatency            `thrift:"latency,7,required" form:"latency,required" json:"latency,required" query:"latency,required"`
 	Errors       int64                         `thrift:"errors,8,required" form:"errors,required" json:"errors,required" query:"errors,required"`
+	// Effective TEAM_MEMORY_OPERATIONS_EVENT_RETENTION, in seconds. Published by
+	// the same service field that rejects an over-long window, so the limit can
+	// never drift from its enforcement. Clients use it to stop offering time
+	// windows the deployment cannot answer.
+	EventRetentionSeconds int64 `thrift:"event_retention_seconds,9,required" form:"event_retention_seconds,required" json:"event_retention_seconds,required" query:"event_retention_seconds,required"`
 }
 
 func NewOperationsSummaryResponse() *OperationsSummaryResponse {
@@ -41814,6 +41819,10 @@ func (p *OperationsSummaryResponse) GetErrors() (v int64) {
 	return p.Errors
 }
 
+func (p *OperationsSummaryResponse) GetEventRetentionSeconds() (v int64) {
+	return p.EventRetentionSeconds
+}
+
 var fieldIDToName_OperationsSummaryResponse = map[int16]string{
 	1: "from_time",
 	2: "to_time",
@@ -41823,6 +41832,7 @@ var fieldIDToName_OperationsSummaryResponse = map[int16]string{
 	6: "recalls",
 	7: "latency",
 	8: "errors",
+	9: "event_retention_seconds",
 }
 
 func (p *OperationsSummaryResponse) IsSetObservations() bool {
@@ -41853,6 +41863,7 @@ func (p *OperationsSummaryResponse) Read(iprot thrift.TProtocol) (err error) {
 	var issetRecalls bool = false
 	var issetLatency bool = false
 	var issetErrors bool = false
+	var issetEventRetentionSeconds bool = false
 
 	if _, err = iprot.ReadStructBegin(); err != nil {
 		goto ReadStructBeginError
@@ -41940,6 +41951,15 @@ func (p *OperationsSummaryResponse) Read(iprot thrift.TProtocol) (err error) {
 			} else if err = iprot.Skip(fieldTypeId); err != nil {
 				goto SkipFieldError
 			}
+		case 9:
+			if fieldTypeId == thrift.I64 {
+				if err = p.ReadField9(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetEventRetentionSeconds = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
 		default:
 			if err = iprot.Skip(fieldTypeId); err != nil {
 				goto SkipFieldError
@@ -41990,6 +42010,11 @@ func (p *OperationsSummaryResponse) Read(iprot thrift.TProtocol) (err error) {
 
 	if !issetErrors {
 		fieldId = 8
+		goto RequiredFieldNotSetError
+	}
+
+	if !issetEventRetentionSeconds {
+		fieldId = 9
 		goto RequiredFieldNotSetError
 	}
 	return nil
@@ -42086,6 +42111,17 @@ func (p *OperationsSummaryResponse) ReadField8(iprot thrift.TProtocol) error {
 	p.Errors = _field
 	return nil
 }
+func (p *OperationsSummaryResponse) ReadField9(iprot thrift.TProtocol) error {
+
+	var _field int64
+	if v, err := iprot.ReadI64(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.EventRetentionSeconds = _field
+	return nil
+}
 
 func (p *OperationsSummaryResponse) Write(oprot thrift.TProtocol) (err error) {
 	var fieldId int16
@@ -42123,6 +42159,10 @@ func (p *OperationsSummaryResponse) Write(oprot thrift.TProtocol) (err error) {
 		}
 		if err = p.writeField8(oprot); err != nil {
 			fieldId = 8
+			goto WriteFieldError
+		}
+		if err = p.writeField9(oprot); err != nil {
+			fieldId = 9
 			goto WriteFieldError
 		}
 	}
@@ -42277,6 +42317,23 @@ WriteFieldBeginError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 8 begin error: ", p), err)
 WriteFieldEndError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 8 end error: ", p), err)
+}
+
+func (p *OperationsSummaryResponse) writeField9(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("event_retention_seconds", thrift.I64, 9); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteI64(p.EventRetentionSeconds); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 9 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 9 end error: ", p), err)
 }
 
 func (p *OperationsSummaryResponse) String() string {
@@ -43947,6 +44004,9 @@ type OverviewResponse struct {
 	Series      []*OverviewSeriesPoint   `thrift:"series,5,required,list<OverviewSeriesPoint>" form:"series,required" json:"series,required" query:"series,required"`
 	NoteMix     []*OverviewNoteMixEntry  `thrift:"note_mix,6,required,list<OverviewNoteMixEntry>" form:"note_mix,required" json:"note_mix,required" query:"note_mix,required"`
 	Attention   []*OverviewAttentionItem `thrift:"attention,7,required,list<OverviewAttentionItem>" form:"attention,required" json:"attention,required" query:"attention,required"`
+	// Same value and same reason as OperationsSummaryResponse: both surfaces
+	// carry their own window selector, so both must be able to prune it.
+	EventRetentionSeconds int64 `thrift:"event_retention_seconds,8,required" form:"event_retention_seconds,required" json:"event_retention_seconds,required" query:"event_retention_seconds,required"`
 }
 
 func NewOverviewResponse() *OverviewResponse {
@@ -43989,6 +44049,10 @@ func (p *OverviewResponse) GetAttention() (v []*OverviewAttentionItem) {
 	return p.Attention
 }
 
+func (p *OverviewResponse) GetEventRetentionSeconds() (v int64) {
+	return p.EventRetentionSeconds
+}
+
 var fieldIDToName_OverviewResponse = map[int16]string{
 	1: "from_time",
 	2: "to_time",
@@ -43997,6 +44061,7 @@ var fieldIDToName_OverviewResponse = map[int16]string{
 	5: "series",
 	6: "note_mix",
 	7: "attention",
+	8: "event_retention_seconds",
 }
 
 func (p *OverviewResponse) IsSetMetrics() bool {
@@ -44014,6 +44079,7 @@ func (p *OverviewResponse) Read(iprot thrift.TProtocol) (err error) {
 	var issetSeries bool = false
 	var issetNoteMix bool = false
 	var issetAttention bool = false
+	var issetEventRetentionSeconds bool = false
 
 	if _, err = iprot.ReadStructBegin(); err != nil {
 		goto ReadStructBeginError
@@ -44092,6 +44158,15 @@ func (p *OverviewResponse) Read(iprot thrift.TProtocol) (err error) {
 			} else if err = iprot.Skip(fieldTypeId); err != nil {
 				goto SkipFieldError
 			}
+		case 8:
+			if fieldTypeId == thrift.I64 {
+				if err = p.ReadField8(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetEventRetentionSeconds = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
 		default:
 			if err = iprot.Skip(fieldTypeId); err != nil {
 				goto SkipFieldError
@@ -44137,6 +44212,11 @@ func (p *OverviewResponse) Read(iprot thrift.TProtocol) (err error) {
 
 	if !issetAttention {
 		fieldId = 7
+		goto RequiredFieldNotSetError
+	}
+
+	if !issetEventRetentionSeconds {
+		fieldId = 8
 		goto RequiredFieldNotSetError
 	}
 	return nil
@@ -44267,6 +44347,17 @@ func (p *OverviewResponse) ReadField7(iprot thrift.TProtocol) error {
 	p.Attention = _field
 	return nil
 }
+func (p *OverviewResponse) ReadField8(iprot thrift.TProtocol) error {
+
+	var _field int64
+	if v, err := iprot.ReadI64(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.EventRetentionSeconds = _field
+	return nil
+}
 
 func (p *OverviewResponse) Write(oprot thrift.TProtocol) (err error) {
 	var fieldId int16
@@ -44300,6 +44391,10 @@ func (p *OverviewResponse) Write(oprot thrift.TProtocol) (err error) {
 		}
 		if err = p.writeField7(oprot); err != nil {
 			fieldId = 7
+			goto WriteFieldError
+		}
+		if err = p.writeField8(oprot); err != nil {
+			fieldId = 8
 			goto WriteFieldError
 		}
 	}
@@ -44461,6 +44556,23 @@ WriteFieldBeginError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 7 begin error: ", p), err)
 WriteFieldEndError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 7 end error: ", p), err)
+}
+
+func (p *OverviewResponse) writeField8(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("event_retention_seconds", thrift.I64, 8); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteI64(p.EventRetentionSeconds); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 8 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 8 end error: ", p), err)
 }
 
 func (p *OverviewResponse) String() string {

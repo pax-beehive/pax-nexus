@@ -61,11 +61,12 @@ describe("OverviewPage", () => {
     // Default window is 24h: the fixture's default 6-bucket series renders 6 ticks.
     expect(document.querySelectorAll(".ov-chart-tick")).toHaveLength(6);
 
-    // The 7d seg button carries the same retention hint as AdminOperationsPage's
-    // window selector (plan ruling #5).
-    expect(screen.getByRole("button", { name: "7d" }).getAttribute("title")).toBe(
-      "Windows beyond the deployment retention are rejected by the backend",
-    );
+    // The fixture reports the default 7d retention, so 7d is offered plainly:
+    // no disabled state and no explanatory tooltip. The stopgap hint that used
+    // to sit on every option regardless is gone (issue #86).
+    const sevenDay = screen.getByRole("button", { name: "7d" }) as HTMLButtonElement;
+    expect(sevenDay.disabled).toBe(false);
+    expect(sevenDay.getAttribute("title")).toBeNull();
 
     await app.user.click(screen.getByRole("button", { name: "7d" }));
 
@@ -120,6 +121,29 @@ describe("OverviewPage", () => {
     const ticks = tickTexts();
     expect(ticks).toHaveLength(6);
     ticks.forEach((t) => expect(t).toMatch(TIME_FORM));
+  });
+
+  // On a deployment that keeps less than a week of events, the 7d button used
+  // to be offered anyway, always fail, and fail with a generic 400 the user
+  // could not act on (issue #86).
+  it("disables windows the deployment cannot answer, naming the retention", async () => {
+    const app = await renderOverviewPage({
+      overview: () => makeOverview({ event_retention_seconds: 24 * 60 * 60 }),
+    });
+
+    const sevenDay = screen.getByRole("button", { name: "7d" }) as HTMLButtonElement;
+    await waitFor(() => expect(sevenDay.disabled).toBe(true));
+    expect(sevenDay.getAttribute("title")).toBe("This deployment keeps 24h of events");
+
+    // Still offered, so the reason has somewhere to live -- and clicking it
+    // fires no request rather than one the backend will reject.
+    const before = callsTo(app.fetchMock, "/v1/admin/overview").length;
+    await app.user.click(sevenDay).catch(() => {});
+    expect(callsTo(app.fetchMock, "/v1/admin/overview")).toHaveLength(before);
+
+    // The windows it can answer stay untouched.
+    expect((screen.getByRole("button", { name: "24h" }) as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByRole("button", { name: "1h" }) as HTMLButtonElement).disabled).toBe(false);
   });
 
   it("keeps the writers block alive when the aggregate fails", async () => {

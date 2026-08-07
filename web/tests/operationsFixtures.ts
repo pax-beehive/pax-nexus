@@ -75,6 +75,9 @@ export function makeSummary(overrides: Partial<OperationsSummary> = {}): Operati
     },
     latency: { sample_count: 30, p50_ms: 24, p95_ms: 91 },
     errors: 2,
+    // Matches the backend default retention (7d), so the default fixture
+    // leaves every window preset enabled.
+    event_retention_seconds: 7 * 24 * 60 * 60,
     ...overrides,
   };
 }
@@ -118,6 +121,7 @@ export function makeOverview(overrides: Partial<OverviewResponse> = {}): Overvie
       { kind: "hint", count: 7, pct: 14 },
       { kind: "reference", count: 3, pct: 6 },
     ],
+    event_retention_seconds: 7 * 24 * 60 * 60,
     attention: [
       {
         kind: "finding",

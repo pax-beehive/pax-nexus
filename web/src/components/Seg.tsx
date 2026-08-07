@@ -6,7 +6,7 @@ export function Seg<T extends string>({
   onChange,
 }: {
   label: string;
-  options: { value: T; label: string; title?: string }[];
+  options: { value: T; label: string; title?: string; disabled?: boolean }[];
   value: T;
   onChange: (value: T) => void;
 }) {
@@ -18,6 +18,10 @@ export function Seg<T extends string>({
           type="button"
           className={option.value === value ? "on" : ""}
           aria-pressed={option.value === value}
+          // A disabled option stays visible rather than vanishing: the reason
+          // it cannot be picked is a property of the deployment, and hiding it
+          // would leave no place to say so. `title` carries that reason.
+          disabled={option.disabled}
           onClick={() => onChange(option.value)}
           title={option.title}
         >
