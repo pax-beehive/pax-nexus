@@ -23,13 +23,15 @@ export function RegionError({
   onRetry?: () => void;
   message?: string;
 }) {
-  const notice = error === undefined && message !== undefined
-    ? { kind: "bad" as const, message }
-    : { ...noticeForError(error), ...(message !== undefined ? { message } : {}) };
+  // A caller that passes only a message has already classified the failure
+  // itself and has no error object to derive a tone from, so it gets `bad`.
+  const derived = error === undefined ? undefined : noticeForError(error);
+  const kind = derived?.kind ?? "bad";
+  const text = message ?? derived?.message ?? "Something went wrong; try again";
   return (
-    <div className={`note ${notice.kind === "ok" ? "" : notice.kind}`} role="alert">
+    <div className={`note ${kind === "ok" ? "" : kind}`} role="alert">
       <div className="row">
-        <span>{notice.message}</span>
+        <span>{text}</span>
         {onRetry && (
           <Button size="sm" onClick={onRetry}>
             Retry
