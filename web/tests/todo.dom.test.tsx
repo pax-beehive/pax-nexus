@@ -36,7 +36,7 @@ const doneTodo = {
 async function goToTodos(user: { click: (el: Element) => Promise<void> }) {
   await user.click(screen.getByRole("link", { name: "Apps" }));
   await user.click(await screen.findByRole("link", { name: /Todos/ }));
-  await screen.findByRole("heading", { level: 1, name: "Agent 替你发现的活儿" });
+  await screen.findByRole("heading", { level: 1, name: "Work the agents surfaced" });
 }
 
 describe("Todo app portal integration", () => {
@@ -57,7 +57,7 @@ describe("Todo app portal integration", () => {
     });
 
     await waitFor(() => expect(window.location.pathname).toBe("/apps/todos"));
-    await screen.findByRole("heading", { level: 1, name: "Agent 替你发现的活儿" });
+    await screen.findByRole("heading", { level: 1, name: "Work the agents surfaced" });
   });
 
   it("renders pending suggestions and open/done todos from the stubbed lists", async () => {
@@ -86,7 +86,7 @@ describe("Todo app portal integration", () => {
     // attribute rather than visibility.
     const doneFold = document.querySelector("details");
     expect(doneFold?.hasAttribute("open")).toBe(false);
-    within(screen.getByLabelText("Todos")).getByText("已完成（1）");
+    within(screen.getByLabelText("Todos")).getByText("Done (1)");
     within(screen.getByLabelText("Todos")).getByText("Write the runbook");
   });
 
@@ -107,8 +107,8 @@ describe("Todo app portal integration", () => {
     });
 
     await goToTodos(user);
-    within(screen.getByLabelText("Suggestions")).getByText("现在没有新的建议。");
-    within(screen.getByLabelText("Todos")).getByText("没有未完成的待办。");
+    within(screen.getByLabelText("Suggestions")).getByText("No new suggestions right now.");
+    within(screen.getByLabelText("Todos")).getByText("No open todos.");
   });
 
   it("accepting a suggestion posts accept then refetches both lists", async () => {
@@ -135,10 +135,10 @@ describe("Todo app portal integration", () => {
     await goToTodos(user);
     await screen.findByText("Runtime migration is stuck");
 
-    await user.click(screen.getByRole("button", { name: "接下来我做" }));
+    await user.click(screen.getByRole("button", { name: "Take it" }));
 
     expect(callsTo(fetchMock, "/v1/todo/suggestions/s1/accept", "POST")).toHaveLength(1);
-    await screen.findByText("现在没有新的建议。");
+    await screen.findByText("No new suggestions right now.");
     within(screen.getByLabelText("Todos")).getByText("Cut the WAL migration ticket");
     expect(callsTo(fetchMock, "/v1/todo/suggestions", "GET")).toHaveLength(2);
     expect(callsTo(fetchMock, "/v1/todo/todos", "GET")).toHaveLength(2);
@@ -168,10 +168,10 @@ describe("Todo app portal integration", () => {
     await goToTodos(user);
     await screen.findByText("Cut the WAL migration ticket");
 
-    await user.click(screen.getByRole("button", { name: "完成" }));
+    await user.click(screen.getByRole("button", { name: "Done" }));
 
     expect(callsTo(fetchMock, "/v1/todo/todos/t1/complete", "POST")).toHaveLength(1);
-    await screen.findByText("没有未完成的待办。");
+    await screen.findByText("No open todos.");
     expect(callsTo(fetchMock, "/v1/todo/todos", "GET")).toHaveLength(2);
   });
 
@@ -203,13 +203,13 @@ describe("Todo app portal integration", () => {
     await goToTodos(user);
 
     const suggestions = within(screen.getByLabelText("Suggestions"));
-    suggestions.getByText("建议暂时不可用。");
+    suggestions.getByText("Suggestions are unavailable.");
     // The other column is untouched by its neighbour's failure.
     within(screen.getByLabelText("Todos")).getByText("Cut the WAL migration ticket");
 
     await user.click(suggestions.getByRole("button", { name: "Retry" }));
 
-    await waitFor(() => expect(screen.queryByText("建议暂时不可用。")).toBeNull());
+    await waitFor(() => expect(screen.queryByText("Suggestions are unavailable.")).toBeNull());
     within(screen.getByLabelText("Suggestions")).getByText(suggestion.title);
   });
 
@@ -232,6 +232,6 @@ describe("Todo app portal integration", () => {
     await goToTodos(user);
 
     within(screen.getByLabelText("Suggestions")).getByText("Runtime migration is stuck");
-    within(screen.getByLabelText("Todos")).getByText("清单暂时不可用。");
+    within(screen.getByLabelText("Todos")).getByText("Your list is unavailable.");
   });
 });

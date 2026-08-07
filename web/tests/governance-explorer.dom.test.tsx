@@ -140,7 +140,7 @@ describe("Governance · Memory explorer — 左栏骨架", () => {
     })) as HTMLAnchorElement;
     expect(link.getAttribute("href")).toBe("/governance/memory/note_01");
     // handoff 的中文标签，Kind 补回行卡（I1）。
-    within(link).getByText("交接");
+    within(link).getByText("Handoff");
   });
 
   it("左栏取数失败时塌成可重试错误", async () => {
@@ -158,8 +158,8 @@ describe("Governance · Memory explorer — 左栏骨架", () => {
       },
     });
 
-    await screen.findByText("加载失败。");
-    await user.click(screen.getByRole("button", { name: "重试" }));
+    await screen.findByText("Failed to load.");
+    await user.click(screen.getByRole("button", { name: "Retry" }));
     await screen.findByRole("link", { name: /用 Postgres 存 evidence/ });
   });
 
@@ -218,7 +218,7 @@ describe("Governance · Memory explorer — 左栏骨架", () => {
     });
 
     await screen.findByRole("link", { name: /用 Postgres 存 evidence/ });
-    await user.click(screen.getByRole("button", { name: "已解决" }));
+    await user.click(screen.getByRole("button", { name: "Resolved" }));
 
     await waitFor(() => {
       expect(
@@ -240,7 +240,7 @@ describe("Governance · Memory explorer — 左栏骨架", () => {
     });
 
     await screen.findByRole("link", { name: /用 Postgres 存 evidence/ });
-    await user.selectOptions(screen.getByRole("combobox", { name: "按类型筛选" }), "blocker");
+    await user.selectOptions(screen.getByRole("combobox", { name: "Filter by kind" }), "blocker");
 
     await waitFor(() => {
       expect(
@@ -264,8 +264,8 @@ describe("Governance · Memory explorer — 左栏骨架", () => {
     });
 
     await screen.findByRole("link", { name: /用 Postgres 存 evidence/ });
-    await user.type(screen.getByPlaceholderText("搜索主题或正文"), "postgres");
-    await user.click(screen.getByRole("button", { name: "搜索" }));
+    await user.type(screen.getByPlaceholderText("Search subject or body"), "postgres");
+    await user.click(screen.getByRole("button", { name: "Search" }));
 
     await waitFor(() => {
       expect(
@@ -318,16 +318,16 @@ describe("Governance · Memory explorer — 右栏溯源链", () => {
     expect(callsTo(fetchMock, "/v1/admin/team-notes/note_01")).toHaveLength(1);
 
     const provenance = within(detail)
-      .getByRole("heading", { name: "它是怎么来的" })
+      .getByRole("heading", { name: "How it got here" })
       .closest("section")!;
-    within(provenance).getByText("源事件");
-    within(provenance).getByText("抽取");
-    within(provenance).getByText("候选");
-    within(provenance).getByText("版本");
-    within(provenance).getByText("投递");
+    within(provenance).getByText("Evidence");
+    within(provenance).getByText("Extraction");
+    within(provenance).getByText("Candidate");
+    within(provenance).getByText("Revision");
+    within(provenance).getByText("Delivery");
     // 第六段：召回决策——挂在笔记而非版本上，由 NoteRecalls 单独渲染。
-    within(detail).getByRole("heading", { name: "每一次被端到 Agent 面前" });
-    within(detail).getByText(/命中并投递/);
+    within(detail).getByRole("heading", { name: "Every time it was offered to an agent" });
+    within(detail).getByText(/Delivered to bob-claude/);
   });
 
   it("笔记头显示受众与 note_id · rev N · state；相关的事实块渲染 chips 与交叉链接", async () => {
@@ -349,10 +349,10 @@ describe("Governance · Memory explorer — 右栏溯源链", () => {
     const heading = await screen.findByRole("heading", { name: "用 Postgres 存 evidence" });
     const panel = heading.closest(".gv-note-detail") as HTMLElement;
     // I3：受众 + note_id · rev N · state。
-    within(panel).getByText(/bob-claude、carol-gemini/);
+    within(panel).getByText(/bob-claude, carol-gemini/);
     within(panel).getByText(/note_01 · rev 2 · active/);
     // I2：related_subjects 变 chips，related_notes 是可点的交叉链接。
-    within(panel).getByRole("heading", { name: "相关的事实" });
+    within(panel).getByRole("heading", { name: "Related facts" });
     within(panel).getByText("release owner");
     const relatedLink = within(panel).getByRole("link", { name: "另一条相关事实" });
     expect(relatedLink.getAttribute("href")).toBe("/governance/memory/note_02");
@@ -375,11 +375,11 @@ describe("Governance · Memory explorer — 右栏溯源链", () => {
     const heading = await screen.findByRole("heading", { name: "用 Postgres 存 evidence" });
     const detail = heading.closest(".gv-note-detail") as HTMLElement;
     // 投递段没有记录。
-    within(detail).getByText("没有投递记录。");
+    within(detail).getByText("No deliveries recorded.");
     // 其余四段仍正常渲染内容，不受影响：源事件带 session、抽取带模型、候选带状态。
     expect(within(detail).getAllByText(/sess_09/).length).toBeGreaterThan(0);
     within(detail).getByText(/deepseek-v4/);
-    within(detail).getByText(/已采纳/);
+    within(detail).getByText(/Admitted/);
   });
 
   it("多版本时每个版本各自的溯源链都渲染出来", async () => {
@@ -415,8 +415,8 @@ describe("Governance · Memory explorer — 右栏溯源链", () => {
 
     const heading = await screen.findByRole("heading", { name: "用 Postgres 存 evidence" });
     const detail = heading.closest(".gv-note-detail") as HTMLElement;
-    within(detail).getByRole("heading", { name: "版本 2" });
-    within(detail).getByRole("heading", { name: "版本 1" });
+    within(detail).getByRole("heading", { name: "Revision 2" });
+    within(detail).getByRole("heading", { name: "Revision 1" });
     within(detail).getByText(/最早决定用 SQLite/);
   });
 
@@ -433,8 +433,8 @@ describe("Governance · Memory explorer — 右栏溯源链", () => {
 
     const heading = await screen.findByRole("heading", { name: "用 Postgres 存 evidence" });
     const detail = heading.closest(".gv-note-detail") as HTMLElement;
-    expect(within(detail).queryByText(/failed|加载失败/i)).toBeNull();
-    within(detail).getByText(/还没有版本历史/);
+    expect(within(detail).queryByText(/failed/i)).toBeNull();
+    within(detail).getByText(/No revisions yet/);
   });
 
   it("召回表把三类原因拼成一句话", async () => {
@@ -529,15 +529,15 @@ describe("Governance · Memory explorer — 右栏溯源链", () => {
     });
 
     // 左栏塌成可重试错误。
-    await screen.findByText("加载失败。");
-    screen.getByRole("button", { name: "重试" });
+    await screen.findByText("Failed to load.");
+    screen.getByRole("button", { name: "Retry" });
 
     // 右栏仍然渲染完整链条：笔记头 + 六段的阶段名。
     const heading = await screen.findByRole("heading", { name: "用 Postgres 存 evidence" });
     const detail = heading.closest(".gv-note-detail") as HTMLElement;
-    for (const stage of ["源事件", "抽取", "候选", "版本", "投递"]) {
+    for (const stage of ["Evidence", "Extraction", "Candidate", "Revision", "Delivery"]) {
       within(detail).getByText(stage);
     }
-    within(detail).getByText("每一次被端到 Agent 面前");
+    within(detail).getByText("Every time it was offered to an agent");
   });
 });

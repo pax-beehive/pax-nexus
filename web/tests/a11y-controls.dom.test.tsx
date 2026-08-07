@@ -101,7 +101,7 @@ describe("My Agents / Invitations: tab groups follow the same pattern", () => {
         throw new Error(`unexpected fetch: ${init.method ?? "GET"} ${path}`);
       },
     });
-    await screen.findByRole("heading", { name: "Invitations" });
+    await screen.findByRole("heading", { name: "Outstanding invitations" });
 
     const group = screen.getByRole("group", { name: "invitation status" });
     expectPressed(within(group).getByRole("button", { name: "all" }), true);
@@ -134,18 +134,18 @@ describe("Agent detail: issue-access modal preset groups", () => {
       },
     });
 
-    await user.click(await screen.findByRole("button", { name: "发放接入权限" }));
+    await user.click(await screen.findByRole("button", { name: "Issue access" }));
 
-    const windowGroup = screen.getByRole("group", { name: "认领窗口" });
-    const lifetimeGroup = screen.getByRole("group", { name: "密钥有效期" });
-    expectPressed(within(windowGroup).getByRole("button", { name: "15 分钟" }), true);
-    expectPressed(within(lifetimeGroup).getByRole("button", { name: "90 天" }), true);
+    const windowGroup = screen.getByRole("group", { name: "Claim window" });
+    const lifetimeGroup = screen.getByRole("group", { name: "Key lifetime" });
+    expectPressed(within(windowGroup).getByRole("button", { name: "15m" }), true);
+    expectPressed(within(lifetimeGroup).getByRole("button", { name: "90d" }), true);
 
-    await user.click(within(windowGroup).getByRole("button", { name: "5 分钟" }));
-    expectPressed(within(windowGroup).getByRole("button", { name: "5 分钟" }), true);
-    expectPressed(within(windowGroup).getByRole("button", { name: "15 分钟" }), false);
+    await user.click(within(windowGroup).getByRole("button", { name: "5m" }));
+    expectPressed(within(windowGroup).getByRole("button", { name: "5m" }), true);
+    expectPressed(within(windowGroup).getByRole("button", { name: "15m" }), false);
     // Switching one preset group leaves the other untouched.
-    expectPressed(within(lifetimeGroup).getByRole("button", { name: "90 天" }), true);
+    expectPressed(within(lifetimeGroup).getByRole("button", { name: "90d" }), true);
   });
 });
 

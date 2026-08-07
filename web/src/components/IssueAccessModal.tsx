@@ -18,27 +18,27 @@ import { useToast } from "./Toasts";
 
 /** 原始权限名 → 人类标签。键必须覆盖 GRANTABLE_PERMISSIONS 全集。 */
 const PERMISSION_LABELS: Record<string, string> = {
-  observe: "记录它的会话",
-  search: "检索团队记忆",
-  get: "读取指定笔记",
-  channel_send: "发送给其他 Agent",
-  channel_receive: "接收其他 Agent 的消息",
+  observe: "Record its sessions",
+  search: "Search team memory",
+  get: "Read specific notes",
+  channel_send: "Send to other agents",
+  channel_receive: "Receive from other agents",
 };
 
 type ClaimWindow = "300" | "900" | "1800";
 type KeyLifetime = "30" | "90" | "365" | "none";
 
 const CLAIM_WINDOWS: { value: ClaimWindow; label: string }[] = [
-  { value: "300", label: "5 分钟" },
-  { value: "900", label: "15 分钟" },
-  { value: "1800", label: "30 分钟" },
+  { value: "300", label: "5m" },
+  { value: "900", label: "15m" },
+  { value: "1800", label: "30m" },
 ];
 
 const KEY_LIFETIMES: { value: KeyLifetime; label: string }[] = [
-  { value: "30", label: "30 天" },
-  { value: "90", label: "90 天" },
-  { value: "365", label: "1 年" },
-  { value: "none", label: "不过期" },
+  { value: "30", label: "30d" },
+  { value: "90", label: "90d" },
+  { value: "365", label: "1y" },
+  { value: "none", label: "Never" },
 ];
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -70,9 +70,9 @@ export function IssueAccessModal({
   const [formError, setFormError] = useState<string | undefined>();
 
   const submit = async () => {
-    if (!label.trim()) return setFormError("得先说清楚它在哪台机器上跑。");
+    if (!label.trim()) return setFormError("Say which machine it will run on first.");
     if (permissions.length === 0) {
-      return setFormError("至少要选一项它能对团队记忆做的事。");
+      return setFormError("Pick at least one thing it may do with team memory.");
     }
     setFormError(undefined);
     setBusy(true);
@@ -87,11 +87,11 @@ export function IssueAccessModal({
       onCreated(secret);
     } catch (err) {
       if (apiError(err) && err.status < 500) {
-        setFormError(`请求被拒绝（HTTP ${err.status}），检查一下填的内容。`);
+        setFormError(`Request rejected (HTTP ${err.status}); check what you entered.`);
       } else {
         toast(
           "warn",
-          "请求失败，没有自动重试。列表已刷新：如果多出一条待认领记录，用它或取消它再重发一次。",
+          "Request failed and was not retried. The list has been refreshed: if a new unclaimed token appeared, use it or cancel it before issuing another one.",
         );
         onMaybeCreated();
       }
@@ -101,8 +101,8 @@ export function IssueAccessModal({
   };
 
   return (
-    <Modal title={`给 ${agentName} 发放接入权限`} onClose={onClose}>
-      <label htmlFor="ia-label">它会在哪台机器上跑？</label>
+    <Modal title={`Issue access for ${agentName}`} onClose={onClose}>
+      <label htmlFor="ia-label">Where will it run?</label>
       <input
         id="ia-label"
         type="text"
@@ -111,7 +111,7 @@ export function IssueAccessModal({
         onChange={(e) => setLabel(e.target.value)}
       />
 
-      <label>它可以对团队记忆做什么？</label>
+      <label>What may it do with team memory?</label>
       {GRANTABLE_PERMISSIONS.map((p) => (
         <label key={p} className="ck">
           <input
@@ -127,31 +127,32 @@ export function IssueAccessModal({
 
       <div className="field-row">
         <div>
-          <label>认领窗口</label>
+          <label>Claim window</label>
           <Seg
-            label="认领窗口"
+            label="Claim window"
             options={CLAIM_WINDOWS}
             value={claimWindow}
             onChange={setClaimWindow}
           />
         </div>
         <div>
-          <label>密钥有效期</label>
-          <Seg label="密钥有效期" options={KEY_LIFETIMES} value={lifetime} onChange={setLifetime} />
+          <label>Key lifetime</label>
+          <Seg label="Key lifetime" options={KEY_LIFETIMES} value={lifetime} onChange={setLifetime} />
         </div>
       </div>
 
       {formError && <div className="note bad">{formError}</div>}
       <div className="note small">
-        令牌只在下一屏出现一次。这个端点<b>不支持重试保护</b>：如果请求超时，别重发——
-        刷新待认领列表，确认没多出记录再操作。
+        The token appears only once, on the next screen. This endpoint has{" "}
+        <b>no retry protection</b>: if the request times out, don&apos;t resend — refresh the
+        unclaimed list and make sure nothing new appeared before trying again.
       </div>
       <div className="row" style={{ justifyContent: "flex-end" }}>
         <Button variant="ghost" onClick={onClose} disabled={busy}>
-          取消
+          Cancel
         </Button>
         <Button variant="primary" disabled={busy} onClick={() => void submit()}>
-          {busy ? "发放中…" : "发放一次性令牌"}
+          {busy ? "Issuing…" : "Issue one-time token"}
         </Button>
       </div>
     </Modal>

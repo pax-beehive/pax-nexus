@@ -39,7 +39,7 @@ export function ModelUsagePage() {
 
   return (
     <>
-      <PageHeader kicker="Settings · model usage" title="记忆跑起来要花多少" />
+      <PageHeader kicker="Settings · model usage" title="What memory costs to run" />
 
       <WikiLLMUsageCard
         usageDays={usageDays}

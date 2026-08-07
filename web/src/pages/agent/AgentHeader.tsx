@@ -52,7 +52,7 @@ export function AgentHeader({
 
   return (
     <>
-      <Crumbs items={[{ label: "访问树", to: "/management" }, { label: agent.display_name }]} />
+      <Crumbs items={[{ label: "Access tree", to: "/management" }, { label: agent.display_name }]} />
       <PageHeader
         variant="bleed"
         alignStart
@@ -66,9 +66,9 @@ export function AgentHeader({
         lede={
           <div className="ag-head-facts">
             <code>{agent.agent_id}</code>
-            <span>归 {agent.owner_membership_id ?? "—"} 所有</span>
+            <span>Belongs to {agent.owner_membership_id ?? "—"}</span>
             {resolvedMachine ? (
-              <span>在 {deviceName} 上自助注册 · 继承那台机器的授权</span>
+              <span>Registered itself on {deviceName} · inherits that machine's grant</span>
             ) : (
               <ProvisionedByBadge agent={agent} />
             )}
@@ -78,12 +78,12 @@ export function AgentHeader({
           <div className="row">
             {showSessions && (
               <Link to={`/governance/sessions?agent=${agent.agent_id}`} className="btn btn-ghost">
-                查看它的会话
+                View its sessions
               </Link>
             )}
             {showMemory && (
               <Link to={`/governance/memory?agent=${agent.agent_id}`} className="btn btn-ghost">
-                查看它的记忆
+                View its memory
               </Link>
             )}
           </div>

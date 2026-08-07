@@ -76,7 +76,7 @@ export function SessionFindingsList({
             <div className="gv-finding-title">{findingKindLabel(f.kind)}</div>
             <div className="gv-finding-summary">{f.summary}</div>
             <div className="gv-finding-ref">
-              {f.kind} · 证据{" "}
+              {f.kind} · evidence{" "}
               {f.evidence_event_ids.length === 0 ? "—" : f.evidence_event_ids.join(", ")}
             </div>
           </div>
@@ -85,7 +85,7 @@ export function SessionFindingsList({
             <TruncatedId value={f.session_id} />
           </div>
           <Button size="sm" onClick={() => onInspectToolCalls(f.session_id)}>
-            看这些调用
+            See the calls
           </Button>
         </div>
       ))}

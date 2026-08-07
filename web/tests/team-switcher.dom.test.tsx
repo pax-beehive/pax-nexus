@@ -115,10 +115,10 @@ describe("team switcher", () => {
     // /onboarding -> /welcome, rendered inside the shell for this active
     // session, with the "join another team" copy (not the bare
     // no-membership waiting state).
-    await screen.findByRole("heading", { name: "加入另一个团队" });
+    await screen.findByRole("heading", { name: "Join another team" });
     expect(window.location.pathname).toBe("/welcome");
-    expect(screen.getByLabelText("邀请令牌或链接")).toBeTruthy();
+    expect(screen.getByLabelText("Invitation token or link")).toBeTruthy();
     // Bootstrap claim never applies to an already-active session.
-    expect(screen.queryByRole("button", { name: "前往认领 Owner" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Claim owner" })).toBeNull();
   });
 });

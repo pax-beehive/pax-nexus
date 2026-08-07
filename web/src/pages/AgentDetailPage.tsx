@@ -76,9 +76,10 @@ export function AgentDetailPage({ me }: { me: HumanMe }) {
   if (notFound) {
     return (
       <div className="card">
-        <h2>没找到</h2>
+        <h2>Not found</h2>
         <p className="muted">
-          这个 Agent 不存在，或者你看不到它。<Link to="/management">回到访问树</Link>
+          This agent doesn't exist, or you can't see it.{" "}
+          <Link to="/management">Back to the access tree</Link>
         </p>
       </div>
     );
@@ -86,7 +87,7 @@ export function AgentDetailPage({ me }: { me: HumanMe }) {
 
   // 不用字面量 "Loading…"：renderApp 测试助手等的就是全局 boot 占位符那个
   // 字符串消失，同名会让深链测试挂死。
-  if (!agent) return <p className="muted">正在打开这个 Agent…</p>;
+  if (!agent) return <p className="muted">Opening this agent…</p>;
 
   return <LoadedAgent agent={agent} me={me} onChanged={setAgent} refetch={refetch} />;
 }

@@ -68,7 +68,7 @@ describe("OverviewPage", () => {
     expect(sevenDay.disabled).toBe(false);
     expect(sevenDay.getAttribute("title")).toBeNull();
     // Nothing is limited, so there is no retention note to show.
-    expect(screen.queryByText(/^保留 /)).toBeNull();
+    expect(screen.queryByText(/^Retained for /)).toBeNull();
 
     await app.user.click(screen.getByRole("button", { name: "7d" }));
 
@@ -139,7 +139,7 @@ describe("OverviewPage", () => {
     // The reason is on screen, not only in a tooltip: a hover-only explanation
     // is invisible on touch, which was the complaint against the phase 2b
     // stopgap this replaces (issue #86).
-    screen.getByText("保留 24h");
+    screen.getByText("Retained for 24h");
 
     // Still offered, so the reason has somewhere to live -- and clicking it
     // fires no request rather than one the backend will reject.
@@ -212,7 +212,7 @@ describe("OverviewPage", () => {
 
     await app.user.click(screen.getByRole("button", { name: "Review" }));
 
-    await screen.findByRole("heading", { name: "Agent 到底做了什么" });
+    await screen.findByRole("heading", { name: "What the agents actually did" });
   });
 
   // The Access strip's all-fulfilled path. Its failure mode is that the strip

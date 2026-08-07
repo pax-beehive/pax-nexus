@@ -71,32 +71,32 @@ export function WelcomeScreen({
         <Kicker>Entry · Welcome</Kicker>
         <h1>
           {showBootstrap
-            ? "认领这套部署的第一个 Owner"
+            ? "Claim the first owner of this deployment"
             : alreadyMember
-              ? "加入另一个团队"
-              : "你还不属于任何团队"}
+              ? "Join another team"
+              : "You don't belong to any team yet"}
         </h1>
         <p className="entry-lede">
           {showBootstrap
-            ? "你是第一个登录这套部署的账号，可以认领 Owner 身份完成初始化；也可以用邀请令牌直接加入已有团队。"
+            ? "You're the first account to sign in to this deployment — claim the owner role to finish setup, or join an existing team with an invitation token."
             : alreadyMember
-              ? "用邀请令牌或链接加入另一个团队。"
-              : "等待团队 Owner 给你发邀请，或者直接粘贴邀请令牌 / 链接加入。"}
+              ? "Join another team with an invitation token or link."
+              : "Wait for your team owner to send an invitation, or paste an invitation token / link to join directly."}
         </p>
 
         {showBootstrap && (
-          <Card kicker="Onprem · Bootstrap" title="认领初始 Owner">
-            <p>部署完成后的第一个用户可以认领 Owner 身份；这个操作不可逆，且只能成功一次。</p>
+          <Card kicker="Onprem · Bootstrap" title="Claim the initial owner">
+            <p>The first user after installation can claim the owner role; this is irreversible and can only succeed once.</p>
             <div className="entry-actions">
               <Button variant="primary" onClick={() => navigate("/bootstrap")}>
-                前往认领 Owner
+                Claim owner
               </Button>
             </div>
           </Card>
         )}
 
-        <Card kicker="Entry · Join" title="用邀请令牌加入">
-          <label htmlFor="welcome-invite-token">邀请令牌或链接</label>
+        <Card kicker="Entry · Join" title="Join with an invitation token">
+          <label htmlFor="welcome-invite-token">Invitation token or link</label>
           <input
             id="welcome-invite-token"
             type="text"
@@ -107,15 +107,15 @@ export function WelcomeScreen({
           />
           <div className="entry-actions">
             <Button variant="primary" disabled={!token.trim()} onClick={useToken}>
-              继续
+              Continue
             </Button>
           </div>
         </Card>
 
         {!showBootstrap && !alreadyMember && (
-          <p className="small entry-foot">没有邀请？联系你团队的 Owner。</p>
+          <p className="small entry-foot">No invitation? Ask your team owner.</p>
         )}
-        {email && <p className="small entry-foot">已登录为 {email}</p>}
+        {email && <p className="small entry-foot">Signed in as {email}</p>}
       </div>
     </main>
   );

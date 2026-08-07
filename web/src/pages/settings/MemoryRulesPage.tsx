@@ -196,10 +196,11 @@ export function MemoryRulesPage({ me }: { me: HumanMe }) {
     <>
       <PageHeader
         kicker="Settings · memory rules"
-        title="记忆是怎么写出来的"
+        title="How memory gets written"
         lede={
           <p className="muted flush memory-rules-copy">
-            这些规则只对以后的运行生效。要让它们作用于已有内容，就重建——它会重读证据、重写每一页。
+            These rules apply to future runs only. To apply them to what already exists, rebuild —
+            it re-reads the evidence and rewrites every page.
           </p>
         }
         actions={

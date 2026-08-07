@@ -84,16 +84,16 @@ function renderCard(options: {
 describe("卡的可见性", () => {
   it("member 看自己的活跃 Agent：暂停 + 退役，没有移交", () => {
     renderCard({});
-    expect(screen.getByRole("button", { name: "暂停" })).toBeDefined();
-    expect(screen.getByRole("button", { name: "退役" })).toBeDefined();
-    expect(screen.queryByRole("button", { name: "移交" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "恢复" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Pause" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Retire" })).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Transfer" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Resume" })).toBeNull();
   });
 
   it("suspended 状态下暂停换成恢复", () => {
     renderCard({ agent: makeAgent({ owner_membership_id: "mbr_01", status: "suspended" }) });
-    expect(screen.getByRole("button", { name: "恢复" })).toBeDefined();
-    expect(screen.queryByRole("button", { name: "暂停" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Resume" })).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Pause" })).toBeNull();
   });
 
   it("owner 看别人的 Agent：四种动作都在", () => {
@@ -101,9 +101,9 @@ describe("卡的可见性", () => {
       me: makeMe({ role: "owner", membership_id: "mbr_01" }),
       agent: makeAgent({ owner_membership_id: "mbr_99" }),
     });
-    expect(screen.getByRole("button", { name: "暂停" })).toBeDefined();
-    expect(screen.getByRole("button", { name: "退役" })).toBeDefined();
-    expect(screen.getByRole("button", { name: "移交" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Pause" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Retire" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Transfer" })).toBeDefined();
   });
 
   it("admin 看别人的 Agent：只有暂停", () => {
@@ -111,18 +111,18 @@ describe("卡的可见性", () => {
       me: makeMe({ role: "admin", membership_id: "mbr_07" }),
       agent: makeAgent({ owner_membership_id: "mbr_99" }),
     });
-    expect(screen.getByRole("button", { name: "暂停" })).toBeDefined();
-    expect(screen.queryByRole("button", { name: "退役" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "移交" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Pause" })).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Retire" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Transfer" })).toBeNull();
   });
 
   it("退役后三张卡都消失，只剩终态说明", () => {
     renderCard({
       agent: makeAgent({ owner_membership_id: "mbr_01", status: "retired", retired_at: "2026-08-01T00:00:00Z" }),
     });
-    expect(screen.queryByRole("button", { name: "暂停" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "退役" })).toBeNull();
-    expect(screen.getByText(/终态，无法恢复/)).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Pause" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Retire" })).toBeNull();
+    expect(screen.getByText(/final, it can't be recovered/)).toBeDefined();
   });
 });
 
@@ -137,13 +137,13 @@ describe("销毁类确认框的后果清单", () => {
       enrollments: [makeEnrollment({ enrollment_id: "enr_a", credential_label: "待认领的机器" })],
     });
 
-    await user.click(screen.getByRole("button", { name: "暂停" }));
+    await user.click(screen.getByRole("button", { name: "Pause" }));
     const dialog = screen.getByRole("dialog");
     expect(dialog.textContent).toContain("mac-studio-01");
     expect(dialog.textContent).toContain("linux-box");
     expect(dialog.textContent).toContain("待认领的机器");
-    expect(dialog.textContent).toContain("2 把活跃密钥");
-    expect(dialog.textContent).toContain("1 张未认领令牌");
+    expect(dialog.textContent).toContain("2 active keys");
+    expect(dialog.textContent).toContain("1 unclaimed token");
   });
 
   it("某条腿没取到时说「可能更多」，而不是显示 0", async () => {
@@ -168,10 +168,10 @@ describe("销毁类确认框的后果清单", () => {
       </AuthProvider>,
     );
 
-    await user.click(screen.getByRole("button", { name: "暂停" }));
+    await user.click(screen.getByRole("button", { name: "Pause" }));
     const dialog = screen.getByRole("dialog");
-    expect(dialog.textContent).toContain("没取到");
-    expect(dialog.textContent).not.toContain("0 把活跃密钥");
+    expect(dialog.textContent).toContain("couldn't be loaded");
+    expect(dialog.textContent).not.toContain("0 active keys");
   });
 });
 
@@ -182,8 +182,8 @@ describe("动作请求", () => {
       fetch: () => jsonResponse({ agent: makeAgent({ owner_membership_id: "mbr_01", status: "suspended" }) }),
     });
 
-    await user.click(screen.getByRole("button", { name: "暂停" }));
-    await user.click(screen.getByRole("button", { name: "暂停并销毁密钥" }));
+    await user.click(screen.getByRole("button", { name: "Pause" }));
+    await user.click(screen.getByRole("button", { name: "Pause and revoke keys" }));
 
     const patches = callsTo(fetchMock, "/v1/me/agents/agent-1", "PATCH");
     expect(patches).toHaveLength(1);
@@ -200,8 +200,8 @@ describe("动作请求", () => {
       fetch: () => jsonResponse({ agent: makeAgent({ owner_membership_id: "mbr_01", status: "retired" }) }),
     });
 
-    await user.click(screen.getByRole("button", { name: "退役" }));
-    await user.click(screen.getByRole("button", { name: "永久退役" }));
+    await user.click(screen.getByRole("button", { name: "Retire" }));
+    await user.click(screen.getByRole("button", { name: "Retire permanently" }));
 
     const deletes = callsTo(fetchMock, "/v1/me/agents/agent-1", "DELETE");
     expect(deletes).toHaveLength(1);
@@ -222,9 +222,9 @@ describe("动作请求", () => {
       },
     });
 
-    await user.click(screen.getByRole("button", { name: "移交" }));
-    await user.selectOptions(await screen.findByLabelText("交给谁"), "mbr_99");
-    await user.click(screen.getByRole("button", { name: "移交并吊销密钥" }));
+    await user.click(screen.getByRole("button", { name: "Transfer" }));
+    await user.selectOptions(await screen.findByLabelText("Hand to"), "mbr_99");
+    await user.click(screen.getByRole("button", { name: "Transfer and revoke keys" }));
 
     const posts = callsTo(fetchMock, "/v1/admin/agents/agent-1/transfer", "POST");
     expect(posts).toHaveLength(1);

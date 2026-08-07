@@ -8,19 +8,19 @@ import { describeRecall } from "./provenance";
 export function NoteRecalls({ recalls }: { recalls: ExplorerRecallUse[] }) {
   return (
     <section className="card">
-      <h2>每一次被端到 Agent 面前</h2>
+      <h2>Every time it was offered to an agent</h2>
       {recalls.length === 0 ? (
         <EmptyState
-          title="还没有召回记录"
-          body="这条 Team Note 还没有被任何一次召回决策命中过。"
+          title="No recalls yet"
+          body="No recall decision has served this Team Note to an agent yet."
         />
       ) : (
         <table>
           <thead>
             <tr>
-              <th>时间</th>
-              <th>接收方</th>
-              <th>结果</th>
+              <th>Time</th>
+              <th>Agent</th>
+              <th>Outcome</th>
             </tr>
           </thead>
           <tbody>

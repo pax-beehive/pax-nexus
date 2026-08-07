@@ -296,7 +296,7 @@ describe("Access tree · own-machine enrollment secret lifecycle", () => {
   it("shows the one-time secret after creating an enrollment on your own machine level", async () => {
     await createEnrollmentOnOwnMachineLevel();
 
-    screen.getByText("一次性设备注册令牌 · 只展示一次，不存任何地方");
+    screen.getByText("One-time device enrollment token · shown once, stored nowhere");
     // Pin the rendered command to the *device* connect command specifically
     // — deviceConnectCommand vs enrollmentConnectCommand (the Agent one)
     // produce different text, and a button-label-only assertion would never

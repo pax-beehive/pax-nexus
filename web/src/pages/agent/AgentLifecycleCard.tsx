@@ -33,24 +33,25 @@ type PendingAction = { kind: PendingKind; key: string };
 
 const DIALOG_META: Record<PendingKind, { title: string; consequence: string; confirmLabel: string }> = {
   suspend: {
-    title: "暂停这个 Agent",
-    consequence: "它会立刻停止读写团队记忆。密钥被销毁，不是暂存。",
-    confirmLabel: "暂停并销毁密钥",
+    title: "Pause this agent",
+    consequence: "It stops writing and reading team memory immediately. Keys are destroyed, not parked.",
+    confirmLabel: "Pause and revoke keys",
   },
   resume: {
-    title: "恢复运行",
-    consequence: "恢复后它能重新读写，但旧密钥不会回来——你要重新发一次接入令牌。",
-    confirmLabel: "恢复运行",
+    title: "Resume running",
+    consequence:
+      "It can read and write again, but old keys won't come back — you'll need to issue a new enrollment token.",
+    confirmLabel: "Resume running",
   },
   retire: {
-    title: "永久退役",
-    consequence: "终局。这个身份永远无法再启用，ID 也不能重用。",
-    confirmLabel: "永久退役",
+    title: "Retire permanently",
+    consequence: "Final. The identity can never be reactivated and the ID can't be reused.",
+    confirmLabel: "Retire permanently",
   },
   transfer: {
-    title: "移交给别人",
-    consequence: "把身份交给另一个人，并吊销当前所有者签发的每一把密钥。",
-    confirmLabel: "移交并吊销密钥",
+    title: "Hand to another owner",
+    consequence: "Transfers the identity and revokes every key the current owner issued.",
+    confirmLabel: "Transfer and revoke keys",
   },
 };
 
@@ -65,22 +66,29 @@ function DestructionPreview({
   if (enrollments === undefined || credentials === undefined) {
     return (
       <p className="small muted">
-        这台 Agent 的密钥清单没取到，销毁范围可能比这里显示的多。
+        This agent's key list couldn't be loaded — the destruction scope may be larger than shown here.
       </p>
     );
   }
   return (
     <div className="small">
       <p>
-        这会销毁 <b>{credentials.length} 把活跃密钥</b> 和{" "}
-        <b>{enrollments.length} 张未认领令牌</b>：
+        This will destroy{" "}
+        <b>
+          {credentials.length} active {credentials.length === 1 ? "key" : "keys"}
+        </b>{" "}
+        and{" "}
+        <b>
+          {enrollments.length} unclaimed {enrollments.length === 1 ? "token" : "tokens"}
+        </b>
+        :
       </p>
       <ul>
         {credentials.map((c) => (
           <li key={c.credential_id}>{c.label}</li>
         ))}
         {enrollments.map((e) => (
-          <li key={e.enrollment_id}>{e.credential_label}（待认领）</li>
+          <li key={e.enrollment_id}>{e.credential_label} (unclaimed)</li>
         ))}
       </ul>
     </div>
@@ -126,7 +134,7 @@ export function AgentLifecycleCard({
     setPending(undefined);
     const fresh = await refetch();
     onChanged(fresh);
-    toast("warn", "有人在你之前改过它，已刷新到最新数据。");
+    toast("warn", "Someone saved changes before you — refreshed to the latest data.");
   };
 
   const runAction = async () => {
@@ -136,17 +144,17 @@ export function AgentLifecycleCard({
       if (pending.kind === "retire") {
         const updated = await retireAgent(access.actScope, agent.agent_id, agent.resource_version, pending.key);
         onChanged(updated);
-        toast("warn", "已永久退役——终态，无法恢复。");
+        toast("warn", "Retired permanently — final, it can't be recovered.");
       } else if (pending.kind === "transfer") {
         if (!targetMembershipId) {
-          toast("warn", "请先选择移交目标");
+          toast("warn", "Choose a transfer target first");
           setBusy(false);
           return;
         }
         // 移交没有 /v1/me/... 端点，恒走 admin scope（见文件头注释）。
         const updated = await transferAgent(agent.agent_id, targetMembershipId, agent.resource_version);
         onChanged(updated);
-        toast("ok", "已移交，原所有者签发的密钥已全部吊销。");
+        toast("ok", "Transferred — every key issued by the previous owner has been revoked.");
       } else {
         const status = pending.kind === "suspend" ? "suspended" : "active";
         const updated = await updateAgent(access.actScope, agent.agent_id, { status }, agent.resource_version);
@@ -154,8 +162,8 @@ export function AgentLifecycleCard({
         toast(
           pending.kind === "suspend" ? "warn" : "ok",
           pending.kind === "suspend"
-            ? "已暂停；密钥与待认领令牌已被吊销。"
-            : "已恢复运行；旧密钥不会回来，需重新发放接入令牌。",
+            ? "Paused — keys and pending tokens have been revoked."
+            : "Resumed — old keys won't come back; issue a new enrollment token.",
         );
       }
       setPending(undefined);
@@ -173,7 +181,7 @@ export function AgentLifecycleCard({
   if (access.retired) {
     return (
       <Card title="Lifecycle">
-        <p className="small muted">这个身份已退役——终态，无法恢复。</p>
+        <p className="small muted">This identity is retired — final, it can't be recovered.</p>
       </Card>
     );
   }
@@ -188,48 +196,48 @@ export function AgentLifecycleCard({
         {showSuspend && (
           <div className="ag-action">
             <div>
-              <div className="ag-action-name">暂停这个 Agent</div>
-              <div className="ag-action-why">它会立刻停止读写团队记忆。密钥被销毁，不是暂存。</div>
+              <div className="ag-action-name">Pause this agent</div>
+              <div className="ag-action-why">It stops writing and reading team memory immediately. Keys are destroyed, not parked.</div>
             </div>
             <Button size="sm" onClick={() => setPending({ kind: "suspend", key: beginAction() })}>
-              暂停
+              Pause
             </Button>
           </div>
         )}
         {showResume && (
           <div className="ag-action">
             <div>
-              <div className="ag-action-name">恢复运行</div>
+              <div className="ag-action-name">Resume running</div>
               <div className="ag-action-why">
-                恢复后它能重新读写，但旧密钥不会回来——你要重新发一次接入令牌。
+                It can read and write again, but old keys won't come back — you'll need to issue a new enrollment token.
               </div>
             </div>
             <Button size="sm" onClick={() => setPending({ kind: "resume", key: beginAction() })}>
-              恢复
+              Resume
             </Button>
           </div>
         )}
         {access.canRetire && (
           <div className="ag-action">
             <div>
-              <div className="ag-action-name">永久退役</div>
-              <div className="ag-action-why">终局。这个身份永远无法再启用，ID 也不能重用。</div>
+              <div className="ag-action-name">Retire permanently</div>
+              <div className="ag-action-why">Final. The identity can never be reactivated and the ID can't be reused.</div>
             </div>
             <Button variant="danger" size="sm" onClick={() => setPending({ kind: "retire", key: beginAction() })}>
-              退役
+              Retire
             </Button>
           </div>
         )}
         {access.canTransfer && (
           <div className="ag-action">
             <div>
-              <div className="ag-action-name">移交给别人</div>
+              <div className="ag-action-name">Hand to another owner</div>
               <div className="ag-action-why">
-                把身份交给另一个人，并吊销当前所有者签发的每一把密钥。
+                Transfers the identity and revokes every key the current owner issued.
               </div>
             </div>
             <Button size="sm" onClick={() => setPending({ kind: "transfer", key: beginAction() })}>
-              移交
+              Transfer
             </Button>
           </div>
         )}
@@ -249,13 +257,13 @@ export function AgentLifecycleCard({
           )}
           {pending.kind === "transfer" && (
             <div>
-              <label htmlFor="lc-transfer-target">交给谁</label>
+              <label htmlFor="lc-transfer-target">Hand to</label>
               <select
                 id="lc-transfer-target"
                 value={targetMembershipId}
                 onChange={(e) => setTargetMembershipId(e.target.value)}
               >
-                <option value="">选择成员…</option>
+                <option value="">Choose a member…</option>
                 {members?.map((m) => (
                   <option key={m.membership_id} value={m.membership_id}>
                     {m.display_name}

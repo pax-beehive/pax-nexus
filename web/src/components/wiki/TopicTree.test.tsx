@@ -83,7 +83,7 @@ describe("TopicTreePanel", () => {
     );
 
     const crumb = screen.getByRole("navigation", { name: "Topic path" });
-    within(crumb).getByRole("button", { name: "全部" });
+    within(crumb).getByRole("button", { name: "All" });
     const current = within(crumb).getByRole("button", { name: "Engineering" });
     expect(current.getAttribute("aria-current")).toBe("location");
 
@@ -105,7 +105,7 @@ describe("TopicTreePanel", () => {
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: "全部" }));
+    await user.click(screen.getByRole("button", { name: "All" }));
 
     expect(onNavigate).toHaveBeenCalledWith([]);
   });

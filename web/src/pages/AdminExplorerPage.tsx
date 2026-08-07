@@ -35,8 +35,8 @@ function NoteHead({ detail }: { detail: TeamNoteDetail }) {
   const summary = detail.note.summary;
   const audience =
     summary.audience_agent_ids.length === 0
-      ? "不限（全团队可见）"
-      : summary.audience_agent_ids.join("、");
+      ? "everyone on the team"
+      : summary.audience_agent_ids.join(", ");
   return (
     <section className="card">
       <div className="row wrap">
@@ -55,14 +55,14 @@ function NoteHead({ detail }: { detail: TeamNoteDetail }) {
       <p className="gv-note-head-body">{detail.note.body}</p>
       <div className="row wrap small gv-id-ref">
         <span>
-          来自 <code>{summary.origin_agent_id}</code> · session{" "}
+          written by <code>{summary.origin_agent_id}</code> · session{" "}
           <code>{detail.note.origin_session_id}</code>
         </span>
-        <span>受众 {audience}</span>
-        <span>创建于 {formatTime(summary.created_at)}</span>
-        <span>更新于 {formatTime(summary.updated_at)}</span>
-        <span>软过期 {formatTime(summary.soft_expires_at)}</span>
-        <span>硬过期 {formatTime(summary.hard_expires_at)}</span>
+        <span>for {audience}</span>
+        <span>created {formatTime(summary.created_at)}</span>
+        <span>updated {formatTime(summary.updated_at)}</span>
+        <span>soft expiry {formatTime(summary.soft_expires_at)}</span>
+        <span>hard expiry {formatTime(summary.hard_expires_at)}</span>
       </div>
     </section>
   );
@@ -77,9 +77,9 @@ function NoteRelations({ detail }: { detail: TeamNoteDetail }) {
   const hasAny = subjects.length > 0 || notes.length > 0;
   return (
     <section className="card">
-      <h2>相关的事实</h2>
+      <h2>Related facts</h2>
       {!hasAny ? (
-        <p className="muted small">没有关联的主题或笔记。</p>
+        <p className="muted small">No related topics or notes.</p>
       ) : (
         <>
           {subjects.length > 0 && (
@@ -152,12 +152,12 @@ export function AdminExplorerPage() {
     <>
       <PageHeader
         variant="bleed"
-        kicker="Governance · 追一条事实"
-        title="这是从哪来的？"
+        kicker="Governance · trace a fact"
+        title="Where did this come from?"
         lede={
           <p className="lede-dim">
-            挑一条团队正在流传的事实，顺着它回到产生它的那次会话——再往前看它被交给过哪些
-            Agent。
+            Pick a fact the team is circulating and follow it back to the session that produced
+            it — and forward to every agent it was handed to.
           </p>
         }
       />
@@ -167,14 +167,14 @@ export function AdminExplorerPage() {
           {noteId ? (
             <>
               <Link className="small gv-back-link" to="/governance/memory">
-                ← 返回列表
+                ← Back to list
               </Link>
               <NoteDetail noteId={noteId} />
             </>
           ) : (
             <EmptyState
-              title="挑一条 Team Note"
-              body="从左边选一条正在流传的事实，看看它是怎么来的。"
+              title="Pick a Team Note"
+              body="Choose a fact in circulation from the list on the left to see how it got here."
             />
           )}
         </div>

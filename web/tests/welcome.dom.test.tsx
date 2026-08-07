@@ -33,12 +33,12 @@ describe("/welcome: saas profile", () => {
       },
     });
 
-    await screen.findByRole("heading", { name: "你还不属于任何团队" });
+    await screen.findByRole("heading", { name: "You don't belong to any team yet" });
     expect(window.location.pathname).toBe("/welcome");
     // No bootstrap-claim entry for saas.
-    expect(screen.queryByRole("button", { name: "前往认领 Owner" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Claim owner" })).toBeNull();
     // The join-with-token entry is still offered.
-    screen.getByLabelText("邀请令牌或链接");
+    screen.getByLabelText("Invitation token or link");
   });
 });
 
@@ -56,11 +56,11 @@ describe("/welcome: onprem profile, bootstrap open", () => {
       },
     });
 
-    await screen.findByRole("heading", { name: "认领这套部署的第一个 Owner" });
+    await screen.findByRole("heading", { name: "Claim the first owner of this deployment" });
     expect(window.location.pathname).toBe("/welcome");
-    screen.getByRole("button", { name: "前往认领 Owner" });
+    screen.getByRole("button", { name: "Claim owner" });
     // The join-with-token entry stays available alongside bootstrap.
-    screen.getByLabelText("邀请令牌或链接");
+    screen.getByLabelText("Invitation token or link");
   });
 });
 
@@ -76,9 +76,9 @@ describe("/welcome: onprem profile, bootstrap closed", () => {
       </MemoryRouter>,
     );
 
-    screen.getByRole("heading", { name: "你还不属于任何团队" });
-    expect(screen.queryByRole("button", { name: "前往认领 Owner" })).toBeNull();
-    screen.getByLabelText("邀请令牌或链接");
+    screen.getByRole("heading", { name: "You don't belong to any team yet" });
+    expect(screen.queryByRole("button", { name: "Claim owner" })).toBeNull();
+    screen.getByLabelText("Invitation token or link");
   });
 });
 
@@ -93,7 +93,7 @@ describe("/welcome: no-membership catch-all", () => {
       },
     });
 
-    await screen.findByRole("heading", { name: "你还不属于任何团队" });
+    await screen.findByRole("heading", { name: "You don't belong to any team yet" });
     // The regression this task fixes: the old path="*" render left the
     // address bar on /management. Asserting content alone would pass even
     // with the old in-place render, so this must check the URL.
@@ -110,7 +110,7 @@ describe("/welcome: no-membership catch-all", () => {
       },
     });
 
-    await screen.findByRole("heading", { name: "你还不属于任何团队" });
+    await screen.findByRole("heading", { name: "You don't belong to any team yet" });
     expect(window.location.pathname).toBe("/welcome");
   });
 });
@@ -138,8 +138,8 @@ describe("/onboarding legacy redirect", () => {
       },
     });
 
-    await screen.findByRole("heading", { name: "加入另一个团队" });
+    await screen.findByRole("heading", { name: "Join another team" });
     expect(window.location.pathname).toBe("/welcome");
-    expect(screen.getByLabelText("邀请令牌或链接")).toBeTruthy();
+    expect(screen.getByLabelText("Invitation token or link")).toBeTruthy();
   });
 });

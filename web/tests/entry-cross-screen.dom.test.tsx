@@ -65,7 +65,7 @@ describe("item 1: two deployment profiles, unauthenticated through to /welcome",
         throw new Error("no API calls expected while unauthenticated");
       },
     });
-    const loginButton = await screen.findByRole("button", { name: /使用 OIDC 登录/ });
+    const loginButton = await screen.findByRole("button", { name: /Sign in with OIDC/ });
     // Login is a top-level navigation to the OIDC provider (window.location.assign),
     // not a fetch — clicking it is only meant to prove this is the real login
     // page and the click handler runs cleanly (same pattern as
@@ -89,11 +89,11 @@ describe("item 1: two deployment profiles, unauthenticated through to /welcome",
       },
     });
 
-    await screen.findByRole("heading", { name: "你还不属于任何团队" });
+    await screen.findByRole("heading", { name: "You don't belong to any team yet" });
     expect(window.location.pathname).toBe("/welcome");
     // The saas branch: no bootstrap-claim entry, only the join-with-token card.
-    expect(screen.queryByRole("button", { name: "前往认领 Owner" })).toBeNull();
-    expect(screen.getByLabelText("邀请令牌或链接")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Claim owner" })).toBeNull();
+    expect(screen.getByLabelText("Invitation token or link")).toBeTruthy();
   });
 
   it("onprem: an unauthenticated visitor logs in, lands no-membership, and /welcome shows the bootstrap-claim entry", async () => {
@@ -104,7 +104,7 @@ describe("item 1: two deployment profiles, unauthenticated through to /welcome",
         throw new Error("no API calls expected while unauthenticated");
       },
     });
-    const loginButton = await screen.findByRole("button", { name: /使用 OIDC 登录/ });
+    const loginButton = await screen.findByRole("button", { name: /Sign in with OIDC/ });
     await first.user.click(loginButton);
     first.unmount();
 
@@ -120,10 +120,10 @@ describe("item 1: two deployment profiles, unauthenticated through to /welcome",
       },
     });
 
-    await screen.findByRole("heading", { name: "认领这套部署的第一个 Owner" });
+    await screen.findByRole("heading", { name: "Claim the first owner of this deployment" });
     expect(window.location.pathname).toBe("/welcome");
-    screen.getByRole("button", { name: "前往认领 Owner" });
-    expect(screen.getByLabelText("邀请令牌或链接")).toBeTruthy();
+    screen.getByRole("button", { name: "Claim owner" });
+    expect(screen.getByLabelText("Invitation token or link")).toBeTruthy();
   });
 });
 
@@ -152,7 +152,7 @@ describe("item 2: /onboarding stays reachable (redirects, not 404) under no-memb
       },
     });
 
-    await screen.findByRole("heading", { name: "你还不属于任何团队" });
+    await screen.findByRole("heading", { name: "You don't belong to any team yet" });
     expect(window.location.pathname).toBe("/welcome");
   });
 });
@@ -176,7 +176,7 @@ describe("item 3: one-time credentials never survive the flow", () => {
       },
     });
 
-    await user.click(await screen.findByRole("button", { name: "接受邀请" }));
+    await user.click(await screen.findByRole("button", { name: "Accept invitation" }));
     await screen.findByRole("heading", { name: "My Agents" });
 
     // Exhaustive scan, not just the known pending_invitation key: a leak
@@ -205,8 +205,8 @@ describe("item 3: one-time credentials never survive the flow", () => {
       },
     });
 
-    await user.type(screen.getByLabelText("Bootstrap 密钥"), SECRET);
-    await user.click(screen.getByRole("button", { name: "认领 Owner" }));
+    await user.type(screen.getByLabelText("Bootstrap key"), SECRET);
+    await user.click(screen.getByRole("button", { name: "Claim owner" }));
 
     await screen.findByRole("heading", { name: "Access flows downward" });
 

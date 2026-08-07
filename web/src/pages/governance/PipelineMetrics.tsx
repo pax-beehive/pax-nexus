@@ -49,28 +49,28 @@ function latencyValue(ms: number | undefined): string {
 
 function queuedSub(extraction: OperationsSummary["extraction"], generatedAt: string): string {
   if (extraction.unextracted_events === 0) return "—";
-  if (!extraction.oldest_unextracted_at) return "最老的未抽取事件：时间未知";
-  return `最老的未抽取事件：${formatRelativeFrom(extraction.oldest_unextracted_at, generatedAt)}`;
+  if (!extraction.oldest_unextracted_at) return "Oldest unextracted event: time unknown";
+  return `Oldest unextracted event: ${formatRelativeFrom(extraction.oldest_unextracted_at, generatedAt)}`;
 }
 
 export function PipelineMetrics({ summary }: { summary: OperationsSummary }) {
   const { extraction, latency, recalls, errors, generated_at } = summary;
 
   const cells: MetricCell[] = [
-    { label: "扣下待查", value: String(extraction.quarantined), sub: "—" },
+    { label: "Held for review", value: String(extraction.quarantined), sub: "—" },
     {
-      label: "失败",
+      label: "Failed",
       value: String(extraction.failed),
-      sub: `抽取失败；全部操作出错 ${errors} 次`,
+      sub: `extraction failed · ${errors} errors across all operations`,
     },
     {
-      label: "排队中",
+      label: "Waiting",
       value: String(extraction.unextracted_events),
       sub: queuedSub(extraction, generated_at),
     },
-    { label: "典型延迟", value: latencyValue(latency.p50_ms), sub: "p50" },
-    { label: "最坏情况", value: latencyValue(latency.p95_ms), sub: "p95" },
-    { label: "空手而归", value: String(recalls.empty), sub: "证据不足或预算不够" },
+    { label: "Typical delay", value: latencyValue(latency.p50_ms), sub: "p50" },
+    { label: "Worst case", value: latencyValue(latency.p95_ms), sub: "p95" },
+    { label: "Recalls refused", value: String(recalls.empty), sub: "insufficient evidence or budget" },
   ];
 
   return (

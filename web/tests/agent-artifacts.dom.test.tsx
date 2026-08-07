@@ -81,7 +81,7 @@ function renderKeys(
 describe("三态", () => {
   it("加载中两张卡各显示加载态", () => {
     renderKeys({ enrollments: { loading: true }, credentials: { loading: true } });
-    expect(screen.getAllByText("加载中…").length).toBe(2);
+    expect(screen.getAllByText("Loading…").length).toBe(2);
   });
 
   it("一条腿失败不影响另一条", () => {
@@ -99,8 +99,8 @@ describe("三态", () => {
       credentials: { items: [], loading: false },
     });
     expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
-    expect(screen.getByText(/还没有待认领的令牌/)).toBeDefined();
-    expect(screen.getByText(/还没有任何密钥/)).toBeDefined();
+    expect(screen.getByText(/Nothing waiting to be claimed/)).toBeDefined();
+    expect(screen.getByText(/No keys yet/)).toBeDefined();
   });
 });
 
@@ -122,8 +122,8 @@ describe("待认领令牌", () => {
     );
 
     expect(screen.getByText("raspberry-pi")).toBeDefined();
-    await user.click(screen.getByRole("button", { name: "取消" }));
-    await user.click(screen.getByRole("button", { name: "确认取消" }));
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await user.click(screen.getByRole("button", { name: "Cancel token" }));
 
     const calls = await vi.waitFor(() => {
       const found = callsTo(fetchMock, "/v1/me/agents/agent-1/enrollments/enr_01", "DELETE");
@@ -148,8 +148,8 @@ describe("吊销", () => {
       { fetch: () => jsonResponse({ credential: makeCredential() }) },
     );
 
-    await user.click(screen.getByRole("button", { name: "吊销" }));
-    await user.click(screen.getByRole("button", { name: "确认吊销" }));
+    await user.click(screen.getByRole("button", { name: "Revoke" }));
+    await user.click(screen.getByRole("button", { name: "Revoke key" }));
 
     const calls = await vi.waitFor(() => {
       const found = callsTo(fetchMock, "/v1/me/agents/agent-1/credentials/cred_01", "DELETE");
@@ -175,7 +175,7 @@ describe("历史", () => {
     );
 
     expect(callsTo(fetchMock, "/v1/me/agents/agent-1/credentials", "GET")).toHaveLength(0);
-    await user.click(screen.getByRole("button", { name: "显示密钥历史" }));
+    await user.click(screen.getByRole("button", { name: "Show key history" }));
 
     await screen.findByText(/revoked/);
     const calls = callsTo(fetchMock, "/v1/me/agents/agent-1/credentials", "GET");
@@ -205,7 +205,7 @@ describe("历史", () => {
       },
     );
 
-    await user.click(screen.getByRole("button", { name: "显示密钥历史" }));
+    await user.click(screen.getByRole("button", { name: "Show key history" }));
     await screen.findByText("Alice MacBook");
 
     expect(callsTo(fetchMock, "/v1/me/agents/agent-1/credentials", "GET")).toHaveLength(1);
@@ -232,7 +232,7 @@ describe("历史", () => {
       },
     );
 
-    await user.click(screen.getByRole("button", { name: "显示令牌历史" }));
+    await user.click(screen.getByRole("button", { name: "Show token history" }));
     await screen.findByText("Alice MacBook");
 
     expect(callsTo(fetchMock, "/v1/me/agents/agent-1/enrollments", "GET")).toHaveLength(1);
@@ -258,20 +258,20 @@ describe("发放到仪式", () => {
       },
     );
 
-    await user.click(screen.getByRole("button", { name: "发放接入权限" }));
-    await user.type(screen.getByLabelText(/它会在哪台机器上跑/), "mac-studio-01");
-    await user.click(screen.getByRole("button", { name: "发放一次性令牌" }));
+    await user.click(screen.getByRole("button", { name: "Issue access" }));
+    await user.type(screen.getByLabelText(/Where will it run/), "mac-studio-01");
+    await user.click(screen.getByRole("button", { name: "Issue one-time token" }));
 
     expect(await screen.findByText("tm_enroll_x.secret-value")).toBeDefined();
     // 仪式文案必须对齐设备/邀请两处调用点的模板（同一份「只展示一次」的
     // 警告 + 紧迫感 headline），不是一处脱节的自造文案。
-    expect(screen.getByText("一次性接入令牌 · 只展示一次，不存任何地方")).toBeDefined();
+    expect(screen.getByText("One-time enrollment token · shown once, stored nowhere")).toBeDefined();
     // 命令块必须真的渲染出 Agent 侧的接入命令（enrollmentConnectCommand），
     // 不是设备侧的 deviceConnectCommand——只断言按钮名（"复制接入命令"）
     // 抓不住两条命令被对调，见 devices.dom.test.tsx:80-87 的同型注释。
     expect(screen.getByText(/paxl channel connect onprem/)).toBeDefined();
-    await user.click(screen.getByRole("button", { name: "我已保存，关闭" }));
-    await user.click(screen.getByRole("button", { name: "确定关闭" }));
+    await user.click(screen.getByRole("button", { name: "I've stored it — close" }));
+    await user.click(screen.getByRole("button", { name: "Yes, close it" }));
 
     expect(screen.queryByText("tm_enroll_x.secret-value")).toBeNull();
     expect(JSON.stringify(sessionStorage)).not.toContain("secret-value");
@@ -288,6 +288,6 @@ describe("发放到仪式", () => {
       },
       { me, agent },
     );
-    expect(screen.queryByRole("button", { name: "发放接入权限" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Issue access" })).toBeNull();
   });
 });
