@@ -4,9 +4,10 @@
 :root {
   /* 顶栏高度。这是**权威值**而不是对现状的描述：.topbar 用它当固定高度，
      .subnav 用它当 sticky 偏移，两者引用同一个变量，就不可能再对不上。
+     44px 来自设计稿（docs/w.html）实测：12px 上下内边距 + 13px 导航文字。
      曾经 subnav 写死 top:57px（窄屏 53px）而顶栏实测 62px，滚动后 subnav
      顶部 5-9px 被顶栏盖住 —— 顶栏高度并不随断点变化，估算的数字对不上。 */
-  --topbar-h: 62px;
+  --topbar-h: 44px;
 }
 
 .app-shell { min-height: 100vh; background: var(--color-bg); color: var(--color-text); }
@@ -26,17 +27,15 @@
 .topbar > * { min-width: 0; }
 .topbar-cell {
   display: flex; align-items: center; gap: 10px; flex: 0 0 auto;
-  padding: 0 18px; border-right: 1px solid var(--color-divider);
+  padding: 0 16px; border-right: 1px solid var(--color-divider);
 }
 .topbar-brand {
   font-family: var(--font-heading); font-weight: var(--font-heading-weight);
-  font-size: 21px; letter-spacing: -0.025em; line-height: 1.1;
+  font-size: 18px; letter-spacing: -0.025em; line-height: 1.1;
   padding: 10px 20px; flex: 0 0 auto; white-space: nowrap;
   border-right: 1px solid var(--color-divider);
   display: flex; align-items: center;
 }
-/* 团队切换器的外边距与 100% 宽是侧边栏时代的遗留，在一行的顶栏里不适用。 */
-.topbar-cell .team-switcher { width: auto; margin: 0; }
 .topbar-cell .team-switcher .team-name { max-width: 12ch; }
 .topbar-nav {
   display: flex; align-items: stretch; flex: 0 1 auto; min-width: 0;
@@ -90,18 +89,31 @@
 /* — 二级导航 — */
 .subnav {
   display: flex; align-items: stretch; gap: 2px; padding: 0 20px;
-  border-bottom: 2px solid var(--color-divider); background: var(--color-bg);
-  position: sticky; top: var(--topbar-h); z-index: 25; overflow-x: auto;
+  background: var(--color-bg);
+  /* 通栏 2px 分隔线画在 padding box 内侧底部（背景渐变），活动条目的 accent
+     下划线用 inset shadow 与之重合。不能用「nav border-bottom + 条目
+     border/margin 负值出血」的重叠方案：overflow-x:auto 会把超出 padding
+     box 的绘制裁掉（下划线永远不显示），而这 2px 出血又计入可滚动区域，
+     在常驻滚动条的系统上于条目条右端冒出一条幻影纵向滚动条。背景与 inset
+     shadow 都在 padding box 内侧，不产生任何出血。 */
+  background-image: linear-gradient(var(--color-divider), var(--color-divider));
+  background-size: 100% 2px; background-position: 0 100%; background-repeat: no-repeat;
+  position: sticky; top: var(--topbar-h); z-index: 25;
+  overflow-x: auto; scrollbar-width: none;
 }
+.subnav::-webkit-scrollbar { display: none; }
 .subnav a {
-  padding: 10px 14px; font-size: 13px; color: inherit; text-decoration: none;
-  white-space: nowrap; border-bottom: 2px solid transparent; margin-bottom: -2px;
+  padding: 14px 16px; font-size: 13px; color: inherit; text-decoration: none;
+  white-space: nowrap;
 }
 .subnav a:hover { color: var(--color-accent); }
-.subnav a[aria-current="page"] { border-bottom-color: var(--color-accent); color: var(--color-accent); }
+.subnav a[aria-current="page"] { box-shadow: inset 0 -2px 0 0 var(--color-accent); color: var(--color-accent); }
 
-/* — 内容区 — */
-.page { padding: 26px 28px 96px; max-width: 1280px; }
+/* — 内容区 —
+   通栏流式：设计稿（docs/w.html）的 Overview / Management / Governance 都是
+   全宽铺满、只有侧内边距，不设 max-width 内容盒；宽内容（表格、图表）由各自
+   的容器横向滚动，页面主体任何断点都不横向滚动。 */
+.page { padding: 26px 28px 96px; }
 /* 页面标题区。此前是四个类：.page-head、.gv-head、.wiki-head、.ag-head，
    后三个的 flex 规则逐字相同，与 .page-head 也只差「用 margin 还是 padding
    把标题与正文拉开」这一件事。剩下的是两种真实的节奏，做成 .bleed 修饰。 */
@@ -159,8 +171,8 @@ p.lede-narrow { max-width: 62ch; margin: var(--space-1) 0 0; }
 .load-more { margin-top: var(--space-3); text-align: center; }
 
 /* — 响应式 —
-   1280 以上是设计基准；以下逐级收窄。宽内容（表格、图表）由各自的容器
-   横向滚动，页面主体在任何断点都不允许出现横向滚动。 */
+   内容区通栏流式（无 max-width 盒），内边距随视口逐级收窄。宽内容（表格、
+   图表）由各自的容器横向滚动，页面主体在任何断点都不允许出现横向滚动。 */
 @media (max-width: 1280px) {
   .page { padding: 22px 20px 80px; }
 }
@@ -168,7 +180,7 @@ p.lede-narrow { max-width: 62ch; margin: var(--space-1) 0 0; }
 /* 顶栏在这一档开始丢弃「可有可无」的文字：检索框提示语与用户邮箱。
    ☰ 折叠仍然只发生在 900（与 useNarrow 的 JS 阈值一致），这里不动它。 */
 @media (max-width: 1180px) {
-  .topbar-brand { font-size: 18px; padding: 10px 14px; }
+  .topbar-brand { padding: 10px 14px; }
   .topbar-search > span:first-child { display: none; }
   .topbar-user .small { display: none; }
   .topbar-cell .team-switcher .team-name { max-width: 9ch; }

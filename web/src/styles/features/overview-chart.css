@@ -30,7 +30,7 @@
    .pulse-feed* rules -- ids/classes renamed since that page and its
    stylesheet were removed in Task 8. */
 .ov-feed { list-style: none; margin: 0; padding: 0; max-height: 380px; overflow-y: auto; display: flex; flex-direction: column; }
-.ov-feed-item { display: flex; align-items: center; gap: 12px; padding: 7px 10px; border-bottom: 1px solid var(--color-divider); border-radius: 6px; }
+.ov-feed-item { display: flex; align-items: center; gap: 12px; padding: 7px 10px; border-bottom: 1px solid var(--color-divider); }
 .ov-feed-item:last-child { border-bottom: none; }
 .ov-feed-item.new { animation: ov-feed-slide-in .35s ease, ov-feed-flash 1.6s ease-out; }
 @keyframes ov-feed-slide-in {

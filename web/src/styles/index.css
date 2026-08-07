@@ -5,7 +5,6 @@
 @import "./base.css";
 @import "./components.css";
 @import "./layout.css";
-@import "./features/apps.css";
 @import "./features/operations.css";
 @import "./features/wiki.css";
 @import "./features/session-audit.css";

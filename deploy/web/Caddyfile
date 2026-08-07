@@ -19,12 +19,27 @@
 
 	root * /srv
 
-	# Hashed asset filenames are immutable, so they can be cached hard. The
-	# entry document must not be, or a deploy would not be visible until the
-	# cache expired.
+	# Hashed asset filenames are immutable, so they can be cached hard.
 	@assets path /assets/*
 	header @assets Cache-Control "public, max-age=31536000, immutable"
-	header /index.html Cache-Control "no-cache"
+
+	# Everything else is the SPA shell (or a small root file such as the
+	# favicon) and must not be cached.
+	#
+	# Matching by negation rather than by `/index.html` is the load-bearing
+	# detail. `header` runs before `try_files` in Caddy's directive order, so
+	# it sees the URL the browser asked for, not the file that ends up being
+	# served. A `/index.html` matcher therefore only fires for a literal
+	# request to /index.html -- a URL no user ever visits. Every real entry
+	# point (`/`, `/overview`, an invitation's `/join`) was served with no
+	# cache directive at all and fell to browser heuristic freshness.
+	#
+	# That is worse than serving a stale page: the cached shell references
+	# hashed asset filenames that the next deploy's image no longer contains,
+	# so the reader gets a blank page from a failed chunk load rather than an
+	# old but working portal.
+	@shell not path /assets/*
+	header @shell Cache-Control "no-cache"
 
 	try_files {path} /index.html
 	file_server

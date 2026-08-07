@@ -10,14 +10,12 @@ import { RoleBadge } from "./Badge";
 import { useToast } from "./Toasts";
 
 /**
- * Team switcher (design/m3-teams 02), rendered in PortalShell directly under
- * the .side-top brand block. Visible only when the active principal carries
- * teams (saas profile). Switching POSTs /v1/me/current-team and then
- * refreshes the auth state, re-scoping every view to the new team. The
- * collapsed 54px sidebar reduces the button to the round team avatar; the
- * popover still opens from it.
+ * Team switcher (design/m3-teams 02), rendered in the top bar team cell
+ * (app/TopBar.tsx). Visible only when the active principal carries teams
+ * (saas profile). Switching POSTs /v1/me/current-team and then refreshes
+ * the auth state, re-scoping every view to the new team.
  */
-export function TeamSwitcher({ me, collapsed }: { me: HumanMe; collapsed: boolean }) {
+export function TeamSwitcher({ me }: { me: HumanMe }) {
   const { refresh, handleUnauthorized } = useAuth();
   const toast = useToast();
   const navigate = useNavigate();
@@ -78,25 +76,18 @@ export function TeamSwitcher({ me, collapsed }: { me: HumanMe; collapsed: boolea
     <div className="team-switcher-wrap" ref={wrapRef}>
       <button
         type="button"
-        className={collapsed ? "team-switcher collapsed" : "team-switcher"}
+        className="team-switcher"
         aria-expanded={open}
         aria-haspopup="menu"
-        aria-label={collapsed ? `Switch team (current: ${current.name})` : undefined}
         disabled={busy}
         onClick={() => setOpen((value) => !value)}
       >
-        <span className={collapsed ? "team-avatar round" : "team-avatar"}>
-          {teamInitial(current.name)}
+        <span className="team-avatar">{teamInitial(current.name)}</span>
+        <span className="team-name">{current.name}</span>
+        <RoleBadge role={current.role} />
+        <span className="chevron" aria-hidden="true">
+          ▾
         </span>
-        {!collapsed && (
-          <>
-            <span className="team-name">{current.name}</span>
-            <RoleBadge role={current.role} />
-            <span className="chevron" aria-hidden="true">
-              ▾
-            </span>
-          </>
-        )}
       </button>
       {open && (
         <div className="team-pop" role="menu" aria-label="Switch team">

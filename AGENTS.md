@@ -124,7 +124,7 @@ on it. The API contract is `docs/on-prem-identity-frontend-integration.md`.
 - 全局样式在 `web/src/styles/`，按层组织：`tokens.css`（设计 token 单一真源）→
   `themes.css` → `base.css` → `components.css` → `layout.css` → `features/*.css`。
   `features/` 下按屏幕/功能一一对应新建文件（`ls web/src/styles/features/` 为准），
-  目前包括 `access-tree.css`、`agent-detail.css`、`apps.css` /
+  目前包括 `access-tree.css`、`agent-detail.css`、
   `apps-settings.css` / `apps-todos.css` / `apps-wiki.css`、`entry.css`、
   `governance.css` / `governance-explorer.css` / `governance-pipeline.css`、
   `operations.css`、`overview-chart.css`、`session-audit.css`、
