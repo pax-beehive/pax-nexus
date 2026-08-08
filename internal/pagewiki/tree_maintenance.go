@@ -369,6 +369,104 @@ func (s *Service) splitTopic(ctx context.Context, topicID string) {
 	}
 }
 
+// dissolveUnderfullTopics collapses leaf topics that no longer justify a
+// folder: a topic with no child topics and at most one active direct page is
+// removed, its page (if any) promoted into the parent — or back to the root,
+// which stores no placement rows. It is the delete-side counterpart of the
+// overflow split: splits are the only way topics are born, dissolution the
+// only way they die, and both keep every folder worth opening. Curation calls
+// it after a round retired or merged pages; it needs no navigator, so it also
+// runs (and the tree stays tidy) when no LLM is configured.
+func (s *Service) dissolveUnderfullTopics(ctx context.Context) {
+	s.treeReindexMu.Lock()
+	defer s.treeReindexMu.Unlock()
+	state, loaded := s.loadTreeState(ctx, "dissolve")
+	if !loaded {
+		return
+	}
+	tree, receivers, changed := collapseUnderfullTopics(state.tree, state.byID)
+	if !changed {
+		return
+	}
+	if err := s.repository.ReplaceTopicTree(ctx, tree); err != nil {
+		s.logger.Warn("Page Wiki topic dissolve skipped", "step", "replace tree", "error", err)
+		return
+	}
+	// A promoted page can tip its new topic over capacity; the root ("")
+	// counts too, since dissolved root children leave their pages unplaced.
+	for parentID := range receivers {
+		s.checkOverflow(tree, state.byID, parentID, topicDepth(tree, parentID))
+	}
+}
+
+// collapseUnderfullTopics applies the dissolution rule to a fixpoint —
+// promoting a page can leave the parent itself an underfull leaf — and
+// reports which parents received pages, so the caller can re-check them for
+// overflow.
+func collapseUnderfullTopics(
+	tree TopicTree,
+	catalog map[string]PageCatalogEntry,
+) (TopicTree, map[string]struct{}, bool) {
+	receivers := make(map[string]struct{})
+	changed := false
+	for {
+		topic, found := underfullLeafTopic(tree, catalog)
+		if !found {
+			return tree, receivers, changed
+		}
+		tree = dissolveTopic(tree, catalog, topic)
+		receivers[topic.ParentID] = struct{}{}
+		changed = true
+	}
+}
+
+// underfullLeafTopic finds one topic ready to dissolve: no child topics and
+// at most one active direct page. Topics with children are structural and
+// stay, however few direct pages they hold.
+func underfullLeafTopic(tree TopicTree, catalog map[string]PageCatalogEntry) (Topic, bool) {
+	for _, topic := range tree.Topics {
+		if len(childTopics(tree, topic.ID)) > 0 {
+			continue
+		}
+		if len(directPages(tree, catalog, topic.ID)) > 1 {
+			continue
+		}
+		return topic, true
+	}
+	return Topic{}, false
+}
+
+// dissolveTopic removes topic and promotes its active pages to the parent,
+// ranked after the parent's existing entries. Placements of retired pages die
+// with the topic, and promotion to the root drops the row entirely, since
+// root pages are exactly the unplaced ones.
+func dissolveTopic(tree TopicTree, catalog map[string]PageCatalogEntry, topic Topic) TopicTree {
+	next := TopicTree{
+		Topics:     make([]Topic, 0, len(tree.Topics)),
+		Placements: make([]PagePlacement, 0, len(tree.Placements)),
+	}
+	for _, other := range tree.Topics {
+		if other.ID != topic.ID {
+			next.Topics = append(next.Topics, other)
+		}
+	}
+	rank := len(directPlacements(tree, topic.ParentID))
+	for _, placement := range tree.Placements {
+		if placement.TopicID != topic.ID {
+			next.Placements = append(next.Placements, placement)
+			continue
+		}
+		if _, active := catalog[placement.PageID]; !active || topic.ParentID == "" {
+			continue
+		}
+		next.Placements = append(next.Placements, PagePlacement{
+			PageID: placement.PageID, TopicID: topic.ParentID, Rank: rank,
+		})
+		rank++
+	}
+	return next
+}
+
 // applySplit turns the navigator's groups into child topics plus relocated
 // placements. A group title that yields no slug, or one that collides with an
 // existing sibling or another group, abandons the whole split: a partial

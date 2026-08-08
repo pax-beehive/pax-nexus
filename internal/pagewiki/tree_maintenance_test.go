@@ -430,6 +430,166 @@ func TestTreeMaintenanceSplitSkipsTopicsWithFewerThanTwoPages(t *testing.T) {
 	require.Empty(t, navigator.splitCalls())
 }
 
+// TestTreeMaintenanceDissolvePromotesLonePageToParentTopic pins the
+// underflow half of the B-tree discipline: a leaf topic left holding a single
+// active page no longer justifies a folder, so the page is promoted into the
+// parent and the topic removed.
+func TestTreeMaintenanceDissolvePromotesLonePageToParentTopic(t *testing.T) {
+	ctx := context.Background()
+	repository := memory.NewRepository()
+	resident := seedTreePage(t, repository, "postgres", "Postgres")
+	second := seedTreePage(t, repository, "redis", "Redis")
+	lone := seedTreePage(t, repository, "sqlite", "SQLite")
+	require.NoError(t, repository.ReplaceTopicTree(ctx, pagewiki.TopicTree{
+		Topics: []pagewiki.Topic{
+			{ID: "topic-engineering", Slug: "engineering", Title: "Engineering"},
+			{ID: "topic-databases", ParentID: "topic-engineering", Slug: "databases", Title: "Databases"},
+		},
+		Placements: []pagewiki.PagePlacement{
+			{PageID: resident.ID, TopicID: "topic-engineering", Rank: 0},
+			{PageID: second.ID, TopicID: "topic-engineering", Rank: 1},
+			{PageID: lone.ID, TopicID: "topic-databases", Rank: 0},
+		},
+	}))
+	service := newTreeService(repository, &fakeTreeNavigator{})
+
+	service.DissolveUnderfullTopicsForTest(ctx)
+
+	tree := loadTree(t, repository)
+	require.Len(t, tree.Topics, 1, "the singleton leaf is dissolved; its well-filled parent survives")
+	require.Equal(t, "topic-engineering", tree.Topics[0].ID)
+	placement, found := placementFor(tree, lone.ID)
+	require.True(t, found)
+	require.Equal(t, "topic-engineering", placement.TopicID)
+	require.Equal(t, 2, placement.Rank, "the promoted page ranks after the parent's existing pages")
+}
+
+func TestTreeMaintenanceDissolveAtRootLeavesPageUnplaced(t *testing.T) {
+	ctx := context.Background()
+	repository := memory.NewRepository()
+	lone := seedTreePage(t, repository, "sqlite", "SQLite")
+	require.NoError(t, repository.ReplaceTopicTree(ctx, pagewiki.TopicTree{
+		Topics: []pagewiki.Topic{{ID: "topic-databases", Slug: "databases", Title: "Databases"}},
+		Placements: []pagewiki.PagePlacement{
+			{PageID: lone.ID, TopicID: "topic-databases", Rank: 0},
+		},
+	}))
+	service := newTreeService(repository, &fakeTreeNavigator{})
+
+	service.DissolveUnderfullTopicsForTest(ctx)
+
+	tree := loadTree(t, repository)
+	require.Empty(t, tree.Topics)
+	require.Empty(t, tree.Placements, "promotion to the root drops the placement row: root pages are the unplaced ones")
+}
+
+func TestTreeMaintenanceDissolveDropsRetiredPagesStalePlacements(t *testing.T) {
+	ctx := context.Background()
+	repository := memory.NewRepository()
+	retired := seedTreePage(t, repository, "sqlite", "SQLite")
+	require.NoError(t, repository.ReplaceTopicTree(ctx, pagewiki.TopicTree{
+		Topics: []pagewiki.Topic{
+			{ID: "topic-engineering", Slug: "engineering", Title: "Engineering"},
+			{ID: "topic-databases", ParentID: "topic-engineering", Slug: "databases", Title: "Databases"},
+		},
+		Placements: []pagewiki.PagePlacement{
+			{PageID: retired.ID, TopicID: "topic-databases", Rank: 0},
+		},
+	}))
+	require.NoError(t, repository.RetirePage(ctx, pagewiki.RetireRequest{
+		PageID:                 retired.ID,
+		ExpectedBaseRevisionID: retired.CurrentRevisionID,
+		RunID:                  "run-retire",
+	}))
+	service := newTreeService(repository, &fakeTreeNavigator{})
+
+	service.DissolveUnderfullTopicsForTest(ctx)
+
+	tree := loadTree(t, repository)
+	require.Empty(t, tree.Topics, "a leaf holding only a retired page's stale placement dissolves too, and so does the chain above it")
+	require.Empty(t, tree.Placements, "the stale placement dies with its topic instead of being promoted")
+}
+
+func TestTreeMaintenanceDissolveKeepsStructuralTopicsWithChildren(t *testing.T) {
+	ctx := context.Background()
+	repository := memory.NewRepository()
+	direct := seedTreePage(t, repository, "overview", "Overview")
+	first := seedTreePage(t, repository, "sqlite", "SQLite")
+	second := seedTreePage(t, repository, "postgres", "Postgres")
+	seeded := pagewiki.TopicTree{
+		Topics: []pagewiki.Topic{
+			{ID: "topic-engineering", Slug: "engineering", Title: "Engineering"},
+			{ID: "topic-databases", ParentID: "topic-engineering", Slug: "databases", Title: "Databases"},
+		},
+		Placements: []pagewiki.PagePlacement{
+			{PageID: direct.ID, TopicID: "topic-engineering", Rank: 0},
+			{PageID: first.ID, TopicID: "topic-databases", Rank: 0},
+			{PageID: second.ID, TopicID: "topic-databases", Rank: 1},
+		},
+	}
+	require.NoError(t, repository.ReplaceTopicTree(ctx, seeded))
+	service := newTreeService(repository, &fakeTreeNavigator{})
+
+	service.DissolveUnderfullTopicsForTest(ctx)
+
+	tree := loadTree(t, repository)
+	require.ElementsMatch(t, seeded.Topics, tree.Topics,
+		"a topic with a child is structural and survives holding a single direct page")
+	require.ElementsMatch(t, seeded.Placements, tree.Placements)
+}
+
+// TestTreeMaintenanceDissolveCascadesUpEmptiedChains is the fixpoint half:
+// dissolving a leaf can leave its parent an underfull leaf, and the collapse
+// keeps going until every surviving folder is worth opening.
+func TestTreeMaintenanceDissolveCascadesUpEmptiedChains(t *testing.T) {
+	ctx := context.Background()
+	repository := memory.NewRepository()
+	lone := seedTreePage(t, repository, "sqlite", "SQLite")
+	require.NoError(t, repository.ReplaceTopicTree(ctx, pagewiki.TopicTree{
+		Topics: []pagewiki.Topic{
+			{ID: "topic-level-1", Slug: "level-1", Title: "Level 1"},
+			{ID: "topic-level-2", ParentID: "topic-level-1", Slug: "level-2", Title: "Level 2"},
+		},
+		Placements: []pagewiki.PagePlacement{
+			{PageID: lone.ID, TopicID: "topic-level-2", Rank: 0},
+		},
+	}))
+	service := newTreeService(repository, &fakeTreeNavigator{})
+
+	service.DissolveUnderfullTopicsForTest(ctx)
+
+	tree := loadTree(t, repository)
+	require.Empty(t, tree.Topics, "the whole single-page chain collapses, not just its deepest link")
+	require.Empty(t, tree.Placements)
+}
+
+// TestTreeMaintenanceDissolveRechecksReceivingParentForOverflow: promotion
+// adds an entry to the parent, so the parent gets the same overflow check an
+// insert would have triggered.
+func TestTreeMaintenanceDissolveRechecksReceivingParentForOverflow(t *testing.T) {
+	ctx := context.Background()
+	repository := memory.NewRepository()
+	tree := seedFullTopic(t, repository, 10)
+	lone := seedTreePage(t, repository, "sqlite", "SQLite")
+	tree.Topics = append(tree.Topics, pagewiki.Topic{
+		ID: "topic-storage", ParentID: "topic-notes", Slug: "storage", Title: "Storage",
+	})
+	tree.Placements = append(tree.Placements, pagewiki.PagePlacement{
+		PageID: lone.ID, TopicID: "topic-storage", Rank: 0,
+	})
+	require.NoError(t, repository.ReplaceTopicTree(ctx, tree))
+	navigator := &fakeTreeNavigator{splitErr: errors.New("boom")}
+	service := newTreeService(repository, navigator)
+
+	service.DissolveUnderfullTopicsForTest(ctx)
+	service.FlushTreeReindex(ctx)
+
+	splits := navigator.splitCalls()
+	require.Len(t, splits, 1, "the promoted page tips the parent over capacity, which must queue a split")
+	require.Equal(t, []string{"Notes"}, splits[0].Path)
+	require.Len(t, splits[0].Pages, 11)
+}
+
 func TestTreeMaintenanceQueueDeduplicatesByTaskKey(t *testing.T) {
 	ctx := context.Background()
 	repository := memory.NewRepository()
