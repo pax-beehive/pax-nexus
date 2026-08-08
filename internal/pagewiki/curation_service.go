@@ -189,8 +189,10 @@ func (s *Service) runCurationCandidates(
 }
 
 // finishCurationRun builds the CurationRun from this round's outcomes,
-// persists it, and queues re-placement for every page the round left
-// unplaced when anything changed.
+// persists it, and when anything changed, tidies the topic tree: retires and
+// merges can leave topics underfull, so those are dissolved first, and then
+// every page the round left unplaced — including pages a dissolution promoted
+// back to the root — is queued for re-placement.
 func (s *Service) finishCurationRun(
 	ctx context.Context,
 	runID string,
@@ -208,6 +210,7 @@ func (s *Service) finishCurationRun(
 		return CurationRun{}, fmt.Errorf("save CurationRun: %w", err)
 	}
 	if changed {
+		s.dissolveUnderfullTopics(ctx)
 		s.enqueueUnplacedInserts(ctx)
 	}
 	return run, nil
