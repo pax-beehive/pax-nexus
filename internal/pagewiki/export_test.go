@@ -35,6 +35,12 @@ func (s *Service) EnqueueUnplacedInsertsForTest(ctx context.Context) {
 	s.enqueueUnplacedInserts(ctx)
 }
 
+// DissolveUnderfullTopicsForTest exposes the curation hook that collapses
+// leaf topics left with at most one active direct page.
+func (s *Service) DissolveUnderfullTopicsForTest(ctx context.Context) {
+	s.dissolveUnderfullTopics(ctx)
+}
+
 // PendingTreeTasksForTest reports how many tree tasks are queued but not yet
 // processed. Acceptance tests use it to assert that a catalog change queued
 // re-placement work, independent of whether a TreeNavigator is configured.

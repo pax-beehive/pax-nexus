@@ -226,13 +226,10 @@ func (s *Service) loadTreeState(ctx context.Context, task string) (treeState, bo
 }
 
 // treeLanding is where a descent ended: the topic the page belongs to (empty
-// = root), its depth, whether the descent itself changed the tree (by
-// creating a topic), and whether the navigator failed outright.
+// = root), its depth, and whether the navigator failed outright.
 type treeLanding struct {
-	tree    TopicTree
 	topicID string
 	depth   int
-	changed bool
 	aborted bool
 }
 
@@ -255,16 +252,13 @@ func (s *Service) insertPage(ctx context.Context, pageID string) {
 	if landing.aborted {
 		return
 	}
-	tree := landing.tree
+	tree := state.tree
 	if landing.topicID != "" {
 		tree.Placements = append(tree.Placements, PagePlacement{
 			PageID:  pageID,
 			TopicID: landing.topicID,
 			Rank:    len(directPlacements(tree, landing.topicID)),
 		})
-		landing.changed = true
-	}
-	if landing.changed {
 		if err := s.repository.ReplaceTopicTree(ctx, tree); err != nil {
 			s.logger.Warn("Page Wiki page placement skipped", "page", pageID, "step", "replace tree", "error", err)
 			return
@@ -278,20 +272,20 @@ func (s *Service) insertPage(ctx context.Context, pageID string) {
 }
 
 // descend walks the tree from the root, asking the navigator one level at a
-// time where the page belongs. "enter" moves down, "create" adds a child
-// topic and lands there, and anything else — including an unusable create —
-// lands at the current level.
+// time where the page belongs. "enter" moves down; anything else — including
+// a hallucinated action — lands at the current level. Inserts never create
+// topics: pages accumulate at a level until an overflow split mints new child
+// topics, which is the only way the tree ever grows.
 func (s *Service) descend(ctx context.Context, state treeState, entry PageCatalogEntry) treeLanding {
-	landing := treeLanding{tree: state.tree}
+	landing := treeLanding{}
 	path := make([]string, 0, s.treeMaxDepth)
 	for step := 0; step <= s.treeMaxDepth; step++ {
-		children := childTopics(landing.tree, landing.topicID)
+		children := childTopics(state.tree, landing.topicID)
 		choice, err := s.treeNavigator.ChoosePlacement(ctx, TreePlacementInput{
-			Page:        entry,
-			Path:        path,
-			Children:    childViews(landing.tree, state.byID, children),
-			AllowCreate: landing.depth < s.treeMaxDepth,
-			Directives:  state.directives,
+			Page:       entry,
+			Path:       path,
+			Children:   childViews(state.tree, state.byID, children),
+			Directives: state.directives,
 		})
 		if err != nil {
 			s.logger.Warn("Page Wiki page placement skipped", "page", entry.ID, "step", "choose", "error", err)
@@ -306,14 +300,6 @@ func (s *Service) descend(ctx context.Context, state treeState, entry PageCatalo
 			}
 			landing.topicID, landing.depth = child.ID, landing.depth+1
 			path = append(path, child.Title)
-		case TreePlacementCreate:
-			topic, usable := newChildTopic(landing.topicID, choice.Title, children)
-			if !usable {
-				return landing
-			}
-			landing.tree.Topics = append(landing.tree.Topics, topic)
-			landing.topicID, landing.depth, landing.changed = topic.ID, landing.depth+1, true
-			return landing
 		default:
 			return landing
 		}
@@ -383,6 +369,104 @@ func (s *Service) splitTopic(ctx context.Context, topicID string) {
 	}
 }
 
+// dissolveUnderfullTopics collapses leaf topics that no longer justify a
+// folder: a topic with no child topics and at most one active direct page is
+// removed, its page (if any) promoted into the parent — or back to the root,
+// which stores no placement rows. It is the delete-side counterpart of the
+// overflow split: splits are the only way topics are born, dissolution the
+// only way they die, and both keep every folder worth opening. Curation calls
+// it after a round retired or merged pages; it needs no navigator, so it also
+// runs (and the tree stays tidy) when no LLM is configured.
+func (s *Service) dissolveUnderfullTopics(ctx context.Context) {
+	s.treeReindexMu.Lock()
+	defer s.treeReindexMu.Unlock()
+	state, loaded := s.loadTreeState(ctx, "dissolve")
+	if !loaded {
+		return
+	}
+	tree, receivers, changed := collapseUnderfullTopics(state.tree, state.byID)
+	if !changed {
+		return
+	}
+	if err := s.repository.ReplaceTopicTree(ctx, tree); err != nil {
+		s.logger.Warn("Page Wiki topic dissolve skipped", "step", "replace tree", "error", err)
+		return
+	}
+	// A promoted page can tip its new topic over capacity; the root ("")
+	// counts too, since dissolved root children leave their pages unplaced.
+	for parentID := range receivers {
+		s.checkOverflow(tree, state.byID, parentID, topicDepth(tree, parentID))
+	}
+}
+
+// collapseUnderfullTopics applies the dissolution rule to a fixpoint —
+// promoting a page can leave the parent itself an underfull leaf — and
+// reports which parents received pages, so the caller can re-check them for
+// overflow.
+func collapseUnderfullTopics(
+	tree TopicTree,
+	catalog map[string]PageCatalogEntry,
+) (TopicTree, map[string]struct{}, bool) {
+	receivers := make(map[string]struct{})
+	changed := false
+	for {
+		topic, found := underfullLeafTopic(tree, catalog)
+		if !found {
+			return tree, receivers, changed
+		}
+		tree = dissolveTopic(tree, catalog, topic)
+		receivers[topic.ParentID] = struct{}{}
+		changed = true
+	}
+}
+
+// underfullLeafTopic finds one topic ready to dissolve: no child topics and
+// at most one active direct page. Topics with children are structural and
+// stay, however few direct pages they hold.
+func underfullLeafTopic(tree TopicTree, catalog map[string]PageCatalogEntry) (Topic, bool) {
+	for _, topic := range tree.Topics {
+		if len(childTopics(tree, topic.ID)) > 0 {
+			continue
+		}
+		if len(directPages(tree, catalog, topic.ID)) > 1 {
+			continue
+		}
+		return topic, true
+	}
+	return Topic{}, false
+}
+
+// dissolveTopic removes topic and promotes its active pages to the parent,
+// ranked after the parent's existing entries. Placements of retired pages die
+// with the topic, and promotion to the root drops the row entirely, since
+// root pages are exactly the unplaced ones.
+func dissolveTopic(tree TopicTree, catalog map[string]PageCatalogEntry, topic Topic) TopicTree {
+	next := TopicTree{
+		Topics:     make([]Topic, 0, len(tree.Topics)),
+		Placements: make([]PagePlacement, 0, len(tree.Placements)),
+	}
+	for _, other := range tree.Topics {
+		if other.ID != topic.ID {
+			next.Topics = append(next.Topics, other)
+		}
+	}
+	rank := len(directPlacements(tree, topic.ParentID))
+	for _, placement := range tree.Placements {
+		if placement.TopicID != topic.ID {
+			next.Placements = append(next.Placements, placement)
+			continue
+		}
+		if _, active := catalog[placement.PageID]; !active || topic.ParentID == "" {
+			continue
+		}
+		next.Placements = append(next.Placements, PagePlacement{
+			PageID: placement.PageID, TopicID: topic.ParentID, Rank: rank,
+		})
+		rank++
+	}
+	return next
+}
+
 // applySplit turns the navigator's groups into child topics plus relocated
 // placements. A group title that yields no slug, or one that collides with an
 // existing sibling or another group, abandons the whole split: a partial
@@ -406,7 +490,7 @@ func applySplit(
 	moved := make([]PagePlacement, 0, len(pages))
 	movedPages := make(map[string]struct{}, len(pages))
 	for _, group := range groups {
-		topic, usable := newChildTopic(parentID, group.Title, nil)
+		topic, usable := newChildTopic(parentID, group.Title)
 		if !usable {
 			return TopicTree{}, nil, false
 		}
@@ -438,18 +522,14 @@ func applySplit(
 	return next, created, true
 }
 
-// newChildTopic derives a child topic from a navigator-proposed title,
-// rejecting an empty slug or one that collides with an existing sibling.
-func newChildTopic(parentID, title string, siblings []Topic) (Topic, bool) {
+// newChildTopic derives a child topic from a navigator-proposed group title,
+// rejecting a title that yields an empty slug; applySplit checks the slug
+// against existing siblings and the round's other groups.
+func newChildTopic(parentID, title string) (Topic, bool) {
 	trimmed := strings.TrimSpace(title)
 	slug := topicSlug(trimmed)
 	if slug == "" {
 		return Topic{}, false
-	}
-	for _, sibling := range siblings {
-		if sibling.Slug == slug {
-			return Topic{}, false
-		}
 	}
 	return Topic{
 		ID:       StableID("topic", parentID, slug),

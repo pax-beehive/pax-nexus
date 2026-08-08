@@ -75,24 +75,21 @@ type llmChildView struct {
 }
 
 type llmPlacementRequest struct {
-	Page      llmTreePageView `json:"page"`
-	Path      []string        `json:"path"`
-	Children  []llmChildView  `json:"children"`
-	MayCreate bool            `json:"may_create"`
+	Page     llmTreePageView `json:"page"`
+	Path     []string        `json:"path"`
+	Children []llmChildView  `json:"children"`
 }
 
 type llmPlacementChoice struct {
 	Action string `json:"action"`
 	Slug   string `json:"slug,omitempty"`
-	Title  string `json:"title,omitempty"`
 }
 
 // ChoosePlacement asks the model where a single page belongs at the current
 // level of the topic tree. Every form of hallucination the model could
-// produce — an unrecognized action, "enter" naming a slug that is not
-// actually one of the listed children, or "create" used when it was not
-// offered or without a usable title — is normalized to "stay" here, so
-// callers never have to re-validate the result.
+// produce — an unrecognized action such as the retired "create", or "enter"
+// naming a slug that is not actually one of the listed children — is
+// normalized to "stay" here, so callers never have to re-validate the result.
 func (n *LLMTreeNavigator) ChoosePlacement(
 	ctx context.Context,
 	input TreePlacementInput,
@@ -101,9 +98,8 @@ func (n *LLMTreeNavigator) ChoosePlacement(
 		Page: llmTreePageView{
 			Slug: input.Page.Slug, Title: input.Page.Title, Summary: input.Page.Summary,
 		},
-		Path:      input.Path,
-		Children:  make([]llmChildView, 0, len(input.Children)),
-		MayCreate: input.AllowCreate,
+		Path:     input.Path,
+		Children: make([]llmChildView, 0, len(input.Children)),
 	}
 	for _, child := range input.Children {
 		request.Children = append(request.Children, llmChildView(child))
@@ -139,12 +135,6 @@ func normalizePlacementChoice(decoded llmPlacementChoice, input TreePlacementInp
 			}
 		}
 		return TreePlacementChoice{Action: TreePlacementStay}
-	case TreePlacementCreate:
-		title := strings.TrimSpace(decoded.Title)
-		if !input.AllowCreate || title == "" {
-			return TreePlacementChoice{Action: TreePlacementStay}
-		}
-		return TreePlacementChoice{Action: TreePlacementCreate, Title: title}
 	default:
 		return TreePlacementChoice{Action: TreePlacementStay}
 	}
@@ -344,22 +334,19 @@ func slugsWhere(occurrences map[string]int, keep func(slug string, count int) bo
 }
 
 const pageWikiPlacementPrompt = `You are the librarian of a durable, evidence-backed team Wiki.
-You place one finished page into the topic tree, one level at a time; you never rewrite pages.
-You receive one JSON object: {"page":{"slug","title","summary"},"path":["topic title", ...],"children":[{"slug","title","pages"}],"may_create":true|false}.
+You place one finished page into the topic tree, one level at a time; you never rewrite pages and you never
+invent new topics — when a level grows too crowded, a separate curation step regroups its pages into new topics.
+You receive one JSON object: {"page":{"slug","title","summary"},"path":["topic title", ...],"children":[{"slug","title","pages"}]}.
 "path" lists the topic titles from the root down to the level you are looking at right now; an empty path means
 you are looking at the root level. "children" lists the existing child topics at this level, each with its slug,
 title, and current page count.
 Decide where this one page belongs at this level and return exactly one JSON object and no Markdown fence:
-{"action":"stay","slug":"","title":""}
+{"action":"stay","slug":""}
 Choose "stay" to leave the page at this level, whether that is the root or the topic named by the last entry in
 "path". Choose "enter" only when one of the listed children is clearly the right subject-matter home for the
 page; set "slug" to that child's slug exactly as given in "children" — never invent a slug that was not listed.
-Choose "create" only when "may_create" is true and none of the listed children is a good fit for the page's
-subject; set "title" to a new topic name that is a noun phrase of one to three words, never a full sentence, and
-never a catch-all name such as "Misc", "Other", "General", or "Miscellaneous". When you are unsure whether an
-existing child truly fits, or unsure whether a new topic is warranted, choose "stay" — leaving a page one level
-higher than its ideal home is always safer than entering the wrong topic or inventing a redundant one. Return
-JSON only.`
+When you are unsure whether an existing child truly fits, choose "stay" — leaving a page one level higher than
+its ideal home is always safer than entering the wrong topic. Return JSON only.`
 
 const pageWikiSplitPrompt = `You are the librarian of a durable, evidence-backed team Wiki.
 One topic in the tree now holds too many pages directly and must be split into a small number of child topics;

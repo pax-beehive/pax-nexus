@@ -141,26 +141,25 @@ type TreeChildTopic struct {
 
 type TreePlacementAction string
 
+// Placement only ever stays or enters an existing child: inserts never
+// create topics. New topics are minted exclusively by an overflow split,
+// which guarantees every new topic starts with at least two pages.
 const (
-	TreePlacementStay   TreePlacementAction = "stay"
-	TreePlacementEnter  TreePlacementAction = "enter"
-	TreePlacementCreate TreePlacementAction = "create"
+	TreePlacementStay  TreePlacementAction = "stay"
+	TreePlacementEnter TreePlacementAction = "enter"
 )
 
 type TreePlacementInput struct {
-	Page        PageCatalogEntry
-	Path        []string // topic titles from root to the current topic; empty = root
-	Children    []TreeChildTopic
-	AllowCreate bool // false once descent has already reached the MaxDepth level
-	Directives  GenerationDirectives
+	Page       PageCatalogEntry
+	Path       []string // topic titles from root to the current topic; empty = root
+	Children   []TreeChildTopic
+	Directives GenerationDirectives
 }
 
-// TreePlacementChoice: Enter targets an existing child slug; Create carries
-// the new topic's display title (service derives the slug).
+// TreePlacementChoice: Enter targets an existing child slug.
 type TreePlacementChoice struct {
 	Action TreePlacementAction
 	Slug   string
-	Title  string
 }
 
 type TreeSplitPage struct {

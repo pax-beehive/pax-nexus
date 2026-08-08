@@ -40,7 +40,8 @@ func (r *recordingTreeRepository) snapshot() []string {
 
 // gatedTreeNavigator blocks every ChoosePlacement until the test feeds a
 // release token, so a rebuild can be held mid-placement deterministically.
-// Each answer creates a fresh topic, which forces a tree write per insert.
+// Placement always stays at the root; the split that follows the root's
+// overflow is what writes the tree, splitting the pages into two halves.
 type gatedTreeNavigator struct {
 	entered chan struct{}
 	release chan struct{}
@@ -48,20 +49,26 @@ type gatedTreeNavigator struct {
 
 func (n *gatedTreeNavigator) ChoosePlacement(
 	_ context.Context,
-	input pagewiki.TreePlacementInput,
+	_ pagewiki.TreePlacementInput,
 ) (pagewiki.TreePlacementChoice, error) {
 	n.entered <- struct{}{}
 	<-n.release
-	return pagewiki.TreePlacementChoice{
-		Action: pagewiki.TreePlacementCreate, Title: "Topic " + input.Page.Slug,
-	}, nil
+	return pagewiki.TreePlacementChoice{Action: pagewiki.TreePlacementStay}, nil
 }
 
 func (n *gatedTreeNavigator) SplitTopic(
-	context.Context,
-	pagewiki.TreeSplitInput,
+	_ context.Context,
+	input pagewiki.TreeSplitInput,
 ) ([]pagewiki.TreeSplitGroup, error) {
-	return nil, nil
+	slugs := make([]string, 0, len(input.Pages))
+	for _, page := range input.Pages {
+		slugs = append(slugs, page.Slug)
+	}
+	half := len(slugs) / 2
+	return []pagewiki.TreeSplitGroup{
+		{Title: "First Half", Pages: slugs[:half]},
+		{Title: "Second Half", Pages: slugs[half:]},
+	}, nil
 }
 
 func waitSignal(t *testing.T, signals <-chan struct{}, step string) {
@@ -80,8 +87,9 @@ func waitSignal(t *testing.T, signals <-chan struct{}, step string) {
 func TestRebuildTopicTreeSerializesConcurrentRebuilds(t *testing.T) {
 	ctx := context.Background()
 	repository := &recordingTreeRepository{Repository: memory.NewRepository()}
-	seedTreePage(t, repository.Repository, "alpha", "Alpha")
-	seedTreePage(t, repository.Repository, "beta", "Beta")
+	// Eleven pages: the cleared root is over capacity from the first insert,
+	// so each rebuild does one gated placement, then splits and writes.
+	seedRootPages(t, repository.Repository, 11)
 	navigator := &gatedTreeNavigator{
 		entered: make(chan struct{}, 8),
 		release: make(chan struct{}, 8),
@@ -90,7 +98,7 @@ func TestRebuildTopicTreeSerializesConcurrentRebuilds(t *testing.T) {
 
 	firstDone := make(chan error, 1)
 	go func() { firstDone <- service.RebuildTopicTree(ctx) }()
-	waitSignal(t, navigator.entered, "first rebuild's first placement")
+	waitSignal(t, navigator.entered, "first rebuild's placement")
 
 	secondDone := make(chan error, 1)
 	go func() { secondDone <- service.RebuildTopicTree(ctx) }()
@@ -102,18 +110,14 @@ func TestRebuildTopicTreeSerializesConcurrentRebuilds(t *testing.T) {
 		"second rebuild must not clear while the first is in flight")
 
 	navigator.release <- struct{}{}
-	waitSignal(t, navigator.entered, "first rebuild's second placement")
-	navigator.release <- struct{}{}
 	require.NoError(t, <-firstDone)
 
-	waitSignal(t, navigator.entered, "second rebuild's first placement")
-	navigator.release <- struct{}{}
-	waitSignal(t, navigator.entered, "second rebuild's second placement")
+	waitSignal(t, navigator.entered, "second rebuild's placement")
 	navigator.release <- struct{}{}
 	require.NoError(t, <-secondDone)
 
 	require.Equal(t,
-		[]string{"clear", "write", "write", "clear", "write", "write"},
+		[]string{"clear", "write", "clear", "write"},
 		repository.snapshot(),
-		"each rebuild's clear+inserts must run as one uninterleaved unit")
+		"each rebuild's clear+split must run as one uninterleaved unit")
 }

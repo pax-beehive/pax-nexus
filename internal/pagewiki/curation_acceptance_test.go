@@ -214,6 +214,66 @@ func (s *curationAcceptanceSuite) TestGivenNearDuplicatePagesWhenMergedThenSurvi
 	)
 }
 
+// TestGivenMergeLeavesTopicUnderfullThenCurationDissolvesIt pins the round's
+// tree hygiene: retiring the merge loser leaves its topic with one active
+// page, and the same round dissolves the folder and queues the survivor for
+// re-placement.
+func (s *curationAcceptanceSuite) TestGivenMergeLeavesTopicUnderfullThenCurationDissolvesIt() {
+	ctx := context.Background()
+	titleA, summaryA, quoteA := "Deploy Pipeline", "How the deploy pipeline works.", "The team chose Buildkite for deploys."
+	titleB, summaryB, quoteB := "Deployment Pipeline", "How the deployment pipeline works.", "The team later confirmed Buildkite for prod releases."
+	pageA := s.seedPairPage("session-a", "deploy-pipeline", titleA, summaryA, quoteA)
+	pageB := s.seedPairPage("session-b", "deployment-pipeline", titleB, summaryB, quoteB)
+	s.Require().NoError(s.repository.ReplaceTopicTree(ctx, pagewiki.TopicTree{
+		Topics: []pagewiki.Topic{{ID: "topic-deploys", Slug: "deploys", Title: "Deploys"}},
+		Placements: []pagewiki.PagePlacement{
+			{PageID: pageA.ID, TopicID: "topic-deploys", Rank: 0},
+			{PageID: pageB.ID, TopicID: "topic-deploys", Rank: 1},
+		},
+	}))
+
+	pairKey := pagewiki.PairKey(pageA.ID, pageB.ID)
+	curator := pagewiki.ScriptedCurator{
+		PairVerdicts: map[string]pagewiki.PairVerdict{
+			pairKey: {
+				Verdict:   pagewiki.CurationVerdictMerge,
+				Rationale: "near-duplicate deploy pipeline pages",
+				Draft: &pagewiki.CurationDraft{
+					Title:   "Deploy Pipeline",
+					Summary: "Unified deploy pipeline page.",
+					Sections: []pagewiki.SectionDraft{{
+						Key: "overview", Heading: "Overview",
+						Markdown: "The deploy pipeline covers build and release.",
+					}},
+				},
+			},
+		},
+		Verifies: map[string]pagewiki.VerifyVerdict{pairKey: {Refuted: false}},
+	}
+	embedder := pagewiki.ScriptedEmbedder{Vectors: map[string][]float32{
+		titleA + "\n" + summaryA: embeddingVector(),
+		titleB + "\n" + summaryB: embeddingVector(),
+	}}
+	service := pagewiki.NewService(
+		s.repository, pagewiki.ScriptedPlanner{}, pagewiki.ScriptedEditor{},
+		pagewiki.WithCurator(curator, embedder, pagewiki.CurationConfig{}, nil),
+	)
+
+	run, err := service.RunCurationRound(ctx)
+	s.Require().NoError(err)
+	s.Require().Equal(pagewiki.RunStatusSucceeded, run.Status)
+
+	tree, err := s.repository.TopicTree(ctx)
+	s.Require().NoError(err)
+	s.Require().Empty(tree.Topics,
+		"the merge leaves the topic with one active page, so the round must dissolve it")
+	s.Require().Empty(tree.Placements)
+	s.Require().Positive(
+		service.PendingTreeTasksForTest(),
+		"the promoted survivor is queued for re-placement",
+	)
+}
+
 func (s *curationAcceptanceSuite) TestGivenSkepticVerifyRefutesMergeThenNoWritesOccur() {
 	ctx := context.Background()
 	titleA, summaryA, quoteA := "Deploy Pipeline", "How the deploy pipeline works.", "The team chose Buildkite for deploys."
