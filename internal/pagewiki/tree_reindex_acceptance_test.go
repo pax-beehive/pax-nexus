@@ -83,9 +83,14 @@ func (s *treeReindexSuite) createBriefAndEditor() (pagewiki.ScriptedPlanner, pag
 }
 
 func (s *treeReindexSuite) TestSuccessfulRunPlacesThePublishedPage() {
+	s.Require().NoError(s.repository.ReplaceTopicTree(context.Background(), pagewiki.TopicTree{
+		Topics: []pagewiki.Topic{{ID: "topic-databases", Slug: "databases", Title: "Databases"}},
+	}))
 	planner, editor, request := s.createBriefAndEditor()
+	// The script enters the seeded topic; the exhausted script then answers
+	// "stay", landing the page there.
 	navigator := &fakeTreeNavigator{placements: []pagewiki.TreePlacementChoice{
-		{Action: pagewiki.TreePlacementCreate, Title: "Databases"},
+		{Action: pagewiki.TreePlacementEnter, Slug: "databases"},
 	}}
 	service := newTreeMaintenanceService(s.repository, planner, editor, navigator)
 
@@ -96,7 +101,7 @@ func (s *treeReindexSuite) TestSuccessfulRunPlacesThePublishedPage() {
 	s.Require().Equal(1, service.PendingTreeTasksForTest(), "placement runs off the ingest path")
 
 	service.FlushTreeReindex(context.Background())
-	s.Require().Len(navigator.placementCalls(), 1)
+	s.Require().Len(navigator.placementCalls(), 2)
 
 	tree, err := s.repository.TopicTree(context.Background())
 	s.Require().NoError(err)

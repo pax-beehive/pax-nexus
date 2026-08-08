@@ -278,20 +278,20 @@ func (s *Service) insertPage(ctx context.Context, pageID string) {
 }
 
 // descend walks the tree from the root, asking the navigator one level at a
-// time where the page belongs. "enter" moves down, "create" adds a child
-// topic and lands there, and anything else — including an unusable create —
-// lands at the current level.
+// time where the page belongs. "enter" moves down; anything else — including
+// a hallucinated action — lands at the current level. Inserts never create
+// topics: pages accumulate at a level until an overflow split mints new child
+// topics, which is the only way the tree ever grows.
 func (s *Service) descend(ctx context.Context, state treeState, entry PageCatalogEntry) treeLanding {
 	landing := treeLanding{tree: state.tree}
 	path := make([]string, 0, s.treeMaxDepth)
 	for step := 0; step <= s.treeMaxDepth; step++ {
 		children := childTopics(landing.tree, landing.topicID)
 		choice, err := s.treeNavigator.ChoosePlacement(ctx, TreePlacementInput{
-			Page:        entry,
-			Path:        path,
-			Children:    childViews(landing.tree, state.byID, children),
-			AllowCreate: landing.depth < s.treeMaxDepth,
-			Directives:  state.directives,
+			Page:       entry,
+			Path:       path,
+			Children:   childViews(landing.tree, state.byID, children),
+			Directives: state.directives,
 		})
 		if err != nil {
 			s.logger.Warn("Page Wiki page placement skipped", "page", entry.ID, "step", "choose", "error", err)
@@ -306,14 +306,6 @@ func (s *Service) descend(ctx context.Context, state treeState, entry PageCatalo
 			}
 			landing.topicID, landing.depth = child.ID, landing.depth+1
 			path = append(path, child.Title)
-		case TreePlacementCreate:
-			topic, usable := newChildTopic(landing.topicID, choice.Title, children)
-			if !usable {
-				return landing
-			}
-			landing.tree.Topics = append(landing.tree.Topics, topic)
-			landing.topicID, landing.depth, landing.changed = topic.ID, landing.depth+1, true
-			return landing
 		default:
 			return landing
 		}
