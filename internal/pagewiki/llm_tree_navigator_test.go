@@ -27,21 +27,20 @@ func newNavigator(
 	return navigator, client
 }
 
-func placementInput(children []pagewiki.TreeChildTopic, allowCreate bool) pagewiki.TreePlacementInput {
+func placementInput(children []pagewiki.TreeChildTopic) pagewiki.TreePlacementInput {
 	return pagewiki.TreePlacementInput{
 		Page: pagewiki.PageCatalogEntry{
 			ID: "id-page-01", Slug: "page-01", Title: "Page 01", Summary: "About page 01",
 		},
-		Path:        []string{"Engineering"},
-		Children:    children,
-		AllowCreate: allowCreate,
+		Path:     []string{"Engineering"},
+		Children: children,
 	}
 }
 
 func (s *llmTreeNavigatorSuite) TestChoosePlacementEntersKnownChild() {
 	navigator, client := newNavigator(s, `{"action":"enter","slug":"backend"}`)
 	choice, err := navigator.ChoosePlacement(context.Background(), placementInput(
-		[]pagewiki.TreeChildTopic{{Slug: "backend", Title: "Backend", Pages: 4}}, true,
+		[]pagewiki.TreeChildTopic{{Slug: "backend", Title: "Backend", Pages: 4}},
 	))
 	s.Require().NoError(err)
 	s.Equal(pagewiki.TreePlacementEnter, choice.Action)
@@ -52,7 +51,7 @@ func (s *llmTreeNavigatorSuite) TestChoosePlacementEntersKnownChild() {
 func (s *llmTreeNavigatorSuite) TestChoosePlacementFallsBackToStayOnUnknownEnterSlug() {
 	navigator, _ := newNavigator(s, `{"action":"enter","slug":"unknown-topic"}`)
 	choice, err := navigator.ChoosePlacement(context.Background(), placementInput(
-		[]pagewiki.TreeChildTopic{{Slug: "backend", Title: "Backend", Pages: 4}}, true,
+		[]pagewiki.TreeChildTopic{{Slug: "backend", Title: "Backend", Pages: 4}},
 	))
 	s.Require().NoError(err)
 	s.Equal(pagewiki.TreePlacementStay, choice.Action)
@@ -60,31 +59,22 @@ func (s *llmTreeNavigatorSuite) TestChoosePlacementFallsBackToStayOnUnknownEnter
 
 func (s *llmTreeNavigatorSuite) TestChoosePlacementFallsBackToStayOnGarbageAction() {
 	navigator, _ := newNavigator(s, `{"action":"teleport"}`)
-	choice, err := navigator.ChoosePlacement(context.Background(), placementInput(nil, true))
+	choice, err := navigator.ChoosePlacement(context.Background(), placementInput(nil))
 	s.Require().NoError(err)
 	s.Equal(pagewiki.TreePlacementStay, choice.Action)
 }
 
-func (s *llmTreeNavigatorSuite) TestChoosePlacementFallsBackToStayWhenCreateNotAllowed() {
-	navigator, _ := newNavigator(s, `{"action":"create","title":"New Topic"}`)
-	choice, err := navigator.ChoosePlacement(context.Background(), placementInput(nil, false))
+// TestChoosePlacementFallsBackToStayOnCreateAction pins the retired protocol:
+// placement no longer offers topic creation at all, so a model answering
+// "create" — and the request it saw — must both be create-free.
+func (s *llmTreeNavigatorSuite) TestChoosePlacementFallsBackToStayOnCreateAction() {
+	navigator, client := newNavigator(s, `{"action":"create","title":"New Topic"}`)
+	choice, err := navigator.ChoosePlacement(context.Background(), placementInput(nil))
 	s.Require().NoError(err)
 	s.Equal(pagewiki.TreePlacementStay, choice.Action)
-}
-
-func (s *llmTreeNavigatorSuite) TestChoosePlacementCreatesNewTopicWithTitle() {
-	navigator, _ := newNavigator(s, `{"action":"create","title":"New Topic"}`)
-	choice, err := navigator.ChoosePlacement(context.Background(), placementInput(nil, true))
-	s.Require().NoError(err)
-	s.Equal(pagewiki.TreePlacementCreate, choice.Action)
-	s.Equal("New Topic", choice.Title)
-}
-
-func (s *llmTreeNavigatorSuite) TestChoosePlacementFallsBackToStayWhenCreateTitleEmpty() {
-	navigator, _ := newNavigator(s, `{"action":"create","title":"   "}`)
-	choice, err := navigator.ChoosePlacement(context.Background(), placementInput(nil, true))
-	s.Require().NoError(err)
-	s.Equal(pagewiki.TreePlacementStay, choice.Action)
+	s.Require().Len(client.requests, 1)
+	s.NotContains(client.requests[0].Messages[1].Content, "may_create",
+		"the placement request must no longer offer topic creation")
 }
 
 // splitInput returns five pages (page-01..page-05) so tests can distinguish

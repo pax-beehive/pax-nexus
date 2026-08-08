@@ -214,7 +214,7 @@ func TestTreeMaintenanceInsertCreateAnswerDegradesToStay(t *testing.T) {
 	repository := memory.NewRepository()
 	page := seedTreePage(t, repository, "sqlite", "SQLite")
 	navigator := &fakeTreeNavigator{placements: []pagewiki.TreePlacementChoice{
-		{Action: pagewiki.TreePlacementAction("create"), Title: "Databases"},
+		{Action: pagewiki.TreePlacementAction("create")},
 	}}
 	service := newTreeService(repository, navigator)
 

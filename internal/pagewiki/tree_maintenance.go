@@ -226,13 +226,10 @@ func (s *Service) loadTreeState(ctx context.Context, task string) (treeState, bo
 }
 
 // treeLanding is where a descent ended: the topic the page belongs to (empty
-// = root), its depth, whether the descent itself changed the tree (by
-// creating a topic), and whether the navigator failed outright.
+// = root), its depth, and whether the navigator failed outright.
 type treeLanding struct {
-	tree    TopicTree
 	topicID string
 	depth   int
-	changed bool
 	aborted bool
 }
 
@@ -255,16 +252,13 @@ func (s *Service) insertPage(ctx context.Context, pageID string) {
 	if landing.aborted {
 		return
 	}
-	tree := landing.tree
+	tree := state.tree
 	if landing.topicID != "" {
 		tree.Placements = append(tree.Placements, PagePlacement{
 			PageID:  pageID,
 			TopicID: landing.topicID,
 			Rank:    len(directPlacements(tree, landing.topicID)),
 		})
-		landing.changed = true
-	}
-	if landing.changed {
 		if err := s.repository.ReplaceTopicTree(ctx, tree); err != nil {
 			s.logger.Warn("Page Wiki page placement skipped", "page", pageID, "step", "replace tree", "error", err)
 			return
@@ -283,14 +277,14 @@ func (s *Service) insertPage(ctx context.Context, pageID string) {
 // topics: pages accumulate at a level until an overflow split mints new child
 // topics, which is the only way the tree ever grows.
 func (s *Service) descend(ctx context.Context, state treeState, entry PageCatalogEntry) treeLanding {
-	landing := treeLanding{tree: state.tree}
+	landing := treeLanding{}
 	path := make([]string, 0, s.treeMaxDepth)
 	for step := 0; step <= s.treeMaxDepth; step++ {
-		children := childTopics(landing.tree, landing.topicID)
+		children := childTopics(state.tree, landing.topicID)
 		choice, err := s.treeNavigator.ChoosePlacement(ctx, TreePlacementInput{
 			Page:       entry,
 			Path:       path,
-			Children:   childViews(landing.tree, state.byID, children),
+			Children:   childViews(state.tree, state.byID, children),
 			Directives: state.directives,
 		})
 		if err != nil {
@@ -398,7 +392,7 @@ func applySplit(
 	moved := make([]PagePlacement, 0, len(pages))
 	movedPages := make(map[string]struct{}, len(pages))
 	for _, group := range groups {
-		topic, usable := newChildTopic(parentID, group.Title, nil)
+		topic, usable := newChildTopic(parentID, group.Title)
 		if !usable {
 			return TopicTree{}, nil, false
 		}
@@ -430,18 +424,14 @@ func applySplit(
 	return next, created, true
 }
 
-// newChildTopic derives a child topic from a navigator-proposed title,
-// rejecting an empty slug or one that collides with an existing sibling.
-func newChildTopic(parentID, title string, siblings []Topic) (Topic, bool) {
+// newChildTopic derives a child topic from a navigator-proposed group title,
+// rejecting a title that yields an empty slug; applySplit checks the slug
+// against existing siblings and the round's other groups.
+func newChildTopic(parentID, title string) (Topic, bool) {
 	trimmed := strings.TrimSpace(title)
 	slug := topicSlug(trimmed)
 	if slug == "" {
 		return Topic{}, false
-	}
-	for _, sibling := range siblings {
-		if sibling.Slug == slug {
-			return Topic{}, false
-		}
 	}
 	return Topic{
 		ID:       StableID("topic", parentID, slug),
